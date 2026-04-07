@@ -1,7 +1,7 @@
 /**
  * Token manager for OAuth2 credentials.
  *
- * Reads refresh configuration (tokenUrl, clientId, authMethod) exclusively
+ * Reads refresh configuration (tokenExchangeUrl, clientId, authMethod) exclusively
  * from the SQLite oauth-store (provider + app + connection rows). After a
  * successful refresh, writes tokens to new-format secure key paths and
  * updates the oauth_connection row.
@@ -90,7 +90,7 @@ const secureKeyBackend: SecureKeyBackend = {
 
 /** Shared shape for resolved refresh configuration. */
 interface RefreshConfig {
-  tokenUrl: string;
+  tokenExchangeUrl: string;
   clientId: string;
   /** OAuth client secret (optional — PKCE flows may omit it). */
   secret?: string;
@@ -102,7 +102,7 @@ interface RefreshConfig {
 /**
  * Resolve refresh configuration from the SQLite oauth-store.
  *
- * Looks up connection -> app -> provider to read tokenUrl, clientId, and
+ * Looks up connection -> app -> provider to read tokenExchangeUrl, clientId, and
  * authMethod. Throws `TokenExpiredError` if the connection is not found
  * or incomplete.
  */
@@ -126,7 +126,7 @@ async function resolveRefreshConfig(
     );
   }
 
-  const provider = getProvider(conn.providerKey);
+  const provider = getProvider(conn.provider);
   if (!provider) {
     throw new TokenExpiredError(
       service,
@@ -134,9 +134,9 @@ async function resolveRefreshConfig(
     );
   }
 
-  const tokenUrl = provider.tokenUrl;
+  const tokenExchangeUrl = provider.tokenExchangeUrl;
   const resolvedClientId = app.clientId;
-  if (!tokenUrl || !resolvedClientId) {
+  if (!tokenExchangeUrl || !resolvedClientId) {
     throw new TokenExpiredError(
       service,
       `Missing OAuth2 refresh config for "${service}".${recoveryHint(service)}`,
@@ -155,7 +155,7 @@ async function resolveRefreshConfig(
 
   return {
     connId: conn.id,
-    tokenUrl,
+    tokenExchangeUrl,
     clientId: resolvedClientId,
     secret,
     refreshToken,
@@ -175,7 +175,7 @@ async function resolveRefreshConfig(
 async function doRefresh(service: string, connId: string): Promise<string> {
   const refreshConfig = await resolveRefreshConfig(service, connId);
   const {
-    tokenUrl,
+    tokenExchangeUrl,
     clientId: resolvedClientId,
     secret,
     authMethod,
@@ -204,7 +204,7 @@ async function doRefresh(service: string, connId: string): Promise<string> {
   let result;
   try {
     result = await refreshOAuth2Token(
-      tokenUrl,
+      tokenExchangeUrl,
       resolvedClientId,
       refreshToken,
       secret,

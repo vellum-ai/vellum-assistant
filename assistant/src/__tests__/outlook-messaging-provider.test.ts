@@ -164,7 +164,7 @@ import {
 function createMockConnection(): OAuthConnection {
   return {
     id: "outlook-conn-1",
-    providerKey: "outlook",
+    provider: "outlook",
     accountInfo: "test@outlook.com",
     request: mock(() =>
       Promise.resolve({ status: 200, headers: {}, body: {} }),
@@ -884,7 +884,7 @@ describe("Outlook client functions", () => {
   ): OAuthConnection {
     return {
       id: "outlook-conn-1",
-      providerKey: "outlook",
+      provider: "outlook",
       accountInfo: "test@outlook.com",
       request: mock(() =>
         Promise.resolve({ status, headers: {}, body: responseBody }),

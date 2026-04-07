@@ -79,13 +79,13 @@ function makeMockClient() {
 
 function setupDefaults(): void {
   mockProvider = {
-    providerKey: "google",
+    provider: "google",
     baseUrl: "https://gmail.googleapis.com/gmail/v1/users/me",
     managedServiceConfigKey: null,
   };
   mockConnection = {
     id: "conn-1",
-    providerKey: "google",
+    provider: "google",
     oauthAppId: "app-1",
     accountInfo: "user@example.com",
     grantedScopes: JSON.stringify(["scope-a", "scope-b"]),
@@ -125,7 +125,7 @@ describe("resolveOAuthConnection", () => {
     const result = await resolveOAuthConnection("google");
     expect(result).toBeInstanceOf(BYOOAuthConnection);
     expect(result.id).toBe("conn-1");
-    expect(result.providerKey).toBe("google");
+    expect(result.provider).toBe("google");
   });
 
   test("returns PlatformOAuthConnection when managed mode is active", async () => {
@@ -134,7 +134,7 @@ describe("resolveOAuthConnection", () => {
     const result = await resolveOAuthConnection("google");
     expect(result).toBeInstanceOf(PlatformOAuthConnection);
     expect(result.id).toBe("google");
-    expect(result.providerKey).toBe("google");
+    expect(result.provider).toBe("google");
     expect(result.accountInfo).toBeNull();
   });
 

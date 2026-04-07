@@ -10,21 +10,21 @@ import {
 function makeRow(overrides: Partial<OAuthProviderRow> = {}): OAuthProviderRow {
   const now = Date.now();
   return {
-    providerKey: "test-provider",
-    authUrl: "https://auth.example.com/authorize",
-    tokenUrl: "https://auth.example.com/token",
+    provider: "test-provider",
+    authorizeUrl: "https://auth.example.com/authorize",
+    tokenExchangeUrl: "https://auth.example.com/token",
     tokenEndpointAuthMethod: null,
     userinfoUrl: null,
     baseUrl: null,
     defaultScopes: "[]",
     scopePolicy: "{}",
-    extraParams: null,
+    authorizeParams: null,
     pingUrl: null,
     pingMethod: null,
     pingHeaders: null,
     pingBody: null,
     managedServiceConfigKey: null,
-    displayName: null,
+    displayLabel: null,
     description: null,
     dashboardUrl: null,
     clientIdPlaceholder: null,
@@ -52,7 +52,7 @@ describe("serializeProvider", () => {
     const row = makeRow({
       defaultScopes: JSON.stringify(["openid", "email"]),
       scopePolicy: JSON.stringify({ required: ["openid"] }),
-      extraParams: JSON.stringify({ access_type: "offline" }),
+      authorizeParams: JSON.stringify({ access_type: "offline" }),
       pingHeaders: JSON.stringify({ "X-Api-Version": "2" }),
       pingBody: JSON.stringify({ query: "{ me { id } }" }),
       injectionTemplates: JSON.stringify([
@@ -172,8 +172,8 @@ describe("serializeProvider", () => {
 describe("serializeProviderSummary", () => {
   test("returns the expected subset of fields in snake_case", () => {
     const row = makeRow({
-      providerKey: "google",
-      displayName: "Google",
+      provider: "google",
+      displayLabel: "Google",
       description: "Google OAuth 2.0",
       dashboardUrl: "https://console.cloud.google.com",
       clientIdPlaceholder: "your-client-id.apps.googleusercontent.com",
@@ -197,7 +197,7 @@ describe("serializeProviderSummary", () => {
 
   test("nullifies missing optional fields", () => {
     const row = makeRow({
-      displayName: null,
+      displayLabel: null,
       description: null,
       dashboardUrl: null,
       clientIdPlaceholder: null,

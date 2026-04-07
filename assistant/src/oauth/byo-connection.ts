@@ -22,28 +22,28 @@ const REQUEST_TIMEOUT_MS = 30_000;
 
 export interface BYOOAuthConnectionOptions {
   id: string;
-  providerKey: string;
+  provider: string;
   baseUrl: string;
   accountInfo: string | null;
 }
 
 export class BYOOAuthConnection implements OAuthConnection {
   readonly id: string;
-  readonly providerKey: string;
+  readonly provider: string;
   readonly accountInfo: string | null;
 
   private readonly baseUrl: string;
 
   constructor(opts: BYOOAuthConnectionOptions) {
     this.id = opts.id;
-    this.providerKey = opts.providerKey;
+    this.provider = opts.provider;
     this.baseUrl = opts.baseUrl;
     this.accountInfo = opts.accountInfo;
   }
 
   async request(req: OAuthConnectionRequest): Promise<OAuthConnectionResponse> {
     return withValidToken(
-      this.providerKey,
+      this.provider,
       async (token) => {
         const effectiveBaseUrl = req.baseUrl ?? this.baseUrl;
         let fullUrl = `${effectiveBaseUrl}${req.path}`;
@@ -61,7 +61,7 @@ export class BYOOAuthConnection implements OAuthConnection {
         }
 
         log.debug(
-          { method: req.method, url: fullUrl, provider: this.providerKey },
+          { method: req.method, url: fullUrl, provider: this.provider },
           "Making authenticated request",
         );
 
@@ -88,7 +88,7 @@ export class BYOOAuthConnection implements OAuthConnection {
         if (resp.status === 401) {
           // Throw with a status property so withValidToken detects the 401
           // and triggers its refresh-and-retry logic.
-          const err = new Error(`HTTP 401 from ${this.providerKey}`);
+          const err = new Error(`HTTP 401 from ${this.provider}`);
           (err as Error & { status: number }).status = 401;
           throw err;
         }
@@ -100,7 +100,7 @@ export class BYOOAuthConnection implements OAuthConnection {
   }
 
   async withToken<T>(fn: (token: string) => Promise<T>): Promise<T> {
-    return withValidToken(this.providerKey, fn, {
+    return withValidToken(this.provider, fn, {
       connectionId: this.id,
     });
   }

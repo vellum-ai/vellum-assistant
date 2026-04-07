@@ -264,9 +264,9 @@ describe("assistant oauth connect", () => {
 
   test("managed mode with --no-browser: prints connect URL", async () => {
     mockGetProvider = () => ({
-      providerKey: "google",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
+      provider: "google",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
       managedServiceConfigKey: "google-oauth",
     });
     mockIsManagedMode = () => true;
@@ -301,9 +301,9 @@ describe("assistant oauth connect", () => {
 
   test("managed mode default: opens browser and polls for new connection", async () => {
     mockGetProvider = () => ({
-      providerKey: "google",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
+      provider: "google",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
       managedServiceConfigKey: "google-oauth",
     });
     mockIsManagedMode = () => true;
@@ -357,9 +357,9 @@ describe("assistant oauth connect", () => {
 
   test("BYO mode with --no-browser: prints auth URL", async () => {
     mockGetProvider = () => ({
-      providerKey: "google",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
+      provider: "google",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
       managedServiceConfigKey: null,
     });
     mockIsManagedMode = () => false;
@@ -368,7 +368,7 @@ describe("assistant oauth connect", () => {
       id: "app-1",
       clientId: "byo-client-id",
       clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "google",
+      provider: "google",
       createdAt: 0,
       updatedAt: 0,
     });
@@ -376,7 +376,7 @@ describe("assistant oauth connect", () => {
     mockOrchestrateOAuthConnect = async () => ({
       success: true,
       deferred: true,
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=abc",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=abc",
       state: "abc",
       service: "google",
     });
@@ -403,9 +403,9 @@ describe("assistant oauth connect", () => {
 
   test("BYO mode default calls orchestrator with isInteractive: true", async () => {
     mockGetProvider = () => ({
-      providerKey: "google",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
+      provider: "google",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
       managedServiceConfigKey: null,
     });
     mockIsManagedMode = () => false;
@@ -414,7 +414,7 @@ describe("assistant oauth connect", () => {
       id: "app-1",
       clientId: "test-id",
       clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "google",
+      provider: "google",
       createdAt: 0,
       updatedAt: 0,
     });
@@ -455,9 +455,9 @@ describe("assistant oauth connect", () => {
 
   test("BYO mode: missing app with --client-id returns error with hint", async () => {
     mockGetProvider = () => ({
-      providerKey: "google",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
+      provider: "google",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
       managedServiceConfigKey: null,
     });
     mockIsManagedMode = () => false;
@@ -483,9 +483,9 @@ describe("assistant oauth connect", () => {
 
   test("BYO mode: no client_id found returns error with hint", async () => {
     mockGetProvider = () => ({
-      providerKey: "google",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
+      provider: "google",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
       managedServiceConfigKey: null,
     });
     mockIsManagedMode = () => false;
@@ -509,9 +509,9 @@ describe("assistant oauth connect", () => {
 
   test("--client-id is silently ignored in managed mode", async () => {
     mockGetProvider = () => ({
-      providerKey: "google",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
+      provider: "google",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
       managedServiceConfigKey: "google-oauth",
     });
     mockIsManagedMode = () => true;
@@ -547,9 +547,9 @@ describe("assistant oauth connect", () => {
 
   test("JSON output for deferred case includes ok, deferred, authUrl, service", async () => {
     mockGetProvider = () => ({
-      providerKey: "slack",
-      authUrl: "https://slack.com/oauth/v2/authorize",
-      tokenUrl: "https://slack.com/api/oauth.v2.access",
+      provider: "slack",
+      authorizeUrl: "https://slack.com/oauth/v2/authorize",
+      tokenExchangeUrl: "https://slack.com/api/oauth.v2.access",
       managedServiceConfigKey: null,
     });
     mockIsManagedMode = () => false;
@@ -558,7 +558,7 @@ describe("assistant oauth connect", () => {
       id: "app-slack",
       clientId: "slack-client-id",
       clientSecretCredentialPath: "oauth_app/app-slack/client_secret",
-      providerKey: "slack",
+      provider: "slack",
       createdAt: 0,
       updatedAt: 0,
     });
@@ -566,7 +566,7 @@ describe("assistant oauth connect", () => {
     mockOrchestrateOAuthConnect = async () => ({
       success: true,
       deferred: true,
-      authUrl: "https://slack.com/oauth/v2/authorize?state=xyz",
+      authorizeUrl: "https://slack.com/oauth/v2/authorize?state=xyz",
       state: "xyz",
       service: "slack",
     });
@@ -591,9 +591,9 @@ describe("assistant oauth connect", () => {
 
   test("JSON output for completed case includes ok, grantedScopes, accountInfo", async () => {
     mockGetProvider = () => ({
-      providerKey: "google",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
+      provider: "google",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
       managedServiceConfigKey: null,
     });
     mockIsManagedMode = () => false;
@@ -602,7 +602,7 @@ describe("assistant oauth connect", () => {
       id: "app-1",
       clientId: "completed-client-id",
       clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "google",
+      provider: "google",
       createdAt: 0,
       updatedAt: 0,
     });
@@ -635,9 +635,9 @@ describe("assistant oauth connect", () => {
 
   test("BYO mode: client_secret required but missing returns error with hint", async () => {
     mockGetProvider = () => ({
-      providerKey: "google",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
+      provider: "google",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
       tokenEndpointAuthMethod: "client_secret_post",
       managedServiceConfigKey: null,
       requiresClientSecret: 1,
@@ -648,7 +648,7 @@ describe("assistant oauth connect", () => {
       id: "app-1",
       clientId: "test-id",
       clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "google",
+      provider: "google",
       createdAt: 0,
       updatedAt: 0,
     });
@@ -674,9 +674,9 @@ describe("assistant oauth connect", () => {
 
   test("manual-token provider returns error directing to credentials command", async () => {
     mockGetProvider = () => ({
-      providerKey: "slack_channel",
-      authUrl: "urn:manual-token",
-      tokenUrl: "urn:manual-token",
+      provider: "slack_channel",
+      authorizeUrl: "urn:manual-token",
+      tokenExchangeUrl: "urn:manual-token",
       managedServiceConfigKey: null,
     });
     mockIsManagedMode = () => false;
@@ -701,9 +701,9 @@ describe("assistant oauth connect", () => {
 
   test("BYO mode: orchestrator error propagates correctly", async () => {
     mockGetProvider = () => ({
-      providerKey: "google",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
+      provider: "google",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
       managedServiceConfigKey: null,
     });
     mockIsManagedMode = () => false;
@@ -712,7 +712,7 @@ describe("assistant oauth connect", () => {
       id: "app-1",
       clientId: "client-id",
       clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "google",
+      provider: "google",
       createdAt: 0,
       updatedAt: 0,
     });

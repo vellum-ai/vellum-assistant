@@ -312,7 +312,7 @@ Examples:
           });
         }
 
-        // Build a lookup of oauth connections keyed by providerKey for enrichment.
+        // Build a lookup of oauth connections keyed by provider for enrichment.
         // listConnections() returns rows in no guaranteed order, so we compare
         // createdAt to keep the most recent active connection per provider —
         // matching the behaviour of getConnectionByProvider() used by inspect.
@@ -320,9 +320,9 @@ Examples:
         const connectionsByProvider = new Map<string, OAuthConnectionRow>();
         for (const conn of allConnections) {
           if (conn.status !== "active") continue;
-          const existing = connectionsByProvider.get(conn.providerKey);
+          const existing = connectionsByProvider.get(conn.provider);
           if (!existing || conn.createdAt > existing.createdAt) {
-            connectionsByProvider.set(conn.providerKey, conn);
+            connectionsByProvider.set(conn.provider, conn);
           }
         }
 

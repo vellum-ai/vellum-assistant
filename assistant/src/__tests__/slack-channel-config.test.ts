@@ -82,8 +82,8 @@ let oauthConnectionStore: Record<
 > = {};
 
 mock.module("../oauth/oauth-store.js", () => ({
-  getConnectionByProvider: (providerKey: string) =>
-    oauthConnectionStore[providerKey] ?? undefined,
+  getConnectionByProvider: (provider: string) =>
+    oauthConnectionStore[provider] ?? undefined,
   createConnection: () => ({ id: "test-conn-id" }),
   updateConnection: () => true,
   deleteConnection: (id: string) => {
@@ -101,24 +101,21 @@ mock.module("../oauth/oauth-store.js", () => ({
 // Mock manual-token-connection
 mock.module("../oauth/manual-token-connection.js", () => ({
   ensureManualTokenConnection: async (
-    providerKey: string,
+    provider: string,
     accountInfo?: string,
   ) => {
-    oauthConnectionStore[providerKey] = {
-      id: `conn-${providerKey}`,
+    oauthConnectionStore[provider] = {
+      id: `conn-${provider}`,
       status: "active",
       accountInfo: accountInfo ?? null,
     };
   },
-  removeManualTokenConnection: (providerKey: string) => {
-    delete oauthConnectionStore[providerKey];
+  removeManualTokenConnection: (provider: string) => {
+    delete oauthConnectionStore[provider];
   },
-  syncManualTokenConnection: async (
-    providerKey: string,
-    accountInfo?: string,
-  ) => {
+  syncManualTokenConnection: async (provider: string, accountInfo?: string) => {
     const { getSecureKeyAsync } = await import("../security/secure-keys.js");
-    if (providerKey !== "slack_channel") return;
+    if (provider !== "slack_channel") return;
     const hasBotToken = !!(await getSecureKeyAsync(
       credentialKey("slack_channel", "bot_token"),
     ));
@@ -126,14 +123,14 @@ mock.module("../oauth/manual-token-connection.js", () => ({
       credentialKey("slack_channel", "app_token"),
     ));
     if (hasBotToken && hasAppToken) {
-      oauthConnectionStore[providerKey] = {
-        id: `conn-${providerKey}`,
+      oauthConnectionStore[provider] = {
+        id: `conn-${provider}`,
         status: "active",
         accountInfo: accountInfo ?? null,
       };
       return;
     }
-    delete oauthConnectionStore[providerKey];
+    delete oauthConnectionStore[provider];
   },
 }));
 

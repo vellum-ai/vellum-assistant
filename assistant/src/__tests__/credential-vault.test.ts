@@ -74,7 +74,7 @@ const mockConnections = new Map<
   string,
   {
     id: string;
-    providerKey: string;
+    provider: string;
     oauthAppId: string;
     expiresAt: number | null;
   }
@@ -83,7 +83,7 @@ const mockApps = new Map<
   string,
   {
     id: string;
-    providerKey: string;
+    provider: string;
     clientId: string;
     clientSecretCredentialPath: string;
   }
@@ -92,21 +92,21 @@ const mockProviders = new Map<
   string,
   {
     key: string;
-    tokenUrl: string;
+    tokenExchangeUrl: string;
     tokenEndpointAuthMethod?: string;
   }
 >();
 
 let mockDisconnectOAuthProvider: ReturnType<
   typeof mock<
-    (providerKey: string) => Promise<"disconnected" | "not-found" | "error">
+    (provider: string) => Promise<"disconnected" | "not-found" | "error">
   >
 >;
 
 mock.module("../oauth/oauth-store.js", () => {
-  mockDisconnectOAuthProvider = mock((providerKey: string) =>
+  mockDisconnectOAuthProvider = mock((provider: string) =>
     Promise.resolve(
-      mockConnections.has(providerKey)
+      mockConnections.has(provider)
         ? ("disconnected" as const)
         : ("not-found" as const),
     ),
@@ -746,7 +746,7 @@ describe("credential_store tool", () => {
       // Simulate an active OAuth connection for this service
       mockConnections.set("google", {
         id: "conn-gmail",
-        providerKey: "google",
+        provider: "google",
         oauthAppId: "app-gmail",
         expiresAt: Date.now() + 3600_000,
       });
@@ -1303,7 +1303,7 @@ describe("withValidToken refresh deduplication", () => {
    * Helper: set up a service with an access token, refresh token, and
    * mock DB data so that token refresh can proceed through doRefresh().
    *
-   * OAuth-specific fields (tokenUrl, clientId, expiresAt) are now stored
+   * OAuth-specific fields (tokenExchangeUrl, clientId, expiresAt) are now stored
    * in the SQLite oauth-store. The mock maps simulate the DB layer.
    */
   async function setupService(
@@ -1324,17 +1324,17 @@ describe("withValidToken refresh deduplication", () => {
     );
     mockProviders.set(service, {
       key: service,
-      tokenUrl: "https://oauth.example.com/token",
+      tokenExchangeUrl: "https://oauth.example.com/token",
     });
     mockApps.set(appId, {
       id: appId,
-      providerKey: service,
+      provider: service,
       clientId: "test-client-id",
       clientSecretCredentialPath: `oauth_app/${appId}/client_secret`,
     });
     mockConnections.set(service, {
       id: connId,
-      providerKey: service,
+      provider: service,
       oauthAppId: appId,
       expiresAt: opts?.expired
         ? Date.now() - 60_000 // expired 1 minute ago
@@ -1428,7 +1428,7 @@ describe("withValidToken refresh deduplication", () => {
     let refreshCallCount = 0;
     mockRefreshOAuth2Token.mockImplementation(() => {
       refreshCallCount++;
-      // Both services use the same tokenUrl in this test, so we track by
+      // Both services use the same tokenExchangeUrl in this test, so we track by
       // call order to return the correct deferred promise.
       if (refreshCallCount === 1) return gmailPromise;
       return slackPromise;

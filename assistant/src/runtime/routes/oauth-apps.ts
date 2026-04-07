@@ -60,8 +60,8 @@ export function oauthAppsRouteDefinitions(): RouteDefinition[] {
       endpoint: "oauth/apps",
       method: "GET",
       handler: ({ url }) => {
-        const providerKey = url.searchParams.get("provider_key");
-        if (!providerKey) {
+        const provider = url.searchParams.get("provider_key");
+        if (!provider) {
           return httpError(
             "BAD_REQUEST",
             "provider_key query parameter is required",
@@ -70,20 +70,18 @@ export function oauthAppsRouteDefinitions(): RouteDefinition[] {
         }
 
         const allApps = listApps();
-        const filtered = allApps.filter(
-          (row) => row.providerKey === providerKey,
-        );
+        const filtered = allApps.filter((row) => row.provider === provider);
 
-        const providerRow = getProvider(providerKey);
-        const provider = providerRow
+        const providerRow = getProvider(provider);
+        const providerSummary = providerRow
           ? serializeProviderSummary(providerRow)
           : null;
 
         return Response.json({
-          provider,
+          provider: providerSummary,
           apps: filtered.map((row) => ({
             id: row.id,
-            provider_key: row.providerKey,
+            provider_key: row.provider,
             client_id: row.clientId,
             created_at: row.createdAt,
             updated_at: row.updatedAt,
@@ -138,7 +136,7 @@ export function oauthAppsRouteDefinitions(): RouteDefinition[] {
           {
             app: {
               id: app.id,
-              provider_key: app.providerKey,
+              provider_key: app.provider,
               client_id: app.clientId,
               created_at: app.createdAt,
               updated_at: app.updatedAt,
@@ -165,9 +163,9 @@ export function oauthAppsRouteDefinitions(): RouteDefinition[] {
         }
 
         // Disconnect all connections for this app first to clean up tokens.
-        const connections = listConnections(app.providerKey, app.clientId);
+        const connections = listConnections(app.provider, app.clientId);
         for (const conn of connections) {
-          await disconnectOAuthProvider(app.providerKey, app.clientId, conn.id);
+          await disconnectOAuthProvider(app.provider, app.clientId, conn.id);
         }
 
         await deleteApp(params.id);
@@ -190,12 +188,12 @@ export function oauthAppsRouteDefinitions(): RouteDefinition[] {
           );
         }
 
-        const connections = listConnections(app.providerKey, app.clientId);
+        const connections = listConnections(app.provider, app.clientId);
 
         return Response.json({
           connections: connections.map((row) => ({
             id: row.id,
-            provider_key: row.providerKey,
+            provider_key: row.provider,
             account_info: row.accountInfo,
             granted_scopes: parseGrantedScopes(row.grantedScopes),
             status: row.status,
@@ -223,7 +221,7 @@ export function oauthAppsRouteDefinitions(): RouteDefinition[] {
         }
 
         const result = await disconnectOAuthProvider(
-          conn.providerKey,
+          conn.provider,
           undefined,
           conn.id,
         );
@@ -282,7 +280,7 @@ export function oauthAppsRouteDefinitions(): RouteDefinition[] {
         const clientSecret = await getAppClientSecret(app);
 
         const result = await orchestrateOAuthConnect({
-          service: app.providerKey,
+          service: app.provider,
           clientId: app.clientId,
           clientSecret,
           requestedScopes: body.scopes,
@@ -292,7 +290,7 @@ export function oauthAppsRouteDefinitions(): RouteDefinition[] {
 
         if (result.success && result.deferred) {
           return Response.json({
-            auth_url: result.authUrl,
+            auth_url: result.authorizeUrl,
             state: result.state,
           });
         }

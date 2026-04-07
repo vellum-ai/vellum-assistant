@@ -171,14 +171,14 @@ Examples:
   $ assistant oauth providers get google
   $ assistant oauth providers get twitter --json`,
     )
-    .action((providerKey: string, _opts: unknown, cmd: Command) => {
+    .action((provider: string, _opts: unknown, cmd: Command) => {
       try {
-        const row = getProvider(providerKey);
+        const row = getProvider(provider);
 
         if (!row) {
           writeOutput(cmd, {
             ok: false,
-            error: `Provider not found: "${providerKey}". Run 'assistant oauth providers list' to see all registered providers. To register a custom provider, run 'assistant oauth providers register --help'.`,
+            error: `Provider not found: "${provider}". Run 'assistant oauth providers list' to see all registered providers. To register a custom provider, run 'assistant oauth providers register --help'.`,
           });
           process.exitCode = 1;
           return;
@@ -187,7 +187,7 @@ Examples:
         if (!isProviderVisible(row, loadConfig())) {
           writeOutput(cmd, {
             ok: false,
-            error: `Provider not found: "${providerKey}". Run 'assistant oauth providers list' to see all registered providers. To register a custom provider, run 'assistant oauth providers register --help'.`,
+            error: `Provider not found: "${provider}". Run 'assistant oauth providers list' to see all registered providers. To register a custom provider, run 'assistant oauth providers register --help'.`,
           });
           process.exitCode = 1;
           return;
@@ -384,9 +384,9 @@ Examples:
       ) => {
         try {
           const row = registerProvider({
-            providerKey: opts.providerKey,
-            authUrl: opts.authUrl,
-            tokenUrl: opts.tokenUrl,
+            provider: opts.providerKey,
+            authorizeUrl: opts.authUrl,
+            tokenExchangeUrl: opts.tokenUrl,
             baseUrl: opts.baseUrl,
             userinfoUrl: opts.userinfoUrl,
             defaultScopes: opts.scopes ? opts.scopes.split(",") : [],
@@ -398,7 +398,7 @@ Examples:
               ? JSON.parse(opts.pingHeaders)
               : undefined,
             pingBody: opts.pingBody ? JSON.parse(opts.pingBody) : undefined,
-            displayName: opts.displayName,
+            displayLabel: opts.displayName,
             description: opts.description,
             dashboardUrl: opts.dashboardUrl,
             clientIdPlaceholder: opts.clientIdPlaceholder,
@@ -570,7 +570,7 @@ Examples:
     )
     .action(
       (
-        providerKey: string,
+        provider: string,
         opts: {
           authUrl?: string;
           tokenUrl?: string;
@@ -603,11 +603,11 @@ Examples:
       ) => {
         try {
           // Verify provider exists
-          const existing = getProvider(providerKey);
+          const existing = getProvider(provider);
           if (!existing) {
             writeOutput(cmd, {
               ok: false,
-              error: `Provider "${providerKey}" not found. Run 'assistant oauth providers list' to see all registered providers.`,
+              error: `Provider "${provider}" not found. Run 'assistant oauth providers list' to see all registered providers.`,
             });
             process.exitCode = 1;
             return;
@@ -616,17 +616,17 @@ Examples:
           if (!isProviderVisible(existing, loadConfig())) {
             writeOutput(cmd, {
               ok: false,
-              error: `Provider "${providerKey}" not found. Run 'assistant oauth providers list' to see all registered providers.`,
+              error: `Provider "${provider}" not found. Run 'assistant oauth providers list' to see all registered providers.`,
             });
             process.exitCode = 1;
             return;
           }
 
           // Block updates to built-in providers
-          if (SEEDED_PROVIDER_KEYS.has(providerKey)) {
+          if (SEEDED_PROVIDER_KEYS.has(provider)) {
             writeOutput(cmd, {
               ok: false,
-              error: `Cannot update built-in provider "${providerKey}". Built-in providers are managed by the system and reset on startup. To create a custom provider with different settings, use 'assistant oauth providers register --provider-key <your-custom-key> ...'`,
+              error: `Cannot update built-in provider "${provider}". Built-in providers are managed by the system and reset on startup. To create a custom provider with different settings, use 'assistant oauth providers register --provider-key <your-custom-key> ...'`,
             });
             process.exitCode = 1;
             return;
@@ -635,8 +635,9 @@ Examples:
           // Build params object from provided options, omitting undefined values
           const params: Record<string, unknown> = {};
 
-          if (opts.authUrl !== undefined) params.authUrl = opts.authUrl;
-          if (opts.tokenUrl !== undefined) params.tokenUrl = opts.tokenUrl;
+          if (opts.authUrl !== undefined) params.authorizeUrl = opts.authUrl;
+          if (opts.tokenUrl !== undefined)
+            params.tokenExchangeUrl = opts.tokenUrl;
           if (opts.baseUrl !== undefined) params.baseUrl = opts.baseUrl;
           if (opts.userinfoUrl !== undefined)
             params.userinfoUrl = opts.userinfoUrl;
@@ -652,7 +653,7 @@ Examples:
           if (opts.pingBody !== undefined)
             params.pingBody = JSON.parse(opts.pingBody);
           if (opts.displayName !== undefined)
-            params.displayName = opts.displayName;
+            params.displayLabel = opts.displayName;
           if (opts.description !== undefined)
             params.description = opts.description;
           if (opts.dashboardUrl !== undefined)
@@ -701,7 +702,7 @@ Examples:
             return;
           }
 
-          const row = updateProvider(providerKey, params);
+          const row = updateProvider(provider, params);
 
           writeOutput(cmd, parseProviderRow(row));
         } catch (err) {
@@ -747,53 +748,53 @@ Examples:
   $ assistant oauth providers delete custom-api --force --json`,
     )
     .action(
-      async (providerKey: string, opts: { force?: boolean }, cmd: Command) => {
+      async (provider: string, opts: { force?: boolean }, cmd: Command) => {
         try {
-          const provider = getProvider(providerKey);
-          if (!provider) {
+          const providerRow = getProvider(provider);
+          if (!providerRow) {
             writeOutput(cmd, {
               ok: false,
-              error: `Provider not found: "${providerKey}". Run 'assistant oauth providers list' to see all registered providers.`,
+              error: `Provider not found: "${provider}". Run 'assistant oauth providers list' to see all registered providers.`,
             });
             process.exitCode = 1;
             return;
           }
 
-          if (!isProviderVisible(provider, loadConfig())) {
+          if (!isProviderVisible(providerRow, loadConfig())) {
             writeOutput(cmd, {
               ok: false,
-              error: `Provider not found: "${providerKey}". Run 'assistant oauth providers list' to see all registered providers.`,
+              error: `Provider not found: "${provider}". Run 'assistant oauth providers list' to see all registered providers.`,
             });
             process.exitCode = 1;
             return;
           }
 
-          if (SEEDED_PROVIDER_KEYS.has(providerKey) && !opts.force) {
+          if (SEEDED_PROVIDER_KEYS.has(provider) && !opts.force) {
             log.info(
-              `Note: "${providerKey}" is a built-in provider and will be re-created on next startup.`,
+              `Note: "${provider}" is a built-in provider and will be re-created on next startup.`,
             );
           }
 
           const dependentApps = listApps().filter(
-            (a) => a.providerKey === providerKey,
+            (a) => a.provider === provider,
           );
-          const dependentConnections = listConnections(providerKey);
+          const dependentConnections = listConnections(provider);
           const appCount = dependentApps.length;
           const connCount = dependentConnections.length;
 
           if ((appCount > 0 || connCount > 0) && !opts.force) {
             writeOutput(cmd, {
               ok: false,
-              error: `Cannot delete provider "${providerKey}": ${appCount} app(s) and ${connCount} connection(s) depend on it. Use --force to cascade-delete all dependent apps and connections, or remove them manually first with 'assistant oauth apps delete' and 'assistant oauth disconnect'.`,
+              error: `Cannot delete provider "${provider}": ${appCount} app(s) and ${connCount} connection(s) depend on it. Use --force to cascade-delete all dependent apps and connections, or remove them manually first with 'assistant oauth apps delete' and 'assistant oauth disconnect'.`,
             });
             process.exitCode = 1;
             return;
           }
 
           // Warn about built-in providers when --force is used
-          if (SEEDED_PROVIDER_KEYS.has(providerKey) && opts.force) {
+          if (SEEDED_PROVIDER_KEYS.has(provider) && opts.force) {
             log.info(
-              `Note: "${providerKey}" is a built-in provider and will be re-created on next startup.`,
+              `Note: "${provider}" is a built-in provider and will be re-created on next startup.`,
             );
           }
 
@@ -802,7 +803,7 @@ Examples:
           // storage in addition to deleting the connection DB row.
           for (const conn of dependentConnections) {
             const result = await disconnectOAuthProvider(
-              providerKey,
+              provider,
               undefined,
               conn.id as string,
             );
@@ -816,10 +817,10 @@ Examples:
           for (const app of dependentApps) {
             await deleteApp(app.id);
           }
-          deleteProvider(providerKey);
+          deleteProvider(provider);
 
           if (!shouldOutputJson(cmd)) {
-            log.info(`Deleted provider: ${providerKey}`);
+            log.info(`Deleted provider: ${provider}`);
           }
 
           writeOutput(cmd, {

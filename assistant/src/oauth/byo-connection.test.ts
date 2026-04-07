@@ -72,7 +72,7 @@ const mockConnections = new Map<
   string,
   {
     id: string;
-    providerKey: string;
+    provider: string;
     oauthAppId: string;
     expiresAt: number | null;
     grantedScopes?: string;
@@ -83,7 +83,7 @@ const mockApps = new Map<
   string,
   {
     id: string;
-    providerKey: string;
+    provider: string;
     clientId: string;
     clientSecretCredentialPath: string;
   }
@@ -92,7 +92,7 @@ const mockProviders = new Map<
   string,
   {
     key: string;
-    tokenUrl: string;
+    tokenExchangeUrl: string;
     tokenEndpointAuthMethod?: string;
     baseUrl?: string;
   }
@@ -192,7 +192,7 @@ async function setupCredential(
   const connId = `conn-${service}`;
   mockProviders.set(service, {
     key: service,
-    tokenUrl: "https://oauth2.googleapis.com/token",
+    tokenExchangeUrl: "https://oauth2.googleapis.com/token",
     // Only well-known providers (gmail) have a baseUrl; custom services don't
     baseUrl:
       service === "google"
@@ -201,13 +201,13 @@ async function setupCredential(
   });
   mockApps.set(appId, {
     id: appId,
-    providerKey: service,
+    provider: service,
     clientId: "test-client-id",
     clientSecretCredentialPath: `oauth_app/${appId}/client_secret`,
   });
   mockConnections.set(service, {
     id: connId,
-    providerKey: service,
+    provider: service,
     oauthAppId: appId,
     expiresAt: opts?.expiresAt ?? Date.now() + 3600 * 1000,
     grantedScopes: JSON.stringify(opts?.grantedScopes ?? ["read", "write"]),
@@ -233,7 +233,7 @@ async function setupCredential(
 function createConnection(service = "google"): BYOOAuthConnection {
   return new BYOOAuthConnection({
     id: `conn-${service}`,
-    providerKey: service,
+    provider: service,
     baseUrl: "https://gmail.googleapis.com/gmail/v1/users/me",
     accountInfo: null,
   });
@@ -497,7 +497,7 @@ describe("resolveOAuthConnection", () => {
     const conn = await resolveOAuthConnection("google");
 
     expect(conn).toBeInstanceOf(BYOOAuthConnection);
-    expect(conn.providerKey).toBe("google");
+    expect(conn.provider).toBe("google");
   });
 
   test("throws when no credential metadata exists", async () => {

@@ -370,7 +370,7 @@ function buildCredentialSecuritySection(): string {
 }
 
 function buildIntegrationSection(): string {
-  let connections: { providerKey: string; accountInfo?: string | null }[];
+  let connections: { provider: string; accountInfo?: string | null }[];
   try {
     connections = listConnections().filter((c) => c.status === "active");
   } catch {
@@ -385,7 +385,7 @@ function buildIntegrationSection(): string {
     const state = conn.accountInfo
       ? `Connected (${conn.accountInfo})`
       : "Connected";
-    lines.push(`- **${conn.providerKey}**: ${state}`);
+    lines.push(`- **${conn.provider}**: ${state}`);
   }
 
   return lines.join("\n");

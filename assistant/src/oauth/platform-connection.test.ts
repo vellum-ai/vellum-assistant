@@ -35,7 +35,7 @@ function makeMockClient(
 
 const DEFAULT_OPTIONS = {
   id: "conn-1",
-  providerKey: "google",
+  provider: "google",
   externalId: "ext-123",
   accountInfo: "user@example.com",
   client: makeMockClient(),
@@ -226,7 +226,7 @@ describe("PlatformOAuthConnection", () => {
     );
   });
 
-  test("uses connectionId in proxy URL regardless of providerKey format", async () => {
+  test("uses connectionId in proxy URL regardless of provider format", async () => {
     const client = makeMockClient(
       mock(async (url: string | URL | Request) => {
         expect(String(url)).toContain(
@@ -242,7 +242,7 @@ describe("PlatformOAuthConnection", () => {
     const conn = new PlatformOAuthConnection({
       ...DEFAULT_OPTIONS,
       client,
-      providerKey: "slack",
+      provider: "slack",
       connectionId: "slack-conn-456",
     });
     await conn.request({ method: "GET", path: "/test" });

@@ -51,18 +51,16 @@ describe("isProviderVisible", () => {
   test("returns true when featureFlag is null", () => {
     seedProviders([
       {
-        providerKey: "no-flag-provider",
-        authUrl: "https://example.com/auth",
-        tokenUrl: "https://example.com/token",
+        provider: "no-flag-provider",
+        authorizeUrl: "https://example.com/auth",
+        tokenExchangeUrl: "https://example.com/token",
         defaultScopes: ["read"],
         scopePolicy: {},
       },
     ]);
 
     const providers = listProviders();
-    const provider = providers.find(
-      (p) => p.providerKey === "no-flag-provider",
-    );
+    const provider = providers.find((p) => p.provider === "no-flag-provider");
     expect(provider).toBeDefined();
     expect(provider!.featureFlag).toBeNull();
 
@@ -75,9 +73,9 @@ describe("isProviderVisible", () => {
 
     seedProviders([
       {
-        providerKey: "gated-provider",
-        authUrl: "https://example.com/auth",
-        tokenUrl: "https://example.com/token",
+        provider: "gated-provider",
+        authorizeUrl: "https://example.com/auth",
+        tokenExchangeUrl: "https://example.com/token",
         defaultScopes: ["read"],
         scopePolicy: {},
         featureFlag: "test-gate",
@@ -85,7 +83,7 @@ describe("isProviderVisible", () => {
     ]);
 
     const providers = listProviders();
-    const provider = providers.find((p) => p.providerKey === "gated-provider");
+    const provider = providers.find((p) => p.provider === "gated-provider");
     expect(provider).toBeDefined();
     expect(provider!.featureFlag).toBe("test-gate");
 
@@ -98,9 +96,9 @@ describe("isProviderVisible", () => {
 
     seedProviders([
       {
-        providerKey: "gated-provider",
-        authUrl: "https://example.com/auth",
-        tokenUrl: "https://example.com/token",
+        provider: "gated-provider",
+        authorizeUrl: "https://example.com/auth",
+        tokenExchangeUrl: "https://example.com/token",
         defaultScopes: ["read"],
         scopePolicy: {},
         featureFlag: "test-gate",
@@ -108,7 +106,7 @@ describe("isProviderVisible", () => {
     ]);
 
     const providers = listProviders();
-    const provider = providers.find((p) => p.providerKey === "gated-provider");
+    const provider = providers.find((p) => p.provider === "gated-provider");
     expect(provider).toBeDefined();
 
     const config = makeConfig();
@@ -120,16 +118,16 @@ describe("isProviderVisible", () => {
 
     seedProviders([
       {
-        providerKey: "visible-provider",
-        authUrl: "https://example.com/auth",
-        tokenUrl: "https://example.com/token",
+        provider: "visible-provider",
+        authorizeUrl: "https://example.com/auth",
+        tokenExchangeUrl: "https://example.com/token",
         defaultScopes: ["read"],
         scopePolicy: {},
       },
       {
-        providerKey: "gated-provider",
-        authUrl: "https://gated.example.com/auth",
-        tokenUrl: "https://gated.example.com/token",
+        provider: "gated-provider",
+        authorizeUrl: "https://gated.example.com/auth",
+        tokenExchangeUrl: "https://gated.example.com/token",
         defaultScopes: ["read"],
         scopePolicy: {},
         featureFlag: "test-gate",
@@ -144,6 +142,6 @@ describe("isProviderVisible", () => {
       isProviderVisible(p, config),
     );
     expect(visibleProviders).toHaveLength(1);
-    expect(visibleProviders[0]!.providerKey).toBe("visible-provider");
+    expect(visibleProviders[0]!.provider).toBe("visible-provider");
   });
 });

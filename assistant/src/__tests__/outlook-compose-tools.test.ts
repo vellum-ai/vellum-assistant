@@ -56,7 +56,7 @@ const createForwardDraftMock = mock(
 
 const fakeConnection = {
   id: "conn-1",
-  providerKey: "microsoft",
+  provider: "microsoft",
   accountInfo: "user@outlook.com",
 } as unknown as OAuthConnection;
 

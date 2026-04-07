@@ -49,12 +49,12 @@ import {
 initializeDb();
 
 /** Seed a minimal provider row for FK satisfaction. */
-function seedTestProvider(providerKey = "github"): void {
+function seedTestProvider(provider = "github"): void {
   seedProviders([
     {
-      providerKey,
-      authUrl: `https://${providerKey}.example.com/authorize`,
-      tokenUrl: `https://${providerKey}.example.com/token`,
+      provider,
+      authorizeUrl: `https://${provider}.example.com/authorize`,
+      tokenExchangeUrl: `https://${provider}.example.com/token`,
       defaultScopes: ["read"],
       scopePolicy: {},
     },
@@ -62,9 +62,9 @@ function seedTestProvider(providerKey = "github"): void {
 }
 
 /** Create an app linked to the given provider. Returns the app row. */
-async function createTestApp(providerKey = "github", clientId = "client-1") {
-  seedTestProvider(providerKey);
-  return await upsertApp(providerKey, clientId);
+async function createTestApp(provider = "github", clientId = "client-1") {
+  seedTestProvider(provider);
+  return await upsertApp(provider, clientId);
 }
 
 beforeEach(() => {
@@ -89,34 +89,36 @@ describe("provider operations", () => {
     test("creates rows for new providers", () => {
       seedProviders([
         {
-          providerKey: "github",
-          authUrl: "https://github.com/login/oauth/authorize",
-          tokenUrl: "https://github.com/login/oauth/access_token",
+          provider: "github",
+          authorizeUrl: "https://github.com/login/oauth/authorize",
+          tokenExchangeUrl: "https://github.com/login/oauth/access_token",
           defaultScopes: ["repo", "user"],
           scopePolicy: { required: ["repo"] },
         },
         {
-          providerKey: "google",
-          authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-          tokenUrl: "https://oauth2.googleapis.com/token",
+          provider: "google",
+          authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+          tokenExchangeUrl: "https://oauth2.googleapis.com/token",
           defaultScopes: ["openid", "email"],
           scopePolicy: {},
-          extraParams: { access_type: "offline" },
+          authorizeParams: { access_type: "offline" },
         },
       ]);
 
       const gh = getProvider("github");
       expect(gh).toBeDefined();
-      expect(gh!.providerKey).toBe("github");
-      expect(gh!.authUrl).toBe("https://github.com/login/oauth/authorize");
-      expect(gh!.tokenUrl).toBe("https://github.com/login/oauth/access_token");
+      expect(gh!.provider).toBe("github");
+      expect(gh!.authorizeUrl).toBe("https://github.com/login/oauth/authorize");
+      expect(gh!.tokenExchangeUrl).toBe(
+        "https://github.com/login/oauth/access_token",
+      );
       expect(JSON.parse(gh!.defaultScopes)).toEqual(["repo", "user"]);
       expect(JSON.parse(gh!.scopePolicy)).toEqual({ required: ["repo"] });
 
       const goog = getProvider("google");
       expect(goog).toBeDefined();
-      expect(goog!.providerKey).toBe("google");
-      expect(JSON.parse(goog!.extraParams!)).toEqual({
+      expect(goog!.provider).toBe("google");
+      expect(JSON.parse(goog!.authorizeParams!)).toEqual({
         access_type: "offline",
       });
     });
@@ -124,9 +126,9 @@ describe("provider operations", () => {
     test("updates implementation fields while preserving user-customizable fields on re-seed", () => {
       seedProviders([
         {
-          providerKey: "github",
-          authUrl: "https://github.com/login/oauth/authorize",
-          tokenUrl: "https://github.com/login/oauth/access_token",
+          provider: "github",
+          authorizeUrl: "https://github.com/login/oauth/authorize",
+          tokenExchangeUrl: "https://github.com/login/oauth/access_token",
           defaultScopes: ["repo"],
           scopePolicy: {},
           baseUrl: "https://api.github.com",
@@ -141,9 +143,9 @@ describe("provider operations", () => {
       // Re-seed with corrected values (simulates a code fix deployed on upgrade)
       seedProviders([
         {
-          providerKey: "github",
-          authUrl: "https://github.com/login/oauth/authorize-v2",
-          tokenUrl: "https://github.com/login/oauth/access_token-v2",
+          provider: "github",
+          authorizeUrl: "https://github.com/login/oauth/authorize-v2",
+          tokenExchangeUrl: "https://github.com/login/oauth/access_token-v2",
           defaultScopes: ["repo", "user"],
           scopePolicy: { required: ["repo"] },
           baseUrl: "https://api.github.com/v2",
@@ -153,8 +155,10 @@ describe("provider operations", () => {
       const row = getProvider("github");
       expect(row).toBeDefined();
       // Implementation fields should be overwritten by the re-seed
-      expect(row!.authUrl).toBe("https://github.com/login/oauth/authorize-v2");
-      expect(row!.tokenUrl).toBe(
+      expect(row!.authorizeUrl).toBe(
+        "https://github.com/login/oauth/authorize-v2",
+      );
+      expect(row!.tokenExchangeUrl).toBe(
         "https://github.com/login/oauth/access_token-v2",
       );
       // User-customizable fields (baseUrl, defaultScopes, scopePolicy) are
@@ -169,9 +173,9 @@ describe("provider operations", () => {
     test("persists pingUrl when provided", () => {
       seedProviders([
         {
-          providerKey: "github",
-          authUrl: "https://github.com/authorize",
-          tokenUrl: "https://github.com/token",
+          provider: "github",
+          authorizeUrl: "https://github.com/authorize",
+          tokenExchangeUrl: "https://github.com/token",
           defaultScopes: ["repo"],
           scopePolicy: {},
           pingUrl: "https://api.github.com/user",
@@ -184,9 +188,9 @@ describe("provider operations", () => {
     test("pingUrl defaults to null when omitted", () => {
       seedProviders([
         {
-          providerKey: "github",
-          authUrl: "https://github.com/authorize",
-          tokenUrl: "https://github.com/token",
+          provider: "github",
+          authorizeUrl: "https://github.com/authorize",
+          tokenExchangeUrl: "https://github.com/token",
           defaultScopes: ["repo"],
           scopePolicy: {},
         },
@@ -199,15 +203,15 @@ describe("provider operations", () => {
       // Initial seed with all fields
       seedProviders([
         {
-          providerKey: "github",
-          authUrl: "https://github.com/authorize",
-          tokenUrl: "https://github.com/token",
+          provider: "github",
+          authorizeUrl: "https://github.com/authorize",
+          tokenExchangeUrl: "https://github.com/token",
           tokenEndpointAuthMethod: "client_secret_post",
           defaultScopes: ["repo"],
           scopePolicy: { required: ["repo"] },
           userinfoUrl: "https://api.github.com/user",
           baseUrl: "https://api.github.com",
-          extraParams: { prompt: "consent" },
+          authorizeParams: { prompt: "consent" },
 
           pingUrl: "https://api.github.com/user",
         },
@@ -224,7 +228,7 @@ describe("provider operations", () => {
           }),
           baseUrl: "https://custom.github.com/api",
         })
-        .where(eq(oauthProviders.providerKey, "github"))
+        .where(eq(oauthProviders.provider, "github"))
         .run();
 
       // Verify the manual updates took effect
@@ -239,15 +243,15 @@ describe("provider operations", () => {
       // Re-seed with updated implementation fields
       seedProviders([
         {
-          providerKey: "github",
-          authUrl: "https://github.com/authorize-v2",
-          tokenUrl: "https://github.com/token-v2",
+          provider: "github",
+          authorizeUrl: "https://github.com/authorize-v2",
+          tokenExchangeUrl: "https://github.com/token-v2",
           tokenEndpointAuthMethod: "client_secret_basic",
           defaultScopes: ["repo-only"],
           scopePolicy: {},
           userinfoUrl: "https://api.github.com/user-v2",
           baseUrl: "https://api.github.com/v2",
-          extraParams: { prompt: "login" },
+          authorizeParams: { prompt: "login" },
 
           pingUrl: "https://api.github.com/user-v2",
         },
@@ -265,11 +269,11 @@ describe("provider operations", () => {
       expect(row!.baseUrl).toBe("https://custom.github.com/api");
 
       // Implementation fields should be overwritten from the seed data
-      expect(row!.authUrl).toBe("https://github.com/authorize-v2");
-      expect(row!.tokenUrl).toBe("https://github.com/token-v2");
+      expect(row!.authorizeUrl).toBe("https://github.com/authorize-v2");
+      expect(row!.tokenExchangeUrl).toBe("https://github.com/token-v2");
       expect(row!.tokenEndpointAuthMethod).toBe("client_secret_basic");
       expect(row!.userinfoUrl).toBe("https://api.github.com/user-v2");
-      expect(JSON.parse(row!.extraParams!)).toEqual({ prompt: "login" });
+      expect(JSON.parse(row!.authorizeParams!)).toEqual({ prompt: "login" });
       expect(row!.pingUrl).toBe("https://api.github.com/user-v2");
     });
   });
@@ -278,9 +282,9 @@ describe("provider operations", () => {
     test("returns the correct row", () => {
       seedProviders([
         {
-          providerKey: "github",
-          authUrl: "https://github.com/authorize",
-          tokenUrl: "https://github.com/token",
+          provider: "github",
+          authorizeUrl: "https://github.com/authorize",
+          tokenExchangeUrl: "https://github.com/token",
           defaultScopes: ["repo"],
           scopePolicy: {},
         },
@@ -288,7 +292,7 @@ describe("provider operations", () => {
 
       const row = getProvider("github");
       expect(row).toBeDefined();
-      expect(row!.providerKey).toBe("github");
+      expect(row!.provider).toBe("github");
     });
 
     test("returns undefined for unknown keys", () => {
@@ -299,35 +303,35 @@ describe("provider operations", () => {
   describe("registerProvider", () => {
     test("creates a new row", () => {
       const row = registerProvider({
-        providerKey: "linear",
-        authUrl: "https://linear.app/oauth/authorize",
-        tokenUrl: "https://api.linear.app/oauth/token",
+        provider: "linear",
+        authorizeUrl: "https://linear.app/oauth/authorize",
+        tokenExchangeUrl: "https://api.linear.app/oauth/token",
         defaultScopes: ["read"],
         scopePolicy: {},
       });
 
-      expect(row.providerKey).toBe("linear");
-      expect(row.authUrl).toBe("https://linear.app/oauth/authorize");
+      expect(row.provider).toBe("linear");
+      expect(row.authorizeUrl).toBe("https://linear.app/oauth/authorize");
 
       const fetched = getProvider("linear");
       expect(fetched).toBeDefined();
-      expect(fetched!.providerKey).toBe("linear");
+      expect(fetched!.provider).toBe("linear");
     });
 
     test("throws for duplicate provider_key", () => {
       registerProvider({
-        providerKey: "linear",
-        authUrl: "https://linear.app/oauth/authorize",
-        tokenUrl: "https://api.linear.app/oauth/token",
+        provider: "linear",
+        authorizeUrl: "https://linear.app/oauth/authorize",
+        tokenExchangeUrl: "https://api.linear.app/oauth/token",
         defaultScopes: ["read"],
         scopePolicy: {},
       });
 
       expect(() =>
         registerProvider({
-          providerKey: "linear",
-          authUrl: "https://linear.app/oauth/authorize",
-          tokenUrl: "https://api.linear.app/oauth/token",
+          provider: "linear",
+          authorizeUrl: "https://linear.app/oauth/authorize",
+          tokenExchangeUrl: "https://api.linear.app/oauth/token",
           defaultScopes: ["read"],
           scopePolicy: {},
         }),
@@ -351,13 +355,13 @@ describe("app operations", () => {
       expect(app.id).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
       );
-      expect(app.providerKey).toBe("github");
+      expect(app.provider).toBe("github");
       expect(app.clientId).toBe("client-abc");
       expect(app.createdAt).toBeGreaterThan(0);
       expect(app.updatedAt).toBeGreaterThan(0);
     });
 
-    test("returns the existing app when called again with same (providerKey, clientId)", async () => {
+    test("returns the existing app when called again with same (provider, clientId)", async () => {
       seedTestProvider("github");
       const first = await upsertApp("github", "client-abc");
       const second = await upsertApp("github", "client-abc");
@@ -476,7 +480,7 @@ describe("app operations", () => {
 
       expect(fetched).toBeDefined();
       expect(fetched!.id).toBe(app.id);
-      expect(fetched!.providerKey).toBe("github");
+      expect(fetched!.provider).toBe("github");
       expect(fetched!.clientId).toBe("client-1");
     });
 
@@ -564,7 +568,7 @@ describe("connection operations", () => {
       const app = await createTestApp("github", "client-1");
       const conn = createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         grantedScopes: ["repo", "user"],
         hasRefreshToken: true,
         accountInfo: "user@example.com",
@@ -574,7 +578,7 @@ describe("connection operations", () => {
 
       expect(conn.id).toBeTruthy();
       expect(conn.oauthAppId).toBe(app.id);
-      expect(conn.providerKey).toBe("github");
+      expect(conn.provider).toBe("github");
       expect(conn.status).toBe("active");
       expect(JSON.parse(conn.grantedScopes)).toEqual(["repo", "user"]);
       expect(conn.hasRefreshToken).toBe(1);
@@ -590,7 +594,7 @@ describe("connection operations", () => {
       const app = await createTestApp("github", "client-1");
       const conn = createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
       });
@@ -598,7 +602,7 @@ describe("connection operations", () => {
       const fetched = getConnection(conn.id);
       expect(fetched).toBeDefined();
       expect(fetched!.id).toBe(conn.id);
-      expect(fetched!.providerKey).toBe("github");
+      expect(fetched!.provider).toBe("github");
     });
 
     test("returns undefined for unknown id", () => {
@@ -612,7 +616,7 @@ describe("connection operations", () => {
 
       createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
         createdAt: 1000,
@@ -620,7 +624,7 @@ describe("connection operations", () => {
 
       const conn2 = createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         grantedScopes: ["repo", "user"],
         hasRefreshToken: true,
         createdAt: 2000,
@@ -636,7 +640,7 @@ describe("connection operations", () => {
 
       const conn1 = createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         accountInfo: "user1@example.com",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
@@ -645,7 +649,7 @@ describe("connection operations", () => {
 
       createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         accountInfo: "user2@example.com",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
@@ -665,7 +669,7 @@ describe("connection operations", () => {
 
       const conn1 = createConnection({
         oauthAppId: app1.id,
-        providerKey: "github",
+        provider: "github",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
         createdAt: 1000,
@@ -673,7 +677,7 @@ describe("connection operations", () => {
 
       createConnection({
         oauthAppId: app2.id,
-        providerKey: "github",
+        provider: "github",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
         createdAt: 2000,
@@ -689,7 +693,7 @@ describe("connection operations", () => {
 
       createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
       });
@@ -705,7 +709,7 @@ describe("connection operations", () => {
 
       const conn = createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
       });
@@ -727,7 +731,7 @@ describe("connection operations", () => {
       // Create two connections with explicit timestamps so ordering is deterministic
       createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
         createdAt: 1000,
@@ -735,7 +739,7 @@ describe("connection operations", () => {
 
       const conn2 = createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         grantedScopes: ["repo", "user"],
         hasRefreshToken: true,
         createdAt: 2000,
@@ -751,14 +755,14 @@ describe("connection operations", () => {
 
       const conn1 = createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
       });
 
       const conn2 = createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         grantedScopes: ["repo", "user"],
         hasRefreshToken: true,
       });
@@ -776,7 +780,7 @@ describe("connection operations", () => {
 
       const conn = createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
       });
@@ -798,7 +802,7 @@ describe("connection operations", () => {
 
       const conn1 = createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         accountInfo: "user1@example.com",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
@@ -807,7 +811,7 @@ describe("connection operations", () => {
 
       createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         accountInfo: "user2@example.com",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
@@ -827,7 +831,7 @@ describe("connection operations", () => {
 
       const conn = createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         accountInfo: "user@example.com",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
@@ -843,7 +847,7 @@ describe("connection operations", () => {
 
       createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         accountInfo: "user@example.com",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
@@ -861,7 +865,7 @@ describe("connection operations", () => {
 
       const conn = createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         accountInfo: "user@example.com",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
@@ -882,7 +886,7 @@ describe("connection operations", () => {
 
       createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         accountInfo: "user1@example.com",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
@@ -890,7 +894,7 @@ describe("connection operations", () => {
 
       createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         accountInfo: "user2@example.com",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
@@ -905,7 +909,7 @@ describe("connection operations", () => {
 
       createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         accountInfo: "user1@example.com",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
@@ -913,7 +917,7 @@ describe("connection operations", () => {
 
       const conn2 = createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         accountInfo: "user2@example.com",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
@@ -936,7 +940,7 @@ describe("connection operations", () => {
       const app = await createTestApp("github", "client-1");
       const conn = createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
       });
@@ -950,7 +954,7 @@ describe("connection operations", () => {
       const app = await createTestApp("github", "client-1");
       createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
       });
@@ -967,7 +971,7 @@ describe("connection operations", () => {
       const app = await createTestApp("github", "client-1");
       const conn = createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
       });
@@ -984,7 +988,7 @@ describe("connection operations", () => {
       const app = await createTestApp("github", "client-1");
       const conn = createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
       });
@@ -1021,7 +1025,7 @@ describe("connection operations", () => {
 
       const conn = createConnection({
         oauthAppId: app1.id,
-        providerKey: "github",
+        provider: "github",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
       });
@@ -1051,13 +1055,13 @@ describe("connection operations", () => {
 
       createConnection({
         oauthAppId: ghApp.id,
-        providerKey: "github",
+        provider: "github",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
       });
       createConnection({
         oauthAppId: googApp.id,
-        providerKey: "google",
+        provider: "google",
         grantedScopes: ["email"],
         hasRefreshToken: true,
       });
@@ -1073,24 +1077,24 @@ describe("connection operations", () => {
 
       createConnection({
         oauthAppId: ghApp.id,
-        providerKey: "github",
+        provider: "github",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
       });
       createConnection({
         oauthAppId: googApp.id,
-        providerKey: "google",
+        provider: "google",
         grantedScopes: ["email"],
         hasRefreshToken: true,
       });
 
       const ghConns = listConnections("github");
       expect(ghConns).toHaveLength(1);
-      expect(ghConns[0].providerKey).toBe("github");
+      expect(ghConns[0].provider).toBe("github");
 
       const googConns = listConnections("google");
       expect(googConns).toHaveLength(1);
-      expect(googConns[0].providerKey).toBe("google");
+      expect(googConns[0].provider).toBe("google");
     });
 
     test("returns empty array when no connections exist", () => {
@@ -1103,7 +1107,7 @@ describe("connection operations", () => {
       const app = await createTestApp("github", "client-1");
       const conn = createConnection({
         oauthAppId: app.id,
-        providerKey: "github",
+        provider: "github",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
       });
@@ -1134,7 +1138,7 @@ describe("disconnectOAuthProvider", () => {
     const app = await createTestApp("github", "client-1");
     const conn = createConnection({
       oauthAppId: app.id,
-      providerKey: "github",
+      provider: "github",
       grantedScopes: ["repo"],
       hasRefreshToken: true,
     });
@@ -1172,7 +1176,7 @@ describe("FK constraints", () => {
     expect(() =>
       createConnection({
         oauthAppId: "nonexistent-app-id",
-        providerKey: "github",
+        provider: "github",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
       }),
