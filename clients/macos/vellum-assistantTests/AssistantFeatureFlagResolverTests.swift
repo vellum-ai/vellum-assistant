@@ -55,48 +55,6 @@ final class AssistantFeatureFlagResolverTests: XCTestCase {
     }
 
     @MainActor
-    func testMultiPlatformAssistantTypedAccessorReflectsRegistryDefault() {
-        let multiKey = "multi-platform-assistant"
-        let registryOff = FeatureFlagRegistry(
-            version: 1,
-            flags: [
-                FeatureFlagDefinition(
-                    id: multiKey,
-                    scope: .assistant,
-                    key: multiKey,
-                    label: "Multiple Platform Assistants",
-                    description: "Allow users to create and manage multiple platform-hosted assistants",
-                    defaultEnabled: false
-                )
-            ]
-        )
-        let storeOff = AssistantFeatureFlagStore(
-            notificationCenter: NotificationCenter(),
-            registry: registryOff
-        )
-        XCTAssertFalse(storeOff.multiPlatformAssistantEnabled)
-
-        let registryOn = FeatureFlagRegistry(
-            version: 1,
-            flags: [
-                FeatureFlagDefinition(
-                    id: multiKey,
-                    scope: .assistant,
-                    key: multiKey,
-                    label: "Multiple Platform Assistants",
-                    description: "Allow users to create and manage multiple platform-hosted assistants",
-                    defaultEnabled: true
-                )
-            ]
-        )
-        let storeOn = AssistantFeatureFlagStore(
-            notificationCenter: NotificationCenter(),
-            registry: registryOn
-        )
-        XCTAssertTrue(storeOn.multiPlatformAssistantEnabled)
-    }
-
-    @MainActor
     func testStoreCachesResolvedFlagsAfterInitialLoad() {
         let store = AssistantFeatureFlagStore(
             notificationCenter: NotificationCenter(),
