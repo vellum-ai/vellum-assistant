@@ -963,13 +963,19 @@ async function main() {
       path: /^\/v1\/home\/feed\/([^/]+)$/,
       method: "PATCH",
       auth: "edge",
-      handler: (req, params) => handleHomeFeedPatch(req, params[0]),
+      handler: (req, params) =>
+        handleHomeFeedPatch(req, decodeURIComponent(params[0])),
     },
     {
       path: /^\/v1\/home\/feed\/([^/]+)\/actions\/([^/]+)$/,
       method: "POST",
       auth: "edge",
-      handler: (req, params) => handleHomeFeedAction(req, params[0], params[1]),
+      handler: (req, params) =>
+        handleHomeFeedAction(
+          req,
+          decodeURIComponent(params[0]),
+          decodeURIComponent(params[1]),
+        ),
     },
 
     // ── Trust rules ──

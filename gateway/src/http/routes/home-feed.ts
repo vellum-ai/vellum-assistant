@@ -106,12 +106,9 @@ export function createHomeFeedGetHandler() {
       const now = new Date();
       const items = feed.items.filter((item) => {
         if (!item.ttl) return true;
-        try {
-          return new Date(item.ttl) > now;
-        } catch {
-          // If ttl is not a valid date, keep the item
-          return true;
-        }
+        const expiry = new Date(item.ttl);
+        if (Number.isNaN(expiry.getTime())) return true;
+        return expiry > now;
       });
 
       return Response.json({
