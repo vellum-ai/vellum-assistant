@@ -490,7 +490,7 @@ struct MarkdownSegmentView: View, Equatable {
                 default: 14
                 }
                 let weightValue: Int = level == 1 ? 700 : 600
-                headingAttr.font = Font(VFont.resolvedDMSansFont(weight: weightValue, size: headingSize))
+                headingAttr.appKit.font = VFont.resolvedDMSansFont(weight: weightValue, size: headingSize)
                 if index > 0 {
                     let paraStyle = NSMutableParagraphStyle()
                     paraStyle.paragraphSpacingBefore = level == 1 ? 8 : 4
@@ -618,7 +618,7 @@ struct MarkdownSegmentView: View, Equatable {
                     utf16Offset: utf16Offset,
                     utf16Length: utf16Length,
                     intent: intent,
-                    hasExplicitFont: runContent.font != nil
+                    hasExplicitFont: runContent.font != nil || runContent.appKit.font != nil
                 ))
             }
             utf16Offset += utf16Length
@@ -644,7 +644,7 @@ struct MarkdownSegmentView: View, Equatable {
                         utf16Offset: nsOffset,
                         utf16Length: nsLen,
                         intent: intent,
-                        hasExplicitFont: source[run.range].font != nil
+                        hasExplicitFont: source[run.range].font != nil || source[run.range].appKit.font != nil
                     ))
                 }
             }

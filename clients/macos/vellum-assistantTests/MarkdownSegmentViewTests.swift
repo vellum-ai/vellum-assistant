@@ -183,6 +183,20 @@ final class MarkdownSegmentViewTests: XCTestCase {
         XCTAssertGreaterThan(abs(CTFontGetMatrix((try XCTUnwrap(font)) as CTFont).c), 0.0001)
     }
 
+    func testHeadingFontSurvivesConversionPipeline() throws {
+        let segments = parseMarkdownSegments("## Heading\n\nBody text")
+        let view = MarkdownSegmentView(segments: segments)
+        let result = view.resolveSelectableRunMeasurementResult(segments)
+
+        let headingFont = try XCTUnwrap(
+            result.nsAttributedString.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+        )
+        XCTAssertEqual(familyName(for: headingFont), "DM Sans")
+        let weight = try XCTUnwrap(weightAxis(for: headingFont))
+        XCTAssertEqual(weight, 600, accuracy: 0.5, "h2 heading should use weight 600")
+        XCTAssertEqual(headingFont.pointSize, 16, "h2 heading should be 16pt")
+    }
+
     func testTypographyGenerationBumpInvalidatesAttributedStringCache() {
         let segments = parseMarkdownSegments("## Heading\n\nBody text")
         let view = MarkdownSegmentView(segments: segments)
