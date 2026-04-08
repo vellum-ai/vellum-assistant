@@ -364,8 +364,7 @@ struct MarkdownTableView: View {
                             .textSelection(.enabled)
                         Spacer(minLength: 0)
                     }
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.sm)
+                    .padding(VSpacing.sm)
                 }
             }
 
@@ -379,8 +378,7 @@ struct MarkdownTableView: View {
                             inlineMarkdownCell(cell)
                             Spacer(minLength: 0)
                         }
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.sm)
+                        .padding(VSpacing.sm)
                     }
                 }
                 if rowIdx < rows.count - 1 {

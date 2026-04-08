@@ -71,14 +71,18 @@ struct MarkdownSegmentView: View, Equatable {
                     )
                     #else
                     let attributed = buildCombinedAttributedString(from: runSegments)
-                    Text(attributed)
-                        .font(chatFont)
-                        .lineSpacing(4)
-                        .foregroundStyle(textColor)
-                        .tint(tintColor)
-                        .optionalMaxWidth(maxContentWidth)
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: false, vertical: true)
+                    // ⚠️ Do NOT replace HStack+Spacer with .frame(maxWidth:, alignment:) here.
+                    // FlexFrame alignment queries recurse through all children — see AGENTS.md.
+                    HStack(spacing: 0) {
+                        Text(attributed)
+                            .font(chatFont)
+                            .lineSpacing(4)
+                            .foregroundStyle(textColor)
+                            .tint(tintColor)
+                            .lineLimit(nil)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
                     #endif
 
                 case .codeBlock(let language, let code):
@@ -904,8 +908,12 @@ private extension AttributedString {
 // MARK: - Optional Max Width
 
 private extension View {
-    /// Applies a definite-width frame only when a width is provided.
+    /// Applies a definite `.frame(width:)` only when a width is provided.
     /// When `nil`, no frame is applied — the view shrink-wraps to its content.
+    ///
+    /// Use ONLY for fill-width elements (code blocks, horizontal rules) where exact
+    /// width is desired. Do NOT use for text that should shrink-wrap — use
+    /// `HStack+Spacer` instead for leading alignment without a width constraint.
     ///
     /// ⚠️ Uses `.frame(width:alignment:)` which compiles to `_FrameLayout` — safe
     /// inside LazyVStack cells. Do NOT change to `.frame(maxWidth:alignment:)` which

@@ -35,25 +35,28 @@ extension ChatBubble {
 
         if hasToolCalls || hasStreamingCode || shouldShowProcessing {
             // Unified progress view handles all tool/streaming/processing states
-            AssistantProgressView(
-                toolCalls: message.toolCalls,
-                isStreaming: message.isStreaming,
-                hasText: hasText,
-                isProcessing: shouldShowProcessing,
-                processingStatusText: shouldShowProcessing ? processingStatusText : nil,
-                streamingCodePreview: message.streamingCodePreview,
-                streamingCodeToolName: message.streamingCodeToolName,
-                decidedConfirmations: effectiveConfirmations,
-                onRehydrate: onRehydrate,
-                onConfirmationAllow: onConfirmationAllow,
-                onConfirmationDeny: onConfirmationDeny,
-                onAlwaysAllow: onAlwaysAllow,
-                onTemporaryAllow: onTemporaryAllow,
-                activeConfirmationRequestId: activeConfirmationRequestId,
-                progressUIState: $progressUIState
-            )
             // ⚠️ Do NOT replace HStack+Spacer with .frame(maxWidth:, alignment:) here.
             // FlexFrame alignment queries recurse through all children — see AGENTS.md.
+            HStack(spacing: 0) {
+                AssistantProgressView(
+                    toolCalls: message.toolCalls,
+                    isStreaming: message.isStreaming,
+                    hasText: hasText,
+                    isProcessing: shouldShowProcessing,
+                    processingStatusText: shouldShowProcessing ? processingStatusText : nil,
+                    streamingCodePreview: message.streamingCodePreview,
+                    streamingCodeToolName: message.streamingCodeToolName,
+                    decidedConfirmations: effectiveConfirmations,
+                    onRehydrate: onRehydrate,
+                    onConfirmationAllow: onConfirmationAllow,
+                    onConfirmationDeny: onConfirmationDeny,
+                    onAlwaysAllow: onAlwaysAllow,
+                    onTemporaryAllow: onTemporaryAllow,
+                    activeConfirmationRequestId: activeConfirmationRequestId,
+                    progressUIState: $progressUIState
+                )
+                Spacer(minLength: 0)
+            }
 
             // Inline image previews from completed tool calls (e.g. image generation)
             inlineToolCallImages(from: message.toolCalls)
