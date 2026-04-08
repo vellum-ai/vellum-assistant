@@ -382,10 +382,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Queued message deletion
   { endpoint: "messages/queued", scopes: ["chat.write"] },
 
-  // Browser relay
-  { endpoint: "browser-relay/status", scopes: ["settings.read"] },
-  { endpoint: "browser-relay/command", scopes: ["settings.write"] },
-
   // Interfaces
   { endpoint: "interfaces", scopes: ["settings.read"] },
 

@@ -10,9 +10,9 @@
  * Used by e2e tests (PR 15/16) to exercise the full round-trip without
  * requiring a real Chrome browser or the real extension worker.
  *
- * The fixture is intentionally minimal — it does not implement heartbeats,
- * reconnect logic, or the legacy `ExtensionCommand` dispatch path. It only
- * needs to carry host_browser_request frames end-to-end.
+ * The fixture is intentionally minimal — it does not implement heartbeats
+ * or reconnect logic. It only needs to carry host_browser_request frames
+ * end-to-end.
  */
 
 // ── Types ───────────────────────────────────────────────────────────
@@ -209,7 +209,7 @@ export function createMockChromeExtension(
       }
       return;
     }
-    // Ignore any other frames (e.g. legacy ExtensionCommand traffic).
+    // Ignore any other frames.
   }
 
   return {
