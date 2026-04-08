@@ -196,29 +196,29 @@ struct SettingsGeneralTab: View {
         ) {
             if let healthz {
                 if let disk = healthz.disk {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        HStack(alignment: .center) {
-                            Text("Disk")
-                                .font(VFont.labelDefault)
-                                .foregroundStyle(VColor.contentTertiary)
-                                .frame(width: 100, alignment: .leading)
+                    HStack(alignment: .top) {
+                        Text("Disk Usage:")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                            .frame(width: 100, alignment: .leading)
+
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            ProgressView(value: Double(disk.usedMb), total: Double(max(disk.totalMb, 1)))
+                                .progressViewStyle(.linear)
+                                .tint(Double(disk.usedMb) / Double(max(disk.totalMb, 1)) > 0.9 ? VColor.systemNegativeStrong : VColor.systemPositiveStrong)
                             Text("\(formatMb(disk.usedMb)) used of \(formatMb(disk.totalMb))")
                                 .font(VFont.bodyMediumLighter)
                                 .foregroundStyle(VColor.contentDefault)
-                            Spacer()
                         }
-                        ProgressView(value: Double(disk.usedMb), total: Double(max(disk.totalMb, 1)))
-                            .progressViewStyle(.linear)
-                            .tint(Double(disk.usedMb) / Double(max(disk.totalMb, 1)) > 0.9 ? VColor.systemNegativeStrong : VColor.primaryBase)
                     }
                 }
 
                 if let memory = healthz.memory {
-                    resourceRow(label: "Memory", value: "\(formatMb(memory.currentMb)) / \(formatMb(memory.maxMb))")
+                    resourceRow(label: "Memory:", value: "\(formatMb(memory.currentMb)) / \(formatMb(memory.maxMb))")
                 }
 
                 if let cpu = healthz.cpu {
-                    resourceRow(label: "CPU", value: String(format: "%.1f%%", cpu.currentPercent))
+                    resourceRow(label: "CPU:", value: String(format: "%.1f%%", cpu.currentPercent))
                 }
 
                 if healthz.disk == nil && healthz.memory == nil && healthz.cpu == nil {
