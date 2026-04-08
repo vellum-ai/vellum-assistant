@@ -19,10 +19,15 @@ enum DeepLinkRoutingDecision: Equatable {
     /// switch to the requested assistant, then deliver the message.
     case switchLive(assistantId: String, message: String)
     /// `assistant` param matched a lockfile entry but the
-    /// `multi-platform-assistant` flag is disabled — update the active
-    /// assistant id only (live SSE switch waits for next launch) and
-    /// deliver the message.
-    case switchActiveIdOnly(assistantId: String, message: String)
+    /// `multi-platform-assistant` flag is disabled. In this case we do
+    /// **not** mutate `activeAssistant` — doing so would desync the
+    /// per-request HTTP routing (which re-reads the lockfile) from the
+    /// live SSE connection (which stays pinned to the old assistant until
+    /// a full reconnect), causing sends to go to one assistant while
+    /// replies come back on another. Instead we log the requested id and
+    /// deliver the message to whatever is currently active. A true
+    /// cross-assistant switch waits until multi-platform-assistant ships.
+    case routeToActiveFlagOff(requestedAssistantId: String, message: String)
 }
 
 enum DeepLinkRouter {
@@ -62,7 +67,7 @@ enum DeepLinkRouter {
         if multiAssistantEnabled {
             return .switchLive(assistantId: requestedAssistantId, message: message)
         } else {
-            return .switchActiveIdOnly(assistantId: requestedAssistantId, message: message)
+            return .routeToActiveFlagOff(requestedAssistantId: requestedAssistantId, message: message)
         }
     }
 }

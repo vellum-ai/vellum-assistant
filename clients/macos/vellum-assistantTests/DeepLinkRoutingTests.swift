@@ -43,13 +43,13 @@ final class DeepLinkRoutingTests: XCTestCase {
         XCTAssertEqual(decision, .switchLive(assistantId: "asst_known", message: "hi"))
     }
 
-    func testKnownAssistantWithFlagOffRequestsActiveIdOnlySwitch() {
+    func testKnownAssistantWithFlagOffDoesNotMutateStateAndRoutesToActive() {
         let decision = DeepLinkRouter.decide(
             url: url("vellum://send?message=hi&assistant=asst_known"),
             knownAssistantIds: known,
             multiAssistantEnabled: false
         )
-        XCTAssertEqual(decision, .switchActiveIdOnly(assistantId: "asst_known", message: "hi"))
+        XCTAssertEqual(decision, .routeToActiveFlagOff(requestedAssistantId: "asst_known", message: "hi"))
     }
 
     // MARK: - Unknown assistant id

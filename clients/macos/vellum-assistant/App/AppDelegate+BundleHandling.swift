@@ -62,30 +62,44 @@ extension AppDelegate {
 
         case .switchLive(let assistantId, let message):
             log.info("Deep link switching live to assistant \(assistantId, privacy: .public) (\(message.count) chars)")
-            DeepLinkManager.pendingMessage = message
             guard let assistant = LockfileAssistant.loadByName(assistantId) else {
                 // Race: the assistant disappeared from the lockfile between
                 // the decision and now. Fall back to delivering to the active
                 // assistant rather than dropping the message.
                 log.warning("Assistant \(assistantId, privacy: .public) disappeared from lockfile before switch; delivering to active")
-                deliverDeepLinkToActiveAssistant(message: message, alreadyBuffered: true)
+                deliverDeepLinkToActiveAssistant(message: message)
                 return
             }
+            // `performSwitchAssistant` early-returns for managed assistants
+            // when the user is logged out (it shows the auth window). That
+            // path doesn't close the old main window or consume pending
+            // messages, which would orphan the deep-link message until a
+            // future conversation change. Skip the switch entirely in that
+            // case and deliver the message to the currently active
+            // assistant instead.
+            if assistant.isManaged && !authManager.isAuthenticated {
+                log.warning("Deep link switch to managed assistant \(assistantId, privacy: .public) skipped — not authenticated; delivering to active assistant")
+                deliverDeepLinkToActiveAssistant(message: message)
+                return
+            }
+            DeepLinkManager.pendingMessage = message
             performSwitchAssistant(to: assistant)
 
-        case .switchActiveIdOnly(let assistantId, let message):
-            log.info("Deep link setting active assistant id to \(assistantId, privacy: .public) (flag off; live SSE switch waits for next launch)")
-            LockfileAssistant.setActiveAssistantId(assistantId)
+        case .routeToActiveFlagOff(let requestedAssistantId, let message):
+            // Flag is off — we intentionally do not mutate `activeAssistant`
+            // here. Writing a new active id without a corresponding SSE
+            // reconnect would desync HTTP routing from SSE (see
+            // `DeepLinkRoutingDecision.routeToActiveFlagOff`). Deliver to
+            // whatever is currently active instead.
+            log.warning("Deep link requested assistant \(requestedAssistantId, privacy: .public) but multi-platform-assistant flag is off; delivering to active assistant")
             deliverDeepLinkToActiveAssistant(message: message)
         }
     }
 
     /// Buffer the message in `DeepLinkManager`, show the main window, and
     /// ask the active conversation view model to consume it.
-    private func deliverDeepLinkToActiveAssistant(message: String, alreadyBuffered: Bool = false) {
-        if !alreadyBuffered {
-            DeepLinkManager.pendingMessage = message
-        }
+    private func deliverDeepLinkToActiveAssistant(message: String) {
+        DeepLinkManager.pendingMessage = message
         showMainWindow()
         mainWindow?.conversationManager.activeViewModel?.consumeDeepLinkIfNeeded()
     }
