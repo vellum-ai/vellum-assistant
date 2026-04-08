@@ -287,7 +287,18 @@ function missingTokenMessage(kind: RelayModeKind): string {
 
 async function connect(): Promise<void> {
   if (relayConnection && relayConnection.isOpen()) return;
-  const mode = await buildRelayModeConfig(relayMode);
+  // Re-read the live relay mode from storage at connect time. The
+  // module-level `relayMode` variable is only refreshed asynchronously
+  // via chrome.storage.onChanged, so trusting it races against a popup
+  // that toggles the radio and immediately clicks Connect. Reading from
+  // storage here makes the connect flow deterministic.
+  //
+  // The module-level `relayMode` is still updated to match so other code
+  // paths (status queries, disconnect, result routing) stay consistent
+  // with the mode we're about to connect with.
+  const liveMode = await loadRelayMode();
+  relayMode = liveMode;
+  const mode = await buildRelayModeConfig(liveMode);
   if (!mode.token) {
     const msg = missingTokenMessage(mode.kind);
     console.warn(`[vellum-relay] ${msg}`);
