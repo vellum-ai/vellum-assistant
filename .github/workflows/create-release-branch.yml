@@ -183,4 +183,4 @@ jobs:
           if ! git diff --cached --quiet; then
             git commit -m "Release v$VERSION"
           fi
-          git push origin "$BRANCH"
+          git push --no-verify origin "$BRANCH"

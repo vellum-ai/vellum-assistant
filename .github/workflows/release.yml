@@ -2108,7 +2108,7 @@ jobs:
 
             # Append [skip ci] so the force-push doesn't re-trigger this workflow
             git commit --allow-empty --amend -m "$(git log -1 --format=%B) [skip ci]"
-            git push origin "$BRANCH" --force-with-lease
+            git push --no-verify origin "$BRANCH" --force-with-lease
 
             # Give GitHub time to process the force-push before retrying
             sleep 10
