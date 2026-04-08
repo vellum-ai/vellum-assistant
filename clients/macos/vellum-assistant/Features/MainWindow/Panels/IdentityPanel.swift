@@ -155,11 +155,30 @@ struct IdentityPanel: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
             .task {
-                let result = await IdentityInfo.loadWithMetadata()
-                identity = result.identity
-                metadata = result.metadata
-                lockfileAssistant = LockfileAssistant.loadLatest()
-                workspaceFiles = await WorkspaceFileNode.scanAsync()
+                // Load identity, lockfile, and workspace files in parallel.
+                // Previously these ran sequentially — if the gateway was slow
+                // to respond on startup the view appeared frozen because nothing
+                // populated until the first network call (up to 10 s timeout)
+                // completed. Using `async let` reduces total wait from the sum
+                // of all calls to the maximum of the three.
+                // `LockfileAssistant.loadLatest()` is synchronous file I/O, so
+                // it runs inside `Task.detached` to keep it off the main actor
+                // (matches the pattern in SettingsDeveloperTab, AboutVellumWindow,
+                // and SettingsGeneralTab).
+                async let identityResult = IdentityInfo.loadWithMetadata()
+                async let lockfileResult = Task.detached { LockfileAssistant.loadLatest() }.value
+                async let workspaceResult = WorkspaceFileNode.scanAsync()
+
+                let (idResult, lockfile, files) = await (identityResult, lockfileResult, workspaceResult)
+
+                identity = idResult.identity
+                metadata = idResult.metadata
+                lockfileAssistant = lockfile
+                workspaceFiles = files
+
+                // Fetch skills after workspace files are ready so the
+                // ConstellationView layout triggered by skills.count change
+                // includes both data sets.
                 fetchSkills()
 
                 bootstrapCheckTask = Task {
