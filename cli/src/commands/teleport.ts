@@ -23,6 +23,7 @@ import {
   platformUploadToSignedUrl,
   platformImportPreflightFromGcs,
   platformImportBundleFromGcs,
+  platformPollImportStatus,
 } from "../lib/platform-client.js";
 import {
   hatchDocker,
@@ -706,13 +707,71 @@ async function importToAssistant(
         : await platformImportBundle(bundleData, token, entry.runtimeUrl);
     } catch (err) {
       if (err instanceof Error && err.name === "TimeoutError") {
-        console.error("Error: Import request timed out after 5 minutes.");
+        console.error("Error: Import request timed out.");
         process.exit(1);
       }
       throw err;
     }
 
     handleImportStatusErrors(importResult.statusCode, entry.assistantId);
+
+    if (importResult.statusCode === 202) {
+      const jobId = (importResult.body as { job_id?: string }).job_id;
+      if (!jobId) {
+        console.error("Error: Import accepted but no job ID returned.");
+        process.exit(1);
+      }
+
+      const POLL_INTERVAL_MS = 5_000;
+      const TIMEOUT_MS = 10 * 60 * 1_000; // 10 minutes (platform staleness is 930s)
+      const startTime = Date.now();
+      const deadline = startTime + TIMEOUT_MS;
+
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+
+        let status: {
+          status: string;
+          result?: Record<string, unknown>;
+          error?: string;
+        };
+        try {
+          status = await platformPollImportStatus(
+            jobId,
+            token,
+            entry.runtimeUrl,
+          );
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (msg.includes("not found")) {
+            throw err;
+          }
+          console.warn(`Polling failed, retrying... (${msg})`);
+          continue;
+        }
+
+        if (status.status === "complete") {
+          importResult = { statusCode: 200, body: status.result ?? {} };
+          break;
+        }
+
+        if (status.status === "failed") {
+          console.error(`Import failed: ${status.error ?? "unknown error"}`);
+          process.exit(1);
+        }
+
+        const elapsed = Math.round((Date.now() - startTime) / 1000);
+        process.stdout.write(`\rImporting... ${elapsed}s elapsed`);
+      }
+
+      // Clear the progress line
+      process.stdout.write("\r" + " ".repeat(40) + "\r");
+
+      if (importResult.statusCode === 202) {
+        console.error("Import timed out after 10 minutes.");
+        process.exit(1);
+      }
+    }
 
     const result = importResult.body as unknown as ImportResponse;
     printImportSummary(result);
