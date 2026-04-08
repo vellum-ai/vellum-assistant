@@ -152,23 +152,15 @@ final class VellumCli: AssistantManagementClient {
         return FileManager.default.fileExists(atPath: candidate.path) ? candidate : nil
     }
 
-    // MARK: - AssistantManagementClient
-
-    func hatch(name: String?, configValues: [String: String]) async throws {
-        try await cliHatch(name: name, configValues: configValues)
-    }
-
     // MARK: - Public API
 
-    /// Hatch (or restart) an assistant via the CLI.
+    /// Hatch a new assistant via the CLI. The CLI spawns the daemon binary,
+    /// waits for the socket, and registers the assistant entry.
     ///
     /// - Parameters:
     ///   - name: Optional assistant name to reuse.
-    ///   - restart: Pass `true` to restart processes without lockfile side-effects
-    ///     (used by the Settings "Restart" button). Not part of the
-    ///     `AssistantManagementClient` protocol — callers should use `hatch(name:configValues:)`.
     ///   - configValues: Key-value pairs forwarded as `--config k=v` flags.
-    func cliHatch(name: String? = nil, restart: Bool = false, configValues: [String: String] = [:]) async throws {
+    func hatch(name: String? = nil, configValues: [String: String] = [:]) async throws {
         guard let binaryURL = cliBinaryURL else {
             log.info("No bundled CLI binary found — skipping hatch (dev mode)")
             return
@@ -177,9 +169,6 @@ final class VellumCli: AssistantManagementClient {
         log.info("Running hatch via CLI at \(binaryURL.path, privacy: .public)")
 
         var arguments = ["hatch", "-d"]
-        if restart {
-            arguments.append("--restart")
-        }
         // NOTE: --watch runs daemon from source via `bun --watch` which breaks
         // Playwright's CDP websocket connection. Omit it for now.
         // #if DEBUG
