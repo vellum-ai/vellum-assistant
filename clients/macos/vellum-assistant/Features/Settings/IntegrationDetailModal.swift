@@ -271,31 +271,26 @@ struct IntegrationDetailModal: View {
     }
 
     private func managedConnectionRow(for entry: OAuthConnectionEntry) -> some View {
-        HStack(spacing: VSpacing.sm) {
-            VIconView(.circleUser, size: 14)
-                .foregroundStyle(VColor.contentSecondary)
+        VCard {
+            HStack(alignment: .center, spacing: VSpacing.lg) {
+                VIconView(.circleUser, size: 14)
+                    .foregroundStyle(VColor.contentSecondary)
 
-            Text(entry.account_label ?? "\(displayName) Account")
-                .font(VFont.bodyMediumDefault)
-                .foregroundStyle(VColor.contentDefault)
-                .lineLimit(1)
-                .truncationMode(.tail)
+                Text(entry.account_label ?? "\(displayName) Account")
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentDefault)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
 
-            Spacer()
+                Spacer()
 
-            VButton(label: "", iconOnly: VIcon.trash.rawValue, style: .dangerOutline, size: .compact) {
-                connectionToDisconnect = entry
-                showDisconnectAlert = true
+                VButton(label: "", iconOnly: VIcon.trash.rawValue, style: .dangerOutline, size: .compact) {
+                    connectionToDisconnect = entry
+                    showDisconnectAlert = true
+                }
+                .accessibilityLabel("Disconnect Account")
             }
-            .accessibilityLabel("Disconnect Account")
         }
-        .padding(VSpacing.lg)
-        .background(VColor.surfaceBase)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(VColor.borderBase, lineWidth: 1)
-        )
     }
 
     // MARK: - Your Own Tab
@@ -401,13 +396,7 @@ struct IntegrationDetailModal: View {
                 }
             }
         }
-        .padding(VSpacing.lg)
-        .background(VColor.surfaceBase)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(VColor.borderBase, lineWidth: 1)
-        )
+        .vCard()
     }
 
     private var yourOwnSkeleton: some View {
@@ -424,69 +413,64 @@ struct IntegrationDetailModal: View {
     }
 
     private func yourOwnAppCard(for app: YourOwnOAuthApp) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            // Header: client ID, date, trash
-            HStack(spacing: VSpacing.sm) {
-                Text(maskedClientId(app.client_id))
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentDefault)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+        VCard {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                // Header: client ID, date, trash
+                HStack(alignment: .center, spacing: VSpacing.lg) {
+                    Text(maskedClientId(app.client_id))
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundStyle(VColor.contentDefault)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
 
-                Spacer()
+                    Spacer()
 
-                Text(formattedDate(app.created_at))
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentTertiary)
-
-                VButton(label: "", iconOnly: VIcon.trash.rawValue, style: .dangerOutline, size: .compact) {
-                    appToDelete = app
-                    showDeleteAppAlert = true
-                }
-                .accessibilityLabel("Delete OAuth App")
-            }
-
-            // Connections or empty state
-            let appConnections = store.yourOwnOAuthConnectionsByApp[app.id] ?? []
-            if appConnections.isEmpty {
-                Text("No connected accounts")
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentTertiary)
-            } else {
-                ForEach(appConnections) { conn in
-                    yourOwnConnectionRow(for: conn, appId: app.id)
-                }
-            }
-
-            // Connect button
-            if store.yourOwnOAuthConnectingAppId == app.id {
-                HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Cancel", leftIcon: "lucide-x", style: .outlined) {
-                        store.cancelYourOwnOAuthConnect()
-                    }
-                    VBusyIndicator(size: 8, color: VColor.contentTertiary)
-                    Text("Waiting for authorization...")
+                    Text(formattedDate(app.created_at))
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentTertiary)
+
+                    VButton(label: "", iconOnly: VIcon.trash.rawValue, style: .dangerOutline, size: .compact) {
+                        appToDelete = app
+                        showDeleteAppAlert = true
+                    }
+                    .accessibilityLabel("Delete OAuth App")
                 }
-            } else {
-                VButton(
-                    label: "Connect Account",
-                    leftIcon: "lucide-external-link",
-                    style: .outlined,
-                    isDisabled: store.yourOwnOAuthConnectingAppId != nil
-                ) {
-                    store.startYourOwnOAuthConnect(appId: app.id)
+
+                // Connections or empty state
+                let appConnections = store.yourOwnOAuthConnectionsByApp[app.id] ?? []
+                if appConnections.isEmpty {
+                    Text("No connected accounts")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                } else {
+                    ForEach(appConnections) { conn in
+                        yourOwnConnectionRow(for: conn, appId: app.id)
+                    }
+                }
+
+                // Connect button
+                if store.yourOwnOAuthConnectingAppId == app.id {
+                    HStack(spacing: VSpacing.sm) {
+                        VButton(label: "Cancel", leftIcon: "lucide-x", style: .outlined) {
+                            store.cancelYourOwnOAuthConnect()
+                        }
+                        VBusyIndicator(size: 8, color: VColor.contentTertiary)
+                        Text("Waiting for authorization...")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
+                } else {
+                    VButton(
+                        label: "Connect Account",
+                        leftIcon: "lucide-external-link",
+                        style: .outlined,
+                        isDisabled: store.yourOwnOAuthConnectingAppId != nil
+                    ) {
+                        store.startYourOwnOAuthConnect(appId: app.id)
+                    }
                 }
             }
         }
-        .padding(VSpacing.lg)
-        .background(VColor.surfaceBase)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(VColor.borderBase, lineWidth: 1)
-        )
     }
 
     @State private var hoveredYourOwnConnId: String?
