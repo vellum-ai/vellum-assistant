@@ -227,6 +227,12 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
   let backupsCreated = 0;
 
   for (const fileEntry of manifest.files) {
+    // Credential entries are handled separately by extractCredentialsFromBundle()
+    // in migration-routes.ts — skip them silently without warnings or skip counts.
+    if (fileEntry.path.startsWith("credentials/")) {
+      continue;
+    }
+
     const diskPath = pathResolver.resolve(fileEntry.path);
 
     if (!diskPath) {
