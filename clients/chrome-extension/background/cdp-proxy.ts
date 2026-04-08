@@ -261,9 +261,28 @@ export function createCdpProxy(api: ChromeDebuggerApi = defaultChromeDebuggerApi
      */
     send(target, frame) {
       return new Promise<CdpResultFrame>((resolve) => {
-        const debuggerSession: DebuggerSession = frame.sessionId
-          ? { ...targetToDebuggee(target), sessionId: frame.sessionId }
-          : targetToDebuggee(target);
+        // Defensive: `targetToDebuggee` throws synchronously when the target
+        // has neither `tabId` nor `targetId`. Without this try/catch the
+        // throw escapes via promise rejection — but `send()`'s contract is
+        // to ALWAYS resolve with a CdpResultFrame (success OR error), so
+        // callers awaiting it would observe an unhandled rejection instead
+        // of the expected error envelope. Convert the throw into a CDP
+        // -32602 ("invalid params") error frame so the contract holds.
+        let debuggerSession: DebuggerSession;
+        try {
+          debuggerSession = frame.sessionId
+            ? { ...targetToDebuggee(target), sessionId: frame.sessionId }
+            : targetToDebuggee(target);
+        } catch (err) {
+          resolve({
+            id: frame.id,
+            error: {
+              code: -32602,
+              message: err instanceof Error ? err.message : String(err),
+            },
+          });
+          return;
+        }
         api.sendCommand(debuggerSession, frame.method, frame.params, (result) => {
           const err = api.runtime.lastError;
           if (err) {
