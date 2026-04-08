@@ -60,6 +60,31 @@ final class ManagedAssistantConnectionCoordinatorSwitchTests: XCTestCase {
         XCTAssertNil(readActiveAssistant())
     }
 
+    // MARK: - Missing connection controller
+
+    func testSwitchThrowsWhenNoConnectionControllerInjected() async {
+        seedLockfile(with: [("managed-a", "2024-01-01T00:00:00Z"),
+                            ("managed-b", "2024-02-01T00:00:00Z")])
+        LockfileAssistant.setActiveAssistantId("managed-a", lockfilePath: lockfilePath)
+
+        let coordinator = makeCoordinator(
+            multiEnabled: true,
+            controller: nil
+        )
+
+        do {
+            _ = try await coordinator.switchToManagedAssistant(assistantId: "managed-b")
+            XCTFail("Expected missingConnectionController")
+        } catch ManagedAssistantConnectionCoordinatorError.missingConnectionController {
+            // expected
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        // Must not have mutated active assistant id.
+        XCTAssertEqual(readActiveAssistant(), "managed-a")
+    }
+
     // MARK: - Missing assistant
 
     func testSwitchThrowsWhenAssistantNotInLockfile() async {

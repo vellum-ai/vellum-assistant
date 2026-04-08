@@ -38,6 +38,7 @@ enum ManagedAssistantConnectionCoordinatorError: LocalizedError {
     case persistenceFailed
     case multiAssistantNotEnabled
     case assistantNotFound(String)
+    case missingConnectionController
 
     var errorDescription: String? {
         switch self {
@@ -47,6 +48,8 @@ enum ManagedAssistantConnectionCoordinatorError: LocalizedError {
             return "Switching between managed assistants is not available."
         case .assistantNotFound(let id):
             return "Could not find assistant \(id) in the lockfile."
+        case .missingConnectionController:
+            return "Cannot switch assistants without an active connection."
         }
     }
 }
@@ -139,11 +142,32 @@ final class ManagedAssistantConnectionCoordinator {
     /// Only callable when the `multi-platform-assistant` flag is enabled.
     /// The UI entry point also gates this, but we check again as defense in
     /// depth.
+    ///
+    /// Unlike `activateManagedAssistant()`, this method **requires** a
+    /// `connectionController` to have been injected into the coordinator.
+    /// Switching without an active connection is nonsensical — there's
+    /// nothing to tear down and nothing to bring up — so a nil controller
+    /// would leave the caller with a half-switched state (new
+    /// `activeAssistantId`, old SSE) that falsely reports success. The
+    /// activate path tolerates a nil controller because the AppDelegate
+    /// owns bring-up there via `setupGatewayConnectionManager()`; that
+    /// asymmetry is intentional.
+    ///
+    /// The returned `ManagedAssistantConnectionResult.reusedExisting` is
+    /// always `true` here: switch never creates a new `PlatformAssistant`
+    /// server-side, it only re-points the local active assistant at one
+    /// that was already persisted. Callers that branch on `reusedExisting`
+    /// for telemetry should treat switch as its own operation rather than
+    /// conflating it with an activate-reuse.
     func switchToManagedAssistant(
         assistantId: String
     ) async throws -> ManagedAssistantConnectionResult {
         guard multiAssistantEnabledProvider() else {
             throw ManagedAssistantConnectionCoordinatorError.multiAssistantNotEnabled
+        }
+
+        guard let connectionController else {
+            throw ManagedAssistantConnectionCoordinatorError.missingConnectionController
         }
 
         guard let lockfileAssistant = LockfileAssistant.loadByName(
@@ -153,14 +177,18 @@ final class ManagedAssistantConnectionCoordinator {
             throw ManagedAssistantConnectionCoordinatorError.assistantNotFound(assistantId)
         }
 
-        await connectionController?.teardown()
+        // TODO: when `ManagedAssistantConnectionController.teardown()` or
+        // `bringUp(for:)` gain `throws`, add a rollback path here — a
+        // failing bringUp currently would leave us with the old SSE torn
+        // down and `activeAssistantId` already flipped, with no recovery.
+        await connectionController.teardown()
 
         LockfileAssistant.setActiveAssistantId(assistantId, lockfilePath: lockfilePath)
         AssistantFeatureFlagResolver.clearCachedFlags()
 
         updateAssistantTag(assistantId)
 
-        await connectionController?.bringUp(for: lockfileAssistant)
+        await connectionController.bringUp(for: lockfileAssistant)
 
         return ManagedAssistantConnectionResult(
             assistant: PlatformAssistant(id: assistantId),
