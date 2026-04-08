@@ -216,6 +216,7 @@ struct SidebarSectionView: View {
         if renderedCount < totalDisplayedCount {
             Color.clear
                 .frame(height: 1)
+                .id(renderedCount)
                 .onAppear {
                     let next = min(renderedCount + Self.batchIncrement, totalDisplayedCount)
                     DispatchQueue.main.async {
