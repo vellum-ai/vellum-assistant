@@ -390,6 +390,7 @@ export class DaemonServer {
     this.evictor = new ConversationEvictor(this.conversations);
     getSubagentManager().sharedRequestTimestamps = this.sharedRequestTimestamps;
     getSubagentManager().broadcastToAllClients = (msg) => this.broadcast(msg);
+    getSubagentManager().resolveParentConversation = (id) => this.conversations.get(id);
     setBroadcastToAllClients((msg) => this.broadcast(msg));
     this.evictor.onEvict = (conversationId: string) => {
       getSubagentManager().abortAllForParent(conversationId);
