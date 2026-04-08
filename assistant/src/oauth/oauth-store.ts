@@ -395,7 +395,7 @@ export function updateProvider(
     pingMethod: string;
     pingHeaders: Record<string, string>;
     pingBody: unknown;
-    revokeUrl: string;
+    revokeUrl: string | null;
     revokeBodyTemplate: Record<string, string>;
     baseUrl: string;
     defaultScopes: string[];
