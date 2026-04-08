@@ -226,6 +226,7 @@ struct SystemEventLogSection: View {
     private func loadMore() async {
         guard !isLoading, hasMore else { return }
         isLoading = true
+        loadError = nil
         defer { isLoading = false }
 
         do {
