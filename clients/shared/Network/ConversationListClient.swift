@@ -20,11 +20,6 @@ public protocol ConversationListClientProtocol {
 public struct ConversationListClient: ConversationListClientProtocol {
     nonisolated public init() {}
 
-    /// Diagnostic detail from the most recent failed `fetchConversationList` call.
-    /// Populated on the calling task's context; read from the UI layer to surface
-    /// errors when developer mode is enabled.
-    @MainActor public static var lastFetchError: String?
-
     public func fetchConversationList(offset: Int = 0, limit: Int = 50, conversationType: String? = nil) async -> ConversationListResponse? {
         do {
             var params: [String: String] = [
@@ -41,7 +36,6 @@ public struct ConversationListClient: ConversationListClientProtocol {
                 let body = String(data: response.data.prefix(512), encoding: .utf8) ?? "<non-utf8>"
                 let detail = "HTTP \(response.statusCode) — \(body)"
                 log.error("fetchConversationList failed (\(detail))")
-                await MainActor.run { Self.lastFetchError = detail }
                 return nil
             }
             let decoded = try JSONDecoder().decode(HTTPConversationsListResponse.self, from: response.data)
@@ -63,7 +57,6 @@ public struct ConversationListClient: ConversationListClientProtocol {
                     forkParent: $0.forkParent
                 )
             }
-            await MainActor.run { Self.lastFetchError = nil }
             return ConversationListResponse(
                 type: "conversation_list_response",
                 conversations: items,
@@ -72,9 +65,7 @@ public struct ConversationListClient: ConversationListClientProtocol {
                 groups: decoded.groups
             )
         } catch {
-            let detail = String(describing: error)
-            log.error("fetchConversationList error: \(detail)")
-            await MainActor.run { Self.lastFetchError = detail }
+            log.error("fetchConversationList error: \(String(describing: error))")
             return nil
         }
     }

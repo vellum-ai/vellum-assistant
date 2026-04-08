@@ -175,6 +175,7 @@ struct ConversationListView: View {
     @State private var renamingConversationId: UUID?
     @State private var renameText: String = ""
     @State private var showArchived: Bool = false
+    @AppStorage(UserDefaultsKeys.developerModeEnabled) private var developerModeEnabled: Bool = false
 
     private var activeConversations: [IOSConversation] {
         // Exclude private conversations — they are managed separately via the Private Conversations
@@ -297,7 +298,7 @@ struct ConversationListView: View {
 
             // Show the fetch error inline when developer mode is enabled so the
             // user doesn't stare at a spinner with no feedback.
-            if developerModeEnabled, let fetchError = ConversationListClient.lastFetchError {
+            if developerModeEnabled, let fetchError = store.lastFetchError {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Fetch error:")
                         .font(VFont.labelDefault)
@@ -484,7 +485,7 @@ struct ConversationListView: View {
     private var conversationList: some View {
         List(selection: horizontalSizeClass == .regular ? $selectedConversationId : nil) {
             // Developer-mode diagnostic banner for conversation fetch errors.
-            if developerModeEnabled, let fetchError = ConversationListClient.lastFetchError {
+            if developerModeEnabled, let fetchError = store.lastFetchError {
                 Section {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         HStack(spacing: VSpacing.xs) {

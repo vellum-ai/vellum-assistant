@@ -9,6 +9,7 @@ import VellumAssistantShared
 /// the version label 7 times.
 struct DeveloperSettingsSection: View {
     @EnvironmentObject var clientProvider: ClientProvider
+    @ObservedObject var conversationStore: IOSConversationStore
 
     var body: some View {
         // Forward clientProvider.traceStore into a child view that holds it as
@@ -16,7 +17,8 @@ struct DeveloperSettingsSection: View {
         // (keeps counts and the Clear button's enabled state live).
         DeveloperSettingsSectionContent(
             clientProvider: clientProvider,
-            traceStore: clientProvider.traceStore
+            traceStore: clientProvider.traceStore,
+            conversationStore: conversationStore
         )
     }
 }
@@ -24,6 +26,7 @@ struct DeveloperSettingsSection: View {
 private struct DeveloperSettingsSectionContent: View {
     let clientProvider: ClientProvider
     @ObservedObject var traceStore: TraceStore
+    @ObservedObject var conversationStore: IOSConversationStore
     @State private var showDebugPanel = false
     @State private var showUsageDashboard = false
     // Captured once when the sheet opens so the panel stays on the same conversation
@@ -34,9 +37,10 @@ private struct DeveloperSettingsSectionContent: View {
     // Updated via .onChange(of: clientGeneration) when rebuildClient() fires.
     @State private var usageDashboardStore: UsageDashboardStore
 
-    init(clientProvider: ClientProvider, traceStore: TraceStore) {
+    init(clientProvider: ClientProvider, traceStore: TraceStore, conversationStore: IOSConversationStore) {
         self.clientProvider = clientProvider
         self.traceStore = traceStore
+        self.conversationStore = conversationStore
         _usageDashboardStore = State(initialValue: UsageDashboardStore())
     }
 
@@ -89,7 +93,7 @@ private struct DeveloperSettingsSectionContent: View {
                     .font(.system(.caption, design: .monospaced))
                     .textSelection(.enabled)
 
-                if let fetchError = ConversationListClient.lastFetchError {
+                if let fetchError = conversationStore.lastFetchError {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("Last Fetch Error")
                             .font(VFont.labelDefault)
