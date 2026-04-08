@@ -19,7 +19,7 @@
           },
           "context": {
             "type": "string",
-            "description": "Optional additional context to pass to the subagent"
+            "description": "Optional additional context to pass to the subagent. Ignored when fork is true — forks inherit the parent's full context."
           },
           "fork": {
             "type": "boolean",
