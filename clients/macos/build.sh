@@ -1362,25 +1362,38 @@ if [ "$CMD" = "run" ]; then
     sleep 0.3
 
     # The kill block above only terminates the same-display-name instance,
-    # so a Vellum bundle built under a *different* `BUNDLE_DISPLAY_NAME`
-    # would survive and race against the freshly-launched one — same
-    # bundle ID, same lockfile, same identity cache, separate in-memory
-    # state. We use `ps -o comm=` rather than `pgrep -f` so the match
-    # runs against the executable path only, never against shell argv
-    # (which would false-positive when build.sh is invoked via `bash -c`
-    # with the script body inlined). The pattern is heuristic: only
-    # catches display names starting with "Vellum".
-    other_vellum=$(ps -ax -o pid=,comm= | awk -v skip="MacOS/$BUNDLE_DISPLAY_NAME$" '
-        /\.app\/Contents\/MacOS\/Vellum/ && $0 !~ skip
-    ' || true)
+    # so any sibling bundle built from this project under a different
+    # `BUNDLE_DISPLAY_NAME` would survive and race against us — they share
+    # bundle ID, lockfile, identity cache, and UserDefaults but hold
+    # separate in-memory state. We identify siblings by reading each
+    # candidate process's `Contents/Info.plist` and matching against our
+    # `$BUNDLE_ID` rather than name-matching, so an unrelated third-party
+    # app that happens to be called "Vellum" (the ebook formatter at
+    # vellum.pub, for example) is correctly ignored.
+    other_vellum=""
+    while IFS= read -r line; do
+        pid=${line%% *}
+        exe_path=${line#* }
+        case "$exe_path" in
+            */Contents/MacOS/*) ;;
+            *) continue ;;
+        esac
+        bundle_root=${exe_path%/Contents/MacOS/*}
+        other_id=$(plutil -extract CFBundleIdentifier raw "$bundle_root/Contents/Info.plist" 2>/dev/null || true)
+        [ "$other_id" = "$BUNDLE_ID" ] || continue
+        [ "$exe_path" != "$bundle_root/Contents/MacOS/$BUNDLE_DISPLAY_NAME" ] || continue
+        other_vellum+="$pid $exe_path"$'\n'
+    done < <(ps -ax -o pid=,comm=)
+    other_vellum=${other_vellum%$'\n'}
+
     if [ -n "$other_vellum" ]; then
         echo ""
-        echo "ERROR: Another Vellum-bundled process is already running:"
+        echo "ERROR: Another process from this project (bundle ID $BUNDLE_ID) is already running:"
         echo "$other_vellum" | sed 's/^/  /'
         echo ""
-        echo "It shares the same bundle ID, lockfile, identity cache, and"
-        echo "UserDefaults as the bundle you're about to launch, and will race"
-        echo "against it on every write. Refusing to launch a duplicate."
+        echo "It shares the lockfile, identity cache, and UserDefaults with"
+        echo "the bundle you're about to launch, and will race against it on"
+        echo "every write. Refusing to launch a duplicate."
         echo ""
         echo "Kill the existing process(es) and re-run:"
         echo "$other_vellum" | awk '{print "  kill " $1}'
