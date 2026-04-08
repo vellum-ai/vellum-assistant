@@ -141,6 +141,12 @@ function getContainerMemoryLimitBytes(): number | null {
  * (`memory/memory.usage_in_bytes`), mirroring the v2-then-v1 fallback used by
  * `getContainerMemoryLimitBytes`. Returns null if neither file is available
  * or readable.
+ *
+ * Unlike the limit lookup, no env-var override is needed: the gVisor issue
+ * that motivates VELLUM_MEMORY_LIMIT is specifically about the *limit* files
+ * exposing the host node's memory instead of the sandbox limit. The *usage*
+ * files (memory.current / memory.usage_in_bytes) reflect the sandbox's own
+ * accounting and are accurate under gVisor.
  */
 function getContainerMemoryUsageBytes(): number | null {
   // 1. Try cgroups v2.
