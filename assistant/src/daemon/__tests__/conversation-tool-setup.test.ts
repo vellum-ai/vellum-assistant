@@ -1,20 +1,18 @@
 /**
  * Tests for `isToolActiveForContext` host-tool capability gating.
  *
- * The chrome-extension interface only supports the `host_browser` host proxy
- * capability, so host tools must be gated by
- * `supportsHostProxy(transport, capability)` instead of a single
- * `hasNoClient` check. These tests assert that:
+ * Two scenarios are verified:
+ * - chrome-extension is its own executor and is exempt from the hasNoClient
+ *   gate (the extension's own popup UI gates commands; there is no SSE
+ *   interactive approval channel, and chrome-extension turns intentionally
+ *   run with `hasNoClient: true` because chrome-extension is not in
+ *   `INTERACTIVE_INTERFACES`).
+ * - macos still requires a connected SSE client for interactive approval, so
+ *   `hasNoClient: true` continues to deny all host tools on macos.
  *
- * - Each host tool is only projected for transports whose interface supports
- *   the matching capability (e.g. `host_bash` is only active for macOS, not
- *   chrome-extension — regression coverage for the Codex P1 host-tool leak).
- * - The `hasNoClient` precondition still takes precedence so HTTP-only paths
- *   never see host tools.
- * - Contexts without a `transportInterface` fall back to the permissive
- *   coarse-grained behavior so callers that have not yet plumbed the field
- *   through `SkillProjectionContext` continue to see the host tools their
- *   `hasNoClient` state allows.
+ * The per-capability check (`supportsHostProxy(transport, capability)`) runs
+ * first and is authoritative for structural support, so host_bash/host_file_*
+ * remain filtered out for chrome-extension (Codex P1 leak stays plugged).
  */
 
 import { describe, expect, test } from "bun:test";
@@ -38,7 +36,8 @@ function makeCtx(
 }
 
 describe("isToolActiveForContext — host tool capability gating", () => {
-  test("host_bash is active for macOS transport (full host proxy support)", () => {
+  // macOS transport: SSE-based interactive approval required.
+  test("host_bash is active for macOS with a connected client", () => {
     expect(
       isToolActiveForContext(
         "host_bash",
@@ -47,59 +46,10 @@ describe("isToolActiveForContext — host tool capability gating", () => {
     ).toBe(true);
   });
 
-  test("host_bash is NOT active for chrome-extension transport (Codex P1 regression)", () => {
-    // Regression coverage: chrome-extension only supports `host_browser`, so
-    // `host_bash` must NOT be projected even though a client is connected
-    // (`hasNoClient: false`). Without per-capability gating the model could
-    // attempt host_bash calls that the transport cannot dispatch.
-    expect(
-      isToolActiveForContext(
-        "host_bash",
-        makeCtx({
-          hasNoClient: false,
-          transportInterface: "chrome-extension",
-        }),
-      ),
-    ).toBe(false);
-  });
-
-  test("host_browser is active for chrome-extension transport", () => {
-    expect(
-      isToolActiveForContext(
-        "host_browser",
-        makeCtx({
-          hasNoClient: false,
-          transportInterface: "chrome-extension",
-        }),
-      ),
-    ).toBe(true);
-  });
-
-  test("host_browser is active for macOS transport", () => {
-    expect(
-      isToolActiveForContext(
-        "host_browser",
-        makeCtx({ hasNoClient: false, transportInterface: "macos" }),
-      ),
-    ).toBe(true);
-  });
-
-  test("host_file_read is NOT active for chrome-extension transport", () => {
-    expect(
-      isToolActiveForContext(
-        "host_file_read",
-        makeCtx({
-          hasNoClient: false,
-          transportInterface: "chrome-extension",
-        }),
-      ),
-    ).toBe(false);
-  });
-
-  test("host_bash respects hasNoClient even when transport supports it", () => {
-    // The existing `hasNoClient` gate must continue to take precedence: even
-    // a macOS-capable transport must not surface host tools when no client is
-    // actually connected (e.g. the HTTP-only path).
+  test("host_bash is NOT active for macOS when hasNoClient is true (security invariant)", () => {
+    // macOS uses an SSE-based interactive approval channel. Without a
+    // connected client the guardian auto-approve path could execute host
+    // commands unattended, so host tools must be denied.
     expect(
       isToolActiveForContext(
         "host_bash",
@@ -108,15 +58,110 @@ describe("isToolActiveForContext — host tool capability gating", () => {
     ).toBe(false);
   });
 
-  test("host_bash falls back to permissive behavior when transport is undefined", () => {
-    // Backwards-compat fallback: contexts that don't pass a transport
-    // interface (e.g. tests, callers that haven't plumbed the new field)
-    // keep the coarse-grained behavior so we don't accidentally hide tools.
+  test("host_file_read is NOT active for macOS when hasNoClient is true", () => {
+    expect(
+      isToolActiveForContext(
+        "host_file_read",
+        makeCtx({ hasNoClient: true, transportInterface: "macos" }),
+      ),
+    ).toBe(false);
+  });
+
+  test("host_browser is active for macOS with a connected client", () => {
+    expect(
+      isToolActiveForContext(
+        "host_browser",
+        makeCtx({ hasNoClient: false, transportInterface: "macos" }),
+      ),
+    ).toBe(true);
+  });
+
+  test("host_browser is NOT active for macOS when hasNoClient is true", () => {
+    // macOS requires a client for any host tool — the SSE interactive
+    // approval channel must be available regardless of capability.
+    expect(
+      isToolActiveForContext(
+        "host_browser",
+        makeCtx({ hasNoClient: true, transportInterface: "macos" }),
+      ),
+    ).toBe(false);
+  });
+
+  // chrome-extension transport: the extension is its own executor.
+  test("host_browser is active for chrome-extension when hasNoClient is true (regression fix)", () => {
+    // Regression coverage for PR #24195: the per-capability tool gate was
+    // previously placed inside the `hasNoClient` short-circuit, which
+    // filtered `host_browser` out for chrome-extension turns (which run
+    // with `hasNoClient: true` by design). The extension is its own
+    // executor and gates commands via its own popup UI, so it must be
+    // exempt from the hasNoClient gate.
+    expect(
+      isToolActiveForContext(
+        "host_browser",
+        makeCtx({
+          hasNoClient: true,
+          transportInterface: "chrome-extension",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  test("host_browser is active for chrome-extension when hasNoClient is false", () => {
+    expect(
+      isToolActiveForContext(
+        "host_browser",
+        makeCtx({
+          hasNoClient: false,
+          transportInterface: "chrome-extension",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  test("host_bash is NOT active for chrome-extension even when hasNoClient is true (Codex P1 leak)", () => {
+    // The per-capability check runs first and is authoritative: chrome-extension
+    // only supports `host_browser`, so `host_bash` must remain filtered out.
+    expect(
+      isToolActiveForContext(
+        "host_bash",
+        makeCtx({
+          hasNoClient: true,
+          transportInterface: "chrome-extension",
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  test("host_file_read is NOT active for chrome-extension when hasNoClient is true", () => {
+    expect(
+      isToolActiveForContext(
+        "host_file_read",
+        makeCtx({
+          hasNoClient: true,
+          transportInterface: "chrome-extension",
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  // Backwards-compat fallback: no transport plumbed through.
+  test("host_bash falls back to hasNoClient gate when transport is undefined (client connected)", () => {
+    // Without a transport interface we cannot run the per-capability check,
+    // so we fall back to the coarse-grained `hasNoClient` behavior.
     expect(
       isToolActiveForContext(
         "host_bash",
         makeCtx({ hasNoClient: false, transportInterface: undefined }),
       ),
     ).toBe(true);
+  });
+
+  test("host_bash falls back to hasNoClient gate when transport is undefined (no client)", () => {
+    expect(
+      isToolActiveForContext(
+        "host_bash",
+        makeCtx({ hasNoClient: true, transportInterface: undefined }),
+      ),
+    ).toBe(false);
   });
 });
