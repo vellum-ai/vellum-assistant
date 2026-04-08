@@ -248,7 +248,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
     /// Kept here (not in the shared `LockfileAssistant`) because apple-container
     /// logic is macOS-only and should not bleed into the shared/iOS/CLI target.
     @discardableResult
-    static func writeLockfileEntry(
+    nonisolated static func writeLockfileEntry(
         assistantId: String,
         hatchedAt: String,
         lockfilePath: String? = nil
