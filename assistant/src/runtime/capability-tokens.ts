@@ -87,6 +87,19 @@ function getLegacySecretPath(): string {
 }
 
 /**
+ * Path overrides used by unit tests to drive the secret lifecycle
+ * without touching the real `~/.vellum/` tree. Production callers must
+ * omit this argument so the canonical paths (`getProtectedDir()` +
+ * `getDataDir()`) are used.
+ */
+export interface CapabilityTokenSecretPaths {
+  /** Protected-directory secret path (authoritative). */
+  secretPath: string;
+  /** Legacy workspace-directory secret path (migration source). */
+  legacySecretPath: string;
+}
+
+/**
  * Load the capability-token secret from disk or generate and persist a new
  * one. Atomically writes with mode 0o600 so the secret is not readable by
  * other users on the same host.
@@ -94,9 +107,16 @@ function getLegacySecretPath(): string {
  * Migration: if the secret exists only at the legacy workspace path, copy
  * it into the protected directory and delete the workspace copy so we do
  * not leave security-sensitive material inside `workspace/`.
+ *
+ * The optional `paths` argument is for unit tests only — production
+ * callers must omit it and use the canonical `~/.vellum/protected/` /
+ * `~/.vellum/workspace/data/` paths.
  */
-export function loadOrCreateCapabilityTokenSecret(): Buffer {
-  const keyPath = getSecretPath();
+export function loadOrCreateCapabilityTokenSecret(
+  paths?: CapabilityTokenSecretPaths,
+): Buffer {
+  const keyPath = paths?.secretPath ?? getSecretPath();
+  const legacyPath = paths?.legacySecretPath ?? getLegacySecretPath();
   if (existsSync(keyPath)) {
     try {
       const raw = readFileSync(keyPath);
@@ -119,7 +139,7 @@ export function loadOrCreateCapabilityTokenSecret(): Buffer {
   // generate a fresh one. If this succeeds we end up with the legacy
   // secret persisted at the protected path and the workspace copy
   // removed, preserving every outstanding token across the upgrade.
-  const migrated = migrateLegacyCapabilityTokenSecret();
+  const migrated = migrateLegacyCapabilityTokenSecret(keyPath, legacyPath);
   if (migrated) {
     return migrated;
   }
@@ -159,8 +179,10 @@ function writeSecretAtomic(keyPath: string, secret: Buffer): void {
  * successfully, or `undefined` if there was nothing to migrate or the
  * migration failed.
  */
-function migrateLegacyCapabilityTokenSecret(): Buffer | undefined {
-  const legacyPath = getLegacySecretPath();
+function migrateLegacyCapabilityTokenSecret(
+  secretPath: string,
+  legacyPath: string,
+): Buffer | undefined {
   if (!existsSync(legacyPath)) {
     return undefined;
   }
@@ -173,7 +195,7 @@ function migrateLegacyCapabilityTokenSecret(): Buffer | undefined {
       );
       return undefined;
     }
-    writeSecretAtomic(getSecretPath(), raw);
+    writeSecretAtomic(secretPath, raw);
     try {
       unlinkSync(legacyPath);
     } catch (err) {
@@ -183,7 +205,7 @@ function migrateLegacyCapabilityTokenSecret(): Buffer | undefined {
       );
     }
     log.info(
-      { from: legacyPath, to: getSecretPath() },
+      { from: legacyPath, to: secretPath },
       "Migrated capability token secret out of workspace into protected directory",
     );
     return raw;

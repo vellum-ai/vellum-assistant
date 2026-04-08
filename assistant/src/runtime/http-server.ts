@@ -5,8 +5,15 @@
  * configured port (default: 7821).
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, resolve } from "node:path";
 
 import type { ServerWebSocket } from "bun";
 
@@ -63,6 +70,7 @@ import {
 } from "../security/oauth-callback-registry.js";
 import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import { getRuntimePortFilePath } from "../util/platform.js";
 import { buildAssistantEvent } from "./assistant-event.js";
 import { assistantEventHub } from "./assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
@@ -469,6 +477,81 @@ export class RuntimeHttpServer {
       },
       "Runtime HTTP server listening",
     );
+
+    // Advertise the actual port to thin helpers that need to reach the
+    // runtime without inheriting the daemon's environment (e.g. the
+    // chrome-extension native messaging helper, spawned by Chrome).
+    this.writeRuntimePortFile(this.actualPort);
+  }
+
+  /**
+   * Atomically publish the runtime HTTP port to ~/.vellum/runtime-port so
+   * external helpers can locate a non-default `RUNTIME_HTTP_PORT` without
+   * any manifest changes. Best-effort — write failures never block
+   * daemon startup (see assistant/AGENTS.md "Daemon startup philosophy").
+   */
+  private writeRuntimePortFile(actualPort: number): void {
+    try {
+      const portFile = getRuntimePortFilePath();
+      const dir = dirname(portFile);
+      if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true });
+      }
+      const tmpPath = `${portFile}.tmp.${process.pid}`;
+      writeFileSync(tmpPath, String(actualPort), { mode: 0o644 });
+      renameSync(tmpPath, portFile);
+      log.info({ portFile, actualPort }, "Wrote runtime port file");
+    } catch (err) {
+      log.warn(
+        { err },
+        "Failed to write runtime port file; non-default assistant ports may require --assistant-port on thin helpers",
+      );
+    }
+  }
+
+  /**
+   * Remove the runtime port file written by `writeRuntimePortFile`.
+   * Called from `stop()` on clean shutdown so a stale file does not
+   * point thin helpers (e.g. the chrome-extension native messaging
+   * helper) at a dead port until the next daemon start overwrites it.
+   * Best-effort — unlink failures never block shutdown.
+   *
+   * The unlink is conditional: we only remove the file if its current
+   * contents still match this server's port. The runtime-port file
+   * lives at the user-home level (`~/.vellum/runtime-port`) and is
+   * therefore shared across multiple daemon instances running on
+   * different `RUNTIME_HTTP_PORT`s. If a sibling instance has already
+   * rewritten the file with its own port, deleting it would strand
+   * thin helpers on the default port `7821` and break their ability
+   * to reach the still-running sibling.
+   *
+   * Note: this only runs on graceful shutdown. A crash leaves the
+   * file in place; the next successful startup overwrites it.
+   */
+  private removeRuntimePortFile(): void {
+    try {
+      const portFile = getRuntimePortFilePath();
+      if (!existsSync(portFile)) return;
+      // Read-then-compare-then-unlink. Race-safe enough: the worst case
+      // is that another instance writes the file between our read and
+      // our unlink, in which case we erroneously delete its mapping.
+      // That window is short (a few microseconds) and a sibling startup
+      // will rewrite the file on its next port-publish call. The much
+      // more common multi-instance race — sibling already overwrote
+      // before our stop() runs — is correctly handled here as a no-op.
+      const current = readFileSync(portFile, "utf-8").trim();
+      if (current !== String(this.actualPort)) {
+        log.info(
+          { portFile, current, actualPort: this.actualPort },
+          "Leaving runtime port file alone — owned by another instance",
+        );
+        return;
+      }
+      unlinkSync(portFile);
+      log.info({ portFile }, "Removed runtime port file");
+    } catch (err) {
+      log.warn({ err }, "Failed to remove runtime port file");
+    }
   }
 
   async stop(): Promise<void> {
@@ -485,6 +568,7 @@ export class RuntimeHttpServer {
       this.server = null;
       log.info("Runtime HTTP server stopped");
     }
+    this.removeRuntimePortFile();
   }
 
   private async handleRequest(

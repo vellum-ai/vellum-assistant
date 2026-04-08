@@ -44,9 +44,18 @@ import { decodeFrames, encodeFrame, FrameDecodeError } from "./protocol.js";
  * Chrome passes the calling extension's origin as the first positional
  * argument, e.g. `chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/`.
  * Anything not on this list is rejected before any further processing.
+ *
+ * Must agree with `ALLOWED_EXTENSION_ORIGINS` in
+ * `assistant/src/runtime/routes/browser-extension-pair-routes.ts` and
+ * `devPlaceholderId` in
+ * `clients/macos/vellum-assistant/App/AppDelegate+NativeMessaging.swift`.
+ * The sync guard at `assistant/src/__tests__/extension-id-sync-guard.test.ts`
+ * fails CI if any of the three drifts out of sync.
  */
 const ALLOWED_EXTENSION_IDS: ReadonlySet<string> = new Set<string>([
   // Dev placeholder — replaced when the unpacked extension is loaded locally.
+  // SYNC: update alongside the assistant pair route and macOS installer
+  // constants (see extension-id-sync-guard.test.ts).
   // TODO: production id before release
   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 ]);
@@ -98,10 +107,10 @@ function parseAssistantPortArg(argv: readonly string[]): number | null {
  *      so a wrapper script registered in Chrome's NativeMessagingHosts
  *      manifest can pin the helper to a known port without relying on a
  *      lockfile.
- *   2. `~/.vellum/runtime-port` lockfile (a single integer). This file is
- *      not yet written by the assistant — see the TODO in this package's
- *      README. Once it is, no manifest changes are needed for default
- *      installs.
+ *   2. `~/.vellum/runtime-port` lockfile (a single integer). The assistant
+ *      writes this file on HTTP server startup via
+ *      `RuntimeHttpServer.writeRuntimePortFile()`, so default installs do
+ *      not need any manifest-side configuration.
  *   3. The well-known default port `7821`.
  *
  * Any read or parse failure on the lockfile silently falls through to the

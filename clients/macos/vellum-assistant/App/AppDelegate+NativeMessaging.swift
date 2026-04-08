@@ -94,17 +94,22 @@ extension AppDelegate {
 /// Hard-coded allowlist of Chrome extension IDs the installer pins
 /// into the manifest's `allowed_origins`. Must stay in lockstep with
 /// `ALLOWED_EXTENSION_IDS` in
-/// `clients/chrome-extension-native-host/src/index.ts` (PR 7) and the
-/// allowlist the assistant's `/v1/browser-extension-pair` endpoint
-/// checks (PR 11).
+/// `clients/chrome-extension-native-host/src/index.ts` and
+/// `ALLOWED_EXTENSION_ORIGINS` in
+/// `assistant/src/runtime/routes/browser-extension-pair-routes.ts`.
+/// The sync guard at
+/// `assistant/src/__tests__/extension-id-sync-guard.test.ts` fails CI
+/// if any of the three drifts out of sync.
 ///
 /// Kept in a standalone enum so unit tests can reference it without
 /// instantiating `AppDelegate`.
 enum ChromeExtensionAllowlist {
     /// Dev placeholder id. Matches the single entry currently present
-    /// in the helper binary's allowlist in PR 7. Replaced before
-    /// release with the production extension id — see the
-    /// `TODO: production id before release` comment in
+    /// in the helper binary's allowlist and the assistant's pair route
+    /// allowlist. Replaced before release with the production extension
+    /// id — see the `TODO: production id before release` comment in
     /// `clients/chrome-extension-native-host/src/index.ts`.
+    // SYNC: update alongside the assistant pair route and native host
+    // constants (see extension-id-sync-guard.test.ts).
     static let devPlaceholderId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 }
