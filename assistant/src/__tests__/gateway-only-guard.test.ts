@@ -23,6 +23,7 @@ const ALLOWLIST = new Set([
 
   // --- Intentional local daemon-control paths ---
   "assistant/src/cli/commands/conversations.ts", // CLI wipe talks to runtime directly
+  "assistant/src/cli/commands/browser-relay.ts", // CLI shim talks to /v1/browser-cdp on the local daemon
   "clients/shared/Network/DaemonClient.swift",
   "clients/shared/App/Auth/PlatformOAuthService.swift", // comment explaining runtimeUrl vs platformUrl
   "clients/macos/vellum-assistant/App/AppDelegate.swift",
