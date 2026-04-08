@@ -76,10 +76,14 @@ extension MessageListView {
         // to .idle only, recovery waits until the animation completes,
         // then fires cleanly.
         //
-        // This is safe for streaming auto-follow because the auto-follow
-        // path uses non-animated scrollToEdge(.bottom) which doesn't
-        // trigger .animating — the scroll position changes instantly and
-        // scrollPhase stays .idle.
+        // Streaming auto-follow uses ID-based requestPinToBottom() which
+        // is deduped during single-message streaming (same lastMessageId).
+        // The actual following is handled by the recovery mechanism below
+        // using throttled edge-based scrollToEdge(.bottom) at 50ms
+        // intervals. Edge-based scroll cannot be used directly in the
+        // auto-follow path because it triggers .animating scroll phase,
+        // blocking phaseAllowsAutoFollow and creating a self-blocking
+        // cycle.
         //
         // Animated pins (handleSendingChanged; handleMessagesCountChanged
         // when NOT streaming) briefly trigger .animating (~150ms with
@@ -146,33 +150,27 @@ extension MessageListView {
         // The 0.5pt threshold filters sub-pixel layout noise. Safe from
         // feedback loops because pinning changes contentOffsetY, not
         // contentHeight.
-        if abs(effectiveContentHeight - previousContentHeight) > 0.5,
+        //
+        // Uses ID-based requestPinToBottom() which is effectively a no-op
+        // during single-message streaming (lastMessageId unchanged →
+        // ScrollPosition deduplication). The actual following during
+        // streaming is handled by the recovery mechanism below, which
+        // uses edge-based scrollToEdge(.bottom) at throttled intervals.
+        // Edge-based scroll cannot be used here directly because it
+        // triggers .animating scroll phase, which blocks
+        // phaseAllowsAutoFollow on subsequent geometry updates and
+        // creates a self-blocking cycle.
+        let contentHeightChanged = abs(effectiveContentHeight - previousContentHeight) > 0.5
+        if contentHeightChanged,
            scrollState.mode.allowsAutoScroll,
            phaseAllowsAutoFollow {
-            // During active following (streaming), use edge-based scroll.
-            // ID-based scroll (requestPinToBottom → scrollTo(id: lastMessageId,
-            // .bottom)) gets deduped by SwiftUI when lastMessageId hasn't
-            // changed — during streaming of a single message, the ID is
-            // constant so ScrollPosition(id: X, .bottom) is structurally
-            // identical on every call and SwiftUI silently ignores the write.
-            // Edge-based scrollToEdge(.bottom) targets the absolute content
-            // bottom and creates a different ScrollPosition value type,
-            // avoiding deduplication. Safe because during streaming the
-            // viewport is already near the bottom and LazyVStack has
-            // materialized the bottom views — no risk of overshooting
-            // into blank estimated space.
-            //
-            // During initial load (conversation switch), keep ID-based scroll.
-            // Edge-based scroll during initial load can overshoot into blank
-            // LazyVStack estimated space because bottom views haven't
-            // materialized yet. ID-based targets a real ForEach item that
-            // SwiftUI can always locate (even when not materialized).
-            if scrollState.isFollowingBottom {
-                scrollState.scrollToEdge?(.bottom)
-            } else {
-                scrollState.requestPinToBottom()
-            }
+            scrollState.requestPinToBottom()
         }
+        // Detect streaming content growth — used to extend recovery
+        // into streaming mode below.
+        let isStreamingContentGrowth = contentHeightChanged
+            && effectiveContentHeight > previousContentHeight
+            && scrollState.isFollowingBottom
         // --- Persistent bottom-recovery ---
         // Independent of the content-height auto-follow. Catches cases
         // the height-change check misses:
@@ -230,13 +228,19 @@ extension MessageListView {
         if scrollState.mode.allowsAutoScroll,
            phaseAllowsAutoFollow,
            effectiveContentHeight > newState.visibleRectHeight,
-           (!nowAtBottom || isInRecoveryWindow) {
+           (!nowAtBottom || isInRecoveryWindow || isStreamingContentGrowth) {
             // Throttle recovery to prevent overwhelming LazyVStack.
             // Without throttling, geometry updates at ~60fps fire
             // scrollToEdge every ~16ms — LazyVStack needs time between
             // scroll attempts to materialize views at the new position.
             //
-            // Two throttle rates:
+            // Three throttle tiers:
+            //   • Streaming (50ms / ~20Hz) — content is actively growing
+            //     in followingBottom mode. The ID-based auto-follow above
+            //     is deduped during single-message streaming (same
+            //     lastMessageId), so recovery is the actual mechanism
+            //     keeping the viewport at bottom. 50ms gives smooth
+            //     following without overwhelming LazyVStack.
             //   • Burst (50ms / ~20Hz) — first 500ms after conversation
             //     switch or reset. LazyVStack height estimates are most
             //     inaccurate immediately after a switch, especially for
@@ -251,8 +255,12 @@ extension MessageListView {
             //     in very long conversations.
             let now = Date()
             let throttleInterval: TimeInterval
-            if let deadline = scrollState.recoveryDeadline,
-               deadline.timeIntervalSince(now) > 1.5 {
+            if isStreamingContentGrowth {
+                // Content actively growing during streaming — recovery
+                // is the primary follow mechanism (auto-follow is deduped).
+                throttleInterval = 0.05
+            } else if let deadline = scrollState.recoveryDeadline,
+                      deadline.timeIntervalSince(now) > 1.5 {
                 // Within first 500ms of the 2-second window — burst mode.
                 throttleInterval = 0.05
             } else {
