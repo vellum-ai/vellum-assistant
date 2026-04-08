@@ -642,8 +642,13 @@ struct TeleportSection: View {
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch let error as PlatformMigrationClient.PlatformMigrationError {
-                    // Permanent HTTP errors (auth, not found, etc.) — fail fast
-                    throw error
+                    // Only fail fast on permanent 4xx errors
+                    // Retry transient 5xx errors
+                    if case .requestFailed(let statusCode, _) = error, (400..<500).contains(statusCode) {
+                        throw error
+                    }
+                    // Transient server error — retry on next cycle
+                    continue
                 } catch {
                     // Transient network errors — retry on next cycle
                     continue

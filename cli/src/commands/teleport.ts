@@ -510,11 +510,19 @@ async function exportFromAssistant(
         status = await platformPollExportStatus(jobId, token, entry.runtimeUrl);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        // Re-throw permanent errors (not found, auth failures, etc.)
-        // Only retry on transient network/connection errors
-        if (msg.includes("not found") || msg.includes("status check failed")) {
+        if (msg.includes("not found")) {
           throw err;
         }
+        // Re-throw permanent 4xx errors (auth, forbidden, etc.)
+        // but retry transient 5xx errors
+        const statusMatch = msg.match(/status check failed: (\d+)/);
+        if (statusMatch) {
+          const statusCode = parseInt(statusMatch[1], 10);
+          if (statusCode >= 400 && statusCode < 500) {
+            throw err;
+          }
+        }
+        // Transient error — retry
         console.warn(`Polling failed, retrying... (${msg})`);
         await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
         continue;
@@ -745,14 +753,19 @@ async function importToAssistant(
           );
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          // Re-throw permanent errors (not found, auth failures, etc.)
-          // Only retry on transient network/connection errors
-          if (
-            msg.includes("not found") ||
-            msg.includes("status check failed")
-          ) {
+          if (msg.includes("not found")) {
             throw err;
           }
+          // Re-throw permanent 4xx errors (auth, forbidden, etc.)
+          // but retry transient 5xx errors
+          const statusMatch = msg.match(/status check failed: (\d+)/);
+          if (statusMatch) {
+            const statusCode = parseInt(statusMatch[1], 10);
+            if (statusCode >= 400 && statusCode < 500) {
+              throw err;
+            }
+          }
+          // Transient error — retry
           console.warn(`Polling failed, retrying... (${msg})`);
           continue;
         }
