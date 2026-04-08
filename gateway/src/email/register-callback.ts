@@ -1,5 +1,6 @@
 import type { CredentialCache } from "../credential-cache.js";
 import { credentialKey } from "../credential-key.js";
+import { fetchImpl } from "../fetch.js";
 import { getLogger } from "../logger.js";
 
 const log = getLogger("email-callback");
@@ -75,7 +76,7 @@ export async function registerEmailCallbackRoute(
     return undefined;
   }
 
-  const response = await fetch(
+  const response = await fetchImpl(
     `${platformBaseUrl}/v1/internal/gateway/callback-routes/register/`,
     {
       method: "POST",
