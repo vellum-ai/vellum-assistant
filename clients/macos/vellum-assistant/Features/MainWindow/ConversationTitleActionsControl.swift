@@ -73,6 +73,9 @@ struct ConversationTitleActionsControl: View {
             }
         }
         #if os(macOS)
+        .onDisappear {
+            dismissMenu()
+        }
         .onChange(of: presentation.localConversationId) { _, _ in
             dismissMenu()
         }
