@@ -115,6 +115,8 @@ The daemon uses `DAEMON_INTERNAL_ASSISTANT_ID` (`'self'`) from `assistant/src/ru
 
 Feature flags use simple kebab-case keys (e.g., `browser`, `ces-tools`). Declare new flags in `meta/feature-flags/feature-flag-registry.json` with `scope: "assistant"`. The resolver in `assistant/src/config/assistant-feature-flags.ts` checks config overrides, then registry defaults, then defaults to enabled. Guard tests enforce format, registry declaration, and canonical keys.
 
+**Cross-repo requirement**: When adding a new flag, you must also open a PR in [`vellum-assistant-platform`](../vellum-assistant-platform) to add the flag to the LaunchDarkly Terraform configuration (`terraform/`). The CI Feature Flag Sync Check will fail on unrelated PRs if the flag exists in the registry here but is not provisioned on the platform. See `meta/feature-flags/AGENTS.md` for full steps.
+
 ## LLM Provider Abstraction
 
 All LLM calls must go through the provider abstraction — use `getConfiguredProvider()` from `providers/provider-send-message.ts`. Never import `@anthropic-ai/sdk` directly (only `providers/anthropic/client.ts` may). Guard test: `no-direct-anthropic-sdk-imports.test.ts`.
@@ -191,6 +193,7 @@ When making changes that could affect the cloud platform, review the sibling `..
 - HTTP server behavior and API contracts.
 - Stored file and directory structure changes (workspace paths, on-disk formats, exports/imports, migrations).
 - Dockerfile or container runtime/build changes.
+- **Feature flags**: Adding a flag to `meta/feature-flags/feature-flag-registry.json` requires a companion PR in `vellum-assistant-platform` to provision the flag in Terraform. See the [Assistant Feature Flags](#assistant-feature-flags) section.
 
 ## Sentry & Linear Integration
 
