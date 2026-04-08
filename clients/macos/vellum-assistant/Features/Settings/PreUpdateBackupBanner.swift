@@ -11,9 +11,13 @@ import VellumAssistantShared
 /// (which is gated on managed/cloud assistants only). The banner only renders
 /// when `preUpdateBackupPath` is set in defaults and the file still exists on
 /// disk; otherwise it's a no-op.
+///
+/// `assistant` is required (not optional): the call site must wait for the
+/// active lockfile assistant to load before mounting this view, since
+/// `performLocalRestore` needs to bounce that specific assistant after import.
 @MainActor
 struct PreUpdateBackupBanner: View {
-    let assistant: LockfileAssistant?
+    let assistant: LockfileAssistant
 
     @AppStorage("preUpdateBackupPath") private var preUpdateBackupPath: String?
 
@@ -101,20 +105,18 @@ struct PreUpdateBackupBanner: View {
                     successMessage = "Backup restored. Restarting assistant..."
 
                     // Auto-restart the assistant so restored state takes effect.
-                    if let assistant {
-                        let assistantName = assistant.assistantId
-                        let isDocker = assistant.isDocker
-                        Task {
-                            if isDocker {
-                                try? await AppDelegate.shared?.vellumCli.sleep(name: assistantName)
-                            } else {
-                                await AppDelegate.shared?.vellumCli.stop(name: assistantName)
-                            }
-                            try? await Task.sleep(nanoseconds: 500_000_000)
-                            try? await AppDelegate.shared?.vellumCli.wake(name: assistantName)
-                            // Reload avatar after restart so the restored avatar is displayed.
-                            AvatarAppearanceManager.shared.reloadAvatar()
+                    let assistantName = assistant.assistantId
+                    let isDocker = assistant.isDocker
+                    Task {
+                        if isDocker {
+                            try? await AppDelegate.shared?.vellumCli.sleep(name: assistantName)
+                        } else {
+                            await AppDelegate.shared?.vellumCli.stop(name: assistantName)
                         }
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                        try? await AppDelegate.shared?.vellumCli.wake(name: assistantName)
+                        // Reload avatar after restart so the restored avatar is displayed.
+                        AvatarAppearanceManager.shared.reloadAvatar()
                     }
                     return true
                 }

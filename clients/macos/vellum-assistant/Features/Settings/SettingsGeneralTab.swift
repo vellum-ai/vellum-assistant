@@ -79,9 +79,13 @@ struct SettingsGeneralTab: View {
                 )
             }
             // Pre-update backup recovery — visible to all assistant types when
-            // a `.vbundle` snapshot from the most recent app update is still on disk.
-            // Renders nothing if no pre-update backup path is set.
-            PreUpdateBackupBanner(assistant: currentAssistant)
+            // a `.vbundle` snapshot from the most recent app update is still on
+            // disk. Gated on a loaded `currentAssistant` so the post-restore
+            // restart can target a specific assistant. Renders nothing if no
+            // pre-update backup path is set.
+            if let assistant = currentAssistant {
+                PreUpdateBackupBanner(assistant: assistant)
+            }
             if MacOSClientFeatureFlagManager.shared.isEnabled("teleport"),
                let assistant = currentAssistant,
                !assistant.isManaged && (!assistant.isRemote || assistant.isDocker) {
