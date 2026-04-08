@@ -203,9 +203,7 @@ struct SettingsGeneralTab: View {
                             .frame(width: 100, alignment: .leading)
 
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            ProgressView(value: Double(disk.usedMb), total: Double(max(disk.totalMb, 1)))
-                                .progressViewStyle(.linear)
-                                .tint(Double(disk.usedMb) / Double(max(disk.totalMb, 1)) > 0.9 ? VColor.systemNegativeStrong : VColor.systemPositiveStrong)
+                            diskUsageBar(usedMb: disk.usedMb, totalMb: disk.totalMb)
                             Text("\(formatMb(disk.usedMb)) used of \(formatMb(disk.totalMb))")
                                 .font(VFont.bodyMediumLighter)
                                 .foregroundStyle(VColor.contentDefault)
@@ -236,6 +234,28 @@ struct SettingsGeneralTab: View {
                 }
             }
         }
+    }
+
+    /// Custom disk usage bar built from Capsule shapes. Avoids `ProgressView(.linear)`
+    /// because on macOS its tint is overridden by the system accent color, which
+    /// renders as orange on default installs instead of the themed green.
+    private func diskUsageBar(usedMb: Double, totalMb: Double) -> some View {
+        let ratio = min(1.0, max(0.0, usedMb / max(totalMb, 1)))
+        let isCritical = ratio > 0.9
+        let fillColor = isCritical ? VColor.systemNegativeStrong : VColor.systemPositiveStrong
+        return GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(VColor.borderHover)
+                Capsule()
+                    .fill(fillColor)
+                    .frame(width: ratio * geo.size.width)
+            }
+        }
+        .frame(height: 8)
+        .accessibilityElement()
+        .accessibilityLabel("Disk usage")
+        .accessibilityValue("\(Int(ratio * 100)) percent")
     }
 
     private func resourceRow(label: String, value: String) -> some View {
