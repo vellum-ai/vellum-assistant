@@ -23,11 +23,7 @@ struct SidebarSectionView: View {
     let isDropTarget: Bool
     let countMode: CountMode
 
-    let isRenaming: Bool
-    @Binding var renamingName: String
     var onRename: ((String) -> Void)?
-    var onCommitRename: ((String) -> Void)?
-    var onCancelRename: (() -> Void)?
     var onDelete: (() -> Void)?
     var onMarkAllRead: (() -> Void)? = nil
     var onMarkAllReadInSubGroup: ((String, [UUID]) -> Void)? = nil
@@ -116,12 +112,8 @@ struct SidebarSectionView: View {
             isGroupReorderTarget: !group.isSystemGroup && sidebar?.dropTargetSectionId == group.id && sidebar?.draggingConversationId == nil,
             groupDropIndicatorAtBottom: sidebar?.groupDropIndicatorAtBottom ?? false,
             aggregateState: aggregateState,
-            isRenaming: isRenaming,
-            renamingName: $renamingName,
             onToggleExpand: onToggleExpand,
             onRename: onRename,
-            onCommitRename: onCommitRename,
-            onCancelRename: onCancelRename,
             onDelete: onDelete,
             onMarkAllRead: onMarkAllRead,
             hasUnreadConversations: unreadCount > 0,

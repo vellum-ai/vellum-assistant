@@ -26,19 +26,14 @@ struct SidebarSectionHeader: View {
     let isGroupReorderTarget: Bool
     let groupDropIndicatorAtBottom: Bool
     let aggregateState: SectionAggregateState
-    let isRenaming: Bool                       // M5: inline rename active
-    @Binding var renamingName: String           // M5: bound to rename text field
     var onToggleExpand: () -> Void
     var onRename: ((String) -> Void)?
-    var onCommitRename: ((String) -> Void)?
-    var onCancelRename: (() -> Void)?
     var onDelete: (() -> Void)?
     var onMarkAllRead: (() -> Void)? = nil
     var hasUnreadConversations: Bool = false
     var onArchiveAll: (() -> Void)? = nil
     var sidebar: SidebarInteractionState?
 
-    @FocusState private var isRenameFocused: Bool
     @State private var isHeaderHovered: Bool = false
 
     private var isGroupPinned: Bool {
@@ -70,23 +65,9 @@ struct SidebarSectionHeader: View {
                 .animation(VAnimation.fast, value: isHeaderHovered)
                 .frame(width: SidebarLayoutMetrics.iconSlotSize, height: SidebarLayoutMetrics.iconSlotSize)
 
-            if isRenaming {
-                TextField("Group name", text: $renamingName, onCommit: {
-                    onCommitRename?(renamingName)
-                })
-                .font(VFont.bodyMediumDefault)
-                .textFieldStyle(.plain)
-                .focused($isRenameFocused)
-                .onAppear { isRenameFocused = true }
-                .onExitCommand {
-                    // Cancel rename on Escape — discard edits without API call
-                    onCancelRename?()
-                }
-            } else {
-                Text(group.name)
-                    .font(VFont.bodySmallDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-            }
+            Text(group.name)
+                .font(VFont.bodySmallDefault)
+                .foregroundStyle(VColor.contentSecondary)
 
             Spacer()
             if !isExpanded {

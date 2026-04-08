@@ -164,7 +164,7 @@ final class SidebarInteractionState {
 
     // MARK: - Group Rename State
 
-    /// Group ID currently being renamed inline. Set when "Rename" is selected from context menu.
+    /// Group ID currently being renamed. Set when "Rename" is selected from context menu.
     var renamingGroupId: String?
     /// Text field content for the group currently being renamed.
     var renamingGroupName: String = ""
