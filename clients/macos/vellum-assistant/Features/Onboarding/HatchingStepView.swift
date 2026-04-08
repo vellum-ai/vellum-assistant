@@ -181,10 +181,10 @@ struct HatchingStepView: View {
                     .font(VFont.titleLarge)
                     .foregroundStyle(VColor.contentDefault)
             } else {
-                Text("Waking up...")
+                Text("Waking Up")
                     .font(VFont.titleLarge)
                     .foregroundStyle(VColor.contentDefault)
-                Text("Hang tight \u{2014} your assistant will have a few\nquestions for you once it\u{2019}s up.")
+                Text("Hang tight - your assistant will have a few questions once it's up.")
                     .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentTertiary)
                     .multilineTextAlignment(.center)
