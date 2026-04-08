@@ -462,6 +462,246 @@ struct ChatDiagnosticsStoreTests {
         #expect(ChatDiagnosticEventKind.stallDetected.rawValue == "stallDetected")
         #expect(ChatDiagnosticEventKind.appLifecycle.rawValue == "appLifecycle")
     }
+
+    // MARK: - Surface Metadata Fields
+
+    @Test @MainActor
+    func eventWithSurfaceMetadataRoundTrips() throws {
+        let event = ChatDiagnosticEvent(
+            kind: .scrollPositionChanged,
+            conversationId: "conv-surface",
+            reason: "stream-append",
+            source: .transcriptProjector,
+            interaction: .stream,
+            expandedProgressCardCount: 2,
+            composerPopupState: .slash,
+            scrollIntentSource: .followBottom
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(event)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        // New surface metadata fields must be present.
+        #expect(json["source"] as? String == "transcriptProjector")
+        #expect(json["interaction"] as? String == "stream")
+        #expect(json["expandedProgressCardCount"] as? Int == 2)
+        #expect(json["composerPopupState"] as? String == "slash")
+        #expect(json["scrollIntentSource"] as? String == "followBottom")
+
+        // Round-trip through decoder.
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(ChatDiagnosticEvent.self, from: data)
+        #expect(decoded.source == .transcriptProjector)
+        #expect(decoded.interaction == .stream)
+        #expect(decoded.expandedProgressCardCount == 2)
+        #expect(decoded.composerPopupState == .slash)
+        #expect(decoded.scrollIntentSource == .followBottom)
+    }
+
+    @Test @MainActor
+    func eventWithNilSurfaceMetadataOmitsFields() throws {
+        let event = ChatDiagnosticEvent(
+            kind: .appLifecycle,
+            reason: "launch"
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(event)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        let surfaceKeys = ["source", "interaction", "expandedProgressCardCount",
+                           "composerPopupState", "scrollIntentSource"]
+        for key in surfaceKeys {
+            let val = json[key]
+            let isAbsentOrNull = val == nil || val is NSNull
+            #expect(isAbsentOrNull,
+                    "Surface metadata field '\(key)' should be absent or null when not set")
+        }
+    }
+
+    @Test @MainActor
+    func eventSurfaceMetadataIsContentSafe() throws {
+        let event = ChatDiagnosticEvent(
+            kind: .progressCardTransition,
+            conversationId: "conv-safe",
+            source: .progressCard,
+            interaction: .manualExpansion,
+            expandedProgressCardCount: 3,
+            composerPopupState: .emoji,
+            scrollIntentSource: .manual
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(event)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        // Must NOT contain any user-content keys.
+        let forbiddenKeys = ["messageText", "text", "toolInput", "toolOutput",
+                             "html", "surfaceHtml", "attachmentContent", "body"]
+        for key in forbiddenKeys {
+            #expect(json[key] == nil,
+                    "JSON with surface metadata must not contain user-content key '\(key)'")
+        }
+    }
+
+    @Test @MainActor
+    func snapshotWithSurfaceMetadataRoundTrips() throws {
+        let snapshot = ChatTranscriptSnapshot(
+            conversationId: "conv-snap-surface",
+            capturedAt: Date(),
+            messageCount: 15,
+            toolCallCount: 4,
+            isPinnedToBottom: true,
+            isUserScrolling: false,
+            scrollOffsetY: 500.0,
+            contentHeight: 3000.0,
+            viewportHeight: 800.0,
+            source: .chatView,
+            expandedProgressCardCount: 1,
+            composerPopupState: ComposerPopupState.none,
+            scrollIntentSource: .anchor
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(snapshot)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        #expect(json["source"] as? String == "chatView")
+        #expect(json["expandedProgressCardCount"] as? Int == 1)
+        #expect(json["composerPopupState"] as? String == "none")
+        #expect(json["scrollIntentSource"] as? String == "anchor")
+
+        // Round-trip through decoder.
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(ChatTranscriptSnapshot.self, from: data)
+        #expect(decoded.source == .chatView)
+        #expect(decoded.expandedProgressCardCount == 1)
+        #expect(decoded.composerPopupState == ComposerPopupState.none)
+        #expect(decoded.scrollIntentSource == .anchor)
+    }
+
+    @Test @MainActor
+    func snapshotWithNilSurfaceMetadataOmitsFields() throws {
+        let snapshot = ChatTranscriptSnapshot(
+            conversationId: "conv-nil-surface",
+            capturedAt: Date(),
+            messageCount: 5,
+            toolCallCount: 0,
+            isPinnedToBottom: true,
+            isUserScrolling: false
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(snapshot)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        let surfaceKeys = ["source", "expandedProgressCardCount",
+                           "composerPopupState", "scrollIntentSource"]
+        for key in surfaceKeys {
+            let val = json[key]
+            let isAbsentOrNull = val == nil || val is NSNull
+            #expect(isAbsentOrNull,
+                    "Snapshot surface field '\(key)' should be absent or null when not set")
+        }
+    }
+
+    @Test @MainActor
+    func storeRecordsEventWithSurfaceMetadata() {
+        let store = ChatDiagnosticsStore()
+
+        store.record(ChatDiagnosticEvent(
+            kind: .scrollPositionChanged,
+            conversationId: "conv-record",
+            source: .scrollCoordinator,
+            interaction: .anchorJump,
+            expandedProgressCardCount: 0,
+            composerPopupState: ComposerPopupState.none,
+            scrollIntentSource: .anchor
+        ))
+
+        #expect(store.events.count == 1)
+        let recorded = store.events.first
+        #expect(recorded?.source == .scrollCoordinator)
+        #expect(recorded?.interaction == .anchorJump)
+        #expect(recorded?.expandedProgressCardCount == 0)
+        #expect(recorded?.composerPopupState == ComposerPopupState.none)
+        #expect(recorded?.scrollIntentSource == .anchor)
+    }
+
+    @Test @MainActor
+    func storeSnapshotRetainsSurfaceMetadata() {
+        let store = ChatDiagnosticsStore()
+
+        let snapshot = ChatTranscriptSnapshot(
+            conversationId: "conv-snap-retain",
+            capturedAt: Date(),
+            messageCount: 8,
+            toolCallCount: 2,
+            isPinnedToBottom: true,
+            isUserScrolling: false,
+            source: .composerController,
+            expandedProgressCardCount: 3,
+            composerPopupState: .emoji,
+            scrollIntentSource: .resizeRecovery
+        )
+
+        store.updateSnapshot(snapshot)
+        let retrieved = store.snapshot(for: "conv-snap-retain")
+        #expect(retrieved?.source == .composerController)
+        #expect(retrieved?.expandedProgressCardCount == 3)
+        #expect(retrieved?.composerPopupState == .emoji)
+        #expect(retrieved?.scrollIntentSource == .resizeRecovery)
+    }
+
+    // MARK: - Surface Metrics Enum Stability
+
+    @Test
+    func sourceRawValuesAreStable() {
+        #expect(ChatSurfaceMetrics.Source.chatView.rawValue == "chatView")
+        #expect(ChatSurfaceMetrics.Source.transcriptProjector.rawValue == "transcriptProjector")
+        #expect(ChatSurfaceMetrics.Source.messageList.rawValue == "messageList")
+        #expect(ChatSurfaceMetrics.Source.chatBubble.rawValue == "chatBubble")
+        #expect(ChatSurfaceMetrics.Source.progressCard.rawValue == "progressCard")
+        #expect(ChatSurfaceMetrics.Source.composerController.rawValue == "composerController")
+        #expect(ChatSurfaceMetrics.Source.composerTextBridge.rawValue == "composerTextBridge")
+        #expect(ChatSurfaceMetrics.Source.scrollCoordinator.rawValue == "scrollCoordinator")
+    }
+
+    @Test
+    func interactionRawValuesAreStable() {
+        #expect(ChatSurfaceMetrics.Interaction.send.rawValue == "send")
+        #expect(ChatSurfaceMetrics.Interaction.stream.rawValue == "stream")
+        #expect(ChatSurfaceMetrics.Interaction.manualScroll.rawValue == "manualScroll")
+        #expect(ChatSurfaceMetrics.Interaction.manualExpansion.rawValue == "manualExpansion")
+        #expect(ChatSurfaceMetrics.Interaction.emojiPopup.rawValue == "emojiPopup")
+        #expect(ChatSurfaceMetrics.Interaction.slashPopup.rawValue == "slashPopup")
+        #expect(ChatSurfaceMetrics.Interaction.anchorJump.rawValue == "anchorJump")
+        #expect(ChatSurfaceMetrics.Interaction.searchJump.rawValue == "searchJump")
+    }
+
+    @Test
+    func composerPopupStateRawValuesAreStable() {
+        #expect(ComposerPopupState.slash.rawValue == "slash")
+        #expect(ComposerPopupState.emoji.rawValue == "emoji")
+        #expect(ComposerPopupState.none.rawValue == "none")
+    }
+
+    @Test
+    func scrollIntentSourceRawValuesAreStable() {
+        #expect(ScrollIntentSource.followBottom.rawValue == "followBottom")
+        #expect(ScrollIntentSource.manual.rawValue == "manual")
+        #expect(ScrollIntentSource.anchor.rawValue == "anchor")
+        #expect(ScrollIntentSource.search.rawValue == "search")
+        #expect(ScrollIntentSource.resizeRecovery.rawValue == "resizeRecovery")
+    }
 }
 
 // MARK: - Test Helpers

@@ -57,6 +57,24 @@ enum ChatDiagnosticEventKind: String, Codable, Sendable {
     case appLifecycle
 }
 
+/// Content-safe popup state for the composer.
+/// The raw value is written into JSONL logs and must remain stable.
+enum ComposerPopupState: String, Codable, Sendable {
+    case slash
+    case emoji
+    case none
+}
+
+/// Content-safe scroll intent source.
+/// The raw value is written into JSONL logs and must remain stable.
+enum ScrollIntentSource: String, Codable, Sendable {
+    case followBottom
+    case manual
+    case anchor
+    case search
+    case resizeRecovery
+}
+
 /// Content-safe diagnostic event.
 ///
 /// **Privacy invariant**: events record only identifiers, flags, counts, and
@@ -94,6 +112,19 @@ struct ChatDiagnosticEvent: Codable, Sendable {
     /// Viewport height at event time.
     let viewportHeight: Double?
 
+    // MARK: Surface metadata
+
+    /// The chat-surface component that originated this event.
+    let source: ChatSurfaceMetrics.Source?
+    /// The user/system interaction that triggered this event.
+    let interaction: ChatSurfaceMetrics.Interaction?
+    /// Number of progress cards currently in the expanded state.
+    let expandedProgressCardCount: Int?
+    /// Current composer popup state (slash picker, emoji picker, or none).
+    let composerPopupState: ComposerPopupState?
+    /// The source of the current scroll intent.
+    let scrollIntentSource: ScrollIntentSource?
+
     // MARK: Sanitization metadata
 
     /// Names of geometry fields whose original values were non-finite
@@ -111,6 +142,11 @@ struct ChatDiagnosticEvent: Codable, Sendable {
         scrollOffsetY: Double? = nil,
         contentHeight: Double? = nil,
         viewportHeight: Double? = nil,
+        source: ChatSurfaceMetrics.Source? = nil,
+        interaction: ChatSurfaceMetrics.Interaction? = nil,
+        expandedProgressCardCount: Int? = nil,
+        composerPopupState: ComposerPopupState? = nil,
+        scrollIntentSource: ScrollIntentSource? = nil,
         nonFiniteFields: [String]? = nil
     ) {
         self.id = UUID().uuidString
@@ -125,6 +161,11 @@ struct ChatDiagnosticEvent: Codable, Sendable {
         self.scrollOffsetY = scrollOffsetY
         self.contentHeight = contentHeight
         self.viewportHeight = viewportHeight
+        self.source = source
+        self.interaction = interaction
+        self.expandedProgressCardCount = expandedProgressCardCount
+        self.composerPopupState = composerPopupState
+        self.scrollIntentSource = scrollIntentSource
         self.nonFiniteFields = nonFiniteFields
     }
 
@@ -142,6 +183,11 @@ struct ChatDiagnosticEvent: Codable, Sendable {
         scrollOffsetY: Double? = nil,
         contentHeight: Double? = nil,
         viewportHeight: Double? = nil,
+        source: ChatSurfaceMetrics.Source? = nil,
+        interaction: ChatSurfaceMetrics.Interaction? = nil,
+        expandedProgressCardCount: Int? = nil,
+        composerPopupState: ComposerPopupState? = nil,
+        scrollIntentSource: ScrollIntentSource? = nil,
         nonFiniteFields: [String]? = nil
     ) {
         self.id = id
@@ -156,6 +202,11 @@ struct ChatDiagnosticEvent: Codable, Sendable {
         self.scrollOffsetY = scrollOffsetY
         self.contentHeight = contentHeight
         self.viewportHeight = viewportHeight
+        self.source = source
+        self.interaction = interaction
+        self.expandedProgressCardCount = expandedProgressCardCount
+        self.composerPopupState = composerPopupState
+        self.scrollIntentSource = scrollIntentSource
         self.nonFiniteFields = nonFiniteFields
     }
 }
@@ -210,6 +261,17 @@ struct ChatTranscriptSnapshot: Codable, Sendable {
     /// serialized snapshots.
     let scrollLoopGuardCounts: [String: Int]?
 
+    // MARK: Surface metadata
+
+    /// The chat-surface component that last updated this snapshot.
+    let source: ChatSurfaceMetrics.Source?
+    /// Number of progress cards currently in the expanded state.
+    let expandedProgressCardCount: Int?
+    /// Current composer popup state (slash picker, emoji picker, or none).
+    let composerPopupState: ComposerPopupState?
+    /// The source of the current scroll intent.
+    let scrollIntentSource: ScrollIntentSource?
+
     // MARK: Sanitization metadata
 
     /// Names of geometry fields whose original values were non-finite
@@ -239,6 +301,10 @@ struct ChatTranscriptSnapshot: Codable, Sendable {
         lastScrollToReason: String? = nil,
         lastLoopWarningTimestamp: Date? = nil,
         scrollLoopGuardCounts: [String: Int]? = nil,
+        source: ChatSurfaceMetrics.Source? = nil,
+        expandedProgressCardCount: Int? = nil,
+        composerPopupState: ComposerPopupState? = nil,
+        scrollIntentSource: ScrollIntentSource? = nil,
         nonFiniteFields: [String]? = nil
     ) {
         self.conversationId = conversationId
@@ -263,6 +329,10 @@ struct ChatTranscriptSnapshot: Codable, Sendable {
         self.lastScrollToReason = lastScrollToReason
         self.lastLoopWarningTimestamp = lastLoopWarningTimestamp
         self.scrollLoopGuardCounts = scrollLoopGuardCounts
+        self.source = source
+        self.expandedProgressCardCount = expandedProgressCardCount
+        self.composerPopupState = composerPopupState
+        self.scrollIntentSource = scrollIntentSource
         self.nonFiniteFields = nonFiniteFields
     }
 }
