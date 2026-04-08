@@ -239,7 +239,7 @@ public final class SubagentDetailStore {
 
     /// Record a status change with optional usage stats.
     public func recordStatusChanged(subagentId: String, status: SubagentStatus, usage: UsageStats?) {
-        if let usage, status.isTerminal {
+        if usage != nil, status.isTerminal {
             terminalUsageReceivedIds.insert(subagentId)
         }
         if let usage {
