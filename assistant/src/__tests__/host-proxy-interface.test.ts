@@ -7,6 +7,7 @@ import type {
   HostProxyTransportMetadata,
   NonHostProxyTransportMetadata,
 } from "../daemon/message-types/conversations.js";
+import { isHostProxyTransport } from "../daemon/message-types/conversations.js";
 
 // ---------------------------------------------------------------------------
 // supportsHostProxy — runtime behavior
@@ -107,5 +108,58 @@ describe("supportsHostProxy (type predicate)", () => {
       const narrowed: NonHostProxyTransportMetadata = transport;
       expect(narrowed.interfaceId).toBe("ios");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isHostProxyTransport — type guard on ConversationTransportMetadata
+// ---------------------------------------------------------------------------
+
+describe("isHostProxyTransport", () => {
+  test("returns true for macOS transport and narrows to HostProxyTransportMetadata", () => {
+    const transport: ConversationTransportMetadata = {
+      channelId: "vellum",
+      interfaceId: "macos",
+      hostHomeDir: "/Users/alice",
+      hostUsername: "alice",
+    };
+
+    expect(isHostProxyTransport(transport)).toBe(true);
+
+    if (isHostProxyTransport(transport)) {
+      const narrowed: HostProxyTransportMetadata = transport;
+      expect(narrowed.hostHomeDir).toBe("/Users/alice");
+      expect(narrowed.hostUsername).toBe("alice");
+    } else {
+      throw new Error("narrowing branch not taken");
+    }
+  });
+
+  test("returns false for every non-host-proxy interface", () => {
+    const nonHostProxyIds: Array<Exclude<InterfaceId, HostProxyInterfaceId>> = [
+      "ios",
+      "cli",
+      "telegram",
+      "phone",
+      "vellum",
+      "whatsapp",
+      "slack",
+      "email",
+      "chrome-extension",
+    ];
+    for (const interfaceId of nonHostProxyIds) {
+      const transport: ConversationTransportMetadata = {
+        channelId: "vellum",
+        interfaceId,
+      };
+      expect(isHostProxyTransport(transport)).toBe(false);
+    }
+  });
+
+  test("returns false when interfaceId is absent", () => {
+    const transport: ConversationTransportMetadata = {
+      channelId: "vellum",
+    };
+    expect(isHostProxyTransport(transport)).toBe(false);
   });
 });

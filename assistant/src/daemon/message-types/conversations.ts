@@ -5,6 +5,7 @@ import type {
   HostProxyInterfaceId,
   InterfaceId,
 } from "../../channels/types.js";
+import { supportsHostProxy } from "../../channels/types.js";
 import type { ConversationType } from "./shared.js";
 import type { UserMessageAttachment } from "./shared.js";
 
@@ -70,6 +71,21 @@ export interface NonHostProxyTransportMetadata extends BaseTransportMetadata {
 export type ConversationTransportMetadata =
   | HostProxyTransportMetadata
   | NonHostProxyTransportMetadata;
+
+/**
+ * Type guard: does this transport belong to an interface that supports the
+ * full host-proxy set? Wraps `supportsHostProxy` so the capability logic
+ * stays in one place (channels/types.ts) and narrows the discriminated
+ * union to `HostProxyTransportMetadata` for safe field access.
+ */
+export function isHostProxyTransport(
+  transport: ConversationTransportMetadata,
+): transport is HostProxyTransportMetadata {
+  return (
+    transport.interfaceId !== undefined &&
+    supportsHostProxy(transport.interfaceId)
+  );
+}
 
 export interface ConversationCreateRequest {
   type: "conversation_create";

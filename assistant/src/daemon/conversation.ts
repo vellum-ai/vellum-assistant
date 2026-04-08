@@ -22,7 +22,6 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
-import { supportsHostProxy } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import type { Speed } from "../config/schemas/inference.js";
@@ -118,6 +117,7 @@ import type {
   UserMessageAttachment,
 } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
+import { isHostProxyTransport } from "./message-types/conversations.js";
 import type {
   AssistantActivityState,
   ConfirmationStateChanged,
@@ -1112,7 +1112,7 @@ export class Conversation {
   applyHostEnvFromTransport(transport: ConversationTransportMetadata): void {
     const prevHomeDir = this.hostHomeDir;
     const prevUsername = this.hostUsername;
-    if (transport.interfaceId && supportsHostProxy(transport.interfaceId)) {
+    if (isHostProxyTransport(transport)) {
       this.hostHomeDir = transport.hostHomeDir;
       this.hostUsername = transport.hostUsername;
     } else {
