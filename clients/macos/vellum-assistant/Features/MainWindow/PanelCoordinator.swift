@@ -486,7 +486,18 @@ extension MainWindowView {
     func fullWindowPanel(_ panel: SidePanelType) -> some View {
         switch panel {
         case .settings:
-            SettingsPanel(onClose: { windowState.dismissOverlay() }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) })
+            SettingsPanel(onClose: { windowState.dismissOverlay() }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) }, onEnableIntegration: {
+                    conversationManager.openConversation(
+                        message: "Which integration would you like to enable?",
+                        forceNew: true
+                    )
+                    if let id = conversationManager.activeConversationId {
+                        windowState.selection = .conversation(id)
+                    } else {
+                        windowState.selection = nil
+                    }
+                    windowState.dismissOverlay()
+                })
         case .debug:
             DebugPanel(
                 traceStore: traceStore,
