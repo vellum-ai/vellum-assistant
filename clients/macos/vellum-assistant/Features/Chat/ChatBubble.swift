@@ -84,6 +84,10 @@ struct ChatBubble: View, Equatable {
     /// Owned but never read in this body — only ChatBubbleOverflowMenu reads it,
     /// so hover changes invalidate only the overflow menu, not this view.
     @State private var hoverState = ChatBubbleHoverState()
+    /// Raw pointer presence — always updated by onHover regardless of
+    /// `supportsOverflowHover`, so we can re-derive hover state when
+    /// the property transitions (e.g. streaming ends while cursor is over bubble).
+    @State private var pointerIsOverBubble = false
     @Environment(\.bubbleMaxWidth) var bubbleMaxWidth
     /// Stores async-parsed segments for large messages (>500 chars) that missed the
     /// synchronous cache. Keyed by text content so multiple segments can be in flight.
@@ -428,12 +432,16 @@ struct ChatBubble: View, Equatable {
         .onChange(of: message.contentOrder) { _, _ in recomputeInterleavedContentCache() }
         .onChange(of: message.textSegments) { _, _ in recomputeInterleavedContentCache() }
         .onHover { hovering in
-            guard supportsOverflowHover else {
-                if hoverState.isHovered { hoverState.isHovered = false }
-                return
+            pointerIsOverBubble = hovering
+            let shouldHover = hovering && supportsOverflowHover
+            if hoverState.isHovered != shouldHover {
+                hoverState.isHovered = shouldHover
             }
-            if hoverState.isHovered != hovering {
-                hoverState.isHovered = hovering
+        }
+        .onChange(of: supportsOverflowHover) { _, supports in
+            let shouldHover = pointerIsOverBubble && supports
+            if hoverState.isHovered != shouldHover {
+                hoverState.isHovered = shouldHover
             }
         }
         .task(id: mediaEmbedTaskID) {
