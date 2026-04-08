@@ -243,7 +243,10 @@ mock.module("../oauth/oauth-store.js", () => ({
       updated.revokeUrl = params.revokeUrl;
     }
     if (params.revokeBodyTemplate !== undefined) {
-      updated.revokeBodyTemplate = JSON.stringify(params.revokeBodyTemplate);
+      updated.revokeBodyTemplate =
+        params.revokeBodyTemplate === null
+          ? null
+          : JSON.stringify(params.revokeBodyTemplate);
     }
     if (params.defaultScopes !== undefined) {
       updated.defaultScopes = JSON.stringify(params.defaultScopes);
@@ -1845,6 +1848,51 @@ describe("assistant oauth providers --revoke-url and --revoke-body-template", ()
     });
     // revokeUrl should still be null (unchanged).
     expect(stored?.revokeUrl).toBeNull();
+  });
+
+  test("providers update --revoke-body-template with empty string clears the stored template to null", async () => {
+    // Seed an existing custom provider that already has a non-null
+    // revokeBodyTemplate set via register.
+    await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-clear-revoke-body",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--revoke-url",
+      "https://revoke.example.com",
+      "--revoke-body-template",
+      '{"token":"{access_token}"}',
+      "--json",
+    ]);
+    const initial = mockProviderStore.get("custom-clear-revoke-body");
+    expect(initial?.revokeBodyTemplate).toBeDefined();
+    expect(JSON.parse(initial?.revokeBodyTemplate as string)).toEqual({
+      token: "{access_token}",
+    });
+
+    // Pass an empty string to --revoke-body-template — the help text promises
+    // this clears the field, so the stored value should end up as null
+    // (not the string "null" or a JSON.parse crash).
+    const { exitCode, stdout } = await runCli([
+      "providers",
+      "update",
+      "custom-clear-revoke-body",
+      "--revoke-body-template",
+      "",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    expect(
+      mockProviderStore.get("custom-clear-revoke-body")?.revokeBodyTemplate,
+    ).toBeNull();
+
+    // The serialized --json output should also reflect null.
+    const parsed = JSON.parse(stdout);
+    expect(parsed.revokeBodyTemplate).toBeNull();
   });
 
   test("providers get google --json includes both fields populated from PR 1's seed data", async () => {
