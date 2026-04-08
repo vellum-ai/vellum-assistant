@@ -488,7 +488,7 @@ export class RuntimeHttpServer {
    * Atomically publish the runtime HTTP port to ~/.vellum/runtime-port so
    * external helpers can locate a non-default `RUNTIME_HTTP_PORT` without
    * any manifest changes. Best-effort — write failures never block
-   * daemon startup (see assistant/CLAUDE.md "Daemon startup philosophy").
+   * daemon startup (see assistant/AGENTS.md "Daemon startup philosophy").
    */
   private writeRuntimePortFile(actualPort: number): void {
     try {
