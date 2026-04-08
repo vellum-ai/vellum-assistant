@@ -164,7 +164,7 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
     } else {
       for (const account of credentialList.accounts) {
         const value = await getSecureKeyAsync(account);
-        if (value) {
+        if (value != null) {
           credentials.push({ account, value });
         }
       }
@@ -484,6 +484,7 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
     if (validation.entries) {
       const bundleCredentials = extractCredentialsFromBundle(
         validation.entries,
+        validation.manifest!,
       );
       if (bundleCredentials.length > 0) {
         try {
