@@ -840,6 +840,28 @@ extension AppDelegate {
     @objc func assistantSwitcherDidRequestRetire(_ sender: NSMenuItem) {
         guard let assistantId = sender.representedObject as? String else { return }
         guard let vm = assistantSwitcherViewModel else { return }
+
+        let assistantName = IdentityInfo.cached(for: assistantId)?.name
+        let displayName = AssistantDisplayName.resolve(assistantName, assistantId)
+
+        let confirmAlert = NSAlert()
+        confirmAlert.messageText = "Retire \(displayName)?"
+        confirmAlert.alertStyle = .warning
+        if vm.assistants.count > 1 {
+            confirmAlert.informativeText = "This will stop the current assistant and switch to another. The retired assistant's lockfile entry will be removed."
+        } else {
+            confirmAlert.informativeText = "This will stop the assistant, remove local data, and return to initial setup. This action cannot be undone."
+        }
+        confirmAlert.addButton(withTitle: "Retire")
+        confirmAlert.addButton(withTitle: "Cancel")
+
+        // Style the primary button as destructive via key equivalent
+        // so Enter triggers "Retire" and Escape triggers "Cancel".
+        confirmAlert.buttons[0].hasDestructiveAction = true
+
+        let response = confirmAlert.runModal()
+        guard response == .alertFirstButtonReturn else { return }
+
         Task { @MainActor in
             do {
                 try await vm.retire(assistantId: assistantId)
