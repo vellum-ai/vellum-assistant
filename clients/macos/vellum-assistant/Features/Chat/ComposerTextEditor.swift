@@ -3,42 +3,11 @@ import AppKit
 import SwiftUI
 import VellumAssistantShared
 
-// MARK: - Bridge Event & Command Contracts
-
-/// Events emitted by the AppKit text view coordinator to notify the SwiftUI layer.
-/// All callbacks are owned by the coordinator — the view installs them once in
-/// `makeNSView` and they remain stable for the lifetime of the representable.
-struct ComposerBridgeEvents {
-    /// Fired when the text content changes. Carries the new text value.
-    var textChanged: ((String) -> Void)?
-    /// Fired when the selection/cursor position changes. Carries UTF-16 offset.
-    var selectionChanged: ((Int) -> Void)?
-    /// Fired when the text view gains or loses first-responder status.
-    var focusChanged: ((Bool) -> Void)?
-    /// Fired when the user presses Return in a "send" configuration.
-    var submitRequested: (() -> Void)?
-}
-
-/// One-way commands that the SwiftUI layer can push into the AppKit text view.
-/// The coordinator processes these during `updateNSView` and clears consumed
-/// values so they don't re-fire on subsequent SwiftUI render passes.
-final class ComposerBridgeCommands {
-    /// When non-nil, the coordinator sets the text view's string to this value
-    /// and clears the field. Only applied when the value differs from the
-    /// current text view content to avoid TextKit re-layout churn.
-    var pendingSetText: String?
-
-    /// When non-nil, the coordinator updates the text view's `isEditable`.
-    var pendingSetEditable: Bool?
-
-    /// When non-nil, the coordinator requests or resigns first-responder status.
-    /// Queued to the next main-turn to avoid mutating window state during
-    /// `updateNSView`.
-    var pendingRequestFocus: Bool?
-
-    /// When non-nil, the coordinator performs an undoable text replacement at
-    /// the given range. Used for emoji insertion and similar programmatic edits.
-    var pendingReplaceRange: (range: NSRange, replacement: String)?
+/// Proxy object that allows callers to programmatically replace text
+/// in the composer's underlying NSTextView. Uses `insertText(_:replacementRange:)`
+/// so replacements participate in the undo stack.
+final class TextReplacementProxy {
+    var replaceText: ((NSRange, String) -> Void)?
 }
 
 /// NSScrollView subclass that reports intrinsic content size based on
@@ -62,13 +31,9 @@ final class IntrinsicScrollView: NSScrollView {
 }
 
 /// NSViewRepresentable wrapper that hosts a ``ComposerTextView`` inside an
-/// ``IntrinsicScrollView``. Communicates with SwiftUI exclusively through
-/// the ``ComposerBridgeEvents`` (AppKit -> SwiftUI) and
-/// ``ComposerBridgeCommands`` (SwiftUI -> AppKit) contracts.
-///
-/// The coordinator never writes to SwiftUI `@Binding` properties directly
-/// from AppKit callbacks. Instead, events flow through the bridge callbacks
-/// and the view layer decides how to translate them into state updates.
+/// ``IntrinsicScrollView``. Manages two-way text and focus binding with
+/// SwiftUI, height measurement via TextKit layout, and callback wiring
+/// for key events, image paste, and submit actions.
 ///
 /// Ref: https://developer.apple.com/documentation/swiftui/nsviewrepresentable
 struct ComposerTextEditor: NSViewRepresentable {
@@ -78,27 +43,26 @@ struct ComposerTextEditor: NSViewRepresentable {
     static let textInsetX: CGFloat = 5   // lineFragmentPadding
     static let textInsetY: CGFloat = 6   // textContainerInset.height
 
+    @Binding var text: String
+    @Binding var isFocused: Bool
+
     let font: NSFont
     let lineSpacing: CGFloat
     let insertionPointColor: NSColor
     let minHeight: CGFloat
     let maxHeight: CGFloat
+    let isEditable: Bool
     let cmdEnterToSend: Bool
     var textColorOverride: NSColor? = nil
+    var onSubmit: (() -> Void)? = nil
     var onTab: (() -> Bool)? = nil
     var onUpArrow: (() -> Bool)? = nil
     var onDownArrow: (() -> Bool)? = nil
     var onEscape: (() -> Bool)? = nil
     var onPasteImage: (() -> Void)? = nil
     var shouldOverrideReturn: (() -> Bool)? = nil
-
-    /// Explicit bridge events — the coordinator fires these instead of
-    /// writing to `@Binding` properties.
-    let bridgeEvents: ComposerBridgeEvents
-
-    /// Explicit bridge commands — the view layer writes pending commands
-    /// here and the coordinator consumes them in `updateNSView`.
-    let bridgeCommands: ComposerBridgeCommands
+    @Binding var cursorPosition: Int
+    var textReplacer: TextReplacementProxy? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -113,7 +77,7 @@ struct ComposerTextEditor: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.scrollerStyle = .overlay
 
-        // Build an explicit TextKit 1 stack to avoid the implicit TextKit 2->1
+        // Build an explicit TextKit 1 stack to avoid the implicit TextKit 2→1
         // downgrade that occurs when accessing `layoutManager` on a default
         // NSTextView (macOS 12+). The downgrade causes visual glitches where
         // typed text is invisible even though the insertion point renders.
@@ -170,6 +134,12 @@ struct ComposerTextEditor: NSViewRepresentable {
         scrollView.documentView = textView
         textView.delegate = context.coordinator
 
+        if let proxy = textReplacer {
+            proxy.replaceText = { [weak textView] range, replacement in
+                textView?.insertText(replacement, replacementRange: range)
+            }
+        }
+
         let coordinator = context.coordinator
 
         coordinator.frameObserver = NotificationCenter.default.addObserver(
@@ -201,39 +171,21 @@ struct ComposerTextEditor: NSViewRepresentable {
         context.coordinator.parent = self
         guard let textView = scrollView.documentView as? ComposerTextView else { return }
 
-        let coordinator = context.coordinator
-        let commands = bridgeCommands
-
-        // --- Process one-way commands ---
-
-        // setText command
-        if let pendingText = commands.pendingSetText {
-            commands.pendingSetText = nil
-            if textView.string != pendingText {
-                textView.string = pendingText
-                textView.scrollRangeToVisible(textView.selectedRange())
-            }
+        if textView.string != text {
+            textView.string = text
+            textView.scrollRangeToVisible(textView.selectedRange())
         }
 
-        // setEditable command
-        if let pendingEditable = commands.pendingSetEditable {
-            commands.pendingSetEditable = nil
-            textView.isEditable = pendingEditable
-        }
-
-        // replaceRange command
-        if let pending = commands.pendingReplaceRange {
-            commands.pendingReplaceRange = nil
-            textView.insertText(pending.replacement, replacementRange: pending.range)
-        }
+        textView.isEditable = isEditable
 
         // Guard attribute updates behind change checks to avoid triggering
         // redundant TextKit re-layouts during the SwiftUI render cycle.
-        // Each keystroke fires textDidChange -> bridge event -> updateNSView;
+        // Each keystroke fires textDidChange → binding update → updateNSView;
         // unconditionally re-stamping font/color/typingAttributes here would
         // cause a layout pass on every character, which can leave glyphs
         // un-drawn until the *next* display cycle (appearing invisible).
-        // Ref: WWDC 2022 "Use SwiftUI with AppKit" -- only update changed props.
+        // Ref: WWDC 2022 "Use SwiftUI with AppKit" — only update changed props.
+        let coordinator = context.coordinator
         let textColor = textColorOverride ?? NSColor(VColor.contentDefault)
 
         let fontChanged = coordinator.lastAppliedFont != font
@@ -260,32 +212,33 @@ struct ComposerTextEditor: NSViewRepresentable {
         }
 
         textView.cmdEnterToSend = cmdEnterToSend
-        textView.onSubmit = bridgeEvents.submitRequested
+        textView.onSubmit = onSubmit
         textView.onTab = onTab
         textView.onUpArrow = onUpArrow
         textView.onDownArrow = onDownArrow
         textView.onEscape = onEscape
         textView.onPasteImage = onPasteImage
         textView.shouldOverrideReturn = shouldOverrideReturn
-        textView.onFocusChanged = { [weak coordinator] focused in
-            coordinator?.scheduleFocusEvent(focused)
+        textView.onFocusChanged = { [weak coordinator = context.coordinator] focused in
+            coordinator?.scheduleFocusBindingUpdate(focused)
+        }
+
+        if let proxy = textReplacer {
+            proxy.replaceText = { [weak textView] range, replacement in
+                textView?.insertText(replacement, replacementRange: range)
+            }
         }
 
         // Re-strip drag types in case TextKit re-registered them during
         // font or attribute updates above.
         textView.unregisterDraggedTypes()
 
-        // requestFocus command — queued to next main turn as a single
-        // bridge policy instead of scattered DispatchQueue.main.async calls.
-        if let shouldFocus = commands.pendingRequestFocus {
-            commands.pendingRequestFocus = nil
-            if let window = textView.window {
-                coordinator.scheduleFirstResponderUpdate(
-                    in: window,
-                    textView: textView,
-                    shouldFocus: shouldFocus
-                )
-            }
+        if let window = textView.window {
+            coordinator.scheduleFirstResponderUpdate(
+                in: window,
+                textView: textView,
+                shouldFocus: isFocused
+            )
         }
 
         context.coordinator.measureHeight(textView)
@@ -314,7 +267,7 @@ struct ComposerTextEditor: NSViewRepresentable {
         var lastAppliedFont: NSFont?
         var lastAppliedLineSpacing: CGFloat?
         var lastAppliedTextColor: NSColor?
-        var pendingFocusEventValue: Bool?
+        var pendingFocusBindingValue: Bool?
         var pendingFirstResponderValue: Bool?
         weak var textView: ComposerTextView?
 
@@ -325,12 +278,13 @@ struct ComposerTextEditor: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             let newText = textView.string
-            // Fire bridge event instead of writing to @Binding directly
-            parent.bridgeEvents.textChanged?(newText)
-
+            if parent.text != newText {
+                parent.text = newText
+            }
             let pos = textView.selectedRange().location
-            parent.bridgeEvents.selectionChanged?(pos)
-
+            if parent.cursorPosition != pos {
+                parent.cursorPosition = pos
+            }
             measureHeight(textView)
         }
 
@@ -339,18 +293,19 @@ struct ComposerTextEditor: NSViewRepresentable {
             // becomeFirstResponder / resignFirstResponder callbacks.
             // This delegate fires only once editing begins (on first
             // keyDown), so it serves as a secondary sync only.
-            scheduleFocusEvent(true)
+            scheduleFocusBindingUpdate(true)
         }
 
         func textDidEndEditing(_ notification: Notification) {
-            scheduleFocusEvent(false)
+            scheduleFocusBindingUpdate(false)
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             let pos = textView.selectedRange().location
-            // Fire bridge event instead of writing to @Binding directly
-            parent.bridgeEvents.selectionChanged?(pos)
+            if parent.cursorPosition != pos {
+                parent.cursorPosition = pos
+            }
         }
 
         func measureHeight(_ textView: NSTextView) {
@@ -367,16 +322,14 @@ struct ComposerTextEditor: NSViewRepresentable {
             }
         }
 
-        /// Schedules a focus event to fire on the next main turn.
-        /// Coalesces rapid focus changes (e.g. becomeFirstResponder
-        /// followed immediately by resignFirstResponder) by checking
-        /// the intended value hasn't been superseded.
-        func scheduleFocusEvent(_ focused: Bool) {
-            pendingFocusEventValue = focused
+        func scheduleFocusBindingUpdate(_ focused: Bool) {
+            pendingFocusBindingValue = focused
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.pendingFocusEventValue == focused else { return }
-                self.pendingFocusEventValue = nil
-                self.parent.bridgeEvents.focusChanged?(focused)
+                guard let self, self.pendingFocusBindingValue == focused else { return }
+                self.pendingFocusBindingValue = nil
+                if self.parent.isFocused != focused {
+                    self.parent.isFocused = focused
+                }
             }
         }
 
