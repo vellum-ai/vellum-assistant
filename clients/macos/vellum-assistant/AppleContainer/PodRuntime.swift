@@ -25,7 +25,7 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
         var bootstrapSecret: String?
         var cesServiceToken: String?
         /// Size of the ext4 rootfs block device per service container.
-        var rootfsSizeInBytes: UInt64 = 512 * 1024 * 1024 // 512 MiB
+        var rootfsSizeInBytes: UInt64 = 2 * 1024 * 1024 * 1024 // 2 GiB
     }
 
     private let kernelStore: KataKernelStore
@@ -55,7 +55,11 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
             store: imageStore, progress: progress
         )
 
-        // 2. Pull and unpack service images.
+        // 2. Create instance directory and pull/unpack service images.
+        try FileManager.default.createDirectory(
+            at: config.instanceDir, withIntermediateDirectories: true
+        )
+
         await progress("Pulling service images...")
         var rootfsMounts: [VellumServiceName: Containerization.Mount] = [:]
         for service in VellumServiceName.startOrder {
@@ -65,9 +69,9 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
             let image = try await pullImage(
                 reference: ref, store: imageStore, progress: progress
             )
-            let rootfsPath = config.instanceDir
-                .appendingPathComponent(".rootfs", isDirectory: true)
-                .appendingPathComponent(service.rawValue, isDirectory: true)
+            let rootfsDir = config.instanceDir.appendingPathComponent(".rootfs", isDirectory: true)
+            try FileManager.default.createDirectory(at: rootfsDir, withIntermediateDirectories: true)
+            let rootfsPath = rootfsDir.appendingPathComponent("\(service.rawValue).ext4")
             rootfsMounts[service] = try await createRootFilesystem(
                 from: image, sizeInBytes: config.rootfsSizeInBytes, at: rootfsPath
             )
