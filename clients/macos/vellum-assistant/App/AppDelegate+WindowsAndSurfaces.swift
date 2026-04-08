@@ -492,7 +492,12 @@ extension AppDelegate {
     @discardableResult
     func ensureMainWindowExists(isFirstLaunch: Bool = false) -> MainWindow {
         if let existing = mainWindow { return existing }
-        let main = MainWindow(services: services, updateManager: updateManager, isFirstLaunch: isFirstLaunch)
+        let main = MainWindow(
+            services: services,
+            updateManager: updateManager,
+            assistantFeatureFlagStore: featureFlagStore,
+            isFirstLaunch: isFirstLaunch
+        )
         main.onMicrophoneToggle = { [weak self] in
             self?.voiceInput?.toggleRecording()
         }

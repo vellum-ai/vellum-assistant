@@ -268,6 +268,7 @@ public final class MainWindow {
     let usageDashboardStore: UsageDashboardStore
     public let windowState = MainWindowState()
     let documentManager = DocumentManager()
+    private let assistantFeatureFlagStore: AssistantFeatureFlagStore
     var onMicrophoneToggle: (() -> Void)?
     let voiceModeManager = VoiceModeManager()
     let updateManager: UpdateManager
@@ -309,9 +310,15 @@ public final class MainWindow {
         conversationManager.activeViewModel
     }
 
-    init(services: AppServices, updateManager: UpdateManager, isFirstLaunch: Bool = false) {
+    init(
+        services: AppServices,
+        updateManager: UpdateManager,
+        assistantFeatureFlagStore: AssistantFeatureFlagStore,
+        isFirstLaunch: Bool = false
+    ) {
         self.services = services
         self.updateManager = updateManager
+        self.assistantFeatureFlagStore = assistantFeatureFlagStore
         self.conversationManager = ConversationManager(
             connectionManager: services.connectionManager,
             eventStreamClient: services.connectionManager.eventStreamClient,
@@ -434,7 +441,7 @@ public final class MainWindow {
             }
         } : nil
 
-        let rootView = MainWindowView(conversationManager: conversationManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, usageDashboardStore: usageDashboardStore, connectionManager: connectionManager, eventStreamClient: eventStreamClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, documentManager: documentManager, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, updateManager: updateManager, onSendWakeUp: wakeUpCallback)
+        let rootView = MainWindowView(conversationManager: conversationManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, usageDashboardStore: usageDashboardStore, connectionManager: connectionManager, eventStreamClient: eventStreamClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, assistantFeatureFlagStore: assistantFeatureFlagStore, documentManager: documentManager, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, updateManager: updateManager, onSendWakeUp: wakeUpCallback)
         let hostingController = NonDraggableHostingController(rootView: rootView)
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)

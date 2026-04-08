@@ -6,18 +6,22 @@ import VellumAssistantShared
 /// - **Ask before acting** — when on the assistant checks in before high-stakes actions.
 /// - **Computer access** — when on the assistant can run commands on the host machine.
 ///
-/// Toggles send `PUT /v1/permission-mode` and update immediately on the SSE response.
+/// Toggles send `PUT /v1/permission-mode` and apply the successful response immediately.
+/// SSE still reconciles follow-up updates from other clients.
 /// The view is feature-flag gated on `permission-controls-v2`.
 struct PermissionModeStatusView: View {
-    @ObservedObject var connectionManager: GatewayConnectionManager
-    private let permissionModeClient: any PermissionModeClientProtocol = PermissionModeClient()
+    @StateObject private var model: PermissionModeStatusModel
 
-    private var askBeforeActing: Bool {
-        connectionManager.permissionMode?.askBeforeActing ?? PermissionModeDefaults.askBeforeActing
-    }
-
-    private var hostAccess: Bool {
-        connectionManager.permissionMode?.hostAccess ?? PermissionModeDefaults.hostAccess
+    init(
+        connectionManager: GatewayConnectionManager,
+        permissionModeClient: any PermissionModeClientProtocol = PermissionModeClient()
+    ) {
+        _model = StateObject(
+            wrappedValue: PermissionModeStatusModel(
+                connectionManager: connectionManager,
+                permissionModeClient: permissionModeClient
+            )
+        )
     }
 
     var body: some View {
@@ -26,26 +30,32 @@ struct PermissionModeStatusView: View {
                 .font(VFont.titleSmall)
                 .foregroundStyle(VColor.contentEmphasized)
 
+            if let lastError = model.lastError {
+                Text(lastError)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.systemNegativeStrong)
+            }
+
             toggleRow(
                 label: "Ask before acting",
-                subtitle: askBeforeActing
+                subtitle: model.askBeforeActing
                     ? "Checks in before high-stakes actions"
                     : "Acts autonomously",
-                isOn: askBeforeActing,
-                icon: askBeforeActing ? .shieldCheck : .shieldOff
+                isOn: model.askBeforeActing,
+                icon: model.askBeforeActing ? .shieldCheck : .shieldOff
             ) {
-                updateMode(askBeforeActing: !askBeforeActing)
+                model.toggleAskBeforeActing()
             }
 
             toggleRow(
                 label: "Computer access",
-                subtitle: hostAccess
+                subtitle: model.hostAccess
                     ? "Can run commands on your computer"
                     : "Cannot access your computer",
-                isOn: hostAccess,
-                icon: hostAccess ? .terminal : .lock
+                isOn: model.hostAccess,
+                icon: model.hostAccess ? .terminal : .lock
             ) {
-                updateMode(hostAccess: !hostAccess)
+                model.toggleHostAccess()
             }
         }
         .padding(VSpacing.lg)
@@ -86,24 +96,12 @@ struct PermissionModeStatusView: View {
             .labelsHidden()
             .controlSize(.small)
             .tint(VColor.systemPositiveStrong)
+            .disabled(model.isUpdating)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(label)
         .accessibilityValue(isOn ? "On" : "Off")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { onToggle() }
-    }
-
-    // MARK: - Network
-
-    private func updateMode(askBeforeActing: Bool? = nil, hostAccess: Bool? = nil) {
-        Task {
-            _ = await permissionModeClient.updatePermissionMode(
-                askBeforeActing: askBeforeActing,
-                hostAccess: hostAccess
-            )
-            // State update arrives via SSE `permission_mode_update` event,
-            // which updates connectionManager.permissionMode automatically.
-        }
     }
 }

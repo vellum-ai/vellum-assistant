@@ -19,7 +19,7 @@ struct MainWindowView: View {
     let traceStore: TraceStore
     let usageDashboardStore: UsageDashboardStore
     @ObservedObject var windowState: MainWindowState
-    @StateObject var assistantFeatureFlagStore: AssistantFeatureFlagStore
+    @ObservedObject var assistantFeatureFlagStore: AssistantFeatureFlagStore
     @State var selectedConversationId: UUID?
     @State var sharing = SharingState()
     @State var sidebar = SidebarInteractionState()
@@ -88,7 +88,7 @@ struct MainWindowView: View {
     /// Whether the permission mode popover is shown.
     @State private var showPermissionModePopover: Bool = false
 
-    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
+    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, assistantFeatureFlagStore: AssistantFeatureFlagStore, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
         self.conversationManager = conversationManager
         self.appListManager = appListManager
         self.zoomManager = zoomManager
@@ -101,9 +101,7 @@ struct MainWindowView: View {
         self.settingsStore = settingsStore
         self.authManager = authManager
         self.windowState = windowState
-        self._assistantFeatureFlagStore = StateObject(
-            wrappedValue: AssistantFeatureFlagStore()
-        )
+        self.assistantFeatureFlagStore = assistantFeatureFlagStore
         self.documentManager = documentManager
         self.onMicrophoneToggle = onMicrophoneToggle
         self.voiceModeManager = voiceModeManager
