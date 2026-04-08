@@ -5,29 +5,32 @@ import XCTest
 @MainActor
 final class MessageListTypographyRefreshTests: XCTestCase {
     func testMessageListContentViewEqualityIncludesTypographyGeneration() {
+        let state = makeDerivedState()
         XCTAssertNotEqual(
-            makeMessageListContentView(typographyGeneration: 0),
-            makeMessageListContentView(typographyGeneration: 1)
+            makeMessageListContentView(state: state, typographyGeneration: 0),
+            makeMessageListContentView(state: state, typographyGeneration: 1)
         )
     }
 
     func testMessageCellViewEqualityIncludesTypographyGeneration() {
+        let message = ChatMessage(role: .assistant, text: "*italic*")
         XCTAssertNotEqual(
-            makeMessageCellView(typographyGeneration: 0),
-            makeMessageCellView(typographyGeneration: 1)
+            makeMessageCellView(message: message, typographyGeneration: 0),
+            makeMessageCellView(message: message, typographyGeneration: 1)
         )
     }
 
     func testChatBubbleEqualityIncludesTypographyGeneration() {
+        let message = ChatMessage(role: .assistant, text: "*italic*")
         XCTAssertNotEqual(
-            makeChatBubble(typographyGeneration: 0),
-            makeChatBubble(typographyGeneration: 1)
+            makeChatBubble(message: message, typographyGeneration: 0),
+            makeChatBubble(message: message, typographyGeneration: 1)
         )
     }
 
-    private func makeMessageListContentView(typographyGeneration: Int) -> MessageListContentView {
+    private func makeMessageListContentView(state: MessageListDerivedState, typographyGeneration: Int) -> MessageListContentView {
         MessageListContentView(
-            state: makeDerivedState(),
+            state: state,
             providerCatalog: [],
             providerCatalogHash: 0,
             typographyGeneration: typographyGeneration,
@@ -50,9 +53,8 @@ final class MessageListTypographyRefreshTests: XCTestCase {
         )
     }
 
-    private func makeMessageCellView(typographyGeneration: Int) -> MessageCellView {
-        let message = ChatMessage(role: .assistant, text: "*italic*")
-        return MessageCellView(
+    private func makeMessageCellView(message: ChatMessage, typographyGeneration: Int) -> MessageCellView {
+        MessageCellView(
             message: message,
             showTimestamp: false,
             nextDecidedConfirmation: nil,
@@ -80,9 +82,9 @@ final class MessageListTypographyRefreshTests: XCTestCase {
         )
     }
 
-    private func makeChatBubble(typographyGeneration: Int) -> ChatBubble {
+    private func makeChatBubble(message: ChatMessage, typographyGeneration: Int) -> ChatBubble {
         ChatBubble(
-            message: ChatMessage(role: .assistant, text: "*italic*"),
+            message: message,
             decidedConfirmation: nil,
             onSurfaceAction: { _, _, _ in },
             onDismissDocumentWidget: { _ in },
