@@ -86,7 +86,7 @@ struct SettingsDeveloperTab: View {
             switchAssistantSection
             // Managed/remote-only sections
             if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
-               assistant.isManaged || assistant.isRemote {
+               assistant.isManaged || !assistant.runsLocally {
                 restartAssistantSection
                 if assistant.isManaged {
                     sshTerminalSection
@@ -98,7 +98,7 @@ struct SettingsDeveloperTab: View {
             }
             // Transfer (local ↔ managed)
             if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
-               !assistant.isRemote || assistant.isManaged {
+               assistant.runsLocally || assistant.isManaged {
                 AssistantTransferSection(
                     assistant: assistant,
                     onClose: onClose
@@ -572,7 +572,7 @@ struct SettingsDeveloperTab: View {
     }
 
     private func toggleDisabled(for assistant: LockfileAssistant) -> Bool {
-        if assistant.isRemote { return true }
+        if !assistant.runsLocally { return true }
         if transitioningStates.contains(assistant.assistantId) { return true }
         return false
     }
@@ -603,7 +603,7 @@ struct SettingsDeveloperTab: View {
 
     private func refreshAwakeStates() async {
         for assistant in lockfileAssistants {
-            if assistant.isRemote {
+            if !assistant.runsLocally {
                 awakeStates[assistant.assistantId] = true
             } else {
                 awakeStates[assistant.assistantId] = await HealthCheckClient.isReachable(for: assistant)
@@ -612,7 +612,7 @@ struct SettingsDeveloperTab: View {
     }
 
     private func toggleAwakeState(assistant: LockfileAssistant, awake: Bool) {
-        guard !assistant.isRemote else { return }
+        guard assistant.runsLocally else { return }
         guard let cli = AppDelegate.shared?.vellumCli else { return }
 
         transitioningStates.insert(assistant.assistantId)
@@ -660,7 +660,7 @@ struct SettingsDeveloperTab: View {
     private func performRestart() async {
         guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) else { return }
 
-        if assistant.isManaged || assistant.isRemote {
+        if assistant.isManaged || !assistant.runsLocally {
             await performManagedRestart()
         } else {
             await performLocalRestart()
