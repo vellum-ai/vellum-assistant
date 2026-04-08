@@ -69,9 +69,11 @@ private enum MemoryStatusFilter: String, CaseIterable {
 
 struct MemoriesPanel: View {
     let connectionManager: GatewayConnectionManager
+    let assistantName: String
+    var onImportMemory: ((String) -> Void)?
     @Binding var focusedMemoryId: String?
     @State private var store: MemoryItemsStore
-    @State private var showCreateSheet = false
+    @State private var showImportSheet = false
     @State private var selectedItem: MemoryItemPayload?
     @State private var selectedKind: MemoryKind?
     @State private var statusFilter: MemoryStatusFilter = .active
@@ -91,8 +93,10 @@ struct MemoriesPanel: View {
         }
     }
 
-    init(connectionManager: GatewayConnectionManager, focusedMemoryId: Binding<String?> = .constant(nil)) {
+    init(connectionManager: GatewayConnectionManager, assistantName: String = "Your Assistant", onImportMemory: ((String) -> Void)? = nil, focusedMemoryId: Binding<String?> = .constant(nil)) {
         self.connectionManager = connectionManager
+        self.assistantName = assistantName
+        self.onImportMemory = onImportMemory
         _focusedMemoryId = focusedMemoryId
         _store = State(wrappedValue: MemoryItemsStore(memoryItemClient: MemoryItemClient()))
     }
@@ -189,10 +193,22 @@ struct MemoriesPanel: View {
             searchDebounceTask?.cancel()
             searchDebounceTask = nil
         }
-        .sheet(isPresented: $showCreateSheet) {
-            MemoryItemCreateSheet(
-                store: store,
-                onDismiss: { showCreateSheet = false }
+        .sheet(isPresented: $showImportSheet) {
+            MemoryImportSheet(
+                assistantName: assistantName,
+                onDismiss: { showImportSheet = false },
+                onSubmit: onImportMemory.map { callback in
+                    { pastedText in
+                        let wrappedMessage = """
+                            The following is a memory profile exported from another AI assistant. Please review it and internalize the information as memories about me. Treat each fact, preference, and detail as something to remember for future conversations.
+
+                            ---
+
+                            \(pastedText)
+                            """
+                        callback(wrappedMessage)
+                    }
+                }
             )
         }
     }
@@ -239,10 +255,10 @@ struct MemoriesPanel: View {
                 selection: $viewMode
             )
 
-            VButton(label: "New", icon: VIcon.plus.rawValue, style: .primary) {
-                showCreateSheet = true
+            VButton(label: "Import", icon: VIcon.arrowDownToLine.rawValue, style: .primary) {
+                showImportSheet = true
             }
-            .accessibilityLabel("Create new memory")
+            .accessibilityLabel("Import memory")
         }
         .padding(.top, VSpacing.sm)
     }
