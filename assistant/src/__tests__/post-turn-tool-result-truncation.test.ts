@@ -179,7 +179,7 @@ describe("derefToolResultReReads", () => {
         role: "assistant",
         content: [
           makeToolUse(toolUseId, "file_read", {
-            file_path: `/home/user/.vellum/workspace/conversations/abc/${TOOL_RESULT_DIR}/abc123.txt`,
+            path: `/home/user/.vellum/workspace/conversations/abc/${TOOL_RESULT_DIR}/abc123.txt`,
           }),
         ],
       },
@@ -205,7 +205,7 @@ describe("derefToolResultReReads", () => {
         role: "assistant",
         content: [
           makeToolUse(toolUseId, "file_read", {
-            file_path: "src/foo.ts",
+            path: "src/foo.ts",
           }),
         ],
       },
@@ -260,13 +260,13 @@ describe("derefToolResultReReads", () => {
         role: "assistant",
         content: [
           makeToolUse(tu1, "file_read", {
-            file_path: `/workspace/conv/${TOOL_RESULT_DIR}/aaa.txt`,
+            path: `/workspace/conv/${TOOL_RESULT_DIR}/aaa.txt`,
           }),
           makeToolUse(tu2, "file_read", {
-            file_path: `/workspace/conv/${TOOL_RESULT_DIR}/bbb.txt`,
+            path: `/workspace/conv/${TOOL_RESULT_DIR}/bbb.txt`,
           }),
           makeToolUse(tuNormal, "file_read", {
-            file_path: "src/bar.ts",
+            path: "src/bar.ts",
           }),
         ],
       },

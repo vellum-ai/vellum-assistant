@@ -135,7 +135,7 @@ export function derefToolResultReReads(messages: Message[]): {
       if (block.type !== "tool_use") continue;
       const tu = block as ToolUseContent;
       if (tu.name !== "file_read") continue;
-      const filePath = tu.input.file_path;
+      const filePath = tu.input.path;
       if (typeof filePath !== "string") continue;
       if (filePath.includes(`/${TOOL_RESULT_DIR}/`)) {
         reReadToolUseIds.add(tu.id);
