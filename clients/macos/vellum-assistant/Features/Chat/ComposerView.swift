@@ -80,6 +80,11 @@ struct ComposerView: View {
     @State var bridgeCommands = ComposerBridgeCommands()
     /// Live amplitude from VoiceInputManager, bypassing ChatViewModel's 100ms coalescing.
     @State private var liveAmplitude: Float = 0
+    /// Flag set by the bridge textChanged handler before updating `inputText`.
+    /// When true, the `onChange(of: inputText)` handler skips its
+    /// `composerController.textChanged` call and `pendingSetText` write
+    /// because the bridge already handled both. Cleared after the onChange fires.
+    @State private var isBridgeDrivenChange = false
 
     /// The portion of the suggestion that extends beyond the current input.
     /// Hidden when the user has pending attachments so the composer looks empty
@@ -274,8 +279,11 @@ struct ComposerView: View {
                 },
                 bridgeEvents: ComposerBridgeEvents(
                     textChanged: { [self] newText in
-                        if inputText != newText { inputText = newText }
                         composerController.textChanged(newText)
+                        if inputText != newText {
+                            isBridgeDrivenChange = true
+                            inputText = newText
+                        }
                         // Keep local cursor tracking in sync for emoji picker
                         // (cursorPosition is emitted separately via selectionChanged)
                     },
@@ -332,9 +340,17 @@ struct ComposerView: View {
             pushFocusCommand()
         }
         .onChange(of: inputText) {
+            if isBridgeDrivenChange {
+                // The bridge textChanged handler already called
+                // composerController.textChanged and the AppKit text view
+                // already has the correct string — skip the redundant work.
+                isBridgeDrivenChange = false
+                return
+            }
             // Push text changes from external sources (e.g. dictation cancel
-            // restoring preDictationText) into the AppKit text view via the
-            // bridge command, and keep the controller in sync.
+            // restoring preDictationText, slash command selection) into the
+            // AppKit text view via the bridge command, and keep the controller
+            // in sync.
             bridgeCommands.pendingSetText = inputText
             composerController.textChanged(inputText)
         }
