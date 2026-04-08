@@ -480,7 +480,7 @@ export function buildSubagentStatusBlock(
       parts.push(`elapsed: ${elapsed}`);
     }
     if (child.status === "failed" && child.error) {
-      parts.push(`error: ${child.error}`);
+      parts.push(`error: ${escapeXml(child.error)}`);
     }
     lines.push(parts.join(" | "));
   }
