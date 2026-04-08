@@ -87,6 +87,10 @@ struct SettingsGeneralTab: View {
                 mobilePairingCard
             }
             SettingsAppearanceTab(store: store)
+            // Backups — only shown for cloud-hosted/platform-managed assistants.
+            if let assistant = currentAssistant, assistant.isManaged {
+                AssistantBackupsSection(assistant: assistant, store: store)
+            }
             uninstallSection
         }
         .onAppear {

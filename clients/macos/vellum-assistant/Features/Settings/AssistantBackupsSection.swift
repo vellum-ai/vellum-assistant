@@ -3,13 +3,17 @@ import Foundation
 import SwiftUI
 import VellumAssistantShared
 
-/// Backup and restore UI for the Settings Account tab.
+/// Backup and restore UI for the General settings tab.
 ///
-/// For local assistants, creates/restores `.vbundle` archives via the gateway's
-/// migration endpoints (`POST /v1/migrations/export` and `POST /v1/migrations/import`).
+/// Only rendered for cloud-hosted (platform-managed) assistants — the call site
+/// in `SettingsGeneralTab` gates this section on `LockfileAssistant.isManaged`.
 ///
-/// For managed/remote assistants, uses the platform API endpoints
+/// For managed assistants, uses the platform API endpoints
 /// (`GET/POST /v1/assistants/{id}/backups`, `POST /v1/assistants/{id}/backups/{name}/restore`).
+///
+/// The local `.vbundle` export/restore code paths remain in place to support
+/// pre-update recovery for local assistants when triggered via the CLI, but
+/// they are not currently exposed through this view.
 @MainActor
 struct AssistantBackupsSection: View {
     let assistant: LockfileAssistant
