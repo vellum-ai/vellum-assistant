@@ -229,7 +229,7 @@ struct OnboardingFlowView: View {
                         Task {
                             await performManagedBootstrap()
                         }
-                    } else if !assistant.isRemote {
+                    } else if assistant.runsLocally {
                         log.info("Auth completed for local assistant \(assistant.assistantId, privacy: .public) — deferring local registration until app startup")
                         onComplete()
                     } else {
