@@ -170,7 +170,9 @@ mock.module("../oauth/oauth-store.js", () => ({
       authorizeUrl: params.authorizeUrl,
       tokenExchangeUrl: params.tokenExchangeUrl,
       refreshUrl: (params.refreshUrl as string | undefined) ?? null,
-      tokenEndpointAuthMethod: params.tokenEndpointAuthMethod ?? null,
+      tokenEndpointAuthMethod:
+        (params.tokenEndpointAuthMethod as string | undefined) ||
+        "client_secret_post",
       userinfoUrl: params.userinfoUrl ?? null,
       baseUrl: params.baseUrl ?? null,
       defaultScopes: JSON.stringify(params.defaultScopes ?? []),
