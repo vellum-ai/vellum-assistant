@@ -652,23 +652,38 @@ extension AppDelegate {
                 try await vellumCli.retire(name: name)
             } catch {
                 log.error("CLI retire failed: \(error.localizedDescription)")
-                let alert = NSAlert()
-                alert.messageText = "Failed to Retire Remote Instance"
-                alert.informativeText = "\(error.localizedDescription)\n\nYou can force-remove the local configuration, but the remote cloud instance may still be running and will need to be deleted manually."
-                alert.alertStyle = .warning
-                alert.addButton(withTitle: "Force Remove")
-                alert.addButton(withTitle: "Cancel")
-                if alert.runModal() != .alertFirstButtonReturn {
-                    // Assistant is still running — reconnect so the user can
-                    // continue using the app (we disconnected above to avoid
-                    // 502 errors during the retire attempt).
-                    try? await connectionManager.connect()
-                    return false
+
+                // For managed (cloud-hosted) assistants the cloud instance may
+                // be partially or fully torn down even when the CLI reports
+                // failure.  Reconnecting to a dead gateway strands the user on
+                // an "unreachable" error screen (LUM-755).  Skip the alert and
+                // proceed with local cleanup automatically so the app always
+                // navigates to a sensible post-retirement state.
+                let assistantEntry = LockfileAssistant.loadByName(name)
+                if assistantEntry?.isManaged == true {
+                    log.warning("Managed assistant — automatically cleaning up local state after CLI retire failure")
+                    await vellumCli.stop(name: name)
+                    self.removeLockfileEntry(assistantId: name)
+                } else {
+                    // Local assistant — the daemon may genuinely still be
+                    // running after a CLI failure.  Let the user choose between
+                    // force-removing and reconnecting.
+                    let alert = NSAlert()
+                    alert.messageText = "Failed to Retire Remote Instance"
+                    alert.informativeText = "\(error.localizedDescription)\n\nYou can force-remove the local configuration, but the remote cloud instance may still be running and will need to be deleted manually."
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: "Force Remove")
+                    alert.addButton(withTitle: "Cancel")
+                    if alert.runModal() != .alertFirstButtonReturn {
+                        // Assistant is still running — reconnect so the user can
+                        // continue using the app (we disconnected above to avoid
+                        // 502 errors during the retire attempt).
+                        try? await connectionManager.connect()
+                        return false
+                    }
+                    await vellumCli.stop(name: name)
+                    self.removeLockfileEntry(assistantId: name)
                 }
-                // Retire failed but user chose Force Remove — stop the assistant
-                // before cleaning up local state.
-                await vellumCli.stop(name: name)
-                self.removeLockfileEntry(assistantId: name)
             }
         } else {
             await vellumCli.stop(name: assistantName)
