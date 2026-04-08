@@ -84,18 +84,6 @@ extension DynamicPageSurfaceView {
                     log.info("[WebView] \(msg, privacy: .public)")
                 }
 
-                // Forward [vellum.fetch] messages to the daemon logger so they
-                // appear in the desktop log export (daemon logs are exported,
-                // os.Logger output is not).
-                if msg.hasPrefix("[vellum.fetch]") || msg.hasPrefix("[vellum]") {
-                    let daemonLevel = level == "error" ? "error" : level == "warn" ? "warn" : "info"
-                    Task.detached(priority: .utility) {
-                        try? await GatewayHTTPClient.post(
-                            path: "client-log",
-                            json: ["level": daemonLevel, "message": msg]
-                        )
-                    }
-                }
                 return
             }
 

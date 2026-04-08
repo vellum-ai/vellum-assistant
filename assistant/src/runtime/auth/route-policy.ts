@@ -303,9 +303,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Lifecycle telemetry
   { endpoint: "telemetry/lifecycle", scopes: ["settings.write"] },
 
-  // Client log forwarding (native client → assistant logger)
-  { endpoint: "client-log", scopes: ["settings.write"] },
-
   // Debug
   { endpoint: "debug", scopes: ["settings.read"] },
 
