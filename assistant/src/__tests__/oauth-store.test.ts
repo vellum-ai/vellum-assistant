@@ -1896,6 +1896,45 @@ describe("disconnectOAuthProvider", () => {
     expect(params.get("token_type_hint")).toBe("access_token");
   });
 
+  test("treats $-prefixed patterns in access token as literal text (String.replace gotcha)", async () => {
+    // String.prototype.replace interprets $-prefixed patterns in the
+    // replacement string as special sequences ($& = matched substring,
+    // $' = after match, $` = before match, $$ = literal $). If the access
+    // token contains "$&", a naive `.replace("{access_token}", accessToken)`
+    // would expand it to "{access_token}" (the matched string) instead of
+    // substituting literally. This test guards against that by asserting
+    // the captured body contains the literal "tok$&abc" — which only holds
+    // when we use a function-replacement callback that preserves literal
+    // semantics and mirrors Python's str.replace() behavior.
+    seedProviderWithRevoke("google", "https://revoke.example.com/r", {
+      token: "{access_token}",
+    });
+    const app = await upsertApp("google", "client-1");
+    const conn = createConnection({
+      oauthAppId: app.id,
+      provider: "google",
+      grantedScopes: ["email"],
+      hasRefreshToken: false,
+    });
+    secureKeyValues.set(`oauth_connection/${conn.id}/access_token`, "tok$&abc");
+
+    mockFetch(
+      "https://revoke.example.com/r",
+      { method: "POST" },
+      { status: 200, body: {} },
+    );
+
+    await disconnectOAuthProvider("google");
+
+    const calls = getMockFetchCalls();
+    expect(calls.length).toBe(1);
+    const body = String(calls[0]!.init.body ?? "");
+    const params = new URLSearchParams(body);
+    // The literal access token — not the $&-expanded version, which would
+    // be "tok{access_token}abc" (where $& matched "{access_token}").
+    expect(params.get("token")).toBe("tok$&abc");
+  });
+
   test("coerces non-string body template values to strings", async () => {
     // seedProviderWithRevoke restricts to Record<string, string>; bypass it
     // here by inserting a template with a numeric value via a direct seed.

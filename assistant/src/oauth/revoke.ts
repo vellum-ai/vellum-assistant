@@ -36,9 +36,14 @@ export async function tryRevokeOAuthToken(params: {
   if (bodyTemplate) {
     for (const [key, value] of Object.entries(bodyTemplate)) {
       if (typeof value === "string") {
+        // Use function replacements to bypass String.replace's $-pattern
+        // expansion (e.g. $&, $', $`, $$). This preserves literal semantics
+        // and mirrors Python's str.replace() behavior. Without this, an
+        // access token containing "$&" would expand to the matched string
+        // ("{access_token}") instead of being substituted literally.
         body[key] = value
-          .replace("{access_token}", accessToken)
-          .replace("{client_id}", clientId);
+          .replace("{access_token}", () => accessToken)
+          .replace("{client_id}", () => clientId);
       } else {
         body[key] = String(value);
       }
