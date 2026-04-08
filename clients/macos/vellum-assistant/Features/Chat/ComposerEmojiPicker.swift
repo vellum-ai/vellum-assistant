@@ -15,7 +15,7 @@ extension ComposerView {
         let length = cursorUtf16 - colonOffset
         let nsRange = NSRange(location: colonOffset, length: length)
 
-        textReplacer.replaceText?(nsRange, entry.emoji)
+        bridgeCommands.pendingReplaceRange = (range: nsRange, replacement: entry.emoji)
     }
 }
 
