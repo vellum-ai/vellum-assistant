@@ -103,6 +103,14 @@ export class ContextWindowManager {
   private readonly config: ContextWindowConfig;
   private readonly toolTokenBudget: number;
   /**
+   * Number of leading messages that are non-persisted (injected inherited
+   * context from a parent conversation).  `countPersistedMessages` subtracts
+   * this so `compactedPersistedMessages` only reflects DB-backed messages.
+   * Set by `Conversation.injectInheritedContext` and consumed (decremented)
+   * after a successful compaction pass.
+   */
+  nonPersistedPrefixCount = 0;
+  /**
    * Cached resolved system prompt. Lazily populated on first access via the
    * `systemPrompt` getter and cleared after each compaction pass so the next
    * pass picks up any prompt changes.
@@ -305,8 +313,12 @@ export class ContextWindowManager {
       };
     }
 
+    const injectedInCompactable = Math.min(
+      this.nonPersistedPrefixCount,
+      compactableMessages.length,
+    );
     const compactedPersistedMessages =
-      countPersistedMessages(compactableMessages);
+      countPersistedMessages(compactableMessages) - injectedInCompactable;
     const rawProjectedMessages = [
       createContextSummaryMessage(existingSummary ?? "Projected summary"),
       ...messages.slice(keepPlan.keepFromIndex),
@@ -452,6 +464,12 @@ export class ContextWindowManager {
         toolTokenBudget: this.toolTokenBudget,
       },
     );
+    // Consume the injected prefix messages that were compacted away.
+    this.nonPersistedPrefixCount = Math.max(
+      0,
+      this.nonPersistedPrefixCount - injectedInCompactable,
+    );
+
     log.info(
       {
         previousEstimatedInputTokens,
