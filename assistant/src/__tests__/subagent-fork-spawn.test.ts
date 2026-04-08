@@ -276,14 +276,11 @@ describe("SubagentManager fork spawn", () => {
     const manager = new SubagentManager();
     const subagentId = "sub-fork-role";
 
-    let toolFilterCalled = false;
     const fakeConversation = makeFakeConversation();
     fakeConversation.persistUserMessage = () => "msg-1";
     fakeConversation.runAgentLoop = async () => {};
     fakeConversation.injectInheritedContext = () => {};
-    fakeConversation.setSubagentAllowedTools = () => {
-      toolFilterCalled = true;
-    };
+    fakeConversation.setSubagentAllowedTools = () => {};
 
     // Create a fork state — in real spawn(), the role would be forced to
     // "general" regardless of what was requested, and tool filtering skipped.
