@@ -101,6 +101,7 @@ struct ChatView: View {
     @State private var currentMatchIndex = 0
     @State private var showSkeleton = false
     @State private var skeletonDebounceTask: Task<Void, Never>? = nil
+    @State private var containerWidth: CGFloat = 0
 
     private var isEmptyState: Bool {
         viewModel.paginatedVisibleMessages.isEmpty && viewModel.isHistoryLoaded
@@ -121,21 +122,23 @@ struct ChatView: View {
         #if DEBUG
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "ChatView.body")
         #endif
-        GeometryReader { proxy in
-            let containerWidth = proxy.size.width
-            ZStack {
-                mainContentStack(containerWidth: containerWidth)
-                    .background(alignment: .bottom) {
-                        chatBackground
-                    }
-                    .background(VColor.surfaceBase)
-                    .overlay(alignment: .bottom) {
-                        btwOverlay
-                    }
-                    .animation(VAnimation.fast, value: viewModel.btwResponse != nil)
+        ZStack {
+            mainContentStack(containerWidth: containerWidth)
+                .background(alignment: .bottom) {
+                    chatBackground
+                }
+                .background(VColor.surfaceBase)
+                .overlay(alignment: .bottom) {
+                    btwOverlay
+                }
+                .animation(VAnimation.fast, value: viewModel.btwResponse != nil)
 
-                dropTargetOverlay
-            }
+            dropTargetOverlay
+        }
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { newWidth in
+            containerWidth = newWidth
         }
         .environment(\.dropActions, currentDropActions)
         .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
