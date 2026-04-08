@@ -900,10 +900,13 @@ export class SubagentManager {
 
     if (outcome === "completed") {
       if (isFork) {
+        const silent = config.sendResultToUser !== true;
         message =
           `[Fork "${config.label}" completed]\n\n` +
           `Use subagent_read with subagent_id "${config.id}" and last_n: 1 to retrieve the final synthesis.\n` +
-          `This fork was spawned for internal processing. Process the findings internally — do NOT share raw fork output with the user.`;
+          (silent
+            ? `This fork was spawned for internal processing. Process the findings internally — do NOT share raw fork output with the user.`
+            : `Do NOT re-spawn this fork — just read and share the results.`);
       } else {
         const silent = config.sendResultToUser === false;
         message =
