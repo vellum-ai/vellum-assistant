@@ -22,6 +22,7 @@ struct IdentityPanel: View {
     @State private var introText: String? = nil
     @State private var introTask: Task<Void, Never>? = nil
     @State private var bootstrapCheckTask: Task<Void, Never>? = nil
+    @State private var skillsTask: Task<Void, Never>? = nil
     @State private var isBootstrapActive: Bool = true
     @State private var isEditingName: Bool = false
     @State private var editingNameText: String = ""
@@ -155,11 +156,30 @@ struct IdentityPanel: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
             .task {
-                let result = await IdentityInfo.loadWithMetadata()
-                identity = result.identity
-                metadata = result.metadata
-                lockfileAssistant = LockfileAssistant.loadLatest()
-                workspaceFiles = await WorkspaceFileNode.scanAsync()
+                // Load identity, lockfile, and workspace files in parallel.
+                // Previously these ran sequentially — if the gateway was slow
+                // to respond on startup the view appeared frozen because nothing
+                // populated until the first network call (up to 10 s timeout)
+                // completed. Using `async let` reduces total wait from the sum
+                // of all calls to the maximum of the three.
+                // `LockfileAssistant.loadLatest()` is synchronous file I/O, so
+                // it runs inside `Task.detached` to keep it off the main actor
+                // (matches the pattern in SettingsDeveloperTab, AboutVellumWindow,
+                // and SettingsGeneralTab).
+                async let identityResult = IdentityInfo.loadWithMetadata()
+                async let lockfileResult = Task.detached { LockfileAssistant.loadLatest() }.value
+                async let workspaceResult = WorkspaceFileNode.scanAsync()
+
+                let (idResult, lockfile, files) = await (identityResult, lockfileResult, workspaceResult)
+
+                identity = idResult.identity
+                metadata = idResult.metadata
+                lockfileAssistant = lockfile
+                workspaceFiles = files
+
+                // Fetch skills after workspace files are ready so the
+                // ConstellationView layout triggered by skills.count change
+                // includes both data sets.
                 fetchSkills()
 
                 bootstrapCheckTask = Task {
@@ -176,7 +196,7 @@ struct IdentityPanel: View {
                     }
                 }
             }
-            .onDisappear { bootstrapCheckTask?.cancel(); introTask?.cancel() }
+            .onDisappear { bootstrapCheckTask?.cancel(); introTask?.cancel(); skillsTask?.cancel() }
         }
     }
 
@@ -297,8 +317,10 @@ struct IdentityPanel: View {
     // MARK: - Skills
 
     private func fetchSkills() {
-        Task {
+        skillsTask?.cancel()
+        skillsTask = Task {
             let response = await SkillsClient().fetchSkillsList(includeCatalog: false)
+            guard !Task.isCancelled else { return }
             if let response {
                 let enabled = response.skills.filter { $0.status == "enabled" }
                 let map = await Task.detached {
@@ -309,6 +331,7 @@ struct IdentityPanel: View {
                     }
                     return m
                 }.value
+                guard !Task.isCancelled else { return }
                 skills = enabled
                 skillCategoryLookup = map
             }
