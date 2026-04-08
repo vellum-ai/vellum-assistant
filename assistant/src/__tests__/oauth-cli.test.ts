@@ -1906,7 +1906,7 @@ describe("assistant oauth providers --revoke-url and --revoke-body-template", ()
         authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
         tokenExchangeUrl: "https://oauth2.googleapis.com/token",
         refreshUrl: null,
-        tokenEndpointAuthMethod: null,
+        tokenEndpointAuthMethod: "client_secret_post",
         userinfoUrl: null,
         baseUrl: null,
         defaultScopes: "[]",

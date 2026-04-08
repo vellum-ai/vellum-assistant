@@ -141,7 +141,7 @@ const sampleProviderRow = {
   authorizeUrl: "https://custom-api.example.com/oauth/authorize",
   tokenExchangeUrl: "https://custom-api.example.com/oauth/token",
   refreshUrl: null,
-  tokenEndpointAuthMethod: null,
+  tokenEndpointAuthMethod: "client_secret_post",
   userinfoUrl: null,
   baseUrl: null,
   defaultScopes: "[]",
