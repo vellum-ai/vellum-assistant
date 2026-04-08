@@ -15,6 +15,7 @@ import {
   platformUploadToSignedUrl,
   platformImportPreflightFromGcs,
   platformImportBundleFromGcs,
+  platformPollImportStatus,
 } from "../lib/platform-client.js";
 import { performDockerRollback } from "../lib/upgrade-lifecycle.js";
 
@@ -395,9 +396,81 @@ async function restorePlatform(
     process.exit(1);
   }
 
-  if (importResult.statusCode < 200 || importResult.statusCode >= 300) {
+  if (
+    importResult.statusCode !== 202 &&
+    (importResult.statusCode < 200 || importResult.statusCode >= 300)
+  ) {
     console.error(`Error: Import failed (${importResult.statusCode})`);
     process.exit(1);
+  }
+
+  // Async import — poll until complete
+  if (importResult.statusCode === 202) {
+    const jobId = (importResult.body as { job_id?: string }).job_id;
+    if (!jobId) {
+      console.error("Error: Import accepted but no job ID returned.");
+      process.exit(1);
+    }
+
+    const POLL_INTERVAL_MS = 5_000;
+    const TIMEOUT_MS = 10 * 60 * 1_000; // 10 minutes
+    const startTime = Date.now();
+    const deadline = startTime + TIMEOUT_MS;
+
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+
+      let status: {
+        status: string;
+        result?: Record<string, unknown>;
+        error?: string;
+      };
+      try {
+        status = await platformPollImportStatus(jobId, token, entry.runtimeUrl);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("not found")) {
+          throw err;
+        }
+        // Fail fast on auth errors from authHeaders() which don't
+        // match the "status check failed: NNN" format
+        if (msg.includes("401") || msg.includes("403")) {
+          throw err;
+        }
+        // Re-throw permanent 4xx errors, retry transient 5xx
+        const statusMatch = msg.match(/status check failed: (\d+)/);
+        if (statusMatch) {
+          const statusCode = parseInt(statusMatch[1], 10);
+          if (statusCode >= 400 && statusCode < 500) {
+            throw err;
+          }
+        }
+        // Transient error (5xx, network) — retry
+        console.warn(`Polling failed, retrying... (${msg})`);
+        continue;
+      }
+
+      if (status.status === "complete") {
+        importResult = { statusCode: 200, body: status.result ?? {} };
+        break;
+      }
+
+      if (status.status === "failed") {
+        console.error(`Import failed: ${status.error ?? "unknown error"}`);
+        process.exit(1);
+      }
+
+      const elapsed = Math.round((Date.now() - startTime) / 1000);
+      process.stdout.write(`\rImporting... ${elapsed}s elapsed`);
+    }
+
+    // Clear the progress line
+    process.stdout.write("\r" + " ".repeat(40) + "\r");
+
+    if (importResult.statusCode === 202) {
+      console.error("Import timed out after 10 minutes.");
+      process.exit(1);
+    }
   }
 
   const result = importResult.body as unknown as ImportResponse;
