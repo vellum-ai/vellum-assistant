@@ -1,8 +1,7 @@
 /**
  * Registers feature-flag-gated system tools with the daemon's tool registry.
  *
- * The permission-mode tool has been removed, so this module now intentionally
- * does nothing.
+ * No conditional tools are currently registered.
  */
 
 export function registerSystemTools(): void {
