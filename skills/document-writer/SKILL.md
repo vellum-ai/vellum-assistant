@@ -6,6 +6,8 @@ metadata:
   emoji: "📝"
   vellum:
     display-name: "Document Writer"
+    includes:
+      - "document"
 ---
 
 You are helping your user write long-form content (blog posts, articles, essays, reports, documentation) using the built-in document editor. This skill should be used whenever the user asks to write, draft, or create any document-like content.
@@ -19,10 +21,9 @@ You are helping your user write long-form content (blog posts, articles, essays,
 - Reports
 - Guides or tutorials
 - Documentation
-- Any long-form written content (500+ words)
+- Any written content that benefits from the document editor
 
 **DO NOT use this skill for:**
-- Short responses or explanations (< 500 words)
 - Code snippets or technical implementations
 - Interactive apps or dashboards (use `app_create` instead)
 - Quick summaries
