@@ -66,6 +66,20 @@ interface FileMetadata {
   size: number;
 }
 
+/** In-memory entry for data not backed by a file on disk (e.g. credentials). */
+interface InMemoryEntry {
+  archivePath: string;
+  data: Uint8Array;
+  size: number;
+}
+
+/** Union of disk-backed and in-memory tar stream entries. */
+type TarStreamEntry = FileMetadata | InMemoryEntry;
+
+function isInMemoryEntry(entry: TarStreamEntry): entry is InMemoryEntry {
+  return "data" in entry;
+}
+
 // ---------------------------------------------------------------------------
 // Hash helpers
 // ---------------------------------------------------------------------------
@@ -439,6 +453,8 @@ export interface BuildExportVBundleOptions {
    * Called before the workspace walk so the DB file is up to date.
    */
   checkpoint?: () => void;
+  /** Optional credential entries to include in the archive under credentials/ prefix. */
+  credentials?: Array<{ account: string; value: string }>;
 }
 
 /**
@@ -456,8 +472,15 @@ export interface BuildExportVBundleOptions {
 export function buildExportVBundle(
   options: BuildExportVBundleOptions,
 ): BuildVBundleResult {
-  const { source, description, checkpoint, trustPath, workspaceDir, hooksDir } =
-    options;
+  const {
+    source,
+    description,
+    checkpoint,
+    trustPath,
+    workspaceDir,
+    hooksDir,
+    credentials,
+  } = options;
 
   // Flush WAL to the main database file before reading so the export
   // captures all committed rows (SQLite WAL mode keeps recent writes
@@ -492,6 +515,14 @@ export function buildExportVBundle(
   if (trustPath && existsSync(trustPath)) {
     const trustData = new Uint8Array(readFileSync(trustPath));
     files.push({ path: "trust/trust.json", data: trustData });
+  }
+
+  // Include credential entries if provided
+  if (credentials?.length) {
+    for (const { account, value } of credentials) {
+      const data = new TextEncoder().encode(value);
+      files.push({ path: `credentials/${account}`, data });
+    }
   }
 
   return buildVBundle({
@@ -688,7 +719,7 @@ function tarPaddingBytes(dataSize: number): Uint8Array {
  */
 async function* generateTarStream(
   manifestJson: Uint8Array,
-  files: FileMetadata[],
+  files: TarStreamEntry[],
 ): AsyncGenerator<Uint8Array> {
   // Manifest entry
   yield createPaxAndHeaderBlocks("manifest.json", manifestJson.length);
@@ -697,43 +728,52 @@ async function* generateTarStream(
 
   // File entries
   for (const file of files) {
-    yield createPaxAndHeaderBlocks(file.archivePath, file.size);
+    const entrySize = isInMemoryEntry(file) ? file.size : file.size;
+    yield createPaxAndHeaderBlocks(file.archivePath, entrySize);
 
-    // Stream exactly file.size bytes from disk. Capping the read at the
-    // declared size keeps the tar structure valid even if the file grows
-    // between passes (common for log files on active assistants). If the
-    // file shrinks below the declared size, zero-pad to maintain block
-    // alignment. The WAL checkpoint before export is the primary
-    // consistency mechanism for the database.
-    let bytesWritten = 0;
-    if (file.size > 0) {
-      try {
-        const stream = createReadStream(file.diskPath, {
-          start: 0,
-          end: file.size - 1,
-        });
-        for await (const chunk of stream) {
-          const data =
-            chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
-          bytesWritten += data.length;
-          yield data;
+    if (isInMemoryEntry(file)) {
+      // In-memory entry — yield data directly
+      if (file.size > 0) {
+        yield file.data;
+      }
+    } else {
+      // Disk-backed entry — stream from disk
+      // Stream exactly file.size bytes from disk. Capping the read at the
+      // declared size keeps the tar structure valid even if the file grows
+      // between passes (common for log files on active assistants). If the
+      // file shrinks below the declared size, zero-pad to maintain block
+      // alignment. The WAL checkpoint before export is the primary
+      // consistency mechanism for the database.
+      let bytesWritten = 0;
+      if (file.size > 0) {
+        try {
+          const stream = createReadStream(file.diskPath, {
+            start: 0,
+            end: file.size - 1,
+          });
+          for await (const chunk of stream) {
+            const data =
+              chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
+            bytesWritten += data.length;
+            yield data;
+          }
+        } catch {
+          // File was deleted or rotated between passes — emit zeros for
+          // the full declared size so the tar structure stays valid
         }
-      } catch {
-        // File was deleted or rotated between passes — emit zeros for
-        // the full declared size so the tar structure stays valid
+      }
+
+      // If the file shrank, pad with zeros in bounded chunks to reach
+      // the declared size without a large single allocation
+      let remaining = file.size - bytesWritten;
+      while (remaining > 0) {
+        const chunkSize = Math.min(remaining, 65536);
+        yield new Uint8Array(chunkSize);
+        remaining -= chunkSize;
       }
     }
 
-    // If the file shrank, pad with zeros in bounded chunks to reach
-    // the declared size without a large single allocation
-    let remaining = file.size - bytesWritten;
-    while (remaining > 0) {
-      const chunkSize = Math.min(remaining, 65536);
-      yield new Uint8Array(chunkSize);
-      remaining -= chunkSize;
-    }
-
-    yield tarPaddingBytes(file.size);
+    yield tarPaddingBytes(entrySize);
   }
 
   // End-of-archive: two zero blocks
@@ -765,8 +805,15 @@ export interface StreamExportVBundleResult {
 export async function streamExportVBundle(
   options: BuildExportVBundleOptions,
 ): Promise<StreamExportVBundleResult> {
-  const { source, description, checkpoint, trustPath, workspaceDir, hooksDir } =
-    options;
+  const {
+    source,
+    description,
+    checkpoint,
+    trustPath,
+    workspaceDir,
+    hooksDir,
+    credentials,
+  } = options;
 
   // Flush WAL to the main database file before reading
   if (checkpoint) {
@@ -806,6 +853,19 @@ export async function streamExportVBundle(
     }
   }
 
+  // Build in-memory entries for credentials (not disk-backed)
+  const inMemoryEntries: InMemoryEntry[] = [];
+  if (credentials?.length) {
+    for (const { account, value } of credentials) {
+      const data = new TextEncoder().encode(value);
+      inMemoryEntries.push({
+        archivePath: `credentials/${account}`,
+        data,
+        size: data.length,
+      });
+    }
+  }
+
   // ------------------------------------------------------------------
   // Pass 1: Compute SHA-256 checksums to build the manifest
   // ------------------------------------------------------------------
@@ -817,6 +877,16 @@ export async function streamExportVBundle(
       path: file.archivePath,
       sha256,
       size: file.size,
+    });
+  }
+
+  // Add in-memory credential entries to the manifest
+  for (const entry of inMemoryEntries) {
+    const sha256 = sha256Hex(entry.data);
+    fileEntries.push({
+      path: entry.archivePath,
+      sha256,
+      size: entry.size,
     });
   }
 
@@ -842,7 +912,8 @@ export async function streamExportVBundle(
 
   const tempPath = join(tmpdir(), `vbundle-export-${randomUUID()}.tmp`);
 
-  const tarGenerator = generateTarStream(manifestData, allFileMetadata);
+  const allEntries: TarStreamEntry[] = [...allFileMetadata, ...inMemoryEntries];
+  const tarGenerator = generateTarStream(manifestData, allEntries);
   const tarReadable = Readable.from(tarGenerator);
   const gzipStream = createGzip();
   const writeStream = createWriteStream(tempPath, { mode: 0o600 });

@@ -21,6 +21,10 @@ import { invalidateConfigCache } from "../../config/loader.js";
 import { getDb, resetDb } from "../../memory/db-connection.js";
 import { validateMigrationState } from "../../memory/migrations/validate-migration-state.js";
 import { clearCache as clearTrustCache } from "../../permissions/trust-store.js";
+import {
+  getSecureKeyAsync,
+  listSecureKeysAsync,
+} from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import {
   getDbPath,
@@ -146,6 +150,18 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
   let cleanup: (() => Promise<void>) | undefined;
 
   try {
+    // Read all stored credentials to include in the export bundle
+    const credentialList = await listSecureKeysAsync();
+    const credentials: Array<{ account: string; value: string }> = [];
+    if (!credentialList.unreachable) {
+      for (const account of credentialList.accounts) {
+        const value = await getSecureKeyAsync(account);
+        if (value) {
+          credentials.push({ account, value });
+        }
+      }
+    }
+
     const result = await streamExportVBundle({
       // hooksDir is intentionally omitted — hooks now live under workspace/hooks/
       // and are included in the workspace walk. Passing hooksDir separately would
@@ -153,6 +169,7 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
       workspaceDir: getWorkspaceDir(),
       source: "runtime-export",
       description,
+      credentials,
       checkpoint: () => {
         const dbPath = getDbPath();
         try {
