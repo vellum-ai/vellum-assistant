@@ -97,23 +97,23 @@ struct DeveloperHelloWorldVMSection: View {
                             VBusyIndicator(size: 10, color: VColor.primaryBase)
                             Text("Downloading the kernel and starting the VM...")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                         }
                     }
                 }
 
                 Link("Apple containerization package", destination: DeveloperHelloWorldVMService.containerizationRepositoryURL)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.primaryBase)
+                    .foregroundStyle(VColor.primaryBase)
 
                 if let kernelPath = model.lastKernelPath, !kernelPath.isEmpty {
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         Text("Kernel")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         Text(kernelPath)
                             .font(Font(VFont.nsMono))
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                             .textSelection(.enabled)
                     }
                 }
@@ -121,11 +121,11 @@ struct DeveloperHelloWorldVMSection: View {
                 if let errorMessage = model.errorMessage {
                     HStack(alignment: .top, spacing: VSpacing.xs) {
                         VIconView(.triangleAlert, size: 12)
-                            .foregroundColor(VColor.systemNegativeStrong)
+                            .foregroundStyle(VColor.systemNegativeStrong)
                             .padding(.top, 2)
                         Text(errorMessage)
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.systemNegativeStrong)
+                            .foregroundStyle(VColor.systemNegativeStrong)
                             .textSelection(.enabled)
                     }
                 }
@@ -134,7 +134,7 @@ struct DeveloperHelloWorldVMSection: View {
                     ScrollView {
                         Text(model.output)
                             .font(Font(VFont.nsMono))
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
