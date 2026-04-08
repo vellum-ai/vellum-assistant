@@ -2406,7 +2406,12 @@ paths:
                     description: Total number of available starters
                   status:
                     type: string
-                    description: "One of: ready, empty, generating"
+                    enum:
+                      - ready
+                      - refreshing
+                      - empty
+                      - generating
+                    description: "One of: ready, refreshing, empty, generating"
                 required:
                   - starters
                   - total
