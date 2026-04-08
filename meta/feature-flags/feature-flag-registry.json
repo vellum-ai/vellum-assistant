@@ -178,14 +178,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "settings-integrations-grid",
-      "scope": "assistant",
-      "key": "settings-integrations-grid",
-      "label": "Integrations Grid",
-      "description": "Show the Integrations tab in the Intelligence panel",
-      "defaultEnabled": true
-    },
-    {
       "id": "multi-platform-assistant",
       "scope": "macos",
       "key": "multi-platform-assistant",

@@ -29,9 +29,8 @@ enum SettingsTab: String {
     }
 
     /// Primary tabs shown in the main nav list (excludes feature-flagged bottom tabs).
-    static func primaryTabs(billingEnabled: Bool = false, soundsEnabled: Bool = true, schedulesEnabled: Bool = false, integrationsEnabled: Bool = false) -> [SettingsTab] {
-        var tabs: [SettingsTab] = [.general, .modelsAndServices]
-        if integrationsEnabled { tabs.append(.integrations) }
+    static func primaryTabs(billingEnabled: Bool = false, soundsEnabled: Bool = true, schedulesEnabled: Bool = false) -> [SettingsTab] {
+        var tabs: [SettingsTab] = [.general, .modelsAndServices, .integrations]
         tabs.append(.voice)
         if soundsEnabled { tabs.append(.sounds) }
         if billingEnabled { tabs.append(.billing) }
@@ -134,7 +133,6 @@ struct SettingsPanel: View {
     @State private var isSchedulesEnabled: Bool = false
     @State private var isDeveloperEnabled: Bool = false
     @State private var isSoundsEnabled: Bool = true
-    @State private var isIntegrationsEnabled: Bool = false
     @State private var isEmbeddingProviderEnabled: Bool = false
     @State private var showingDevUnlock: Bool = false
     @State private var devUnlockText: String = ""
@@ -145,7 +143,6 @@ struct SettingsPanel: View {
     private static let billingFeatureFlagKey = "settings-billing"
     private static let developerFeatureFlagKey = "settings-developer-nav"
     private static let embeddingProviderFeatureFlagKey = "settings-embedding-provider"
-    private static let integrationsFeatureFlagKey = "settings-integrations-grid"
     private static let soundsFeatureFlagKey = "sounds"
 
     var body: some View {
@@ -267,11 +264,6 @@ struct SettingsPanel: View {
                     if !enabled && selectedTab == .schedules {
                         selectedTab = .general
                     }
-                } else if key == Self.integrationsFeatureFlagKey {
-                    isIntegrationsEnabled = enabled
-                    if !enabled && selectedTab == .integrations {
-                        selectedTab = .general
-                    }
                 }
             }
         }
@@ -347,7 +339,7 @@ struct SettingsPanel: View {
 
     /// All currently visible tabs (primary + gated bottom tabs).
     private var allVisibleTabs: [SettingsTab] {
-        var tabs = SettingsTab.primaryTabs(billingEnabled: billingVisible, soundsEnabled: isSoundsEnabled, schedulesEnabled: isSchedulesEnabled, integrationsEnabled: isIntegrationsEnabled)
+        var tabs = SettingsTab.primaryTabs(billingEnabled: billingVisible, soundsEnabled: isSoundsEnabled, schedulesEnabled: isSchedulesEnabled)
         if isDeveloperEnabled {
             tabs.append(.developer)
         }
@@ -362,7 +354,7 @@ struct SettingsPanel: View {
 
     private var settingsNav: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            ForEach(SettingsTab.primaryTabs(billingEnabled: billingVisible, soundsEnabled: isSoundsEnabled, schedulesEnabled: isSchedulesEnabled, integrationsEnabled: isIntegrationsEnabled), id: \.self) { tab in
+            ForEach(SettingsTab.primaryTabs(billingEnabled: billingVisible, soundsEnabled: isSoundsEnabled, schedulesEnabled: isSchedulesEnabled), id: \.self) { tab in
                 VNavItem(icon: tab.icon.rawValue, label: tab.rawValue, isActive: selectedTab == tab) {
                     selectedTab = tab
                 }
@@ -655,9 +647,6 @@ struct SettingsPanel: View {
                 if let schedulesFlag = flags.first(where: { $0.key == Self.schedulesFeatureFlagKey }) {
                     isSchedulesEnabled = schedulesFlag.enabled
                 }
-                if let integrationsFlag = flags.first(where: { $0.key == Self.integrationsFeatureFlagKey }) {
-                    isIntegrationsEnabled = integrationsFlag.enabled
-                }
                 consumeDeferredDeepLinkIfVisible()
                 return
             } catch {
@@ -680,9 +669,6 @@ struct SettingsPanel: View {
         }
         if let schedulesEnabled = resolved[Self.schedulesFeatureFlagKey] {
             isSchedulesEnabled = schedulesEnabled
-        }
-        if let integrationsEnabled = resolved[Self.integrationsFeatureFlagKey] {
-            isIntegrationsEnabled = integrationsEnabled
         }
         consumeDeferredDeepLinkIfVisible()
     }
