@@ -429,17 +429,25 @@ async function restorePlatform(
         status = await platformPollImportStatus(jobId, token, entry.runtimeUrl);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        // Only retry errors we can positively identify as transient 5xx
+        if (msg.includes("not found")) {
+          throw err;
+        }
+        // Fail fast on auth errors from authHeaders() which don't
+        // match the "status check failed: NNN" format
+        if (msg.includes("401") || msg.includes("403")) {
+          throw err;
+        }
+        // Re-throw permanent 4xx errors, retry transient 5xx
         const statusMatch = msg.match(/status check failed: (\d+)/);
         if (statusMatch) {
           const statusCode = parseInt(statusMatch[1], 10);
-          if (statusCode >= 500) {
-            console.warn(`Polling failed, retrying... (${msg})`);
-            continue;
+          if (statusCode >= 400 && statusCode < 500) {
+            throw err;
           }
         }
-        // Everything else (4xx, auth errors, not found) — fail fast
-        throw err;
+        // Transient error (5xx, network) — retry
+        console.warn(`Polling failed, retrying... (${msg})`);
+        continue;
       }
 
       if (status.status === "complete") {
