@@ -510,7 +510,9 @@ async function exportFromAssistant(
         status = await platformPollExportStatus(jobId, token, entry.runtimeUrl);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("not found")) {
+        // Re-throw permanent errors (not found, auth failures, etc.)
+        // Only retry on transient network/connection errors
+        if (msg.includes("not found") || msg.includes("status check failed")) {
           throw err;
         }
         console.warn(`Polling failed, retrying... (${msg})`);
@@ -743,7 +745,12 @@ async function importToAssistant(
           );
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          if (msg.includes("not found")) {
+          // Re-throw permanent errors (not found, auth failures, etc.)
+          // Only retry on transient network/connection errors
+          if (
+            msg.includes("not found") ||
+            msg.includes("status check failed")
+          ) {
             throw err;
           }
           console.warn(`Polling failed, retrying... (${msg})`);
