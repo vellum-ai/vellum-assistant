@@ -142,6 +142,14 @@ export class SubagentManager {
    */
   broadcastToAllClients?: (msg: ServerMessage) => void;
 
+  /**
+   * Resolve a live parent Conversation by conversationId.
+   * Wired by DaemonServer at startup — follows the same pattern as
+   * `onSubagentFinished`.  Used by fork spawn to resolve the parent's
+   * system prompt when `config.parentSystemPrompt` is not provided.
+   */
+  resolveParentConversation?: (conversationId: string) => Conversation | undefined;
+
   // ── Spawn ───────────────────────────────────────────────────────────
 
   /**
@@ -165,7 +173,19 @@ export class SubagentManager {
     }
 
     // ── Resolve role ─────────────────────────────────────────────────
-    const role: SubagentRole = (config.role as SubagentRole) ?? "general";
+    const isFork = config.fork === true;
+    let role: SubagentRole = (config.role as SubagentRole) ?? "general";
+    if (isFork && role !== "general") {
+      log.warn(
+        {
+          requestedRole: role,
+          parentConversationId: config.parentConversationId,
+          label: config.label,
+        },
+        "Fork requested with non-general role — forcing general to preserve KV cache alignment",
+      );
+      role = "general";
+    }
     if (!SUBAGENT_ROLE_REGISTRY[role]) {
       throw new Error(
         `Invalid subagent role "${config.role}". Must be one of: ${Object.keys(SUBAGENT_ROLE_REGISTRY).join(", ")}`,
@@ -194,25 +214,58 @@ export class SubagentManager {
       );
     }
 
-    const systemPrompt =
-      config.systemPromptOverride ??
-      buildSubagentSystemPrompt({ ...config, id: subagentId }, role);
+    let systemPrompt: string;
+    if (isFork) {
+      // Forks use the parent's system prompt directly — no subagent preamble.
+      if (config.parentSystemPrompt) {
+        systemPrompt = config.parentSystemPrompt;
+      } else if (this.resolveParentConversation) {
+        const parentConv = this.resolveParentConversation(config.parentConversationId);
+        const resolved = parentConv?.getCurrentSystemPrompt();
+        if (!resolved) {
+          throw new Error(
+            "Fork spawn requires a parent system prompt but neither config.parentSystemPrompt " +
+            "nor resolveParentConversation yielded one.",
+          );
+        }
+        systemPrompt = resolved;
+      } else {
+        throw new Error(
+          "Fork spawn requires a parent system prompt but neither config.parentSystemPrompt " +
+          "is set nor resolveParentConversation callback is wired.",
+        );
+      }
+    } else {
+      systemPrompt =
+        config.systemPromptOverride ??
+        buildSubagentSystemPrompt({ ...config, id: subagentId }, role);
+    }
     const maxTokens = appConfig.maxTokens;
     const workingDir = getSandboxWorkingDir();
 
-    const memoryPolicy: ConversationMemoryPolicy = {
-      scopeId: `subagent:${subagentId}`,
-      includeDefaultFallback: true,
-      strictSideEffects: false,
-    };
+    const memoryPolicy: ConversationMemoryPolicy = isFork
+      ? {
+          scopeId: "default",
+          includeDefaultFallback: false,
+          strictSideEffects: false,
+        }
+      : {
+          scopeId: `subagent:${subagentId}`,
+          includeDefaultFallback: true,
+          strictSideEffects: false,
+        };
 
     // ── Initialise state ────────────────────────────────────────────
     const now = Date.now();
+    // For forks, default sendResultToUser to false (silent) unless explicitly true.
+    const resolvedSendResultToUser = isFork
+      ? (config.sendResultToUser === true ? true : false)
+      : config.sendResultToUser;
     const state: SubagentState = {
-      config: { ...config, id: subagentId },
+      config: { ...config, id: subagentId, sendResultToUser: resolvedSendResultToUser },
       status: "pending",
       conversationId: conversationRecord.id,
-      isFork: config.fork ?? false,
+      isFork,
       createdAt: now,
       usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     };
@@ -257,7 +310,9 @@ export class SubagentManager {
     conversation.setIsSubagent(true);
 
     // Apply role-based tool filter if the role defines one.
-    if (roleConfig.allowedTools) {
+    // Skip for forks — general role has allowedTools: undefined, and forks
+    // should have the same tool access as the parent.
+    if (!isFork && roleConfig.allowedTools) {
       conversation.setSubagentAllowedTools(new Set(roleConfig.allowedTools));
     }
 
@@ -340,6 +395,13 @@ export class SubagentManager {
     const onEvent = conversation.sendToClient;
 
     try {
+      // For forks, inject the parent's message history before the first message.
+      // This prepends the inherited context so the fork has full conversational
+      // awareness while the objective becomes the latest user turn.
+      if (managed.state.isFork && managed.state.config.parentMessages) {
+        conversation.injectInheritedContext(managed.state.config.parentMessages);
+      }
+
       // Send the objective as the first user message and process it.
       const messageId = await conversation.persistUserMessage(objective, []);
       await conversation.runAgentLoop(objective, messageId, onEvent);
