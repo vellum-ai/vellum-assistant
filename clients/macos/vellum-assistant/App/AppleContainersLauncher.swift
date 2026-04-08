@@ -53,6 +53,14 @@ final class AppleContainersLauncher: AssistantManagementClient {
     // MARK: - AssistantManagementClient
 
     func hatch(name: String?, configValues: [String: String]) async throws {
+        try await hatch(name: name, configValues: configValues, progress: nil)
+    }
+
+    func hatch(
+        name: String?,
+        configValues: [String: String],
+        progress onProgress: (@MainActor (String) -> Void)?
+    ) async throws {
         let availability = Self.checkAvailability()
         if case .unavailable(let reason) = availability {
             log.error("Apple Containers not available: \(String(describing: reason), privacy: .public)")
@@ -87,6 +95,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
         do {
             try await runtime.start { message in
                 log.info("\(message, privacy: .public)")
+                await onProgress?(message)
             }
         } catch {
             // Clean up on failure.

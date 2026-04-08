@@ -374,7 +374,10 @@ struct HatchingStepView: View {
                 state.hatchLogLines.append("Starting Apple Container hatch...")
                 try await launcher.hatch(
                     name: state.assistantName.isEmpty ? nil : state.assistantName,
-                    configValues: configValues
+                    configValues: configValues,
+                    progress: { message in
+                        self.state.hatchLogLines.append(message)
+                    }
                 )
                 log.info("Apple container hatch succeeded")
                 handleHatchSuccess()

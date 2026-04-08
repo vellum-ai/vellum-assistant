@@ -60,21 +60,24 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
             at: config.instanceDir, withIntermediateDirectories: true
         )
 
-        await progress("Pulling service images...")
         var rootfsMounts: [VellumServiceName: Containerization.Mount] = [:]
-        for service in VellumServiceName.startOrder {
+        let rootfsDir = config.instanceDir.appendingPathComponent(".rootfs", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootfsDir, withIntermediateDirectories: true)
+
+        for (i, service) in VellumServiceName.startOrder.enumerated() {
             guard let ref = config.serviceImageRefs[service] else {
                 throw PodRuntimeError.missingImageRef(service)
             }
+            await progress("Pulling image \(i + 1)/\(VellumServiceName.startOrder.count): \(service.rawValue)...")
             let image = try await pullImage(
                 reference: ref, store: imageStore, progress: progress
             )
-            let rootfsDir = config.instanceDir.appendingPathComponent(".rootfs", isDirectory: true)
-            try FileManager.default.createDirectory(at: rootfsDir, withIntermediateDirectories: true)
+            await progress("Unpacking \(service.rawValue) rootfs...")
             let rootfsPath = rootfsDir.appendingPathComponent("\(service.rawValue).ext4")
             rootfsMounts[service] = try await createRootFilesystem(
                 from: image, sizeInBytes: config.rootfsSizeInBytes, at: rootfsPath
             )
+            log.info("Rootfs ready for \(service.rawValue, privacy: .public)")
         }
 
         // 3. Create host-side shared directories.
