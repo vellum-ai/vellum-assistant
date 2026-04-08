@@ -354,6 +354,7 @@ export class SubagentManager {
       parentConversationId: config.parentConversationId,
       label: config.label,
       objective: config.objective,
+      isFork: config.fork ?? false,
     } as ServerMessage);
 
     log.info(
@@ -883,22 +884,31 @@ export class SubagentManager {
     if (!this.onSubagentFinished) return;
 
     const { config } = managed.state;
+    const isFork = managed.state.isFork;
     let message: string;
 
     if (outcome === "completed") {
-      const silent = config.sendResultToUser === false;
-      message =
-        `[Subagent "${config.label}" completed]\n\n` +
-        `Use subagent_read with subagent_id "${config.id}" to retrieve the full output.\n` +
-        (silent
-          ? `This subagent was spawned for internal processing. Read the result for your own use but do NOT share it with the user.\nDo NOT re-spawn this subagent.`
-          : `Do NOT re-spawn this subagent — just read and share the results.`);
+      if (isFork) {
+        message =
+          `[Fork "${config.label}" completed]\n\n` +
+          `Use subagent_read with subagent_id "${config.id}" and last_n: 1 to retrieve the final synthesis.\n` +
+          `This fork was spawned for internal processing. Process the findings internally — do NOT share raw fork output with the user.`;
+      } else {
+        const silent = config.sendResultToUser === false;
+        message =
+          `[Subagent "${config.label}" completed]\n\n` +
+          `Use subagent_read with subagent_id "${config.id}" to retrieve the full output.\n` +
+          (silent
+            ? `This subagent was spawned for internal processing. Read the result for your own use but do NOT share it with the user.\nDo NOT re-spawn this subagent.`
+            : `Do NOT re-spawn this subagent — just read and share the results.`);
+      }
     } else {
       const error = managed.state.error ?? "Unknown error";
+      const prefix = isFork ? "Fork" : "Subagent";
       message =
-        `[Subagent "${config.label}" failed]\n\n` +
+        `[${prefix} "${config.label}" failed]\n\n` +
         `Error: ${error}\n` +
-        `Do NOT re-spawn or retry this subagent unless the user explicitly asks.`;
+        `Do NOT re-spawn or retry this ${prefix.toLowerCase()} unless the user explicitly asks.`;
     }
 
     const notification: SubagentNotificationInfo = {
