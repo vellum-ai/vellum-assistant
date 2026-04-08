@@ -675,8 +675,7 @@ struct SettingsDeveloperTab: View {
     private func performLocalRestart() async {
         do {
             try await AppDelegate.shared?.vellumCli.hatch(
-                name: selectedAssistantId,
-                restart: true
+                name: selectedAssistantId
             )
         } catch {}
     }

@@ -728,7 +728,6 @@ describe("resolveOrHatchTarget", () => {
       null,
       false,
       false,
-      false,
       {},
     );
     expect(result).toBe(newEntry);
