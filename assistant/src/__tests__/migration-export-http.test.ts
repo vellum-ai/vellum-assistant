@@ -75,7 +75,7 @@ beforeAll(() => {
   // Write test fixture files so the export reads real data
   mkdirSync(testDbDir, { recursive: true });
   writeFileSync(testDbPath, SQLITE_HEADER);
-  writeFileSync(testConfigPath, JSON.stringify(TEST_CONFIG, null, 2));
+  writeFileSync(testConfigPath, JSON.stringify(TEST_CONFIG, null, 2) + "\n");
 });
 
 // ---------------------------------------------------------------------------
@@ -323,7 +323,7 @@ describe("export data population", () => {
     );
     expect(configFile).toBeDefined();
     const expectedConfigSize = Buffer.byteLength(
-      JSON.stringify(TEST_CONFIG, null, 2),
+      JSON.stringify(TEST_CONFIG, null, 2) + "\n",
     );
     expect(configFile!.size).toBe(expectedConfigSize);
   });
