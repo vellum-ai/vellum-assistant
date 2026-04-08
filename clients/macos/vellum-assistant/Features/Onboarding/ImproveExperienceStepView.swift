@@ -25,7 +25,7 @@ struct ImproveExperienceStepView: View {
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
 
-        Text("Choose your privacy preferences.\nYou can update these anytime in Settings.")
+        Text("Choose your privacy preferences. You can update these anytime in the settings.")
             .font(VFont.titleSmall)
             .multilineTextAlignment(.center)
             .foregroundStyle(VColor.contentSecondary)
@@ -35,46 +35,52 @@ struct ImproveExperienceStepView: View {
 
         VStack(spacing: VSpacing.md) {
             VStack(spacing: VSpacing.md) {
-                // Privacy toggles card
-                VCard {
-                    VStack(spacing: VSpacing.lg) {
-                        // Usage analytics toggle
-                        VToggle(
-                            isOn: $collectUsageData,
-                            label: "Share Analytics",
-                            helperText: "Send anonymous product usage data. Your conversations and personal data are never included."
-                        )
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                SettingsDivider()
 
-                        SettingsDivider()
+                // Usage analytics toggle
+                VToggle(
+                    isOn: $collectUsageData,
+                    label: "Share Analytics",
+                    helperText: "Send anonymous product usage data."
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-                        // Diagnostics toggle
-                        VToggle(
-                            isOn: $sendDiagnostics,
-                            label: "Share Diagnostics",
-                            helperText: "Send crash reports and performance metrics. Your conversations and personal data are never included."
-                        )
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+                // Diagnostics toggle
+                VToggle(
+                    isOn: $sendDiagnostics,
+                    label: "Share Diagnostics",
+                    helperText: "Send crash reports and performance metrics."
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                // Privacy note bar
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.eyeOff, size: 14)
+                        .foregroundStyle(VColor.contentTertiary)
+                    Text("Your conversations and personal data are never included.")
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
+                .padding(.horizontal, VSpacing.sm)
+                .padding(.vertical, VSpacing.xs)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(VColor.surfaceBase)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
 
                 // ToS consent checkbox
-                VCard {
-                    HStack(spacing: VSpacing.md) {
-                        tosCheckbox
-                        tosConsentText
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: VSpacing.md) {
+                    tosCheckbox
+                    tosConsentText
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-                VButton(label: "Accept and Start", style: .primary, isFullWidth: true, isDisabled: !tosAccepted) {
+                VButton(label: "Start", style: .primary, isFullWidth: true, isDisabled: !tosAccepted) {
                     saveAndContinue()
                 }
 
-                VButton(label: "Back", style: .ghost) {
+                VButton(label: "Back", style: .outlined) {
                     goBack()
                 }
-                .padding(.top, VSpacing.xs)
             }
         }
         .padding(.horizontal, VSpacing.xxl)
