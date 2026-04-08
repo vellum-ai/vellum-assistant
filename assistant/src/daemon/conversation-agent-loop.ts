@@ -22,7 +22,9 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import { postTurnTruncateToolResults, derefToolResultReReads } from "../context/post-turn-tool-result-truncation.js";
 import { estimatePromptTokens } from "../context/token-estimator.js";
 import type { ContextWindowManager } from "../context/window-manager.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
@@ -44,6 +46,7 @@ import {
   updateConversationTitle,
   updateMessageMetadata,
 } from "../memory/conversation-crud.js";
+import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import {
   isReplaceableTitle,
@@ -1742,7 +1745,25 @@ export async function runAgentLoopImpl(
       // would create a duplicate plain-text bubble below the alert card.
     }
 
-    const restoredHistory = [...preRepairMessages, ...newMessages];
+    let restoredHistory = [...preRepairMessages, ...newMessages];
+
+    // Post-turn tool result truncation: save large results to disk and
+    // replace in-context content with a prefix/suffix stub + file pointer.
+    if (isAssistantFeatureFlagEnabled("tool-result-truncation", config)) {
+      const conv = getConversation(ctx.conversationId);
+      if (conv) {
+        const convDir = getResolvedConversationDirPath(ctx.conversationId, conv.createdAt);
+        const { messages: derefMessages, dereferencedCount } = derefToolResultReReads(restoredHistory);
+        const { messages: truncatedMessages, truncatedCount } = postTurnTruncateToolResults(derefMessages, { conversationDir: convDir });
+        if (truncatedCount > 0 || dereferencedCount > 0) {
+          rlog.info(
+            { truncatedCount, dereferencedCount },
+            "Post-turn tool result truncation applied",
+          );
+        }
+        restoredHistory = truncatedMessages;
+      }
+    }
 
     const postLoopContextEstimate = estimatePromptTokens(
       restoredHistory,
