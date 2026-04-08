@@ -248,6 +248,20 @@ describe("serializeProvider", () => {
     const result = serializeProvider(row)!;
     expect(result.revokeBodyTemplate).toEqual(template);
   });
+
+  test("serializeProvider exposes logoUrl", () => {
+    const row = makeRow({
+      logoUrl: "https://cdn.simpleicons.org/notion",
+    });
+    const result = serializeProvider(row)!;
+    expect(result.logoUrl).toBe("https://cdn.simpleicons.org/notion");
+  });
+
+  test("serializeProvider emits logoUrl as null when row value is null", () => {
+    const row = makeRow({ logoUrl: null });
+    const result = serializeProvider(row)!;
+    expect(result.logoUrl).toBeNull();
+  });
 });
 
 describe("serializeProviderSummary", () => {
@@ -271,6 +285,7 @@ describe("serializeProviderSummary", () => {
       dashboard_url: "https://console.cloud.google.com",
       client_id_placeholder: "your-client-id.apps.googleusercontent.com",
       requires_client_secret: true,
+      logo_url: null,
       supports_managed_mode: true,
       feature_flag: null,
     });
@@ -336,5 +351,19 @@ describe("serializeProviderSummary", () => {
     expect(result).not.toHaveProperty("revokeUrl");
     expect(result).not.toHaveProperty("revoke_body_template");
     expect(result).not.toHaveProperty("revokeBodyTemplate");
+  });
+
+  test("serializeProviderSummary exposes logo_url", () => {
+    const row = makeRow({
+      logoUrl: "https://cdn.simpleicons.org/notion",
+    });
+    const result = serializeProviderSummary(row)!;
+    expect(result).toHaveProperty("logo_url");
+    expect(result.logo_url).toBe("https://cdn.simpleicons.org/notion");
+  });
+
+  test("logo_url is null when row logoUrl is null", () => {
+    const result = serializeProviderSummary({ ...makeRow(), logoUrl: null })!;
+    expect(result.logo_url).toBeNull();
   });
 });
