@@ -443,7 +443,8 @@ export function updateProvider(
     set.tokenExchangeUrl = params.tokenExchangeUrl;
   if (params.refreshUrl !== undefined) set.refreshUrl = params.refreshUrl;
   if (params.tokenEndpointAuthMethod !== undefined)
-    set.tokenEndpointAuthMethod = params.tokenEndpointAuthMethod;
+    set.tokenEndpointAuthMethod =
+      params.tokenEndpointAuthMethod || "client_secret_post";
   if (params.userinfoUrl !== undefined) set.userinfoUrl = params.userinfoUrl;
   if (params.pingUrl !== undefined) set.pingUrl = params.pingUrl;
   if (params.pingMethod !== undefined) set.pingMethod = params.pingMethod;
