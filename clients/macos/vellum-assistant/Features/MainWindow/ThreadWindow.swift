@@ -218,7 +218,11 @@ private struct ThreadWindowContentView: View {
                         settingsStore.exitManagedAssistantRecoveryMode()
                     },
                     onOpenSSHSettings: {
-                        settingsStore.pendingSettingsTab = .developer
+                        // Recovery mode applies only to managed assistants, so
+                        // the Debug tab is always visible here. Route there
+                        // directly so managed users without the developer
+                        // feature flag aren't dropped back to General.
+                        settingsStore.pendingSettingsTab = .debug
                         AppDelegate.shared?.showSettingsWindow(nil)
                     },
                     anchorMessageId: $anchorMessageId,

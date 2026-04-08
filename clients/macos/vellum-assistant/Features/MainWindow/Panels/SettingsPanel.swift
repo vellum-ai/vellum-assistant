@@ -10,6 +10,7 @@ enum SettingsTab: String {
     case billing = "Billing"
     case archivedConversations = "Archive"
     case schedules = "Schedules"
+    case debug = "Debug"
     case developer = "Developer"
 
     var icon: VIcon {
@@ -22,18 +23,25 @@ enum SettingsTab: String {
         case .billing: return .creditCard
         case .archivedConversations: return .archive
         case .schedules: return .calendar
+        case .debug: return .bug
         case .developer: return .terminal
         }
     }
 
     /// Primary tabs shown in the main nav list (excludes feature-flagged bottom tabs).
-    static func primaryTabs(billingEnabled: Bool = false, soundsEnabled: Bool = true, schedulesEnabled: Bool = false) -> [SettingsTab] {
+    static func primaryTabs(
+        billingEnabled: Bool = false,
+        soundsEnabled: Bool = true,
+        schedulesEnabled: Bool = false,
+        debugEnabled: Bool = false
+    ) -> [SettingsTab] {
         var tabs: [SettingsTab] = [.general, .modelsAndServices, .voice]
         if soundsEnabled { tabs.append(.sounds) }
         if billingEnabled { tabs.append(.billing) }
         tabs.append(.permissionsAndPrivacy)
         tabs.append(.archivedConversations)
         if schedulesEnabled { tabs.append(.schedules) }
+        if debugEnabled { tabs.append(.debug) }
         return tabs
     }
 }
@@ -80,6 +88,12 @@ struct SettingsPanel: View {
         let soundsEnabled = assistantFeatureFlagStore.isEnabled(Self.soundsFeatureFlagKey)
         _isSoundsEnabled = State(initialValue: soundsEnabled)
 
+        // Pre-compute the cloud-hosted flag so first render already shows the
+        // Debug tab when applicable. Synchronous read off AppDelegate — it's
+        // set during connection setup before the settings panel can be opened.
+        let isCloudHosted = AppDelegate.shared?.isCurrentAssistantManaged ?? false
+        _isCurrentAssistantCloudHosted = State(initialValue: isCloudHosted)
+
         // Derive the initial tab from the pending deep-link at construction
         // time. Previous attempts set selectedTab in onAppear / onChange, but
         // those fire *after* the first render and are susceptible to timing
@@ -93,8 +107,16 @@ struct SettingsPanel: View {
             let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
             let canShowBilling = billingEnabled && authManager.isAuthenticated && orgId != nil
             // Contacts and developer flags load asynchronously, so default
-            // to false at init time — those tabs aren't visible yet.
-            let visibleTabs = SettingsTab.primaryTabs(billingEnabled: canShowBilling, soundsEnabled: soundsEnabled, schedulesEnabled: false)
+            // to false at init time — those tabs aren't visible yet. The
+            // Debug tab, however, depends only on the synchronous
+            // AppDelegate.isCurrentAssistantManaged read above, so a
+            // .debug deep-link can be honored on the first render.
+            let visibleTabs = SettingsTab.primaryTabs(
+                billingEnabled: canShowBilling,
+                soundsEnabled: soundsEnabled,
+                schedulesEnabled: false,
+                debugEnabled: isCloudHosted
+            )
             if visibleTabs.contains(pending) {
                 _selectedTab = State(initialValue: pending)
             } else {
@@ -127,6 +149,9 @@ struct SettingsPanel: View {
     @State private var isSchedulesEnabled: Bool = false
     @State private var isDeveloperEnabled: Bool = false
     @State private var isSoundsEnabled: Bool = true
+    /// `true` when the current assistant is cloud-hosted/platform-managed.
+    /// Drives visibility of the Debug tab (which contains restart + SSH terminal).
+    @State private var isCurrentAssistantCloudHosted: Bool = false
     @State private var isEmbeddingProviderEnabled: Bool = false
     @State private var isIntegrationsGridEnabled: Bool = false
     @State private var showingDevUnlock: Bool = false
@@ -198,6 +223,7 @@ struct SettingsPanel: View {
             isSoundsEnabled = assistantFeatureFlagStore.isEnabled(Self.soundsFeatureFlagKey)
             isSchedulesEnabled = assistantFeatureFlagStore.isEnabled(Self.schedulesFeatureFlagKey)
             isIntegrationsGridEnabled = assistantFeatureFlagStore.isEnabled(Self.integrationsGridFeatureFlagKey)
+            isCurrentAssistantCloudHosted = AppDelegate.shared?.isCurrentAssistantManaged ?? false
             // The init already consumed pendingSettingsTab into selectedTab.
             // Clear the store value so it doesn't leak into future navigations.
             if store.pendingSettingsTab != nil {
@@ -212,8 +238,12 @@ struct SettingsPanel: View {
                 // the flag manager directly avoids a stale billingVisible.
                 let billingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
                 let canShowBilling = billingEnabled && authManager.isAuthenticated && connectedOrgId != nil
-                let visibleTabs = SettingsTab.primaryTabs(billingEnabled: canShowBilling, soundsEnabled: isSoundsEnabled, schedulesEnabled: isSchedulesEnabled)
-                    + (isDeveloperEnabled ? [.developer] : [])
+                let visibleTabs = SettingsTab.primaryTabs(
+                    billingEnabled: canShowBilling,
+                    soundsEnabled: isSoundsEnabled,
+                    schedulesEnabled: isSchedulesEnabled,
+                    debugEnabled: isCurrentAssistantCloudHosted
+                ) + (isDeveloperEnabled ? [.developer] : [])
                 if visibleTabs.contains(tab) {
                     selectedTab = tab
                 }
@@ -338,7 +368,12 @@ struct SettingsPanel: View {
 
     /// All currently visible tabs (primary + gated bottom tabs).
     private var allVisibleTabs: [SettingsTab] {
-        var tabs = SettingsTab.primaryTabs(billingEnabled: billingVisible, soundsEnabled: isSoundsEnabled, schedulesEnabled: isSchedulesEnabled)
+        var tabs = SettingsTab.primaryTabs(
+            billingEnabled: billingVisible,
+            soundsEnabled: isSoundsEnabled,
+            schedulesEnabled: isSchedulesEnabled,
+            debugEnabled: isCurrentAssistantCloudHosted
+        )
         if isDeveloperEnabled {
             tabs.append(.developer)
         }
@@ -353,7 +388,12 @@ struct SettingsPanel: View {
 
     private var settingsNav: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            ForEach(SettingsTab.primaryTabs(billingEnabled: billingVisible, soundsEnabled: isSoundsEnabled, schedulesEnabled: isSchedulesEnabled), id: \.self) { tab in
+            ForEach(SettingsTab.primaryTabs(
+                billingEnabled: billingVisible,
+                soundsEnabled: isSoundsEnabled,
+                schedulesEnabled: isSchedulesEnabled,
+                debugEnabled: isCurrentAssistantCloudHosted
+            ), id: \.self) { tab in
                 VNavItem(icon: tab.icon.rawValue, label: tab.rawValue, isActive: selectedTab == tab) {
                     selectedTab = tab
                 }
@@ -415,6 +455,8 @@ struct SettingsPanel: View {
             SettingsArchivedConversationsTab(conversationManager: conversationManager)
         case .schedules:
             SettingsSchedulesTab()
+        case .debug:
+            SettingsDebugTab(store: store)
         case .developer:
             SettingsDeveloperTab(store: store, connectionManager: connectionManager, authManager: authManager, onClose: onClose)
         }

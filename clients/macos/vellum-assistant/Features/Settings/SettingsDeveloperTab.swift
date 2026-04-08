@@ -796,13 +796,11 @@ struct SettingsDeveloperTab: View {
         }
     }
 
-    private static let terminalWindow = SSHTerminalWindow()
-
     private func openTerminalWindow() {
         guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
               assistant.isManaged else { return }
 
-        Self.terminalWindow.open(assistant: assistant)
+        SSHTerminalWindow.shared.open(assistant: assistant)
     }
 
     // MARK: - Retire Assistant
