@@ -319,6 +319,22 @@ final class MessageListScrollState {
     /// Closure that scrolls to a given edge (e.g. `.bottom`).
     @ObservationIgnored var scrollToEdge: ((_ edge: Edge) -> Void)?
 
+    /// Closure that scrolls to a specific Y content offset with animations
+    /// disabled. Used by streaming auto-follow to bypass ScrollPosition
+    /// deduplication — during single-message streaming, the message ID is
+    /// constant so ID-based `ScrollPosition(id: X, anchor: .bottom)` writes
+    /// are structurally identical and silently ignored by SwiftUI. Offset-based
+    /// `scrollTo(y:)` avoids this because the Y value increases with every
+    /// content-height change.
+    ///
+    /// Uses `Transaction(disablesAnimations: true)` to prevent triggering
+    /// `.animating` scroll phase, which would block `phaseAllowsAutoFollow`
+    /// on subsequent geometry updates.
+    ///
+    /// - SeeAlso: `handleScrollGeometryUpdate` content-height auto-follow path
+    /// - SeeAlso: https://developer.apple.com/documentation/swiftui/scrollposition/scrollto(y:)
+    @ObservationIgnored var scrollToYOffset: ((_ y: CGFloat) -> Void)?
+
     /// Closure that cancels any in-flight programmatic scroll animation.
     ///
     /// SwiftUI's `withAnimation { scrollPosition = ... }` creates a SwiftUI-

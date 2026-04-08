@@ -150,27 +150,35 @@ extension MessageListView {
         // The 0.5pt threshold filters sub-pixel layout noise. Safe from
         // feedback loops because pinning changes contentOffsetY, not
         // contentHeight.
-        //
-        // Uses ID-based requestPinToBottom() which is effectively a no-op
-        // during single-message streaming (lastMessageId unchanged →
-        // ScrollPosition deduplication). The actual following during
-        // streaming is handled by the recovery mechanism below, which
-        // uses edge-based scrollToEdge(.bottom) at throttled intervals.
-        // Edge-based scroll cannot be used here directly because it
-        // triggers .animating scroll phase, which blocks
-        // phaseAllowsAutoFollow on subsequent geometry updates and
-        // creates a self-blocking cycle.
         let contentHeightChanged = abs(effectiveContentHeight - previousContentHeight) > 0.5
         if contentHeightChanged,
            scrollState.mode.allowsAutoScroll,
            phaseAllowsAutoFollow {
-            scrollState.requestPinToBottom()
+            // During streaming in followingBottom, use offset-based scroll
+            // via scrollTo(y:). This is the Apple-recommended API for
+            // absolute-offset scrolling (macOS 15+). The Y offset changes
+            // on every content-height increase, so it's NEVER deduped —
+            // unlike ID-based ScrollPosition(id: X, .bottom) which SwiftUI
+            // silently ignores when X hasn't changed (same message streaming).
+            //
+            // Uses Transaction(disablesAnimations: true) to prevent
+            // triggering .animating scroll phase, which would block
+            // phaseAllowsAutoFollow on subsequent geometry updates.
+            //
+            // During initial load (conversation switch), keep ID-based
+            // requestPinToBottom() — offset-based scroll targets a specific
+            // Y position in estimated content space, which may be wrong
+            // when LazyVStack hasn't materialized bottom views yet.
+            // ID-based targets a real ForEach item that SwiftUI can always
+            // locate (even when not materialized).
+            if scrollState.isFollowingBottom,
+               effectiveContentHeight > previousContentHeight {
+                let maxY = effectiveContentHeight - newState.visibleRectHeight
+                scrollState.scrollToYOffset?(maxY)
+            } else {
+                scrollState.requestPinToBottom()
+            }
         }
-        // Detect streaming content growth — used to extend recovery
-        // into streaming mode below.
-        let isStreamingContentGrowth = contentHeightChanged
-            && effectiveContentHeight > previousContentHeight
-            && scrollState.isFollowingBottom
         // --- Persistent bottom-recovery ---
         // Independent of the content-height auto-follow. Catches cases
         // the height-change check misses:
@@ -228,19 +236,20 @@ extension MessageListView {
         if scrollState.mode.allowsAutoScroll,
            phaseAllowsAutoFollow,
            effectiveContentHeight > newState.visibleRectHeight,
-           (!nowAtBottom || isInRecoveryWindow || isStreamingContentGrowth) {
+           (!nowAtBottom || isInRecoveryWindow) {
             // Throttle recovery to prevent overwhelming LazyVStack.
             // Without throttling, geometry updates at ~60fps fire
             // scrollToEdge every ~16ms — LazyVStack needs time between
             // scroll attempts to materialize views at the new position.
             //
-            // Three throttle tiers:
-            //   • Streaming (50ms / ~20Hz) — content is actively growing
-            //     in followingBottom mode. The ID-based auto-follow above
-            //     is deduped during single-message streaming (same
-            //     lastMessageId), so recovery is the actual mechanism
-            //     keeping the viewport at bottom. 50ms gives smooth
-            //     following without overwhelming LazyVStack.
+            // NOTE: Recovery is NOT the streaming follow mechanism.
+            // Streaming auto-follow is handled by offset-based
+            // scrollTo(y:) in the content-height-change auto-follow
+            // path above. Recovery is purely for conversation switch /
+            // CTA / initial load — cases where LazyVStack estimates
+            // are wrong and we need to converge on the actual bottom.
+            //
+            // Two throttle tiers:
             //   • Burst (50ms / ~20Hz) — first 500ms after conversation
             //     switch or reset. LazyVStack height estimates are most
             //     inaccurate immediately after a switch, especially for
@@ -255,12 +264,8 @@ extension MessageListView {
             //     in very long conversations.
             let now = Date()
             let throttleInterval: TimeInterval
-            if isStreamingContentGrowth {
-                // Content actively growing during streaming — recovery
-                // is the primary follow mechanism (auto-follow is deduped).
-                throttleInterval = 0.05
-            } else if let deadline = scrollState.recoveryDeadline,
-                      deadline.timeIntervalSince(now) > 1.5 {
+            if let deadline = scrollState.recoveryDeadline,
+               deadline.timeIntervalSince(now) > 1.5 {
                 // Within first 500ms of the 2-second window — burst mode.
                 throttleInterval = 0.05
             } else {
@@ -446,6 +451,21 @@ extension MessageListView {
             transaction.disablesAnimations = true
             withTransaction(transaction) {
                 binding.wrappedValue = ScrollPosition()
+            }
+        }
+        // Offset-based scroll for streaming auto-follow.
+        // ScrollPosition.scrollTo(y:) sets the viewport to an absolute Y
+        // offset. Unlike ID-based writes (which are deduped when the ID
+        // hasn't changed during single-message streaming), the Y offset
+        // increases with every content-height change — always a new value.
+        // disablesAnimations prevents triggering .animating scroll phase.
+        //
+        // Apple docs: https://developer.apple.com/documentation/swiftui/scrollposition/scrollto(y:)
+        scrollState.scrollToYOffset = { y in
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                binding.wrappedValue.scrollTo(y: y)
             }
         }
         scrollState.currentConversationId = conversationId
