@@ -309,6 +309,12 @@ export class SubagentManager {
     conversation.updateClient(wrappedSendToClient, true);
     conversation.setIsSubagent(true);
 
+    if (isFork) {
+      // Force the fork to use the parent's system prompt as-is without dynamic rebuild.
+      // This ensures KV cache alignment with the parent conversation.
+      conversation.hasSystemPromptOverride = true;
+    }
+
     // Apply role-based tool filter if the role defines one.
     // Skip for forks — general role has allowedTools: undefined, and forks
     // should have the same tool access as the parent.
@@ -401,6 +407,11 @@ export class SubagentManager {
       // awareness while the objective becomes the latest user turn.
       if (managed.state.isFork && managed.state.config.parentMessages) {
         conversation.injectInheritedContext(managed.state.config.parentMessages);
+        // Release the parent message arrays now that they've been injected — holding
+        // them in SubagentState.config would retain significant memory until the TTL
+        // sweep disposes this entry (up to 30 minutes for terminal subagents).
+        managed.state.config.parentMessages = undefined;
+        managed.state.config.parentSystemPrompt = undefined;
       }
 
       // Send the objective as the first user message and process it.

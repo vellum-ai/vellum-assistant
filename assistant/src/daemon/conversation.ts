@@ -249,7 +249,7 @@ export class Conversation {
   /** @internal */ workspaceTopLevelContext: string | null = null;
   /** @internal */ workspaceTopLevelDirty = true;
   public readonly traceEmitter: TraceEmitter;
-  public readonly hasSystemPromptOverride: boolean;
+  /** @internal */ hasSystemPromptOverride: boolean;
   public memoryPolicy: ConversationMemoryPolicy;
   /** @internal */ readonly graphMemory: ConversationGraphMemory;
   /** @internal */ activeContextNodeIds?: string[];
@@ -389,7 +389,7 @@ export class Conversation {
       _history: import("../providers/types.js").Message[],
     ): ResolvedSystemPrompt => {
       const resolved = {
-        systemPrompt: hasSystemPromptOverride
+        systemPrompt: this.hasSystemPromptOverride
           ? systemPrompt
           : (() => {
               const persona = resolvePersonaContext(
