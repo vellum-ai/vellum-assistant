@@ -22,6 +22,7 @@ struct VellumImageReference: Sendable, Equatable {
     }
 
     /// Default image references for a given service group version, pulled from Docker Hub.
+    /// This assumes the image tags are kept in sync.
     static func defaults(version: String) -> [VellumServiceName: VellumImageReference] {
         let org = "vellumai"
         return [
