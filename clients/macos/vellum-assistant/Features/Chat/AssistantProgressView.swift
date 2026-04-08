@@ -792,6 +792,14 @@ struct AssistantProgressView: View {
 
 // MARK: - Step Detail Row
 
+private final class StepDetailAttributedStringCacheEntry: NSObject {
+    let value: AttributedString
+
+    init(_ value: AttributedString) {
+        self.value = value
+    }
+}
+
 /// Unified row for tool call steps — handles completed, running, and blocked states.
 /// Completed rows are expandable to show technical details, screenshots, and output.
 private struct StepDetailRow: View {
@@ -803,20 +811,32 @@ private struct StepDetailRow: View {
     /// Human-friendly label for skill_execute rows (e.g. "Using my frontend design skill").
     var skillLabel: String?
     var onRehydrate: (() -> Void)?
-    /// Cached colored AttributedString for the tool call result — computed once
-    /// on first expand / result change to avoid rebuilding on every render.
-    @State private var cachedColoredResult: AttributedString?
-    /// Cached line count + isLong flag for resolvedInputFull — avoids O(n)
-    /// byte scan in the view body on every render.
-    @State private var cachedInputIsLong: Bool?
-    @Environment(\.displayScale) private var displayScale
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
+
+    private static let coloredOutputCache: NSCache<NSString, StepDetailAttributedStringCacheEntry> = {
+        let cache = NSCache<NSString, StepDetailAttributedStringCacheEntry>()
+        cache.countLimit = 128
+        return cache
+    }()
 
     /// Lazily resolved full input text.
     private var resolvedInputFull: String {
         if !toolCall.inputFull.isEmpty { return toolCall.inputFull }
         if let dict = toolCall.inputRawDict { return ToolCallData.formatAllToolInput(dict) }
         return ""
+    }
+
+    /// Render-time memoization that stays off SwiftUI-owned state.
+    private var cachedColoredResult: AttributedString? {
+        guard let result = toolCall.result, !result.isEmpty else { return nil }
+        let key = Self.coloredOutputCacheKey(for: result, isError: toolCall.isError)
+        if let cached = Self.coloredOutputCache.object(forKey: key) {
+            return cached.value
+        }
+
+        let colored = coloredOutput(result, isError: toolCall.isError)
+        Self.coloredOutputCache.setObject(StepDetailAttributedStringCacheEntry(colored), forKey: key)
+        return colored
     }
 
     /// Whether this tool has detail content to show (running or completed).
@@ -929,20 +949,9 @@ private struct StepDetailRow: View {
         }
         .animation(VAnimation.fast, value: isDetailExpanded)
         .onChange(of: isDetailExpanded) { _, newValue in
-            if newValue {
-                // Eagerly populate caches before the expanded body evaluates
-                // so the first render has colored output and correct input sizing.
-                if cachedColoredResult == nil,
-                   let result = toolCall.result, !result.isEmpty {
-                    cachedColoredResult = coloredOutput(result, isError: toolCall.isError)
-                }
-                if cachedInputIsLong == nil && !resolvedInputFull.isEmpty {
-                    let lines = resolvedInputFull.utf8.reduce(1) { c, b in b == 0x0A ? c + 1 : c }
-                    cachedInputIsLong = lines > 30 || (lines == 1 && resolvedInputFull.utf8.count > 50_000)
-                }
-                Task { @MainActor in
-                    onRehydrate?()
-                }
+            guard newValue else { return }
+            DispatchQueue.main.async {
+                onRehydrate?()
             }
         }
     }
@@ -971,22 +980,12 @@ private struct StepDetailRow: View {
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentSecondary)
                     if !resolvedInputFull.isEmpty {
-                        let inputIsLong = cachedInputIsLong ?? false
-
-                        if inputIsLong {
-                            ScrollView {
-                                Text(resolvedInputFull)
-                                    .font(VFont.bodySmallDefault)
-                                    .foregroundStyle(VColor.contentSecondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            .frame(height: 300)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                        } else {
-                            Text(resolvedInputFull)
-                                .font(VFont.bodySmallDefault)
-                                .foregroundStyle(VColor.contentSecondary)
-                        }
+                        outputBlock(
+                            text: resolvedInputFull,
+                            attributedText: nil,
+                            copyText: resolvedInputFull,
+                            copyLabel: "Copy input"
+                        )
                     }
                 }
             }
@@ -1022,8 +1021,8 @@ private struct StepDetailRow: View {
                         .foregroundStyle(VColor.contentTertiary)
                         .textCase(.uppercase)
 
-                    // Cached colored output — populated eagerly in
-                    // .onChange(of: isDetailExpanded) or .onAppear.
+                    // Cached diff coloring now lives in a non-observable
+                    // cache so expansion no longer mutates SwiftUI state.
                     outputBlock(
                         text: cachedColoredResult == nil ? result : nil,
                         attributedText: cachedColoredResult,
@@ -1036,31 +1035,13 @@ private struct StepDetailRow: View {
             }
         }
         .padding(.bottom, VSpacing.sm)
-        .textSelection(.enabled)
-        .onAppear {
-            if cachedColoredResult == nil,
-               let result = toolCall.result, !result.isEmpty {
-                cachedColoredResult = coloredOutput(result, isError: toolCall.isError)
-            }
-            if cachedInputIsLong == nil && !resolvedInputFull.isEmpty {
-                let lines = resolvedInputFull.utf8.reduce(1) { c, b in b == 0x0A ? c + 1 : c }
-                cachedInputIsLong = lines > 30 || (lines == 1 && resolvedInputFull.utf8.count > 50_000)
-            }
-        }
-        .onChange(of: toolCall.result) { _, newResult in
-            if let result = newResult, !result.isEmpty {
-                cachedColoredResult = coloredOutput(result, isError: toolCall.isError)
-            } else {
-                cachedColoredResult = nil
-            }
-        }
     }
 
     // MARK: - Output Block
 
     /// Reusable output block with copy button.
-    /// Long content (>30 lines) gets a definite-height ScrollView so LazyVStack
-    /// skips content measurement. Short content renders directly with no ScrollView.
+    /// The outer transcript owns vertical scrolling to avoid nested scroll-view
+    /// hit-testing and responder churn inside expanded tool rows.
     @ViewBuilder
     private func outputBlock(
         text: String?,
@@ -1069,21 +1050,8 @@ private struct StepDetailRow: View {
         copyLabel: String,
         isError: Bool = false
     ) -> some View {
-        let lines = copyText.utf8.reduce(1) { count, byte in byte == 0x0A ? count + 1 : count }
-        let isLong = lines > 30 || (lines == 1 && copyText.utf8.count > 50_000)
-
         ZStack(alignment: .topTrailing) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                if isLong {
-                    // Definite height — LazyVStack never measures content inside.
-                    ScrollView {
-                        outputTextView(text: text, attributedText: attributedText, isError: isError)
-                    }
-                    .frame(height: 400)
-                } else {
-                    outputTextView(text: text, attributedText: attributedText, isError: isError)
-                }
-            }
+            outputTextView(text: text, attributedText: attributedText, isError: isError)
             .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.sm + VSpacing.xl))
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(VColor.surfaceOverlay.opacity(0.6))
@@ -1114,7 +1082,7 @@ private struct StepDetailRow: View {
         }
     }
 
-    /// Text view for output content, used by both the ScrollView (long) and direct (short) paths.
+    /// Shared text view used by the detail blocks.
     @ViewBuilder
     private func outputTextView(
         text: String?,
@@ -1125,15 +1093,25 @@ private struct StepDetailRow: View {
             Text(attrText)
                 .font(VFont.bodySmallDefault)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
         } else if let plainText = text {
             Text(plainText)
                 .font(VFont.bodySmallDefault)
                 .foregroundStyle(isError ? VColor.systemNegativeStrong : VColor.contentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     // MARK: - Helpers
+
+    private static func coloredOutputCacheKey(for result: String, isError: Bool) -> NSString {
+        var hasher = Hasher()
+        hasher.combine(result)
+        hasher.combine(result.utf8.count)
+        hasher.combine(isError)
+        return "output:\(result.utf8.count):\(hasher.finalize())" as NSString
+    }
 
     private func coloredOutput(_ result: String, isError: Bool) -> AttributedString {
         let lines = result.components(separatedBy: "\n")
