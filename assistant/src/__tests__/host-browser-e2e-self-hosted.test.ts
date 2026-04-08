@@ -268,11 +268,24 @@ describe("host-browser E2E — self-hosted native messaging path", () => {
         type: string;
         token?: string;
         expiresAt?: string;
+        guardianId?: string;
       };
       expect(frame.type).toBe("token_response");
       expect(typeof frame.token).toBe("string");
       expect(frame.token!.length).toBeGreaterThan(0);
       expect(typeof frame.expiresAt).toBe("string");
+
+      // Gap 3 regression guard: the helper must surface the
+      // guardianId returned by /v1/browser-extension-pair on the
+      // native-messaging frame so the chrome extension's
+      // bootstrapLocalToken() can persist it. The route's
+      // resolveLocalGuardianId() falls back to the literal string
+      // "local" when no vellum guardian is bootstrapped, which is
+      // the case in this test environment, so we assert against the
+      // exact value as well as a non-empty type guard.
+      expect(typeof frame.guardianId).toBe("string");
+      expect(frame.guardianId!.length).toBeGreaterThan(0);
+      expect(frame.guardianId).toBe("local");
 
       // The returned token must verify via the in-process capability
       // verifier — this is the core invariant the native-messaging
@@ -284,6 +297,10 @@ describe("host-browser E2E — self-hosted native messaging path", () => {
       expect(claims?.capability).toBe("host_browser_command");
       expect(typeof claims?.guardianId).toBe("string");
       expect(claims?.guardianId.length).toBeGreaterThan(0);
+      // The frame's guardianId should match the claim's guardianId —
+      // both originate from the same `resolveLocalGuardianId()` call
+      // inside the route handler.
+      expect(frame.guardianId).toBe(claims?.guardianId);
       // expiresAt in the response frame should agree with the numeric
       // claim expiry to within ISO-string precision.
       const iso = new Date(claims!.expiresAt).toISOString();

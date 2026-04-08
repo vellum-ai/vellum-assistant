@@ -18,7 +18,7 @@
  *      `--assistant-port`, then `~/.vellum/runtime-port`, then defaulting to
  *      7821).
  *   4. Echo the assistant's response back to Chrome as a
- *      `{ type: "token_response", token, expiresAt }` frame.
+ *      `{ type: "token_response", token, expiresAt, guardianId }` frame.
  *   5. On any unrecoverable error, write a `{ type: "error", message }` frame
  *      and exit with a non-zero status.
  *
@@ -55,6 +55,7 @@ const RUNTIME_PORT_FILE = join(homedir(), ".vellum", "runtime-port");
 interface TokenResponse {
   token: string;
   expiresAt: string;
+  guardianId: string;
 }
 
 /**
@@ -132,29 +133,33 @@ function parseExtensionId(origin: string | undefined): string | null {
 }
 
 /**
- * Write a single native-messaging frame to stdout and exit the process
- * once the underlying write has actually been flushed.
+ * Write a single native-messaging frame to stdout and synchronously
+ * terminate the process.
  *
  * Chrome native messaging hosts communicate over a pipe-backed stdout.
- * `process.stdout.write()` may buffer data internally and flush
- * asynchronously, so calling `process.exit()` immediately after a write
- * can tear the process down before the frame ever reaches Chrome — the
- * extension then sees a disconnect instead of the intended response or
- * error frame. Using the callback form of `write()` defers `exit()` until
- * the buffer has been handed off, which is what we want here.
+ * Earlier versions of this helper used the callback form of
+ * `process.stdout.write()` to defer `process.exit()` until the buffer had
+ * been handed off, but that introduced a subtle bug: the function had to
+ * return a forever-pending Promise to satisfy the `never` return type,
+ * meaning callers that awaited it would yield control of the event loop
+ * before the process terminated. In the unauthorized-origin path that
+ * meant the stdin listener could be installed and start handling frames
+ * before the helper actually exited.
  *
- * The function never returns to the caller (declared as `never`), so it
- * is safe to use in code paths whose control flow assumes the process
- * has terminated.
+ * The synchronous form below avoids that hazard entirely:
+ * `process.exit()` is itself `never`, so the function legitimately never
+ * returns and there is no event-loop tick between the write and the
+ * exit. Any partial flushing concerns are accepted as a trade-off — the
+ * exit code is the authoritative signal to Chrome regardless of whether
+ * the frame body made it across the pipe.
  */
 function writeFrameAndExit(payload: unknown, exitCode: number): never {
-  process.stdout.write(encodeFrame(payload), () => {
-    process.exit(exitCode);
-  });
-  // The callback above will fire on the next tick of the event loop and
-  // terminate the process. We block here forever so callers can rely on
-  // a `never` return type without us racing the callback.
-  return new Promise<never>(() => {}) as unknown as never;
+  try {
+    process.stdout.write(encodeFrame(payload));
+  } catch {
+    // ignore — exit code is the authoritative signal
+  }
+  process.exit(exitCode);
 }
 
 /**
@@ -163,18 +168,13 @@ function writeFrameAndExit(payload: unknown, exitCode: number): never {
  * (or a Chrome extension developer inspecting the host's stderr stream)
  * can see what went wrong.
  *
- * Uses `writeFrameAndExit` so the error frame is actually flushed to
- * Chrome before the process terminates.
+ * Uses `writeFrameAndExit` so the error frame is written to stdout before
+ * the process terminates. `writeFrameAndExit` handles its own write
+ * failures internally, so no additional try/catch is needed here.
  */
 function fail(message: string, code = 1): never {
   process.stderr.write(`vellum-chrome-native-host: ${message}\n`);
-  try {
-    return writeFrameAndExit({ type: "error", message }, code);
-  } catch {
-    // If even queuing the error frame fails (e.g. stdout already closed),
-    // there's nothing useful to do — just exit.
-    process.exit(code);
-  }
+  writeFrameAndExit({ type: "error", message }, code);
 }
 
 /**
@@ -229,8 +229,11 @@ async function requestToken(
     throw new Error("assistant pair response missing token / expiresAt");
   }
 
-  const { token, expiresAt } = body as TokenResponse;
-  return { token, expiresAt };
+  const { token, expiresAt, guardianId } = body as TokenResponse;
+  if (typeof guardianId !== "string" || guardianId.length === 0) {
+    throw new Error("pair endpoint response missing guardianId");
+  }
+  return { token, expiresAt, guardianId };
 }
 
 async function main(): Promise<void> {
@@ -254,12 +257,12 @@ async function main(): Promise<void> {
     process.stderr.write(
       `vellum-chrome-native-host: unauthorized_origin (got ${extensionOrigin ?? "<none>"})\n`,
     );
-    try {
-      writeFrameAndExit({ type: "error", message: "unauthorized_origin" }, 1);
-    } catch {
-      // Ignore — exit code is the authoritative signal here.
-      process.exit(1);
-    }
+    writeFrameAndExit({ type: "error", message: "unauthorized_origin" }, 1);
+    // Defense-in-depth: even though writeFrameAndExit calls process.exit
+    // synchronously and is typed `never`, an explicit `return` here
+    // guarantees we never fall through to the stdin listener setup below
+    // if a future refactor accidentally makes writeFrameAndExit async.
+    return;
   }
 
   // Reading stdin in 4-byte-framed chunks. Chrome may deliver a single
@@ -298,12 +301,12 @@ async function main(): Promise<void> {
         }
 
         try {
-          const { token, expiresAt } = await requestToken(
+          const { token, expiresAt, guardianId } = await requestToken(
             extensionOrigin!,
             process.argv,
           );
           writeFrameAndExit(
-            { type: "token_response", token, expiresAt },
+            { type: "token_response", token, expiresAt, guardianId },
             0,
           );
         } catch (err) {
