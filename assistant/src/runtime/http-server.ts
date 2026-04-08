@@ -264,6 +264,17 @@ interface BrowserRelayWebSocketData {
    * parsed into an actor principal.
    */
   guardianId?: string;
+  /**
+   * Stable per-extension-install identifier supplied by the client on
+   * the WebSocket handshake (via the `clientInstanceId` query param or
+   * the `x-client-instance-id` header). Plumbed into the
+   * ChromeExtensionRegistry so multiple parallel installs for the same
+   * guardian (e.g. two Chrome profiles, two desktops) don't evict each
+   * other on register/unregister. Undefined on older extension builds
+   * — the registry synthesizes a connection-scoped fallback key in
+   * that case for backwards-compatible single-instance semantics.
+   */
+  clientInstanceId?: string;
 }
 
 export class RuntimeHttpServer {
@@ -371,11 +382,14 @@ export class RuntimeHttpServer {
             // time, register this connection with the chrome-extension
             // registry so host_browser_request frames can be routed to it.
             if (data.guardianId) {
+              const now = Date.now();
               getChromeExtensionRegistry().register({
                 id: data.connectionId,
                 guardianId: data.guardianId,
+                clientInstanceId: data.clientInstanceId,
                 ws,
-                connectedAt: Date.now(),
+                connectedAt: now,
+                lastActiveAt: now,
               });
             }
             return;
@@ -844,6 +858,21 @@ export class RuntimeHttpServer {
     // parses the downstream edge token's `actorPrincipalId` and forwards
     // it as an explicit `guardianId` query parameter (and/or header) so
     // we can register the connection under the real guardian.
+    // Read the client-supplied stable instance id off the handshake.
+    // The extension generates this on first run and persists it in
+    // chrome.storage so it survives service-worker restarts and
+    // browser restarts. The header form is preferred so gateway
+    // forwarding and proxy logs don't surface instance ids in the
+    // URL, but we also accept a query param for fetch-based clients
+    // that can't mutate headers. An empty string is treated as absent
+    // so sparse clients don't end up all sharing the same legacy key.
+    const rawInstanceHeader = req.headers.get("x-client-instance-id")?.trim();
+    const rawInstanceQuery = new URL(req.url).searchParams
+      .get("clientInstanceId")
+      ?.trim();
+    const clientInstanceId =
+      (rawInstanceHeader ?? "") || (rawInstanceQuery ?? "") || undefined;
+
     let guardianId: string | undefined;
     if (!isHttpAuthDisabled()) {
       const wsUrl = new URL(req.url);
@@ -912,6 +941,7 @@ export class RuntimeHttpServer {
         wsType: "browser-relay",
         connectionId,
         guardianId,
+        clientInstanceId,
       } satisfies BrowserRelayWebSocketData,
     });
     if (!upgraded) {

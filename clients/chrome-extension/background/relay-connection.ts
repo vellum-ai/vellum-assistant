@@ -50,6 +50,17 @@ export interface RelayConnectionDeps {
    * token yet, e.g. before cloud sign-in or before self-hosted pairing).
    */
   mode: RelayMode;
+  /**
+   * Stable per-extension-install identifier, plumbed into the WebSocket
+   * URL as a `clientInstanceId` query param on every handshake. The
+   * runtime registry keys inner entries by this value so multiple
+   * parallel installs for the same guardian (two Chrome profiles, two
+   * desktops sharing a sync identity) don't evict each other on
+   * register/unregister. Undefined is allowed for backwards
+   * compatibility — the runtime synthesizes a connection-scoped
+   * fallback in that case.
+   */
+  clientInstanceId?: string;
   /** Invoked with the raw string payload for every incoming message. */
   onMessage: (data: string) => void;
   /** Invoked when the socket transitions to OPEN. */
@@ -218,14 +229,23 @@ export class RelayConnection {
 
   /** Build the WebSocket URL from the current mode. */
   private buildUrl(): string {
-    const { mode } = this.deps;
+    const { mode, clientInstanceId } = this.deps;
     const base = mode.baseUrl.replace(/\/$/, '');
     const wsBase = base.replace(/^http/, 'ws');
-    const url = `${wsBase}/v1/browser-relay`;
+    // Build the query string by hand rather than via URLSearchParams
+    // so the token encoding stays pinned to encodeURIComponent
+    // semantics (URLSearchParams normalizes ' ' → '+' instead of
+    // '%20', which would flip existing handshake URLs downstream).
+    const parts: string[] = [];
     if (mode.token) {
-      return `${url}?token=${encodeURIComponent(mode.token)}`;
+      parts.push(`token=${encodeURIComponent(mode.token)}`);
     }
-    return url;
+    if (clientInstanceId) {
+      parts.push(`clientInstanceId=${encodeURIComponent(clientInstanceId)}`);
+    }
+    return parts.length > 0
+      ? `${wsBase}/v1/browser-relay?${parts.join('&')}`
+      : `${wsBase}/v1/browser-relay`;
   }
 
   private scheduleReconnect(): void {
