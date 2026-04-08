@@ -122,6 +122,15 @@ extension AppDelegate {
 
         rebindConnectionStatusObserver()
 
+        // Read the multi-platform-assistant flag exactly once when the
+        // status item is constructed. Flag changes require relaunch.
+        multiAssistantSwitcherEnabled = featureFlagStore.isEnabled("multi-platform-assistant")
+        if multiAssistantSwitcherEnabled {
+            assistantSwitcherViewModel = makeAssistantSwitcherViewModel()
+        } else {
+            assistantSwitcherViewModel = nil
+        }
+
         // Update menu bar icon when the assistant's avatar changes.
         if avatarChangeObserver == nil {
             avatarChangeObserver = NotificationCenter.default.addObserver(
@@ -413,6 +422,23 @@ extension AppDelegate {
             menu.addItem(restartItem)
         }
 
+        if multiAssistantSwitcherEnabled, onboardingWindow == nil, let switcherVM = assistantSwitcherViewModel {
+            // Force a re-read of the lockfile before rebuilding so items
+            // reflect any changes the active assistant may have missed
+            // (e.g. just after a create).
+            switcherVM.refresh()
+            menu.addItem(NSMenuItem.separator())
+            for item in AssistantSwitcherMenu.buildItems(
+                viewModel: switcherVM,
+                target: self,
+                selectAction: #selector(assistantSwitcherDidSelect(_:)),
+                createAction: #selector(assistantSwitcherDidRequestCreate(_:)),
+                retireAction: #selector(assistantSwitcherDidRequestRetire(_:))
+            ) {
+                menu.addItem(item)
+            }
+        }
+
         menu.addItem(NSMenuItem.separator())
 
         let quitItem = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -697,6 +723,142 @@ extension AppDelegate {
         }
     }
 
+    // MARK: - Assistant Switcher (multi-platform-assistant)
+
+    /// Build the view model used by the menu-bar switcher. Production
+    /// handlers wrap `ManagedAssistantConnectionCoordinator.switchToManagedAssistant`,
+    /// the hatch path, and the existing vellum CLI retire path.
+    func makeAssistantSwitcherViewModel() -> AssistantSwitcherViewModel {
+        AssistantSwitcherViewModel(
+            switchHandler: { [weak self] assistantId in
+                guard let self else { return }
+                let controller = AppDelegateManagedConnectionController(appDelegate: self)
+                let coordinator = ManagedAssistantConnectionCoordinator(
+                    connectionController: controller
+                )
+                _ = try await coordinator.switchToManagedAssistant(assistantId: assistantId)
+            },
+            createHandler: { [weak self] name in
+                guard let self else { return }
+                try await self.hatchAndPersistManagedAssistant(name: name)
+            },
+            retireHandler: { [weak self] assistantId in
+                guard let self else { return }
+                try await self.retireManagedAssistantFromSwitcher(assistantId: assistantId)
+            }
+        )
+    }
+
+    /// Hatch a new managed assistant against the platform and persist it to
+    /// the lockfile. The organization id is read from UserDefaults — matching
+    /// the path the onboarding flow and TeleportSection use.
+    private func hatchAndPersistManagedAssistant(name: String) async throws {
+        guard let organizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId"),
+              !organizationId.isEmpty else {
+            throw NSError(
+                domain: "AssistantSwitcher",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "No organization connected."]
+            )
+        }
+        let result = try await AuthService.shared.hatchAssistant(
+            organizationId: organizationId,
+            name: name
+        )
+        let platformAssistant: PlatformAssistant
+        switch result {
+        case .reusedExisting(let assistant), .createdNew(let assistant):
+            platformAssistant = assistant
+        }
+        let success = LockfileAssistant.ensureManagedEntry(
+            assistantId: platformAssistant.id,
+            runtimeUrl: AuthService.shared.baseURL,
+            hatchedAt: platformAssistant.created_at ?? Date().iso8601String
+        )
+        guard success else {
+            throw NSError(
+                domain: "AssistantSwitcher",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to persist new assistant to lockfile."]
+            )
+        }
+    }
+
+    /// Retire an assistant requested from the switcher. If the target is the
+    /// currently active assistant we delegate to the existing `performRetire`
+    /// path which handles fallback selection and tear-down. Retiring a
+    /// non-active managed assistant from the switcher is not yet wired — we
+    /// surface a log and throw so the user sees a clear failure rather than
+    /// a silent no-op. Tracked as a follow-up; see the TODO below.
+    private func retireManagedAssistantFromSwitcher(assistantId: String) async throws {
+        let activeId = LockfileAssistant.loadActiveAssistantId()
+        if assistantId == activeId {
+            _ = await performRetireAsync()
+            return
+        }
+        // TODO(multi-host-asst): retire a non-active managed assistant from
+        // the switcher. This requires a variant of `performRetireAsync()`
+        // that targets an arbitrary id without tearing down the current
+        // connection. Tracked separately from PR 4.
+        log.warning("Retire for non-active managed assistant not yet supported: \(assistantId, privacy: .public)")
+        throw NSError(
+            domain: "AssistantSwitcher",
+            code: 3,
+            userInfo: [NSLocalizedDescriptionKey: "Retiring a non-active assistant is not yet supported. Switch to this assistant first, then retire it."]
+        )
+    }
+
+    @objc func assistantSwitcherDidSelect(_ sender: NSMenuItem) {
+        guard let assistantId = sender.representedObject as? String else { return }
+        guard let vm = assistantSwitcherViewModel else { return }
+        Task { @MainActor in
+            do {
+                try await vm.select(assistantId: assistantId)
+            } catch {
+                log.error("Assistant switch failed: \(error.localizedDescription, privacy: .public)")
+                let alert = NSAlert()
+                alert.messageText = "Could not switch assistant"
+                alert.informativeText = error.localizedDescription
+                alert.alertStyle = .warning
+                alert.runModal()
+            }
+        }
+    }
+
+    @objc func assistantSwitcherDidRequestCreate(_ sender: NSMenuItem) {
+        guard let vm = assistantSwitcherViewModel else { return }
+        guard let name = AssistantSwitcherMenu.promptForNewAssistantName() else { return }
+        Task { @MainActor in
+            do {
+                try await vm.createNewAssistant(name: name)
+            } catch {
+                log.error("New managed assistant failed: \(error.localizedDescription, privacy: .public)")
+                let alert = NSAlert()
+                alert.messageText = "Could not create assistant"
+                alert.informativeText = error.localizedDescription
+                alert.alertStyle = .warning
+                alert.runModal()
+            }
+        }
+    }
+
+    @objc func assistantSwitcherDidRequestRetire(_ sender: NSMenuItem) {
+        guard let assistantId = sender.representedObject as? String else { return }
+        guard let vm = assistantSwitcherViewModel else { return }
+        Task { @MainActor in
+            do {
+                try await vm.retire(assistantId: assistantId)
+            } catch {
+                log.error("Retire from switcher failed: \(error.localizedDescription, privacy: .public)")
+                let alert = NSAlert()
+                alert.messageText = "Could not retire assistant"
+                alert.informativeText = error.localizedDescription
+                alert.alertStyle = .warning
+                alert.runModal()
+            }
+        }
+    }
+
     #if DEBUG
     @objc func showComponentGallery() {
         AvatarGallerySection.registerInGallery()
@@ -705,4 +867,26 @@ extension AppDelegate {
     }
 
     #endif
+}
+
+/// Bridges `ManagedAssistantConnectionController` onto the live
+/// `AppDelegate` connection stack. On teardown it disconnects the current
+/// gateway client; on bring-up it re-runs `setupGatewayConnectionManager()`
+/// which reads the (now-updated) active assistant from the lockfile and
+/// reconnects.
+@MainActor
+final class AppDelegateManagedConnectionController: ManagedAssistantConnectionController {
+    private weak var appDelegate: AppDelegate?
+
+    init(appDelegate: AppDelegate) {
+        self.appDelegate = appDelegate
+    }
+
+    func teardown() async {
+        appDelegate?.connectionManager.disconnect()
+    }
+
+    func bringUp(for assistant: LockfileAssistant) async {
+        appDelegate?.setupGatewayConnectionManager()
+    }
 }

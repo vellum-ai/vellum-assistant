@@ -139,6 +139,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var pulseTimer: Timer?
     var pulsePhase: CGFloat = 1.0
     var pulseDirection: CGFloat = -1.0
+    /// Cached value of the `multi-platform-assistant` flag, read once when
+    /// the status item is constructed in `setupMenuBar()`. Flag changes
+    /// require relaunch; the status item does not subscribe to live updates
+    /// so it stays cheap and predictable.
+    var multiAssistantSwitcherEnabled: Bool = false
+    /// View model for the menu-bar assistant switcher. Lazily constructed in
+    /// `setupMenuBar()` when `multiAssistantSwitcherEnabled` is true.
+    var assistantSwitcherViewModel: AssistantSwitcherViewModel?
     var cachedSkills: [SkillInfo] = []
     var refreshSkillsTask: Task<Void, Never>?
     var cachedApps: [AppItem] = []
