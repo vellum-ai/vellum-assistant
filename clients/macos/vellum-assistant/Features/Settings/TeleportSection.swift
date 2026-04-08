@@ -622,6 +622,31 @@ struct TeleportSection: View {
             throw TeleportError.importFailed(message: "HTTP \(statusCode)")
         }
 
+        // Handle async import: 202 means the job was accepted and we need to poll
+        if statusCode == 202 {
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let jobId = json["job_id"] as? String else {
+                throw TeleportError.importFailed(message: "Import accepted but no job ID returned")
+            }
+
+            let pollInterval: UInt64 = 5_000_000_000 // 5 seconds
+            let timeout: TimeInterval = 600 // 10 minutes
+            let start = Date()
+
+            while Date().timeIntervalSince(start) < timeout {
+                try await Task.sleep(nanoseconds: pollInterval)
+                let status = try await PlatformMigrationClient.pollImportStatus(jobId: jobId)
+
+                if status.status == "complete" {
+                    return
+                }
+                if status.status == "failed" {
+                    throw TeleportError.importFailed(message: status.error ?? "Import job failed")
+                }
+            }
+            throw TeleportError.importFailed(message: "Import timed out after 10 minutes")
+        }
+
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let success = json["success"] as? Bool, !success {
             let errorMsg = (json["error"] as? String) ?? "Import reported failure"
