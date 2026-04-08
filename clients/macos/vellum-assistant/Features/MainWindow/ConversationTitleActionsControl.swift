@@ -49,14 +49,10 @@ struct ConversationTitleActionsControl: View {
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, VSpacing.xl)
             #if os(macOS)
-            .overlay {
-                GeometryReader { geo in
-                    Color.clear
-                        .onAppear { triggerFrame = geo.frame(in: .global) }
-                        .onChange(of: geo.frame(in: .global)) { _, newFrame in
-                            triggerFrame = newFrame
-                        }
-                }
+            .onGeometryChange(for: CGRect.self) { proxy in
+                proxy.frame(in: .global)
+            } action: { newFrame in
+                triggerFrame = newFrame
             }
             #endif
 
