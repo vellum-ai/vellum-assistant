@@ -2308,7 +2308,7 @@ export function buildSchema(): Record<string, unknown> {
         patch: {
           summary: "Update privacy config",
           description:
-            "Scope-protected gateway endpoint that updates privacy configuration (collectUsageData, sendDiagnostics). Requires a bearer token with `settings.write` scope.",
+            "Scope-protected gateway endpoint that updates privacy configuration (collectUsageData, sendDiagnostics, llmRequestLogRetentionMs). Requires a bearer token with `settings.write` scope.",
           operationId: "privacyConfigPatch",
           security: [{ BearerAuth: [] }],
           requestBody: {
@@ -2320,10 +2320,18 @@ export function buildSchema(): Record<string, unknown> {
                   properties: {
                     collectUsageData: { type: "boolean" },
                     sendDiagnostics: { type: "boolean" },
+                    llmRequestLogRetentionMs: {
+                      type: "integer",
+                      minimum: 0,
+                      maximum: 31536000000,
+                      description:
+                        "Retention window for LLM request logs, in milliseconds. 0 means never prune. Maximum is 365 days (31536000000 ms).",
+                    },
                   },
                   anyOf: [
                     { required: ["collectUsageData"] },
                     { required: ["sendDiagnostics"] },
+                    { required: ["llmRequestLogRetentionMs"] },
                   ],
                 },
               },
@@ -2339,6 +2347,13 @@ export function buildSchema(): Record<string, unknown> {
                     properties: {
                       collectUsageData: { type: "boolean" },
                       sendDiagnostics: { type: "boolean" },
+                      llmRequestLogRetentionMs: {
+                        type: "integer",
+                        minimum: 0,
+                        maximum: 31536000000,
+                        description:
+                          "Retention window for LLM request logs, in milliseconds. 0 means never prune. Maximum is 365 days (31536000000 ms).",
+                      },
                     },
                   },
                 },
@@ -2487,10 +2502,18 @@ export function buildSchema(): Record<string, unknown> {
                   properties: {
                     collectUsageData: { type: "boolean" },
                     sendDiagnostics: { type: "boolean" },
+                    llmRequestLogRetentionMs: {
+                      type: "integer",
+                      minimum: 0,
+                      maximum: 31536000000,
+                      description:
+                        "Retention window for LLM request logs, in milliseconds. 0 means never prune. Maximum is 365 days (31536000000 ms).",
+                    },
                   },
                   anyOf: [
                     { required: ["collectUsageData"] },
                     { required: ["sendDiagnostics"] },
+                    { required: ["llmRequestLogRetentionMs"] },
                   ],
                 },
               },
@@ -2506,6 +2529,13 @@ export function buildSchema(): Record<string, unknown> {
                     properties: {
                       collectUsageData: { type: "boolean" },
                       sendDiagnostics: { type: "boolean" },
+                      llmRequestLogRetentionMs: {
+                        type: "integer",
+                        minimum: 0,
+                        maximum: 31536000000,
+                        description:
+                          "Retention window for LLM request logs, in milliseconds. 0 means never prune. Maximum is 365 days (31536000000 ms).",
+                      },
                     },
                   },
                 },
