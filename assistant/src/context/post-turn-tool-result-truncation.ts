@@ -6,6 +6,7 @@ import type {
   ContentBlock,
   Message,
   ToolResultContent,
+  ToolUseContent,
 } from "../providers/types.js";
 
 /** Minimum content length (chars) before a tool result is eligible for truncation. ~2000 tokens at 4 chars/token. */
@@ -106,4 +107,67 @@ export function postTurnTruncateToolResults(
   });
 
   return { messages: truncatedCount > 0 ? mapped : messages, truncatedCount };
+}
+
+/** Stub that replaces a re-read of a saved tool result to avoid context duplication. */
+export const REREAD_STUB =
+  "(Re-read of saved tool result — original context is preserved above)";
+
+/**
+ * Deduplicate re-reads of saved tool results.
+ *
+ * When `postTurnTruncateToolResults` truncates a large result, it saves the full
+ * content to a `.tool-results/` file. If the model later calls `file_read` on that
+ * saved file, the result is a second copy of content whose truncated prefix/suffix
+ * is already in context. This function detects those re-reads and replaces their
+ * tool_result content with a short stub to avoid duplication.
+ */
+export function derefToolResultReReads(messages: Message[]): {
+  messages: Message[];
+  dereferencedCount: number;
+} {
+  // Build a set of tool_use_ids that are file_read calls targeting .tool-results/ paths.
+  const reReadToolUseIds = new Set<string>();
+
+  for (const msg of messages) {
+    if (msg.role !== "assistant") continue;
+    for (const block of msg.content) {
+      if (block.type !== "tool_use") continue;
+      const tu = block as ToolUseContent;
+      if (tu.name !== "file_read") continue;
+      const filePath = tu.input.file_path;
+      if (typeof filePath !== "string") continue;
+      if (filePath.includes(`/${TOOL_RESULT_DIR}/`)) {
+        reReadToolUseIds.add(tu.id);
+      }
+    }
+  }
+
+  if (reReadToolUseIds.size === 0) {
+    return { messages, dereferencedCount: 0 };
+  }
+
+  let dereferencedCount = 0;
+
+  const mapped = messages.map((msg) => {
+    if (msg.role !== "user") return msg;
+
+    let changed = false;
+    const nextContent: ContentBlock[] = msg.content.map((block) => {
+      if (block.type !== "tool_result") return block;
+      const tr = block as ToolResultContent;
+      if (!reReadToolUseIds.has(tr.tool_use_id)) return block;
+
+      changed = true;
+      dereferencedCount++;
+      return { ...tr, content: REREAD_STUB } as ContentBlock;
+    });
+
+    return changed ? { ...msg, content: nextContent } : msg;
+  });
+
+  return {
+    messages: dereferencedCount > 0 ? mapped : messages,
+    dereferencedCount,
+  };
 }
