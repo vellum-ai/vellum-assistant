@@ -115,21 +115,12 @@ extension MessageListView {
         // accumulate and corrupt SwiftUI's scroll position.
         guard conversationId == scrollState.currentConversationId else { return }
         if isSending {
-            // Clear stale confirmation marker: if the phase left "awaiting_confirmation"
-            // while not sending, the marker is stale.
-            let effectivePhase: String
-            if scrollState.lastActivityPhaseWhenIdle == "awaiting_confirmation"
-                && assistantActivityPhase != "awaiting_confirmation"
-            {
-                effectivePhase = assistantActivityPhase
-            } else {
-                effectivePhase = scrollState.lastActivityPhaseWhenIdle
-            }
-            // Reattach and pin to bottom for user-initiated actions (send,
-            // regenerate, retry). Skip reattach only when the daemon resumes
-            // from a tool confirmation (not a user action during confirmation).
+            // Detect daemon confirmation resume: the last idle phase was
+            // "awaiting_confirmation" but the assistant has since moved on.
+            // Skip reattach when the daemon resumes from a tool confirmation
+            // while the user was scrolled up (not a user-initiated action).
             let isDaemonConfirmationResume =
-                effectivePhase == "awaiting_confirmation"
+                scrollState.lastActivityPhaseWhenIdle == "awaiting_confirmation"
                 && assistantActivityPhase != "awaiting_confirmation"
             if isDaemonConfirmationResume && !scrollState.isFollowingBottom {
                 // Daemon resumed from confirmation while user was scrolled up.

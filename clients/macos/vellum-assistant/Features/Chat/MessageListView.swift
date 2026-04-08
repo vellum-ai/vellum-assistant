@@ -170,15 +170,8 @@ struct MessageListView: View {
             }
             .onChange(of: isSending) {
                 if conversationId == scrollState.currentConversationId {
-                    let effectivePhase: String
-                    if scrollState.lastActivityPhaseWhenIdle == "awaiting_confirmation"
-                        && assistantActivityPhase != "awaiting_confirmation" {
-                        effectivePhase = assistantActivityPhase
-                    } else {
-                        effectivePhase = scrollState.lastActivityPhaseWhenIdle
-                    }
                     let isDaemonConfirmationResume =
-                        effectivePhase == "awaiting_confirmation"
+                        scrollState.lastActivityPhaseWhenIdle == "awaiting_confirmation"
                         && assistantActivityPhase != "awaiting_confirmation"
                     let intents = scrollCoordinator.handle(
                         .sendingChanged(isSending: isSending, isDaemonConfirmationResume: isDaemonConfirmationResume)
