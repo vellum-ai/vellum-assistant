@@ -58,6 +58,7 @@ import { registerConversationUndoCallback } from "../signals/conversation-undo.j
 import { appendEventToStream } from "../signals/event-stream.js";
 import { registerUserMessageCallback } from "../signals/user-message.js";
 import { getSubagentManager } from "../subagent/index.js";
+import { browserManager } from "../tools/browser/browser-manager.js";
 import { summarizeToolInput } from "../tools/tool-input-summary.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -606,6 +607,16 @@ export class DaemonServer {
 
     this.evictor.start();
 
+    // Wire browser session orphan sweep: the manager can check whether a
+    // conversation or subagent is still alive so it can close leaked sessions.
+    browserManager.isConversationAlive = (conversationId: string) => {
+      if (this.conversations.has(conversationId)) return true;
+      // Check if the conversation belongs to a subagent
+      const subagentInfo = getSubagentManager().getParentInfo(conversationId);
+      return subagentInfo !== undefined;
+    };
+    browserManager.startSweep();
+
     registerDaemonCallbacks({
       getOrCreateConversation: (conversationId) =>
         this.getOrCreateConversation(conversationId),
@@ -763,6 +774,7 @@ export class DaemonServer {
   }
 
   async stop(): Promise<void> {
+    browserManager.stopSweep();
     getSubagentManager().disposeAll();
     disposeAcpSessionManager();
     this.evictor.stop();
