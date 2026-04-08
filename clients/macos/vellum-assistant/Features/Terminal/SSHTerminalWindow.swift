@@ -10,6 +10,11 @@ import VellumAssistantShared
 @MainActor
 final class SSHTerminalWindow {
 
+    /// Shared singleton — ensures a single terminal window is reused across
+    /// all entry points (Debug tab, Developer tab, recovery-mode banner, etc.)
+    /// so the window-reuse check in `open()` actually prevents duplicates.
+    static let shared = SSHTerminalWindow()
+
     private var window: NSWindow?
     private var sessionManager: TerminalSessionManager?
 

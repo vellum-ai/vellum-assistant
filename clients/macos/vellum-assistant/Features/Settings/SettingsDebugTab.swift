@@ -15,8 +15,6 @@ struct SettingsDebugTab: View {
     @State private var showingRestartConfirmation: Bool = false
     @State private var isRestarting: Bool = false
 
-    private static let terminalWindow = SSHTerminalWindow()
-
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             restartAssistantSection
@@ -74,6 +72,11 @@ struct SettingsDebugTab: View {
     }
 
     private func performRestart() async {
+        // Bail out if we don't have a real assistant. Without this guard an
+        // empty `selectedAssistantId` would POST to `assistants//restart`,
+        // silently fail under `try?`, and leave the user staring at the
+        // "Restarting…" sheet as if everything succeeded.
+        guard lockfileAssistants.contains(where: { $0.assistantId == selectedAssistantId }) else { return }
         _ = try? await GatewayHTTPClient.post(path: "assistants/\(selectedAssistantId)/restart")
         try? await Task.sleep(nanoseconds: 2_000_000_000)
     }
@@ -194,6 +197,6 @@ struct SettingsDebugTab: View {
     private func openTerminalWindow() {
         guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
               assistant.isManaged else { return }
-        Self.terminalWindow.open(assistant: assistant)
+        SSHTerminalWindow.shared.open(assistant: assistant)
     }
 }

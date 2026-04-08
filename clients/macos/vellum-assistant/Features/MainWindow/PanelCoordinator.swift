@@ -668,7 +668,11 @@ struct ActiveChatViewWrapper: View {
                     settingsStore.exitManagedAssistantRecoveryMode()
                 },
                 onOpenSSHSettings: {
-                    settingsStore.pendingSettingsTab = .developer
+                    // Recovery mode applies only to managed assistants, so the
+                    // Debug tab is always visible here. Route there directly so
+                    // managed users without the developer feature flag aren't
+                    // dropped back to the General tab.
+                    settingsStore.pendingSettingsTab = .debug
                     windowState.selection = .panel(.settings)
                 },
                 anchorMessageId: $anchorMessageId,
