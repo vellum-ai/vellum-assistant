@@ -375,8 +375,48 @@ export class RuntimeHttpServer {
     // Rebuild the route table so conditionally-registered routes that
     // depend on the newly-set deps are included.
     this.router = new HttpRouter(this.buildRouteTable());
+
+    // Start background sweeps now that deps are available.
+    this.startBackgroundSweeps();
+
     this._ready = true;
     log.info("Runtime HTTP server is now fully ready");
+  }
+
+  /**
+   * Start periodic background sweeps (retry timer, guardian expiry,
+   * guardian action, canonical guardian expiry).  Safe to call multiple
+   * times — each sweep has an internal guard that prevents duplicates.
+   */
+  private startBackgroundSweeps(): void {
+    if (this.processMessage && !this.retrySweepTimer) {
+      const pm = this.processMessage;
+      const mintBt = () => mintDaemonDeliveryToken();
+      this.retrySweepTimer = setInterval(() => {
+        if (this.sweepInProgress) return;
+        this.sweepInProgress = true;
+        sweepFailedEvents(pm, mintBt).finally(() => {
+          this.sweepInProgress = false;
+        });
+      }, 30_000);
+    }
+
+    startGuardianExpirySweep(
+      getGatewayInternalBaseUrl(),
+      () => mintDaemonDeliveryToken(),
+      this.approvalCopyGenerator,
+    );
+    log.info("Guardian approval expiry sweep started");
+
+    startGuardianActionSweep(
+      getGatewayInternalBaseUrl(),
+      () => mintDaemonDeliveryToken(),
+      this.guardianActionCopyGenerator,
+    );
+    log.info("Guardian action expiry sweep started");
+
+    startCanonicalGuardianExpirySweep();
+    log.info("Canonical guardian request expiry sweep started");
   }
 
   /** Expose the pairing store so the daemon server can wire HTTP handlers. */
@@ -490,34 +530,14 @@ export class RuntimeHttpServer {
       },
     });
 
+    // In the two-phase startup path, processMessage and the copy
+    // generators are not available until setFullDeps() is called.
+    // Defer sweep/timer creation to setFullDeps() in that case so
+    // the guardian sweeps don't capture undefined generators (they
+    // have early-return guards that prevent restarting later).
     if (this.processMessage) {
-      const pm = this.processMessage;
-      const mintBt = () => mintDaemonDeliveryToken();
-      this.retrySweepTimer = setInterval(() => {
-        if (this.sweepInProgress) return;
-        this.sweepInProgress = true;
-        sweepFailedEvents(pm, mintBt).finally(() => {
-          this.sweepInProgress = false;
-        });
-      }, 30_000);
+      this.startBackgroundSweeps();
     }
-
-    startGuardianExpirySweep(
-      getGatewayInternalBaseUrl(),
-      () => mintDaemonDeliveryToken(),
-      this.approvalCopyGenerator,
-    );
-    log.info("Guardian approval expiry sweep started");
-
-    startGuardianActionSweep(
-      getGatewayInternalBaseUrl(),
-      () => mintDaemonDeliveryToken(),
-      this.guardianActionCopyGenerator,
-    );
-    log.info("Guardian action expiry sweep started");
-
-    startCanonicalGuardianExpirySweep();
-    log.info("Canonical guardian request expiry sweep started");
 
     log.info(
       "Running in gateway-only ingress mode. Direct webhook routes disabled.",
@@ -679,11 +699,11 @@ export class RuntimeHttpServer {
     // When the server hasn't been fully initialized yet, reject all
     // non-health / non-pairing requests with 503 so clients know the
     // daemon is alive but not yet ready to serve traffic.
-    if (!this._ready) {
+    if (!this._ready && !path.startsWith("/v1/pairing/")) {
       return Response.json(
         {
           error: "SERVICE_UNAVAILABLE",
-          message: "Daemon is still initializing",
+          message: "Assistant is still initializing",
         },
         { status: 503 },
       );
