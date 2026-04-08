@@ -3381,8 +3381,93 @@ paths:
                     additionalProperties: {}
                   memory:
                     type: object
-                    properties: {}
-                    additionalProperties: {}
+                    properties:
+                      currentMb:
+                        type: number
+                      maxMb:
+                        type: number
+                      process:
+                        type: object
+                        properties:
+                          rssMb:
+                            type: number
+                          heapTotalMb:
+                            type: number
+                          heapUsedMb:
+                            type: number
+                          externalMb:
+                            type: number
+                          arrayBuffersMb:
+                            type: number
+                        required:
+                          - rssMb
+                          - heapTotalMb
+                          - heapUsedMb
+                          - externalMb
+                          - arrayBuffersMb
+                        additionalProperties: false
+                      jsc:
+                        anyOf:
+                          - type: object
+                            properties:
+                              heapSizeMb:
+                                type: number
+                              heapCapacityMb:
+                                type: number
+                              extraMemorySizeMb:
+                                type: number
+                              objectCount:
+                                type: number
+                              protectedObjectCount:
+                                type: number
+                              globalObjectCount:
+                                type: number
+                              protectedGlobalObjectCount:
+                                type: number
+                            required:
+                              - heapSizeMb
+                              - heapCapacityMb
+                              - extraMemorySizeMb
+                              - objectCount
+                              - protectedObjectCount
+                              - globalObjectCount
+                              - protectedGlobalObjectCount
+                            additionalProperties: false
+                          - type: "null"
+                      peaks:
+                        type: object
+                        properties:
+                          rssMb:
+                            type: number
+                          heapUsedMb:
+                            type: number
+                          externalMb:
+                            type: number
+                          arrayBuffersMb:
+                            type: number
+                          jscHeapSizeMb:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          jscExtraMemorySizeMb:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                        required:
+                          - rssMb
+                          - heapUsedMb
+                          - externalMb
+                          - arrayBuffersMb
+                          - jscHeapSizeMb
+                          - jscExtraMemorySizeMb
+                        additionalProperties: false
+                    required:
+                      - currentMb
+                      - maxMb
+                      - process
+                      - jsc
+                      - peaks
+                    additionalProperties: false
                   cpu:
                     type: object
                     properties: {}
@@ -3502,8 +3587,93 @@ paths:
                     additionalProperties: {}
                   memory:
                     type: object
-                    properties: {}
-                    additionalProperties: {}
+                    properties:
+                      currentMb:
+                        type: number
+                      maxMb:
+                        type: number
+                      process:
+                        type: object
+                        properties:
+                          rssMb:
+                            type: number
+                          heapTotalMb:
+                            type: number
+                          heapUsedMb:
+                            type: number
+                          externalMb:
+                            type: number
+                          arrayBuffersMb:
+                            type: number
+                        required:
+                          - rssMb
+                          - heapTotalMb
+                          - heapUsedMb
+                          - externalMb
+                          - arrayBuffersMb
+                        additionalProperties: false
+                      jsc:
+                        anyOf:
+                          - type: object
+                            properties:
+                              heapSizeMb:
+                                type: number
+                              heapCapacityMb:
+                                type: number
+                              extraMemorySizeMb:
+                                type: number
+                              objectCount:
+                                type: number
+                              protectedObjectCount:
+                                type: number
+                              globalObjectCount:
+                                type: number
+                              protectedGlobalObjectCount:
+                                type: number
+                            required:
+                              - heapSizeMb
+                              - heapCapacityMb
+                              - extraMemorySizeMb
+                              - objectCount
+                              - protectedObjectCount
+                              - globalObjectCount
+                              - protectedGlobalObjectCount
+                            additionalProperties: false
+                          - type: "null"
+                      peaks:
+                        type: object
+                        properties:
+                          rssMb:
+                            type: number
+                          heapUsedMb:
+                            type: number
+                          externalMb:
+                            type: number
+                          arrayBuffersMb:
+                            type: number
+                          jscHeapSizeMb:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          jscExtraMemorySizeMb:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                        required:
+                          - rssMb
+                          - heapUsedMb
+                          - externalMb
+                          - arrayBuffersMb
+                          - jscHeapSizeMb
+                          - jscExtraMemorySizeMb
+                        additionalProperties: false
+                    required:
+                      - currentMb
+                      - maxMb
+                      - process
+                      - jsc
+                      - peaks
+                    additionalProperties: false
                   cpu:
                     type: object
                     properties: {}

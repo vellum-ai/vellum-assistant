@@ -14,12 +14,26 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+const mockHeapStats = {
+  heapSize: 24 * 1024 * 1024,
+  heapCapacity: 48 * 1024 * 1024,
+  extraMemorySize: 12 * 1024 * 1024,
+  objectCount: 12_345,
+  protectedObjectCount: 123,
+  globalObjectCount: 1,
+  protectedGlobalObjectCount: 1,
+};
+
 // Silence logger before any imports that use it
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
+}));
+
+mock.module("bun:jsc", () => ({
+  heapStats: () => mockHeapStats,
 }));
 
 import { handleDetailedHealth } from "../runtime/routes/identity-routes.js";
@@ -147,6 +161,34 @@ describe("identity routes — health endpoint", () => {
       expect(body.cpu).toBeDefined();
       expect(body.migrations).toBeDefined();
 
+      const memory = body.memory as Record<string, unknown>;
+      expect(typeof memory.currentMb).toBe("number");
+      expect(typeof memory.maxMb).toBe("number");
+      expect(memory.process).toEqual({
+        rssMb: expect.any(Number),
+        heapTotalMb: expect.any(Number),
+        heapUsedMb: expect.any(Number),
+        externalMb: expect.any(Number),
+        arrayBuffersMb: expect.any(Number),
+      });
+      expect(memory.jsc).toEqual({
+        heapSizeMb: 24,
+        heapCapacityMb: 48,
+        extraMemorySizeMb: 12,
+        objectCount: 12_345,
+        protectedObjectCount: 123,
+        globalObjectCount: 1,
+        protectedGlobalObjectCount: 1,
+      });
+      expect(memory.peaks).toEqual({
+        rssMb: expect.any(Number),
+        heapUsedMb: expect.any(Number),
+        externalMb: expect.any(Number),
+        arrayBuffersMb: expect.any(Number),
+        jscHeapSizeMb: 24,
+        jscExtraMemorySizeMb: 12,
+      });
+
       // Profiler should either be absent or show enabled: false
       if ("profiler" in body) {
         const profiler = body.profiler as Record<string, unknown>;
@@ -165,6 +207,7 @@ describe("identity routes — health endpoint", () => {
       expect(body.status).toBe("healthy");
       expect(body.timestamp).toBeDefined();
       expect(body.migrations).toBeDefined();
+      expect((body.memory as Record<string, unknown>).jsc).toBeDefined();
     });
   });
 

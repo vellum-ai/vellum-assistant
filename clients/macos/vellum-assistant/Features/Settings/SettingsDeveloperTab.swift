@@ -397,7 +397,42 @@ struct SettingsDeveloperTab: View {
             }
 
             if let memory = healthz.memory {
-                infoRow(label: "Memory", value: "\(formatMb(memory.currentMb)) / \(formatMb(memory.maxMb))")
+                infoRow(label: "RSS", value: "\(formatMb(memory.currentMb)) / \(formatMb(memory.maxMb))")
+
+                if let process = memory.process {
+                    infoRow(
+                        label: "JS heap",
+                        value: "\(formatMb(process.heapUsedMb)) / \(formatMb(process.heapTotalMb))"
+                    )
+                    infoRow(
+                        label: "External",
+                        value: "\(formatMb(process.externalMb))"
+                    )
+                    infoRow(
+                        label: "Array buf",
+                        value: "\(formatMb(process.arrayBuffersMb))"
+                    )
+                }
+
+                if let jsc = memory.jsc {
+                    infoRow(
+                        label: "JSC heap",
+                        value: "\(formatMb(jsc.heapSizeMb)) / \(formatMb(jsc.heapCapacityMb))"
+                    )
+                    infoRow(
+                        label: "JSC extra",
+                        value: "\(formatMb(jsc.extraMemorySizeMb))"
+                    )
+                }
+
+                if let peaks = memory.peaks {
+                    infoRow(label: "Peak RSS", value: formatMb(peaks.rssMb))
+                    infoRow(label: "Peak heap", value: formatMb(peaks.heapUsedMb))
+                    infoRow(label: "Peak ext", value: formatMb(peaks.externalMb))
+                    if let peakJscHeap = peaks.jscHeapSizeMb {
+                        infoRow(label: "Peak JSC", value: formatMb(peakJscHeap))
+                    }
+                }
             }
 
             if let cpu = healthz.cpu {

@@ -6,6 +6,7 @@ import { existsSync, readFileSync, statfsSync, statSync } from "node:fs";
 import { cpus, totalmem } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { heapStats } from "bun:jsc";
 
 import { z } from "zod";
 
@@ -52,6 +53,64 @@ function getDiskSpaceInfo(): DiskSpaceInfo | null {
 interface MemoryInfo {
   currentMb: number;
   maxMb: number;
+  process: ProcessMemoryInfo;
+  jsc: JscMemoryInfo | null;
+  peaks: MemoryPeakInfo;
+}
+
+interface ProcessMemoryInfo {
+  rssMb: number;
+  heapTotalMb: number;
+  heapUsedMb: number;
+  externalMb: number;
+  arrayBuffersMb: number;
+}
+
+interface JscMemoryInfo {
+  heapSizeMb: number;
+  heapCapacityMb: number;
+  extraMemorySizeMb: number;
+  objectCount: number;
+  protectedObjectCount: number;
+  globalObjectCount: number;
+  protectedGlobalObjectCount: number;
+}
+
+interface MemoryPeakInfo {
+  rssMb: number;
+  heapUsedMb: number;
+  externalMb: number;
+  arrayBuffersMb: number;
+  jscHeapSizeMb: number | null;
+  jscExtraMemorySizeMb: number | null;
+}
+
+interface MemorySnapshot {
+  process: {
+    rssBytes: number;
+    heapTotalBytes: number;
+    heapUsedBytes: number;
+    externalBytes: number;
+    arrayBuffersBytes: number;
+  };
+  jsc: {
+    heapSizeBytes: number;
+    heapCapacityBytes: number;
+    extraMemorySizeBytes: number;
+    objectCount: number;
+    protectedObjectCount: number;
+    globalObjectCount: number;
+    protectedGlobalObjectCount: number;
+  } | null;
+}
+
+interface MemoryPeakSnapshot {
+  rssBytes: number;
+  heapUsedBytes: number;
+  externalBytes: number;
+  arrayBuffersBytes: number;
+  jscHeapSizeBytes: number | null;
+  jscExtraMemorySizeBytes: number | null;
 }
 
 /**
@@ -133,11 +192,122 @@ function getContainerMemoryLimitBytes(): number | null {
   return null;
 }
 
-function getMemoryInfo(): MemoryInfo {
-  const bytesToMb = (b: number) => Math.round((b / (1024 * 1024)) * 100) / 100;
+function bytesToMb(bytes: number): number {
+  return Math.round((bytes / (1024 * 1024)) * 100) / 100;
+}
+
+function captureMemorySnapshot(): MemorySnapshot {
+  const usage = process.memoryUsage();
+
+  let jsc: MemorySnapshot["jsc"] = null;
+  try {
+    const stats = heapStats();
+    jsc = {
+      heapSizeBytes: stats.heapSize,
+      heapCapacityBytes: stats.heapCapacity,
+      extraMemorySizeBytes: stats.extraMemorySize,
+      objectCount: stats.objectCount,
+      protectedObjectCount: stats.protectedObjectCount,
+      globalObjectCount: stats.globalObjectCount,
+      protectedGlobalObjectCount: stats.protectedGlobalObjectCount,
+    };
+  } catch {
+    jsc = null;
+  }
+
   return {
-    currentMb: bytesToMb(process.memoryUsage().rss),
+    process: {
+      rssBytes: usage.rss,
+      heapTotalBytes: usage.heapTotal,
+      heapUsedBytes: usage.heapUsed,
+      externalBytes: usage.external,
+      arrayBuffersBytes: usage.arrayBuffers,
+    },
+    jsc,
+  };
+}
+
+let _memoryPeaks: MemoryPeakSnapshot = {
+  rssBytes: 0,
+  heapUsedBytes: 0,
+  externalBytes: 0,
+  arrayBuffersBytes: 0,
+  jscHeapSizeBytes: null,
+  jscExtraMemorySizeBytes: null,
+};
+
+function updateMemoryPeaks(snapshot: MemorySnapshot): void {
+  _memoryPeaks = {
+    rssBytes: Math.max(_memoryPeaks.rssBytes, snapshot.process.rssBytes),
+    heapUsedBytes: Math.max(
+      _memoryPeaks.heapUsedBytes,
+      snapshot.process.heapUsedBytes,
+    ),
+    externalBytes: Math.max(
+      _memoryPeaks.externalBytes,
+      snapshot.process.externalBytes,
+    ),
+    arrayBuffersBytes: Math.max(
+      _memoryPeaks.arrayBuffersBytes,
+      snapshot.process.arrayBuffersBytes,
+    ),
+    jscHeapSizeBytes:
+      snapshot.jsc === null
+        ? _memoryPeaks.jscHeapSizeBytes
+        : Math.max(
+            _memoryPeaks.jscHeapSizeBytes ?? 0,
+            snapshot.jsc.heapSizeBytes,
+          ),
+    jscExtraMemorySizeBytes:
+      snapshot.jsc === null
+        ? _memoryPeaks.jscExtraMemorySizeBytes
+        : Math.max(
+            _memoryPeaks.jscExtraMemorySizeBytes ?? 0,
+            snapshot.jsc.extraMemorySizeBytes,
+          ),
+  };
+}
+
+function getMemoryInfo(): MemoryInfo {
+  const snapshot = captureMemorySnapshot();
+  updateMemoryPeaks(snapshot);
+
+  return {
+    currentMb: bytesToMb(snapshot.process.rssBytes),
     maxMb: bytesToMb(getContainerMemoryLimitBytes() ?? totalmem()),
+    process: {
+      rssMb: bytesToMb(snapshot.process.rssBytes),
+      heapTotalMb: bytesToMb(snapshot.process.heapTotalBytes),
+      heapUsedMb: bytesToMb(snapshot.process.heapUsedBytes),
+      externalMb: bytesToMb(snapshot.process.externalBytes),
+      arrayBuffersMb: bytesToMb(snapshot.process.arrayBuffersBytes),
+    },
+    jsc:
+      snapshot.jsc === null
+        ? null
+        : {
+            heapSizeMb: bytesToMb(snapshot.jsc.heapSizeBytes),
+            heapCapacityMb: bytesToMb(snapshot.jsc.heapCapacityBytes),
+            extraMemorySizeMb: bytesToMb(snapshot.jsc.extraMemorySizeBytes),
+            objectCount: snapshot.jsc.objectCount,
+            protectedObjectCount: snapshot.jsc.protectedObjectCount,
+            globalObjectCount: snapshot.jsc.globalObjectCount,
+            protectedGlobalObjectCount: snapshot.jsc.protectedGlobalObjectCount,
+          },
+    peaks: {
+      rssMb: bytesToMb(_memoryPeaks.rssBytes),
+      heapUsedMb: bytesToMb(_memoryPeaks.heapUsedBytes),
+      externalMb: bytesToMb(_memoryPeaks.externalBytes),
+      arrayBuffersMb: bytesToMb(_memoryPeaks.arrayBuffersBytes),
+      jscHeapSizeMb:
+        _memoryPeaks.jscHeapSizeBytes === null
+          ? null
+          : bytesToMb(_memoryPeaks.jscHeapSizeBytes),
+      jscExtraMemorySizeMb:
+        _memoryPeaks.jscExtraMemorySizeBytes === null
+          ? null
+          : bytesToMb(_memoryPeaks.jscExtraMemorySizeBytes),
+    },
   };
 }
 
@@ -170,6 +340,7 @@ setInterval(() => {
   }
   _lastCpuUsage = newUsage;
   _lastCpuTime = now;
+  updateMemoryPeaks(captureMemorySnapshot());
 }, CPU_SAMPLE_INTERVAL_MS).unref();
 
 function getCpuInfo(): CpuInfo {
@@ -331,12 +502,47 @@ const profilerStatusSchema = z.object({
   lastCompletedRun: profilerLastCompletedRunSchema.nullable(),
 });
 
+const processMemorySchema = z.object({
+  rssMb: z.number(),
+  heapTotalMb: z.number(),
+  heapUsedMb: z.number(),
+  externalMb: z.number(),
+  arrayBuffersMb: z.number(),
+});
+
+const jscMemorySchema = z.object({
+  heapSizeMb: z.number(),
+  heapCapacityMb: z.number(),
+  extraMemorySizeMb: z.number(),
+  objectCount: z.number(),
+  protectedObjectCount: z.number(),
+  globalObjectCount: z.number(),
+  protectedGlobalObjectCount: z.number(),
+});
+
+const memoryPeakSchema = z.object({
+  rssMb: z.number(),
+  heapUsedMb: z.number(),
+  externalMb: z.number(),
+  arrayBuffersMb: z.number(),
+  jscHeapSizeMb: z.number().nullable(),
+  jscExtraMemorySizeMb: z.number().nullable(),
+});
+
+const memoryInfoSchema = z.object({
+  currentMb: z.number(),
+  maxMb: z.number(),
+  process: processMemorySchema,
+  jsc: jscMemorySchema.nullable(),
+  peaks: memoryPeakSchema,
+});
+
 const detailedHealthSchema = z.object({
   status: z.string(),
   timestamp: z.string(),
   version: z.string(),
   disk: z.object({}).passthrough(),
-  memory: z.object({}).passthrough(),
+  memory: memoryInfoSchema,
   cpu: z.object({}).passthrough(),
   migrations: z.object({}).passthrough(),
   profiler: profilerStatusSchema.optional(),
