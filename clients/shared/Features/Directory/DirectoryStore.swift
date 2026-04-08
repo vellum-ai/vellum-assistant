@@ -17,6 +17,10 @@ public final class DirectoryStore: ObservableObject {
     @Published public var isLoadingSharedApps = false
     @Published public var isLoadingDocuments = false
 
+    /// Diagnostic detail from the most recent fetch failure (apps, shared apps, or documents).
+    /// Observable by SwiftUI views when developer mode is enabled.
+    @Published public var lastFetchError: String?
+
     // MARK: - Private State
 
     private let appsClient: AppsClientProtocol
@@ -66,6 +70,9 @@ public final class DirectoryStore: ObservableObject {
             let response = await appsClient.fetchAppsList()
             if let response, response.success {
                 self.localApps = response.apps
+                self.lastFetchError = nil
+            } else if response == nil {
+                self.lastFetchError = "Apps fetch returned nil — check gateway connectivity"
             }
             isLoadingApps = false
         }
@@ -112,6 +119,9 @@ public final class DirectoryStore: ObservableObject {
                 if !response.apps.isEmpty || self.sharedApps.isEmpty {
                     self.sharedApps = response.apps
                 }
+                self.lastFetchError = nil
+            } else {
+                self.lastFetchError = "Shared apps fetch returned nil — check gateway connectivity"
             }
             isLoadingSharedApps = false
         }
@@ -159,6 +169,9 @@ public final class DirectoryStore: ObservableObject {
                         updatedAt: Date(timeIntervalSince1970: TimeInterval(doc.updatedAt) / 1000.0)
                     )
                 }
+                self.lastFetchError = nil
+            } else {
+                self.lastFetchError = "Documents fetch returned nil — check gateway connectivity"
             }
             isLoadingDocuments = false
         }
