@@ -170,7 +170,9 @@ mock.module("../oauth/oauth-store.js", () => ({
       authorizeUrl: params.authorizeUrl,
       tokenExchangeUrl: params.tokenExchangeUrl,
       refreshUrl: (params.refreshUrl as string | undefined) ?? null,
-      tokenEndpointAuthMethod: params.tokenEndpointAuthMethod ?? null,
+      tokenEndpointAuthMethod:
+        (params.tokenEndpointAuthMethod as string | undefined) ||
+        "client_secret_post",
       userinfoUrl: params.userinfoUrl ?? null,
       baseUrl: params.baseUrl ?? null,
       defaultScopes: JSON.stringify(params.defaultScopes ?? []),
@@ -1906,7 +1908,7 @@ describe("assistant oauth providers --revoke-url and --revoke-body-template", ()
         authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
         tokenExchangeUrl: "https://oauth2.googleapis.com/token",
         refreshUrl: null,
-        tokenEndpointAuthMethod: null,
+        tokenEndpointAuthMethod: "client_secret_post",
         userinfoUrl: null,
         baseUrl: null,
         defaultScopes: "[]",

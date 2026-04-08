@@ -11,7 +11,9 @@ export const oauthProviders = sqliteTable("oauth_providers", {
   authorizeUrl: text("auth_url").notNull(),
   tokenExchangeUrl: text("token_url").notNull(),
   refreshUrl: text("refresh_url"),
-  tokenEndpointAuthMethod: text("token_endpoint_auth_method"),
+  tokenEndpointAuthMethod: text("token_endpoint_auth_method")
+    .notNull()
+    .default("client_secret_post"),
   userinfoUrl: text("userinfo_url"),
   baseUrl: text("base_url"),
   defaultScopes: text("default_scopes").notNull().default("[]"),

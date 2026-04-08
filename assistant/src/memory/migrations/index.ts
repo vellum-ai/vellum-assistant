@@ -157,6 +157,7 @@ export { migrateLlmRequestLogsCreatedAtIndex } from "./212-llm-request-logs-crea
 export { migrateOAuthProvidersScopeSeparator } from "./213-oauth-providers-scope-separator.js";
 export { migrateOAuthProvidersRefreshUrl } from "./214-oauth-providers-refresh-url.js";
 export { migrateOAuthProvidersRevoke } from "./215-oauth-providers-revoke.js";
+export { migrateOAuthProvidersTokenAuthMethodDefault } from "./216-oauth-providers-token-auth-method.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
