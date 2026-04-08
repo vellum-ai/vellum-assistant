@@ -353,14 +353,17 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     }
 
     // Step 3: Post-write integrity check — verify the written file
+    // Use the SHA of the data we actually wrote (which may differ from the
+    // manifest SHA if the config was sanitized during import).
+    const expectedSha256 = sha256Hex(dataToWrite);
     try {
       const writtenData = new Uint8Array(readFileSync(diskPath));
       const writtenSha256 = sha256Hex(writtenData);
 
-      if (writtenSha256 !== fileEntry.sha256) {
+      if (writtenSha256 !== expectedSha256) {
         warnings.push(
           `Post-write integrity warning for "${fileEntry.path}": ` +
-            `expected SHA-256 ${fileEntry.sha256}, got ${writtenSha256}`,
+            `expected SHA-256 ${expectedSha256}, got ${writtenSha256}`,
         );
       }
     } catch {
@@ -373,8 +376,8 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
       path: fileEntry.path,
       disk_path: diskPath,
       action,
-      size: archiveEntry.size,
-      sha256: fileEntry.sha256,
+      size: dataToWrite.length,
+      sha256: expectedSha256,
       backup_path: backupPath,
     });
   }
