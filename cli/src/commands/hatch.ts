@@ -176,7 +176,6 @@ interface HatchArgs {
   keepAlive: boolean;
   name: string | null;
   remote: RemoteHost;
-  restart: boolean;
   watch: boolean;
   configValues: Record<string, string>;
 }
@@ -188,7 +187,6 @@ function parseArgs(): HatchArgs {
   let keepAlive = false;
   let name: string | null = null;
   let remote: RemoteHost = DEFAULT_REMOTE;
-  let restart = false;
   let watch = false;
   const configValues: Record<string, string> = {};
 
@@ -210,9 +208,6 @@ function parseArgs(): HatchArgs {
         "  --remote <host>           Remote host (local, gcp, aws, docker, custom, vellum)",
       );
       console.log(
-        "  --restart                 Restart processes without onboarding side effects",
-      );
-      console.log(
         "  --watch                   Run assistant and gateway in watch mode (hot reload on source changes)",
       );
       console.log(
@@ -224,8 +219,6 @@ function parseArgs(): HatchArgs {
       process.exit(0);
     } else if (arg === "-d") {
       detached = true;
-    } else if (arg === "--restart") {
-      restart = true;
     } else if (arg === "--watch") {
       watch = true;
     } else if (arg === "--keep-alive") {
@@ -277,7 +270,7 @@ function parseArgs(): HatchArgs {
       species = arg as Species;
     } else {
       console.error(
-        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --restart, --watch, --keep-alive, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>, --config <key=value>`,
+        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --watch, --keep-alive, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>, --config <key=value>`,
       );
       process.exit(1);
     }
@@ -289,7 +282,6 @@ function parseArgs(): HatchArgs {
     keepAlive,
     name,
     remote,
-    restart,
     watch,
     configValues,
   };
@@ -516,23 +508,8 @@ export async function hatch(): Promise<void> {
   const cliVersion = getCliVersion();
   console.log(`@vellumai/cli v${cliVersion}`);
 
-  const {
-    species,
-    detached,
-    keepAlive,
-    name,
-    remote,
-    restart,
-    watch,
-    configValues,
-  } = parseArgs();
-
-  if (restart && remote !== "local") {
-    console.error(
-      "Error: --restart is only supported for local hatch targets.",
-    );
-    process.exit(1);
-  }
+  const { species, detached, keepAlive, name, remote, watch, configValues } =
+    parseArgs();
 
   if (watch && remote !== "local" && remote !== "docker") {
     console.error(
@@ -542,7 +519,7 @@ export async function hatch(): Promise<void> {
   }
 
   if (remote === "local") {
-    await hatchLocal(species, name, restart, watch, keepAlive, configValues);
+    await hatchLocal(species, name, watch, keepAlive, configValues);
     return;
   }
 

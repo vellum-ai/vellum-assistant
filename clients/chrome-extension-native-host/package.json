@@ -1,0 +1,19 @@
+{
+  "name": "@vellum/chrome-extension-native-host",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "vellum-chrome-native-host": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "bunx tsc --noEmit",
+    "test": "bun test src/"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0"
+  }
+}

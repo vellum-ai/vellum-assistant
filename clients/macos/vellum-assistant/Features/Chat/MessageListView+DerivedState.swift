@@ -366,6 +366,7 @@ extension MessageListView {
             state: state,
             providerCatalog: providerCatalog,
             providerCatalogHash: catalogHash,
+            typographyGeneration: typographyObserver.generation,
             isLoadingMoreMessages: isLoadingMoreMessages,
             isCompacting: isCompacting,
             isInteractionEnabled: isInteractionEnabled,

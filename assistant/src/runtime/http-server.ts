@@ -5,8 +5,15 @@
  * configured port (default: 7821).
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, resolve } from "node:path";
 
 import type { ServerWebSocket } from "bun";
 
@@ -63,17 +70,20 @@ import {
 } from "../security/oauth-callback-registry.js";
 import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import { getRuntimePortFilePath } from "../util/platform.js";
 import { buildAssistantEvent } from "./assistant-event.js";
 import { assistantEventHub } from "./assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 // Auth
 import { authenticateRequest } from "./auth/middleware.js";
+import { parseSub } from "./auth/subject.js";
 import {
   mintDaemonDeliveryToken,
   mintUiPageToken,
   verifyToken,
 } from "./auth/token-service.js";
 import { sweepFailedEvents } from "./channel-retry-sweep.js";
+import { getChromeExtensionRegistry } from "./chrome-extension-registry.js";
 import { httpError } from "./http-errors.js";
 import type { RouteDefinition } from "./http-router.js";
 import { HttpRouter } from "./http-router.js";
@@ -110,6 +120,7 @@ import { attachmentRouteDefinitions } from "./routes/attachment-routes.js";
 import { handleGetAudio } from "./routes/audio-routes.js";
 import { avatarRouteDefinitions } from "./routes/avatar-routes.js";
 import { brainGraphRouteDefinitions } from "./routes/brain-graph-routes.js";
+import { handleBrowserExtensionPair } from "./routes/browser-extension-pair-routes.js";
 import { btwRouteDefinitions } from "./routes/btw-routes.js";
 import { callRouteDefinitions } from "./routes/call-routes.js";
 import {
@@ -333,6 +344,19 @@ export class RuntimeHttpServer {
             extensionRelayServer.handleOpen(
               ws as ServerWebSocket<BrowserRelayWebSocketData>,
             );
+            // When the JWT sub resolved to a guardian principal at upgrade
+            // time, also register this connection with the chrome-extension
+            // registry so host_browser_request frames can be routed to it.
+            // The legacy ExtensionCommand protocol handled by
+            // extensionRelayServer continues to work in parallel.
+            if (data.guardianId) {
+              getChromeExtensionRegistry().register({
+                id: data.connectionId,
+                guardianId: data.guardianId,
+                ws,
+                connectedAt: Date.now(),
+              });
+            }
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
@@ -372,6 +396,12 @@ export class RuntimeHttpServer {
               code,
               reason?.toString(),
             );
+            // Always attempt to unregister — the registry uses connectionId
+            // as the key and no-ops if the entry is absent (e.g. when the
+            // connection was never registered because guardianId was
+            // undefined, or when it was superseded by a newer registration
+            // for the same guardian).
+            getChromeExtensionRegistry().unregister(data.connectionId);
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
@@ -447,6 +477,81 @@ export class RuntimeHttpServer {
       },
       "Runtime HTTP server listening",
     );
+
+    // Advertise the actual port to thin helpers that need to reach the
+    // runtime without inheriting the daemon's environment (e.g. the
+    // chrome-extension native messaging helper, spawned by Chrome).
+    this.writeRuntimePortFile(this.actualPort);
+  }
+
+  /**
+   * Atomically publish the runtime HTTP port to ~/.vellum/runtime-port so
+   * external helpers can locate a non-default `RUNTIME_HTTP_PORT` without
+   * any manifest changes. Best-effort — write failures never block
+   * daemon startup (see assistant/AGENTS.md "Daemon startup philosophy").
+   */
+  private writeRuntimePortFile(actualPort: number): void {
+    try {
+      const portFile = getRuntimePortFilePath();
+      const dir = dirname(portFile);
+      if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true });
+      }
+      const tmpPath = `${portFile}.tmp.${process.pid}`;
+      writeFileSync(tmpPath, String(actualPort), { mode: 0o644 });
+      renameSync(tmpPath, portFile);
+      log.info({ portFile, actualPort }, "Wrote runtime port file");
+    } catch (err) {
+      log.warn(
+        { err },
+        "Failed to write runtime port file; non-default assistant ports may require --assistant-port on thin helpers",
+      );
+    }
+  }
+
+  /**
+   * Remove the runtime port file written by `writeRuntimePortFile`.
+   * Called from `stop()` on clean shutdown so a stale file does not
+   * point thin helpers (e.g. the chrome-extension native messaging
+   * helper) at a dead port until the next daemon start overwrites it.
+   * Best-effort — unlink failures never block shutdown.
+   *
+   * The unlink is conditional: we only remove the file if its current
+   * contents still match this server's port. The runtime-port file
+   * lives at the user-home level (`~/.vellum/runtime-port`) and is
+   * therefore shared across multiple daemon instances running on
+   * different `RUNTIME_HTTP_PORT`s. If a sibling instance has already
+   * rewritten the file with its own port, deleting it would strand
+   * thin helpers on the default port `7821` and break their ability
+   * to reach the still-running sibling.
+   *
+   * Note: this only runs on graceful shutdown. A crash leaves the
+   * file in place; the next successful startup overwrites it.
+   */
+  private removeRuntimePortFile(): void {
+    try {
+      const portFile = getRuntimePortFilePath();
+      if (!existsSync(portFile)) return;
+      // Read-then-compare-then-unlink. Race-safe enough: the worst case
+      // is that another instance writes the file between our read and
+      // our unlink, in which case we erroneously delete its mapping.
+      // That window is short (a few microseconds) and a sibling startup
+      // will rewrite the file on its next port-publish call. The much
+      // more common multi-instance race — sibling already overwrote
+      // before our stop() runs — is correctly handled here as a no-op.
+      const current = readFileSync(portFile, "utf-8").trim();
+      if (current !== String(this.actualPort)) {
+        log.info(
+          { portFile, current, actualPort: this.actualPort },
+          "Leaving runtime port file alone — owned by another instance",
+        );
+        return;
+      }
+      unlinkSync(portFile);
+      log.info({ portFile }, "Removed runtime port file");
+    } catch (err) {
+      log.warn({ err }, "Failed to remove runtime port file");
+    }
   }
 
   async stop(): Promise<void> {
@@ -463,6 +568,7 @@ export class RuntimeHttpServer {
       this.server = null;
       log.info("Runtime HTTP server stopped");
     }
+    this.removeRuntimePortFile();
   }
 
   private async handleRequest(
@@ -531,6 +637,13 @@ export class RuntimeHttpServer {
     }
     if (path === "/v1/pairing/status" && req.method === "GET") {
       return handlePairingStatus(url, this.pairingContext);
+    }
+
+    // Chrome extension capability-token pair endpoint — unauthenticated but
+    // restricted to loopback peers + an extension-id allowlist. Used by the
+    // native messaging helper to bootstrap a scoped token.
+    if (path === "/v1/browser-extension-pair") {
+      return await handleBrowserExtensionPair(req, server);
     }
 
     // Guardian bootstrap and refresh endpoints — before JWT auth because
@@ -635,6 +748,24 @@ export class RuntimeHttpServer {
       );
     }
 
+    // When auth is enabled we parse the JWT sub to extract the actor
+    // principal ID, which we use as the guardianId key for the
+    // ChromeExtensionRegistry. When auth is disabled (dev bypass),
+    // guardianId remains undefined and the registration is skipped —
+    // host_browser_request routing requires an authenticated guardian.
+    //
+    // Gateway path: when the WebSocket upgrade is proxied through the
+    // gateway, the upstream token minted by `mintServiceToken()` has
+    // `sub=svc:gateway:self` with no actor principal id. In that case
+    // we fall back to an explicit `x-guardian-id` header / query param
+    // so the runtime can still register the connection under the real
+    // guardian. TODO(gateway-plumbing): the gateway's
+    // `browser-relay-websocket.ts` does not yet forward this header —
+    // once it does (resolving the actor from the downstream edge token
+    // at upgrade time), the service-token branch below will start
+    // picking up the guardianId. Until then, cloud-path registration
+    // silently no-ops, which is a known limitation tracked for Phase 3.
+    let guardianId: string | undefined;
     if (!isHttpAuthDisabled()) {
       const wsUrl = new URL(req.url);
       const token = wsUrl.searchParams.get("token");
@@ -645,6 +776,23 @@ export class RuntimeHttpServer {
       if (!jwtResult.ok) {
         return httpError("UNAUTHORIZED", "Unauthorized", 401);
       }
+      const subResult = parseSub(jwtResult.claims.sub);
+      if (subResult.ok && subResult.actorPrincipalId) {
+        // Direct actor principal — this is the loopback / desktop path.
+        guardianId = subResult.actorPrincipalId;
+      } else {
+        // Service-token path (gateway-forwarded). Look for an explicit
+        // guardian id plumbed by the gateway as a header or query
+        // param. Header takes precedence because headers are easier
+        // for the gateway to forward without rewriting the URL.
+        const headerGuardianId = req.headers.get("x-guardian-id")?.trim() ?? "";
+        const queryGuardianId =
+          wsUrl.searchParams.get("guardianId")?.trim() ?? "";
+        const fallbackGuardianId = headerGuardianId || queryGuardianId;
+        if (fallbackGuardianId) {
+          guardianId = fallbackGuardianId;
+        }
+      }
     }
 
     const connectionId = crypto.randomUUID();
@@ -652,6 +800,7 @@ export class RuntimeHttpServer {
       data: {
         wsType: "browser-relay",
         connectionId,
+        guardianId,
       } satisfies BrowserRelayWebSocketData,
     });
     if (!upgraded) {

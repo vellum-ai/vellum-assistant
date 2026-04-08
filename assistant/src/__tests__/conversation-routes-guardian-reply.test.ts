@@ -173,6 +173,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostBrowserProxy: () => {},
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
+      restoreBrowserProxyAvailability: () => {},
       addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
 
@@ -251,6 +252,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostBrowserProxy: () => {},
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
+      restoreBrowserProxyAvailability: () => {},
       addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
 
@@ -325,6 +327,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostBrowserProxy: () => {},
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
+      restoreBrowserProxyAvailability: () => {},
       addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
 
@@ -403,6 +406,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostBrowserProxy: () => {},
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
+      restoreBrowserProxyAvailability: () => {},
       addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
 
@@ -477,6 +481,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostBrowserProxy: () => {},
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
+      restoreBrowserProxyAvailability: () => {},
       addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
 
@@ -545,6 +550,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostBrowserProxy: () => {},
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
+      restoreBrowserProxyAvailability: () => {},
       addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
 
@@ -615,6 +621,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostBrowserProxy: () => {},
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
+      restoreBrowserProxyAvailability: () => {},
       addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
 
@@ -686,6 +693,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostBrowserProxy: () => {},
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
+      restoreBrowserProxyAvailability: () => {},
       addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
 

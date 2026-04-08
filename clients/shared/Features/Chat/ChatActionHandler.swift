@@ -214,7 +214,8 @@ final class ChatActionHandler {
             if let index = vm.activeSubagents.firstIndex(where: { $0.id == msg.subagentId }) {
                 vm.activeSubagents[index].status = SubagentStatus(wire: msg.status)
                 vm.activeSubagents[index].error = msg.error
-                vm.subagentDetailStore.recordStatusChanged(subagentId: msg.subagentId, usage: msg.usage)
+                let status = SubagentStatus(wire: msg.status)
+                vm.subagentDetailStore.recordStatusChanged(subagentId: msg.subagentId, status: status, usage: msg.usage)
             }
 
         case .subagentEvent(let msg):
@@ -364,6 +365,20 @@ final class ChatActionHandler {
         }
         // Strip heavy binary data from old messages to cap memory growth.
         vm.trimOldMessagesIfNeeded()
+        // Fallback: mark any remaining dynamic page surfaces as complete.
+        // handleToolResult sets isToolCallComplete per-surface when an app tool
+        // finishes, but it can miss surfaces if the tool_result was dropped
+        // (e.g. during workspace refinement) or if the surface ended up in a
+        // different message than the tool call. By message_complete, all tool
+        // calls have definitely finished so it's safe to enable Open App.
+        for i in vm.messages.indices {
+            for surfIdx in vm.messages[i].inlineSurfaces.indices {
+                if !vm.messages[i].inlineSurfaces[surfIdx].isToolCallComplete,
+                   case .dynamicPage = vm.messages[i].inlineSurfaces[surfIdx].data {
+                    vm.messages[i].inlineSurfaces[surfIdx].isToolCallComplete = true
+                }
+            }
+        }
         let wasRefinement = vm.isWorkspaceRefinementInFlight || vm.cancelledDuringRefinement
         vm.isWorkspaceRefinementInFlight = false
         vm.cancelledDuringRefinement = false

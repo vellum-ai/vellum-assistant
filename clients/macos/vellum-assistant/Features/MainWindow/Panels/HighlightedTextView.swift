@@ -17,6 +17,7 @@ struct HighlightedTextView: View {
     let isEditable: Bool
     @Binding var isActivelyEditing: Bool
     var onTextChange: ((String) -> Void)?
+    var allowsVerticalScrolling: Bool = true
 
     @State private var isSearchVisible = false
     @State private var searchQuery = ""
@@ -82,6 +83,24 @@ struct HighlightedTextView: View {
     private var editableView: some View {
         let lineCount = cachedLineCount
         let gutterWidth = gutterWidth(for: lineCount)
+        let content = HStack(alignment: .top, spacing: 0) {
+            lineNumberGutter(lineCount: lineCount, width: gutterWidth)
+
+            CodeTextView(
+                text: $text,
+                onTextChange: onTextChange,
+                onEscape: {
+                    if isSearchVisible {
+                        dismissSearch()
+                    } else {
+                        isActivelyEditing = false
+                    }
+                },
+                onCommandF: { isSearchVisible = true }
+            )
+            .frame(maxWidth: .infinity)
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
 
         return VStack(spacing: 0) {
             if isSearchVisible {
@@ -93,25 +112,14 @@ struct HighlightedTextView: View {
                 )
             }
 
-            ScrollView([.vertical]) {
-                HStack(alignment: .top, spacing: 0) {
-                    lineNumberGutter(lineCount: lineCount, width: gutterWidth)
-
-                    CodeTextView(
-                        text: $text,
-                        onTextChange: onTextChange,
-                        onEscape: {
-                            if isSearchVisible {
-                                dismissSearch()
-                            } else {
-                                isActivelyEditing = false
-                            }
-                        },
-                        onCommandF: { isSearchVisible = true }
-                    )
-                    .frame(maxWidth: .infinity)
+            Group {
+                if allowsVerticalScrolling {
+                    ScrollView([.vertical]) {
+                        content
+                    }
+                } else {
+                    content
                 }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .background(Self.editorBackground)
         }
@@ -157,7 +165,8 @@ struct HighlightedTextView: View {
                 SyntaxTheme.highlightNS(text, language: language, paragraphStyle: paragraphStyle)
             },
             highlightVersion: highlightVersion,
-            onContentClick: onContentClick
+            onContentClick: onContentClick,
+            allowsVerticalScrolling: allowsVerticalScrolling
         )
         .onChange(of: text) { _, _ in
             highlightVersion &+= 1

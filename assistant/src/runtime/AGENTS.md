@@ -61,6 +61,18 @@ Host browser allows the assistant to proxy CDP (Chrome DevTools Protocol) JSON-R
   - `POST /v1/host-browser-result` — `{ requestId, content, isError }`
 - **Tracking**: Uses the same `pending-interactions` tracker as the other host proxy types, with `kind: "host_browser"`. Registration happens in `conversation-routes.ts` and the route handler is in `host-browser-routes.ts`.
 
+### `chrome-extension` interface (Phase 2)
+
+The `chrome-extension` interface in `INTERFACE_IDS` is a non-interactive transport that supports only the `host_browser` capability — it does NOT support `host_bash`, `host_file`, or `host_cu`. This is encoded in `supportsHostProxy(id, capability)`: passing a capability argument returns `true` for `chrome-extension` only when the capability is `host_browser`; the no-arg form returns `false` for `chrome-extension` (so legacy desktop-only call sites that assume full-desktop proxy availability continue to gate correctly).
+
+Unlike the SSE-based host proxies used by the macOS client, `host_browser_request` frames for the chrome-extension interface do NOT travel through `assistantEventHub`. Instead they are routed through the `ChromeExtensionRegistry` singleton (`runtime/chrome-extension-registry.ts`), which tracks active chrome-extension WebSocket connections keyed by `guardianId`. The registry is populated on WebSocket `open` and drained on `close` inside `http-server.ts`'s `/v1/browser-relay` handlers — see the `wsType === "browser-relay"` branches.
+
+`Conversation.hostBrowserSenderOverride` is the integration point between the turn layer and the registry. When a turn for a chrome-extension interface enters the routes layer, `conversation-routes.ts` resolves the active registry entry for the caller's guardian and sets the override to a sender that writes to that WebSocket. `Conversation.restoreBrowserProxyAvailability()` re-threads the override on queue drain — without this, the drain path would clobber the registry-routed sender with the default `sendToClient` (pointed at the SSE hub) and `host_browser_request` frames would stop reaching the extension mid-queue.
+
+Capability token bootstrap for self-hosted deployments is handled by `routes/browser-extension-pair-routes.ts` (loopback-only; mints a guardian-bound HMAC capability token via `capability-tokens.ts`). Cloud deployments issue guardian-bound JWTs via the gateway's WorkOS-backed flow — `browser-extension-pair-routes.ts` is not involved.
+
+See `docs/browser-use-architecture-phase2.md` for the full wire diagram and component inventory.
+
 ### Channel approvals (Telegram, Slack)
 
 Channel approval flows use `requestId` (not `runId`) as the primary identifier:

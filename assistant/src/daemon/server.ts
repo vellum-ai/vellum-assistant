@@ -66,7 +66,7 @@ import {
   getWorkspacePromptPath,
 } from "../util/platform.js";
 import { registerDaemonCallbacks } from "../work-items/work-item-runner.js";
-import { AppSourceWatcher } from "./app-source-watcher.js";
+import { AppSourceWatcher, setEnsureAppSourceWatcher } from "./app-source-watcher.js";
 import { ConfigWatcher } from "./config-watcher.js";
 import {
   Conversation,
@@ -390,7 +390,10 @@ export class DaemonServer {
     this.evictor = new ConversationEvictor(this.conversations);
     getSubagentManager().sharedRequestTimestamps = this.sharedRequestTimestamps;
     getSubagentManager().broadcastToAllClients = (msg) => this.broadcast(msg);
+    getSubagentManager().resolveParentConversation = (id) =>
+      this.conversations.get(id);
     setBroadcastToAllClients((msg) => this.broadcast(msg));
+    setEnsureAppSourceWatcher(() => this.appSourceWatcher.ensureStarted());
     this.evictor.onEvict = (conversationId: string) => {
       getSubagentManager().abortAllForParent(conversationId);
     };
@@ -1090,13 +1093,36 @@ export class DaemonServer {
         options?.transport?.chatType,
       ),
     );
-    // Only create the host bash proxy for desktop client interfaces that can
-    // execute commands on the user's machine. Non-desktop conversations (CLI,
-    // channels, headless) fall back to local execution.
+    // Chrome-extension host_browser wiring is intentionally not supported
+    // through this entry point. `prepareConversationForMessage` constructs
+    // host_browser proxies that capture `conversation.getCurrentSender()`
+    // directly, which would route browser frames through the daemon SSE
+    // channel instead of the `ChromeExtensionRegistry`. Chrome-extension
+    // flows reach host_browser exclusively through the
+    // `/v1/messages` flow in `conversation-routes.ts`, which wires a
+    // registry-aware sender and sets `hostBrowserSenderOverride`.
+    //
+    // Fail loudly rather than silently returning a mis-wired proxy so that
+    // any future caller that tries to route chrome-extension through this
+    // path discovers the gap immediately. When the time comes, factor the
+    // wiring in conversation-routes.ts (registry lookup + override) into a
+    // shared helper and call it from both sites.
+    if (resolvedInterface === "chrome-extension") {
+      throw new Error(
+        "prepareConversationForMessage does not yet support chrome-extension transport — " +
+          "use the conversation-routes.ts /v1/messages flow which routes host_browser through " +
+          "the ChromeExtensionRegistry. If you need chrome-extension here, factor out the " +
+          "wiring in conversation-routes.ts into a shared helper.",
+      );
+    }
+    // Only create each host proxy for interfaces that support the matching
+    // capability. macOS supports all four; the chrome-extension interface only
+    // supports host_browser. Non-desktop conversations (CLI, channels, headless)
+    // fall back to local execution.
     // Guard: don't replace an active proxy during concurrent turn races —
     // another request may have started processing between the isProcessing()
     // check above and the await on ensureActorScopedHistory().
-    if (supportsHostProxy(resolvedInterface)) {
+    if (supportsHostProxy(resolvedInterface, "host_bash")) {
       if (!conversation.isProcessing() || !conversation.hostBashProxy) {
         conversation.setHostBashProxy(
           new HostBashProxy(conversation.getCurrentSender(), (requestId) => {
@@ -1104,6 +1130,10 @@ export class DaemonServer {
           }),
         );
       }
+    } else if (!conversation.isProcessing()) {
+      conversation.setHostBashProxy(undefined);
+    }
+    if (supportsHostProxy(resolvedInterface, "host_browser")) {
       if (!conversation.isProcessing() || !conversation.hostBrowserProxy) {
         conversation.setHostBrowserProxy(
           new HostBrowserProxy(conversation.getCurrentSender(), (requestId) => {
@@ -1111,6 +1141,10 @@ export class DaemonServer {
           }),
         );
       }
+    } else if (!conversation.isProcessing()) {
+      conversation.setHostBrowserProxy(undefined);
+    }
+    if (supportsHostProxy(resolvedInterface, "host_file")) {
       if (!conversation.isProcessing() || !conversation.hostFileProxy) {
         conversation.setHostFileProxy(
           new HostFileProxy(conversation.getCurrentSender(), (requestId) => {
@@ -1118,6 +1152,10 @@ export class DaemonServer {
           }),
         );
       }
+    } else if (!conversation.isProcessing()) {
+      conversation.setHostFileProxy(undefined);
+    }
+    if (supportsHostProxy(resolvedInterface, "host_cu")) {
       if (!conversation.isProcessing() || !conversation.hostCuProxy) {
         conversation.setHostCuProxy(
           new HostCuProxy(conversation.getCurrentSender(), (requestId) => {
@@ -1127,9 +1165,6 @@ export class DaemonServer {
       }
       conversation.addPreactivatedSkillId("computer-use");
     } else if (!conversation.isProcessing()) {
-      conversation.setHostBashProxy(undefined);
-      conversation.setHostBrowserProxy(undefined);
-      conversation.setHostFileProxy(undefined);
       conversation.setHostCuProxy(undefined);
     }
     conversation.setCommandIntent(options?.commandIntent ?? null);
@@ -1208,8 +1243,25 @@ export class DaemonServer {
           }
         }
       : registrar;
+    // Non-interactive interfaces that still have a connected client capable
+    // of handling host_browser_request events (e.g. chrome-extension) need
+    // their hostBrowserProxy explicitly marked connected. The proxy
+    // constructor defaults clientConnected = false, so without an explicit
+    // sender update the chrome-extension proxy would be created and
+    // immediately unavailable. We do NOT call updateClient(onEvent, false)
+    // for that case, because flipping hasNoClient false would also enable
+    // host_bash/host_file/host_cu tool gating for an interface that can't
+    // service them. Instead, provision just the browser proxy's sender.
+    const persistInterfaceCtx = conversation.getTurnInterfaceContext();
+    const persistInterface = persistInterfaceCtx?.userMessageInterface;
     if (options?.isInteractive === true) {
       conversation.updateClient(onEvent, false);
+    } else if (
+      persistInterface &&
+      !supportsHostProxy(persistInterface) &&
+      supportsHostProxy(persistInterface, "host_browser")
+    ) {
+      conversation.hostBrowserProxy?.updateSender(onEvent, true);
     }
 
     conversation

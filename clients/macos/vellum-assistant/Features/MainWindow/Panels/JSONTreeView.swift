@@ -288,19 +288,30 @@ struct JSONTreeView: View {
 
     @ViewBuilder
     private func treeContent(_ node: JSONNode) -> some View {
-        ScrollView([.vertical, .horizontal]) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                JSONNodeRow(
-                    node: node,
-                    key: nil,
-                    depth: 0,
-                    expandedPaths: $expandedPaths
+        // GeometryReader is used here so the inner content can claim at
+        // least the viewport's width and height. Without this, SwiftUI's
+        // bi-directional ScrollView visually centers content that is
+        // smaller than the viewport instead of anchoring it to the
+        // top-leading corner, which is the desired reading experience for
+        // a short JSON document like `install-meta.json`.
+        GeometryReader { proxy in
+            ScrollView([.vertical, .horizontal]) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    JSONNodeRow(
+                        node: node,
+                        key: nil,
+                        depth: 0,
+                        expandedPaths: $expandedPaths
+                    )
+                }
+                .padding(VSpacing.md)
+                .frame(
+                    minWidth: proxy.size.width,
+                    minHeight: proxy.size.height,
+                    alignment: .topLeading
                 )
             }
-            .padding(VSpacing.md)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func autoExpandInitial(_ node: JSONNode) {

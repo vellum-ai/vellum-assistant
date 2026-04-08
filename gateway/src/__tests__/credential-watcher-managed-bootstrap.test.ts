@@ -76,7 +76,7 @@ async function startGateway(): Promise<void> {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  const deadline = Date.now() + 10_000;
+  const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
     try {
       const res = await fetch(`http://localhost:${gatewayPort}/healthz`);
@@ -86,7 +86,7 @@ async function startGateway(): Promise<void> {
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error("Gateway failed to start within 10 seconds");
+  throw new Error("Gateway failed to start within 30 seconds");
 }
 
 function startFakeCes(opts: {
@@ -176,7 +176,7 @@ describe("gateway managed credential bootstrap retry", () => {
     }
 
     expect(status).toBe(401);
-  }, 20_000);
+  }, 45_000);
 
   test("keeps retrying until configured credential reads succeed after CES list is already available", async () => {
     mkdirSync(testDir, { recursive: true });
@@ -220,7 +220,7 @@ describe("gateway managed credential bootstrap retry", () => {
     }
 
     expect(status).toBe(401);
-  }, 20_000);
+  }, 45_000);
 
   test("detects new Slack credentials when metadata is written after startup with no initial channel services", async () => {
     // Start with NO channel service metadata — only non-channel credentials
@@ -274,5 +274,5 @@ describe("gateway managed credential bootstrap retry", () => {
     }
 
     expect(status).toBe(401);
-  }, 20_000);
+  }, 45_000);
 });

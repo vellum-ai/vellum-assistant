@@ -85,7 +85,7 @@ struct APIKeyStepView: View {
     }
 
     private var appleContainerEnabled: Bool {
-        MacOSClientFeatureFlagManager.shared.isEnabled("apple-container")
+        AppleContainersAvailabilityChecker.check().isAvailable
     }
 
     var body: some View {

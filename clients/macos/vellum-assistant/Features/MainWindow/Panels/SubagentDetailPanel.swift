@@ -8,6 +8,7 @@ struct SubagentDetailPanel: View {
     var onAbort: (() -> Void)?
     var onRequestDetail: (() -> Void)?
     var onClose: () -> Void
+    @ObservedObject private var typographyObserver = VFont.typographyObserver
 
     private var subagentInfo: SubagentInfo? { viewModel.activeSubagents.first(where: { $0.id == subagentId }) }
     private var state: SubagentState? { detailStore.subagentStates[subagentId] }
@@ -211,7 +212,11 @@ struct SubagentDetailPanel: View {
     private func eventContent(_ event: SubagentEventItem) -> some View {
         switch event.kind {
         case .text:
-            MarkdownSegmentView(segments: parseMarkdownSegments(event.content), maxContentWidth: nil)
+            MarkdownSegmentView(
+                segments: parseMarkdownSegments(event.content),
+                typographyGeneration: typographyObserver.generation,
+                maxContentWidth: nil
+            )
                 .equatable()
                 .textSelection(.enabled)
                 .padding(VSpacing.sm)

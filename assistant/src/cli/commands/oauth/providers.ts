@@ -220,6 +220,10 @@ Examples:
       "--token-url <url>",
       "OAuth token endpoint URL (e.g. https://oauth2.example.com/token)",
     )
+    .option(
+      "--refresh-url <url>",
+      "OAuth token refresh endpoint URL. Defaults to --token-url when omitted. Set this when the provider uses a different endpoint for the refresh_token grant than for the authorization_code grant.",
+    )
     .option("--base-url <url>", "API base URL for the service")
     .option("--userinfo-url <url>", "OpenID Connect userinfo endpoint URL")
     .option(
@@ -249,6 +253,14 @@ Examples:
     .option(
       "--ping-body <json>",
       'JSON body to send with the ping request (e.g. \'{"query":"{ viewer { id } }"}\')',
+    )
+    .option(
+      "--revoke-url <url>",
+      'OAuth token revocation endpoint URL. Called best-effort during disconnect to invalidate the access token upstream (e.g. "https://oauth2.googleapis.com/revoke"). When omitted, disconnect is local-only — the upstream token is left valid until it naturally expires.',
+    )
+    .option(
+      "--revoke-body-template <json>",
+      'JSON object body template for the revoke request, supporting {access_token} and {client_id} substitution (e.g. \'{"token":"{access_token}","client_id":"{client_id}"}\'). The body is form-encoded and POSTed to --revoke-url.',
     )
     .option(
       "--display-name <name>",
@@ -351,13 +363,24 @@ Examples:
       --scopes read,write \\
       --scope-separator ","
   $ assistant oauth providers register \\
+      --provider-key split-grants \\
+      --auth-url https://example.com/oauth/authorize \\
+      --token-url https://example.com/oauth/token \\
+      --refresh-url https://example.com/oauth/refresh
+  $ assistant oauth providers register \\
       --provider-key my-api \\
       --auth-url https://example.com/auth \\
       --token-url https://example.com/token \\
       --loopback-port 17400 \\
       --injection-templates '[{"hostPattern":"api.example.com","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]' \\
       --identity-url https://api.example.com/me \\
-      --identity-response-paths email,name`,
+      --identity-response-paths email,name
+  $ assistant oauth providers register \\
+      --provider-key custom-revokable \\
+      --auth-url https://example.com/oauth/authorize \\
+      --token-url https://example.com/oauth/token \\
+      --revoke-url https://example.com/oauth/revoke \\
+      --revoke-body-template '{"token":"{access_token}","client_id":"{client_id}"}'`,
     )
     .action(
       (
@@ -365,6 +388,7 @@ Examples:
           providerKey: string;
           authUrl: string;
           tokenUrl: string;
+          refreshUrl?: string;
           baseUrl?: string;
           userinfoUrl?: string;
           scopes?: string;
@@ -374,6 +398,8 @@ Examples:
           pingMethod?: string;
           pingHeaders?: string;
           pingBody?: string;
+          revokeUrl?: string;
+          revokeBodyTemplate?: string;
           displayName?: string;
           description?: string;
           dashboardUrl?: string;
@@ -398,6 +424,7 @@ Examples:
             provider: opts.providerKey,
             authorizeUrl: opts.authUrl,
             tokenExchangeUrl: opts.tokenUrl,
+            refreshUrl: opts.refreshUrl,
             baseUrl: opts.baseUrl,
             userinfoUrl: opts.userinfoUrl,
             defaultScopes: opts.scopes ? opts.scopes.split(",") : [],
@@ -410,6 +437,10 @@ Examples:
               ? JSON.parse(opts.pingHeaders)
               : undefined,
             pingBody: opts.pingBody ? JSON.parse(opts.pingBody) : undefined,
+            revokeUrl: opts.revokeUrl,
+            revokeBodyTemplate: opts.revokeBodyTemplate
+              ? JSON.parse(opts.revokeBodyTemplate)
+              : undefined,
             displayLabel: opts.displayName,
             description: opts.description,
             dashboardUrl: opts.dashboardUrl,
@@ -467,6 +498,10 @@ Examples:
       "--token-url <url>",
       "OAuth token endpoint URL (e.g. https://oauth2.example.com/token)",
     )
+    .option(
+      "--refresh-url <url>",
+      "OAuth token refresh endpoint URL. Defaults to --token-url when omitted. Set this when the provider uses a different endpoint for the refresh_token grant than for the authorization_code grant.",
+    )
     .option("--base-url <url>", "API base URL for the service")
     .option("--userinfo-url <url>", "OpenID Connect userinfo endpoint URL")
     .option(
@@ -496,6 +531,14 @@ Examples:
     .option(
       "--ping-body <json>",
       'JSON body to send with the ping request (e.g. \'{"query":"{ viewer { id } }"}\')',
+    )
+    .option(
+      "--revoke-url <url>",
+      "OAuth token revocation endpoint URL. Called best-effort during disconnect to invalidate the access token upstream. Pass an empty string to clear.",
+    )
+    .option(
+      "--revoke-body-template <json>",
+      "JSON object body template for the revoke request, supporting {access_token} and {client_id} substitution. Pass an empty string to clear.",
     )
     .option(
       "--display-name <name>",
@@ -579,11 +622,15 @@ Examples:
   $ assistant oauth providers update custom-api --scopes read,write --auth-url https://new.example.com/auth
   $ assistant oauth providers update custom-api --ping-url https://api.example.com/me --json
   $ assistant oauth providers update custom-api --scope-separator ","
+  $ assistant oauth providers update custom-api --refresh-url https://example.com/oauth/refresh
   $ assistant oauth providers update custom-api \\
       --identity-url https://api.example.com/me \\
       --identity-response-paths email,name
   $ assistant oauth providers update custom-api \\
-      --injection-templates '[{"hostPattern":"api.example.com","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]'`,
+      --injection-templates '[{"hostPattern":"api.example.com","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]'
+  $ assistant oauth providers update custom-api \\
+      --revoke-url https://api.example.com/oauth/revoke \\
+      --revoke-body-template '{"token":"{access_token}"}'`,
     )
     .action(
       (
@@ -591,6 +638,7 @@ Examples:
         opts: {
           authUrl?: string;
           tokenUrl?: string;
+          refreshUrl?: string;
           baseUrl?: string;
           userinfoUrl?: string;
           scopes?: string;
@@ -600,6 +648,8 @@ Examples:
           pingMethod?: string;
           pingHeaders?: string;
           pingBody?: string;
+          revokeUrl?: string;
+          revokeBodyTemplate?: string;
           displayName?: string;
           description?: string;
           dashboardUrl?: string;
@@ -656,6 +706,8 @@ Examples:
           if (opts.authUrl !== undefined) params.authorizeUrl = opts.authUrl;
           if (opts.tokenUrl !== undefined)
             params.tokenExchangeUrl = opts.tokenUrl;
+          if (opts.refreshUrl !== undefined)
+            params.refreshUrl = opts.refreshUrl;
           if (opts.baseUrl !== undefined) params.baseUrl = opts.baseUrl;
           if (opts.userinfoUrl !== undefined)
             params.userinfoUrl = opts.userinfoUrl;
@@ -672,6 +724,22 @@ Examples:
             params.pingHeaders = JSON.parse(opts.pingHeaders);
           if (opts.pingBody !== undefined)
             params.pingBody = JSON.parse(opts.pingBody);
+          if (opts.revokeUrl !== undefined) {
+            // Empty string means "clear" — normalize to null so the stored
+            // value matches the "disabled" semantics documented in the help
+            // text. `updateProvider`'s Partial type accepts `string | null`
+            // for this field so drizzle writes `null` to clear the column.
+            params.revokeUrl = opts.revokeUrl === "" ? null : opts.revokeUrl;
+          }
+          if (opts.revokeBodyTemplate !== undefined) {
+            // Empty string means "clear" — normalize to null to match --revoke-url's
+            // empty-string-clear semantics documented in the help text. The
+            // updateProvider type accepts `Record<string, string> | null` for this.
+            params.revokeBodyTemplate =
+              opts.revokeBodyTemplate === ""
+                ? null
+                : JSON.parse(opts.revokeBodyTemplate);
+          }
           if (opts.displayName !== undefined)
             params.displayLabel = opts.displayName;
           if (opts.description !== undefined)

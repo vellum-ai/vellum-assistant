@@ -34,6 +34,7 @@ export async function executeSubagentStatus(
         subagentId: state.config.id,
         label: state.config.label,
         status: state.status,
+        isFork: state.isFork,
         error: state.error,
         createdAt: state.createdAt,
         startedAt: state.startedAt,
@@ -57,6 +58,7 @@ export async function executeSubagentStatus(
     subagentId: s.config.id,
     label: s.config.label,
     status: s.status,
+    isFork: s.isFork,
     error: s.error,
   }));
 

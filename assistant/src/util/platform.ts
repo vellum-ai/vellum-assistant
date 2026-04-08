@@ -136,28 +136,11 @@ export function isTCPEnabled(): boolean {
 
 /**
  * Returns the hostname/address for the TCP listener.
- * If iOS pairing is enabled (flag file): '0.0.0.0' (LAN-accessible).
- * Default: '127.0.0.1' (localhost only).
+ * Always binds to localhost only. iOS pairing uses the gateway
+ * relay.
  */
 export function getTCPHost(): string {
-  if (isIOSPairingEnabled()) return "0.0.0.0";
   return "127.0.0.1";
-}
-
-/**
- * Returns whether iOS pairing mode is enabled.
- * When enabled, the TCP listener binds to 0.0.0.0 (all interfaces)
- * instead of 127.0.0.1 (localhost only), making the daemon reachable
- * from iOS devices on the same local network.
- *
- * Checks for the presence of the flag file ~/.vellum/ios-pairing-enabled.
- * Default: false.
- *
- * This is separate from isTCPEnabled() — TCP can be enabled for localhost-only
- * access without exposing the daemon to the LAN.
- */
-export function isIOSPairingEnabled(): boolean {
-  return existsSync(join(vellumRoot(), "ios-pairing-enabled"));
 }
 
 /**
@@ -200,6 +183,18 @@ export function readPlatformToken(): string | null {
 
 export function getPidPath(): string {
   return join(vellumRoot(), "vellum.pid");
+}
+
+/**
+ * Returns the path to the runtime HTTP port file (~/.vellum/runtime-port).
+ * The daemon writes its active HTTP port here on startup so thin helpers
+ * that need to reach the runtime (e.g. the chrome-extension native messaging
+ * helper) can locate a non-default `RUNTIME_HTTP_PORT` without a manifest
+ * change. Root-level path by design — the file is read by helpers that may
+ * not know the workspace override path.
+ */
+export function getRuntimePortFilePath(): string {
+  return join(vellumRoot(), "runtime-port");
 }
 
 export function getDbPath(): string {

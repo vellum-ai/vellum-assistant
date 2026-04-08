@@ -129,6 +129,8 @@ struct SettingsDeveloperTab: View {
             featureFlagSection
             // Environment Variables
             environmentVariablesSection
+            // Hello World VM
+            DeveloperHelloWorldVMSection()
             // Sentry Testing
             sentryTestingSection
         }
@@ -675,8 +677,7 @@ struct SettingsDeveloperTab: View {
     private func performLocalRestart() async {
         do {
             try await AppDelegate.shared?.vellumCli.hatch(
-                name: selectedAssistantId,
-                restart: true
+                name: selectedAssistantId
             )
         } catch {}
     }

@@ -39,6 +39,10 @@ public struct VCodeView: View {
     /// that would block text selection or steal clicks from child controls.
     public var onContentClick: (() -> Void)?
 
+    /// When false, renders the full code block height and relies on an
+    /// ancestor scroll view for vertical scrolling.
+    public var allowsVerticalScrolling: Bool = true
+
     @State private var isSearchVisible = false
     @State private var searchQuery = ""
     @State private var currentMatchIndex = 0
@@ -48,12 +52,14 @@ public struct VCodeView: View {
         text: String,
         highlighter: ((String, NSParagraphStyle?) -> NSAttributedString)? = nil,
         highlightVersion: UInt64 = 0,
-        onContentClick: (() -> Void)? = nil
+        onContentClick: (() -> Void)? = nil,
+        allowsVerticalScrolling: Bool = true
     ) {
         self.text = text
         self.highlighter = highlighter
         self.highlightVersion = highlightVersion
         self.onContentClick = onContentClick
+        self.allowsVerticalScrolling = allowsVerticalScrolling
     }
 
     public var body: some View {
@@ -108,24 +114,31 @@ public struct VCodeView: View {
     private var editorContent: some View {
         let lineCount = cachedLineCount
         let gutterWidth = gutterWidth(for: lineCount)
+        let content = HStack(alignment: .top, spacing: 0) {
+            lineNumberGutter(lineCount: lineCount, width: gutterWidth)
 
-        return ScrollView([.vertical]) {
-            HStack(alignment: .top, spacing: 0) {
-                lineNumberGutter(lineCount: lineCount, width: gutterWidth)
+            VCodeTextView(
+                text: text,
+                highlighter: highlighter,
+                highlightVersion: highlightVersion,
+                searchQuery: searchQuery,
+                currentMatchIndex: currentMatchIndex,
+                matchRanges: isSearchVisible
+                    ? Self.findMatchRanges(in: text, query: searchQuery) : [],
+                onContentClick: onContentClick
+            )
+            .frame(maxWidth: .infinity)
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
 
-                VCodeTextView(
-                    text: text,
-                    highlighter: highlighter,
-                    highlightVersion: highlightVersion,
-                    searchQuery: searchQuery,
-                    currentMatchIndex: currentMatchIndex,
-                    matchRanges: isSearchVisible
-                        ? Self.findMatchRanges(in: text, query: searchQuery) : [],
-                    onContentClick: onContentClick
-                )
-                .frame(maxWidth: .infinity)
+        return Group {
+            if allowsVerticalScrolling {
+                ScrollView([.vertical]) {
+                    content
+                }
+            } else {
+                content
             }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .background(Self.editorBackground)
     }

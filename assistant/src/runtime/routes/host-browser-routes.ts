@@ -57,7 +57,20 @@ export async function handleHostBrowserResult(
   // Validation passed — consume the pending interaction.
   const interaction = pendingInteractions.resolve(requestId)!;
 
-  interaction.conversation!.resolveHostBrowser(requestId, {
+  // The host_browser kind always has a conversation attached at register time
+  // (HostBrowserProxy.request wires it through), so this guard exists so a
+  // future refactor of pending-interactions can change the type without
+  // silently breaking the host_browser path. Prefer an explicit 400 over an
+  // optional-chain no-op that would leave the proxy request unresolved.
+  if (!interaction.conversation) {
+    return httpError(
+      "BAD_REQUEST",
+      "host_browser pending interaction has no associated conversation",
+      400,
+    );
+  }
+
+  interaction.conversation.resolveHostBrowser(requestId, {
     content: content ?? "",
     isError: isError ?? false,
   });

@@ -273,6 +273,35 @@ final class MessageListScrollStateTests: XCTestCase {
                        "Expansion stabilization should auto-clear after the reset timeout")
     }
 
+    func testManualExpansionDetachesFollowingBottom() async throws {
+        state.transition(to: .followingBottom)
+        state.recoveryDeadline = Date().addingTimeInterval(2.0)
+        state.scrollRestoreTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+
+        state.handleManualExpansionInteraction()
+
+        XCTAssertTrue(state.isSuppressed,
+                      "Manual expansion should enter stabilization while layout settles")
+        XCTAssertFalse(state.isFollowingBottom,
+                       "Manual expansion should detach from following-bottom mode")
+        XCTAssertNil(state.recoveryDeadline,
+                     "Manual expansion should cancel bottom recovery")
+        XCTAssertNil(state.scrollRestoreTask,
+                     "Manual expansion should cancel delayed restore pins")
+
+        try await Task.sleep(nanoseconds: 250_000_000)
+
+        XCTAssertFalse(state.isSuppressed,
+                       "Expansion stabilization should still auto-clear")
+        if case .freeBrowsing = state.mode {
+            // correct
+        } else {
+            XCTFail("Manual expansion should settle into freeBrowsing")
+        }
+    }
+
     // MARK: - Reset
 
     func testResetRestoresDefaults() {

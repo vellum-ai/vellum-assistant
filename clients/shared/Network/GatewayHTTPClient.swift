@@ -654,6 +654,35 @@ public enum GatewayHTTPClient {
         return try resolveConnection().isManaged
     }
 
+    /// Diagnostic summary of the current connection, intended for developer-mode UI.
+    /// Returns a human-readable multi-line string with base URL, assistant ID, auth type,
+    /// and managed flag. Secrets are masked. Returns the error description on failure.
+    public static func connectionDiagnostics() -> String {
+        do {
+            let conn = try resolveConnection()
+            let authType: String
+            if let header = conn.authHeader {
+                let maskedValue: String
+                if header.value.count > 12 {
+                    maskedValue = String(header.value.prefix(8)) + "…" + String(header.value.suffix(4))
+                } else {
+                    maskedValue = "<short>"
+                }
+                authType = "\(header.field): \(maskedValue)"
+            } else {
+                authType = "none"
+            }
+            return """
+            Base URL: \(conn.baseURL)
+            Assistant ID: \(conn.assistantId.isEmpty ? "<empty>" : conn.assistantId)
+            Auth: \(authType)
+            Managed: \(conn.isManaged)
+            """
+        } catch {
+            return "Connection error: \(error.localizedDescription)"
+        }
+    }
+
     /// Credentials needed by the WebView JS fetch bridge (`window.vellum.fetch`).
     public struct WebViewCredentials {
         /// Gateway base URL including scheme and port (e.g. `http://127.0.0.1:7830`).
@@ -676,6 +705,7 @@ public enum GatewayHTTPClient {
     ///   or `nil` if the connection cannot be resolved or is not authenticated.
     public static func resolveWebViewCredentials() -> WebViewCredentials? {
         guard let connection = try? resolveConnection() else { return nil }
+
         var headers: [String: String] = [:]
         if let auth = connection.authHeader {
             headers[auth.field] = auth.value

@@ -1,4 +1,4 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.2
 import PackageDescription
 
 let appVersion = "0.6.2"
@@ -29,6 +29,7 @@ let package = Package(
         // iOS executable product removed — use ios/vellum-assistant-ios.xcodeproj instead.
     ],
     dependencies: [
+        .package(url: "https://github.com/apple/containerization.git", exact: "0.30.1"),
         .package(url: "https://github.com/getsentry/sentry-cocoa.git", from: "8.0.0"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.0.0"),
         .package(url: "https://github.com/migueldeicaza/SwiftTerm", from: "1.0.0"),
@@ -66,6 +67,8 @@ let package = Package(
             name: "VellumAssistantLib",
             dependencies: [
                 "VellumAssistantShared",
+                .product(name: "Containerization", package: "containerization"),
+                .product(name: "ContainerizationOCI", package: "containerization"),
                 "Sparkle",
                 .product(name: "Sentry", package: "sentry-cocoa"),
                 .product(name: "SwiftTerm", package: "SwiftTerm"),
@@ -124,5 +127,8 @@ let package = Package(
             dependencies: ["VellumAssistantShared"],
             path: "ios/Tests"
         )
-    ]
+    ],
+    // swift-tools-version 6.2 is required by the `containerization` dependency,
+    // but the codebase isn't yet migrated to Swift 6 strict concurrency.
+    swiftLanguageModes: [.v5]
 )

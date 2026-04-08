@@ -45,6 +45,7 @@ struct MessageListContentView: View, Equatable {
             && lhs.state.isStreamingWithoutText == rhs.state.isStreamingWithoutText
             && lhs.state.hasMessages == rhs.state.hasMessages
             && lhs.providerCatalogHash == rhs.providerCatalogHash
+            && lhs.typographyGeneration == rhs.typographyGeneration
             && lhs.isLoadingMoreMessages == rhs.isLoadingMoreMessages
             && lhs.isCompacting == rhs.isCompacting
             && lhs.isInteractionEnabled == rhs.isInteractionEnabled
@@ -67,6 +68,7 @@ struct MessageListContentView: View, Equatable {
     let state: MessageListDerivedState
     let providerCatalog: [ProviderCatalogEntry]
     let providerCatalogHash: Int
+    let typographyGeneration: Int
     let isLoadingMoreMessages: Bool
     let isCompacting: Bool
     let isInteractionEnabled: Bool
@@ -200,6 +202,7 @@ struct MessageListContentView: View, Equatable {
                     activePendingRequestId: cellActivePendingRequestId,
                     subagentsByParent: state.subagentsByParent,
                     isLatestAssistantMessage: isLatestAssistant,
+                    typographyGeneration: typographyGeneration,
                     isProcessingAfterTools: state.canInlineProcessing && isLatestAssistant,
                     processingStatusText: state.canInlineProcessing && isLatestAssistant ? state.effectiveStatusText : nil,
                     hideInlineAvatar: isLatestAssistant && isUnanchoredThinking,

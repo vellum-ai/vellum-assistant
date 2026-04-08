@@ -1,6 +1,7 @@
 .build/
 build/
 dist/
+.container-cache/
 .swiftpm/
 *.xcuserdata
 xcuserdata/

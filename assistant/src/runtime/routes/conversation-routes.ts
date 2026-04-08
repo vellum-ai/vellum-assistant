@@ -78,6 +78,7 @@ import { silentlyWithLog } from "../../util/silently.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import type { AuthContext } from "../auth/types.js";
+import { getChromeExtensionRegistry } from "../chrome-extension-registry.js";
 import { bridgeConfirmationRequestToGuardian } from "../confirmation-request-guardian-bridge.js";
 import { routeGuardianReply } from "../guardian-reply-router.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
@@ -1146,12 +1147,13 @@ export async function handleSendMessage(
     conversation,
   );
   const isInteractive = isInteractiveInterface(sourceInterface);
-  // Only create the host bash proxy for desktop client interfaces that can
-  // execute commands on the user's machine. Non-desktop conversations (CLI,
-  // channels, headless) fall back to local execution.
+  // Only create each host proxy for interfaces that support the matching
+  // capability. macOS supports all four; the chrome-extension interface only
+  // supports host_browser. Non-desktop conversations (CLI, channels, headless)
+  // fall back to local execution.
   // Set the proxy BEFORE updateClient so updateClient's call to
   // hostBashProxy.updateSender targets the correct (new) proxy.
-  if (supportsHostProxy(sourceInterface)) {
+  if (supportsHostProxy(sourceInterface, "host_bash")) {
     // Reuse the existing proxy if the conversation is actively processing a
     // host bash request to avoid orphaning in-flight requests.
     if (!conversation.isProcessing() || !conversation.hostBashProxy) {
@@ -1160,18 +1162,84 @@ export async function handleSendMessage(
       });
       conversation.setHostBashProxy(proxy);
     }
+  } else if (!conversation.isProcessing()) {
+    conversation.setHostBashProxy(undefined);
+  }
+  // For the chrome-extension interface we route host_browser_request /
+  // host_browser_cancel frames through the in-process ChromeExtensionRegistry
+  // to the WebSocket opened against /v1/browser-relay by the connected
+  // extension, instead of the SSE/onEvent hub used by macOS. The registry
+  // lookup is keyed by the JWT-derived actor principal id, which the
+  // runtime captured at WebSocket upgrade time.
+  //
+  // macOS (and any other interface that supports host_browser in the
+  // future via the SSE hub) keeps using `onEvent` — see the else branch.
+  const browserProxySendToClient: (msg: ServerMessage) => void =
+    sourceInterface === "chrome-extension"
+      ? (msg) => {
+          // Resolve the guardian principal id at send time rather than
+          // capturing it from the POST-time authContext. This closure can be
+          // re-fired on queue drain — if a different actor's POST lands while
+          // the queue is still draining an earlier turn, a captured
+          // authContext.actorPrincipalId would mis-route the earlier turn's
+          // host_browser frames to the *new* actor. Preferring
+          // conversation.trustContext?.guardianPrincipalId makes the routing
+          // follow the conversation's bound guardian, which is stable across
+          // subsequent POSTs. Falls back to the per-POST authContext for
+          // turns that haven't been bound to a trust context yet.
+          const gid =
+            conversation.trustContext?.guardianPrincipalId ??
+            authContext.actorPrincipalId;
+          if (!gid) {
+            // No guardian identity on this turn — nothing to route to.
+            // The proxy will observe this via its try/catch and surface a
+            // transport error back to the caller.
+            throw new Error(
+              "chrome-extension host_browser send skipped: no guardianId on AuthContext",
+            );
+          }
+          const ok = getChromeExtensionRegistry().send(gid, msg);
+          if (!ok) {
+            throw new Error(
+              `chrome-extension host_browser send failed: no active connection for guardian ${gid}`,
+            );
+          }
+        }
+      : onEvent;
+  // Stash the registry-routed sender on the conversation so queue-drain
+  // restores (which run outside of conversation-routes.ts and only have
+  // access to `sendToClient`) can preserve it when calling
+  // `restoreBrowserProxyAvailability()`. For non-chrome-extension
+  // interfaces the override is cleared so the SSE hub sender is used.
+  if (sourceInterface === "chrome-extension") {
+    conversation.hostBrowserSenderOverride = browserProxySendToClient;
+  } else {
+    conversation.hostBrowserSenderOverride = undefined;
+  }
+  if (supportsHostProxy(sourceInterface, "host_browser")) {
     if (!conversation.isProcessing() || !conversation.hostBrowserProxy) {
-      const browserProxy = new HostBrowserProxy(onEvent, (requestId) => {
-        pendingInteractions.resolve(requestId);
-      });
+      const browserProxy = new HostBrowserProxy(
+        browserProxySendToClient,
+        (requestId) => {
+          pendingInteractions.resolve(requestId);
+        },
+      );
       conversation.setHostBrowserProxy(browserProxy);
     }
+  } else if (!conversation.isProcessing()) {
+    conversation.setHostBrowserProxy(undefined);
+  }
+  if (supportsHostProxy(sourceInterface, "host_file")) {
     if (!conversation.isProcessing() || !conversation.hostFileProxy) {
       const fileProxy = new HostFileProxy(onEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
       conversation.setHostFileProxy(fileProxy);
     }
+  } else if (!conversation.isProcessing()) {
+    conversation.setHostFileProxy(undefined);
+  }
+  if (supportsHostProxy(sourceInterface, "host_cu")) {
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
       const cuProxy = new HostCuProxy(onEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
@@ -1185,20 +1253,41 @@ export async function handleSendMessage(
       conversation.addPreactivatedSkillId("computer-use");
     }
   } else if (!conversation.isProcessing()) {
-    conversation.setHostBashProxy(undefined);
-    conversation.setHostBrowserProxy(undefined);
-    conversation.setHostFileProxy(undefined);
     conversation.setHostCuProxy(undefined);
   }
   // Wire sendToClient to the SSE hub so all subsystems can reach the HTTP client.
   // Called after setHostBashProxy so updateSender targets the current proxy.
   // When proxies are preserved during an active turn (non-desktop request while
-  // processing), skip updating proxy senders to avoid degrading them.
+  // processing), skip updating proxy senders to avoid degrading them. The gate
+  // matches the host_bash capability because the legacy "reject send during
+  // host bash" flow is what this is really protecting.
   const preservingProxies =
-    conversation.isProcessing() && !supportsHostProxy(sourceInterface);
+    conversation.isProcessing() &&
+    !supportsHostProxy(sourceInterface, "host_bash");
+  // hasNoClient must remain `!isInteractive` so downstream tool gating
+  // (`isToolActiveForContext` for HOST_TOOL_NAMES, `createToolExecutor`'s
+  // `isInteractive: !ctx.hasNoClient`) keeps host_bash/host_file/host_cu
+  // tools gated for non-desktop interfaces. The chrome-extension interface
+  // is non-interactive (no SSE prompter UI) but still has a connected client
+  // that can service host_browser_request events; we restore that single
+  // proxy explicitly below without relaxing `hasNoClient`.
   conversation.updateClient(onEvent, !isInteractive, {
     skipProxySenderUpdate: preservingProxies,
   });
+  // For non-interactive interfaces that DO support host_browser
+  // (chrome-extension), explicitly re-enable just the browser proxy. The
+  // helper bypasses the `hasNoClient` gate so the single-capability
+  // chrome-extension turn can drive the browser via CDP without leaking
+  // host_bash/host_file tool availability into tool gating.
+  //
+  // `restoreBrowserProxyAvailability()` reads `hostBrowserSenderOverride`
+  // (set above for chrome-extension) and applies the registry-routed
+  // sender, so the chrome-extension path gets the correct sender here
+  // — including after queue-drain restores run from conversation-process.ts,
+  // which only have access to the conversation instance.
+  if (supportsHostProxy(sourceInterface, "host_browser")) {
+    conversation.restoreBrowserProxyAvailability?.();
+  }
 
   // ── Canned first-greeting fast path ──
   // On a completely fresh workspace, skip LLM inference for the macOS

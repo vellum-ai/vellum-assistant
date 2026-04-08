@@ -6,6 +6,11 @@
  * keeping the constructor body focused on wiring.
  */
 
+import {
+  type HostProxyCapability,
+  type InterfaceId,
+  supportsHostProxy,
+} from "../channels/types.js";
 import { isHttpAuthDisabled } from "../config/env.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import type { CesClient } from "../credential-execution/client.js";
@@ -459,17 +464,49 @@ export interface SkillProjectionContext {
   subagentAllowedTools?: Set<string>;
   /** True when this conversation belongs to a subagent spawned by SubagentManager. */
   readonly isSubagent?: boolean;
+  /**
+   * The interface id of the connected client driving the current turn (e.g.
+   * "macos", "chrome-extension"). Used to gate host tools by per-capability
+   * `supportsHostProxy(transport, capability)` so that interfaces which only
+   * support a subset of the host proxy set (e.g. chrome-extension supports
+   * `host_browser` but not `host_bash`/`host_file`) do not leak unsupported
+   * host tools into the LLM tool definitions.
+   */
+  readonly transportInterface?: InterfaceId;
 }
 
 // ── Conditional tool sets ────────────────────────────────────────────
 
 const UI_SURFACE_TOOL_NAMES = new Set(["ui_show", "ui_update", "ui_dismiss"]);
-const HOST_TOOL_NAMES = new Set([
-  "host_file_read",
-  "host_file_write",
-  "host_file_edit",
-  "host_bash",
+/**
+ * Single source of truth for which tools are host tools and the capability
+ * each one requires from the connected client interface. Adding a tool here
+ * automatically adds it to `HOST_TOOL_NAMES` below, so the two collections
+ * cannot drift apart: if a new host tool is added without a capability
+ * mapping, `isToolActiveForContext` cannot accidentally return `true` for
+ * chrome-extension (or any other partial-capability transport) because
+ * `HOST_TOOL_NAMES` wouldn't contain it either.
+ *
+ * `isToolActiveForContext` uses this map to gate each host tool individually
+ * so that partial-capability transports (e.g. chrome-extension only supports
+ * `host_browser`) only see the host tools their interface can actually
+ * service.
+ *
+ * Note: there is no `host_cu` tool exposed via the tool gating layer today;
+ * computer-use is preactivated as a skill and projected through the skill
+ * tools path. Only host tools that flow through the per-capability gate
+ * need entries here.
+ */
+export const HOST_TOOL_TO_CAPABILITY = new Map<string, HostProxyCapability>([
+  ["host_bash", "host_bash"],
+  ["host_file_read", "host_file"],
+  ["host_file_write", "host_file"],
+  ["host_file_edit", "host_file"],
+  ["host_browser", "host_browser"],
 ]);
+// Derived from HOST_TOOL_TO_CAPABILITY so the invariant "every host tool has
+// a capability mapping" is a structural fact — no runtime assertion needed.
+export const HOST_TOOL_NAMES = new Set(HOST_TOOL_TO_CAPABILITY.keys());
 const CLIENT_CAPABILITY_TOOL_NAMES = new Set(["app_open"]);
 const PLATFORM_TOOL_NAMES = new Set(["request_system_permission"]);
 
@@ -498,9 +535,27 @@ export function isToolActiveForContext(
     return ctx.channelCapabilities?.supportsDynamicUi ?? !ctx.hasNoClient;
   }
   if (HOST_TOOL_NAMES.has(name)) {
-    // Host tools require a connected client — without one, there is no human
-    // to approve execution and the guardian auto-approve path would allow
-    // unchecked host command execution on the daemon host.
+    const capability = HOST_TOOL_TO_CAPABILITY.get(name);
+    const transport = ctx.transportInterface;
+
+    // Per-capability check is authoritative for structural support: if the
+    // transport cannot service this capability, the tool is filtered out.
+    if (transport && capability && !supportsHostProxy(transport, capability)) {
+      return false;
+    }
+
+    // chrome-extension is its own executor — the extension's popup gates
+    // commands via its own UI, and the transport does not use an SSE-level
+    // interactive approval channel. hasNoClient is intentionally `true` for
+    // chrome-extension turns (chrome-extension is not in INTERACTIVE_INTERFACES)
+    // and must not gate host_browser. Trust the per-capability check.
+    if (transport === "chrome-extension") {
+      return true;
+    }
+
+    // For transports that surface approvals over SSE (macos, backwards-compat
+    // fallback), deny when no client is present so the guardian auto-approve
+    // path cannot execute host commands unattended.
     return !ctx.hasNoClient;
   }
   if (CLIENT_CAPABILITY_TOOL_NAMES.has(name)) {

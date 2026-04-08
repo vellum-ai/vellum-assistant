@@ -25,6 +25,7 @@ private final class MeasuredTextCacheEntry: NSObject {
 struct MarkdownSegmentView: View, Equatable {
     let segments: [MarkdownSegment]
     var isStreaming: Bool = false
+    var typographyGeneration: Int? = nil
     var maxContentWidth: CGFloat? = VSpacing.chatBubbleMaxWidth
     var textColor: Color = VColor.contentDefault
     var secondaryTextColor: Color = VColor.contentSecondary
@@ -40,6 +41,7 @@ struct MarkdownSegmentView: View, Equatable {
     static func == (lhs: MarkdownSegmentView, rhs: MarkdownSegmentView) -> Bool {
         lhs.segments == rhs.segments
             && lhs.isStreaming == rhs.isStreaming
+            && lhs.typographyGeneration == rhs.typographyGeneration
             && lhs.maxContentWidth == rhs.maxContentWidth
             && lhs.textColor == rhs.textColor
             && lhs.secondaryTextColor == rhs.secondaryTextColor
@@ -55,7 +57,7 @@ struct MarkdownSegmentView: View, Equatable {
         let chatFont = VFont.chat
         let scaledCodeLabelSize: CGFloat = 11
         #if os(macOS)
-        let typographyGeneration = typographyObserver.generation
+        let typographyGeneration = self.typographyGeneration ?? typographyObserver.generation
         #endif
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             ForEach(Array(groups.enumerated()), id: \.offset) { _, group in

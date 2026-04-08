@@ -10,7 +10,10 @@ export const oauthProviders = sqliteTable("oauth_providers", {
   provider: text("provider_key").primaryKey(),
   authorizeUrl: text("auth_url").notNull(),
   tokenExchangeUrl: text("token_url").notNull(),
-  tokenEndpointAuthMethod: text("token_endpoint_auth_method"),
+  refreshUrl: text("refresh_url"),
+  tokenEndpointAuthMethod: text("token_endpoint_auth_method")
+    .notNull()
+    .default("client_secret_post"),
   userinfoUrl: text("userinfo_url"),
   baseUrl: text("base_url"),
   defaultScopes: text("default_scopes").notNull().default("[]"),
@@ -21,6 +24,8 @@ export const oauthProviders = sqliteTable("oauth_providers", {
   pingMethod: text("ping_method"),
   pingHeaders: text("ping_headers"),
   pingBody: text("ping_body"),
+  revokeUrl: text("revoke_url"),
+  revokeBodyTemplate: text("revoke_body_template"),
   managedServiceConfigKey: text("managed_service_config_key"),
   displayLabel: text("display_name"),
   description: text("description"),

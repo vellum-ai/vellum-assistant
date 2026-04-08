@@ -77,6 +77,7 @@ function _serializeProvider(
     providerKey: provider,
     authUrl: authorizeUrl,
     tokenUrl: tokenExchangeUrl,
+    refreshUrl: row.refreshUrl ?? null,
     displayName: displayLabel ?? null,
     description: row.description ?? null,
     dashboardUrl: row.dashboardUrl ?? null,
@@ -89,6 +90,10 @@ function _serializeProvider(
     extraParams: authorizeParams ? JSON.parse(authorizeParams) : null,
     pingHeaders: row.pingHeaders ? JSON.parse(row.pingHeaders) : null,
     pingBody: row.pingBody ? JSON.parse(row.pingBody) : null,
+    revokeUrl: row.revokeUrl || null,
+    revokeBodyTemplate: row.revokeBodyTemplate
+      ? JSON.parse(row.revokeBodyTemplate)
+      : null,
     loopbackPort: row.loopbackPort ?? null,
     injectionTemplates: row.injectionTemplates
       ? JSON.parse(row.injectionTemplates)

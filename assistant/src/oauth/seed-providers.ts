@@ -5,8 +5,9 @@ import { seedProviders } from "./oauth-store.js";
  *
  * These values are upserted into the `oauth_providers` SQLite table on
  * every startup. Only Vellum implementation fields (authorizeUrl, tokenExchangeUrl,
- * tokenEndpointAuthMethod, userinfoUrl, authorizeParams,
- * pingUrl, pingMethod, pingHeaders, pingBody, managedServiceConfigKey,
+ * refreshUrl, tokenEndpointAuthMethod, userinfoUrl, authorizeParams,
+ * pingUrl, pingMethod, pingHeaders, pingBody, revokeUrl, revokeBodyTemplate,
+ * managedServiceConfigKey,
  * loopbackPort, injectionTemplates, appType, setupNotes,
  * identityUrl, identityMethod, identityHeaders, identityBody,
  * identityResponsePaths, identityFormat, identityOkField, featureFlag,
@@ -23,12 +24,15 @@ const PROVIDER_SEED_DATA: Record<
     provider: string;
     authorizeUrl: string;
     tokenExchangeUrl: string;
+    refreshUrl?: string;
     tokenEndpointAuthMethod?: string;
     userinfoUrl?: string;
     pingUrl?: string;
     pingMethod?: string;
     pingHeaders?: Record<string, string>;
     pingBody?: unknown;
+    revokeUrl?: string;
+    revokeBodyTemplate?: Record<string, string>;
     baseUrl?: string;
     defaultScopes: string[];
     scopePolicy: {
@@ -114,6 +118,8 @@ const PROVIDER_SEED_DATA: Record<
         valuePrefix: "Bearer ",
       },
     ],
+    revokeUrl: "https://oauth2.googleapis.com/revoke",
+    revokeBodyTemplate: { token: "{access_token}" },
     appType: "Desktop app",
     identityUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
     identityResponsePaths: ["email"],
@@ -234,6 +240,12 @@ const PROVIDER_SEED_DATA: Record<
         valuePrefix: "Bearer ",
       },
     ],
+    revokeUrl: "https://api.x.com/2/oauth2/revoke",
+    revokeBodyTemplate: {
+      token: "{access_token}",
+      token_type_hint: "access_token",
+      client_id: "{client_id}",
+    },
     appType: "App",
     identityUrl: "https://api.x.com/2/users/me",
     identityResponsePaths: ["data.username"],
@@ -307,6 +319,8 @@ const PROVIDER_SEED_DATA: Record<
         valuePrefix: "Bearer ",
       },
     ],
+    revokeUrl: "https://api.linear.app/oauth/revoke",
+    revokeBodyTemplate: { token: "{access_token}" },
     appType: "OAuth application",
     identityUrl: "https://api.linear.app/graphql",
     identityMethod: "POST",

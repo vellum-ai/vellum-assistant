@@ -139,6 +139,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var pulseTimer: Timer?
     var pulsePhase: CGFloat = 1.0
     var pulseDirection: CGFloat = -1.0
+    /// Cached value of the `multi-platform-assistant` flag, read once when
+    /// the status item is constructed in `setupMenuBar()`. Flag changes
+    /// require relaunch; the status item does not subscribe to live updates
+    /// so it stays cheap and predictable.
+    var multiAssistantSwitcherEnabled: Bool = false
+    /// View model for the menu-bar assistant switcher. Lazily constructed in
+    /// `setupMenuBar()` when `multiAssistantSwitcherEnabled` is true.
+    var assistantSwitcherViewModel: AssistantSwitcherViewModel?
+    /// Cached coordinator + controller for the switcher's handlers. Stored
+    /// so every menu click doesn't allocate fresh instances and so future
+    /// state on the coordinator isn't silently bypassed by the switcher.
+    var assistantSwitcherCoordinator: ManagedAssistantConnectionCoordinator?
+    var assistantSwitcherConnectionController: AppDelegateManagedConnectionController?
     var cachedSkills: [SkillInfo] = []
     var refreshSkillsTask: Task<Void, Never>?
     var cachedApps: [AppItem] = []
@@ -465,15 +478,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // Record this launch so the next session can identify new crashes.
         CrashReporter.recordLaunch()
 
-        // Migration: remove legacy ios-pairing-enabled flag file.
-        // The old "Enable iOS Pairing" toggle created this file to expose
-        // the daemon on 0.0.0.0. With QR-first pairing via gateway, the
-        // flag is no longer needed and leaving it active is a security concern.
-        let legacyFlagPath = NSHomeDirectory() + "/.vellum/ios-pairing-enabled"
-        if FileManager.default.fileExists(atPath: legacyFlagPath) {
-            try? FileManager.default.removeItem(atPath: legacyFlagPath)
-        }
-
         // Remove stale SwiftUI Settings window frame to prevent a ghost
         // window from being restored on launch (the Settings scene now
         // renders EmptyView — we handle settings in the main window panel).
@@ -525,6 +529,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let isDevMode = DevModeManager.shared.isDevMode
         Task.detached(priority: .utility) {
             Self.installCLISymlinkIfNeeded(isDevMode: isDevMode)
+        }
+
+        // Install the Chrome native messaging host manifest so the
+        // Vellum Chrome extension can spawn the bundled helper binary
+        // via `chrome.runtime.connectNative("com.vellum.daemon")`.
+        // Best-effort and idempotent — see
+        // `AppDelegate+NativeMessaging.swift` for details. Runs off
+        // the main thread because it touches `~/Library` on disk.
+        Task.detached(priority: .utility) {
+            Self.installChromeNativeMessagingHostIfNeeded()
         }
 
         let hasAssistants = lockfileHasAssistants()

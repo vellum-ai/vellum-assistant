@@ -149,6 +149,17 @@ CONTENTS="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
 RESOURCES_DIR="$CONTENTS/Resources"
 FRAMEWORKS_DIR="$CONTENTS/Frameworks"
+KATA_KERNEL_VERSION="3.17.0"
+KATA_KERNEL_ARCHIVE_URL="${KATA_KERNEL_ARCHIVE_URL:-https://github.com/kata-containers/kata-containers/releases/download/$KATA_KERNEL_VERSION/kata-static-$KATA_KERNEL_VERSION-arm64.tar.xz}"
+# When bumping KATA_KERNEL_VERSION, update both SHAs:
+#   Archive: curl -sL "$KATA_KERNEL_ARCHIVE_URL" | shasum -a 256 (more recent releases will have the SHA on github)
+#   Kernel:  tar -xJf archive.tar.xz && shasum -a 256 opt/kata/share/kata-containers/vmlinux.container
+KATA_KERNEL_ARCHIVE_SHA256="647c7612e6edf789d5e14698c48c99d8bac15ad139ffaa1c8bb7d229f748d181"
+KATA_KERNEL_SHA256="67bac9f416af4cdc9b151e4ba4962d6515e0ad7acc53816761cf964aa6af6ea0"
+KATA_KERNEL_CACHE_DIR="${KATA_KERNEL_CACHE_DIR:-$SCRIPT_DIR/.container-cache/kata-$KATA_KERNEL_VERSION-arm64}"
+KATA_KERNEL_ARCHIVE_PATH="$KATA_KERNEL_CACHE_DIR/kata.tar.xz"
+KATA_KERNEL_PATH="$KATA_KERNEL_CACHE_DIR/vmlinux.container"
+KATA_KERNEL_BUNDLE_DIR="$RESOURCES_DIR/DeveloperVM"
 
 # Version (overridable via env for CI, defaults to Package.swift)
 if [ -z "${DISPLAY_VERSION:-}" ]; then
@@ -214,6 +225,7 @@ export SIGN_IDENTITY
 ASSISTANT_SRC_DIR="$SCRIPT_DIR/../../assistant"
 CLI_SRC_DIR="$SCRIPT_DIR/../../cli"
 GATEWAY_SRC_DIR="$SCRIPT_DIR/../../gateway"
+NATIVE_HOST_SRC_DIR="$SCRIPT_DIR/../chrome-extension-native-host"
 
 # Packages that must stay external in compiled Bun binaries.
 # playwright-core has optional requires (electron, chromium-bidi) that cannot
@@ -279,6 +291,9 @@ build_binaries() {
     (cd "$ASSISTANT_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
     (cd "$CLI_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
     (cd "$GATEWAY_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
+    if [ -d "$NATIVE_HOST_SRC_DIR/src" ]; then
+        (cd "$NATIVE_HOST_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
+    fi
 
     # Shared flags for daemon and assistant CLI
     local daemon_flags=("${BUN_EXTERNAL_FLAGS[@]}")
@@ -319,6 +334,12 @@ build_binaries() {
         "$SCRIPT_DIR/gateway-bin" "vellum-gateway" &
     pids+=($!)
 
+    if [ -d "$NATIVE_HOST_SRC_DIR/src" ]; then
+        SKIP_BUN_INSTALL=1 build_bun_binary "$NATIVE_HOST_SRC_DIR" "$NATIVE_HOST_SRC_DIR/src/index.ts" \
+            "$SCRIPT_DIR/native-host-bin" "vellum-chrome-native-host" &
+        pids+=($!)
+    fi
+
     for pid in "${pids[@]}"; do
         wait "$pid" || failures=$((failures + 1))
     done
@@ -340,6 +361,50 @@ build_binaries() {
     rm -rf "$SCRIPT_DIR/daemon-bin/brain-graph"
     mkdir -p "$SCRIPT_DIR/daemon-bin/brain-graph"
     cp "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" "$SCRIPT_DIR/daemon-bin/brain-graph/"
+}
+
+bundle_kata_kernel() {
+    mkdir -p "$KATA_KERNEL_CACHE_DIR"
+
+    if [ ! -f "$KATA_KERNEL_PATH" ]; then
+        echo "Downloading Kata $KATA_KERNEL_VERSION ARM64 kernel..."
+        curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 30 \
+            --output "$KATA_KERNEL_ARCHIVE_PATH" "$KATA_KERNEL_ARCHIVE_URL"
+
+        echo "Verifying Kata kernel archive checksum..."
+        local actual_sha256
+        actual_sha256=$(shasum -a 256 "$KATA_KERNEL_ARCHIVE_PATH" | awk '{print $1}')
+        if [ "$actual_sha256" != "$KATA_KERNEL_ARCHIVE_SHA256" ]; then
+            echo "ERROR: SHA-256 mismatch for Kata kernel archive" >&2
+            echo "  Expected: $KATA_KERNEL_ARCHIVE_SHA256" >&2
+            echo "  Actual:   $actual_sha256" >&2
+            rm -f "$KATA_KERNEL_ARCHIVE_PATH"
+            exit 1
+        fi
+
+        echo "Extracting Kata kernel..."
+        local temp_extract
+        temp_extract=$(mktemp -d "$KATA_KERNEL_CACHE_DIR/extract.XXXXXX")
+        tar -xJf "$KATA_KERNEL_ARCHIVE_PATH" -C "$temp_extract"
+        cp -L "$temp_extract/opt/kata/share/kata-containers/vmlinux.container" "$KATA_KERNEL_PATH"
+        rm -rf "$temp_extract"
+        rm -f "$KATA_KERNEL_ARCHIVE_PATH"
+    fi
+
+    echo "Verifying Kata kernel checksum..."
+    local actual_kernel_sha256
+    actual_kernel_sha256=$(shasum -a 256 "$KATA_KERNEL_PATH" | awk '{print $1}')
+    if [ "$actual_kernel_sha256" != "$KATA_KERNEL_SHA256" ]; then
+        echo "ERROR: SHA-256 mismatch for Kata kernel" >&2
+        echo "  Expected: $KATA_KERNEL_SHA256" >&2
+        echo "  Actual:   $actual_kernel_sha256" >&2
+        rm -f "$KATA_KERNEL_PATH"
+        exit 1
+    fi
+
+    echo "Bundling Kata kernel..."
+    mkdir -p "$KATA_KERNEL_BUNDLE_DIR"
+    cp "$KATA_KERNEL_PATH" "$KATA_KERNEL_BUNDLE_DIR/vmlinux.container"
 }
 
 case "$CMD" in
@@ -389,7 +454,7 @@ case "$CMD" in
     clean)
         echo "Cleaning..."
         rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/../.build"
-        rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin"
+        rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin" "$SCRIPT_DIR/native-host-bin"
         rm -rf "$SPM_MODULE_CACHE"
         echo "Done."
         exit 0
@@ -434,7 +499,7 @@ if [ "$CMD" = "release" ] || [ "$CMD" = "release-application" ]; then
         # (e.g. arm64 binaries from a previous build being bundled into an x86_64 release).
         # Skip when SKIP_BUN_REBUILD=1, since pre-built binaries are intentionally provided.
         if [ "${SKIP_BUN_REBUILD:-}" != "1" ]; then
-            rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin"
+            rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin" "$SCRIPT_DIR/native-host-bin"
         fi
     fi
 fi
@@ -621,6 +686,35 @@ if [ -f "$SCRIPT_DIR/gateway-bin/vellum-gateway" ]; then
     fi
 fi
 
+# Auto-build Chrome native messaging helper binary if missing or stale
+# and bun is available. This is the binary Chrome spawns via
+# chrome.runtime.connectNative("com.vellum.daemon") — see
+# clients/chrome-extension-native-host/ for the source and
+# clients/macos/vellum-assistant/Features/Installer/NativeMessagingInstaller.swift
+# for the manifest that points at the bundled copy.
+NATIVE_HOST_BIN_NEEDS_BUILD=false
+if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$NATIVE_HOST_SRC_DIR/src" ] && command -v bun &>/dev/null; then
+    if [ ! -f "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" ]; then
+        NATIVE_HOST_BIN_NEEDS_BUILD=true
+    elif [ -n "$(find "$NATIVE_HOST_SRC_DIR/src" -name '*.ts' -newer "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" -print -quit 2>/dev/null)" ]; then
+        NATIVE_HOST_BIN_NEEDS_BUILD=true
+    elif [ "$NATIVE_HOST_SRC_DIR/package.json" -nt "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" ] || \
+         { [ -f "$NATIVE_HOST_SRC_DIR/bun.lock" ] && [ "$NATIVE_HOST_SRC_DIR/bun.lock" -nt "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" ]; }; then
+        NATIVE_HOST_BIN_NEEDS_BUILD=true
+    fi
+fi
+if [ "$NATIVE_HOST_BIN_NEEDS_BUILD" = true ]; then
+    build_bun_binary "$NATIVE_HOST_SRC_DIR" "$NATIVE_HOST_SRC_DIR/src/index.ts" \
+        "$SCRIPT_DIR/native-host-bin" "vellum-chrome-native-host"
+fi
+
+# Also rebuild if native host binary changed or newly added
+if [ -f "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" ]; then
+    if [ ! -f "$MACOS_DIR/vellum-chrome-native-host" ] || [ "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" -nt "$MACOS_DIR/vellum-chrome-native-host" ]; then
+        NEEDS_REBUILD=true
+    fi
+fi
+
 # Ensure .app bundle structure exists
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$FRAMEWORKS_DIR"
 
@@ -675,6 +769,19 @@ if [ "$NEEDS_REBUILD" = true ]; then
         chmod +x "$MACOS_DIR/vellum-gateway"
     else
         echo "No gateway binary at $GATEWAY_BIN — skipping (dev mode)"
+    fi
+
+    # Copy bundled Chrome native messaging helper binary (if available).
+    # This is an auxiliary executable under Contents/MacOS/ that Chrome
+    # spawns via the com.vellum.daemon.json manifest written by
+    # NativeMessagingInstaller at first launch.
+    NATIVE_HOST_BIN="$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host"
+    if [ -f "$NATIVE_HOST_BIN" ]; then
+        echo "Bundling Chrome native messaging helper binary..."
+        cp "$NATIVE_HOST_BIN" "$MACOS_DIR/vellum-chrome-native-host"
+        chmod +x "$MACOS_DIR/vellum-chrome-native-host"
+    else
+        echo "No Chrome native messaging helper binary at $NATIVE_HOST_BIN — skipping (dev mode)"
     fi
 
 else
@@ -749,6 +856,10 @@ if command -v bun &>/dev/null && [ -f "$CHAR_COMP_SRC" ]; then
     echo "Generating character-components.json..."
     bun -e "import { getCharacterComponents } from '$CHAR_COMP_SRC'; process.stdout.write(JSON.stringify(getCharacterComponents()))" > "$RESOURCES_DIR/character-components.json"
 fi
+
+# Bundle the developer VM kernel directly into the app so the macOS client can
+# boot the hello-world VM without a first-run kernel download.
+bundle_kata_kernel
 
 # Always check resource bundles (they change independently of binaries)
 # Copy SPM resource bundles into Contents/Resources/
@@ -1141,6 +1252,16 @@ if [ -f "$MACOS_DIR/vellum-gateway" ]; then
     echo "Gateway binary signed"
 fi
 
+# Sign Chrome native messaging helper binary
+if [ -f "$MACOS_DIR/vellum-chrome-native-host" ]; then
+    NATIVE_HOST_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
+    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
+        NATIVE_HOST_SIGN_FLAGS+=(--timestamp --options runtime)
+    fi
+    codesign "${NATIVE_HOST_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-chrome-native-host"
+    echo "Chrome native messaging helper binary signed"
+fi
+
 # Embedding runtime node_modules are no longer bundled (downloaded post-hatch).
 
 # Sign any additional regular files directly under Contents/MacOS.
@@ -1155,6 +1276,7 @@ if [ -d "$MACOS_DIR" ]; then
         ! -name "vellum-daemon" \
         ! -name "vellum-cli" \
         ! -name "vellum-gateway" \
+        ! -name "vellum-chrome-native-host" \
         -exec codesign "${EXTRA_FILE_SIGN_FLAGS[@]}" {} \;
 fi
 
@@ -1191,7 +1313,7 @@ if [ ${#STRAY_ITEMS[@]} -gt 0 ]; then
     exit 1
 fi
 
-# Sign the outer app bundle with audio-input entitlement (without --deep to preserve nested signatures)
+# Sign the outer app bundle with entitlements (without --deep to preserve nested signatures)
 APP_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$SCRIPT_DIR/app-entitlements.plist")
 if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
     APP_SIGN_FLAGS+=(--timestamp --options runtime)

@@ -107,6 +107,7 @@ import {
 import { SleepWakeDetector } from "./sleep-wake-detector.js";
 import { callTelegramApi } from "./telegram/api.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
+import { registerEmailCallbackRoute } from "./email/register-callback.js";
 
 const log = getLogger("main");
 
@@ -365,7 +366,7 @@ async function main() {
       handler: (req) => handleWhatsAppWebhook(req),
     },
     {
-      path: "/webhooks/email/inbound",
+      path: "/webhooks/email",
       handler: (req) => handleEmailWebhook(req),
     },
 
@@ -1529,6 +1530,22 @@ async function main() {
         );
       });
     }
+
+    // Register email callback route with the platform so inbound email
+    // webhooks are forwarded to this gateway (same pattern as Telegram).
+    // Fires on initial credential load and whenever vellum credentials change
+    // (key rotation, late provisioning).
+    if (changed.has("vellum")) {
+      registerEmailCallbackRoute({ credentials: credentialCache }).catch(
+        (err) => {
+          log.error(
+            { err },
+            "Failed to register email callback route after credential change",
+          );
+        },
+      );
+    }
+
   });
 
   // The credential watcher callback handles startup side effects (Telegram

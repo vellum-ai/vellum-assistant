@@ -284,10 +284,13 @@ export function queueRegenerateConversationTitle(
  */
 function buildTitleSystemPrompt(): string {
   return [
-    "You generate short conversation titles. Output ONLY the title text — no explanation, no quotes, no markdown, no preamble.",
+    "You generate ultra-concise conversation titles. Output ONLY the title text — no explanation, no quotes, no markdown, no preamble.",
     "",
     "Rules:",
-    "- Summarize the TOPIC the user is asking about",
+    "- 2–6 words. Titles longer than 6 words are unacceptable — ruthlessly compress",
+    "- Summarize the TOPIC, not the request or instructions",
+    "- Noun phrases are ideal (e.g. 'Auth Middleware Rewrite', 'Docker Volume Mounts')",
+    "- Do NOT echo back what the user asked you to do",
     "- Do NOT respond to the conversation content",
     "- Do NOT assess feasibility or comment on capabilities",
   ].join("\n");

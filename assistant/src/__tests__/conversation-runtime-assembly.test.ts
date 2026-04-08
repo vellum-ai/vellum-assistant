@@ -1521,6 +1521,7 @@ function makeSubagentState(
     },
     status: overrides.status ?? "running",
     conversationId: `conv-${overrides.id}`,
+    isFork: overrides.isFork ?? false,
     createdAt: overrides.createdAt ?? Date.now() - 60_000,
     startedAt: overrides.startedAt ?? Date.now() - 55_000,
     completedAt: overrides.completedAt,
