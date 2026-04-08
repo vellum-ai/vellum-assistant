@@ -334,9 +334,9 @@ describe("getBrowserRelayWebsocketHandlers", () => {
     const MockWS = globalThis.WebSocket as unknown as ReturnType<typeof mock>;
     const calledUrl = (MockWS.mock.calls[0] as unknown[])[0] as string;
     const parsed = new URL(calledUrl);
-    // The runtime will fail-closed on upgrades lacking guardian context,
-    // so the absence of guardianId here is the boundary condition that
-    // triggers the explicit-error rejection downstream.
+    // When the edge token has no actor principal, the gateway
+    // propagates nothing for guardianId and the runtime accepts the
+    // upgrade with `guardianId = undefined`.
     expect(parsed.searchParams.has("guardianId")).toBe(false);
   });
 });
@@ -475,8 +475,9 @@ describe("createBrowserRelayWebsocketHandler guardian propagation", () => {
     expect(res).toBeUndefined();
     expect(fakeServer.upgrade).toHaveBeenCalledTimes(1);
     // The gateway still upgrades the connection, but propagates no
-    // guardianId. The runtime will reject the upstream upgrade with an
-    // explicit error because no fallback guardian context is available.
+    // guardianId. The runtime allows the upgrade to proceed with an
+    // unscoped connection when no fallback guardian context is
+    // available.
     expect(capturedData).toMatchObject({
       wsType: "browser-relay",
       auth: { authenticated: true, authBypassed: false },
