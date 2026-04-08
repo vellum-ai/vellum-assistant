@@ -448,6 +448,16 @@ export function injectActiveSurfaceContext(
 // Subagent status injection
 // ---------------------------------------------------------------------------
 
+/** Escape XML special characters to prevent injection in XML blocks. */
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
 /**
  * Build the `<active_subagents>` injection block from the current child states.
  * Returns null if there are no children (zero overhead for non-subagent parents).
@@ -464,7 +474,7 @@ export function buildSubagentStatusBlock(
       ? `${Math.round((now - child.startedAt) / 1000)}s`
       : "pending";
     const parts = [
-      `- [${child.status}] "${child.config.label}" (${child.config.id})`,
+      `- [${child.status}] "${escapeXml(child.config.label)}" (${escapeXml(child.config.id)})`,
     ];
     if (!TERMINAL_STATUSES.has(child.status)) {
       parts.push(`elapsed: ${elapsed}`);
