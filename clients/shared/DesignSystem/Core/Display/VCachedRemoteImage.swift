@@ -4,7 +4,7 @@ import SwiftUI
 /// (logos, avatars, etc.). Uses a dedicated cache directory so the images
 /// persist across app launches and do not share budget with other HTTP
 /// traffic on `URLSession.shared`.
-public enum RemoteImageCache {
+public enum VRemoteImageCache {
     /// 32 MB memory, 128 MB disk — plenty of headroom for a couple
     /// hundred integration logos at a few KB each.
     private static let memoryCapacity = 32 * 1024 * 1024
@@ -27,13 +27,13 @@ public enum RemoteImageCache {
     }()
 }
 
-/// A SwiftUI view that loads a remote image through `RemoteImageCache.session`
+/// A SwiftUI view that loads a remote image through `VRemoteImageCache.session`
 /// and renders `placeholder` while loading or on error.
 ///
-/// `CachedRemoteImage` deliberately does NOT render a system `AsyncImage` — it
+/// `VCachedRemoteImage` deliberately does NOT render a system `AsyncImage` — it
 /// owns the session so the cache is shared and the call site can customize the
 /// content/placeholder without styling inconsistencies.
-public struct CachedRemoteImage<Content: View, Placeholder: View>: View {
+public struct VCachedRemoteImage<Content: View, Placeholder: View>: View {
     private let url: URL?
     private let content: (Image) -> Content
     private let placeholder: () -> Placeholder
@@ -69,7 +69,8 @@ public struct CachedRemoteImage<Content: View, Placeholder: View>: View {
         didFail = false
         guard let url else { return }
         do {
-            let (data, _) = try await RemoteImageCache.session.data(from: url)
+            let (data, _) = try await VRemoteImageCache.session.data(from: url)
+            guard !Task.isCancelled else { return }
             if let img = PlatformImage(data: data) {
                 loadedImage = img
             } else {
