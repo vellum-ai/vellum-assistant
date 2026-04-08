@@ -149,6 +149,12 @@ CONTENTS="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
 RESOURCES_DIR="$CONTENTS/Resources"
 FRAMEWORKS_DIR="$CONTENTS/Frameworks"
+KATA_KERNEL_VERSION="3.17.0"
+KATA_KERNEL_ARCHIVE_URL="${KATA_KERNEL_ARCHIVE_URL:-https://github.com/kata-containers/kata-containers/releases/download/$KATA_KERNEL_VERSION/kata-static-$KATA_KERNEL_VERSION-arm64.tar.xz}"
+KATA_KERNEL_CACHE_DIR="${KATA_KERNEL_CACHE_DIR:-$SCRIPT_DIR/.container-cache/kata-$KATA_KERNEL_VERSION-arm64}"
+KATA_KERNEL_ARCHIVE_PATH="$KATA_KERNEL_CACHE_DIR/kata.tar.xz"
+KATA_KERNEL_PATH="$KATA_KERNEL_CACHE_DIR/vmlinux.container"
+KATA_KERNEL_BUNDLE_DIR="$RESOURCES_DIR/DeveloperVM"
 
 # Version (overridable via env for CI, defaults to Package.swift)
 if [ -z "${DISPLAY_VERSION:-}" ]; then
@@ -350,6 +356,31 @@ build_binaries() {
     rm -rf "$SCRIPT_DIR/daemon-bin/brain-graph"
     mkdir -p "$SCRIPT_DIR/daemon-bin/brain-graph"
     cp "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" "$SCRIPT_DIR/daemon-bin/brain-graph/"
+}
+
+bundle_kata_kernel() {
+    mkdir -p "$KATA_KERNEL_CACHE_DIR"
+
+    if [ ! -f "$KATA_KERNEL_ARCHIVE_PATH" ]; then
+        echo "Downloading Kata $KATA_KERNEL_VERSION ARM64 kernel..."
+        # TODO: Cache this for CI/CD builds.
+        curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 30 \
+            --output "$KATA_KERNEL_ARCHIVE_PATH.tmp" "$KATA_KERNEL_ARCHIVE_URL"
+        mv "$KATA_KERNEL_ARCHIVE_PATH.tmp" "$KATA_KERNEL_ARCHIVE_PATH"
+    fi
+
+    if [ ! -f "$KATA_KERNEL_PATH" ]; then
+        echo "Extracting Kata kernel..."
+        local temp_extract
+        temp_extract=$(mktemp -d "$KATA_KERNEL_CACHE_DIR/extract.XXXXXX")
+        tar -xJf "$KATA_KERNEL_ARCHIVE_PATH" -C "$temp_extract"
+        cp -L "$temp_extract/opt/kata/share/kata-containers/vmlinux.container" "$KATA_KERNEL_PATH"
+        rm -rf "$temp_extract"
+    fi
+
+    echo "Bundling Kata kernel..."
+    mkdir -p "$KATA_KERNEL_BUNDLE_DIR"
+    cp "$KATA_KERNEL_PATH" "$KATA_KERNEL_BUNDLE_DIR/vmlinux.container"
 }
 
 case "$CMD" in
@@ -801,6 +832,10 @@ if command -v bun &>/dev/null && [ -f "$CHAR_COMP_SRC" ]; then
     echo "Generating character-components.json..."
     bun -e "import { getCharacterComponents } from '$CHAR_COMP_SRC'; process.stdout.write(JSON.stringify(getCharacterComponents()))" > "$RESOURCES_DIR/character-components.json"
 fi
+
+# Bundle the developer VM kernel directly into the app so the macOS client can
+# boot the hello-world VM without a first-run kernel download.
+bundle_kata_kernel
 
 # Always check resource bundles (they change independently of binaries)
 # Copy SPM resource bundles into Contents/Resources/
@@ -1254,7 +1289,7 @@ if [ ${#STRAY_ITEMS[@]} -gt 0 ]; then
     exit 1
 fi
 
-# Sign the outer app bundle with audio-input entitlement (without --deep to preserve nested signatures)
+# Sign the outer app bundle with entitlements (without --deep to preserve nested signatures)
 APP_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$SCRIPT_DIR/app-entitlements.plist")
 if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
     APP_SIGN_FLAGS+=(--timestamp --options runtime)
