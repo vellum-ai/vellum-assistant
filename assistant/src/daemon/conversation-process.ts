@@ -320,20 +320,24 @@ export async function drainQueue(
   // environment context for internal turns.
   if (next.transport) {
     conversation.setTransportHints(buildTransportHints(next.transport));
+    // Mirror applyTransportMetadata: populate client-reported host env for
+    // macOS transports, and clear it for non-macOS transports so a
+    // conversation reused across interfaces doesn't keep rendering stale
+    // Mac paths in its `<workspace>` block.
+    const prevHomeDir = conversation.hostHomeDir;
+    const prevUsername = conversation.hostUsername;
     if (next.transport.interfaceId === "macos") {
-      // Mirror applyTransportMetadata: populate client-reported host env so
-      // the `<workspace>` block renders the user's actual Mac paths even for
-      // messages that arrive while the conversation is already processing.
-      const prevHomeDir = conversation.hostHomeDir;
-      const prevUsername = conversation.hostUsername;
       conversation.hostHomeDir = next.transport.hostHomeDir;
       conversation.hostUsername = next.transport.hostUsername;
-      if (
-        prevHomeDir !== conversation.hostHomeDir ||
-        prevUsername !== conversation.hostUsername
-      ) {
-        conversation.workspaceTopLevelDirty = true;
-      }
+    } else {
+      conversation.hostHomeDir = undefined;
+      conversation.hostUsername = undefined;
+    }
+    if (
+      prevHomeDir !== conversation.hostHomeDir ||
+      prevUsername !== conversation.hostUsername
+    ) {
+      conversation.workspaceTopLevelDirty = true;
     }
   }
 
