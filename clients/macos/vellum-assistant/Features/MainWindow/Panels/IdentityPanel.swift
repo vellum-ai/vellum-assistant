@@ -22,6 +22,7 @@ struct IdentityPanel: View {
     @State private var introText: String? = nil
     @State private var introTask: Task<Void, Never>? = nil
     @State private var bootstrapCheckTask: Task<Void, Never>? = nil
+    @State private var skillsTask: Task<Void, Never>? = nil
     @State private var isBootstrapActive: Bool = true
     @State private var isEditingName: Bool = false
     @State private var editingNameText: String = ""
@@ -195,7 +196,7 @@ struct IdentityPanel: View {
                     }
                 }
             }
-            .onDisappear { bootstrapCheckTask?.cancel(); introTask?.cancel() }
+            .onDisappear { bootstrapCheckTask?.cancel(); introTask?.cancel(); skillsTask?.cancel() }
         }
     }
 
@@ -316,8 +317,10 @@ struct IdentityPanel: View {
     // MARK: - Skills
 
     private func fetchSkills() {
-        Task {
+        skillsTask?.cancel()
+        skillsTask = Task {
             let response = await SkillsClient().fetchSkillsList(includeCatalog: false)
+            guard !Task.isCancelled else { return }
             if let response {
                 let enabled = response.skills.filter { $0.status == "enabled" }
                 let map = await Task.detached {
@@ -328,6 +331,7 @@ struct IdentityPanel: View {
                     }
                     return m
                 }.value
+                guard !Task.isCancelled else { return }
                 skills = enabled
                 skillCategoryLookup = map
             }
