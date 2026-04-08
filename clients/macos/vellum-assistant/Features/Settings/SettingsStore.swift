@@ -2129,6 +2129,10 @@ public final class SettingsStore: ObservableObject {
            let mode = linearOAuth["mode"] as? String {
             self.managedOAuthMode["linear"] = mode
         }
+        if let githubOAuth = services["github-oauth"] as? [String: Any],
+           let mode = githubOAuth["mode"] as? String {
+            self.managedOAuthMode["github"] = mode
+        }
     }
 
     @discardableResult
