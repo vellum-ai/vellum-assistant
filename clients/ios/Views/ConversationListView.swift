@@ -294,6 +294,28 @@ struct ConversationListView: View {
             Text("Loading chats\u{2026}")
                 .font(VFont.bodyMediumLighter)
                 .foregroundStyle(VColor.contentSecondary)
+
+            // Show the fetch error inline when developer mode is enabled so the
+            // user doesn't stare at a spinner with no feedback.
+            if developerModeEnabled, let fetchError = ConversationListClient.lastFetchError {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Fetch error:")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.systemNegativeStrong)
+                    Text(fetchError)
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(VColor.systemNegativeStrong)
+                        .textSelection(.enabled)
+                    Text(GatewayHTTPClient.connectionDiagnostics())
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(VColor.contentSecondary)
+                        .textSelection(.enabled)
+                }
+                .padding()
+                .background(Color(.secondarySystemBackground))
+                .cornerRadius(8)
+                .padding(.horizontal)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("Chats")
@@ -461,6 +483,29 @@ struct ConversationListView: View {
 
     private var conversationList: some View {
         List(selection: horizontalSizeClass == .regular ? $selectedConversationId : nil) {
+            // Developer-mode diagnostic banner for conversation fetch errors.
+            if developerModeEnabled, let fetchError = ConversationListClient.lastFetchError {
+                Section {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        HStack(spacing: VSpacing.xs) {
+                            VIconView(.triangleAlert, size: 12)
+                            Text("Conversation fetch failed")
+                                .font(VFont.labelDefault)
+                        }
+                        .foregroundStyle(VColor.systemNegativeStrong)
+                        Text(fetchError)
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(VColor.systemNegativeStrong)
+                            .textSelection(.enabled)
+                        Text(GatewayHTTPClient.connectionDiagnostics())
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(VColor.contentSecondary)
+                            .textSelection(.enabled)
+                    }
+                    .padding(.vertical, VSpacing.xs)
+                }
+            }
+
             // Regular (non-schedule) conversations
             ForEach(filteredRegularConversations) { conversation in
                 maybeConnectedContextMenu(conversation: conversation) {

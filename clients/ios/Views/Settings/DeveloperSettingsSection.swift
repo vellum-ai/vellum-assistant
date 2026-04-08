@@ -82,6 +82,25 @@ private struct DeveloperSettingsSectionContent: View {
             Section("Connection") {
                 LabeledContent("Status", value: clientProvider.isConnected ? "Connected" : "Disconnected")
             }
+
+            Section("Connection Diagnostics") {
+                let diag = GatewayHTTPClient.connectionDiagnostics()
+                Text(diag)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+
+                if let fetchError = ConversationListClient.lastFetchError {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Last Fetch Error")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.systemNegativeStrong)
+                        Text(fetchError)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(VColor.systemNegativeStrong)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
         }
         .navigationTitle("Developer")
         .navigationBarTitleDisplayMode(.inline)
