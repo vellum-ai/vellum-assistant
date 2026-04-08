@@ -412,13 +412,13 @@ struct AssistantTransferSection: View {
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch let error as PlatformMigrationClient.PlatformMigrationError {
-                    // Only fail fast on permanent 4xx errors
-                    // Retry transient 5xx errors
-                    if case .requestFailed(let statusCode, _) = error, (400..<500).contains(statusCode) {
-                        throw error
+                    // Only retry on transient 5xx server errors
+                    // All other PlatformMigrationError cases (notAuthenticated, 4xx, etc.) are permanent
+                    if case .requestFailed(let statusCode, _) = error, (500..<600).contains(statusCode) {
+                        continue
                     }
-                    // Transient server error — retry on next cycle
-                    continue
+                    // Permanent error — fail fast
+                    throw error
                 } catch {
                     // Transient network errors — retry on next cycle
                     continue
