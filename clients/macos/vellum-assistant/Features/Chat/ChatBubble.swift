@@ -266,17 +266,18 @@ struct ChatBubble: View, Equatable {
     func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         let isPlainAssistant = !isUser && !message.isError
         if message.isError {
-            // ⚠️ Do NOT replace HStack+Spacer with .frame(maxWidth:, alignment:) here.
+            // ⚠️ Do NOT replace .containerRelativeFrame with .frame(maxWidth:, alignment:) here.
             // FlexFrame alignment queries recurse through all children — see AGENTS.md.
-            HStack(spacing: 0) {
-                content()
-                    .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.lg,
-                                        bottom: VSpacing.md, trailing: VSpacing.lg))
-                Spacer(minLength: 0)
-            }
-            .background {
-                bubbleChromeBackground
-            }
+            // .containerRelativeFrame resolves against the ScrollView, ensuring the error
+            // background spans the full column width even though the parent VStack is
+            // content-sized (the outer HStack+Spacer gives the VStack only its ideal width).
+            content()
+                .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.lg,
+                                    bottom: VSpacing.md, trailing: VSpacing.lg))
+                .containerRelativeFrame(.horizontal)
+                .background {
+                    bubbleChromeBackground
+                }
         } else if isPlainAssistant {
             // Plain assistant: no chrome padding, no inner frame.
             content()
