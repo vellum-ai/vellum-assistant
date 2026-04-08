@@ -70,7 +70,8 @@ struct SettingsPrivacyTab: View {
         privacySyncTask = Task {
             try? await featureFlagClient.setPrivacyConfig(
                 collectUsageData: store.collectUsageData,
-                sendDiagnostics: store.sendDiagnostics
+                sendDiagnostics: store.sendDiagnostics,
+                llmRequestLogRetentionMs: nil
             )
         }
     }
