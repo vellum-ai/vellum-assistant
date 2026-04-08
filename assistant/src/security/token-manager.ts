@@ -92,7 +92,8 @@ const secureKeyBackend: SecureKeyBackend = {
 interface RefreshConfig {
   /**
    * Token endpoint used for the refresh grant. Resolved from
-   * `provider.refreshUrl` when set, otherwise `provider.tokenExchangeUrl`.
+   * `provider.refreshUrl` when set to a non-empty string, otherwise
+   * `provider.tokenExchangeUrl` (matching platform's Python `or` semantics).
    */
   tokenExchangeUrl: string;
   clientId: string;
@@ -142,8 +143,11 @@ async function resolveRefreshConfig(
   // Prefer provider.refreshUrl when set; fall back to tokenExchangeUrl.
   // This mirrors platform's `oauth_app.refresh_url or oauth_app.token_exchange_url`
   // in `token_service.py:112`, so both repos resolve the refresh endpoint
-  // identically for managed and BYO flows.
-  const tokenExchangeUrl = provider.refreshUrl ?? provider.tokenExchangeUrl;
+  // identically for managed and BYO flows. We use `||` (not `??`) so empty
+  // strings fall back to tokenExchangeUrl — matching Python's `or` semantics
+  // and preventing a malformed provider row with `refreshUrl: ""` from
+  // resolving to an empty endpoint.
+  const tokenExchangeUrl = provider.refreshUrl || provider.tokenExchangeUrl;
   const resolvedClientId = app.clientId;
   if (!tokenExchangeUrl || !resolvedClientId) {
     throw new TokenExpiredError(

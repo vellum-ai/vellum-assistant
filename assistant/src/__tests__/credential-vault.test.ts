@@ -1633,5 +1633,37 @@ describe("withValidToken refresh deduplication", () => {
         "https://oauth.example.com/token",
       );
     });
+
+    test("falls back to provider.tokenExchangeUrl when refreshUrl is empty string", async () => {
+      // Platform's Python `oauth_app.refresh_url or oauth_app.token_exchange_url`
+      // treats an empty string as unset. We use `||` (not `??`) so empty
+      // strings follow the same fallback path and never resolve to an empty
+      // endpoint.
+      await setupService("google");
+      mockProviders.get("google")!.refreshUrl = "";
+
+      mockRefreshOAuth2Token.mockImplementation(() =>
+        Promise.resolve({
+          accessToken: "new-token-from-token-exchange-url",
+          expiresIn: 3600,
+        }),
+      );
+
+      const err401 = Object.assign(new Error("Unauthorized"), { status: 401 });
+
+      const callback = async (token: string) => {
+        if (token === "old-access-token") throw err401;
+        return `result-with-${token}`;
+      };
+
+      const result = await withValidToken("google", callback);
+
+      expect(result).toBe("result-with-new-token-from-token-exchange-url");
+      expect(mockRefreshOAuth2Token).toHaveBeenCalledTimes(1);
+      // Assert the refresh endpoint falls back to tokenExchangeUrl — NOT "".
+      expect(mockRefreshOAuth2Token.mock.calls[0]?.[0]).toBe(
+        "https://oauth.example.com/token",
+      );
+    });
   });
 });
