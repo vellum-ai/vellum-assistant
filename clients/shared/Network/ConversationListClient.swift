@@ -33,7 +33,9 @@ public struct ConversationListClient: ConversationListClientProtocol {
                 path: "assistants/{assistantId}/conversations", params: params, timeout: 15
             )
             guard response.isSuccess else {
-                log.error("fetchConversationList failed (HTTP \(response.statusCode))")
+                let body = String(data: response.data.prefix(512), encoding: .utf8) ?? "<non-utf8>"
+                let detail = "HTTP \(response.statusCode) — \(body)"
+                log.error("fetchConversationList failed (\(detail))")
                 return nil
             }
             let decoded = try JSONDecoder().decode(HTTPConversationsListResponse.self, from: response.data)
@@ -63,7 +65,7 @@ public struct ConversationListClient: ConversationListClientProtocol {
                 groups: decoded.groups
             )
         } catch {
-            log.error("fetchConversationList error: \(error.localizedDescription)")
+            log.error("fetchConversationList error: \(String(describing: error))")
             return nil
         }
     }

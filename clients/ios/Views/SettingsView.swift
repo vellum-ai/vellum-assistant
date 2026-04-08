@@ -127,7 +127,7 @@ struct SettingsView: View {
                     Section("Developer") {
                         Toggle("Developer Mode", isOn: $developerModeEnabled)
                         NavigationLink {
-                            DeveloperSettingsSection()
+                            DeveloperSettingsSection(conversationStore: conversationStore)
                         } label: {
                             Label { Text("Debug Panel") } icon: { VIconView(.bug, size: 14) }
                         }
