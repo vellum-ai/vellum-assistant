@@ -11,8 +11,9 @@
  *   `hasNoClient: true` continues to deny all host tools on macos.
  *
  * The per-capability check (`supportsHostProxy(transport, capability)`) runs
- * first and is authoritative for structural support, so host_bash/host_file_*
- * remain filtered out for chrome-extension (Codex P1 leak stays plugged).
+ * first and is authoritative for structural support, so host_bash and
+ * host_file_* are filtered out for chrome-extension regardless of the
+ * hasNoClient flag.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -88,13 +89,12 @@ describe("isToolActiveForContext — host tool capability gating", () => {
   });
 
   // chrome-extension transport: the extension is its own executor.
-  test("host_browser is active for chrome-extension when hasNoClient is true (regression fix)", () => {
-    // Regression coverage for PR #24195: the per-capability tool gate was
-    // previously placed inside the `hasNoClient` short-circuit, which
-    // filtered `host_browser` out for chrome-extension turns (which run
-    // with `hasNoClient: true` by design). The extension is its own
-    // executor and gates commands via its own popup UI, so it must be
-    // exempt from the hasNoClient gate.
+  test("host_browser is active for chrome-extension even when hasNoClient is true", () => {
+    // chrome-extension turns run with `hasNoClient: true` by design because
+    // chrome-extension is not in `INTERACTIVE_INTERFACES` — it is not an
+    // SSE interactive channel. The extension gates host_browser commands
+    // via its own popup UI, so the hasNoClient gate must not filter
+    // host_browser out for chrome-extension transports.
     expect(
       isToolActiveForContext(
         "host_browser",
@@ -118,9 +118,9 @@ describe("isToolActiveForContext — host tool capability gating", () => {
     ).toBe(true);
   });
 
-  test("host_bash is NOT active for chrome-extension even when hasNoClient is true (Codex P1 leak)", () => {
+  test("host_bash is NOT active for chrome-extension even when hasNoClient is true", () => {
     // The per-capability check runs first and is authoritative: chrome-extension
-    // only supports `host_browser`, so `host_bash` must remain filtered out.
+    // only supports `host_browser`, so `host_bash` must be filtered out.
     expect(
       isToolActiveForContext(
         "host_bash",
