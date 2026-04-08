@@ -2,14 +2,14 @@ import { describe, expect, mock, test } from "bun:test";
 
 const mockGetApp = mock((_appId: string) => ({
   id: "app-1",
-  providerKey: "google",
+  provider: "google",
   clientId: "client-1",
 }));
 
 const mockListConnections = mock(() => [
   {
     id: "conn-1",
-    providerKey: "google",
+    provider: "google",
     accountInfo: '{"email":"alice@example.com"}',
     grantedScopes: '["email","profile"]',
     status: "active",
@@ -20,7 +20,7 @@ const mockListConnections = mock(() => [
   },
   {
     id: "conn-2",
-    providerKey: "google",
+    provider: "google",
     accountInfo: null,
     grantedScopes: [],
     status: "active",
@@ -37,28 +37,32 @@ mock.module("../oauth/oauth-store.js", () => ({
   getApp: mockGetApp,
   getAppClientSecret: mock(() => Promise.resolve(undefined)),
   getConnection: mock(() => undefined),
-  getProvider: mock((providerKey: string) =>
-    providerKey === "google"
+  getProvider: mock((provider: string) =>
+    provider === "google"
       ? {
-          providerKey: "google",
-          displayName: "Google",
+          provider: "google",
+          displayLabel: "Google",
           description: "Google OAuth provider",
           dashboardUrl: "https://console.cloud.google.com/apis/credentials",
           clientIdPlaceholder: null,
           requiresClientSecret: 1,
           managedServiceConfigKey: "google-oauth",
-          authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-          tokenUrl: "https://oauth2.googleapis.com/token",
-          tokenEndpointAuthMethod: null,
+          authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+          tokenExchangeUrl: "https://oauth2.googleapis.com/token",
+          refreshUrl: null,
+          tokenEndpointAuthMethod: "client_secret_post",
           userinfoUrl: null,
           baseUrl: null,
           defaultScopes: "[]",
           scopePolicy: "[]",
-          extraParams: null,
+          scopeSeparator: null,
+          authorizeParams: null,
           pingUrl: null,
           pingMethod: null,
           pingHeaders: null,
           pingBody: null,
+          revokeUrl: null,
+          revokeBodyTemplate: null,
           loopbackPort: null,
           injectionTemplates: null,
           appType: null,
@@ -80,7 +84,7 @@ mock.module("../oauth/oauth-store.js", () => ({
   upsertApp: mock(() =>
     Promise.resolve({
       id: "app-1",
-      providerKey: "google",
+      provider: "google",
       clientId: "client-1",
       createdAt: 1735689500000,
       updatedAt: 1735689550000,

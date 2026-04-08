@@ -27,6 +27,13 @@ public class VMenuPanel: NSPanel {
     ///
     /// - Parameters:
     ///   - screenPoint: Cursor position in screen coordinates.
+    ///   - sourceWindow: The window the menu was opened from. When provided, this is
+    ///     used as the parent window for `addChildWindow(_:ordered:)`. When `nil`,
+    ///     the source window is inferred from the topmost window containing
+    ///     `screenPoint` (front-to-back via `NSApp.orderedWindows`). Callers that
+    ///     already know which window owns the trigger (e.g. `VDropdown`) should
+    ///     pass it explicitly to avoid the geometric heuristic picking the wrong
+    ///     window when multiple app windows overlap the click point.
     ///   - sourceAppearance: The source window's appearance for correct color resolution.
     ///   - content: The SwiftUI view to display (typically a `VMenu`).
     ///   - onDismiss: Called when the panel is dismissed for any reason.
@@ -34,6 +41,7 @@ public class VMenuPanel: NSPanel {
     @discardableResult
     public static func show<Content: View>(
         at screenPoint: CGPoint,
+        sourceWindow: NSWindow? = nil,
         sourceAppearance: NSAppearance? = nil,
         excludeRect: CGRect? = nil,
         @ViewBuilder content: () -> Content,
@@ -99,21 +107,29 @@ public class VMenuPanel: NSPanel {
         let origin = clampedOrigin(for: menuSize, cursorAt: screenPoint)
         panel.setFrame(CGRect(origin: origin, size: menuSize), display: true)
 
-        // Detect the source window before ordering the panel to avoid
-        // picking up the panel itself in the window list.
-        let sourceWindow = NSApp.windows.first(where: { $0.frame.contains(screenPoint) && !($0 is VMenuPanel) })
+        // Resolve the parent window for child-window attachment. Prefer the
+        // explicit `sourceWindow` passed by the caller — they know which
+        // window owns the trigger. Fall back to a front-to-back geometric
+        // search when no source is provided (e.g. `vContextMenu`). We use
+        // `orderedWindows` (z-order) rather than `windows` (creation order)
+        // so the topmost window containing the click point wins; otherwise
+        // an older window stacked behind a newer modal would be picked up
+        // and `addChildWindow` would shove the modal behind it.
+        let resolvedSourceWindow: NSWindow? = sourceWindow ?? NSApp.orderedWindows.first(where: {
+            $0.isVisible && $0.frame.contains(screenPoint) && !($0 is VMenuPanel)
+        })
 
         panel.makeKeyAndOrderFront(nil)
 
         // Attach as a child window so the menu stays grouped with its
         // parent and doesn't float above unrelated windows from other apps.
         // See: https://developer.apple.com/documentation/appkit/nswindow/addchildwindow(_:ordered:)
-        if let sourceWindow {
-            sourceWindow.addChildWindow(panel, ordered: .above)
+        if let resolvedSourceWindow {
+            resolvedSourceWindow.addChildWindow(panel, ordered: .above)
         }
 
         // Register with coordinator — it installs the unified click monitor
-        coordinator.registerRootPanel(panel, sourceWindow: sourceWindow, excludeRect: excludeRect, onDismiss: onDismiss)
+        coordinator.registerRootPanel(panel, sourceWindow: resolvedSourceWindow, excludeRect: excludeRect, onDismiss: onDismiss)
 
         // Notify VoiceOver that a new menu appeared so it navigates into it.
         DispatchQueue.main.async {
@@ -363,9 +379,12 @@ private struct VContextMenuModifier<MenuContent: View>: ViewModifier {
                 panelRef.value = nil
                 oldPanel?.close()
 
-                // Capture appearance from the window under the cursor at click time
-                let appearance = NSApp.windows
-                    .first(where: { $0.frame.contains(screenPoint) })?
+                // Capture appearance from the window under the cursor at click time.
+                // Use `orderedWindows` (front-to-back z-order) so we pick the topmost
+                // window the click landed in — `NSApp.windows` is creation order and
+                // can return an older window stacked behind a newer one.
+                let appearance = NSApp.orderedWindows
+                    .first(where: { $0.isVisible && $0.frame.contains(screenPoint) })?
                     .effectiveAppearance
 
                 let newPanel = VMenuPanel.show(

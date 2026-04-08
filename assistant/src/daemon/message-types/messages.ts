@@ -151,7 +151,6 @@ export interface ConfirmationRequest {
     newContent: string;
     isNewFile: boolean;
   };
-  sandboxed?: boolean;
   conversationId?: string;
   /** When false, the client should hide "always allow" / trust-rule persistence affordances. */
   persistentDecisionsAllowed?: boolean;
@@ -308,6 +307,13 @@ export interface AssistantActivityState {
   statusText?: string;
 }
 
+/** Broadcast to clients when the two-axis permission mode changes. */
+export interface PermissionModeUpdate {
+  type: "permission_mode_update";
+  askBeforeActing: boolean;
+  hostAccess: boolean;
+}
+
 export type TraceEventKind =
   | "request_received"
   | "request_queued"
@@ -369,4 +375,5 @@ export type _MessagesServerMessages =
   | SuggestionResponse
   | TraceEvent
   | ConfirmationStateChanged
-  | AssistantActivityState;
+  | AssistantActivityState
+  | PermissionModeUpdate;

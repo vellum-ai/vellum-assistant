@@ -170,8 +170,10 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       trustContext: undefined,
       hasPendingConfirmation: () => false,
       setHostBashProxy: () => {},
+      setHostBrowserProxy: () => {},
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
+      restoreBrowserProxyAvailability: () => {},
       addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
 
@@ -247,8 +249,10 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       trustContext: undefined,
       hasPendingConfirmation: () => false,
       setHostBashProxy: () => {},
+      setHostBrowserProxy: () => {},
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
+      restoreBrowserProxyAvailability: () => {},
       addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
 
@@ -320,8 +324,10 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       hasPendingConfirmation: (requestId: string) =>
         requestId === "tool-approval-live",
       setHostBashProxy: () => {},
+      setHostBrowserProxy: () => {},
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
+      restoreBrowserProxyAvailability: () => {},
       addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
 
@@ -397,8 +403,10 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       trustContext: undefined,
       hasPendingConfirmation: (id: string) => id === "tool-req-code-1",
       setHostBashProxy: () => {},
+      setHostBrowserProxy: () => {},
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
+      restoreBrowserProxyAvailability: () => {},
       addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
 
@@ -470,8 +478,10 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       trustContext: undefined,
       hasPendingConfirmation: (id: string) => id === "pending-reject-1",
       setHostBashProxy: () => {},
+      setHostBrowserProxy: () => {},
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
+      restoreBrowserProxyAvailability: () => {},
       addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
 
@@ -537,8 +547,10 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       trustContext: undefined,
       hasPendingConfirmation: (id: string) => id === "pending-1",
       setHostBashProxy: () => {},
+      setHostBrowserProxy: () => {},
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
+      restoreBrowserProxyAvailability: () => {},
       addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
 
@@ -606,8 +618,10 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       trustContext: undefined,
       hasPendingConfirmation: () => false,
       setHostBashProxy: () => {},
+      setHostBrowserProxy: () => {},
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
+      restoreBrowserProxyAvailability: () => {},
       addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
 
@@ -676,8 +690,10 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       trustContext: undefined,
       hasPendingConfirmation: () => false,
       setHostBashProxy: () => {},
+      setHostBrowserProxy: () => {},
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
+      restoreBrowserProxyAvailability: () => {},
       addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
 

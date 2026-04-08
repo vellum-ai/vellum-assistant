@@ -57,7 +57,7 @@ struct DaemonStartupError {
 /// daemon. It also includes a health monitor that periodically checks whether
 /// the daemon process is still alive and restarts it via the CLI.
 @MainActor
-final class VellumCli {
+final class VellumCli: AssistantManagementClient {
 
     /// Structured error emitted by the CLI for upgrade/rollback failures.
     ///
@@ -157,8 +157,10 @@ final class VellumCli {
     /// Hatch a new assistant via the CLI. The CLI spawns the daemon binary,
     /// waits for the socket, and registers the assistant entry.
     ///
-    /// - Parameter name: Optional assistant name to reuse (for health monitor restarts).
-    func hatch(name: String? = nil, restart: Bool = false, configValues: [String: String] = [:]) async throws {
+    /// - Parameters:
+    ///   - name: Optional assistant name to reuse.
+    ///   - configValues: Key-value pairs forwarded as `--config k=v` flags.
+    func hatch(name: String? = nil, configValues: [String: String] = [:]) async throws {
         guard let binaryURL = cliBinaryURL else {
             log.info("No bundled CLI binary found — skipping hatch (dev mode)")
             return
@@ -167,9 +169,6 @@ final class VellumCli {
         log.info("Running hatch via CLI at \(binaryURL.path, privacy: .public)")
 
         var arguments = ["hatch", "-d"]
-        if restart {
-            arguments.append("--restart")
-        }
         // NOTE: --watch runs daemon from source via `bun --watch` which breaks
         // Playwright's CDP websocket connection. Omit it for now.
         // #if DEBUG
@@ -1042,18 +1041,7 @@ final class VellumCli {
                 proc.standardOutput = stdoutPipe
                 proc.standardError = stderrPipe
 
-                var env = VellumCli.makeBaseEnvironment()
-                // Fall back to credential storage for provider API keys
-                // when they're not in the process environment (e.g. app
-                // launched from Finder, not a terminal with env vars set).
-                for (provider, envVar) in VellumCli.providerEnvVars {
-                    if env[envVar] == nil,
-                       let storedKey = APIKeyManager.getKey(for: provider),
-                       !storedKey.isEmpty {
-                        env[envVar] = storedKey
-                    }
-                }
-                proc.environment = env
+                proc.environment = VellumCli.makeBaseEnvironment()
 
                 try proc.run()
 

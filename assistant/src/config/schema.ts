@@ -3,6 +3,11 @@ import { z } from "zod";
 import { getDataDir } from "../util/platform.js";
 
 // Re-export all domain schemas
+export type { PermissionMode } from "../permissions/permission-mode.js";
+export {
+  DEFAULT_PERMISSION_MODE,
+  PermissionModeSchema,
+} from "../permissions/permission-mode.js";
 export type { AcpAgentConfig, AcpConfig } from "./acp-schema.js";
 export { AcpAgentConfigSchema, AcpConfigSchema } from "./acp-schema.js";
 export type {
@@ -110,6 +115,7 @@ export {
 export type { MemoryRetrievalConfig } from "./schemas/memory-retrieval.js";
 export {
   MemoryDynamicBudgetConfigSchema,
+  MemoryInjectionConfigSchema,
   MemoryRetrievalConfigSchema,
 } from "./schemas/memory-retrieval.js";
 export type {
@@ -134,8 +140,6 @@ export {
   PlatformConfigSchema,
   UiConfigSchema,
 } from "./schemas/platform.js";
-export type { SandboxConfig } from "./schemas/sandbox.js";
-export { SandboxConfigSchema } from "./schemas/sandbox.js";
 export type {
   PermissionsConfig,
   SecretDetectionConfig,
@@ -143,6 +147,7 @@ export type {
 export {
   PermissionsConfigSchema,
   SecretDetectionConfigSchema,
+  VALID_PERMISSIONS_MODES,
 } from "./schemas/security.js";
 export type {
   ImageGenerationService,
@@ -197,6 +202,7 @@ import {
   WhatsAppConfigSchema,
 } from "./schemas/channels.js";
 import { ElevenLabsConfigSchema } from "./schemas/elevenlabs.js";
+import { FilingConfigSchema } from "./schemas/filing.js";
 import { FishAudioConfigSchema } from "./schemas/fish-audio.js";
 import { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
 import {
@@ -220,7 +226,6 @@ import {
   PlatformConfigSchema,
   UiConfigSchema,
 } from "./schemas/platform.js";
-import { SandboxConfigSchema } from "./schemas/sandbox.js";
 import {
   PermissionsConfigSchema,
   SecretDetectionConfigSchema,
@@ -254,7 +259,6 @@ export const AssistantConfigSchema = z
       .default(getDataDir())
       .describe("Directory for storing assistant data (database, logs, etc.)"),
     timeouts: TimeoutConfigSchema.default(TimeoutConfigSchema.parse({})),
-    sandbox: SandboxConfigSchema.default(SandboxConfigSchema.parse({})),
     rateLimit: RateLimitConfigSchema.default(RateLimitConfigSchema.parse({})),
     secretDetection: SecretDetectionConfigSchema.default(
       SecretDetectionConfigSchema.parse({}),
@@ -272,6 +276,7 @@ export const AssistantConfigSchema = z
       .describe(
         "Custom pricing overrides for specific provider/model combinations",
       ),
+    filing: FilingConfigSchema.default(FilingConfigSchema.parse({})),
     heartbeat: HeartbeatConfigSchema.default(HeartbeatConfigSchema.parse({})),
     journal: JournalConfigSchema.default(JournalConfigSchema.parse({})),
     mcp: McpConfigSchema.default(McpConfigSchema.parse({})),
@@ -363,6 +368,31 @@ export const AssistantConfigSchema = z
         path: ["memory", "retrieval", "dynamicBudget"],
         message:
           "memory.retrieval.dynamicBudget.minInjectTokens must be <= memory.retrieval.dynamicBudget.maxInjectTokens",
+      });
+    }
+    const injection = config.memory?.retrieval?.injection;
+    const ctxLoad = injection?.contextLoad;
+    if (
+      ctxLoad &&
+      ctxLoad.capabilityReserve + ctxLoad.serendipitySlots >= ctxLoad.maxNodes
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["memory", "retrieval", "injection", "contextLoad"],
+        message:
+          "memory.retrieval.injection.contextLoad.capabilityReserve + serendipitySlots must be less than maxNodes",
+      });
+    }
+    const perTurn = injection?.perTurn;
+    if (
+      perTurn &&
+      perTurn.capabilityReserve + perTurn.serendipitySlots >= perTurn.maxNodes
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["memory", "retrieval", "injection", "perTurn"],
+        message:
+          "memory.retrieval.injection.perTurn.capabilityReserve + serendipitySlots must be less than maxNodes",
       });
     }
   });

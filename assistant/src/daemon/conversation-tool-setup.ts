@@ -6,7 +6,13 @@
  * keeping the constructor body focused on wiring.
  */
 
+import {
+  type HostProxyCapability,
+  type InterfaceId,
+  supportsHostProxy,
+} from "../channels/types.js";
 import { isHttpAuthDisabled } from "../config/env.js";
+import { getIsPlatform } from "../config/env-registry.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
 import {
@@ -88,7 +94,6 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   assistantId?: string;
   currentRequestId?: string;
   workingDir: string;
-  sandboxOverride?: boolean;
   abortController: AbortController | null;
   /** When set, only tools in this set may execute during the current turn. */
   allowedToolNames?: Set<string>;
@@ -106,6 +111,8 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   callSessionId?: string;
   /** Optional proxy for delegating host_bash execution to a connected client. */
   hostBashProxy?: import("./host-bash-proxy.js").HostBashProxy;
+  /** Optional proxy for delegating CDP commands to a connected client (managed/cloud-hosted mode). */
+  hostBrowserProxy?: import("./host-browser-proxy.js").HostBrowserProxy;
   /** Optional proxy for delegating host_file_read/write/edit execution to a connected client. */
   hostFileProxy?: import("./host-file-proxy.js").HostFileProxy;
   /** CES RPC client for credential execution operations. Injected when CES tools are enabled and the CES process is available. */
@@ -185,13 +192,14 @@ export function createToolExecutor(
           : undefined,
       onOutput,
       signal: ctx.abortController?.signal,
-      sandboxOverride: ctx.sandboxOverride,
       allowedToolNames: ctx.allowedToolNames,
       memoryScopeId: ctx.memoryPolicy.scopeId,
       forcePromptSideEffects: ctx.memoryPolicy.strictSideEffects,
       toolUseId,
       hostBashProxy: ctx.hostBashProxy,
+      hostBrowserProxy: ctx.hostBrowserProxy,
       hostFileProxy: ctx.hostFileProxy,
+      isPlatformHosted: getIsPlatform(),
       cesClient: ctx.cesClient,
       onToolLifecycleEvent: handleToolLifecycleEvent,
       sendToClient: (msg) => {
@@ -369,7 +377,6 @@ export function createProxyApprovalCallback(
       allowlistOptions,
       scopeOptions,
       undefined,
-      undefined,
       ctx.conversationId,
     );
 
@@ -380,12 +387,13 @@ export function createProxyApprovalCallback(
       response.selectedPattern &&
       response.selectedScope
     ) {
+      const allowHighRisk = response.decision === "always_allow_high_risk";
       log.info(
         {
           toolName,
           pattern: response.selectedPattern,
           scope: response.selectedScope,
-          highRisk: response.decision === "always_allow_high_risk",
+          allowHighRisk,
         },
         "Persisting always-allow trust rule (proxy)",
       );
@@ -395,9 +403,7 @@ export function createProxyApprovalCallback(
         response.selectedScope,
         "allow",
         100,
-        response.decision === "always_allow_high_risk"
-          ? { allowHighRisk: true }
-          : undefined,
+        allowHighRisk ? { allowHighRisk: true } : undefined,
       );
     }
     if (
@@ -432,7 +438,7 @@ export function createProxyApprovalCallback(
  * history or explicit preactivation. Without this, their tools are
  * unavailable in fresh conversations until `skill_load` is called.
  */
-const DEFAULT_PREACTIVATED_SKILL_IDS = ["tasks", "notifications"];
+const DEFAULT_PREACTIVATED_SKILL_IDS = ["tasks", "notifications", "subagent"];
 
 /**
  * Subset of Conversation state that the resolveTools callback reads at each
@@ -450,22 +456,69 @@ export interface SkillProjectionContext {
   readonly channelCapabilities?: {
     channel: string;
     supportsDynamicUi: boolean;
+    clientOS?: string;
   };
   /** True when no client is connected (HTTP-only). */
   readonly hasNoClient?: boolean;
+  /** When set, only tools in this set are included in the resolved tool list (subagent delegation). */
+  subagentAllowedTools?: Set<string>;
+  /** True when this conversation belongs to a subagent spawned by SubagentManager. */
+  readonly isSubagent?: boolean;
+  /**
+   * The interface id of the connected client driving the current turn (e.g.
+   * "macos", "chrome-extension"). Used to gate host tools by per-capability
+   * `supportsHostProxy(transport, capability)` so that interfaces which only
+   * support a subset of the host proxy set (e.g. chrome-extension supports
+   * `host_browser` but not `host_bash`/`host_file`) do not leak unsupported
+   * host tools into the LLM tool definitions.
+   */
+  readonly transportInterface?: InterfaceId;
 }
 
 // ── Conditional tool sets ────────────────────────────────────────────
 
 const UI_SURFACE_TOOL_NAMES = new Set(["ui_show", "ui_update", "ui_dismiss"]);
-const HOST_TOOL_NAMES = new Set([
-  "host_file_read",
-  "host_file_write",
-  "host_file_edit",
-  "host_bash",
+/**
+ * Single source of truth for which tools are host tools and the capability
+ * each one requires from the connected client interface. Adding a tool here
+ * automatically adds it to `HOST_TOOL_NAMES` below, so the two collections
+ * cannot drift apart: if a new host tool is added without a capability
+ * mapping, `isToolActiveForContext` cannot accidentally return `true` for
+ * chrome-extension (or any other partial-capability transport) because
+ * `HOST_TOOL_NAMES` wouldn't contain it either.
+ *
+ * `isToolActiveForContext` uses this map to gate each host tool individually
+ * so that partial-capability transports (e.g. chrome-extension only supports
+ * `host_browser`) only see the host tools their interface can actually
+ * service.
+ *
+ * Note: there is no `host_cu` tool exposed via the tool gating layer today;
+ * computer-use is preactivated as a skill and projected through the skill
+ * tools path. Only host tools that flow through the per-capability gate
+ * need entries here.
+ */
+export const HOST_TOOL_TO_CAPABILITY = new Map<string, HostProxyCapability>([
+  ["host_bash", "host_bash"],
+  ["host_file_read", "host_file"],
+  ["host_file_write", "host_file"],
+  ["host_file_edit", "host_file"],
+  ["host_browser", "host_browser"],
 ]);
+// Derived from HOST_TOOL_TO_CAPABILITY so the invariant "every host tool has
+// a capability mapping" is a structural fact — no runtime assertion needed.
+export const HOST_TOOL_NAMES = new Set(HOST_TOOL_TO_CAPABILITY.keys());
 const CLIENT_CAPABILITY_TOOL_NAMES = new Set(["app_open"]);
 const PLATFORM_TOOL_NAMES = new Set(["request_system_permission"]);
+
+/**
+ * Tools that should only be visible to subagent conversations. Main (parent)
+ * conversations never see these in the LLM tool definitions. Subsequent PRs
+ * will populate this set; it starts empty so there is no behavioral change.
+ */
+export const SUBAGENT_ONLY_TOOL_NAMES = new Set<string>([
+  "file_list",
+  "notify_parent",
+]);
 
 /**
  * Determine whether a tool should be included in the LLM tool definitions
@@ -482,16 +535,39 @@ export function isToolActiveForContext(
     return ctx.channelCapabilities?.supportsDynamicUi ?? !ctx.hasNoClient;
   }
   if (HOST_TOOL_NAMES.has(name)) {
-    // Host tools require a connected client — without one, there is no human
-    // to approve execution and the guardian auto-approve path would allow
-    // unchecked host command execution on the daemon host.
+    const capability = HOST_TOOL_TO_CAPABILITY.get(name);
+    const transport = ctx.transportInterface;
+
+    // Per-capability check is authoritative for structural support: if the
+    // transport cannot service this capability, the tool is filtered out.
+    if (transport && capability && !supportsHostProxy(transport, capability)) {
+      return false;
+    }
+
+    // chrome-extension is its own executor — the extension's popup gates
+    // commands via its own UI, and the transport does not use an SSE-level
+    // interactive approval channel. hasNoClient is intentionally `true` for
+    // chrome-extension turns (chrome-extension is not in INTERACTIVE_INTERFACES)
+    // and must not gate host_browser. Trust the per-capability check.
+    if (transport === "chrome-extension") {
+      return true;
+    }
+
+    // For transports that surface approvals over SSE (macos, backwards-compat
+    // fallback), deny when no client is present so the guardian auto-approve
+    // path cannot execute host commands unattended.
     return !ctx.hasNoClient;
   }
   if (CLIENT_CAPABILITY_TOOL_NAMES.has(name)) {
     return !ctx.hasNoClient;
   }
   if (PLATFORM_TOOL_NAMES.has(name)) {
-    return process.platform === "darwin" && !ctx.hasNoClient;
+    // Check the *client's* platform, not the daemon's process.platform.
+    // In Docker the daemon runs on Linux but the connected client may be macOS.
+    return ctx.channelCapabilities?.clientOS === "macos" && !ctx.hasNoClient;
+  }
+  if (SUBAGENT_ONLY_TOOL_NAMES.has(name)) {
+    return ctx.isSubagent === true;
   }
   return true;
 }
@@ -544,18 +620,27 @@ export function createResolveToolsCallback(
       isToolActiveForContext(d.name, ctx),
     );
 
+    // When the conversation is acting as a subagent, restrict core tools to
+    // only those explicitly allowed by the parent orchestrator.
+    const scopedCoreDefs = ctx.subagentAllowedTools
+      ? filteredCoreDefs.filter((d) => ctx.subagentAllowedTools!.has(d.name))
+      : filteredCoreDefs;
+
     // Re-read MCP tool definitions from the registry each turn so conversations
     // automatically pick up tools added/removed by `vellum mcp reload`.
     const currentMcpDefs = getMcpToolDefinitions();
     log.debug(
       {
-        coreCount: filteredCoreDefs.length,
+        coreCount: scopedCoreDefs.length,
         mcpCount: currentMcpDefs.length,
         mcpTools: currentMcpDefs.map((d) => d.name),
       },
       "MCP tools resolved for turn",
     );
-    const allBaseDefs = [...filteredCoreDefs, ...currentMcpDefs];
+    const scopedMcpDefs = ctx.subagentAllowedTools
+      ? currentMcpDefs.filter((d) => ctx.subagentAllowedTools!.has(d.name))
+      : currentMcpDefs;
+    const allBaseDefs = [...scopedCoreDefs, ...scopedMcpDefs];
 
     const effectivePreactivated = [
       ...DEFAULT_PREACTIVATED_SKILL_IDS,
@@ -568,6 +653,10 @@ export function createResolveToolsCallback(
     });
     const turnAllowed = new Set(allBaseDefs.map((d) => d.name));
     for (const name of projection.allowedToolNames) {
+      // When a subagent allowlist is active, exclude skill tools not on it.
+      if (ctx.subagentAllowedTools && !ctx.subagentAllowedTools.has(name)) {
+        continue;
+      }
       turnAllowed.add(name);
     }
     ctx.allowedToolNames = turnAllowed;

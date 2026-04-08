@@ -53,20 +53,34 @@ Be specific and vivid. Describe what you hear as if translating sound for someon
 fi
 
 # Build request with python (handles base64 encoding cleanly)
+# Pass all paths via env vars to avoid shell injection from apostrophes in paths
+ANALYZE_AUDIO_FILE="$AUDIO_FILE" \
+ANALYZE_PROMPT_FILE="$PROMPT_FILE" \
+ANALYZE_MIME_TYPE="$MIME_TYPE" \
+ANALYZE_DEFAULT_PROMPT="$PROMPT" \
 python3 -c "
-import json, base64, sys
+import json, base64, sys, os
 
-with open('$AUDIO_FILE', 'rb') as f:
+audio_file = os.environ['ANALYZE_AUDIO_FILE']
+prompt_file = os.environ.get('ANALYZE_PROMPT_FILE', '')
+mime_type = os.environ['ANALYZE_MIME_TYPE']
+default_prompt = os.environ['ANALYZE_DEFAULT_PROMPT']
+
+with open(audio_file, 'rb') as f:
     audio_b64 = base64.b64encode(f.read()).decode()
 
-prompt = open('$PROMPT_FILE', 'r').read() if '$PROMPT_FILE' and '$PROMPT_FILE' != '' else '''$(echo "$PROMPT" | sed "s/'/\\\\'/g")'''
+if prompt_file and os.path.isfile(prompt_file):
+    with open(prompt_file, 'r') as f:
+        prompt = f.read()
+else:
+    prompt = default_prompt
 
 request = {
     'contents': [{
         'parts': [
             {
                 'inlineData': {
-                    'mimeType': '$MIME_TYPE',
+                    'mimeType': mime_type,
                     'data': audio_b64
                 }
             },
@@ -98,13 +112,17 @@ if [[ "$HTTP_CODE" != "200" ]]; then
     exit 1
 fi
 
+ANALYZE_OUTPUT_FILE="$OUTPUT_FILE" \
+ANALYZE_MODEL="$MODEL" \
 python3 -c "
-import json
-with open('$OUTPUT_FILE.raw') as f:
+import json, os
+output_file = os.environ['ANALYZE_OUTPUT_FILE']
+model = os.environ['ANALYZE_MODEL']
+with open(output_file + '.raw') as f:
     resp = json.loads(f.read())
 text = resp['candidates'][0]['content']['parts'][0]['text']
-with open('$OUTPUT_FILE', 'w') as f:
-    json.dump({'audio_analysis': text, 'model': '$MODEL'}, f, indent=2)
+with open(output_file, 'w') as f:
+    json.dump({'audio_analysis': text, 'model': model}, f, indent=2)
 print(text)
 "
 

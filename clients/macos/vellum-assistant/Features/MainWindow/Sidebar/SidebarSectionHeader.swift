@@ -22,6 +22,7 @@ struct SidebarSectionHeader: View {
     let conversationCount: Int
     let isExpanded: Bool
     let isDropTarget: Bool
+    let isDropForbidden: Bool
     let isGroupReorderTarget: Bool
     let groupDropIndicatorAtBottom: Bool
     let aggregateState: SectionAggregateState
@@ -32,6 +33,9 @@ struct SidebarSectionHeader: View {
     var onCommitRename: ((String) -> Void)?
     var onCancelRename: (() -> Void)?
     var onDelete: (() -> Void)?
+    var onMarkAllRead: (() -> Void)? = nil
+    var hasUnreadConversations: Bool = false
+    var onArchiveAll: (() -> Void)? = nil
     var sidebar: SidebarInteractionState?
 
     @FocusState private var isRenameFocused: Bool
@@ -50,6 +54,8 @@ struct SidebarSectionHeader: View {
             return .calendar
         } else if group.id == ConversationGroup.background.id {
             return .layers
+        } else if group.id == ConversationGroup.all.id {
+            return .clock
         } else {
             return isExpanded ? .folderOpen : .folderClosed
         }
@@ -79,7 +85,7 @@ struct SidebarSectionHeader: View {
             } else {
                 Text(group.name)
                     .font(VFont.bodySmallDefault)
-                    .foregroundStyle(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentSecondary)
             }
 
             Spacer()
@@ -127,7 +133,10 @@ struct SidebarSectionHeader: View {
         .pointerCursor(onHover: { hovering in
             isHeaderHovered = hovering
         })
-        .background(isDropTarget && !isGroupReorderTarget ? VColor.systemPositiveWeak : .clear)
+        .background(
+            isDropForbidden ? VColor.systemNegativeWeak :
+            isDropTarget && !isGroupReorderTarget ? VColor.systemPositiveWeak : .clear
+        )
         .cornerRadius(4)
         .overlay(alignment: groupDropIndicatorAtBottom ? .bottom : .top) {
             if isGroupReorderTarget {
@@ -140,6 +149,9 @@ struct SidebarSectionHeader: View {
         .modifier(ConditionalGroupContextMenu(
             onRename: onRename.map { rename in { rename(group.name) } },
             onDelete: onDelete,
+            onMarkAllRead: onMarkAllRead,
+            hasUnreadConversations: hasUnreadConversations,
+            onArchiveAll: onArchiveAll,
             hasConversations: conversationCount > 0
         ))
         .conditionalOnDrag(enabled: !group.isSystemGroup) {
@@ -152,15 +164,38 @@ struct SidebarSectionHeader: View {
 // MARK: - Conditional context menu modifier
 
 /// Only attaches a `.vContextMenu` when at least one action is available.
-/// System groups (where onRename and onDelete are both nil) get no context menu.
+/// System groups (where onRename and onDelete are both nil) get no context menu
+/// unless onArchiveAll is provided.
 private struct ConditionalGroupContextMenu: ViewModifier {
     let onRename: (() -> Void)?
     let onDelete: (() -> Void)?
+    let onMarkAllRead: (() -> Void)?
+    let hasUnreadConversations: Bool
+    let onArchiveAll: (() -> Void)?
     let hasConversations: Bool
 
+    private var hasAnyAction: Bool {
+        onRename != nil || onDelete != nil || onMarkAllRead != nil || onArchiveAll != nil
+    }
+
     func body(content: Content) -> some View {
-        if onRename != nil || onDelete != nil {
+        if hasAnyAction {
             content.vContextMenu {
+                if let onMarkAllRead {
+                    VMenuItem(icon: VIcon.circleCheck.rawValue, label: "Mark All as Read") {
+                        onMarkAllRead()
+                    }
+                    .disabled(!hasUnreadConversations)
+                }
+                if let onArchiveAll {
+                    VMenuItem(icon: VIcon.archive.rawValue, label: "Archive All\u{2026}") {
+                        onArchiveAll()
+                    }
+                    .disabled(!hasConversations)
+                }
+                if (onMarkAllRead != nil || onArchiveAll != nil) && (onRename != nil || onDelete != nil) {
+                    VMenuDivider()
+                }
                 if let onRename {
                     VMenuItem(icon: VIcon.pencil.rawValue, label: "Rename") { onRename() }
                 }

@@ -64,7 +64,7 @@ struct VellumAssistantApp: App {
             }
             CommandGroup(replacing: .help) {
                 Button("Documentation") {
-                    NSWorkspace.shared.open(URL(string: "https://vellum.ai/docs?utm_source=macos-app&utm_medium=help-menu")!)
+                    NSWorkspace.shared.open(AppURLs.docsURL(utmSource: "macos-app", utmMedium: "help-menu"))
                 }
                 Button("Discord Community") {
                     NSWorkspace.shared.open(URL(string: "https://www.vellum.ai/community?utm_source=macos-app&utm_medium=help-menu")!)

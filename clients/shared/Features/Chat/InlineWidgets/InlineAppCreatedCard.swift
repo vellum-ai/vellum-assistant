@@ -6,6 +6,9 @@ import SwiftUI
 struct InlineAppCreatedCard: View {
     let preview: DynamicPagePreview
     let appId: String?
+    /// Whether the parent tool call has finished. When `false`, the "Open App"
+    /// button is disabled so the user can't navigate to partially-written HTML.
+    let isToolCallComplete: Bool
     let onOpenApp: () -> Void
     var onTogglePin: ((_ isPinned: Bool) -> Void)?
     @State private var previewImage: String?
@@ -33,7 +36,7 @@ struct InlineAppCreatedCard: View {
                 }
 
                 Text(preview.title)
-                    .font(VFont.bodyMediumDefault)
+                    .font(VFont.bodyMediumEmphasised)
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(2)
             }
@@ -47,7 +50,7 @@ struct InlineAppCreatedCard: View {
 
             // Action buttons
             HStack(spacing: VSpacing.sm) {
-                VButton(label: "Open App", leftIcon: VIcon.arrowUpRight.rawValue, style: .primary) {
+                VButton(label: "Open App", leftIcon: VIcon.arrowUpRight.rawValue, style: .primary, isDisabled: !isToolCallComplete) {
                     onOpenApp()
                 }
 

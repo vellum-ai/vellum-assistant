@@ -909,8 +909,8 @@ describe("Trust Store", () => {
       expect(match!.id).toBe("default:allow-bash-rm-bootstrap");
       expect(match!.decision).toBe("allow");
       expect(match!.allowHighRisk).toBe(true);
-      // Outside workspace, the bootstrap rule doesn't match — with sandbox
-      // disabled (the default), there is no catch-all bash allow rule either.
+      // Outside workspace, the bootstrap rule doesn't match — without
+      // IS_CONTAINERIZED there is no catch-all bash allow rule either.
       const other = findHighestPriorityRule(
         "bash",
         ["rm BOOTSTRAP.md"],
@@ -930,8 +930,8 @@ describe("Trust Store", () => {
       expect(match!.id).toBe("default:allow-bash-rm-updates");
       expect(match!.decision).toBe("allow");
       expect(match!.allowHighRisk).toBe(true);
-      // Outside workspace, should NOT match the updates rule — with sandbox
-      // disabled (the default), there is no catch-all bash allow rule either.
+      // Outside workspace, should NOT match the updates rule — without
+      // IS_CONTAINERIZED there is no catch-all bash allow rule either.
       const other = findHighestPriorityRule(
         "bash",
         ["rm UPDATES.md"],

@@ -34,6 +34,21 @@ export interface AvatarUpdated {
   avatarPath: string;
 }
 
+/** Sent by the daemon when workspace config.json changes on disk. */
+export interface ConfigChanged {
+  type: "config_changed";
+}
+
+/** Sent by the daemon when sounds config or sound files change on disk. */
+export interface SoundsConfigUpdated {
+  type: "sounds_config_updated";
+}
+
+/** Sent by the daemon when feature flag files change on disk. */
+export interface FeatureFlagsChanged {
+  type: "feature_flags_changed";
+}
+
 /** Response to a generate_avatar request indicating success or failure. */
 export interface GenerateAvatarResponse {
   type: "generate_avatar_response";
@@ -51,4 +66,7 @@ export type _SettingsClientMessages =
 export type _SettingsServerMessages =
   | ClientSettingsUpdate
   | AvatarUpdated
+  | ConfigChanged
+  | SoundsConfigUpdated
+  | FeatureFlagsChanged
   | GenerateAvatarResponse;

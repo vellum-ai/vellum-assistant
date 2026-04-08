@@ -2,7 +2,7 @@
  * Centralized platform API client.
  *
  * Owns managed proxy context resolution, prerequisite validation, and
- * authenticated fetch for all platform API calls that use Api-Key auth.
+ * authenticated fetch for all platform API calls.
  */
 
 import { getPlatformAssistantId } from "../config/env.js";

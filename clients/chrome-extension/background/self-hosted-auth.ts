@@ -1,0 +1,222 @@
+/**
+ * Self-hosted capability-token bootstrap for the Vellum chrome extension.
+ *
+ * Spawns the native messaging helper registered under the host name
+ * `com.vellum.daemon`, asks it to exchange the calling extension's origin
+ * for a capability token via the assistant's `/v1/browser-extension-pair`
+ * endpoint, and persists the returned token in `chrome.storage.local`.
+ *
+ * This module is the self-hosted counterpart to `cloud-auth.ts`: cloud
+ * sign-in uses chrome.identity.launchWebAuthFlow against the Vellum
+ * gateway, while self-hosted pairing uses native messaging to talk to a
+ * locally running assistant without needing an external OAuth round-trip.
+ * Users with a local assistant can pair their extension entirely offline.
+ *
+ * The token is not yet wired into the relay WebSocket — that plumbing
+ * lands in PR 14 of the host-browser-proxy Phase 2 plan. This module is
+ * the storage + bootstrap state machine layer only.
+ *
+ * Wire format notes: the native helper sends
+ * `{ type: "token_response", token, expiresAt }` where `expiresAt` is an
+ * ISO 8601 string (per the /v1/browser-extension-pair response shape).
+ * We parse it into an epoch-millis number here so the in-memory and
+ * on-disk representation matches `StoredCloudToken` and downstream code
+ * can rely on a single numeric expiry type across both transports.
+ */
+
+export interface StoredLocalToken {
+  token: string;
+  expiresAt: number; // ms since epoch
+  guardianId: string;
+}
+
+const STORAGE_KEY = 'vellum.localCapabilityToken';
+const NATIVE_HOST_NAME = 'com.vellum.daemon';
+const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 5_000;
+
+export interface BootstrapLocalTokenOptions {
+  /**
+   * Override the native-messaging timeout. Exposed primarily so tests can
+   * run the timeout path without having to wait five real seconds; callers
+   * in the extension itself should rely on the default.
+   */
+  timeoutMs?: number;
+}
+
+export async function getStoredLocalToken(): Promise<StoredLocalToken | null> {
+  const result = await chrome.storage.local.get(STORAGE_KEY);
+  const raw = result[STORAGE_KEY];
+  if (!raw || typeof raw !== 'object') return null;
+  const token = raw as StoredLocalToken;
+  if (
+    typeof token.token !== 'string' ||
+    typeof token.expiresAt !== 'number' ||
+    typeof token.guardianId !== 'string'
+  ) {
+    return null;
+  }
+  if (token.expiresAt <= Date.now()) return null;
+  return token;
+}
+
+export async function clearLocalToken(): Promise<void> {
+  await chrome.storage.local.remove(STORAGE_KEY);
+}
+
+async function persistLocalToken(token: StoredLocalToken): Promise<void> {
+  await chrome.storage.local.set({ [STORAGE_KEY]: token });
+}
+
+/**
+ * Parse the helper's `expiresAt` field into an epoch-millis number.
+ *
+ * The native helper echoes whatever the assistant's /v1/browser-extension-pair
+ * endpoint returned, which is an ISO 8601 string per PR 11. We tolerate a
+ * numeric value as well (belt and braces) so a future helper change that
+ * forwards a raw number doesn't break the extension.
+ */
+function parseExpiresAt(raw: unknown): number | null {
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) {
+    return raw;
+  }
+  if (typeof raw === 'string' && raw.length > 0) {
+    const parsed = Date.parse(raw);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return null;
+}
+
+/**
+ * Spawns the native messaging helper via `chrome.runtime.connectNative`,
+ * posts a `request_token` frame, awaits the helper's `token_response`,
+ * and persists the returned capability token.
+ *
+ * Error handling:
+ * - If the helper emits `{ type: "error", message }`, rejects with that
+ *   message. The helper uses this shape for allowlist violations,
+ *   unreachable assistant, and malformed responses from the pair endpoint.
+ * - If the port disconnects before a response arrives, rejects with the
+ *   `chrome.runtime.lastError` message (Chrome surfaces native-messaging
+ *   spawn failures through this channel — e.g. the host manifest isn't
+ *   installed, or the binary exited non-zero before writing a frame).
+ * - If no frame arrives within `DEFAULT_BOOTSTRAP_TIMEOUT_MS`, rejects
+ *   with a timeout error and force-disconnects the port so the helper
+ *   process doesn't leak.
+ */
+export async function bootstrapLocalToken(
+  options: BootstrapLocalTokenOptions = {},
+): Promise<StoredLocalToken> {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_BOOTSTRAP_TIMEOUT_MS;
+  return new Promise<StoredLocalToken>((resolve, reject) => {
+    // `settled` is flipped synchronously the moment we observe a decisive
+    // frame (token_response / error / timeout / disconnect) so that a
+    // racing onDisconnect — Chrome sometimes closes the native port the
+    // instant the helper exits, even if we've already received a valid
+    // token frame — can't win the race and reject a successful pairing.
+    //
+    // Critically, for the token_response happy path we mark `settled`
+    // BEFORE awaiting `persistLocalToken`. If we waited until the storage
+    // write resolved, an onDisconnect firing during that microtask would
+    // still see `settled === false` and reject the promise despite having
+    // a valid in-memory token.
+    let settled = false;
+    const port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
+
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      try {
+        port.disconnect();
+      } catch {
+        // Chrome may have already torn the port down — ignore.
+      }
+    };
+
+    const finish = (fn: () => void): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      fn();
+    };
+
+    const timer: ReturnType<typeof setTimeout> = setTimeout(() => {
+      finish(() => reject(new Error('native messaging timeout')));
+    }, timeoutMs);
+
+    port.onMessage.addListener((msg: unknown) => {
+      if (settled) return;
+      if (!msg || typeof msg !== 'object') return;
+      const frame = msg as {
+        type?: unknown;
+        token?: unknown;
+        expiresAt?: unknown;
+        guardianId?: unknown;
+        message?: unknown;
+      };
+
+      if (frame.type === 'token_response') {
+        const expiresAt = parseExpiresAt(frame.expiresAt);
+        if (
+          typeof frame.token !== 'string' ||
+          expiresAt === null ||
+          typeof frame.guardianId !== 'string'
+        ) {
+          finish(() =>
+            reject(new Error('native messaging returned malformed token_response')),
+          );
+          return;
+        }
+        const stored: StoredLocalToken = {
+          token: frame.token,
+          expiresAt,
+          guardianId: frame.guardianId,
+        };
+
+        // Mark settled + tear down the port SYNCHRONOUSLY so a racing
+        // onDisconnect listener can't reject the promise after we've
+        // already received a valid token. The persistence write below
+        // is awaited afterwards, but it no longer gates `settled`.
+        settled = true;
+        cleanup();
+
+        // Persist asynchronously. If the storage write fails, we log
+        // the error and resolve with the in-memory token anyway — the
+        // caller can still use it for the current session even if we
+        // couldn't durably save it. This also matches the comment
+        // above: a storage failure shouldn't block the caller from
+        // getting a token they just successfully negotiated.
+        persistLocalToken(stored).then(
+          () => resolve(stored),
+          (err: unknown) => {
+            const detail = err instanceof Error ? err.message : String(err);
+            console.warn(
+              `[vellum-relay] failed to persist local capability token: ${detail}`,
+            );
+            resolve(stored);
+          },
+        );
+        return;
+      }
+
+      if (frame.type === 'error') {
+        const message = typeof frame.message === 'string' ? frame.message : 'native messaging error';
+        finish(() => reject(new Error(message)));
+        return;
+      }
+
+      // Ignore any unrecognised frame types — the helper currently only
+      // emits `token_response` and `error`, but tolerating unknowns means
+      // a future protocol extension won't accidentally trip this path.
+    });
+
+    port.onDisconnect.addListener(() => {
+      if (settled) return;
+      const lastError = chrome.runtime.lastError;
+      const message = lastError?.message ?? 'native messaging disconnected before response';
+      // `finish` will call port.disconnect() again, but that's a no-op
+      // after Chrome has already torn the port down on its side.
+      finish(() => reject(new Error(message)));
+    });
+
+    port.postMessage({ type: 'request_token' });
+  });
+}

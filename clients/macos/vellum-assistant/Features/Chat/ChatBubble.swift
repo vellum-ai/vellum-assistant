@@ -35,6 +35,7 @@ struct ChatBubble: View, Equatable {
             && lhs.mediaEmbedSettings == rhs.mediaEmbedSettings
             && lhs.activeConfirmationRequestId == rhs.activeConfirmationRequestId
             && lhs.isLatestAssistantMessage == rhs.isLatestAssistantMessage
+            && lhs.typographyGeneration == rhs.typographyGeneration
             && lhs.isProcessingAfterTools == rhs.isProcessingAfterTools
             && lhs.processingStatusText == rhs.processingStatusText
             && lhs.isTTSEnabled == rhs.isTTSEnabled
@@ -67,6 +68,7 @@ struct ChatBubble: View, Equatable {
     var onRetryConversationError: (() -> Void)?
 
     var isLatestAssistantMessage: Bool = false
+    var typographyGeneration: Int = 0
     @State private var avatarBounceScale: CGFloat = 1.0
     /// When true, the assistant is still processing after tool calls completed.
     /// Renders an inline loading indicator in trailingStatus to avoid a separate
@@ -76,7 +78,8 @@ struct ChatBubble: View, Equatable {
     var processingStatusText: String?
     /// Whether the message-tts feature flag is enabled. Passed from the parent.
     var isTTSEnabled: Bool = false
-    /// When true, hide the inline avatar (e.g. thinking indicator is showing it instead).
+    /// When true, suppress the inline avatar on this bubble because
+    /// `thinkingAvatarRow` is rendering one below the thinking indicator.
     var hideInlineAvatar: Bool = false
     /// Owned but never read in this body — only ChatBubbleOverflowMenu reads it,
     /// so hover changes invalidate only the overflow menu, not this view.
@@ -89,12 +92,20 @@ struct ChatBubble: View, Equatable {
     @State private var mediaEmbedIntents: [MediaEmbedIntent] = []
     // Cached interleaved content state — updated via .onChange(of:) to avoid
     // recomputing O(n) grouping on every body evaluation.
-    // Eagerly initialized in init() to prevent first-frame flash where the
-    // wrong layout path renders before .onAppear fires.
+    // Eagerly initialized in init() so the first body evaluation uses the
+    // correct layout path instead of flashing through the fallback layout.
     @State var cachedHasInterleavedContent: Bool
     @State var cachedContentGroups: [ContentGroup]
     /// Set of stableIds for tool-call groups that have non-empty text after them.
     @State var cachedToolGroupsWithTrailingText: Set<String>
+
+    /// Tracks which step detail rows the user has expanded (keyed by ToolCallData.id).
+    /// Lives here (not in AssistantProgressView) so it survives the trailing→interleaved
+    /// rendering path switch that destroys and recreates AssistantProgressView mid-stream.
+    @State var expandedStepIds: Set<UUID> = []
+    /// Tracks user-initiated card expansion/collapse (keyed by first tool call UUID in group).
+    /// `nil` = no user interaction (auto-expand logic applies); `true`/`false` = user override.
+    @State var cardExpansionOverrides: [UUID: Bool] = [:]
 
     init(
         message: ChatMessage,
@@ -117,6 +128,7 @@ struct ChatBubble: View, Equatable {
         onRetryFailedMessage: ((UUID) -> Void)? = nil,
         onRetryConversationError: (() -> Void)? = nil,
         isLatestAssistantMessage: Bool = false,
+        typographyGeneration: Int = 0,
         isProcessingAfterTools: Bool = false,
         processingStatusText: String? = nil,
         activeSurfaceId: String? = nil,
@@ -142,6 +154,7 @@ struct ChatBubble: View, Equatable {
         self.onRetryFailedMessage = onRetryFailedMessage
         self.onRetryConversationError = onRetryConversationError
         self.isLatestAssistantMessage = isLatestAssistantMessage
+        self.typographyGeneration = typographyGeneration
         self.isProcessingAfterTools = isProcessingAfterTools
         self.processingStatusText = processingStatusText
         self.activeSurfaceId = activeSurfaceId
@@ -228,35 +241,57 @@ struct ChatBubble: View, Equatable {
         }
     }
 
-    private var bubbleBorderOverlay: some View {
-        // Always produce a non-Optional view type. Using @ViewBuilder with
-        // a bare `if` (no else) wraps the result in Optional<StrokeBorderShapeView>.
-        // Combined with the simplified textBubble return type (no _ConditionalContent),
-        // the Optional variant triggers a SwiftUI attribute graph bug during lazy
-        // list layout: the .none payload's undefined bytes get misinterpreted as
-        // ARC references, causing swift_retain on read-only metadata (SIGBUS).
+    /// Wraps bubble content with padding, background fill/border, and
+    /// width constraints.  Each message type gets only the modifiers it
+    /// actually needs — modifiers that would evaluate to no-ops (e.g.
+    /// `.padding(EdgeInsets())` or `.frame(maxWidth: nil)`) are omitted
+    /// so SwiftUI doesn't create `_PaddingLayout` / `_FlexFrameLayout`
+    /// wrappers that still recurse during `sizeThatFits`.
+    @ViewBuilder
+    func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        let isPlainAssistant = !isUser && !message.isError
+        if message.isError {
+            // Error: chrome padding + full-width inner expansion frame.
+            content()
+                .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.lg,
+                                    bottom: VSpacing.md, trailing: VSpacing.lg))
+                .frame(maxWidth: .infinity)
+                .background {
+                    bubbleChromeBackground
+                }
+                .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
+        } else if isPlainAssistant {
+            // Plain assistant: no chrome padding, no inner frame.
+            content()
+                .background {
+                    bubbleChromeBackground
+                }
+                .frame(maxWidth: bubbleMaxWidth, alignment: .leading)
+        } else {
+            // User messages (non-error): chrome padding, no inner frame.
+            content()
+                .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.lg,
+                                    bottom: VSpacing.md, trailing: VSpacing.lg))
+                .background {
+                    bubbleChromeBackground
+                }
+                .frame(maxWidth: bubbleMaxWidth, alignment: .trailing)
+        }
+    }
+
+    /// Background fill and optional error border shared across all
+    /// `bubbleChrome` branches.
+    @ViewBuilder
+    private var bubbleChromeBackground: some View {
+        RoundedRectangle(cornerRadius: VRadius.lg)
+            .fill(bubbleFill)
+        // Border rendered in the background layer — always present
+        // but 0 opacity when not an error/failed message. Avoids
+        // an Optional return type which can trigger a SwiftUI AG
+        // bug (swift_retain on read-only metadata / SIGBUS).
         RoundedRectangle(cornerRadius: VRadius.lg)
             .strokeBorder(VColor.systemNegativeStrong.opacity(0.3), lineWidth: 1)
             .opacity((message.isError || (isUser && message.status == .sendFailed)) ? 1 : 0)
-    }
-
-    func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        let isPlainAssistant = !isUser && !message.isError
-        return content()
-            .padding(.horizontal, isPlainAssistant ? 0 : VSpacing.lg)
-            .padding(.vertical, isPlainAssistant ? 0 : VSpacing.md)
-            // Inner frame: let content determine natural width (shrink-wrap for
-            // user bubbles). Error messages expand to fill available width.
-            .frame(maxWidth: message.isError ? .infinity : nil)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(bubbleFill)
-            )
-            .overlay {
-                bubbleBorderOverlay
-            }
-            // Outer frame: cap the maximum width and position the bubble.
-            .frame(maxWidth: message.isError ? .infinity : bubbleMaxWidth, alignment: isUser ? .trailing : .leading)
     }
 
     /// Surfaces not currently shown in the floating overlay, computed once per body evaluation.
@@ -291,91 +326,93 @@ struct ChatBubble: View, Equatable {
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "chatBubbleBody",
                             "id=%{public}s streaming=%d", message.id.uuidString, message.isStreaming ? 1 : 0)
         #endif
-        // Outer HStack: Spacer pushes the content group to the correct side.
-        HStack(alignment: .top, spacing: 0) {
-            if isUser { Spacer(minLength: 0) }
-
+        // Outer VStack ensures a single resolved subview for the parent
+        // LazyVStack, avoiding duplicate .id(message.id) from MessageCellView
+        // that caused incorrect width proposals at narrow window sizes (LUM-688).
+        // The avatar sits outside the inner .compositingGroup() scope so
+        // CAShapeLayer animations (breathing, blink, twitch) are unaffected.
+        VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
+            // --- Message content (composited) ---
             VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
-                    if !isUser && cachedHasInterleavedContent {
-                        interleavedContent
-                    } else {
-                        if message.isError && hasText {
-                            InlineChatErrorAlert(
-                                message: message.text,
-                                conversationError: message.conversationError,
-                                onRetry: onRetryConversationError
-                            )
-                        } else if shouldShowBubble {
-                            bubbleContent
-                        }
+                if !isUser && cachedHasInterleavedContent {
+                    interleavedContent
+                } else {
+                    if message.isError && hasText {
+                        InlineChatErrorAlert(
+                            message: message.text,
+                            conversationError: message.conversationError,
+                            onRetry: onRetryConversationError
+                        )
+                    } else if shouldShowBubble {
+                        bubbleContent
+                    }
 
-                        // Inline surfaces render below the bubble as full-width cards
-                        // Skip surfaces that are currently shown in the floating overlay
-                        if !visibleInlineSurfaces.isEmpty {
-                            ForEach(visibleInlineSurfaces) { surface in
-                                InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction, onRefetch: onSurfaceRefetch)
-                            }
-                        }
-
-                        // Document widget for document_create tool calls
-                        if let documentToolCall = message.toolCalls.first(where: { $0.toolName == "document_create" && $0.isComplete }) {
-                            documentWidget(for: documentToolCall)
+                    // Inline surfaces render below the bubble as full-width cards
+                    // Skip surfaces that are currently shown in the floating overlay
+                    if !visibleInlineSurfaces.isEmpty {
+                        ForEach(visibleInlineSurfaces) { surface in
+                            InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction, onRefetch: onSurfaceRefetch)
                         }
                     }
 
-                    if !cachedHasInterleavedContent {
-                        attachmentWarningBanners(message.attachmentWarnings)
+                    // Document widget for document_create tool calls
+                    if let documentToolCall = message.toolCalls.first(where: { $0.toolName == "document_create" && $0.isComplete }) {
+                        documentWidget(for: documentToolCall)
                     }
-
-                    // Media embeds rendered below the text, preserving source order
-                    ForEach(mediaEmbedIntents.indices, id: \.self) { idx in
-                        switch mediaEmbedIntents[idx] {
-                        case .image(let url):
-                            InlineImageEmbedView(url: url)
-                        case .video(let provider, let videoID, let embedURL):
-                            InlineVideoEmbedCard(provider: provider, videoID: videoID, embedURL: embedURL)
-                        }
-                    }
-
-                    // Per-message send failure indicator with inline retry button
-                    if isUser && message.status == .sendFailed {
-                        sendFailedIndicator
-                    }
-
-                    // Single unified status area at the bottom of the message:
-                    // - In-progress: shows "Running a terminal command ..."
-                    // - Complete: shows compact chips ("Ran a terminal command" + "Permission granted")
-                    if !isUser {
-                        trailingStatus
-                    }
-
-                    ChatBubbleOverflowMenu(
-                        message: message,
-                        hoverState: hoverState,
-                        isTTSEnabled: isTTSEnabled,
-                        showInspectButton: showInspectButton,
-                        onForkFromMessage: onForkFromMessage,
-                        onInspectMessage: onInspectMessage
-                    )
                 }
-                // Give this content priority so LazyVStack doesn't compress it,
-                // which caused trailing tool chips to overlap long text content.
-                // Uses layoutPriority instead of fixedSize to avoid forcing
-                // full height measurement during lazy placement.
-                .layoutPriority(1)
-                // For non-streaming, non-interleaved messages, flatten the render
-                // tree into a single compositing layer to reduce layout passes.
-                // Skipped during streaming to avoid re-compositing on every token delta.
-                // Also skipped for interleaved messages (text + tool calls + images)
-                // where the complex view hierarchy makes re-compositing expensive —
-                // async task completions (markdown parsing, image decoding) would
-                // trigger full re-compositing of the entire message on every change.
-                .modifier(ConditionalCompositingGroup(isActive: !message.isStreaming && !cachedHasInterleavedContent))
 
-            if !isUser { Spacer(minLength: 0) }
+                if !cachedHasInterleavedContent {
+                    attachmentWarningBanners(message.attachmentWarnings)
+                }
+
+                // Media embeds rendered below the text, preserving source order
+                ForEach(mediaEmbedIntents.indices, id: \.self) { idx in
+                    switch mediaEmbedIntents[idx] {
+                    case .image(let url):
+                        InlineImageEmbedView(url: url)
+                    case .video(let provider, let videoID, let embedURL):
+                        InlineVideoEmbedCard(provider: provider, videoID: videoID, embedURL: embedURL)
+                    }
+                }
+
+                // Per-message send failure indicator with inline retry button
+                if isUser && message.status == .sendFailed {
+                    sendFailedIndicator
+                }
+
+                // Single unified status area at the bottom of the message:
+                // - In-progress: shows "Running a terminal command ..."
+                // - Complete: shows compact chips ("Ran a terminal command" + "Permission granted")
+                if !isUser {
+                    trailingStatus
+                }
+
+                ChatBubbleOverflowMenu(
+                    message: message,
+                    hoverState: hoverState,
+                    isTTSEnabled: isTTSEnabled,
+                    showInspectButton: showInspectButton,
+                    onForkFromMessage: onForkFromMessage,
+                    onInspectMessage: onInspectMessage
+                )
+            }
+            // Give this content priority so LazyVStack doesn't compress it,
+            // which caused trailing tool chips to overlap long text content.
+            // Uses layoutPriority instead of fixedSize to avoid forcing
+            // full height measurement during lazy placement.
+            .layoutPriority(1)
+            .compositingGroup()
+
+            // --- Avatar (outside compositing group) ---
+            // Placed after the composited content VStack so CAShapeLayer
+            // animations on the NSView-backed AnimatedAvatarView are not
+            // affected by .compositingGroup() flattening layer effects.
+            if isLatestAssistantMessage && !isUser && !hideInlineAvatar {
+                inlineAvatar
+            }
         }
+        .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
         .contentShape(Rectangle())
-        .onAppear { recomputeInterleavedContentCache() }
         .onChange(of: message.contentOrder) { _, _ in recomputeInterleavedContentCache() }
         .onChange(of: message.textSegments) { _, _ in recomputeInterleavedContentCache() }
         .onHover { hovering in
@@ -390,15 +427,6 @@ struct ChatBubble: View, Equatable {
             let resolved = await MediaEmbedResolver.resolve(message: message, settings: settings)
             guard !Task.isCancelled else { return }
             mediaEmbedIntents = resolved
-        }
-
-        // Avatar below the latest assistant message, left-aligned
-        if isLatestAssistantMessage && !isUser && !hideInlineAvatar {
-            HStack {
-                inlineAvatar
-                Spacer()
-            }
-            .padding(.top, VSpacing.sm)
         }
     }
 
@@ -481,6 +509,7 @@ struct ChatBubble: View, Equatable {
                     MarkdownSegmentView(
                         segments: segments,
                         isStreaming: message.isStreaming,
+                        typographyGeneration: typographyGeneration,
                         maxContentWidth: isUser ? max(bubbleMaxWidth - 2 * VSpacing.lg, 0) : bubbleMaxWidth,
                         textColor: isUser ? VColor.contentDefault : VColor.contentDefault,
                         secondaryTextColor: isUser ? VColor.contentSecondary : VColor.contentSecondary,
@@ -625,18 +654,6 @@ final class SegmentCacheEntry: NSObject {
     init(_ segments: [MarkdownSegment]) { self.segments = segments }
 }
 
-/// Applies `.compositingGroup()` only when active, to avoid re-compositing during streaming.
-private struct ConditionalCompositingGroup: ViewModifier {
-    let isActive: Bool
-
-    func body(content: Content) -> some View {
-        if isActive {
-            content.compositingGroup()
-        } else {
-            content
-        }
-    }
-}
 
 // MARK: - Avatar Wiggle Modifier
 

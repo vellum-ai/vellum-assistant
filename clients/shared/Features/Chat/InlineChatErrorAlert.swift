@@ -109,6 +109,46 @@ public struct InlineChatErrorAlert: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
+                // Debug details — raw error payload with one-click copy
+                if let details = conversationError?.debugDetails, !details.isEmpty {
+                    VStack(alignment: .leading, spacing: 0) {
+                        HStack {
+                            Text("Details")
+                                .font(VFont.labelDefault)
+                                .foregroundStyle(VColor.contentTertiary)
+                            Spacer()
+                            VCopyButton(text: details, size: .compact, iconSize: 14, accessibilityHint: "Copy error details")
+                        }
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.top, VSpacing.xs)
+
+                        let detailLineCount = details.utf8.reduce(1) { $0 + ($1 == 0x0A ? 1 : 0) }
+                        let detailIsLong = detailLineCount > 10 || (detailLineCount == 1 && details.utf8.count > 50_000)
+                        Group {
+                            if detailIsLong {
+                                ScrollView {
+                                    Text(details)
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundStyle(VColor.contentSecondary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .textSelection(.enabled)
+                                }
+                                .frame(height: 160)
+                            } else {
+                                Text(details)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(VColor.contentSecondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .textSelection(.enabled)
+                            }
+                        }
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.bottom, VSpacing.sm)
+                    }
+                    .background(RoundedRectangle(cornerRadius: VRadius.sm).fill(VColor.surfaceOverlay))
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                }
+
                 // Retry button
                 if conversationError?.isRetryable == true, let onRetry {
                     Button(action: onRetry) {

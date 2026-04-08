@@ -28,7 +28,10 @@ import { handleUserMessageSignal } from "../signals/user-message.js";
 import { DebouncerMap } from "../util/debounce.js";
 import { getLogger } from "../util/logger.js";
 import {
+  AVATAR_IMAGE_FILENAME,
+  getAvatarDir,
   getSignalsDir,
+  getSoundsDir,
   getWorkspaceDir,
   getWorkspaceSkillsDir,
 } from "../util/platform.js";
@@ -110,7 +113,14 @@ export class ConfigWatcher {
    * files change and conversations need to be evicted for reload.
    * `onIdentityChanged` is called when IDENTITY.md changes on disk.
    */
-  start(onConversationEvict: () => void, onIdentityChanged?: () => void): void {
+  start(
+    onConversationEvict: () => void,
+    onIdentityChanged?: () => void,
+    onSoundsConfigChanged?: () => void,
+    onAvatarChanged?: () => void,
+    onConfigChanged?: () => void,
+    onFeatureFlagsChanged?: () => void,
+  ): void {
     const workspaceDir = getWorkspaceDir();
 
     const workspaceHandlers: Record<string, () => void> = {
@@ -122,6 +132,7 @@ export class ConfigWatcher {
           const changed = await this.refreshConfigFromSources();
           if (changed) {
             onConversationEvict();
+            onConfigChanged?.();
             const newConfig = getConfig();
             const newMcpFingerprint = JSON.stringify(newConfig.mcp ?? {});
             if (newMcpFingerprint !== prevMcpFingerprint) {
@@ -175,7 +186,14 @@ export class ConfigWatcher {
       "workspace directory for config/prompt changes",
     );
 
-    this.startFeatureFlagsWatcher();
+    if (onSoundsConfigChanged) {
+      this.startSoundsWatcher(onSoundsConfigChanged);
+    }
+    if (onAvatarChanged) {
+      this.startAvatarWatcher(onAvatarChanged);
+    }
+
+    this.startFeatureFlagsWatcher(onFeatureFlagsChanged);
     this.startSignalsWatcher();
     this.startSkillsWatchers(onConversationEvict);
   }
@@ -188,7 +206,70 @@ export class ConfigWatcher {
     this.watchers = [];
   }
 
-  private startFeatureFlagsWatcher(): void {
+  private startSoundsWatcher(onSoundsConfigChanged: () => void): void {
+    const soundsDir = getSoundsDir();
+    try {
+      if (!existsSync(soundsDir)) {
+        mkdirSync(soundsDir, { recursive: true });
+      }
+    } catch {
+      // If we can't create it, watching will also fail — handled below.
+    }
+
+    try {
+      const watcher = watch(soundsDir, (_eventType, filename) => {
+        if (!filename) return;
+        this.debounceTimers.schedule("file:sounds", () => {
+          log.info(
+            { file: String(filename) },
+            "Sounds directory changed, notifying clients",
+          );
+          onSoundsConfigChanged();
+        });
+      });
+      this.watchers.push(watcher);
+      log.info({ dir: soundsDir }, "Watching sounds directory for changes");
+    } catch (err) {
+      log.warn(
+        { err, dir: soundsDir },
+        "Failed to watch sounds directory. Sound config changes will require a restart.",
+      );
+    }
+  }
+
+  private startAvatarWatcher(onAvatarChanged: () => void): void {
+    const avatarDir = getAvatarDir();
+    try {
+      if (!existsSync(avatarDir)) {
+        mkdirSync(avatarDir, { recursive: true });
+      }
+    } catch {
+      // If we can't create it, watching will also fail — handled below.
+    }
+
+    try {
+      const watcher = watch(avatarDir, (_eventType, filename) => {
+        if (!filename) return;
+        if (String(filename) !== AVATAR_IMAGE_FILENAME) return;
+        this.debounceTimers.schedule("file:avatar", () => {
+          log.info(
+            { file: String(filename) },
+            "Avatar image changed, notifying clients",
+          );
+          onAvatarChanged();
+        });
+      });
+      this.watchers.push(watcher);
+      log.info({ dir: avatarDir }, "Watching avatar directory for changes");
+    } catch (err) {
+      log.warn(
+        { err, dir: avatarDir },
+        "Failed to watch avatar directory. Avatar changes will require a restart.",
+      );
+    }
+  }
+
+  private startFeatureFlagsWatcher(onFeatureFlagsChanged?: () => void): void {
     const protectedDir = process.env.GATEWAY_SECURITY_DIR
       ? process.env.GATEWAY_SECURITY_DIR
       : join(homedir(), ".vellum", "protected");
@@ -219,6 +300,7 @@ export class ConfigWatcher {
               "Feature flags file changed, invalidating cache",
             );
             clearFeatureFlagOverridesCache();
+            onFeatureFlagsChanged?.();
           },
           500,
         );

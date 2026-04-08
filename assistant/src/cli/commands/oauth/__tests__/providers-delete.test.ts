@@ -20,7 +20,7 @@ let mockDeleteAppCalls: string[] = [];
 let mockDeleteAppResult = true;
 
 let mockDisconnectCalls: Array<{
-  providerKey: string;
+  provider: string;
   clientId: string | undefined;
   connectionId: string | undefined;
 }> = [];
@@ -47,11 +47,9 @@ mock.module("../../../../oauth/oauth-store.js", () => ({
   getProvider: (key: string) => mockGetProvider(key),
   deleteProvider: () => mockDeleteProviderResult,
   listApps: () => mockListAppsResult,
-  listConnections: (providerKey?: string) => {
-    if (providerKey) {
-      return mockListConnectionsResult.filter(
-        (c) => c.providerKey === providerKey,
-      );
+  listConnections: (provider?: string) => {
+    if (provider) {
+      return mockListConnectionsResult.filter((c) => c.provider === provider);
     }
     return mockListConnectionsResult;
   },
@@ -60,11 +58,11 @@ mock.module("../../../../oauth/oauth-store.js", () => ({
     return mockDeleteAppResult;
   },
   disconnectOAuthProvider: async (
-    providerKey: string,
+    provider: string,
     clientId?: string,
     connectionId?: string,
   ) => {
-    mockDisconnectCalls.push({ providerKey, clientId, connectionId });
+    mockDisconnectCalls.push({ provider, clientId, connectionId });
     return mockDisconnectResult;
   },
   listProviders: () => [],
@@ -210,20 +208,20 @@ describe("assistant oauth providers delete", () => {
   test("provider with dependents and no --force returns exit code 1 with counts", async () => {
     mockGetProvider = (key) =>
       key === "custom-api"
-        ? { providerKey: "custom-api", authUrl: "https://example.com/auth" }
+        ? { provider: "custom-api", authorizeUrl: "https://example.com/auth" }
         : undefined;
 
     mockListAppsResult = [
       {
         id: "app-1",
-        providerKey: "custom-api",
+        provider: "custom-api",
         clientId: "c1",
         createdAt: Date.now(),
         updatedAt: Date.now(),
       },
       {
         id: "app-2",
-        providerKey: "custom-api",
+        provider: "custom-api",
         clientId: "c2",
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -233,19 +231,19 @@ describe("assistant oauth providers delete", () => {
     mockListConnectionsResult = [
       {
         id: "conn-1",
-        providerKey: "custom-api",
+        provider: "custom-api",
         oauthAppId: "app-1",
         status: "active",
       },
       {
         id: "conn-2",
-        providerKey: "custom-api",
+        provider: "custom-api",
         oauthAppId: "app-1",
         status: "active",
       },
       {
         id: "conn-3",
-        providerKey: "custom-api",
+        provider: "custom-api",
         oauthAppId: "app-2",
         status: "active",
       },
@@ -272,13 +270,13 @@ describe("assistant oauth providers delete", () => {
   test("provider with dependents and --force cascades deletion and returns summary", async () => {
     mockGetProvider = (key) =>
       key === "custom-api"
-        ? { providerKey: "custom-api", authUrl: "https://example.com/auth" }
+        ? { provider: "custom-api", authorizeUrl: "https://example.com/auth" }
         : undefined;
 
     mockListAppsResult = [
       {
         id: "app-1",
-        providerKey: "custom-api",
+        provider: "custom-api",
         clientId: "c1",
         clientSecretCredentialPath: "cred/app-1",
         createdAt: Date.now(),
@@ -286,7 +284,7 @@ describe("assistant oauth providers delete", () => {
       },
       {
         id: "app-other",
-        providerKey: "other-provider",
+        provider: "other-provider",
         clientId: "c3",
         clientSecretCredentialPath: "cred/app-other",
         createdAt: Date.now(),
@@ -297,13 +295,13 @@ describe("assistant oauth providers delete", () => {
     mockListConnectionsResult = [
       {
         id: "conn-1",
-        providerKey: "custom-api",
+        provider: "custom-api",
         oauthAppId: "app-1",
         status: "active",
       },
       {
         id: "conn-2",
-        providerKey: "custom-api",
+        provider: "custom-api",
         oauthAppId: "app-1",
         status: "active",
       },
@@ -326,12 +324,12 @@ describe("assistant oauth providers delete", () => {
     // Verify disconnectOAuthProvider was called for each connection
     expect(mockDisconnectCalls).toEqual([
       {
-        providerKey: "custom-api",
+        provider: "custom-api",
         clientId: undefined,
         connectionId: "conn-1",
       },
       {
-        providerKey: "custom-api",
+        provider: "custom-api",
         clientId: undefined,
         connectionId: "conn-2",
       },
@@ -348,7 +346,7 @@ describe("assistant oauth providers delete", () => {
   test("provider with no dependents and no --force deletes cleanly", async () => {
     mockGetProvider = (key) =>
       key === "custom-api"
-        ? { providerKey: "custom-api", authUrl: "https://example.com/auth" }
+        ? { provider: "custom-api", authorizeUrl: "https://example.com/auth" }
         : undefined;
 
     mockListAppsResult = [];
@@ -379,13 +377,13 @@ describe("assistant oauth providers delete", () => {
   test("built-in provider with --force succeeds and logs warning about re-creation", async () => {
     mockGetProvider = (key) =>
       key === "google"
-        ? { providerKey: "google", authUrl: "https://accounts.google.com" }
+        ? { provider: "google", authorizeUrl: "https://accounts.google.com" }
         : undefined;
 
     mockListAppsResult = [
       {
         id: "app-g",
-        providerKey: "google",
+        provider: "google",
         clientId: "goog-client",
         clientSecretCredentialPath: "cred/app-g",
         createdAt: Date.now(),
@@ -396,7 +394,7 @@ describe("assistant oauth providers delete", () => {
     mockListConnectionsResult = [
       {
         id: "conn-g",
-        providerKey: "google",
+        provider: "google",
         oauthAppId: "app-g",
         status: "active",
       },
@@ -430,7 +428,7 @@ describe("assistant oauth providers delete", () => {
   test("built-in provider without --force and no dependents logs warning and deletes", async () => {
     mockGetProvider = (key) =>
       key === "google"
-        ? { providerKey: "google", authUrl: "https://accounts.google.com" }
+        ? { provider: "google", authorizeUrl: "https://accounts.google.com" }
         : undefined;
 
     mockListAppsResult = [];
@@ -461,13 +459,13 @@ describe("assistant oauth providers delete", () => {
   test("token cleanup error logs warning but continues cascade delete", async () => {
     mockGetProvider = (key) =>
       key === "custom-api"
-        ? { providerKey: "custom-api", authUrl: "https://example.com/auth" }
+        ? { provider: "custom-api", authorizeUrl: "https://example.com/auth" }
         : undefined;
 
     mockListAppsResult = [
       {
         id: "app-1",
-        providerKey: "custom-api",
+        provider: "custom-api",
         clientId: "c1",
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -477,7 +475,7 @@ describe("assistant oauth providers delete", () => {
     mockListConnectionsResult = [
       {
         id: "conn-1",
-        providerKey: "custom-api",
+        provider: "custom-api",
         oauthAppId: "app-1",
         status: "active",
       },
@@ -518,13 +516,13 @@ describe("assistant oauth providers delete", () => {
   test("token cleanup error calls deleteConnection as fallback to avoid FK violation", async () => {
     mockGetProvider = (key) =>
       key === "custom-api"
-        ? { providerKey: "custom-api", authUrl: "https://example.com/auth" }
+        ? { provider: "custom-api", authorizeUrl: "https://example.com/auth" }
         : undefined;
 
     mockListAppsResult = [
       {
         id: "app-1",
-        providerKey: "custom-api",
+        provider: "custom-api",
         clientId: "c1",
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -534,13 +532,13 @@ describe("assistant oauth providers delete", () => {
     mockListConnectionsResult = [
       {
         id: "conn-1",
-        providerKey: "custom-api",
+        provider: "custom-api",
         oauthAppId: "app-1",
         status: "active",
       },
       {
         id: "conn-2",
-        providerKey: "custom-api",
+        provider: "custom-api",
         oauthAppId: "app-1",
         status: "active",
       },

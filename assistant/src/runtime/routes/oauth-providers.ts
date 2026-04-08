@@ -44,6 +44,10 @@ export function oauthProvidersRouteDefinitions(): RouteDefinition[] {
     },
 
     // GET /v1/oauth/providers/:providerKey — Get a single provider.
+    // The path parameter name `providerKey` is preserved for backward
+    // compatibility with the published OpenAPI spec (operationId
+    // `oauth_providers_by_providerKey_get`). The actual URL the client hits
+    // (`/v1/oauth/providers/google`) is unchanged either way.
     {
       endpoint: "oauth/providers/:providerKey",
       method: "GET",

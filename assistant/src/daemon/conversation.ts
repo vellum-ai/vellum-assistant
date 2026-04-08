@@ -18,6 +18,7 @@
 import type { ResolvedSystemPrompt } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type {
+  InterfaceId,
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
@@ -104,6 +105,7 @@ import {
 } from "./conversation-tool-setup.js";
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./conversation-workspace.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
+import { HostBrowserProxy } from "./host-browser-proxy.js";
 import type { CuObservationResult } from "./host-cu-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import { HostFileProxy } from "./host-file-proxy.js";
@@ -114,6 +116,7 @@ import type {
   UsageStats,
   UserMessageAttachment,
 } from "./message-protocol.js";
+import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import type {
   AssistantActivityState,
   ConfirmationStateChanged,
@@ -156,10 +159,10 @@ export class Conversation {
   /** @internal */ sendToClient: (msg: ServerMessage) => void;
   /** @internal */ eventBus = new EventBus<AssistantDomainEvents>();
   /** @internal */ workingDir: string;
-  /** @internal */ sandboxOverride?: boolean;
   /** @internal */ allowedToolNames?: Set<string>;
   /** @internal */ toolsDisabledDepth = 0;
   /** @internal */ preactivatedSkillIds?: string[];
+  /** @internal */ subagentAllowedTools?: Set<string>;
   /** @internal */ coreToolNames: Set<string>;
   /** @internal */ readonly skillProjectionState = new Map<string, string>();
   /** @internal */ readonly skillProjectionCache: SkillProjectionCache = {};
@@ -174,12 +177,27 @@ export class Conversation {
   /** @internal */ contextCompactedAt: number | null = null;
   /** @internal */ currentRequestId?: string;
   /** @internal */ hasNoClient = false;
+  /** @internal */ isSubagent = false;
   /** @internal */ headlessLock = false;
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
   /** @internal */ hostBashProxy?: HostBashProxy;
+  /** @internal */ hostBrowserProxy?: HostBrowserProxy;
   /** @internal */ hostCuProxy?: HostCuProxy;
   /** @internal */ hostFileProxy?: HostFileProxy;
+  /**
+   * Optional override sender used by `restoreBrowserProxyAvailability` so
+   * non-SSE transports (e.g. chrome-extension, whose host_browser_request
+   * frames flow through the ChromeExtensionRegistry WebSocket rather than
+   * the SSE hub) can preserve their registry-routed sender across drain
+   * queue restores. When set, `restoreBrowserProxyAvailability()` uses this
+   * function instead of `sendToClient` so the drain-queue path doesn't
+   * clobber the chrome-extension sender with the SSE hub emitter.
+   *
+   * Populated by the POST /messages handler for chrome-extension turns and
+   * cleared when an unrelated interface takes over (see `updateClient`).
+   */
+  /** @internal */ hostBrowserSenderOverride?: (msg: ServerMessage) => void;
   /** @internal */ cesClient?: CesClient;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
@@ -245,7 +263,7 @@ export class Conversation {
   /** @internal */ workspaceTopLevelContext: string | null = null;
   /** @internal */ workspaceTopLevelDirty = true;
   public readonly traceEmitter: TraceEmitter;
-  public readonly hasSystemPromptOverride: boolean;
+  /** @internal */ hasSystemPromptOverride: boolean;
   public memoryPolicy: ConversationMemoryPolicy;
   /** @internal */ readonly graphMemory: ConversationGraphMemory;
   /** @internal */ activeContextNodeIds?: string[];
@@ -279,6 +297,7 @@ export class Conversation {
     memoryPolicy?: ConversationMemoryPolicy,
     sharedCesClient?: CesClient,
     speedOverride?: Speed,
+    cacheTtl?: "5m" | "1h",
   ) {
     this.conversationId = conversationId;
     this.systemPrompt = systemPrompt;
@@ -384,7 +403,7 @@ export class Conversation {
       _history: import("../providers/types.js").Message[],
     ): ResolvedSystemPrompt => {
       const resolved = {
-        systemPrompt: hasSystemPromptOverride
+        systemPrompt: this.hasSystemPromptOverride
           ? systemPrompt
           : (() => {
               const persona = resolvePersonaContext(
@@ -417,6 +436,7 @@ export class Conversation {
         ...(fastModeEnabled && resolvedSpeed === "fast"
           ? { speed: resolvedSpeed }
           : {}),
+        ...(cacheTtl ? { cacheTtl } : {}),
       },
       toolDefs.length > 0 ? toolDefs : undefined,
       toolDefs.length > 0 ? toolExecutor : undefined,
@@ -497,6 +517,7 @@ export class Conversation {
     this.traceEmitter.updateSender(sendToClient);
     if (!opts?.skipProxySenderUpdate) {
       this.hostBashProxy?.updateSender(sendToClient, !hasNoClient);
+      this.hostBrowserProxy?.updateSender(sendToClient, !hasNoClient);
       this.hostCuProxy?.updateSender(sendToClient, !hasNoClient);
       this.hostFileProxy?.updateSender(sendToClient, !hasNoClient);
     }
@@ -523,6 +544,7 @@ export class Conversation {
   /** Mark host proxies as unavailable so tool execution uses local fallback. */
   clearProxyAvailability(): void {
     this.hostBashProxy?.updateSender(this.sendToClient, false);
+    this.hostBrowserProxy?.updateSender(this.sendToClient, false);
     this.hostCuProxy?.updateSender(this.sendToClient, false);
     this.hostFileProxy?.updateSender(this.sendToClient, false);
   }
@@ -531,13 +553,77 @@ export class Conversation {
   restoreProxyAvailability(): void {
     if (!this.hasNoClient) {
       this.hostBashProxy?.updateSender(this.sendToClient, true);
+      this.hostBrowserProxy?.updateSender(this.sendToClient, true);
       this.hostCuProxy?.updateSender(this.sendToClient, true);
       this.hostFileProxy?.updateSender(this.sendToClient, true);
     }
   }
 
-  setSandboxOverride(enabled: boolean | undefined): void {
-    this.sandboxOverride = enabled;
+  /**
+   * Restore host browser proxy availability only. Used for non-desktop
+   * interfaces (e.g. chrome-extension) that support host_browser but not
+   * the full desktop proxy set, so calling restoreProxyAvailability() would
+   * incorrectly re-enable bash/file/CU proxies that should stay disabled.
+   *
+   * Unlike `restoreProxyAvailability()`, this helper does NOT gate on
+   * `hasNoClient`. The chrome-extension interface is non-interactive (so
+   * `hasNoClient === true`), but it DOES have a connected client that can
+   * service `host_browser_request` events. Gating on `hasNoClient` would
+   * leave the just-constructed proxy unavailable and the only way to make
+   * it available would be to flip `hasNoClient` false, which would
+   * incorrectly enable host_bash/host_file/host_cu tool gating downstream.
+   *
+   * When `hostBrowserSenderOverride` is set, that function is used as the
+   * sender instead of `sendToClient`. This is required for the
+   * chrome-extension interface whose host_browser frames route through the
+   * ChromeExtensionRegistry WebSocket rather than the SSE hub: if the
+   * queue-drain path called this helper with `sendToClient`, the
+   * registry-routed sender established at turn-start would be clobbered by
+   * the SSE hub emitter and host_browser_request frames would stop
+   * reaching the extension.
+   *
+   * Callers must only invoke this when they know the current interface
+   * supports host_browser (see `supportsHostProxy(id, "host_browser")`).
+   */
+  restoreBrowserProxyAvailability(): void {
+    const sender = this.hostBrowserSenderOverride ?? this.sendToClient;
+    this.hostBrowserProxy?.updateSender(sender, true);
+  }
+
+  setSubagentAllowedTools(tools: Set<string> | undefined): void {
+    this.subagentAllowedTools = tools;
+  }
+
+  setIsSubagent(value: boolean): void {
+    this.isSubagent = value;
+  }
+
+  /**
+   * Prepend inherited parent messages into the in-memory message array so that
+   * the AgentLoop includes them in provider calls (enabling KV cache sharing).
+   *
+   * These messages are NOT persisted to the database — they exist only in
+   * memory. When the conversation is later read from DB via getMessages(),
+   * only the conversation's own persisted messages appear.
+   *
+   * Must be called before the first persistUserMessage() call — i.e. while
+   * `this.messages` is still empty.
+   */
+  injectInheritedContext(messages: Message[]): void {
+    if (this.messages.length !== 0) {
+      throw new Error(
+        "injectInheritedContext must be called before any messages have been added",
+      );
+    }
+    this.messages = [...messages];
+  }
+
+  /**
+   * Return the system prompt string set at construction time (or its override).
+   * Fork consumers use this to pass the parent's system prompt to the fork.
+   */
+  getCurrentSystemPrompt(): string {
+    return this.systemPrompt;
   }
 
   isProcessing(): boolean {
@@ -562,6 +648,7 @@ export class Conversation {
   dispose(): void {
     approvalOverrides.clearMode(this.conversationId);
     this.hostBashProxy?.dispose();
+    this.hostBrowserProxy?.dispose();
     this.hostCuProxy?.dispose();
     this.hostFileProxy?.dispose();
     // CES client is owned by DaemonServer — just drop the reference.
@@ -597,6 +684,7 @@ export class Conversation {
     metadata?: Record<string, unknown>,
     options?: { isInteractive?: boolean },
     displayContent?: string,
+    transport?: ConversationTransportMetadata,
   ): { queued: boolean; requestId: string; rejected?: boolean } {
     return enqueueMessageImpl(
       this,
@@ -609,6 +697,7 @@ export class Conversation {
       metadata,
       options,
       displayContent,
+      transport,
     );
   }
 
@@ -858,6 +947,20 @@ export class Conversation {
     this.hostBashProxy = proxy;
   }
 
+  resolveHostBrowser(
+    requestId: string,
+    response: { content: string; isError: boolean },
+  ): void {
+    this.hostBrowserProxy?.resolve(requestId, response);
+  }
+
+  setHostBrowserProxy(proxy: HostBrowserProxy | undefined): void {
+    if (this.hostBrowserProxy && this.hostBrowserProxy !== proxy) {
+      this.hostBrowserProxy.dispose();
+    }
+    this.hostBrowserProxy = proxy;
+  }
+
   resolveHostFile(
     requestId: string,
     response: { content: string; isError: boolean },
@@ -1014,6 +1117,16 @@ export class Conversation {
 
   getTurnInterfaceContext(): TurnInterfaceContext | null {
     return this.currentTurnInterfaceContext;
+  }
+
+  /**
+   * Implements the `transportInterface` field of `SkillProjectionContext` so
+   * that `isToolActiveForContext` can gate host tools by per-capability
+   * `supportsHostProxy(transport, capability)`. Derived from the live turn
+   * interface context so it tracks the connected client across turns.
+   */
+  get transportInterface(): InterfaceId | undefined {
+    return this.currentTurnInterfaceContext?.userMessageInterface;
   }
 
   async persistUserMessage(

@@ -1,14 +1,24 @@
 import { getMessages } from "../../memory/conversation-crud.js";
 import { getSubagentManager, TERMINAL_STATUSES } from "../../subagent/index.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+import { resolveSubagentId } from "./resolve.js";
 
 export async function executeSubagentRead(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const subagentId = input.subagent_id as string;
+  const subagentId = resolveSubagentId(input, context);
+  if (!subagentId && input.label) {
+    return {
+      content: `No subagent found with label "${input.label as string}".`,
+      isError: true,
+    };
+  }
   if (!subagentId) {
-    return { content: '"subagent_id" is required.', isError: true };
+    return {
+      content: '"subagent_id" or "label" is required.',
+      isError: true,
+    };
   }
 
   const manager = getSubagentManager();
@@ -45,32 +55,43 @@ export async function executeSubagentRead(
   }
 
   // Extract assistant messages only - that's the subagent's output.
-  const output: string[] = [];
+  // Group text blocks by message so last_n slices messages, not blocks.
+  const messageTexts: string[] = [];
   for (const msg of dbMessages) {
     if (msg.role !== "assistant") continue;
+    const blocks: string[] = [];
     try {
       const content = JSON.parse(msg.content);
       if (Array.isArray(content)) {
         for (const block of content) {
           if (block.type === "text" && typeof block.text === "string") {
-            output.push(block.text);
+            blocks.push(block.text);
           }
         }
       } else if (typeof content === "string") {
-        output.push(content);
+        blocks.push(content);
       }
     } catch {
       // Content might be plain text.
-      output.push(msg.content);
+      blocks.push(msg.content);
+    }
+    if (blocks.length > 0) {
+      messageTexts.push(blocks.join("\n\n"));
     }
   }
 
-  if (output.length === 0) {
+  if (messageTexts.length === 0) {
     return { content: "Subagent produced no text output.", isError: false };
   }
 
+  const lastN =
+    typeof input.last_n === "number" && input.last_n > 0
+      ? input.last_n
+      : undefined;
+  const sliced = lastN ? messageTexts.slice(-lastN) : messageTexts;
+
   return {
-    content: output.join("\n\n"),
+    content: sliced.join("\n\n"),
     isError: false,
   };
 }

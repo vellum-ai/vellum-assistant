@@ -23,10 +23,7 @@
 import type { TokenEndpointAuthMethod } from "../security/oauth2.js";
 import { prepareOAuth2Flow, startOAuth2Flow } from "../security/oauth2.js";
 import { getLogger } from "../util/logger.js";
-import type {
-  OAuthConnectResult,
-  OAuthScopePolicy,
-} from "./connect-types.js";
+import type { OAuthConnectResult, OAuthScopePolicy } from "./connect-types.js";
 import { verifyIdentity } from "./identity-verifier.js";
 import { getProvider } from "./oauth-store.js";
 import { resolveScopes } from "./scope-policy.js";
@@ -98,7 +95,7 @@ export interface OAuthConnectOptions {
  *
  * Returns a discriminated result:
  * - Interactive success: `{ success: true, deferred: false, grantedScopes, accountInfo }`
- * - Deferred success:    `{ success: true, deferred: true, authUrl, state, service }`
+ * - Deferred success:    `{ success: true, deferred: true, authorizeUrl, state, service }`
  * - Error:               `{ success: false, error }`
  */
 export async function orchestrateOAuthConnect(
@@ -137,15 +134,15 @@ export async function orchestrateOAuthConnect(
       forbiddenScopes: [],
     },
   );
-  const dbExtraParams = safeJsonParse<Record<string, string> | undefined>(
-    providerRow.extraParams,
+  const dbAuthorizeParams = safeJsonParse<Record<string, string> | undefined>(
+    providerRow.authorizeParams,
     undefined,
   );
 
   // Resolve all protocol-level config from the DB
-  const authUrl = providerRow.authUrl;
-  const tokenUrl = providerRow.tokenUrl;
-  const extraParams = dbExtraParams;
+  const authorizeUrl = providerRow.authorizeUrl;
+  const tokenExchangeUrl = providerRow.tokenExchangeUrl;
+  const authorizeParams = dbAuthorizeParams;
   const userinfoUrl = providerRow.userinfoUrl ?? undefined;
   const tokenEndpointAuthMethod = providerRow.tokenEndpointAuthMethod as
     | TokenEndpointAuthMethod
@@ -173,14 +170,14 @@ export async function orchestrateOAuthConnect(
   }
   const finalScopes = scopeResult.scopes;
 
-  if (!authUrl) {
+  if (!authorizeUrl) {
     return {
       success: false,
       error: "auth_url is required (no well-known config for this service)",
       safeError: true,
     };
   }
-  if (!tokenUrl) {
+  if (!tokenExchangeUrl) {
     return {
       success: false,
       error: "token_url is required (no well-known config for this service)",
@@ -191,24 +188,25 @@ export async function orchestrateOAuthConnect(
   log.info(
     {
       service: options.service,
-      authUrl,
-      tokenUrl,
+      authorizeUrl,
+      tokenExchangeUrl,
       scopeCount: finalScopes.length,
       callbackTransport,
       loopbackPort,
-      hasClientSecret: !!options.clientSecret,
+      hasSecret: !!options.clientSecret,
       clientIdPrefix: options.clientId.substring(0, 12) + "…",
     },
     "orchestrateOAuthConnect: resolved provider config",
   );
 
   const oauthConfig = {
-    authUrl,
-    tokenUrl,
+    authorizeUrl,
+    tokenExchangeUrl,
     scopes: finalScopes,
+    scopeSeparator: providerRow.scopeSeparator,
     clientId: options.clientId,
     clientSecret: options.clientSecret,
-    extraParams,
+    authorizeParams,
     userinfoUrl,
     tokenEndpointAuthMethod,
   };
@@ -308,7 +306,7 @@ export async function orchestrateOAuthConnect(
       return {
         success: true,
         deferred: true,
-        authUrl: prepared.authUrl,
+        authorizeUrl: prepared.authorizeUrl,
         state: prepared.state,
         service: options.service,
       };
@@ -344,14 +342,18 @@ export async function orchestrateOAuthConnect(
             log.info("orchestrateOAuthConnect: using options.openUrl");
             options.openUrl(url);
           } else if (options.sendToClient) {
-            log.info("orchestrateOAuthConnect: using sendToClient with open_url event");
+            log.info(
+              "orchestrateOAuthConnect: using sendToClient with open_url event",
+            );
             options.sendToClient({
               type: "open_url",
               url,
               title: `Connect ${options.service}`,
             });
           } else {
-            log.warn("orchestrateOAuthConnect: no openUrl or sendToClient available — auth URL will not reach the user");
+            log.warn(
+              "orchestrateOAuthConnect: no openUrl or sendToClient available — auth URL will not reach the user",
+            );
           }
         },
       },

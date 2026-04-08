@@ -5,12 +5,14 @@
   "description": "Bridges the Vellum assistant to your live browser session — no CDP, no spoofing.",
 
   "permissions": [
-    "tabs",
     "activeTab",
-    "scripting",
     "cookies",
+    "debugger",
+    "identity",
+    "nativeMessaging",
+    "scripting",
     "storage",
-    "debugger"
+    "tabs"
   ],
   "host_permissions": [
     "<all_urls>"

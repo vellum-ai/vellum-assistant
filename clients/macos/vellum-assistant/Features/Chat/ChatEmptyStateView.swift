@@ -110,16 +110,18 @@ struct ChatEmptyStateView: View {
                 }
             }
 
-            if let greeting = effectiveGreeting {
-                Text(greeting)
-                    .font(VFont.displayLarge)
-                    .foregroundStyle(VColor.contentSecondary)
-                    .multilineTextAlignment(.leading)
-                    .transition(.opacity)
+            Group {
+                if let greeting = effectiveGreeting {
+                    Text(greeting)
+                        .font(VFont.displayLarge)
+                        .foregroundStyle(VColor.contentSecondary)
+                        .multilineTextAlignment(.leading)
+                        .transition(.opacity)
+                }
             }
+            .animation(.easeOut(duration: 0.4), value: effectiveGreeting != nil)
         }
         .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
-        .animation(.easeOut(duration: 0.4), value: effectiveGreeting != nil)
         .opacity(visible ? 1 : 0)
         .scaleEffect(visible ? 1 : 0.8)
         .padding(.horizontal, VSpacing.xl)

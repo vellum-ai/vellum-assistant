@@ -10,21 +10,25 @@ import {
 function makeRow(overrides: Partial<OAuthProviderRow> = {}): OAuthProviderRow {
   const now = Date.now();
   return {
-    providerKey: "test-provider",
-    authUrl: "https://auth.example.com/authorize",
-    tokenUrl: "https://auth.example.com/token",
-    tokenEndpointAuthMethod: null,
+    provider: "test-provider",
+    authorizeUrl: "https://auth.example.com/authorize",
+    tokenExchangeUrl: "https://auth.example.com/token",
+    refreshUrl: null,
+    tokenEndpointAuthMethod: "client_secret_post",
     userinfoUrl: null,
     baseUrl: null,
     defaultScopes: "[]",
     scopePolicy: "{}",
-    extraParams: null,
+    scopeSeparator: " ",
+    authorizeParams: null,
     pingUrl: null,
     pingMethod: null,
     pingHeaders: null,
     pingBody: null,
+    revokeUrl: null,
+    revokeBodyTemplate: null,
     managedServiceConfigKey: null,
-    displayName: null,
+    displayLabel: null,
     description: null,
     dashboardUrl: null,
     clientIdPlaceholder: null,
@@ -52,7 +56,7 @@ describe("serializeProvider", () => {
     const row = makeRow({
       defaultScopes: JSON.stringify(["openid", "email"]),
       scopePolicy: JSON.stringify({ required: ["openid"] }),
-      extraParams: JSON.stringify({ access_type: "offline" }),
+      authorizeParams: JSON.stringify({ access_type: "offline" }),
       pingHeaders: JSON.stringify({ "X-Api-Version": "2" }),
       pingBody: JSON.stringify({ query: "{ me { id } }" }),
       injectionTemplates: JSON.stringify([
@@ -167,13 +171,89 @@ describe("serializeProvider", () => {
   test("returns null for null input", () => {
     expect(serializeProvider(null)).toBeNull();
   });
+
+  test("emits scopeSeparator from the row when set to ','", () => {
+    const row = makeRow({ scopeSeparator: "," });
+    const result = serializeProvider(row)!;
+    expect(result.scopeSeparator).toBe(",");
+  });
+
+  test("emits scopeSeparator default ' ' when row uses the default", () => {
+    const row = makeRow({ scopeSeparator: " " });
+    const result = serializeProvider(row)!;
+    expect(result.scopeSeparator).toBe(" ");
+  });
+
+  test("emits refreshUrl from the row when set to a URL", () => {
+    const row = makeRow({
+      refreshUrl: "https://refresh.example.com/token",
+    });
+    const result = serializeProvider(row)!;
+    expect(result.refreshUrl).toBe("https://refresh.example.com/token");
+  });
+
+  test("emits refreshUrl as null when the row value is null", () => {
+    const row = makeRow({ refreshUrl: null });
+    const result = serializeProvider(row)!;
+    expect(result.refreshUrl).toBeNull();
+  });
+
+  test("emits revokeUrl from the row and parses revokeBodyTemplate JSON", () => {
+    const row = makeRow({
+      revokeUrl: "https://revoke.example.com",
+      revokeBodyTemplate: JSON.stringify({ token: "{access_token}" }),
+    });
+    const result = serializeProvider(row)!;
+    expect(result.revokeUrl).toBe("https://revoke.example.com");
+    expect(result.revokeBodyTemplate).toEqual({ token: "{access_token}" });
+    // Make sure it's a parsed object, not a string.
+    expect(typeof result.revokeBodyTemplate).toBe("object");
+    expect(result.revokeBodyTemplate).not.toBe(
+      JSON.stringify({ token: "{access_token}" }),
+    );
+  });
+
+  test("emits revokeUrl and revokeBodyTemplate as null when the row values are null", () => {
+    const row = makeRow({
+      revokeUrl: null,
+      revokeBodyTemplate: null,
+    });
+    const result = serializeProvider(row)!;
+    expect(result.revokeUrl).toBeNull();
+    expect(result.revokeBodyTemplate).toBeNull();
+  });
+
+  test("normalizes empty string revokeUrl to null on the serialized output", () => {
+    // Legacy rows or rows that reached the store via an empty-string update
+    // may persist `revokeUrl: ""`. The serializer should normalize this to
+    // null so wire consumers (CLI --json, HTTP API) see a consistent
+    // "disabled" signal.
+    const row = makeRow({ revokeUrl: "" });
+    const result = serializeProvider(row)!;
+    expect(result.revokeUrl).toBeNull();
+  });
+
+  test("preserves all keys in a complex revokeBodyTemplate", () => {
+    const template = {
+      token: "{access_token}",
+      client_id: "{client_id}",
+      token_type_hint: "access_token",
+      extra_field: "static-value",
+    };
+    const row = makeRow({
+      revokeUrl: "https://revoke.example.com/oauth/revoke",
+      revokeBodyTemplate: JSON.stringify(template),
+    });
+    const result = serializeProvider(row)!;
+    expect(result.revokeBodyTemplate).toEqual(template);
+  });
 });
 
 describe("serializeProviderSummary", () => {
   test("returns the expected subset of fields in snake_case", () => {
     const row = makeRow({
-      providerKey: "google",
-      displayName: "Google",
+      provider: "google",
+      displayLabel: "Google",
       description: "Google OAuth 2.0",
       dashboardUrl: "https://console.cloud.google.com",
       clientIdPlaceholder: "your-client-id.apps.googleusercontent.com",
@@ -197,7 +277,7 @@ describe("serializeProviderSummary", () => {
 
   test("nullifies missing optional fields", () => {
     const row = makeRow({
-      displayName: null,
+      displayLabel: null,
       description: null,
       dashboardUrl: null,
       clientIdPlaceholder: null,
@@ -229,5 +309,31 @@ describe("serializeProviderSummary", () => {
 
   test("returns null for undefined input", () => {
     expect(serializeProviderSummary(undefined)).toBeNull();
+  });
+
+  test("does NOT include scope_separator (intentionally omitted from the HTTP summary)", () => {
+    const row = makeRow({ scopeSeparator: "," });
+    const result = serializeProviderSummary(row)!;
+    expect(result).not.toHaveProperty("scope_separator");
+    expect(result).not.toHaveProperty("scopeSeparator");
+  });
+
+  test("does NOT include refresh_url (intentionally omitted from the HTTP summary)", () => {
+    const row = makeRow({ refreshUrl: "https://refresh.example.com/token" });
+    const result = serializeProviderSummary(row)!;
+    expect(result).not.toHaveProperty("refresh_url");
+    expect(result).not.toHaveProperty("refreshUrl");
+  });
+
+  test("does NOT include revoke_url or revoke_body_template (internal protocol details)", () => {
+    const row = makeRow({
+      revokeUrl: "https://revoke.example.com",
+      revokeBodyTemplate: JSON.stringify({ token: "{access_token}" }),
+    });
+    const result = serializeProviderSummary(row)!;
+    expect(result).not.toHaveProperty("revoke_url");
+    expect(result).not.toHaveProperty("revokeUrl");
+    expect(result).not.toHaveProperty("revoke_body_template");
+    expect(result).not.toHaveProperty("revokeBodyTemplate");
   });
 });

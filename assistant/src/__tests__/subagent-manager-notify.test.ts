@@ -22,7 +22,7 @@ interface FakeManagedSubagent {
       outputTokens: number;
       estimatedCost: number;
     };
-  };
+  } | null;
   state: SubagentState;
   parentSendToClient: (msg: ServerMessage) => void;
 }
@@ -32,6 +32,7 @@ interface ManagerInternals {
   subagents: Map<string, FakeManagedSubagent>;
   parentToChildren: Map<string, Set<string>>;
   runSubagent: (subagentId: string, objective: string) => Promise<void>;
+  stopSweep: () => void;
 }
 
 function asInternals(manager: SubagentManager): ManagerInternals {
@@ -86,6 +87,7 @@ function makeState(
     },
     status: "running",
     conversationId: "conv-sub-1",
+    isFork: false,
     createdAt: Date.now(),
     usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     ...overrides,
@@ -275,8 +277,8 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
 
     // Patch the fake conversation to simulate a successful agent loop.
     const managed = asInternals(manager).subagents.get(subagentId)!;
-    managed.conversation.persistUserMessage = () => "msg-1";
-    managed.conversation.runAgentLoop = async () => {};
+    managed.conversation!.persistUserMessage = () => "msg-1";
+    managed.conversation!.runAgentLoop = async () => {};
 
     const notifications: { parentConversationId: string; message: string }[] =
       [];
@@ -298,6 +300,8 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
       '[Subagent "Test subagent" completed]',
     );
     expect(notifications[0].message).toContain("subagent_read");
+
+    asInternals(manager).stopSweep();
   });
 
   test("failed subagent notifies parent with error and asks user before retry", async () => {
@@ -309,8 +313,8 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
     // Patch the fake conversation to simulate a failure.
     const managed = asInternals(manager).subagents.get(subagentId)!;
 
-    managed.conversation.persistUserMessage = () => "msg-1";
-    managed.conversation.runAgentLoop = async () => {
+    managed.conversation!.persistUserMessage = () => "msg-1";
+    managed.conversation!.runAgentLoop = async () => {
       throw new Error("API rate limit exceeded");
     };
 
@@ -333,6 +337,8 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
     expect(notifications[0].message).toContain("failed");
     expect(notifications[0].message).toContain("API rate limit exceeded");
     expect(notifications[0].message).toContain("Do NOT re-spawn");
+
+    asInternals(manager).stopSweep();
   });
 
   test("failed subagent does not notify if already aborted", async () => {
@@ -343,8 +349,8 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
 
     const managed = asInternals(manager).subagents.get(subagentId)!;
 
-    managed.conversation.persistUserMessage = () => "msg-1";
-    managed.conversation.runAgentLoop = async () => {
+    managed.conversation!.persistUserMessage = () => "msg-1";
+    managed.conversation!.runAgentLoop = async () => {
       throw new Error("Conversation aborted");
     };
 
@@ -358,6 +364,8 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
 
     // Should NOT notify — status was already terminal (aborted).
     expect(notifications).toHaveLength(0);
+
+    asInternals(manager).stopSweep();
   });
 });
 
@@ -422,9 +430,9 @@ describe("SubagentManager abort race guard", () => {
     // Patch conversation to simulate successful completion after abort.
     const managed = asInternals(manager).subagents.get(subagentId)!;
 
-    managed.conversation.persistUserMessage = () => "msg-1";
-    managed.conversation.runAgentLoop = async () => {};
-    managed.conversation.messages = [
+    managed.conversation!.persistUserMessage = () => "msg-1";
+    managed.conversation!.runAgentLoop = async () => {};
+    managed.conversation!.messages = [
       { role: "assistant", content: [{ type: "text", text: "Done!" }] },
     ];
 
@@ -440,6 +448,8 @@ describe("SubagentManager abort race guard", () => {
     expect(notifications).toHaveLength(0);
     // Status should remain aborted, not overwritten to completed.
     expect(state.status).toBe("aborted");
+
+    asInternals(manager).stopSweep();
   });
 });
 

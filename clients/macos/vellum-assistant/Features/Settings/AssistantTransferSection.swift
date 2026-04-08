@@ -277,15 +277,16 @@ struct AssistantTransferSection: View {
             let actorToken = try await bootstrapActorToken(localAssistantId: resolvedLocal.assistantId)
             ActorTokenManager.setToken(actorToken)
 
-            // Step 6 — Import to local (swap connected assistant to target local gateway)
+            // Step 6 — Import to local (route to local assistant's gateway)
             currentStep = "Importing data..."
-            UserDefaults.standard.set(resolvedLocal.assistantId, forKey: "connectedAssistantId")
-            let importResponse = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/migrations/import",
-                body: bundleData,
-                contentType: "application/octet-stream",
-                timeout: 120
-            )
+            let importResponse = try await GatewayHTTPClient.withAssistant(resolvedLocal.assistantId) {
+                try await GatewayHTTPClient.post(
+                    path: "assistants/{assistantId}/migrations/import",
+                    body: bundleData,
+                    contentType: "application/octet-stream",
+                    timeout: 120
+                )
+            }
             guard importResponse.isSuccess else {
                 throw TransferError.importFailed(message: "HTTP \(importResponse.statusCode)")
             }
@@ -300,14 +301,15 @@ struct AssistantTransferSection: View {
             transferTask = nil
             onClose()
 
-            // Step 8 — Retire managed assistant (fire-and-forget, swap back to managed)
+            // Step 8 — Retire managed assistant (fire-and-forget, route to managed gateway)
             currentStep = "Cleaning up..."
-            UserDefaults.standard.set(managedAssistantId, forKey: "connectedAssistantId")
             do {
-                let retireResponse = try await GatewayHTTPClient.delete(
-                    path: "assistants/{assistantId}/retire",
-                    timeout: 30
-                )
+                let retireResponse = try await GatewayHTTPClient.withAssistant(managedAssistantId) {
+                    try await GatewayHTTPClient.delete(
+                        path: "assistants/{assistantId}/retire",
+                        timeout: 30
+                    )
+                }
                 if retireResponse.isSuccess {
                     log.info("[transfer] Retired managed assistant \(managedAssistantId, privacy: .public)")
                 } else {
@@ -337,37 +339,35 @@ struct AssistantTransferSection: View {
 
     /// Bootstraps an actor token against a local assistant's gateway `/v1/guardian/init`
     /// endpoint without going through `performSwitchAssistant` (which destroys the window).
-    /// Temporarily swaps `connectedAssistantId` to target the local assistant's gateway.
-    /// Retries with exponential backoff up to ~30s.
+    /// Uses the process-local assistant override to route requests to the local
+    /// assistant's gateway. Retries with exponential backoff up to ~30s.
     private func bootstrapActorToken(localAssistantId: String) async throws -> String {
-        let previousId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        UserDefaults.standard.set(localAssistantId, forKey: "connectedAssistantId")
-        defer { UserDefaults.standard.set(previousId, forKey: "connectedAssistantId") }
-
         let deviceId = PairingQRCodeSheet.computeHostId()
         let body: [String: String] = ["platform": "macos", "deviceId": deviceId]
 
-        var delay: UInt64 = 2_000_000_000
-        for attempt in 0..<6 {
-            try Task.checkCancellation()
+        return try await GatewayHTTPClient.withAssistant(localAssistantId) {
+            var delay: UInt64 = 2_000_000_000
+            for attempt in 0..<6 {
+                try Task.checkCancellation()
 
-            if let response = try? await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/guardian/init",
-                json: body,
-                timeout: 15
-            ), response.isSuccess,
-               let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
-               let token = json["accessToken"] as? String ?? json["actorToken"] as? String {
-                return token
+                if let response = try? await GatewayHTTPClient.post(
+                    path: "assistants/{assistantId}/guardian/init",
+                    json: body,
+                    timeout: 15
+                ), response.isSuccess,
+                   let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                   let token = json["accessToken"] as? String ?? json["actorToken"] as? String {
+                    return token
+                }
+
+                if attempt < 5 {
+                    try await Task.sleep(nanoseconds: delay)
+                    delay = min(delay * 2, 10_000_000_000)
+                }
             }
 
-            if attempt < 5 {
-                try await Task.sleep(nanoseconds: delay)
-                delay = min(delay * 2, 10_000_000_000)
-            }
+            throw TransferError.notSignedIn
         }
-
-        throw TransferError.notSignedIn
     }
 
     /// Imports a `.vbundle` archive into the managed assistant via the signed URL upload flow.

@@ -57,6 +57,12 @@ extension MainWindowView {
                     dismissConversationDrawer()
                 },
                 onRename: { startRenameActiveConversation(); dismissConversationDrawer() },
+                onAnalyzeConversation: {
+                    Task {
+                        await conversationManager.analyzeActiveConversation()
+                        await MainActor.run { dismissConversationDrawer() }
+                    }
+                },
                 onOpenInNewWindow: conversationManager.activeConversation?.conversationId != nil ? {
                     guard let id = conversationManager.activeConversationId else { return }
                     AppDelegate.shared?.threadWindowManager?.openThread(
@@ -124,6 +130,10 @@ extension MainWindowView {
                     sidebar.showPreferencesDrawer = false
                     settingsStore.pendingSettingsTab = .billing
                     windowState.selection = .panel(.settings)
+                },
+                onEarnCredits: {
+                    sidebar.showPreferencesDrawer = false
+                    showEarnCreditsModal = true
                 }
             )
             .frame(width: drawerWidth)

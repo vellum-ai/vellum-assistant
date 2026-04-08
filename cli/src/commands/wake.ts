@@ -59,6 +59,13 @@ export async function wake(): Promise<void> {
     return;
   }
 
+  if (entry.cloud === "apple-container") {
+    console.error(
+      `Error: '${entry.assistantId}' uses the Apple Containers runtime. Its lifecycle is managed by the macOS app — use the app to start it.`,
+    );
+    process.exit(1);
+  }
+
   if (entry.cloud && entry.cloud !== "local") {
     console.error(
       `Error: 'vellum wake' only works with local and docker assistants. '${entry.assistantId}' is a ${entry.cloud} instance.`,

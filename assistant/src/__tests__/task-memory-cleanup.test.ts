@@ -736,24 +736,24 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
     expect(isConversationFailed(otherConvId)).toBe(false);
   });
 
-  test("cancels pending extract_items jobs for the failed conversation", () => {
+  test("cancels pending graph_extract jobs for the failed conversation", () => {
     seedConversations();
     seedMessages();
 
     const db = getDb();
 
-    // Enqueue extract_items jobs for messages in the target conversation
-    enqueueMemoryJob("extract_items", {
-      messageId: "msg-task-1",
+    // Enqueue graph_extract jobs for the target conversation
+    enqueueMemoryJob("graph_extract", {
+      conversationId: convId,
       scopeId: "default",
     });
-    enqueueMemoryJob("extract_items", {
-      messageId: "msg-task-2",
+    enqueueMemoryJob("graph_extract", {
+      conversationId: convId,
       scopeId: "default",
     });
-    // Enqueue an extract_items job for a message in a different conversation
-    enqueueMemoryJob("extract_items", {
-      messageId: "msg-other",
+    // Enqueue a graph_extract job for a different conversation
+    enqueueMemoryJob("graph_extract", {
+      conversationId: otherConvId,
       scopeId: "default",
     });
 
@@ -761,7 +761,7 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
     const pendingBefore = db
       .select()
       .from(memoryJobs)
-      .where(eq(memoryJobs.type, "extract_items"))
+      .where(eq(memoryJobs.type, "graph_extract"))
       .all();
     expect(pendingBefore.filter((j) => j.status === "pending")).toHaveLength(3);
 
@@ -771,7 +771,7 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
     const allJobs = db
       .select()
       .from(memoryJobs)
-      .where(eq(memoryJobs.type, "extract_items"))
+      .where(eq(memoryJobs.type, "graph_extract"))
       .all();
     const failedJobs = allJobs.filter((j) => j.status === "failed");
     const pendingJobs = allJobs.filter((j) => j.status === "pending");
@@ -785,6 +785,6 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
     // The job for the other conversation should remain pending
     expect(pendingJobs).toHaveLength(1);
     const payload = JSON.parse(pendingJobs[0].payload);
-    expect(payload.messageId).toBe("msg-other");
+    expect(payload.conversationId).toBe(otherConvId);
   });
 });

@@ -221,19 +221,49 @@ public final class AuthService {
         }
     }
 
-    // MARK: - Platform Assistant API
+    // MARK: - Platform Request Helper
 
-    /// Retrieve a specific managed assistant by ID.
-    public func getAssistant(id: String, organizationId: String) async throws -> PlatformAssistantResult {
-        let urlString = "\(baseURL)/v1/assistants/\(id)/"
+    /// Raw result of a platform HTTP request — status code + body data.
+    /// Callers interpret the status code themselves, because different
+    /// endpoints treat 404/403 as either typed values or thrown errors.
+    private struct PlatformResponse {
+        let data: Data
+        let statusCode: Int
+    }
+
+    /// Dispatch an authenticated platform API request and return the raw
+    /// response. Centralizes URL construction, JSON headers, session-token
+    /// injection, network-error mapping, and status-code logging — the
+    /// boilerplate that used to be duplicated across every `v1/...` endpoint.
+    ///
+    /// Callers handle status codes themselves because endpoints disagree on
+    /// semantics (e.g. `getAssistant` returns `.notFound` on 404 as a value,
+    /// `refreshAssistant` throws on 404).
+    private func performPlatformRequest(
+        path: String,
+        method: String,
+        organizationId: String?,
+        body: Data? = nil,
+        timeoutInterval: TimeInterval? = nil
+    ) async throws -> PlatformResponse {
+        let urlString = "\(baseURL)/\(path)"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
 
         var urlRequest = URLRequest(url: url)
-        urlRequest.httpMethod = "GET"
+        urlRequest.httpMethod = method
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
-        urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
+        if body != nil {
+            urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            urlRequest.httpBody = body
+        }
+        if let organizationId {
+            urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
+        }
+        if let timeoutInterval {
+            urlRequest.timeoutInterval = timeoutInterval
+        }
 
         if let token = await SessionTokenManager.getTokenAsync() {
             urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
@@ -249,33 +279,73 @@ public final class AuthService {
             throw PlatformAPIError.networkError(error.localizedDescription)
         }
 
-        let httpResponse = response as? HTTPURLResponse
-        let statusCode = httpResponse?.statusCode ?? 0
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        log.debug("Platform request \(method) \(path) -> \(statusCode)")
+        return PlatformResponse(data: data, statusCode: statusCode)
+    }
 
-        log.debug("Platform request GET assistants/\(id)/ -> \(statusCode)")
+    // MARK: - Platform Assistant API
 
-        if statusCode == 404 {
+    /// Retrieve a specific managed assistant by ID.
+    public func getAssistant(id: String, organizationId: String) async throws -> PlatformAssistantResult {
+        let response = try await performPlatformRequest(
+            path: "v1/assistants/\(id)/",
+            method: "GET",
+            organizationId: organizationId
+        )
+
+        switch response.statusCode {
+        case 404:
             return .notFound
-        }
-
-        if statusCode == 403 {
+        case 403:
             return .accessDenied
-        }
-
-        if statusCode == 401 {
+        case 401:
             throw PlatformAPIError.authenticationRequired
+        case 200..<300:
+            do {
+                return .found(try JSONDecoder().decode(PlatformAssistant.self, from: response.data))
+            } catch {
+                throw PlatformAPIError.decodingError(error.localizedDescription)
+            }
+        default:
+            throw PlatformAPIError.serverError(
+                statusCode: response.statusCode,
+                detail: String(data: response.data, encoding: .utf8)
+            )
         }
+    }
 
-        guard (200..<300).contains(statusCode) else {
-            let detail = String(data: data, encoding: .utf8)
-            throw PlatformAPIError.serverError(statusCode: statusCode, detail: detail)
-        }
+    /// List managed assistants visible to the caller in the given organization.
+    ///
+    /// Used by the multi-assistant bootstrap flow to discover existing assistants
+    /// when a previously-connected assistant ID is no longer found (404). The
+    /// platform caps each org at 5 managed assistants, which always fits in a
+    /// single page, so pagination is not needed. Callers assume the platform
+    /// returns newest-first and take `results.first`.
+    public func listAssistants(organizationId: String) async throws -> [PlatformAssistant] {
+        let response = try await performPlatformRequest(
+            path: "v1/assistants/",
+            method: "GET",
+            organizationId: organizationId
+        )
 
-        do {
-            let assistant = try JSONDecoder().decode(PlatformAssistant.self, from: data)
-            return .found(assistant)
-        } catch {
-            throw PlatformAPIError.decodingError(error.localizedDescription)
+        switch response.statusCode {
+        case 401:
+            throw PlatformAPIError.authenticationRequired
+        case 403:
+            throw PlatformAPIError.accessDenied(detail: "Access denied")
+        case 200..<300:
+            do {
+                let paginated = try JSONDecoder().decode(PaginatedPlatformAssistantsResponse.self, from: response.data)
+                return paginated.results
+            } catch {
+                throw PlatformAPIError.decodingError(error.localizedDescription)
+            }
+        default:
+            throw PlatformAPIError.serverError(
+                statusCode: response.statusCode,
+                detail: String(data: response.data, encoding: .utf8)
+            )
         }
     }
 
@@ -287,81 +357,53 @@ public final class AuthService {
         description: String? = nil,
         anthropicApiKey: String? = nil
     ) async throws -> HatchAssistantResult {
-        let urlString = "\(baseURL)/v1/assistants/hatch/"
-        guard let url = URL(string: urlString) else {
-            throw PlatformAPIError.invalidURL
-        }
-
-        var urlRequest = URLRequest(url: url)
-        urlRequest.httpMethod = "POST"
-        urlRequest.timeoutInterval = 30
-        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
-        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
-
-        if let token = await SessionTokenManager.getTokenAsync() {
-            urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
-        } else {
-            throw PlatformAPIError.authenticationRequired
-        }
-
         let requestBody = HatchAssistantRequest(
             name: name,
             description: description,
             anthropic_api_key: anthropicApiKey
         )
-        let encoder = JSONEncoder()
-        urlRequest.httpBody = try encoder.encode(requestBody)
+        let bodyData = try JSONEncoder().encode(requestBody)
 
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await URLSession.shared.data(for: urlRequest)
-        } catch {
-            throw PlatformAPIError.networkError(error.localizedDescription)
-        }
+        let response = try await performPlatformRequest(
+            path: "v1/assistants/hatch/",
+            method: "POST",
+            organizationId: organizationId,
+            body: bodyData,
+            timeoutInterval: 30
+        )
 
-        let httpResponse = response as? HTTPURLResponse
-        let statusCode = httpResponse?.statusCode ?? 0
-
-        log.debug("Platform request POST assistants/hatch/ -> \(statusCode)")
-
-        if statusCode == 401 {
+        if response.statusCode == 401 {
             throw PlatformAPIError.authenticationRequired
         }
 
-        if statusCode == 403 {
+        if response.statusCode == 403 {
             // Surface the server's detail message (e.g. "Hatching is not
             // currently available for your account.") instead of collapsing
             // all 403s into a generic "Authentication required" error.
             let detail: String
-            if let body = try? JSONDecoder().decode([String: String].self, from: data),
+            if let body = try? JSONDecoder().decode([String: String].self, from: response.data),
                let message = body["detail"] {
                 detail = message
             } else {
-                let raw = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let raw = String(data: response.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
                 detail = (raw?.isEmpty == false) ? raw! : "Access denied"
             }
             throw PlatformAPIError.accessDenied(detail: detail)
         }
 
-        guard (200..<300).contains(statusCode) else {
-            let detail = String(data: data, encoding: .utf8)
-            throw PlatformAPIError.serverError(statusCode: statusCode, detail: detail)
+        guard (200..<300).contains(response.statusCode) else {
+            let detail = String(data: response.data, encoding: .utf8)
+            throw PlatformAPIError.serverError(statusCode: response.statusCode, detail: detail)
         }
 
         let assistant: PlatformAssistant
         do {
-            assistant = try JSONDecoder().decode(PlatformAssistant.self, from: data)
+            assistant = try JSONDecoder().decode(PlatformAssistant.self, from: response.data)
         } catch {
             throw PlatformAPIError.decodingError(error.localizedDescription)
         }
 
-        if statusCode == 200 {
-            return .reusedExisting(assistant)
-        } else {
-            return .createdNew(assistant)
-        }
+        return response.statusCode == 200 ? .reusedExisting(assistant) : .createdNew(assistant)
     }
 
     // MARK: - Recovery Mode

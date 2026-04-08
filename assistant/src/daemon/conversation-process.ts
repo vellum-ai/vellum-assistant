@@ -15,7 +15,11 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
-import { parseChannelId, parseInterfaceId } from "../channels/types.js";
+import {
+  parseChannelId,
+  parseInterfaceId,
+  supportsHostProxy,
+} from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import type { ContextWindowResult } from "../context/window-manager.js";
 import { listPendingRequestsByConversationScope } from "../memory/canonical-guardian-store.js";
@@ -44,6 +48,7 @@ import type {
   UserMessageAttachment,
 } from "./message-protocol.js";
 import type { TraceEmitter } from "./trace-emitter.js";
+import { buildTransportHints } from "./transport-hints.js";
 import { resolveVerificationSessionIntent } from "./verification-session-intent.js";
 
 const log = getLogger("conversation-process");
@@ -54,7 +59,8 @@ export function formatCompactResult(result: ContextWindowResult): string {
   if (!result.compacted) {
     return `Context compaction skipped — ${result.reason ?? "nothing to compact"}.`;
   }
-  const saved = result.previousEstimatedInputTokens - result.estimatedInputTokens;
+  const saved =
+    result.previousEstimatedInputTokens - result.estimatedInputTokens;
   return [
     "Context Compacted\n",
     `Tokens:   ${fmt(result.previousEstimatedInputTokens)} → ${fmt(result.estimatedInputTokens)} (${fmt(saved)} saved)`,
@@ -130,6 +136,8 @@ export interface ProcessConversationContext {
   clearProxyAvailability(): void;
   /** Restore host proxy availability based on whether a real client is connected. */
   restoreProxyAvailability(): void;
+  /** Restore only the host browser proxy (used by chrome-extension drains). */
+  restoreBrowserProxyAvailability(): void;
   emitActivityState(
     phase:
       | "idle"
@@ -156,6 +164,8 @@ export interface ProcessConversationContext {
   ): void;
   /** Force context compaction regardless of threshold/cooldown. */
   forceCompact(): Promise<ContextWindowResult>;
+  /** Set transport-derived hints for the conversation. */
+  setTransportHints(hints: string[] | undefined): void;
 }
 
 function resolveQueuedTurnContext(
@@ -289,19 +299,45 @@ export async function drainQueue(
     conversation.setTurnInterfaceContext(queuedInterfaceCtx);
   }
 
+  // Apply transport hints from the queued message so each turn uses the
+  // transport metadata that arrived with its message. Messages without
+  // transport (subagent notifications, surface actions, etc.) inherit the
+  // conversation's existing hints — clearing them would erase the user's
+  // environment context for internal turns.
+  if (next.transport) {
+    conversation.setTransportHints(buildTransportHints(next.transport));
+  }
+
   // Non-interactive queued messages (channel requests) must not execute tools
   // via the desktop host proxy. Clear proxy availability so isAvailable()
   // returns false and tool execution falls back to local.
   if (next.isInteractive === false) {
     conversation.clearProxyAvailability();
+    // chrome-extension is non-interactive (no SSE prompter UI) but DOES have
+    // a connected client that can service host_browser_request events. The
+    // unconditional clear above turned its hostBrowserProxy off; restore it
+    // here so the queued turn can still drive the browser via CDP.
+    const drainInterfaceCtx =
+      queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
+    const drainInterface = drainInterfaceCtx?.userMessageInterface;
+    if (
+      drainInterface &&
+      !supportsHostProxy(drainInterface) &&
+      supportsHostProxy(drainInterface, "host_browser")
+    ) {
+      conversation.restoreBrowserProxyAvailability();
+    }
   } else {
-    // Restore proxy availability only for desktop-originating turns (macos/ios)
+    // Restore proxy availability only for desktop-originating turns (macos)
     // in case a prior non-interactive drain disabled it. Non-desktop interactive
-    // interfaces (CLI, Vellum) should not re-enable desktop host proxies.
+    // interfaces (CLI, Vellum) should not re-enable desktop host proxies. The
+    // chrome-extension interface only supports host_browser, not the desktop
+    // proxies or computer-use, so it is excluded by the no-arg form of
+    // supportsHostProxy (which returns false for chrome-extension).
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
     const sourceInterface = interfaceCtx?.userMessageInterface;
-    if (sourceInterface === "macos" || sourceInterface === "ios") {
+    if (sourceInterface && supportsHostProxy(sourceInterface)) {
       conversation.restoreProxyAvailability();
       conversation.addPreactivatedSkillId("computer-use");
     }
@@ -310,7 +346,8 @@ export async function drainQueue(
   // Snapshot persona context at turn start so later tool turns can't pick up
   // a different actor's context if a concurrent request mutates the live fields.
   conversation.currentTurnTrustContext = conversation.trustContext;
-  conversation.currentTurnChannelCapabilities = conversation.channelCapabilities;
+  conversation.currentTurnChannelCapabilities =
+    conversation.channelCapabilities;
 
   // Resolve slash commands for queued messages
   const slashResult = await resolveSlash(
@@ -671,7 +708,8 @@ export async function processMessage(
   // Snapshot persona context at turn start so later tool turns can't pick up
   // a different actor's context if a concurrent request mutates the live fields.
   conversation.currentTurnTrustContext = conversation.trustContext;
-  conversation.currentTurnChannelCapabilities = conversation.channelCapabilities;
+  conversation.currentTurnChannelCapabilities =
+    conversation.channelCapabilities;
   conversation.currentActiveSurfaceId = activeSurfaceId;
   conversation.currentPage = currentPage;
   const trimmedContent = content.trim();
@@ -880,7 +918,9 @@ export async function processMessage(
     try {
       const pmTurnCtx = conversation.getTurnChannelContext();
       const pmInterfaceCtx = conversation.getTurnInterfaceContext();
-      const pmProvenance = provenanceFromTrustContext(conversation.trustContext);
+      const pmProvenance = provenanceFromTrustContext(
+        conversation.trustContext,
+      );
       const pmChannelMeta = {
         ...pmProvenance,
         ...(pmTurnCtx
@@ -892,7 +932,8 @@ export async function processMessage(
         ...(pmInterfaceCtx
           ? {
               userMessageInterface: pmInterfaceCtx.userMessageInterface,
-              assistantMessageInterface: pmInterfaceCtx.assistantMessageInterface,
+              assistantMessageInterface:
+                pmInterfaceCtx.assistantMessageInterface,
             }
           : {}),
       };

@@ -148,9 +148,9 @@ let disconnectOAuthProviderResult: "disconnected" | "not-found" | "error" =
 
 mock.module("../oauth/oauth-store.js", () => ({
   disconnectOAuthProvider: async (
-    providerKey: string,
+    provider: string,
   ): Promise<"disconnected" | "not-found" | "error"> => {
-    disconnectOAuthProviderCalls.push(providerKey);
+    disconnectOAuthProviderCalls.push(provider);
     return disconnectOAuthProviderResult;
   },
   getConnectionByProvider: (): undefined => undefined,

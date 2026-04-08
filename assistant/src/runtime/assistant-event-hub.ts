@@ -156,6 +156,28 @@ export class AssistantEventHub {
     }
   }
 
+  /**
+   * Returns true when at least one active subscriber would receive the given
+   * event based on the same assistant/conversation matching rules as publish().
+   */
+  hasSubscribersForEvent(
+    event: Pick<AssistantEvent, "assistantId" | "conversationId">,
+  ): boolean {
+    for (const entry of this.subscribers) {
+      if (!entry.active) continue;
+      if (entry.filter.assistantId !== event.assistantId) continue;
+      if (
+        event.conversationId != null &&
+        entry.filter.conversationId != null &&
+        entry.filter.conversationId !== event.conversationId
+      ) {
+        continue;
+      }
+      return true;
+    }
+    return false;
+  }
+
   /** Number of currently active subscribers (useful for tests and caps). */
   subscriberCount(): number {
     return this.subscribers.size;

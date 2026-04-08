@@ -41,6 +41,10 @@ export interface ConversationCreatedInfo {
   sourceEventName: string;
   /** Present when the conversation is for a guardian-sensitive notification. */
   targetGuardianPrincipalId?: string;
+  /** Conversation group identifier from the signal producer (e.g. "system:scheduled"). */
+  groupId?: string;
+  /** Semantic source from the signal producer (e.g. "schedule", "reminder"). */
+  source?: string;
 }
 export type OnConversationCreatedFn = (info: ConversationCreatedInfo) => void;
 export interface BroadcastDecisionOptions {
@@ -238,6 +242,8 @@ export class NotificationBroadcaster {
           title: conversationTitle,
           sourceEventName: signal.sourceEventName,
           targetGuardianPrincipalId,
+          groupId: signal.conversationMetadata?.groupId,
+          source: signal.conversationMetadata?.source,
         };
 
         // The per-dispatch onConversationCreated callback fires whenever a vellum

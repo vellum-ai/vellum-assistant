@@ -188,7 +188,7 @@ describe("z.toJSONSchema integration", () => {
     expect(properties.calls).toBeDefined();
     expect(properties.memory).toBeDefined();
     expect(properties.timeouts).toBeDefined();
-    expect(properties.sandbox).toBeDefined();
+    expect(properties.permissions).toBeDefined();
   });
 
   test("full schema emits real properties for transformed fields (ingress)", () => {

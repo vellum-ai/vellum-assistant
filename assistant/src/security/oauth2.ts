@@ -33,13 +33,13 @@ export type TokenEndpointAuthMethod =
   | "client_secret_post";
 
 export interface OAuth2Config {
-  authUrl: string;
-  tokenUrl: string;
+  authorizeUrl: string;
+  tokenExchangeUrl: string;
   scopes: string[];
   clientId: string;
   /** Client secret for providers that require it (e.g. Slack). PKCE is always used regardless. */
   clientSecret?: string;
-  extraParams?: Record<string, string>;
+  authorizeParams?: Record<string, string>;
   /** URL to fetch user identity info after OAuth. If omitted, account info is not fetched. */
   userinfoUrl?: string;
   /**
@@ -49,6 +49,13 @@ export interface OAuth2Config {
    * Defaults to `client_secret_post`.
    */
   tokenEndpointAuthMethod?: TokenEndpointAuthMethod;
+  /**
+   * Separator used to join scopes in the authorize URL and split the
+   * granted-scope string returned by the token endpoint. Defaults to
+   * `" "` (space) per the OAuth 2.0 spec, but providers like Linear
+   * use `","` (comma).
+   */
+  scopeSeparator: string;
 }
 
 export interface OAuth2TokenResult {
@@ -130,7 +137,7 @@ async function exchangeCodeForTokens(
     }
   }
 
-  const tokenResp = await fetch(config.tokenUrl, {
+  const tokenResp = await fetch(config.tokenExchangeUrl, {
     method: "POST",
     headers,
     body: new URLSearchParams(tokenBody),
@@ -187,9 +194,19 @@ async function exchangeCodeForTokens(
       (tokenData.token_type as string | undefined),
   };
 
+  // Defensive split: providers (e.g. GitHub, Slack) may return comma-separated
+  // scopes in token responses regardless of the scope_separator used to join
+  // outbound authorize URLs, so we tolerate both spaces and commas here. When
+  // a provider explicitly configures a non-default separator (e.g. Linear uses
+  // ","), we honor that to keep symmetric round-tripping of configured scopes.
+  const splitPattern =
+    config.scopeSeparator === " " ? /[ ,]/ : config.scopeSeparator;
   const grantedScopes =
     typeof tokens.scope === "string"
-      ? tokens.scope.split(/[ ,]/).filter(Boolean)
+      ? tokens.scope
+          .split(splitPattern)
+          .map((s) => s.trim())
+          .filter(Boolean)
       : [...config.scopes];
 
   return { tokens, grantedScopes, rawTokenResponse: tokenData };
@@ -228,18 +245,18 @@ async function runGatewayFlow(
   });
 
   const authParams = new URLSearchParams({
-    ...config.extraParams,
+    ...config.authorizeParams,
     client_id: config.clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: config.scopes.join(" "),
+    scope: config.scopes.join(config.scopeSeparator),
     state,
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
   });
 
-  const authUrl = `${config.authUrl}?${authParams}`;
-  callbacks.openUrl(authUrl);
+  const authorizeUrl = `${config.authorizeUrl}?${authParams}`;
+  callbacks.openUrl(authorizeUrl);
 
   const code = await codePromise;
 
@@ -401,22 +418,22 @@ function startLoopbackServerAndWaitForCode(
       );
 
       const authParams = new URLSearchParams({
-        ...config.extraParams,
+        ...config.authorizeParams,
         client_id: config.clientId,
         redirect_uri: boundRedirectUri,
         response_type: "code",
-        scope: config.scopes.join(" "),
+        scope: config.scopes.join(config.scopeSeparator),
         state,
         code_challenge: codeChallenge,
         code_challenge_method: "S256",
       });
 
-      const authUrl = `${config.authUrl}?${authParams}`;
+      const authorizeUrl = `${config.authorizeUrl}?${authParams}`;
       log.info(
-        { authUrlLength: authUrl.length, state },
+        { authorizeUrlLength: authorizeUrl.length, state },
         "oauth2 loopback: built auth URL, calling openUrl callback",
       );
-      callbacks.openUrl(authUrl);
+      callbacks.openUrl(authorizeUrl);
       log.info("oauth2 loopback: openUrl callback returned");
     });
 
@@ -439,7 +456,7 @@ function startLoopbackServerAndWaitForCode(
 // ---------------------------------------------------------------------------
 
 export interface OAuth2PreparedFlow {
-  authUrl: string;
+  authorizeUrl: string;
   state: string;
   /** Resolves when the user completes authorization and tokens are exchanged. */
   completion: Promise<OAuth2FlowResult>;
@@ -493,17 +510,17 @@ export async function prepareOAuth2Flow(
   });
 
   const authParams = new URLSearchParams({
-    ...config.extraParams,
+    ...config.authorizeParams,
     client_id: config.clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: config.scopes.join(" "),
+    scope: config.scopes.join(config.scopeSeparator),
     state,
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
   });
 
-  const authUrl = `${config.authUrl}?${authParams}`;
+  const authorizeUrl = `${config.authorizeUrl}?${authParams}`;
 
   const completion = codePromise.then(async (code) => {
     return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier);
@@ -511,7 +528,7 @@ export async function prepareOAuth2Flow(
 
   log.debug({ transport: "gateway", state }, "Prepared deferred OAuth2 flow");
 
-  return { authUrl, state, completion };
+  return { authorizeUrl, state, completion };
 }
 
 /**
@@ -533,17 +550,17 @@ async function prepareLoopbackFlow(
   );
 
   const authParams = new URLSearchParams({
-    ...config.extraParams,
+    ...config.authorizeParams,
     client_id: config.clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: config.scopes.join(" "),
+    scope: config.scopes.join(config.scopeSeparator),
     state,
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
   });
 
-  const authUrl = `${config.authUrl}?${authParams}`;
+  const authorizeUrl = `${config.authorizeUrl}?${authParams}`;
 
   const completion = codePromise.then(async (code) => {
     return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier);
@@ -554,7 +571,7 @@ async function prepareLoopbackFlow(
     "Prepared deferred OAuth2 flow (loopback)",
   );
 
-  return { authUrl, state, completion };
+  return { authorizeUrl, state, completion };
 }
 
 /**
@@ -763,7 +780,7 @@ export async function startOAuth2Flow(
  * Supports both PKCE (no secret) and client_secret flows.
  */
 export async function refreshOAuth2Token(
-  tokenUrl: string,
+  tokenExchangeUrl: string,
   clientId: string,
   refreshToken: string,
   clientSecret?: string,
@@ -792,7 +809,7 @@ export async function refreshOAuth2Token(
     }
   }
 
-  const resp = await fetch(tokenUrl, {
+  const resp = await fetch(tokenExchangeUrl, {
     method: "POST",
     headers,
     body: new URLSearchParams(body),

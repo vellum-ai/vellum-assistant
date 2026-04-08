@@ -32,6 +32,7 @@ export interface ExecutorResult {
 export interface AppStoreReader {
   getApp(id: string): AppDefinition | null;
   listApps(): AppDefinition[];
+  appFileExists(appId: string, path: string): boolean;
 }
 
 export interface AppStoreWriter {
@@ -183,8 +184,16 @@ function App() {
 render(<App />, document.getElementById('app')!);
 `;
 
-    store.writeAppFile(app.id, "src/index.html", indexHtml);
-    store.writeAppFile(app.id, "src/main.tsx", mainTsx);
+    // Only write scaffold files when they don't already exist on disk.
+    // The LLM may have written custom source files via file_write before
+    // calling app_create, and overwriting them would destroy the real app
+    // content, leaving only the scaffold placeholder.
+    if (!store.appFileExists(app.id, "src/index.html")) {
+      store.writeAppFile(app.id, "src/index.html", indexHtml);
+    }
+    if (!store.appFileExists(app.id, "src/main.tsx")) {
+      store.writeAppFile(app.id, "src/main.tsx", mainTsx);
+    }
 
     // Compile src/ → dist/
     const appDir = getAppDirPath(app.id);
@@ -277,10 +286,10 @@ export interface AppRefreshInput {
   app_id: string;
 }
 
-export function executeAppRefresh(
+export async function executeAppRefresh(
   input: AppRefreshInput,
   store: AppStore,
-): ExecutorResult {
+): Promise<ExecutorResult> {
   const app = store.getApp(input.app_id);
   if (!app) {
     return {
@@ -289,9 +298,34 @@ export function executeAppRefresh(
     };
   }
 
-  // Empty update bumps updatedAt timestamp, triggering recompilation and
-  // surface refresh on the client side.
+  // Empty update bumps updatedAt timestamp, triggering surface refresh on
+  // the client side.
   const updated = store.updateApp(input.app_id, {});
+
+  // Multifile apps need an explicit compile so the LLM sees any errors
+  // (bad imports, syntax issues, etc.) instead of silently serving the
+  // stale scaffold placeholder from the initial app_create.
+  if (app.formatVersion === 2) {
+    const appDir = getAppDirPath(input.app_id);
+    const compileResult = await compileApp(appDir);
+    return {
+      content: JSON.stringify({
+        refreshed: true,
+        appId: updated.id,
+        name: updated.name,
+        compiled: compileResult.ok,
+        ...(compileResult.ok
+          ? { compile_duration_ms: compileResult.durationMs }
+          : {
+              compile_errors: compileResult.errors,
+              compile_warnings: compileResult.warnings,
+              compile_duration_ms: compileResult.durationMs,
+            }),
+      }),
+      isError: false,
+    };
+  }
+
   return {
     content: JSON.stringify({
       refreshed: true,

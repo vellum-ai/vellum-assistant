@@ -24,26 +24,30 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 function makeProviderRow(
-  overrides: Partial<OAuthProviderRow> & { providerKey: string },
+  overrides: Partial<OAuthProviderRow> & { provider: string },
 ): OAuthProviderRow {
   const now = Date.now();
-  const { providerKey, ...rest } = overrides;
+  const { provider, ...rest } = overrides;
   return {
-    providerKey,
-    authUrl: "https://example.com/auth",
-    tokenUrl: "https://example.com/token",
-    tokenEndpointAuthMethod: null,
+    provider,
+    authorizeUrl: "https://example.com/auth",
+    tokenExchangeUrl: "https://example.com/token",
+    refreshUrl: null,
+    tokenEndpointAuthMethod: "client_secret_post",
     userinfoUrl: null,
     baseUrl: null,
     defaultScopes: "[]",
     scopePolicy: "{}",
-    extraParams: null,
+    scopeSeparator: " ",
+    authorizeParams: null,
     pingUrl: null,
     pingMethod: null,
     pingHeaders: null,
     pingBody: null,
+    revokeUrl: null,
+    revokeBodyTemplate: null,
     managedServiceConfigKey: null,
-    displayName: null,
+    displayLabel: null,
     description: null,
     dashboardUrl: null,
     clientIdPlaceholder: null,
@@ -82,7 +86,7 @@ describe("verifyIdentity", () => {
   // Missing identity URL
   // -----------------------------------------------------------------------
   test("returns undefined when identityUrl is null", async () => {
-    const row = makeProviderRow({ providerKey: "custom" });
+    const row = makeProviderRow({ provider: "custom" });
     const result = await verifyIdentity(row, "token-abc");
     expect(result).toBeUndefined();
     expect(mockFetch).not.toHaveBeenCalled();
@@ -93,7 +97,7 @@ describe("verifyIdentity", () => {
   // -----------------------------------------------------------------------
   describe("Google pattern", () => {
     const googleRow = makeProviderRow({
-      providerKey: "google",
+      provider: "google",
       identityUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
       identityResponsePaths: JSON.stringify(["email"]),
     });
@@ -127,7 +131,7 @@ describe("verifyIdentity", () => {
   // -----------------------------------------------------------------------
   describe("Slack pattern", () => {
     const slackRow = makeProviderRow({
-      providerKey: "slack",
+      provider: "slack",
       identityUrl: "https://slack.com/api/auth.test",
       identityOkField: "ok",
       identityResponsePaths: JSON.stringify(["user", "team"]),
@@ -176,7 +180,7 @@ describe("verifyIdentity", () => {
   // -----------------------------------------------------------------------
   describe("HubSpot pattern", () => {
     const hubspotRow = makeProviderRow({
-      providerKey: "hubspot",
+      provider: "hubspot",
       identityUrl:
         "https://api.hubapi.com/oauth/v1/access-tokens/${accessToken}",
       identityResponsePaths: JSON.stringify(["user", "hub_domain"]),
@@ -219,7 +223,7 @@ describe("verifyIdentity", () => {
   // -----------------------------------------------------------------------
   describe("Linear pattern", () => {
     const linearRow = makeProviderRow({
-      providerKey: "linear",
+      provider: "linear",
       identityUrl: "https://api.linear.app/graphql",
       identityMethod: "POST",
       identityHeaders: JSON.stringify({ "Content-Type": "application/json" }),
@@ -272,7 +276,7 @@ describe("verifyIdentity", () => {
   // -----------------------------------------------------------------------
   describe("Todoist pattern", () => {
     const todoistRow = makeProviderRow({
-      providerKey: "todoist",
+      provider: "todoist",
       identityUrl: "https://api.todoist.com/sync/v9/sync",
       identityMethod: "POST",
       identityHeaders: JSON.stringify({
@@ -317,7 +321,7 @@ describe("verifyIdentity", () => {
   // -----------------------------------------------------------------------
   describe("Twitter pattern", () => {
     const twitterRow = makeProviderRow({
-      providerKey: "twitter",
+      provider: "twitter",
       identityUrl: "https://api.x.com/2/users/me",
       identityResponsePaths: JSON.stringify(["data.username"]),
       identityFormat: "@${data.username}",
@@ -338,7 +342,7 @@ describe("verifyIdentity", () => {
   // -----------------------------------------------------------------------
   describe("GitHub pattern", () => {
     const githubRow = makeProviderRow({
-      providerKey: "github",
+      provider: "github",
       identityUrl: "https://api.github.com/user",
       identityResponsePaths: JSON.stringify(["login"]),
       identityFormat: "@${login}",
@@ -357,7 +361,7 @@ describe("verifyIdentity", () => {
   // -----------------------------------------------------------------------
   describe("Notion pattern", () => {
     const notionRow = makeProviderRow({
-      providerKey: "notion",
+      provider: "notion",
       identityUrl: "https://api.notion.com/v1/users/me",
       identityHeaders: JSON.stringify({ "Notion-Version": "2022-06-28" }),
       identityResponsePaths: JSON.stringify(["name", "person.email"]),
@@ -392,7 +396,7 @@ describe("verifyIdentity", () => {
   // -----------------------------------------------------------------------
   describe("error handling", () => {
     const googleRow = makeProviderRow({
-      providerKey: "google",
+      provider: "google",
       identityUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
       identityResponsePaths: JSON.stringify(["email"]),
     });
@@ -431,7 +435,7 @@ describe("verifyIdentity", () => {
   // -----------------------------------------------------------------------
   describe("Dropbox pattern", () => {
     const dropboxRow = makeProviderRow({
-      providerKey: "dropbox",
+      provider: "dropbox",
       identityUrl: "https://api.dropboxapi.com/2/users/get_current_account",
       identityMethod: "POST",
       identityResponsePaths: JSON.stringify(["name.display_name", "email"]),

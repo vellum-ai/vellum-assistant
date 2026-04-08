@@ -36,7 +36,6 @@ const mockConfig = {
     entropyThreshold: 4.0,
   },
   auditLog: { retentionDays: 0 },
-  sandbox: { enabled: true },
 };
 
 // Track whether wrapCommand was ever called — host_bash must never invoke it
@@ -149,10 +148,6 @@ describe("host_bash tool", () => {
     const dir = mkdtempSync(join(tmpdir(), "host-shell-plain-"));
     testDirs.push(dir);
 
-    // Verify the tool executes successfully even when sandbox is enabled in config,
-    // proving it bypasses the sandbox entirely
-    expect(mockConfig.sandbox.enabled).toBe(true);
-
     spawnCalls.length = 0;
 
     const result = await hostShellTool.execute(
@@ -236,10 +231,7 @@ describe("host_bash — baseline: no sandbox isolation", () => {
     expect(spawnCalls[0].args[2]).toBe("ls -la /tmp");
   });
 
-  test("sandbox config being enabled does not affect host_bash", async () => {
-    // The mock config has sandbox.enabled = true
-    expect(mockConfig.sandbox.enabled).toBe(true);
-
+  test("host_bash always spawns plain bash without wrapCommand", async () => {
     const dir = mkdtempSync(join(tmpdir(), "host-shell-sandbox-cfg-"));
     testDirs.push(dir);
 
@@ -255,9 +247,7 @@ describe("host_bash — baseline: no sandbox isolation", () => {
     );
 
     expect(result.isError).toBe(false);
-    // Must never call wrapCommand regardless of config
     expect(wrapCommandCallCount).toBe(0);
-    // Must still spawn plain bash
     expect(spawnCalls[0].command).toBe("bash");
   });
 });

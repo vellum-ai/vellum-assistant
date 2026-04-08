@@ -127,21 +127,34 @@ Use the following heuristics to pick `routing_intent`:
 
 - **Default to `all_channels`** for most reminders. Users setting reminders usually want to be notified wherever they are, and redundant notifications are less harmful than missed ones.
 - **Use `single_channel`** only when the user explicitly specifies a single channel (e.g. "remind me on Telegram") or the reminder is low-stakes and noise reduction matters.
-- **Check the `source_channel` field** from the `<turn_context>` block (not `interface` — interface values like `macos`, `ios`, `cli` are not valid channel names). If present, always include it as a routing hint:
+- **Determine the originating channel** for routing hints using this priority:
+  1. **`source_channel`** from `<turn_context>` — use directly if present. This is the authoritative channel name.
+  2. **`interface` fallback** — if `source_channel` is absent (common for guardian/direct users), map the `interface` value to a channel name:
+     | `interface` value | Channel name |
+     | --- | --- |
+     | `macos`, `ios` | `vellum` |
+     | `telegram` | `telegram` |
+     | `slack` | `slack` |
+     | `cli` | _(omit — no routable channel)_ |
+  3. If neither field is present or the interface is `cli`, omit `preferred_channels`.
+
+  When a channel is determined, include it as a routing hint:
   ```
-  routing_hints: { preferred_channels: ["<source_channel value>"] }
+  routing_hints: { preferred_channels: ["<resolved channel>"] }
   routing_intent: "all_channels"
   ```
 - **Never use `single_channel` as a passive default.** If you haven't thought about which channel to use, use `all_channels`.
 
 ### Examples
 
-| Scenario                            | routing_intent   | routing_hints                          |
-| ----------------------------------- | ---------------- | -------------------------------------- |
-| User sets reminder from desktop app | `all_channels`   | `{ preferred_channels: ["vellum"] }`   |
-| User says "remind me on Telegram"   | `single_channel` | `{ preferred_channels: ["telegram"] }` |
-| User sets reminder from Telegram    | `all_channels`   | `{ preferred_channels: ["telegram"] }` |
-| No channel preference expressed     | `all_channels`   | `{}`                                   |
+| Scenario                                                    | routing_intent   | routing_hints                          |
+| ----------------------------------------------------------- | ---------------- | -------------------------------------- |
+| `source_channel: telegram` in turn_context                  | `all_channels`   | `{ preferred_channels: ["telegram"] }` |
+| No `source_channel`, `interface: macos`                     | `all_channels`   | `{ preferred_channels: ["vellum"] }`   |
+| No `source_channel`, `interface: ios`                       | `all_channels`   | `{ preferred_channels: ["vellum"] }`   |
+| User says "remind me on Telegram"                           | `single_channel` | `{ preferred_channels: ["telegram"] }` |
+| No `source_channel`, `interface: cli`                       | `all_channels`   | `{}`                                   |
+| No channel info available                                   | `all_channels`   | `{}`                                   |
 
 ## Tool Summary
 

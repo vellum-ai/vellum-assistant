@@ -81,16 +81,17 @@ struct MessageListView: View {
     /// the state; persisted back in `handleSendingChanged()` when flipped.
     @State var hasEverSentMessage: Bool = UserDefaults.standard.bool(forKey: "hasEverSentMessage")
     @State var appearance = AvatarAppearanceManager.shared
+    @ObservedObject var typographyObserver = VFont.typographyObserver
     /// Read at the list level and passed down to each ChatBubble so that
     /// individual bubbles don't each subscribe to the shared manager.
     /// With @Observable fine-grained tracking, reading only `activeSurfaceId`
     /// won't trigger re-renders on frequent `data` progress ticks.
     var taskProgressManager = TaskProgressOverlayManager.shared
     /// Consolidates all scroll-related state with `@Observable` fine-grained
-    /// per-property tracking. Each UI-facing property (`showTailSpacer`,
-    /// `showScrollToLatest`, `scrollIndicatorsHidden`) is individually tracked,
-    /// so SwiftUI only re-evaluates views that read the specific property that
-    /// changed. See `MessageListScrollState.swift` for details.
+    /// per-property tracking. Each UI-facing property (`showScrollToLatest`,
+    /// `scrollIndicatorsHidden`) is individually tracked, so SwiftUI only
+    /// re-evaluates views that read the specific property that changed.
+    /// See `MessageListScrollState.swift` for details.
     @State var scrollState = MessageListScrollState()
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State var resizeScrollTask: Task<Void, Never>?
@@ -106,42 +107,36 @@ struct MessageListView: View {
         #endif
             ScrollView {
                 scrollViewContent
+                    .background(
+                        MessageListScrollObserver { newState in
+                            enqueueScrollGeometryUpdate(newState)
+                        }
+                    )
             }
             .id(conversationId)
             .scrollContentBackground(.hidden)
-            .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)
+            // Apply only to .initialOffset — where the scroll view starts
+            // when first displayed (including .id() recreation on switch).
+            // Deliberately NOT using the all-roles overload (.sizeChanges)
+            // because it fights user scroll-up during streaming: SwiftUI's
+            // definition of "at bottom" for anchor purposes can differ from
+            // our hysteresis-based isAtBottom, causing the viewport to snap
+            // back to bottom on every content-height change even after the
+            // user has entered freeBrowsing. Our explicit content-height
+            // auto-follow handles streaming growth with proper mode checks.
+            // https://developer.apple.com/documentation/swiftui/view/defaultscrollanchor(_:for:)
             .defaultScrollAnchor(.bottom, for: .initialOffset)
             .scrollPosition($scrollPosition)
             .environment(\.suppressAutoScroll, { [self] in
-                scrollState.endStabilization()
-                if scrollState.isFollowingBottom {
-                    os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=expansionPinning")
-                    scrollState.requestPinToBottom()
-                } else {
-                    os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=offBottomExpansion")
-                    scrollState.beginStabilization(.expansion)
-                }
+                os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=manualExpansionDetach")
+                scrollState.handleManualExpansionInteraction()
             })
             .onScrollPhaseChange { oldPhase, newPhase in
                 scrollState.scrollPhase = newPhase
                 if newPhase == .idle && oldPhase != .idle && scrollState.isAtBottom {
-                    if oldPhase == .interacting || oldPhase == .decelerating,
-                       scrollState.mode.pushToTopMessageId != nil {
-                        scrollState.exitPushToTop(animated: false)
-                    }
                     scrollState.handleReachedBottom()
                 }
-            }
-            .onScrollGeometryChange(for: ScrollGeometrySnapshot.self) { geometry in
-                ScrollGeometrySnapshot(
-                    contentOffsetY: geometry.contentOffset.y,
-                    contentHeight: geometry.contentSize.height,
-                    containerHeight: geometry.containerSize.height,
-                    visibleRectHeight: geometry.visibleRect.height
-                )
-            } action: { _, newState in
-                handleScrollGeometryUpdate(newState)
             }
             .scrollIndicators(scrollState.scrollIndicatorsHidden ? .hidden : .automatic)
             .overlay(alignment: .bottom) {

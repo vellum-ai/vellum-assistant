@@ -138,10 +138,11 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 import { type OAuth2Config, startOAuth2Flow } from "../security/oauth2.js";
 
 const BASE_OAUTH_CONFIG: OAuth2Config = {
-  authUrl: "https://provider.example.com/authorize",
-  tokenUrl: "https://provider.example.com/token",
+  authorizeUrl: "https://provider.example.com/authorize",
+  tokenExchangeUrl: "https://provider.example.com/token",
   scopes: ["read", "write"],
   clientId: "test-client-id",
+  scopeSeparator: " ",
 };
 
 beforeEach(() => {
@@ -219,9 +220,9 @@ describe("OAuth2 gateway transport", () => {
       expect(capturedAuthUrl).toContain(encodeURIComponent("/oauth/callback"));
 
       // Extract the redirect_uri and simulate the callback
-      const authUrl = new URL(capturedAuthUrl);
-      const redirectUri = authUrl.searchParams.get("redirect_uri")!;
-      const state = authUrl.searchParams.get("state")!;
+      const authorizeUrl = new URL(capturedAuthUrl);
+      const redirectUri = authorizeUrl.searchParams.get("redirect_uri")!;
+      const state = authorizeUrl.searchParams.get("state")!;
 
       // Make a request to the loopback server with the auth code
       const callbackUrl = `${redirectUri}?code=loopback-auth-code&state=${state}`;
@@ -282,9 +283,9 @@ describe("OAuth2 gateway transport", () => {
       expect(capturedAuthUrl).not.toContain("gw.example.com");
 
       // Simulate callback to loopback server
-      const authUrl = new URL(capturedAuthUrl);
-      const redirectUri = authUrl.searchParams.get("redirect_uri")!;
-      const state = authUrl.searchParams.get("state")!;
+      const authorizeUrl = new URL(capturedAuthUrl);
+      const redirectUri = authorizeUrl.searchParams.get("redirect_uri")!;
+      const state = authorizeUrl.searchParams.get("state")!;
       await fetch(`${redirectUri}?code=explicit-loopback-code&state=${state}`);
 
       const result = await flowPromise;
@@ -405,9 +406,9 @@ describe("OAuth2 gateway transport", () => {
       expect(capturedAuthUrl).toContain("code_challenge=");
       expect(capturedAuthUrl).toContain("code_challenge_method=S256");
 
-      const authUrl = new URL(capturedAuthUrl);
-      const redirectUri = authUrl.searchParams.get("redirect_uri")!;
-      const state = authUrl.searchParams.get("state")!;
+      const authorizeUrl = new URL(capturedAuthUrl);
+      const redirectUri = authorizeUrl.searchParams.get("redirect_uri")!;
+      const state = authorizeUrl.searchParams.get("state")!;
 
       const resp = await fetch(
         `${redirectUri}?code=loopback-code&state=${state}`,
@@ -440,9 +441,9 @@ describe("OAuth2 gateway transport", () => {
 
       await urlReadyPromise;
 
-      const authUrl = new URL(capturedAuthUrl);
-      const redirectUri = authUrl.searchParams.get("redirect_uri")!;
-      const state = authUrl.searchParams.get("state")!;
+      const authorizeUrl = new URL(capturedAuthUrl);
+      const redirectUri = authorizeUrl.searchParams.get("redirect_uri")!;
+      const state = authorizeUrl.searchParams.get("state")!;
 
       // Fire callback without awaiting — immediately check flowPromise rejection
       fetch(`${redirectUri}?error=access_denied&state=${state}`).catch(
@@ -473,8 +474,8 @@ describe("OAuth2 gateway transport", () => {
 
       await urlReadyPromise;
 
-      const authUrl = new URL(capturedAuthUrl);
-      const redirectUri = authUrl.searchParams.get("redirect_uri")!;
+      const authorizeUrl = new URL(capturedAuthUrl);
+      const redirectUri = authorizeUrl.searchParams.get("redirect_uri")!;
 
       // Send callback with wrong state
       const resp = await fetch(
@@ -484,7 +485,7 @@ describe("OAuth2 gateway transport", () => {
 
       // The flow should still be waiting (not resolved)
       // Send the correct callback to clean up
-      const state = authUrl.searchParams.get("state")!;
+      const state = authorizeUrl.searchParams.get("state")!;
       await fetch(`${redirectUri}?code=correct-code&state=${state}`);
 
       const result = await flowPromise;
@@ -516,9 +517,9 @@ describe("OAuth2 gateway transport", () => {
 
       await urlReadyPromise;
 
-      const authUrl = new URL(capturedAuthUrl);
-      const redirectUri = authUrl.searchParams.get("redirect_uri")!;
-      const state = authUrl.searchParams.get("state")!;
+      const authorizeUrl = new URL(capturedAuthUrl);
+      const redirectUri = authorizeUrl.searchParams.get("redirect_uri")!;
+      const state = authorizeUrl.searchParams.get("state")!;
 
       // Fire callback without awaiting — immediately check flowPromise rejection
       fetch(`${redirectUri}?code=code-that-fails&state=${state}`).catch(
@@ -651,6 +652,196 @@ describe("OAuth2 gateway transport", () => {
       expect(lastTokenRequestBody).not.toBeNull();
       expect(lastTokenRequestBody!.get("client_id")).toBe("test-client-id");
       expect(lastTokenRequestBody!.has("client_secret")).toBe(false);
+    });
+  });
+
+  describe("scope separator", () => {
+    test("authorize URL joins scopes with space when scopeSeparator is ' '", async () => {
+      mockPublicBaseUrl = "https://gw.example.com";
+
+      let capturedAuthUrl = "";
+      const flowPromise = startOAuth2Flow(
+        BASE_OAUTH_CONFIG,
+        {
+          openUrl: (url) => {
+            capturedAuthUrl = url;
+          },
+        },
+        { callbackTransport: "gateway" },
+      );
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      // URLSearchParams encodes spaces as '+' in query strings (application/x-www-form-urlencoded)
+      expect(capturedAuthUrl).toContain("scope=read+write");
+
+      const entries = Array.from(pendingCallbacks.entries());
+      entries[0][1].resolve("space-separator-code");
+      await flowPromise;
+    });
+
+    test("authorize URL joins scopes with comma when scopeSeparator is ','", async () => {
+      mockPublicBaseUrl = "https://gw.example.com";
+
+      const commaConfig: OAuth2Config = {
+        ...BASE_OAUTH_CONFIG,
+        scopeSeparator: ",",
+      };
+
+      let capturedAuthUrl = "";
+      const flowPromise = startOAuth2Flow(
+        commaConfig,
+        {
+          openUrl: (url) => {
+            capturedAuthUrl = url;
+          },
+        },
+        { callbackTransport: "gateway" },
+      );
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      // Comma-encoded scopes
+      expect(capturedAuthUrl).toContain("scope=read%2Cwrite");
+
+      const entries = Array.from(pendingCallbacks.entries());
+      entries[0][1].resolve("comma-separator-code");
+      await flowPromise;
+    });
+
+    test("token response with comma-separated scope splits into individual scopes when scopeSeparator is ','", async () => {
+      mockPublicBaseUrl = "https://gw.example.com";
+      mockTokenResponse = {
+        ok: true,
+        status: 200,
+        body: {
+          access_token: "test-access-token",
+          refresh_token: "test-refresh-token",
+          expires_in: 3600,
+          scope: "read,write,issues:create",
+          token_type: "Bearer",
+        },
+      };
+
+      const commaConfig: OAuth2Config = {
+        ...BASE_OAUTH_CONFIG,
+        scopeSeparator: ",",
+      };
+
+      const flowPromise = startOAuth2Flow(
+        commaConfig,
+        { openUrl: () => {} },
+        { callbackTransport: "gateway" },
+      );
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const entries = Array.from(pendingCallbacks.entries());
+      entries[0][1].resolve("comma-token-code");
+
+      const result = await flowPromise;
+      expect(result.grantedScopes).toEqual(["read", "write", "issues:create"]);
+    });
+
+    test("token response with whitespace around comma separators is trimmed", async () => {
+      mockPublicBaseUrl = "https://gw.example.com";
+      mockTokenResponse = {
+        ok: true,
+        status: 200,
+        body: {
+          access_token: "test-access-token",
+          refresh_token: "test-refresh-token",
+          expires_in: 3600,
+          scope: " read , write ",
+          token_type: "Bearer",
+        },
+      };
+
+      const commaConfig: OAuth2Config = {
+        ...BASE_OAUTH_CONFIG,
+        scopeSeparator: ",",
+      };
+
+      const flowPromise = startOAuth2Flow(
+        commaConfig,
+        { openUrl: () => {} },
+        { callbackTransport: "gateway" },
+      );
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const entries = Array.from(pendingCallbacks.entries());
+      entries[0][1].resolve("comma-whitespace-code");
+
+      const result = await flowPromise;
+      expect(result.grantedScopes).toEqual(["read", "write"]);
+    });
+
+    test("default-space provider still parses comma-separated token response scopes (GitHub/Slack compat)", async () => {
+      // Providers like GitHub and Slack use space as their authorize-URL
+      // separator but return comma-separated scopes in token responses.
+      // The defensive split MUST tolerate that without requiring providers
+      // to opt into scopeSeparator: ",".
+      mockPublicBaseUrl = "https://gw.example.com";
+      mockTokenResponse = {
+        ok: true,
+        status: 200,
+        body: {
+          access_token: "test-access-token",
+          refresh_token: "test-refresh-token",
+          expires_in: 3600,
+          scope: "repo,read:user,notifications",
+          token_type: "Bearer",
+        },
+      };
+
+      // BASE_OAUTH_CONFIG uses the default " " separator.
+      const flowPromise = startOAuth2Flow(
+        BASE_OAUTH_CONFIG,
+        { openUrl: () => {} },
+        { callbackTransport: "gateway" },
+      );
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const entries = Array.from(pendingCallbacks.entries());
+      entries[0][1].resolve("github-style-code");
+
+      const result = await flowPromise;
+      expect(result.grantedScopes).toEqual([
+        "repo",
+        "read:user",
+        "notifications",
+      ]);
+    });
+
+    test("default-space provider parses space-separated token response scopes", async () => {
+      mockPublicBaseUrl = "https://gw.example.com";
+      mockTokenResponse = {
+        ok: true,
+        status: 200,
+        body: {
+          access_token: "test-access-token",
+          refresh_token: "test-refresh-token",
+          expires_in: 3600,
+          scope: "read write admin",
+          token_type: "Bearer",
+        },
+      };
+
+      const flowPromise = startOAuth2Flow(
+        BASE_OAUTH_CONFIG,
+        { openUrl: () => {} },
+        { callbackTransport: "gateway" },
+      );
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const entries = Array.from(pendingCallbacks.entries());
+      entries[0][1].resolve("space-token-code");
+
+      const result = await flowPromise;
+      expect(result.grantedScopes).toEqual(["read", "write", "admin"]);
     });
   });
 });

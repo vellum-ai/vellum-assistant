@@ -27,7 +27,7 @@ function makeMockClient(
     fetch: mock(async (path: string, init?: RequestInit) => {
       const url = `https://platform.example.com${path}`;
       const headers = new Headers(init?.headers);
-      headers.set("Authorization", "Api-Key test-api-key");
+      headers.set("Authorization", "Bearer test-api-key");
       return mockFetchFn(url, { ...init, headers });
     }),
   } as unknown as VellumPlatformClient;
@@ -35,7 +35,7 @@ function makeMockClient(
 
 const DEFAULT_OPTIONS = {
   id: "conn-1",
-  providerKey: "google",
+  provider: "google",
   externalId: "ext-123",
   accountInfo: "user@example.com",
   client: makeMockClient(),
@@ -53,7 +53,7 @@ describe("PlatformOAuthConnection", () => {
         );
         expect(init?.method).toBe("POST");
         const headers = new Headers(init?.headers);
-        expect(headers.get("Authorization")).toBe("Api-Key test-api-key");
+        expect(headers.get("Authorization")).toBe("Bearer test-api-key");
         expect(headers.get("Content-Type")).toBe("application/json");
 
         const parsed = JSON.parse(init?.body as string);
@@ -226,7 +226,7 @@ describe("PlatformOAuthConnection", () => {
     );
   });
 
-  test("uses connectionId in proxy URL regardless of providerKey format", async () => {
+  test("uses connectionId in proxy URL regardless of provider format", async () => {
     const client = makeMockClient(
       mock(async (url: string | URL | Request) => {
         expect(String(url)).toContain(
@@ -242,7 +242,7 @@ describe("PlatformOAuthConnection", () => {
     const conn = new PlatformOAuthConnection({
       ...DEFAULT_OPTIONS,
       client,
-      providerKey: "slack",
+      provider: "slack",
       connectionId: "slack-conn-456",
     });
     await conn.request({ method: "GET", path: "/test" });

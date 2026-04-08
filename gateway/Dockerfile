@@ -20,6 +20,8 @@ WORKDIR /app
 
 RUN apt-get update && apt-get upgrade -y && apt-get install -y \
     ca-certificates \
+    iproute2 \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy bun binary from builder

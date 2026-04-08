@@ -107,9 +107,6 @@ describe("AssistantConfigSchema", () => {
       toolExecutionTimeoutSec: 120,
       providerStreamTimeoutSec: 1800,
     });
-    expect(result.sandbox).toEqual({
-      enabled: false,
-    });
     expect(result.rateLimit).toEqual({
       maxRequestsPerMinute: 0,
     });
@@ -169,6 +166,7 @@ describe("AssistantConfigSchema", () => {
       enqueueIntervalMs: 6 * 60 * 60 * 1000,
       supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
       conversationRetentionDays: 0,
+      llmRequestLogRetentionMs: 1 * 24 * 60 * 60 * 1000,
     });
   });
 
@@ -399,28 +397,12 @@ describe("AssistantConfigSchema", () => {
     }
   });
 
-  test("sandbox with only enabled still parses", () => {
-    const result = AssistantConfigSchema.parse({ sandbox: { enabled: false } });
-    expect(result.sandbox.enabled).toBe(false);
-  });
-
-  test("rejects unknown sandbox fields", () => {
-    const result = AssistantConfigSchema.safeParse({
-      sandbox: { backend: "docker" },
-    });
-    // Unknown keys are stripped by Zod passthrough/strip, so parse should still succeed
-    // but the unknown field should not appear in the output
-    if (result.success) {
-      expect(
-        (result.data.sandbox as Record<string, unknown>)["backend"],
-      ).toBeUndefined();
-    }
-  });
-
   test("defaults permissions.mode to workspace", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.permissions).toEqual({
       mode: "workspace",
+      askBeforeActing: true,
+      hostAccess: false,
     });
   });
 
@@ -1081,25 +1063,6 @@ describe("loadConfig with schema validation", () => {
     expect(config.secretDetection.action).toBe("redact");
   });
 
-  test("falls back for invalid sandbox.enabled", () => {
-    writeConfig({ sandbox: { enabled: "yes" } });
-    const config = loadConfig();
-    expect(config.sandbox.enabled).toBe(false);
-  });
-
-  test("loads sandbox with only enabled field", () => {
-    writeConfig({ sandbox: { enabled: false } });
-    const config = loadConfig();
-    expect(config.sandbox.enabled).toBe(false);
-  });
-
-  test("strips unknown sandbox fields", () => {
-    writeConfig({ sandbox: { enabled: true, backend: "docker" } });
-    const config = loadConfig();
-    expect(config.sandbox.enabled).toBe(true);
-    expect("backend" in config.sandbox).toBe(false);
-  });
-
   test("falls back for invalid contextWindow relationship", () => {
     writeConfig({
       contextWindow: { targetBudgetRatio: 0.8, compactThreshold: 0.8 },
@@ -1128,6 +1091,8 @@ describe("loadConfig with schema validation", () => {
     const config = loadConfig();
     expect(config.permissions).toEqual({
       mode: "workspace",
+      askBeforeActing: true,
+      hostAccess: false,
     });
   });
 

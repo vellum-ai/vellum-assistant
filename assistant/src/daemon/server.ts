@@ -17,17 +17,14 @@ import {
   type InterfaceId,
   parseChannelId,
   parseInterfaceId,
+  supportsHostProxy,
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { onContactChange } from "../contacts/contact-events.js";
 import type { CesClient } from "../credential-execution/client.js";
 import type { CesProcessManager } from "../credential-execution/process-manager.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
-import {
-  getApp,
-  getAppDirPath,
-  isMultifileApp,
-} from "../memory/app-store.js";
+import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
@@ -64,11 +61,12 @@ import { getSubagentManager } from "../subagent/index.js";
 import { summarizeToolInput } from "../tools/tool-input-summary.js";
 import { getLogger } from "../util/logger.js";
 import {
+  getAvatarImagePath,
   getSandboxWorkingDir,
   getWorkspacePromptPath,
 } from "../util/platform.js";
 import { registerDaemonCallbacks } from "../work-items/work-item-runner.js";
-import { AppSourceWatcher } from "./app-source-watcher.js";
+import { AppSourceWatcher, setEnsureAppSourceWatcher } from "./app-source-watcher.js";
 import { ConfigWatcher } from "./config-watcher.js";
 import {
   Conversation,
@@ -88,12 +86,14 @@ import type {
 } from "./handlers/shared.js";
 import type { SkillOperationContext } from "./handlers/skills.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
+import { HostBrowserProxy } from "./host-browser-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import { HostFileProxy } from "./host-file-proxy.js";
 import type {
   ServerMessage,
   UserMessageAttachment,
 } from "./message-protocol.js";
+import { buildTransportHints } from "./transport-hints.js";
 
 const log = getLogger("server");
 
@@ -159,9 +159,10 @@ function resolveCanonicalRequestSourceType(
 
 /**
  * Build an onEvent callback that registers pending interactions when the agent
- * loop emits confirmation_request, secret_request, host_bash_request, or
- * host_file_request events. This ensures that channel approval interception
- * can look up the conversation by requestId.
+ * loop emits confirmation_request, secret_request, host_bash_request,
+ * host_browser_request, host_file_request, or host_cu_request events. This
+ * ensures that channel approval interception can look up the conversation by
+ * requestId.
  */
 function makePendingInteractionRegistrar(
   conversation: Conversation,
@@ -210,13 +211,10 @@ function makePendingInteractionRegistrar(
           guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
           toolName: msg.toolName,
           commandPreview:
-            redactSecrets(
-              summarizeToolInput(msg.toolName, inputRecord),
-            ) || undefined,
+            redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) ||
+            undefined,
           riskLevel: msg.riskLevel,
-          activityText: activityRaw
-            ? redactSecrets(activityRaw)
-            : undefined,
+          activityText: activityRaw ? redactSecrets(activityRaw) : undefined,
           executionTarget: msg.executionTarget,
           status: "pending",
           requestCode: generateCanonicalRequestCode(),
@@ -252,6 +250,12 @@ function makePendingInteractionRegistrar(
         conversation,
         conversationId,
         kind: "host_bash",
+      });
+    } else if (msg.type === "host_browser_request") {
+      pendingInteractions.register(msg.requestId, {
+        conversation,
+        conversationId,
+        kind: "host_browser",
       });
     } else if (msg.type === "host_file_request") {
       pendingInteractions.register(msg.requestId, {
@@ -379,14 +383,17 @@ export class DaemonServer {
       { channelId: transport.channelId },
       "Transport metadata received",
     );
-    conversation.setTransportHints(transport.hints);
+    conversation.setTransportHints(buildTransportHints(transport));
   }
 
   constructor() {
     this.evictor = new ConversationEvictor(this.conversations);
     getSubagentManager().sharedRequestTimestamps = this.sharedRequestTimestamps;
     getSubagentManager().broadcastToAllClients = (msg) => this.broadcast(msg);
+    getSubagentManager().resolveParentConversation = (id) =>
+      this.conversations.get(id);
     setBroadcastToAllClients((msg) => this.broadcast(msg));
+    setEnsureAppSourceWatcher(() => this.appSourceWatcher.ensureStarted());
     this.evictor.onEvict = (conversationId: string) => {
       getSubagentManager().abortAllForParent(conversationId);
     };
@@ -531,6 +538,25 @@ export class DaemonServer {
     } catch (err) {
       log.error({ err }, "Failed to broadcast identity change");
     }
+  }
+
+  private broadcastConfigChanged(): void {
+    this.broadcast({ type: "config_changed" });
+  }
+
+  private broadcastSoundsConfigUpdated(): void {
+    this.broadcast({ type: "sounds_config_updated" });
+  }
+
+  private broadcastFeatureFlagsChanged(): void {
+    this.broadcast({ type: "feature_flags_changed" });
+  }
+
+  private broadcastAvatarUpdated(): void {
+    this.broadcast({
+      type: "avatar_updated",
+      avatarPath: getAvatarImagePath(),
+    });
   }
 
   /**
@@ -720,11 +746,13 @@ export class DaemonServer {
     this.configWatcher.start(
       () => this.evictConversationsForReload(),
       () => this.broadcastIdentityChanged(),
+      () => this.broadcastSoundsConfigUpdated(),
+      () => this.broadcastAvatarUpdated(),
+      () => this.broadcastConfigChanged(),
+      () => this.broadcastFeatureFlagsChanged(),
     );
 
-    this.appSourceWatcher.start((appId) =>
-      this.handleAppSourceChange(appId),
-    );
+    this.appSourceWatcher.start((appId) => this.handleAppSourceChange(appId));
 
     // Broadcast contacts_changed to all clients when any contact mutation occurs.
     this.unsubscribeContactChange = onContactChange(() => {
@@ -952,7 +980,13 @@ export class DaemonServer {
       }
       this.evictor.touch(conversationId);
     } else {
-      this.applyTransportMetadata(conversation, options);
+      // Only apply transport metadata when the conversation is idle.
+      // When processing, the hints are stored on the queued message and
+      // will be applied at dequeue time — applying them here would
+      // overwrite the in-flight conversation's transportHints.
+      if (!conversation.isProcessing()) {
+        this.applyTransportMetadata(conversation, options);
+      }
       this.evictor.touch(conversationId);
     }
     return conversation;
@@ -1059,13 +1093,36 @@ export class DaemonServer {
         options?.transport?.chatType,
       ),
     );
-    // Only create the host bash proxy for desktop client interfaces that can
-    // execute commands on the user's machine. Non-desktop conversations (CLI,
-    // channels, headless) fall back to local execution.
+    // Chrome-extension host_browser wiring is intentionally not supported
+    // through this entry point. `prepareConversationForMessage` constructs
+    // host_browser proxies that capture `conversation.getCurrentSender()`
+    // directly, which would route browser frames through the daemon SSE
+    // channel instead of the `ChromeExtensionRegistry`. Chrome-extension
+    // flows reach host_browser exclusively through the
+    // `/v1/messages` flow in `conversation-routes.ts`, which wires a
+    // registry-aware sender and sets `hostBrowserSenderOverride`.
+    //
+    // Fail loudly rather than silently returning a mis-wired proxy so that
+    // any future caller that tries to route chrome-extension through this
+    // path discovers the gap immediately. When the time comes, factor the
+    // wiring in conversation-routes.ts (registry lookup + override) into a
+    // shared helper and call it from both sites.
+    if (resolvedInterface === "chrome-extension") {
+      throw new Error(
+        "prepareConversationForMessage does not yet support chrome-extension transport — " +
+          "use the conversation-routes.ts /v1/messages flow which routes host_browser through " +
+          "the ChromeExtensionRegistry. If you need chrome-extension here, factor out the " +
+          "wiring in conversation-routes.ts into a shared helper.",
+      );
+    }
+    // Only create each host proxy for interfaces that support the matching
+    // capability. macOS supports all four; the chrome-extension interface only
+    // supports host_browser. Non-desktop conversations (CLI, channels, headless)
+    // fall back to local execution.
     // Guard: don't replace an active proxy during concurrent turn races —
     // another request may have started processing between the isProcessing()
     // check above and the await on ensureActorScopedHistory().
-    if (resolvedInterface === "macos" || resolvedInterface === "ios") {
+    if (supportsHostProxy(resolvedInterface, "host_bash")) {
       if (!conversation.isProcessing() || !conversation.hostBashProxy) {
         conversation.setHostBashProxy(
           new HostBashProxy(conversation.getCurrentSender(), (requestId) => {
@@ -1073,6 +1130,21 @@ export class DaemonServer {
           }),
         );
       }
+    } else if (!conversation.isProcessing()) {
+      conversation.setHostBashProxy(undefined);
+    }
+    if (supportsHostProxy(resolvedInterface, "host_browser")) {
+      if (!conversation.isProcessing() || !conversation.hostBrowserProxy) {
+        conversation.setHostBrowserProxy(
+          new HostBrowserProxy(conversation.getCurrentSender(), (requestId) => {
+            pendingInteractions.resolve(requestId);
+          }),
+        );
+      }
+    } else if (!conversation.isProcessing()) {
+      conversation.setHostBrowserProxy(undefined);
+    }
+    if (supportsHostProxy(resolvedInterface, "host_file")) {
       if (!conversation.isProcessing() || !conversation.hostFileProxy) {
         conversation.setHostFileProxy(
           new HostFileProxy(conversation.getCurrentSender(), (requestId) => {
@@ -1080,6 +1152,10 @@ export class DaemonServer {
           }),
         );
       }
+    } else if (!conversation.isProcessing()) {
+      conversation.setHostFileProxy(undefined);
+    }
+    if (supportsHostProxy(resolvedInterface, "host_cu")) {
       if (!conversation.isProcessing() || !conversation.hostCuProxy) {
         conversation.setHostCuProxy(
           new HostCuProxy(conversation.getCurrentSender(), (requestId) => {
@@ -1089,8 +1165,6 @@ export class DaemonServer {
       }
       conversation.addPreactivatedSkillId("computer-use");
     } else if (!conversation.isProcessing()) {
-      conversation.setHostBashProxy(undefined);
-      conversation.setHostFileProxy(undefined);
       conversation.setHostCuProxy(undefined);
     }
     conversation.setCommandIntent(options?.commandIntent ?? null);
@@ -1169,8 +1243,25 @@ export class DaemonServer {
           }
         }
       : registrar;
+    // Non-interactive interfaces that still have a connected client capable
+    // of handling host_browser_request events (e.g. chrome-extension) need
+    // their hostBrowserProxy explicitly marked connected. The proxy
+    // constructor defaults clientConnected = false, so without an explicit
+    // sender update the chrome-extension proxy would be created and
+    // immediately unavailable. We do NOT call updateClient(onEvent, false)
+    // for that case, because flipping hasNoClient false would also enable
+    // host_bash/host_file/host_cu tool gating for an interface that can't
+    // service them. Instead, provision just the browser proxy's sender.
+    const persistInterfaceCtx = conversation.getTurnInterfaceContext();
+    const persistInterface = persistInterfaceCtx?.userMessageInterface;
     if (options?.isInteractive === true) {
       conversation.updateClient(onEvent, false);
+    } else if (
+      persistInterface &&
+      !supportsHostProxy(persistInterface) &&
+      supportsHostProxy(persistInterface, "host_browser")
+    ) {
+      conversation.hostBrowserProxy?.updateSender(onEvent, true);
     }
 
     conversation
@@ -1422,8 +1513,9 @@ export class DaemonServer {
    */
   async getConversationForMessages(
     conversationId: string,
+    options?: ConversationCreateOptions,
   ): Promise<Conversation> {
-    return this.getOrCreateConversation(conversationId);
+    return this.getOrCreateConversation(conversationId, options);
   }
 
   /**

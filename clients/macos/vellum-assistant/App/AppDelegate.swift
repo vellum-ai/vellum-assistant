@@ -38,6 +38,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var lastRegisteredQuickInputHotkey: String?
     var globalHotkeyObserver: AnyCancellable?
     var escapeMonitor: Any?
+    var isRestarting = false
     var hasSetupHotKey = false
     var fnVGlobalMonitor: Any?
     var fnVLocalMonitor: Any?
@@ -138,6 +139,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var pulseTimer: Timer?
     var pulsePhase: CGFloat = 1.0
     var pulseDirection: CGFloat = -1.0
+    /// Cached value of the `multi-platform-assistant` flag, read once when
+    /// the status item is constructed in `setupMenuBar()`. Flag changes
+    /// require relaunch; the status item does not subscribe to live updates
+    /// so it stays cheap and predictable.
+    var multiAssistantSwitcherEnabled: Bool = false
+    /// View model for the menu-bar assistant switcher. Lazily constructed in
+    /// `setupMenuBar()` when `multiAssistantSwitcherEnabled` is true.
+    var assistantSwitcherViewModel: AssistantSwitcherViewModel?
+    /// Cached coordinator + controller for the switcher's handlers. Stored
+    /// so every menu click doesn't allocate fresh instances and so future
+    /// state on the coordinator isn't silently bypassed by the switcher.
+    var assistantSwitcherCoordinator: ManagedAssistantConnectionCoordinator?
+    var assistantSwitcherConnectionController: AppDelegateManagedConnectionController?
     var cachedSkills: [SkillInfo] = []
     var refreshSkillsTask: Task<Void, Never>?
     var cachedApps: [AppItem] = []
@@ -364,10 +378,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         PTTActivator.warmCache()
 
         // Seed the IdentityInfo in-memory cache so that hot paths (menu bar,
-        // command palette, session overlay) never perform synchronous file I/O
-        // on the main thread. The cache is refreshed asynchronously and also
-        // on workspace/assistant changes via the connectedAssistantId publisher.
-        IdentityInfo.warmCache()
+        // command palette, session overlay) never block the main thread.
+        // The cache is refreshed asynchronously and also on workspace/assistant
+        // changes via the LockfileAssistant.activeAssistantDidChange notification.
+        Task { @MainActor in await IdentityInfo.warmCache() }
+
+        // Pre-warm the NSSavePanel/NSOpenPanel ViewBridge XPC connection so
+        // that user-initiated save/open actions don't block the main thread
+        // waiting on _NSViewBridgeMakeSecureConnection (LUM-763).
+        SavePanelWarmup.warmUp()
 
         // Initialize the chat diagnostics store early so launch session
         // metadata and first events exist even if the app wedges during startup.
@@ -385,6 +404,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // sendPerformanceReports) to their canonical equivalents
         // synchronously so the Sentry gate below sees the correct value.
         Self.migratePrivacyDefaults()
+
+        // Migrate legacy connectedAssistantId from UserDefaults to the
+        // lockfile's activeAssistant field. Must run before any
+        // loadAssistantFromLockfile() calls.
+        Self.migrateConnectedAssistantIdToLockfile()
 
         // Gated on sendDiagnostics: if the user has previously disabled diagnostics,
         // Sentry is never initialized. Otherwise, initialize eagerly so crashes
@@ -454,15 +478,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // Record this launch so the next session can identify new crashes.
         CrashReporter.recordLaunch()
 
-        // Migration: remove legacy ios-pairing-enabled flag file.
-        // The old "Enable iOS Pairing" toggle created this file to expose
-        // the daemon on 0.0.0.0. With QR-first pairing via gateway, the
-        // flag is no longer needed and leaving it active is a security concern.
-        let legacyFlagPath = NSHomeDirectory() + "/.vellum/ios-pairing-enabled"
-        if FileManager.default.fileExists(atPath: legacyFlagPath) {
-            try? FileManager.default.removeItem(atPath: legacyFlagPath)
-        }
-
         // Remove stale SwiftUI Settings window frame to prevent a ghost
         // window from being restored on launch (the Settings scene now
         // renders EmptyView — we handle settings in the main window panel).
@@ -514,6 +529,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let isDevMode = DevModeManager.shared.isDevMode
         Task.detached(priority: .utility) {
             Self.installCLISymlinkIfNeeded(isDevMode: isDevMode)
+        }
+
+        // Install the Chrome native messaging host manifest so the
+        // Vellum Chrome extension can spawn the bundled helper binary
+        // via `chrome.runtime.connectNative("com.vellum.daemon")`.
+        // Best-effort and idempotent — see
+        // `AppDelegate+NativeMessaging.swift` for details. Runs off
+        // the main thread because it touches `~/Library` on disk.
+        Task.detached(priority: .utility) {
+            Self.installChromeNativeMessagingHostIfNeeded()
         }
 
         let hasAssistants = lockfileHasAssistants()
@@ -666,8 +691,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     // Gateway is healthy — reload the avatar now so it
                     // reflects the user's saved image instead of the
                     // bundled Vellum logo.
-                    AvatarAppearanceManager.shared.reloadAvatar()
-                    self.syncOnboardingAvatarIfNeeded()
+                    // Skip the reload when onboarding avatar traits are pending —
+                    // the async fetchTraitsViaHTTP inside reloadAvatar would find
+                    // no traits on the freshly-hatched assistant and clear the
+                    // locally-saved character avatar.
+                    if self.onboardingState?.hatchAvatarBodyShape != nil {
+                        log.info("[avatarSync] first-launch: skipping reloadAvatar, syncing onboarding traits instead")
+                        self.syncOnboardingAvatarIfNeeded()
+                    } else {
+                        AvatarAppearanceManager.shared.reloadAvatar()
+                    }
 
                     // Record lifecycle telemetry events (fire-and-forget).
                     Task { await self.telemetryClient.recordLifecycleEvent("hatch") }
@@ -709,8 +742,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 if ready {
                     // Gateway is healthy — reload the avatar so
                     // logout→re-login cycles repopulate the dock icon.
-                    AvatarAppearanceManager.shared.reloadAvatar()
-                    self.syncOnboardingAvatarIfNeeded()
+                    if self.onboardingState?.hatchAvatarBodyShape != nil {
+                        log.info("[avatarSync] non-first-launch: skipping reloadAvatar, syncing onboarding traits instead")
+                        self.syncOnboardingAvatarIfNeeded()
+                    } else {
+                        AvatarAppearanceManager.shared.reloadAvatar()
+                    }
                     await self.telemetryClient.recordLifecycleEvent("app_open")
                 } else {
                     // Can't sync traits (no daemon), but still clean up onboarding state.
@@ -731,12 +768,25 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// run loop alive until `reply(toApplicationShouldTerminate:)` is
     /// called.
     ///
+    /// The reply is dispatched via `DispatchQueue.main.async` rather than
+    /// `MainActor.run` because the Swift concurrency MainActor executor
+    /// is not reliably serviced during AppKit's `.terminateLater` shutdown
+    /// phase, which can deadlock the quit sequence (LUM-764).
+    ///
     /// Reference: https://developer.apple.com/documentation/appkit/nsapplicationdelegate/applicationshouldterminate(_:)
     public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // During a restart, performRestart() already stopped the CLI and
+        // disconnected the connection manager.  Skip the async
+        // .terminateLater path whose MainActor.run dispatch is fragile
+        // during AppKit shutdown and can leave the process as a zombie.
+        if isRestarting {
+            return .terminateNow
+        }
+
         let cli = vellumCli
         Task.detached {
             await cli.stop()
-            await MainActor.run {
+            DispatchQueue.main.async {
                 NSApp.reply(toApplicationShouldTerminate: true)
             }
         }
@@ -789,7 +839,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         eventSubscriptionTask?.cancel()
         debugStateWriter.stop()
         RandomSoundTimer.shared.stop()
-        SoundManager.shared.stop()
     }
 
     // MARK: - Public Actions (for SwiftUI .commands menu items)
@@ -814,24 +863,28 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         SoundManager.shared.play(.newConversation)
     }
 
-    /// If onboarding generated avatar traits, sync them to the daemon and clear the state.
+    /// If onboarding generated avatar traits, sync them to the assistant and clear the state.
     /// Called from both the first-launch and non-first-launch paths in `proceedToApp`
-    /// so that auth-gate onboarding flows also persist avatar traits on the daemon.
-    private func syncOnboardingAvatarIfNeeded() {
+    /// so that auth-gate onboarding flows also persist avatar traits on the assistant.
+    func syncOnboardingAvatarIfNeeded() {
         guard let body = onboardingState?.hatchAvatarBodyShape,
               let eyes = onboardingState?.hatchAvatarEyeStyle,
               let color = onboardingState?.hatchAvatarColor else {
             onboardingState = nil
             return
         }
+        log.info("[avatarSync] syncOnboardingAvatarIfNeeded: traits=\(body.rawValue)/\(eyes.rawValue)/\(color.rawValue)")
         // Eagerly apply onboarding avatar traits so the ComingAliveOverlay
         // (and any other UI) can render the character avatar immediately
         // instead of falling back to the bundled green V logo while the
-        // async daemon sync completes.
+        // async assistant sync completes.
         if AvatarAppearanceManager.shared.customAvatarImage == nil,
            AvatarAppearanceManager.shared.characterBodyShape == nil {
             let image = AvatarCompositor.render(bodyShape: body, eyeStyle: eyes, color: color)
             AvatarAppearanceManager.shared.saveAvatar(image, bodyShape: body, eyeStyle: eyes, color: color)
+            log.info("[avatarSync] saved avatar locally")
+        } else {
+            log.info("[avatarSync] skipping local save — customAvatarImage=\(AvatarAppearanceManager.shared.customAvatarImage != nil) characterBodyShape=\(AvatarAppearanceManager.shared.characterBodyShape?.rawValue ?? "nil")")
         }
         Task {
             await AvatarAppearanceManager.shared.syncTraitsToDaemon(

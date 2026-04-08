@@ -9,6 +9,7 @@
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "../checkpoints.js";
+import { maybeEnqueueConversationStartersJob } from "../conversation-starters-cadence.js";
 import { asString } from "../job-utils.js";
 import type { MemoryJob } from "../jobs-store.js";
 import { runGraphExtraction } from "./extraction.js";
@@ -22,10 +23,10 @@ const log = getLogger("graph-extraction-job");
  * Checkpoint key: `graph_extract:<conversationId>:last_ts`
  * Value: epoch ms of the most recent message processed.
  *
- * This mirrors the old batch_extract pattern:
- * - Triggered by indexer after batchSize messages (default 10)
- * - Also triggered by indexer idle debounce (default 300s)
- * - Also triggered by conversation dispose (end of conversation)
+ * Trigger sources:
+ * - Indexer after batchSize messages (default 10)
+ * - Indexer idle debounce (default 300s)
+ * - Conversation dispose (end of conversation)
  */
 export async function graphExtractJob(
   job: MemoryJob,
@@ -64,6 +65,20 @@ export async function graphExtractJob(
       },
       "Graph extraction job complete",
     );
+
+    try {
+      maybeEnqueueConversationStartersJob(scopeId);
+    } catch (cadenceErr) {
+      log.warn(
+        {
+          err:
+            cadenceErr instanceof Error
+              ? cadenceErr.message
+              : String(cadenceErr),
+        },
+        "Conversation starters cadence check failed (non-fatal)",
+      );
+    }
   } catch (err) {
     log.error(
       { conversationId, err: err instanceof Error ? err.message : String(err) },

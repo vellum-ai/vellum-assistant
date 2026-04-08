@@ -58,9 +58,27 @@ function _serializeProvider(
   row: OAuthProviderRow,
   options?: { redirectUri?: string | null },
 ) {
+  // Destructure the renamed Drizzle TS-side fields out of the row so they
+  // do not leak into the spread below. The wire format intentionally keeps
+  // the legacy camelCase keys (`providerKey`, `authUrl`, `tokenUrl`,
+  // `displayName`, `extraParams`) so existing CLI script consumers and any
+  // other clients that parse this output don't break. The renamed fields
+  // are emitted explicitly under their old names instead.
+  const {
+    provider,
+    authorizeUrl,
+    tokenExchangeUrl,
+    displayLabel,
+    authorizeParams,
+    ...rest
+  } = row;
   return {
-    ...row,
-    displayName: row.displayName ?? null,
+    ...rest,
+    providerKey: provider,
+    authUrl: authorizeUrl,
+    tokenUrl: tokenExchangeUrl,
+    refreshUrl: row.refreshUrl ?? null,
+    displayName: displayLabel ?? null,
     description: row.description ?? null,
     dashboardUrl: row.dashboardUrl ?? null,
     clientIdPlaceholder: row.clientIdPlaceholder ?? null,
@@ -68,9 +86,14 @@ function _serializeProvider(
     supportsManagedMode: !!row.managedServiceConfigKey,
     defaultScopes: row.defaultScopes ? JSON.parse(row.defaultScopes) : [],
     scopePolicy: row.scopePolicy ? JSON.parse(row.scopePolicy) : {},
-    extraParams: row.extraParams ? JSON.parse(row.extraParams) : null,
+    scopeSeparator: row.scopeSeparator,
+    extraParams: authorizeParams ? JSON.parse(authorizeParams) : null,
     pingHeaders: row.pingHeaders ? JSON.parse(row.pingHeaders) : null,
     pingBody: row.pingBody ? JSON.parse(row.pingBody) : null,
+    revokeUrl: row.revokeUrl || null,
+    revokeBodyTemplate: row.revokeBodyTemplate
+      ? JSON.parse(row.revokeBodyTemplate)
+      : null,
     loopbackPort: row.loopbackPort ?? null,
     injectionTemplates: row.injectionTemplates
       ? JSON.parse(row.injectionTemplates)
@@ -107,8 +130,8 @@ export function serializeProviderSummary(
 ): SerializedProviderSummary | null {
   if (!row) return null;
   return {
-    provider_key: row.providerKey,
-    display_name: row.displayName ?? null,
+    provider_key: row.provider,
+    display_name: row.displayLabel ?? null,
     description: row.description ?? null,
     dashboard_url: row.dashboardUrl ?? null,
     client_id_placeholder: row.clientIdPlaceholder ?? null,

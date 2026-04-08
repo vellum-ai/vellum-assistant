@@ -21,32 +21,10 @@ final class AssistantFeatureFlagResolverTests: XCTestCase {
         )
     }
 
-    /// Creates a temporary feature-flags.json file with the given values and
-    /// returns the file path. The file is automatically cleaned up via `addTeardownBlock`.
-    private func createTempFeatureFlagsFile(values: [String: Bool]) throws -> String {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-
-        let filePath = tempDir.appendingPathComponent("feature-flags.json").path
-        let payload: [String: Any] = ["version": 1, "values": values]
-        let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted])
-        FileManager.default.createFile(atPath: filePath, contents: data)
-
-        addTeardownBlock {
-            try? FileManager.default.removeItem(at: tempDir)
-        }
-
-        return filePath
-    }
-
     func testUsesAssistantRegistryDefaultWhenNoOverrideExists() {
-        // Read from a nonexistent path so no persisted overrides are found
-        let nonexistentPath = "/tmp/\(UUID().uuidString)/feature-flags.json"
-        let persistedFlags = AssistantFeatureFlagResolver.readPersistedFlags(from: nonexistentPath)
         let registryDefaults = AssistantFeatureFlagResolver.registryDefaults(from: makeRegistry(defaultEnabled: false))
         let resolved = AssistantFeatureFlagResolver.resolvedFlags(
-            persistedFlags: persistedFlags,
+            persistedFlags: [:],
             registryDefaults: registryDefaults
         )
         let enabled = resolved[conversationStartersKey] ?? true
@@ -54,15 +32,10 @@ final class AssistantFeatureFlagResolverTests: XCTestCase {
         XCTAssertFalse(enabled)
     }
 
-    func testPersistedAssistantOverrideWinsOverRegistryDefault() throws {
-        let filePath = try createTempFeatureFlagsFile(values: [
-            conversationStartersKey: true
-        ])
-
-        let persistedFlags = AssistantFeatureFlagResolver.readPersistedFlags(from: filePath)
+    func testPersistedOverrideWinsOverRegistryDefault() {
         let registryDefaults = AssistantFeatureFlagResolver.registryDefaults(from: makeRegistry(defaultEnabled: false))
         let resolved = AssistantFeatureFlagResolver.resolvedFlags(
-            persistedFlags: persistedFlags,
+            persistedFlags: [conversationStartersKey: true],
             registryDefaults: registryDefaults
         )
         let enabled = resolved[conversationStartersKey] ?? true
@@ -71,11 +44,9 @@ final class AssistantFeatureFlagResolverTests: XCTestCase {
     }
 
     func testUndeclaredAssistantFlagsDefaultToEnabled() {
-        let nonexistentPath = "/tmp/\(UUID().uuidString)/feature-flags.json"
-        let persistedFlags = AssistantFeatureFlagResolver.readPersistedFlags(from: nonexistentPath)
         let registryDefaults = AssistantFeatureFlagResolver.registryDefaults(from: makeRegistry(defaultEnabled: false))
         let resolved = AssistantFeatureFlagResolver.resolvedFlags(
-            persistedFlags: persistedFlags,
+            persistedFlags: [:],
             registryDefaults: registryDefaults
         )
         let enabled = resolved["unknown"] ?? true
@@ -92,7 +63,6 @@ final class AssistantFeatureFlagResolverTests: XCTestCase {
 
         XCTAssertFalse(store.isEnabled(conversationStartersKey))
         XCTAssertFalse(store.isEnabled(conversationStartersKey))
-        // Store reads from disk once during init and caches the result
     }
 
     @MainActor
@@ -113,108 +83,87 @@ final class AssistantFeatureFlagResolverTests: XCTestCase {
         XCTAssertTrue(store.isEnabled(conversationStartersKey))
     }
 
-    // MARK: - mergePersistedFlag write/read round-trip
+    // MARK: - UserDefaults cache round-trip
 
-    func testMergePersistedFlagWritesAndReadsCorrectly() throws {
-        // Create a temp directory to act as the persisted file location
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        let filePath = tempDir.appendingPathComponent("feature-flags.json").path
+    func testWriteAndReadCachedFlagRoundTrip() {
+        let testKey = "test-cache-\(UUID().uuidString)"
 
         addTeardownBlock {
-            try? FileManager.default.removeItem(at: tempDir)
+            UserDefaults.standard.removeObject(forKey: "AssistantFeatureFlagCache.\(testKey)")
         }
 
-        // Manually write the file in the same format mergePersistedFlag uses
-        // to simulate calling mergePersistedFlag with "test-flag" = false
-        let initialPayload: [String: Any] = ["version": 1, "values": ["test-flag": false]]
-        let initialData = try JSONSerialization.data(
-            withJSONObject: initialPayload,
-            options: [.prettyPrinted, .sortedKeys]
-        )
-        try initialData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
+        // Write false
+        AssistantFeatureFlagResolver.mergeCachedFlag(key: testKey, enabled: false)
+        var cached = AssistantFeatureFlagResolver.readCachedFlags()
+        XCTAssertEqual(cached[testKey], false)
 
-        // readPersistedFlags should return test-flag as false
-        let flagsAfterDisable = AssistantFeatureFlagResolver.readPersistedFlags(from: filePath)
-        XCTAssertEqual(flagsAfterDisable["test-flag"], false)
-
-        // Simulate calling mergePersistedFlag with "test-flag" = true
-        // (merge into existing values, same as the production code does)
-        var updatedValues = flagsAfterDisable
-        updatedValues["test-flag"] = true
-        let updatedPayload: [String: Any] = ["version": 1, "values": updatedValues]
-        let updatedData = try JSONSerialization.data(
-            withJSONObject: updatedPayload,
-            options: [.prettyPrinted, .sortedKeys]
-        )
-        try updatedData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
-
-        // readPersistedFlags should now return test-flag as true
-        let flagsAfterEnable = AssistantFeatureFlagResolver.readPersistedFlags(from: filePath)
-        XCTAssertEqual(flagsAfterEnable["test-flag"], true)
+        // Overwrite with true
+        AssistantFeatureFlagResolver.mergeCachedFlag(key: testKey, enabled: true)
+        cached = AssistantFeatureFlagResolver.readCachedFlags()
+        XCTAssertEqual(cached[testKey], true)
     }
 
-    // MARK: - Resolution priority: persisted > cached > remote > defaults
+    // MARK: - Resolution priority: cached gateway flags > defaults
 
-    func testPersistedFlagWinsOverCachedFlag() throws {
+    func testCachedFlagWinsOverRegistryDefault() {
         let testKey = "test-priority-\(UUID().uuidString)"
 
         addTeardownBlock {
-            // Clean up UserDefaults entry
             UserDefaults.standard.removeObject(forKey: "AssistantFeatureFlagCache.\(testKey)")
         }
 
-        // Write true to the persisted file for the key
-        let filePath = try createTempFeatureFlagsFile(values: [testKey: true])
-        let persistedFlags = AssistantFeatureFlagResolver.readPersistedFlags(from: filePath)
+        // Registry says false, but cache says true
+        AssistantFeatureFlagResolver.mergeCachedFlag(key: testKey, enabled: true)
 
-        // Write false to the UserDefaults cache for the same key
-        AssistantFeatureFlagResolver.mergeCachedFlag(key: testKey, enabled: false)
-        let cachedFlags = AssistantFeatureFlagResolver.readCachedFlags()
-
-        // Verify the raw values: persisted says true, cached says false
-        XCTAssertEqual(persistedFlags[testKey], true)
-        XCTAssertEqual(cachedFlags[testKey], false)
-
-        // Build the resolved flags using the same priority chain as
-        // resolvedFlags(registryDefaults:): defaults < remote < cached < persisted
-        let registryDefaults = AssistantFeatureFlagResolver.registryDefaults(
-            from: makeRegistry(defaultEnabled: false)
+        let registryDefaults: [String: Bool] = [testKey: false]
+        let resolved = AssistantFeatureFlagResolver.resolvedFlags(
+            registryDefaults: registryDefaults
         )
-        let resolved = registryDefaults
-            .merging(cachedFlags) { _, new in new }
-            .merging(persistedFlags) { _, new in new }
 
-        // The persisted value (true) should win over the cached value (false)
+        // The cached value (true) should win over the registry default (false)
         XCTAssertEqual(resolved[testKey], true)
     }
 
-    // MARK: - Cache and persisted paths work independently
+    // MARK: - writeCachedFlags replaces all cache entries
 
-    func testCacheAndPersistedPathsWorkIndependently() throws {
-        let testKey = "test-independent-\(UUID().uuidString)"
+    func testWriteCachedFlagsReplacesAllEntries() {
+        let keyA = "test-replace-a-\(UUID().uuidString)"
+        let keyB = "test-replace-b-\(UUID().uuidString)"
 
         addTeardownBlock {
-            // Clean up UserDefaults entry
+            UserDefaults.standard.removeObject(forKey: "AssistantFeatureFlagCache.\(keyA)")
+            UserDefaults.standard.removeObject(forKey: "AssistantFeatureFlagCache.\(keyB)")
+        }
+
+        // Write keyA
+        AssistantFeatureFlagResolver.mergeCachedFlag(key: keyA, enabled: true)
+        XCTAssertEqual(AssistantFeatureFlagResolver.readCachedFlags()[keyA], true)
+
+        // Replace all with only keyB
+        AssistantFeatureFlagResolver.writeCachedFlags([keyB: false])
+
+        let cached = AssistantFeatureFlagResolver.readCachedFlags()
+        XCTAssertNil(cached[keyA], "keyA should have been removed by writeCachedFlags")
+        XCTAssertEqual(cached[keyB], false)
+    }
+
+    // MARK: - clearCachedFlags clears cache
+
+    func testClearCachedFlagsClearsCache() {
+        let testKey = "test-clear-\(UUID().uuidString)"
+
+        addTeardownBlock {
             UserDefaults.standard.removeObject(forKey: "AssistantFeatureFlagCache.\(testKey)")
         }
 
-        // Write to UserDefaults cache via mergeCachedFlag
         AssistantFeatureFlagResolver.mergeCachedFlag(key: testKey, enabled: true)
 
-        // Write to a temp persisted file with a different value
-        let filePath = try createTempFeatureFlagsFile(values: [testKey: false])
+        // Should exist before clearing
+        XCTAssertEqual(AssistantFeatureFlagResolver.readCachedFlags()[testKey], true)
 
-        // Verify readCachedFlags returns the cached value independently
-        let cachedFlags = AssistantFeatureFlagResolver.readCachedFlags()
-        XCTAssertEqual(cachedFlags[testKey], true)
+        AssistantFeatureFlagResolver.clearCachedFlags()
 
-        // Verify readPersistedFlags returns the persisted value independently
-        let persistedFlags = AssistantFeatureFlagResolver.readPersistedFlags(from: filePath)
-        XCTAssertEqual(persistedFlags[testKey], false)
-
-        // The two storage mechanisms return their own values without interfering
-        XCTAssertNotEqual(cachedFlags[testKey], persistedFlags[testKey])
+        // Should be gone after clearing
+        XCTAssertNil(AssistantFeatureFlagResolver.readCachedFlags()[testKey])
     }
 }

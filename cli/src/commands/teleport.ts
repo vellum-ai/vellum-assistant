@@ -422,7 +422,7 @@ async function importViaHttp(
         "Content-Type": "application/octet-stream",
       },
       body: new Blob([bundleData]),
-      signal: AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout(300_000),
     });
 
     // Retry once with a fresh token on 401
@@ -446,13 +446,13 @@ async function importViaHttp(
             "Content-Type": "application/octet-stream",
           },
           body: new Blob([bundleData]),
-          signal: AbortSignal.timeout(120_000),
+          signal: AbortSignal.timeout(300_000),
         });
       }
     }
   } catch (err) {
     if (err instanceof Error && err.name === "TimeoutError") {
-      console.error("Error: Import request timed out after 2 minutes.");
+      console.error("Error: Import request timed out after 5 minutes.");
       process.exit(1);
     }
     const msg = err instanceof Error ? err.message : String(err);
@@ -706,7 +706,7 @@ async function importToAssistant(
         : await platformImportBundle(bundleData, token, entry.runtimeUrl);
     } catch (err) {
       if (err instanceof Error && err.name === "TimeoutError") {
-        console.error("Error: Import request timed out after 2 minutes.");
+        console.error("Error: Import request timed out after 5 minutes.");
         process.exit(1);
       }
       throw err;
@@ -779,7 +779,7 @@ export async function resolveOrHatchTarget(
   // Hatch a new assistant in the target environment
   if (targetEnv === "local") {
     const beforeIds = new Set(loadAllAssistants().map((e) => e.assistantId));
-    await hatchLocal("vellum", targetName ?? null, false, false, false, {});
+    await hatchLocal("vellum", targetName ?? null, false, false, {});
     const entry = targetName
       ? findAssistantByName(targetName)
       : (loadAllAssistants().find((e) => !beforeIds.has(e.assistantId)) ??

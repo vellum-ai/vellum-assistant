@@ -35,6 +35,13 @@ When the user mentions "email" - sending, reading, checking, decluttering, draft
 
 Do not offer AgentMail as an option or mention it unless the user specifically asks. If Outlook is not connected, guide them through Outlook setup - do not suggest AgentMail as an alternative.
 
+## Connection Setup
+
+### Outlook
+
+1. **Try connecting directly first.** Run `assistant oauth status outlook`. This will show whether or not the user had previously connected their Outlook/Microsoft account. If so, they are ready to go.
+2. **If no connections are found:** Call `skill_load` with `skill: "vellum-oauth-integrations"`. The skill will evaluate whether managed or your-own mode is appropriate and guide the user accordingly.
+
 ## Communication Style
 
 - **Be action-oriented.** When the user asks to do something ("declutter", "check my email"), start doing it immediately. Don't ask for permission to read their inbox - that's obviously what they want.

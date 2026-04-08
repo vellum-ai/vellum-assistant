@@ -1,13 +1,23 @@
 import { getSubagentManager } from "../../subagent/index.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+import { resolveSubagentId } from "./resolve.js";
 
 export async function executeSubagentAbort(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const subagentId = input.subagent_id as string;
+  const subagentId = resolveSubagentId(input, context);
+  if (!subagentId && input.label) {
+    return {
+      content: `No subagent found with label "${input.label as string}".`,
+      isError: true,
+    };
+  }
   if (!subagentId) {
-    return { content: '"subagent_id" is required.', isError: true };
+    return {
+      content: '"subagent_id" or "label" is required.',
+      isError: true,
+    };
   }
 
   const manager = getSubagentManager();

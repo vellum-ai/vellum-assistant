@@ -122,6 +122,14 @@
       "defaultEnabled": true
     },
     {
+      "id": "referral-codes",
+      "scope": "macos",
+      "key": "referral-codes",
+      "label": "Referral Codes",
+      "description": "Surface the Earn Credits referral entry points (sidebar drawer row and Billing tab button) that open the referral modal",
+      "defaultEnabled": true
+    },
+    {
       "id": "managed-sign-in",
       "scope": "macos",
       "key": "managed-sign-in",
@@ -176,6 +184,14 @@
       "label": "Integrations Grid",
       "description": "Show the Integrations tab in the Intelligence panel",
       "defaultEnabled": true
+    },
+    {
+      "id": "multi-platform-assistant",
+      "scope": "macos",
+      "key": "multi-platform-assistant",
+      "label": "Multi-Platform Assistant Switcher",
+      "description": "Enable the menu-bar assistant switcher for managing multiple platform-hosted assistants (new/switch/retire)",
+      "defaultEnabled": false
     },
     {
       "id": "quick-input",
@@ -271,6 +287,30 @@
       "key": "teleport",
       "label": "Teleport",
       "description": "Enable teleport UI in General settings for moving assistants between hosting environments",
+      "defaultEnabled": false
+    },
+    {
+      "id": "permission-controls-v2",
+      "scope": "assistant",
+      "key": "permission-controls-v2",
+      "label": "Permission Controls V2",
+      "description": "Replace risk-level permission system with two independent controls: 'Ask before acting' (LLM behavior toggle) and 'Host access' (system-enforced gate)",
+      "defaultEnabled": false
+    },
+    {
+      "id": "apple-container",
+      "scope": "macos",
+      "key": "apple-container",
+      "label": "Apple Container",
+      "description": "Enable assistant sandboxing via Apple Containers on macOS 26+, providing a lightweight native sandbox without third-party dependencies",
+      "defaultEnabled": false
+    },
+    {
+      "id": "tool-result-truncation",
+      "scope": "assistant",
+      "key": "tool-result-truncation",
+      "label": "Post-Turn Tool Result Truncation",
+      "description": "Truncate large tool results after each assistant turn, persisting full content to disk for on-demand re-reads",
       "defaultEnabled": false
     }
   ]

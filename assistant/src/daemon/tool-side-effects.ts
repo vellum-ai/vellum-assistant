@@ -15,6 +15,7 @@ import { deliverVerificationSlack } from "../runtime/verification-outbound-actio
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
+import { ensureAppSourceWatcher } from "./app-source-watcher.js";
 import { refreshSurfacesForApp } from "./conversation-surfaces.js";
 import type { ToolSetupContext } from "./conversation-tool-setup.js";
 import { isDoordashCommand, updateDoordashProgress } from "./doordash-steps.js";
@@ -109,6 +110,11 @@ registerHook(
         description?: string;
       };
       if (parsed.id) {
+        // The apps directory may have just been created — ensure the
+        // filesystem watcher is running so subsequent file edits
+        // trigger live reload.
+        ensureAppSourceWatcher();
+
         handleAppChange(ctx, parsed.id, broadcastToAllClients);
 
         // Fire-and-forget: generate an app icon in the background.
@@ -158,12 +164,32 @@ registerHook(
   },
 );
 
-// Trigger compilation + surface refresh + broadcast when an app is refreshed.
+// Trigger surface refresh + broadcast when an app is refreshed.
+// If the executor already compiled (multifile path), skip the redundant
+// recompile and just refresh surfaces / broadcast / deploy directly.
 registerHook(
   "app_refresh",
-  (_name, input, _result, { ctx, broadcastToAllClients }) => {
+  (_name, input, result, { ctx, broadcastToAllClients }) => {
     const appId = input.app_id as string | undefined;
-    if (appId) {
+    if (!appId) return;
+
+    // executeAppRefresh already compiled multifile apps and included a
+    // "compiled" field in the result. Skip the expensive recompile and
+    // go straight to surface refresh + broadcast + deploy.
+    let alreadyCompiled = false;
+    try {
+      const parsed = JSON.parse(result.content) as { compiled?: boolean };
+      alreadyCompiled = parsed.compiled !== undefined;
+    } catch {
+      // Result wasn't valid JSON — fall through to handleAppChange.
+    }
+
+    if (alreadyCompiled) {
+      const opts = { fileChange: true };
+      refreshSurfacesForApp(ctx, appId, opts);
+      broadcastToAllClients?.({ type: "app_files_changed", appId });
+      void updatePublishedAppDeployment(appId);
+    } else {
       handleAppChange(ctx, appId, broadcastToAllClients, { fileChange: true });
     }
   },
@@ -297,4 +323,3 @@ export function runPostExecutionSideEffects(
     updateDoordashProgress(sideEffectCtx.ctx, input, result.isError);
   }
 }
-

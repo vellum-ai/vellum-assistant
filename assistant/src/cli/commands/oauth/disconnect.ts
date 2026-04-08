@@ -212,7 +212,7 @@ Examples:
               accountLabel = conn.accountInfo ?? undefined;
             } else if (opts.connectionId) {
               const conn = getConnection(opts.connectionId);
-              if (!conn || conn.providerKey !== provider) {
+              if (!conn || conn.provider !== provider) {
                 writeError(
                   `Connection "${opts.connectionId}" is not an active ${provider} connection.\n\n` +
                     `Run 'assistant oauth status ${provider}' to see active connections.`,

@@ -34,7 +34,6 @@ export interface ToolPermissionPromptEvent extends ToolLifecycleEventBase {
   allowlistOptions: AllowlistOption[];
   scopeOptions: ScopeOption[];
   diff?: DiffInfo;
-  sandboxed?: boolean;
   persistentDecisionsAllowed?: boolean;
 }
 
@@ -110,8 +109,6 @@ export interface ToolContext {
   onOutput?: (chunk: string) => void;
   /** Abort signal for cooperative cancellation. Tools should check this periodically. */
   signal?: AbortSignal;
-  /** Per-conversation sandbox override. When set, takes precedence over the global config. */
-  sandboxOverride?: boolean;
   /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error/secret_detected). */
   onToolLifecycleEvent?: ToolLifecycleEventHandler;
   /** Optional resolver for proxy tools - delegates execution to an external client. */
@@ -179,8 +176,12 @@ export interface ToolContext {
   toolUseId?: string;
   /** Optional proxy for delegating host_bash execution to a connected client (managed/cloud-hosted mode). */
   hostBashProxy?: import("../daemon/host-bash-proxy.js").HostBashProxy;
+  /** Optional proxy for delegating CDP commands to a connected client (managed/cloud-hosted mode). */
+  hostBrowserProxy?: import("../daemon/host-browser-proxy.js").HostBrowserProxy;
   /** Optional proxy for delegating host_file_read/write/edit execution to a connected client (managed/cloud-hosted mode). */
   hostFileProxy?: import("../daemon/host-file-proxy.js").HostFileProxy;
+  /** True when the assistant is running as a platform-managed remote instance. Used to auto-approve sandboxed bash tools. */
+  isPlatformHosted?: boolean;
   /** CES RPC client for credential execution operations. When present, the executor can bridge CES approval flows. */
   cesClient?: CesClient;
 }

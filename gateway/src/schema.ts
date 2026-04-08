@@ -613,7 +613,7 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/webhooks/email/inbound": {
+      "/webhooks/email": {
         post: {
           summary: "Email inbound webhook",
           description:
@@ -2440,6 +2440,59 @@ export function buildSchema(): Record<string, unknown> {
             },
             "403": { description: "Insufficient scope" },
             "500": { description: "Internal server error" },
+          },
+        },
+      },
+      "/v1/logs/export": {
+        post: {
+          summary: "Export logs from all services",
+          description:
+            "Orchestrates parallel log collection from the gateway, daemon, and CES, " +
+            "returning a tar.gz archive containing logs from all three services.",
+          operationId: "logsExport",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: false,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    startTime: {
+                      type: "number",
+                      description: "Start of time range (epoch ms)",
+                    },
+                    endTime: {
+                      type: "number",
+                      description: "End of time range (epoch ms)",
+                    },
+                    auditLimit: {
+                      type: "number",
+                      description: "Maximum number of audit records to include",
+                    },
+                    conversationId: {
+                      type: "string",
+                      description: "Scope export to a specific conversation",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "tar.gz archive of collected logs",
+              content: {
+                "application/gzip": {
+                  schema: { type: "string", format: "binary" },
+                },
+              },
+            },
+            "400": { description: "Invalid JSON body" },
+            "401": {
+              description: "Unauthorized — missing or invalid edge JWT",
+            },
+            "500": { description: "Failed to create export archive" },
           },
         },
       },

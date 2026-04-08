@@ -114,6 +114,7 @@ function createFakeConversation(conversationId: string): Conversation {
     } | null,
     messages: [] as Array<unknown>,
     hostBashProxy: undefined as unknown,
+    hostBrowserProxy: undefined as unknown,
     hostFileProxy: undefined as unknown,
     hostCuProxy: undefined as unknown,
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
@@ -178,12 +179,16 @@ function createFakeConversation(conversationId: string): Conversation {
     setHostBashProxy(this: { hostBashProxy: unknown }, proxy: unknown) {
       this.hostBashProxy = proxy;
     },
+    setHostBrowserProxy(this: { hostBrowserProxy: unknown }, proxy: unknown) {
+      this.hostBrowserProxy = proxy;
+    },
     setHostFileProxy(this: { hostFileProxy: unknown }, proxy: unknown) {
       this.hostFileProxy = proxy;
     },
     setHostCuProxy(this: { hostCuProxy: unknown }, proxy: unknown) {
       this.hostCuProxy = proxy;
     },
+    restoreBrowserProxyAvailability: () => {},
     addPreactivatedSkillId: () => {},
     hasAnyPendingConfirmation: () => false,
     hasPendingConfirmation: () => false,

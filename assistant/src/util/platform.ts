@@ -95,11 +95,23 @@ export function getInterfacesDir(): string {
 
 /**
  * Returns the sounds directory (~/.vellum/workspace/data/sounds).
- * Custom sound files and sound configuration live here. Sound files
- * can be large, so this directory is excluded from diagnostic exports.
+ * Custom sound files and sound configuration live here.
  */
 export function getSoundsDir(): string {
   return join(getWorkspaceDir(), "data", "sounds");
+}
+
+/** Returns the avatar directory ($VELLUM_WORKSPACE_DIR/data/avatar). */
+export function getAvatarDir(): string {
+  return join(getWorkspaceDir(), "data", "avatar");
+}
+
+/** Canonical filename for the custom avatar PNG. */
+export const AVATAR_IMAGE_FILENAME = "avatar-image.png";
+
+/** Returns the canonical avatar image path (~/.vellum/workspace/data/avatar/avatar-image.png). */
+export function getAvatarImagePath(): string {
+  return join(getAvatarDir(), AVATAR_IMAGE_FILENAME);
 }
 
 /**
@@ -124,28 +136,11 @@ export function isTCPEnabled(): boolean {
 
 /**
  * Returns the hostname/address for the TCP listener.
- * If iOS pairing is enabled (flag file): '0.0.0.0' (LAN-accessible).
- * Default: '127.0.0.1' (localhost only).
+ * Always binds to localhost only. iOS pairing uses the gateway
+ * relay.
  */
 export function getTCPHost(): string {
-  if (isIOSPairingEnabled()) return "0.0.0.0";
   return "127.0.0.1";
-}
-
-/**
- * Returns whether iOS pairing mode is enabled.
- * When enabled, the TCP listener binds to 0.0.0.0 (all interfaces)
- * instead of 127.0.0.1 (localhost only), making the daemon reachable
- * from iOS devices on the same local network.
- *
- * Checks for the presence of the flag file ~/.vellum/ios-pairing-enabled.
- * Default: false.
- *
- * This is separate from isTCPEnabled() — TCP can be enabled for localhost-only
- * access without exposing the daemon to the LAN.
- */
-export function isIOSPairingEnabled(): boolean {
-  return existsSync(join(vellumRoot(), "ios-pairing-enabled"));
 }
 
 /**
@@ -190,6 +185,18 @@ export function getPidPath(): string {
   return join(vellumRoot(), "vellum.pid");
 }
 
+/**
+ * Returns the path to the runtime HTTP port file (~/.vellum/runtime-port).
+ * The daemon writes its active HTTP port here on startup so thin helpers
+ * that need to reach the runtime (e.g. the chrome-extension native messaging
+ * helper) can locate a non-default `RUNTIME_HTTP_PORT` without a manifest
+ * change. Root-level path by design — the file is read by helpers that may
+ * not know the workspace override path.
+ */
+export function getRuntimePortFilePath(): string {
+  return join(vellumRoot(), "runtime-port");
+}
+
 export function getDbPath(): string {
   return join(getDataDir(), "db", "assistant.db");
 }
@@ -208,7 +215,7 @@ export function getHistoryPath(): string {
  * overrides, device approval lists — live here.
  *
  * This directory is:
- * - Outside the workspace (not included in diagnostic exports)
+ * - Outside the workspace
  * - Outside the sandbox write boundary (tools cannot modify it)
  * - Skipped in containerized mode (credentials via CES, trust via gateway)
  */
@@ -261,10 +268,6 @@ export function getEmbedWorkerPidPath(): string {
  * When the VELLUM_WORKSPACE_DIR env var is set, returns that value (used in
  * containerized deployments where the workspace is a separate volume).
  * Otherwise falls back to ~/.vellum/workspace.
- *
- * WARNING: The entire workspace directory is included in diagnostic log exports
- * ("Send logs to Vellum"). Do not store secrets, API keys, or sensitive
- * credentials here — use the credential store or ~/.vellum/protected/ instead.
  */
 export function getWorkspaceDir(): string {
   const override = getWorkspaceDirOverride();
@@ -323,6 +326,35 @@ export function getConversationsDir(): string {
 /** Returns the workspace path for a prompt file (e.g. IDENTITY.md, SOUL.md, USER.md). */
 export function getWorkspacePromptPath(file: string): string {
   return join(getWorkspaceDir(), file);
+}
+
+// ── Profiler filesystem layout ──────────────────────────────────────────
+// Managed profiler runs live under <workspace>/data/profiler/. These
+// helpers enforce a single canonical layout so every runtime caller
+// resolves the same paths.
+
+/**
+ * Returns the profiler root directory (<workspace>/data/profiler).
+ * All profiler state (runs directory, global metadata) lives here.
+ */
+export function getProfilerRootDir(): string {
+  return join(getDataDir(), "profiler");
+}
+
+/**
+ * Returns the profiler runs directory (<workspace>/data/profiler/runs).
+ * Each completed or active profiler run gets its own sub-directory here.
+ */
+export function getProfilerRunsDir(): string {
+  return join(getProfilerRootDir(), "runs");
+}
+
+/**
+ * Returns the directory for a specific profiler run by ID
+ * (<workspace>/data/profiler/runs/<runId>).
+ */
+export function getProfilerRunDir(runId: string): string {
+  return join(getProfilerRunsDir(), runId);
 }
 
 export function ensureDataDir(): void {

@@ -103,14 +103,26 @@ struct CodePreviewView: View {
     let code: String
 
     var body: some View {
-        ScrollView {
-            Text(displayCode)
-                .font(VFont.bodySmallDefault)
-                .foregroundStyle(VColor.contentSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(VSpacing.sm)
+        let lineCount = displayCode.utf8.reduce(1) { $0 + ($1 == 0x0A ? 1 : 0) }
+        let isLong = lineCount > 7 || (lineCount == 1 && displayCode.utf8.count > 50_000)
+        Group {
+            if isLong {
+                ScrollView {
+                    Text(displayCode)
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(VSpacing.sm)
+                }
+                .frame(height: 120)
+            } else {
+                Text(displayCode)
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(VSpacing.sm)
+            }
         }
-        .frame(maxHeight: 120)
         .background(VColor.surfaceOverlay.opacity(0.6))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
         .overlay(

@@ -27,6 +27,45 @@ export function getConversationDirName(
 }
 
 /**
+ * Parse a canonical conversation directory name (`<ISO-with-dashes>_<id>`)
+ * back into its components. Returns null for names that don't match the
+ * canonical format — callers should treat null as "skip this entry"
+ * rather than as an error.
+ *
+ * Inverse of {@link getConversationDirName}. Does NOT parse the legacy
+ * `<id>_<ISO-with-dashes>` format.
+ */
+export function parseConversationDirName(
+  name: string,
+): { conversationId: string; createdAtMs: number } | null {
+  // Canonical format: YYYY-MM-DDTHH-MM-SS.sssZ_<uuid>
+  // The timestamp portion has 4 hyphens (date + time-component separators)
+  // and ends in `Z`. Anchor the regex to enforce that.
+  const match = name.match(
+    /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2}\.\d{1,9}Z)_(.+)$/,
+  );
+  if (!match) return null;
+  const [, datePart, hh, mm, ssAndMs, conversationId] = match;
+  const iso = `${datePart}T${hh}:${mm}:${ssAndMs}`;
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) return null;
+  if (!conversationId) return null;
+  // Reject conversation IDs that are path-traversal-shaped or contain
+  // path separators. These are never valid conversation IDs and would
+  // be a defense-in-depth concern if parsed.conversationId is later used
+  // to construct filesystem paths.
+  if (
+    conversationId === "." ||
+    conversationId === ".." ||
+    conversationId.includes("/") ||
+    conversationId.includes("\\")
+  ) {
+    return null;
+  }
+  return { conversationId, createdAtMs: ms };
+}
+
+/**
  * Return the absolute path to a conversation's timestamp-first disk-view
  * directory.
  */

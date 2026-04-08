@@ -47,8 +47,20 @@ final class SidebarInteractionState {
         if let saved = defaults.stringArray(forKey: "sidebar.expandedSections") {
             initial = Set(saved)
         } else {
-            // First-launch defaults: all groups collapsed.
-            initial = []
+            // First-launch defaults: Recents expanded so conversations are visible.
+            initial = [ConversationGroup.all.id]
+        }
+
+        // One-time migration: expand system:all for existing users upgrading
+        // from before the Recents group existed. Gated by a flag so it only
+        // runs once and doesn't override the user's collapse preference.
+        let migrationKey = "sidebar.systemAllExpandedMigrated"
+        if !defaults.bool(forKey: migrationKey) {
+            initial.insert(ConversationGroup.all.id)
+            // Persist immediately — didSet won't fire for the initial closure
+            // assignment, so without this the next launch loads the old list.
+            defaults.set(Array(initial), forKey: "sidebar.expandedSections")
+            defaults.set(true, forKey: migrationKey)
         }
 
         // Clean up old keys (one-time migration).
@@ -68,6 +80,8 @@ final class SidebarInteractionState {
 
     /// Group ID currently targeted during a drag-and-drop operation.
     var dropTargetSectionId: String?
+    /// Group ID where a forbidden drop indicator is active (e.g. Scheduled during conversation drag).
+    var dropForbiddenSectionId: String?
     /// Group ID currently being dragged (set on drag start via .onDrag).
     var draggingGroupId: String?
     /// Whether the group drop indicator should appear at the bottom (true) or top (false).
@@ -127,6 +141,7 @@ final class SidebarInteractionState {
         draggingConversationId = nil
         dropTargetConversationId = nil
         dropTargetSectionId = nil
+        dropForbiddenSectionId = nil
         removeDragEndMonitor()
     }
 

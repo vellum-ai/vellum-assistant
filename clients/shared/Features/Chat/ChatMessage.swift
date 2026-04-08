@@ -1324,6 +1324,7 @@ public struct InlineSurfaceData: Identifiable, Equatable {
     public static func == (lhs: InlineSurfaceData, rhs: InlineSurfaceData) -> Bool {
         lhs.id == rhs.id
             && lhs.completionState == rhs.completionState
+            && lhs.isToolCallComplete == rhs.isToolCallComplete
             && lhs.surfaceType == rhs.surfaceType
             && lhs.title == rhs.title
             && lhs.data == rhs.data
@@ -1332,6 +1333,9 @@ public struct InlineSurfaceData: Identifiable, Equatable {
 
     /// When non-nil, the surface has been completed and should render in collapsed/chip state.
     public var completionState: SurfaceCompletionState?
+    /// Whether the tool call that created this surface has finished.
+    /// Defaults to `true` for history-loaded / already-complete surfaces.
+    public var isToolCallComplete: Bool = true
 
     public init(id: String, surfaceType: SurfaceType, title: String?, data: SurfaceData, actions: [SurfaceActionButton], surfaceRef: SurfaceRef? = nil, completionState: SurfaceCompletionState? = nil) {
         self.id = id
@@ -1621,7 +1625,7 @@ public struct ChatMessage: Identifiable, Equatable {
     /// Nil for freshly streamed messages that haven't been loaded from history.
     /// Used for fork-from-message, inspect LLM context, TTS, and other daemon-anchored actions.
     public var daemonMessageId: String?
-    /// When true, this message is a subagent notification (e.g. completed/failed/aborted)
+    /// When true, this message is a subagent notification (e.g. running/completed/failed/aborted)
     /// reconstructed from history. It should be hidden from the chat UI since the
     /// corresponding subagent chip conveys the same information.
     public var isSubagentNotification: Bool = false

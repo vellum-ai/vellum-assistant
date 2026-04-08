@@ -184,6 +184,17 @@ jobs:
             macos-spm-debug-week${{ steps.week.outputs.num }}-
             macos-spm-debug-
 
+      - name: Compute dev version
+        id: version
+        run: |
+          BASE_VERSION=$(sed -n 's/^let appVersion = "\(.*\)"/\1/p' clients/Package.swift | head -1)
+          BASE_VERSION="${BASE_VERSION:-0.0.0}"
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          DEV_VERSION="${BASE_VERSION}-dev.${{ github.run_number }}.${SHORT_SHA}"
+          echo "dev_version=$DEV_VERSION" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "Dev version: $DEV_VERSION"
+
       - name: Design token guard
         if: needs.changes.outputs.clients == 'true' || github.event_name == 'workflow_dispatch'
         run: bash clients/scripts/check-design-tokens.sh --mode=strict
@@ -212,10 +223,19 @@ jobs:
             wait "$pid"
           done
 
+      - name: Cache Kata kernel
+        uses: actions/cache@v5
+        with:
+          path: clients/macos/.container-cache/kata-3.17.0-arm64/vmlinux.container
+          key: kata-kernel-3.17.0-arm64
+
       - name: Build binaries
         timeout-minutes: 5
         working-directory: clients/macos
-        run: ./build.sh binaries
+        run: |
+          DISPLAY_VERSION="${{ steps.version.outputs.dev_version }}" \
+          COMMIT_SHA="${{ github.sha }}" \
+          ./build.sh binaries
 
       - name: Build macOS app
         timeout-minutes: 15
@@ -224,6 +244,8 @@ jobs:
           set -o pipefail
           SKIP_BUN_REBUILD=1 \
           BUNDLE_DISPLAY_NAME="$APP_DISPLAY_NAME" \
+          DISPLAY_VERSION="${{ steps.version.outputs.dev_version }}" \
+          COMMIT_SHA="${{ github.sha }}" \
           SIGN_IDENTITY="-" \
           ./build.sh 2>&1 | while IFS= read -r line; do
             echo "[$(date -u '+%H:%M:%S')] $line"
@@ -236,6 +258,26 @@ jobs:
           path: clients/macos/dist/${{ env.APP_DISPLAY_NAME }}.app
           retention-days: 30
           if-no-files-found: error
+
+      - name: Create DMG
+        working-directory: clients/macos
+        run: |
+          DEV_VERSION="${{ steps.version.outputs.dev_version }}"
+          hdiutil create \
+            -volname "Vellum ${DEV_VERSION}" \
+            -srcfolder "dist/${APP_DISPLAY_NAME}.app" \
+            -ov -format UDZO \
+            "vellum-assistant-${DEV_VERSION}.dmg"
+          ls -lh "vellum-assistant-${DEV_VERSION}.dmg"
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vellum-assistant-${{ steps.version.outputs.dev_version }}.dmg
+          path: clients/macos/vellum-assistant-${{ steps.version.outputs.dev_version }}.dmg
+          retention-days: 30
+          if-no-files-found: error
+
 
   notify-macos:
     name: Slack Notification (macOS)

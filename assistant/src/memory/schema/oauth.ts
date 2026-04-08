@@ -7,21 +7,27 @@ import {
 } from "drizzle-orm/sqlite-core";
 
 export const oauthProviders = sqliteTable("oauth_providers", {
-  providerKey: text("provider_key").primaryKey(),
-  authUrl: text("auth_url").notNull(),
-  tokenUrl: text("token_url").notNull(),
-  tokenEndpointAuthMethod: text("token_endpoint_auth_method"),
+  provider: text("provider_key").primaryKey(),
+  authorizeUrl: text("auth_url").notNull(),
+  tokenExchangeUrl: text("token_url").notNull(),
+  refreshUrl: text("refresh_url"),
+  tokenEndpointAuthMethod: text("token_endpoint_auth_method")
+    .notNull()
+    .default("client_secret_post"),
   userinfoUrl: text("userinfo_url"),
   baseUrl: text("base_url"),
   defaultScopes: text("default_scopes").notNull().default("[]"),
   scopePolicy: text("scope_policy").notNull().default("{}"),
-  extraParams: text("extra_params"),
+  scopeSeparator: text("scope_separator").notNull().default(" "),
+  authorizeParams: text("extra_params"),
   pingUrl: text("ping_url"),
   pingMethod: text("ping_method"),
   pingHeaders: text("ping_headers"),
   pingBody: text("ping_body"),
+  revokeUrl: text("revoke_url"),
+  revokeBodyTemplate: text("revoke_body_template"),
   managedServiceConfigKey: text("managed_service_config_key"),
-  displayName: text("display_name"),
+  displayLabel: text("display_name"),
   description: text("description"),
   dashboardUrl: text("dashboard_url"),
   clientIdPlaceholder: text("client_id_placeholder"),
@@ -46,9 +52,9 @@ export const oauthApps = sqliteTable(
   "oauth_apps",
   {
     id: text("id").primaryKey(),
-    providerKey: text("provider_key")
+    provider: text("provider_key")
       .notNull()
-      .references(() => oauthProviders.providerKey),
+      .references(() => oauthProviders.provider),
     clientId: text("client_id").notNull(),
     clientSecretCredentialPath: text("client_secret_credential_path").notNull(),
     createdAt: integer("created_at").notNull(),
@@ -56,7 +62,7 @@ export const oauthApps = sqliteTable(
   },
   (table) => [
     uniqueIndex("idx_oauth_apps_provider_client").on(
-      table.providerKey,
+      table.provider,
       table.clientId,
     ),
   ],
@@ -69,7 +75,7 @@ export const oauthConnections = sqliteTable(
     oauthAppId: text("oauth_app_id")
       .notNull()
       .references(() => oauthApps.id),
-    providerKey: text("provider_key").notNull(),
+    provider: text("provider_key").notNull(),
     accountInfo: text("account_info"),
     grantedScopes: text("granted_scopes").notNull().default("[]"),
     expiresAt: integer("expires_at"),
@@ -80,7 +86,5 @@ export const oauthConnections = sqliteTable(
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
-  (table) => [
-    index("idx_oauth_connections_provider_key").on(table.providerKey),
-  ],
+  (table) => [index("idx_oauth_connections_provider_key").on(table.provider)],
 );

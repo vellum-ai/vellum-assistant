@@ -129,6 +129,8 @@ struct OnboardingView: View {
             // Persist managed assistant config so DaemonConfig.fromUserDefaults() picks it up.
             UserDefaults.standard.set(assistant.id, forKey: UserDefaultsKeys.managedAssistantId)
             UserDefaults.standard.set(platformBaseURL, forKey: UserDefaultsKeys.managedPlatformBaseURL)
+            // TODO: Migrate to LockfileAssistant.setActiveAssistantId() when
+            // LockfileAssistant is available on iOS (currently macOS-only).
             UserDefaults.standard.set(assistant.id, forKey: "connectedAssistantId")
 
             // Rebuild the daemon client with managed transport config.
@@ -196,7 +198,7 @@ struct ChoosePathStep: View {
                     HStack {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text("Log in with Vellum")
-                                .font(VFont.bodyMediumDefault)
+                                .font(VFont.bodyMediumEmphasised)
                                 .foregroundStyle(VColor.contentDefault)
                             Text("Connect to your cloud assistant")
                                 .font(VFont.labelDefault)
@@ -219,7 +221,7 @@ struct ChoosePathStep: View {
                     HStack {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text("Connect to Assistant")
-                                .font(VFont.bodyMediumDefault)
+                                .font(VFont.bodyMediumEmphasised)
                                 .foregroundStyle(VColor.contentDefault)
                             Text("Connect via your local network")
                                 .font(VFont.labelDefault)
@@ -275,7 +277,7 @@ struct DaemonSetupStep: View {
                     VIconView(.qrCode, size: 24)
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         Text("Scan QR Code")
-                            .font(VFont.bodyMediumDefault)
+                            .font(VFont.bodyMediumEmphasised)
                         Text("Open Vellum on your Assistant \u{2192} Settings \u{2192} Show QR Code")
                             .font(VFont.labelDefault)
                     }

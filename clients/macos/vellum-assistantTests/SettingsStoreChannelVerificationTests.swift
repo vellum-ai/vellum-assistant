@@ -8,14 +8,13 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     private var connectionManager: GatewayConnectionManager!
     private var mockSettingsClient: MockSettingsClient!
     private var store: SettingsStore!
-    private let connectedAssistantIdDefaultsKey = "connectedAssistantId"
     private let testAssistantId = "ast-settings-tests"
-    private var previousConnectedAssistantId: String?
+    private var previousActiveAssistantId: String?
 
     override func setUp() {
         super.setUp()
-        previousConnectedAssistantId = UserDefaults.standard.string(forKey: connectedAssistantIdDefaultsKey)
-        UserDefaults.standard.set(testAssistantId, forKey: connectedAssistantIdDefaultsKey)
+        previousActiveAssistantId = LockfileAssistant.loadActiveAssistantId()
+        LockfileAssistant.setActiveAssistantId(testAssistantId)
         connectionManager = GatewayConnectionManager()
         connectionManager.isConnected = true
         mockSettingsClient = MockSettingsClient()
@@ -26,12 +25,8 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         store = nil
         connectionManager = nil
         mockSettingsClient = nil
-        if let previousConnectedAssistantId {
-            UserDefaults.standard.set(previousConnectedAssistantId, forKey: connectedAssistantIdDefaultsKey)
-        } else {
-            UserDefaults.standard.removeObject(forKey: connectedAssistantIdDefaultsKey)
-        }
-        previousConnectedAssistantId = nil
+        LockfileAssistant.setActiveAssistantId(previousActiveAssistantId)
+        previousActiveAssistantId = nil
         super.tearDown()
     }
 

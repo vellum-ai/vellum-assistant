@@ -8,7 +8,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 class HostFileEditTool implements Tool {
   name = "host_file_edit";
   description =
-    "Replace exact text in a host filesystem file with new text. Not for workspace files under .vellum (use file_edit instead).";
+    "Replace exact text in a file on your guardian's device with new text. For files on your own machine, use file_edit instead.";
   category = "host-filesystem";
   defaultRiskLevel = RiskLevel.Medium;
 

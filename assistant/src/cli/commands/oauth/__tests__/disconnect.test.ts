@@ -15,19 +15,19 @@ let mockGetConnection: (
 ) => Record<string, unknown> | undefined = () => undefined;
 
 let mockGetActiveConnection: (
-  providerKey: string,
+  provider: string,
   opts?: { account?: string },
 ) => Record<string, unknown> | undefined = () => undefined;
 
 let mockListActiveConnectionsByProvider: (
-  providerKey: string,
+  provider: string,
 ) => Array<Record<string, unknown>> = () => [];
 
 let mockDisconnectOAuthProviderResult: "disconnected" | "not-found" | "error" =
   "disconnected";
 
 let mockDisconnectOAuthProviderCalls: Array<{
-  providerKey: string;
+  provider: string;
   account: string | undefined;
   connectionId: string | undefined;
 }> = [];
@@ -64,17 +64,17 @@ mock.module("../../../../config/loader.js", () => ({
 mock.module("../../../../oauth/oauth-store.js", () => ({
   getProvider: (key: string) => mockGetProvider(key),
   getConnection: (id: string) => mockGetConnection(id),
-  getActiveConnection: (providerKey: string, opts?: { account?: string }) =>
-    mockGetActiveConnection(providerKey, opts),
-  listActiveConnectionsByProvider: (providerKey: string) =>
-    mockListActiveConnectionsByProvider(providerKey),
+  getActiveConnection: (provider: string, opts?: { account?: string }) =>
+    mockGetActiveConnection(provider, opts),
+  listActiveConnectionsByProvider: (provider: string) =>
+    mockListActiveConnectionsByProvider(provider),
   disconnectOAuthProvider: async (
-    providerKey: string,
+    provider: string,
     account?: string,
     connectionId?: string,
   ) => {
     mockDisconnectOAuthProviderCalls.push({
-      providerKey,
+      provider,
       account,
       connectionId,
     });
@@ -295,7 +295,7 @@ describe("assistant oauth disconnect", () => {
 
   test("both --account and --connection-id returns error", async () => {
     mockGetProvider = () => ({
-      providerKey: "google",
+      provider: "google",
       managedServiceConfigKey: null,
     });
 
@@ -323,7 +323,7 @@ describe("assistant oauth disconnect", () => {
   describe("managed mode", () => {
     beforeEach(() => {
       mockGetProvider = () => ({
-        providerKey: "google",
+        provider: "google",
         managedServiceConfigKey: "google-oauth",
       });
       mockIsManagedMode = () => true;
@@ -484,7 +484,7 @@ describe("assistant oauth disconnect", () => {
   describe("BYO mode", () => {
     beforeEach(() => {
       mockGetProvider = () => ({
-        providerKey: "google",
+        provider: "google",
         managedServiceConfigKey: null,
       });
       mockIsManagedMode = () => false;
@@ -494,7 +494,7 @@ describe("assistant oauth disconnect", () => {
       mockListActiveConnectionsByProvider = () => [
         {
           id: "conn-1",
-          providerKey: "google",
+          provider: "google",
           accountInfo: "user@gmail.com",
           status: "active",
         },
@@ -514,16 +514,16 @@ describe("assistant oauth disconnect", () => {
 
       // Verify disconnectOAuthProvider was called
       expect(mockDisconnectOAuthProviderCalls).toHaveLength(1);
-      expect(mockDisconnectOAuthProviderCalls[0].providerKey).toBe("google");
+      expect(mockDisconnectOAuthProviderCalls[0].provider).toBe("google");
       expect(mockDisconnectOAuthProviderCalls[0].connectionId).toBe("conn-1");
     });
 
     test("--account matches accountInfo", async () => {
-      mockGetActiveConnection = (providerKey, opts) => {
+      mockGetActiveConnection = (_provider, opts) => {
         if (opts?.account === "user@gmail.com") {
           return {
             id: "conn-1",
-            providerKey: "google",
+            provider: "google",
             accountInfo: "user@gmail.com",
             status: "active",
           };
@@ -567,7 +567,7 @@ describe("assistant oauth disconnect", () => {
         if (id === "conn-123") {
           return {
             id: "conn-123",
-            providerKey: "google",
+            provider: "google",
             accountInfo: "user@gmail.com",
             status: "active",
           };
@@ -593,7 +593,7 @@ describe("assistant oauth disconnect", () => {
         if (id === "conn-slack") {
           return {
             id: "conn-slack",
-            providerKey: "slack",
+            provider: "slack",
             accountInfo: null,
             status: "active",
           };
@@ -619,13 +619,13 @@ describe("assistant oauth disconnect", () => {
       mockListActiveConnectionsByProvider = () => [
         {
           id: "conn-1",
-          providerKey: "google",
+          provider: "google",
           accountInfo: "user1@gmail.com",
           status: "active",
         },
         {
           id: "conn-2",
-          providerKey: "google",
+          provider: "google",
           accountInfo: "user2@gmail.com",
           status: "active",
         },
@@ -666,7 +666,7 @@ describe("assistant oauth disconnect", () => {
       mockListActiveConnectionsByProvider = () => [
         {
           id: "conn-1",
-          providerKey: "google",
+          provider: "google",
           accountInfo: null,
           status: "active",
         },

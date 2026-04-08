@@ -335,11 +335,85 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                 """
         }
 
+        // Inject window.vellum.fetch — an authenticated fetch wrapper that routes
+        // requests through the gateway with proper auth headers.
+        if let credentials = GatewayHTTPClient.resolveWebViewCredentials() {
+            let headerKeys = credentials.headers.keys.sorted().joined(separator: ", ")
+            let hasAuth = credentials.headers.keys.contains(where: { $0 == "Authorization" || $0 == "X-Session-Token" })
+            log.info("[vellum.fetch] Bridge injected: baseURL=\(credentials.baseURL, privacy: .public) pathPrefix=\(credentials.pathPrefix, privacy: .public) headerKeys=[\(headerKeys, privacy: .public)] hasAuth=\(hasAuth, privacy: .public)")
+
+            let escapedBaseURL = credentials.baseURL
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "'", with: "\\'")
+                .replacingOccurrences(of: "\n", with: "\\n")
+                .replacingOccurrences(of: "\r", with: "\\r")
+            let escapedPathPrefix = credentials.pathPrefix
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "'", with: "\\'")
+                .replacingOccurrences(of: "\n", with: "\\n")
+                .replacingOccurrences(of: "\r", with: "\\r")
+            let headerEntries = credentials.headers.map { key, value in
+                let escapedKey = key
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "'", with: "\\'")
+                    .replacingOccurrences(of: "\n", with: "\\n")
+                    .replacingOccurrences(of: "\r", with: "\\r")
+                let escapedValue = value
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "'", with: "\\'")
+                    .replacingOccurrences(of: "\n", with: "\\n")
+                    .replacingOccurrences(of: "\r", with: "\\r")
+                return "'\(escapedKey)': '\(escapedValue)'"
+            }.joined(separator: ", ")
+
+            jsSource += """
+
+                window.vellum.fetch = function(path, options) {
+                    options = options || {};
+                    var headers = options.headers || {};
+                    var authHeaders = {\(headerEntries)};
+                    for (var k in authHeaders) {
+                        if (!headers[k]) headers[k] = authHeaders[k];
+                    }
+                    options.headers = headers;
+                    var prefix = '\(escapedPathPrefix)';
+                    var resolved = path.replace(/^\\/v1\\//, '/v1/' + prefix);
+                    var url = '\(escapedBaseURL)' + resolved;
+                    var method = (options.method || 'GET').toUpperCase();
+                    var headerNames = Object.keys(options.headers).join(', ');
+                    console.log('[vellum.fetch] ' + method + ' ' + url + ' headers=[' + headerNames + ']');
+                    return fetch(url, options).then(function(res) {
+                        console.log('[vellum.fetch] ' + method + ' ' + url + ' → ' + res.status + ' ' + res.statusText);
+                        return res;
+                    }).catch(function(err) {
+                        console.error('[vellum.fetch] ' + method + ' ' + url + ' FAILED: ' + (err.message || err));
+                        throw err;
+                    });
+                };
+                """
+        } else {
+            log.warning("[vellum.fetch] Credentials nil — fallback (always-reject) bridge installed")
+            jsSource += """
+
+                window.vellum.fetch = function() {
+                    console.error('[vellum.fetch] REJECTED: assistant connection could not be resolved (credentials were nil at WebView creation)');
+                    return Promise.reject(new Error('vellum.fetch is not available: assistant connection could not be resolved'));
+                };
+                """
+        }
+
         jsSource += """
 
             document.addEventListener('DOMContentLoaded', function() {
                 var hasData = !!(window.vellum && window.vellum.data);
-                console.log('[vellum] Bridge check: vellum.data ' + (hasData ? 'available' : 'NOT available (appId not set)'));
+                var hasFetch = !!(window.vellum && window.vellum.fetch);
+                console.log('[vellum] Bridge check: vellum.data ' + (hasData ? 'available' : 'NOT available (appId not set)') + ', vellum.fetch ' + (hasFetch ? 'available' : 'NOT available'));
+                if (hasFetch) {
+                    try {
+                        var testResult = window.vellum.fetch.toString().slice(0, 80);
+                        console.log('[vellum.fetch] impl=' + testResult);
+                    } catch(e) {}
+                }
             });
             """
 
@@ -393,6 +467,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.allowsLinkPreview = false
         webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
         context.coordinator.webView = webView
 
         log.info("Creating DynamicPageSurfaceView: appId=\(self.appId ?? "nil", privacy: .public), dataBridge=\(self.appId != nil ? "injected" : "skipped", privacy: .public), sandboxMode=\(self.sandboxMode)")
@@ -644,9 +719,10 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         let controller = webView.configuration.userContentController
         controller.removeScriptMessageHandler(forName: "vellumBridge")
         controller.removeAllUserScripts()
-        // Nil out the navigation delegate to sever the last reference
+        // Nil out delegates to sever the last references
         // from the web view back to the coordinator.
         webView.navigationDelegate = nil
+        webView.uiDelegate = nil
     }
 
 }

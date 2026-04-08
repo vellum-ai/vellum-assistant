@@ -228,6 +228,7 @@ public struct InlineSurfaceRouter: View {
                     InlineAppCreatedCard(
                         preview: preview,
                         appId: data.appId,
+                        isToolCallComplete: surface.isToolCallComplete,
                         onOpenApp: {
                             if let ref = surface.surfaceRef {
                                 NotificationCenter.default.post(
@@ -358,9 +359,11 @@ public struct InlineSurfaceRouter: View {
         } else {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 ForEach(surface.actions, id: \.uniqueId) { action in
-                    Button {
+                    VButton(
+                        label: action.label,
+                        style: buttonStyle(for: action.style)
+                    ) {
                         clickedActionLabel = action.label
-                        // Merge action.data (button payload) with selectionPayload (list selection)
                         var merged = selectionPayload ?? [:]
                         if let actionData = action.data {
                             for (key, value) in actionData {
@@ -368,36 +371,17 @@ public struct InlineSurfaceRouter: View {
                             }
                         }
                         onAction(surface.id, action.id, merged.isEmpty ? nil : merged)
-                    } label: {
-                        Text(action.label)
-                            .font(VFont.bodyMediumDefault)
-                            .foregroundStyle(buttonForeground(action.style))
-                            .padding(.horizontal, VSpacing.lg)
-                            .padding(.vertical, VSpacing.sm)
-                            .background(
-                                RoundedRectangle(cornerRadius: VRadius.md)
-                                    .fill(buttonBackground(action.style))
-                            )
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }
     }
 
-    private func buttonForeground(_ style: SurfaceActionStyle) -> Color {
+    private func buttonStyle(for style: SurfaceActionStyle) -> VButton.Style {
         switch style {
-        case .primary: return VColor.auxWhite
-        case .destructive: return VColor.auxWhite
-        case .secondary: return VColor.contentDefault
-        }
-    }
-
-    private func buttonBackground(_ style: SurfaceActionStyle) -> Color {
-        switch style {
-        case .primary: return VColor.primaryBase
-        case .destructive: return VColor.systemNegativeStrong
-        case .secondary: return VColor.borderBase.opacity(0.5)
+        case .primary: return .primary
+        case .secondary: return .outlined
+        case .destructive: return .danger
         }
     }
 

@@ -16,7 +16,6 @@ final class WorkspaceBrowserState {
     var isLoadingTree = false
     var isLoadingFile = false
     var fileLoadTask: Task<Void, Never>?
-    var isDropTargeted: Bool = false
     var uploadingCount: Int = 0
     var editableContent: String = ""
     var originalContent: String = ""
@@ -38,6 +37,22 @@ final class WorkspaceBrowserState {
     var showHiddenFiles: Bool = UserDefaults.standard.bool(forKey: "showHiddenFiles")
     var hiddenFilesToggleRequestId: UInt64 = 0
 
+    /// Picks the initial view mode for a freshly-loaded file based on its
+    /// extension and the user's stored preference. Pure function so it can be
+    /// unit tested without spinning up a real workspace client. Called from
+    /// `loadFile(path:using:)`.
+    static func defaultViewMode(forExtension ext: String, prefersSource: Bool) -> FileViewMode {
+        if prefersSource { return .source }
+        switch ext {
+        case "md", "markdown":
+            return .preview
+        case "json", "jsonl", "ndjson":
+            return .tree
+        default:
+            return .source
+        }
+    }
+
     func refreshDirectory(_ dirPath: String, using workspaceClient: any WorkspaceClientProtocol) async {
         if let response = await workspaceClient.fetchWorkspaceTree(path: dirPath, showHidden: showHiddenFiles) {
             directoryCache[dirPath] = response.entries
@@ -48,15 +63,7 @@ final class WorkspaceBrowserState {
         selectedFilePath = targetPath
         let ext = (targetPath as NSString).pathExtension.lowercased()
         let prefersSource = UserDefaults.standard.string(forKey: "fileViewerPreferredMode") == "source"
-        if prefersSource {
-            viewMode = .source
-        } else if ext == "md" || ext == "markdown" {
-            viewMode = .preview
-        } else if ext == "json" {
-            viewMode = .tree
-        } else {
-            viewMode = .source
-        }
+        viewMode = Self.defaultViewMode(forExtension: ext, prefersSource: prefersSource)
         isLoadingFile = true
         selectedFileDetail = nil
         isDirty = false
@@ -67,10 +74,14 @@ final class WorkspaceBrowserState {
             let detail = await workspaceClient.fetchWorkspaceFile(path: targetPath, showHidden: showHiddenFiles)
             guard !Task.isCancelled, selectedFilePath == targetPath else { return }
             let raw = detail?.content ?? ""
-            let isJSON = ext == "json"
-                || detail?.mimeType.lowercased().hasPrefix("application/json") == true
+            let mime = normalizedMimeType(detail?.mimeType ?? "")
+            let isJSONL = isJSONLContent(fileName: detail?.name ?? targetPath, mimeType: mime)
+            let isJSON = !isJSONL && (ext == "json" || mime.hasPrefix("application/json"))
+            // JSONL is intentionally NOT pretty-printed — each line is already a
+            // standalone JSON value, and reflowing the file would corrupt the
+            // format. We do still want JSONL files to default to the tree view.
             let content = isJSON ? Self.prettyPrintJSON(raw) : raw
-            if isJSON, !prefersSource, viewMode != .tree {
+            if (isJSON || isJSONL), !prefersSource, viewMode != .tree {
                 viewMode = .tree
             }
             editableContent = content
@@ -119,6 +130,11 @@ struct WorkspacePanel: View {
     @State private var dragStartWidth: CGFloat?
     @State private var didPushResizeCursor = false
 
+    /// Pre-built tree of `VFileBrowserNode` for `VFileBrowser`. Recomputed
+    /// outside the view body whenever the underlying cache or expansion
+    /// state changes. See `clients/AGENTS.md` § "View Bodies and Rendering".
+    @State private var workspaceNodes: [VFileBrowserNode] = []
+
     private let minSidebarWidth: CGFloat = 140
     private let maxSidebarWidth: CGFloat = 500
 
@@ -129,49 +145,40 @@ struct WorkspacePanel: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            WorkspaceTreeSidebar(state: state, workspaceClient: workspaceClient, onToggleHiddenFiles: applyHiddenFilesToggle)
-                .frame(width: sidebarWidth)
-
-            // Invisible resize handle
-            Color.clear
-                .frame(width: 6)
-                .contentShape(Rectangle())
-                .onHover { hovering in
-                    if hovering {
-                        NSCursor.resizeLeftRight.push()
-                        didPushResizeCursor = true
-                    } else if didPushResizeCursor {
-                        NSCursor.pop()
-                        didPushResizeCursor = false
-                    }
+        VFileBrowser(
+            rootNodes: workspaceNodes,
+            expandedPaths: $state.expandedDirs,
+            selectedPath: $state.selectedFilePath,
+            sidebarWidth: sidebarWidth,
+            isLoading: state.isLoadingTree,
+            onExpand: { node in
+                if state.directoryCache[node.path] == nil {
+                    await state.refreshDirectory(node.path, using: workspaceClient)
                 }
-                .onDisappear {
-                    if didPushResizeCursor {
-                        NSCursor.pop()
-                        didPushResizeCursor = false
-                    }
+            },
+            onSelect: { node in
+                guard !node.isDirectory else { return }
+                if state.isDirty {
+                    state.pendingSwitchPath = node.path
+                    state.showingDirtyAlert = true
+                } else {
+                    Task { await state.loadFile(path: node.path, using: workspaceClient) }
                 }
-                .gesture(
-                    DragGesture(minimumDistance: 1, coordinateSpace: .named(dragCoordinateSpace))
-                        .onChanged { value in
-                            if dragStartWidth == nil { dragStartWidth = sidebarWidth }
-                            guard let start = dragStartWidth else { return }
-                            let delta = value.location.x - value.startLocation.x
-                            var transaction = Transaction()
-                            transaction.disablesAnimations = true
-                            withTransaction(transaction) {
-                                sidebarWidth = min(max(start + delta, minSidebarWidth), maxSidebarWidth)
-                            }
-                        }
-                        .onEnded { _ in
-                            dragStartWidth = nil
-                        }
-                )
-
-            WorkspaceFileViewer(state: state, workspaceClient: workspaceClient)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
+            },
+            onDrop: { targetNode, providers in
+                let targetDir = targetNode?.path ?? ""
+                if !targetDir.isEmpty && isHiddenPath(targetDir) { return false }
+                handleDrop(providers: providers, targetDir: targetDir, state: state, workspaceClient: workspaceClient)
+                return true
+            },
+            headerActions: { workspaceHeaderActions },
+            rowContextMenu: { node in workspaceContextMenu(for: node) },
+            contentPane: { _ in
+                WorkspaceFileViewer(state: state, workspaceClient: workspaceClient)
+            },
+            sidebarTrailingGutter: { resizeHandle },
+            sidebarFooter: { uploadProgressFooter }
+        )
         .coordinateSpace(name: dragCoordinateSpace)
         .task { await loadRoot() }
         .onChange(of: pendingFilePath) {
@@ -180,6 +187,7 @@ struct WorkspacePanel: View {
                 Task { await state.loadFile(path: path, using: workspaceClient) }
             }
         }
+        .onChange(of: state.directoryCache) { rebuildWorkspaceNodes() }
         .onDisappear {
             state.fileLoadTask?.cancel()
             state.fileLoadTask = nil
@@ -241,184 +249,6 @@ struct WorkspacePanel: View {
         } message: {
             Text("This cannot be undone.")
         }
-    }
-
-    private func loadRoot() async {
-        state.isLoadingTree = true
-        if let response = await workspaceClient.fetchWorkspaceTree(path: "", showHidden: state.showHiddenFiles) {
-            state.directoryCache[""] = response.entries
-
-            // Auto-select IDENTITY.md if it exists and no file is already selected
-            if state.selectedFilePath == nil,
-               let identityEntry = response.entries.first(where: { $0.name == "IDENTITY.md" && !$0.isDirectory }) {
-                await state.loadFile(path: identityEntry.path, using: workspaceClient)
-            }
-        }
-        state.isLoadingTree = false
-    }
-
-    private func applyHiddenFilesToggle(_ newValue: Bool) {
-        state.showHiddenFiles = newValue
-        UserDefaults.standard.set(newValue, forKey: "showHiddenFiles")
-        state.directoryCache.removeAll()
-        state.expandedDirs.removeAll()
-        state.selectedFilePath = nil
-        state.selectedFileDetail = nil
-        state.editableContent = ""
-        state.originalContent = ""
-        state.isDirty = false
-        state.isLoadingTree = true
-        state.hiddenFilesToggleRequestId &+= 1
-        let requestId = state.hiddenFilesToggleRequestId
-        Task {
-            if let response = await workspaceClient.fetchWorkspaceTree(path: "", showHidden: newValue) {
-                // Guard against stale response from a concurrent toggle (ABA pattern)
-                guard state.hiddenFilesToggleRequestId == requestId else { return }
-                state.directoryCache[""] = response.entries
-            }
-            // Only clear loading if this is still the latest request
-            if state.hiddenFilesToggleRequestId == requestId {
-                state.isLoadingTree = false
-            }
-        }
-    }
-
-    private func parentDirectory(of path: String) -> String {
-        let components = path.split(separator: "/")
-        guard components.count > 1 else { return "" }
-        return components.dropLast().joined(separator: "/")
-    }
-}
-
-// MARK: - Tree Sidebar
-
-private struct WorkspaceTreeSidebar: View {
-    @Bindable var state: WorkspaceBrowserState
-    let workspaceClient: WorkspaceClient
-    let onToggleHiddenFiles: (Bool) -> Void
-    @State private var viewportWidth: CGFloat = 0
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("Files")
-                    .font(VFont.bodySmallEmphasised)
-                    .foregroundStyle(VColor.contentDefault)
-
-                Spacer()
-
-                Button {
-                    if state.isDirty {
-                        state.pendingHiddenFilesToggle = !state.showHiddenFiles
-                        state.showingDirtyAlert = true
-                    } else {
-                        onToggleHiddenFiles(!state.showHiddenFiles)
-                    }
-                } label: {
-                    VIconView(state.showHiddenFiles ? .eye : .eyeOff, size: 12)
-                        .foregroundStyle(state.showHiddenFiles ? VColor.contentDefault : VColor.contentSecondary)
-                        .padding(4)
-                        .background(
-                            RoundedRectangle(cornerRadius: VRadius.sm)
-                                .fill(state.showHiddenFiles ? VColor.surfaceActive : Color.clear)
-                        )
-                }
-                .buttonStyle(.plain)
-                .help(state.showHiddenFiles ? "Hide hidden files" : "Show hidden files")
-                .accessibilityLabel(state.showHiddenFiles ? "Hide hidden files" : "Show hidden files")
-
-                Menu {
-                    Button {
-                        state.newItemParentPath = ""
-                        state.newItemName = ""
-                        state.showingNewFileAlert = true
-                    } label: {
-                        Label { Text("New File") } icon: { VIconView(.filePlus, size: 12) }
-                    }
-                    Button {
-                        state.newItemParentPath = ""
-                        state.newItemName = ""
-                        state.showingNewFolderAlert = true
-                    } label: {
-                        Label { Text("New Folder") } icon: { VIconView(.folder, size: 12) }
-                    }
-                } label: {
-                    VIconView(.plus, size: 12)
-                        .foregroundStyle(VColor.contentSecondary)
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .accessibilityLabel("Add new file or folder")
-            }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
-
-            Divider().background(VColor.borderBase)
-
-            VStack(spacing: 0) {
-                if state.isLoadingTree && state.directoryCache.isEmpty {
-                    VStack {
-                        Spacer()
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
-                        Spacer()
-                    }
-                } else {
-                    ScrollView(.vertical) {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            if let rootEntries = state.directoryCache[""] {
-                                ForEach(rootEntries) { entry in
-                                    WorkspaceTreeRow(
-                                        entry: entry,
-                                        depth: 0,
-                                        state: state,
-                                        workspaceClient: workspaceClient,
-                                        minRowWidth: viewportWidth
-                                    )
-                                }
-                            }
-                        }
-                        .padding(.vertical, VSpacing.xs)
-                    }
-                    .onGeometryChange(for: CGFloat.self) { proxy in
-                        proxy.size.width
-                    } action: { newWidth in
-                        viewportWidth = newWidth
-                    }
-                }
-            }
-            .frame(maxHeight: .infinity, alignment: .topLeading)
-
-            if state.uploadingCount > 0 {
-                HStack(spacing: VSpacing.xs) {
-                    ProgressView().controlSize(.small)
-                    Text("Uploading \(state.uploadingCount) file\(state.uploadingCount == 1 ? "" : "s")...")
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentTertiary)
-                }
-                .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.xs)
-            }
-        }
-        .overlay {
-            if state.isDropTargeted {
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .strokeBorder(VColor.primaryBase, style: StrokeStyle(lineWidth: 2, dash: [6, 3]))
-                    .padding(4)
-            }
-        }
-        .onDrop(of: [.fileURL], isTargeted: $state.isDropTargeted) { providers in
-            handleDrop(providers: providers, targetDir: "", state: state, workspaceClient: workspaceClient)
-            return true
-        }
-        .background(VColor.surfaceLift)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.xl)
-                .strokeBorder(VColor.borderHover, lineWidth: 1)
-                .allowsHitTesting(false)
-        )
         .alert("New File", isPresented: $state.showingNewFileAlert) {
             TextField("Filename", text: $state.newItemName)
             Button("Cancel", role: .cancel) {}
@@ -461,6 +291,336 @@ private struct WorkspaceTreeSidebar: View {
                 }
             }
         }
+        .alert("Rename", isPresented: Binding(
+            get: { state.renamingPath != nil },
+            set: { if !$0 { state.renamingPath = nil } }
+        )) {
+            TextField("Name", text: $state.renamingText)
+            Button("Cancel", role: .cancel) {}
+            Button("Rename") {
+                // Capture state synchronously BEFORE creating the Task.
+                // SwiftUI dismisses the alert on button tap, which fires the
+                // binding setter above that clears `state.renamingPath`. The
+                // setter runs before the Task body executes, so if we read
+                // `state.renamingPath` from inside the Task it's already nil
+                // and the rename silently no-ops. Capturing synchronously here
+                // guarantees the rename still has the values the user entered.
+                guard let oldPath = state.renamingPath else { return }
+                let newName = state.renamingText
+                state.renamingPath = nil
+                Task { await renameItem(oldPath: oldPath, newName: newName) }
+            }
+        }
+    }
+
+    // MARK: - Header Actions
+
+    @ViewBuilder
+    private var workspaceHeaderActions: some View {
+        Button {
+            if state.isDirty {
+                state.pendingHiddenFilesToggle = !state.showHiddenFiles
+                state.showingDirtyAlert = true
+            } else {
+                applyHiddenFilesToggle(!state.showHiddenFiles)
+            }
+        } label: {
+            VIconView(state.showHiddenFiles ? .eye : .eyeOff, size: 12)
+                .foregroundStyle(state.showHiddenFiles ? VColor.contentDefault : VColor.contentSecondary)
+                .padding(4)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .fill(state.showHiddenFiles ? VColor.surfaceActive : Color.clear)
+                )
+        }
+        .buttonStyle(.plain)
+        .help(state.showHiddenFiles ? "Hide hidden files" : "Show hidden files")
+        .accessibilityLabel(state.showHiddenFiles ? "Hide hidden files" : "Show hidden files")
+
+        Menu {
+            Button {
+                state.newItemParentPath = ""
+                state.newItemName = ""
+                state.showingNewFileAlert = true
+            } label: {
+                Label { Text("New File") } icon: { VIconView(.filePlus, size: 12) }
+            }
+            Button {
+                state.newItemParentPath = ""
+                state.newItemName = ""
+                state.showingNewFolderAlert = true
+            } label: {
+                Label { Text("New Folder") } icon: { VIconView(.folder, size: 12) }
+            }
+        } label: {
+            VIconView(.plus, size: 12)
+                .foregroundStyle(VColor.contentSecondary)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .accessibilityLabel("Add new file or folder")
+    }
+
+    // MARK: - Row Context Menu
+
+    @ViewBuilder
+    private func workspaceContextMenu(for node: VFileBrowserNode) -> some View {
+        let hidden = isHiddenPath(node.path)
+        if node.isDirectory && !hidden {
+            Button {
+                state.newItemParentPath = node.path
+                state.newItemName = ""
+                state.showingNewFileAlert = true
+            } label: {
+                Label { Text("New File") } icon: { VIconView(.filePlus, size: 12) }
+            }
+            Button {
+                state.newItemParentPath = node.path
+                state.newItemName = ""
+                state.showingNewFolderAlert = true
+            } label: {
+                Label { Text("New Folder") } icon: { VIconView(.folder, size: 12) }
+            }
+            Divider()
+        }
+        if !hidden {
+            Button(role: .destructive) {
+                state.deleteConfirmPath = node.path
+                state.deleteConfirmName = node.name
+            } label: {
+                Label { Text("Delete") } icon: { VIconView(.trash, size: 12) }
+            }
+            Button {
+                state.renamingPath = node.path
+                state.renamingText = node.name
+            } label: {
+                Label { Text("Rename") } icon: { VIconView(.pencil, size: 12) }
+            }
+        }
+    }
+
+    // MARK: - Sidebar Resize Handle
+
+    @ViewBuilder
+    private var resizeHandle: some View {
+        Color.clear
+            .frame(width: 6)
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                if hovering {
+                    NSCursor.resizeLeftRight.push()
+                    didPushResizeCursor = true
+                } else if didPushResizeCursor {
+                    NSCursor.pop()
+                    didPushResizeCursor = false
+                }
+            }
+            .onDisappear {
+                if didPushResizeCursor {
+                    NSCursor.pop()
+                    didPushResizeCursor = false
+                }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: .named(dragCoordinateSpace))
+                    .onChanged { value in
+                        if dragStartWidth == nil { dragStartWidth = sidebarWidth }
+                        guard let start = dragStartWidth else { return }
+                        let delta = value.location.x - value.startLocation.x
+                        var transaction = Transaction()
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) {
+                            sidebarWidth = min(max(start + delta, minSidebarWidth), maxSidebarWidth)
+                        }
+                    }
+                    .onEnded { _ in
+                        dragStartWidth = nil
+                    }
+            )
+    }
+
+    // MARK: - Upload Progress Footer
+
+    @ViewBuilder
+    private var uploadProgressFooter: some View {
+        if state.uploadingCount > 0 {
+            HStack(spacing: VSpacing.xs) {
+                ProgressView().controlSize(.small)
+                Text("Uploading \(state.uploadingCount) file\(state.uploadingCount == 1 ? "" : "s")...")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+            .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.md, bottom: VSpacing.xs, trailing: VSpacing.md))
+        }
+    }
+
+    // MARK: - Tree builder
+
+    /// Recomputes the `VFileBrowserNode` tree from the current directory
+    /// cache. Called whenever the underlying cache changes so that the view
+    /// body only has to read a prebuilt `@State` array.
+    private func rebuildWorkspaceNodes() {
+        workspaceNodes = buildWorkspaceNodes(
+            parent: "",
+            cache: state.directoryCache
+        )
+    }
+
+    private func buildWorkspaceNodes(
+        parent: String,
+        cache: [String: [WorkspaceTreeEntry]]
+    ) -> [VFileBrowserNode] {
+        guard let entries = cache[parent] else { return [] }
+        return entries.map { entry in
+            let children: [VFileBrowserNode]
+            if entry.isDirectory && cache[entry.path] != nil {
+                // Always materialize cached children — expansion state
+                // controls visibility (in `flattenTree` inside
+                // `VFileBrowser`), not whether the children exist in the
+                // searchable tree. Keeping cached children in the tree even
+                // when the parent is collapsed means search via
+                // `filterTreeForSearch` can find any file that has ever been
+                // loaded into the cache, not just files under currently
+                // expanded directories.
+                children = buildWorkspaceNodes(parent: entry.path, cache: cache)
+            } else {
+                children = []
+            }
+            return VFileBrowserNode(
+                id: entry.path,
+                name: entry.name,
+                path: entry.path,
+                isDirectory: entry.isDirectory,
+                size: entry.isDirectory ? nil : entry.size,
+                icon: fileIcon(for: entry.mimeType ?? "application/octet-stream", fileName: entry.name),
+                isDimmed: isHiddenPath(entry.path),
+                children: children
+            )
+        }
+    }
+
+    // MARK: - Loading
+
+    private func loadRoot() async {
+        state.isLoadingTree = true
+        if let response = await workspaceClient.fetchWorkspaceTree(path: "", showHidden: state.showHiddenFiles) {
+            state.directoryCache[""] = response.entries
+            rebuildWorkspaceNodes()
+
+            // Auto-select IDENTITY.md if it exists and no file is already selected
+            if state.selectedFilePath == nil,
+               let identityEntry = response.entries.first(where: { $0.name == "IDENTITY.md" && !$0.isDirectory }) {
+                await state.loadFile(path: identityEntry.path, using: workspaceClient)
+            }
+        }
+        state.isLoadingTree = false
+    }
+
+    private func applyHiddenFilesToggle(_ newValue: Bool) {
+        state.showHiddenFiles = newValue
+        UserDefaults.standard.set(newValue, forKey: "showHiddenFiles")
+        state.directoryCache.removeAll()
+        state.expandedDirs.removeAll()
+        state.selectedFilePath = nil
+        state.selectedFileDetail = nil
+        state.editableContent = ""
+        state.originalContent = ""
+        state.isDirty = false
+        state.isLoadingTree = true
+        state.hiddenFilesToggleRequestId &+= 1
+        let requestId = state.hiddenFilesToggleRequestId
+        Task {
+            if let response = await workspaceClient.fetchWorkspaceTree(path: "", showHidden: newValue) {
+                // Guard against stale response from a concurrent toggle (ABA pattern)
+                guard state.hiddenFilesToggleRequestId == requestId else { return }
+                state.directoryCache[""] = response.entries
+            }
+            // Only clear loading if this is still the latest request
+            if state.hiddenFilesToggleRequestId == requestId {
+                state.isLoadingTree = false
+            }
+        }
+    }
+
+    // MARK: - Rename
+
+    /// Renames `oldPath` to a sibling with `newName`. `oldPath` and `newName`
+    /// are captured synchronously by the alert button so this function doesn't
+    /// read them from `state` — if it did, the alert's binding setter would
+    /// have already cleared `state.renamingPath` by the time the Task body
+    /// runs, causing a silent no-op.
+    private func renameItem(oldPath: String, newName: String) async {
+        let parentPath = parentDirectory(of: oldPath)
+        let newPath = parentPath.isEmpty ? newName : "\(parentPath)/\(newName)"
+
+        // Look up whether the renamed entry is a directory before the cache is
+        // mutated by the parent refresh below.
+        let wasDirectory: Bool = state.directoryCache[parentPath]?.first { $0.path == oldPath }?.isDirectory ?? false
+
+        let success = await workspaceClient.renameWorkspaceItem(oldPath: oldPath, newPath: newPath)
+        if success {
+            if let response = await workspaceClient.fetchWorkspaceTree(path: parentPath, showHidden: state.showHiddenFiles) {
+                state.directoryCache[parentPath] = response.entries
+            }
+
+            // Update selectedFilePath and selectedFileDetail for exact match or descendants
+            if state.selectedFilePath == oldPath {
+                state.selectedFilePath = newPath
+                if let detail = state.selectedFileDetail {
+                    let updatedName = String(newPath.split(separator: "/").last ?? Substring(newPath))
+                    state.selectedFileDetail = WorkspaceFileResponse(
+                        path: newPath, name: updatedName, size: detail.size,
+                        mimeType: detail.mimeType, modifiedAt: detail.modifiedAt,
+                        content: detail.content, isBinary: detail.isBinary
+                    )
+                }
+            } else if let selected = state.selectedFilePath, selected.hasPrefix(oldPath + "/") {
+                let updatedPath = newPath + selected.dropFirst(oldPath.count)
+                state.selectedFilePath = updatedPath
+                if let detail = state.selectedFileDetail {
+                    let updatedName = String(updatedPath.split(separator: "/").last ?? Substring(updatedPath))
+                    state.selectedFileDetail = WorkspaceFileResponse(
+                        path: updatedPath, name: updatedName, size: detail.size,
+                        mimeType: detail.mimeType, modifiedAt: detail.modifiedAt,
+                        content: detail.content, isBinary: detail.isBinary
+                    )
+                }
+            }
+
+            // Migrate expandedDirs and directoryCache for renamed directories
+            if wasDirectory {
+                let oldPrefix = oldPath + "/"
+                // Transfer expanded state
+                if state.expandedDirs.remove(oldPath) != nil {
+                    state.expandedDirs.insert(newPath)
+                }
+                let descendantDirs = state.expandedDirs.filter { $0.hasPrefix(oldPrefix) }
+                for dir in descendantDirs {
+                    state.expandedDirs.remove(dir)
+                    state.expandedDirs.insert(newPath + dir.dropFirst(oldPath.count))
+                }
+                // Invalidate directory cache for renamed directory and descendants
+                // (WorkspaceTreeEntry.path is immutable, so entries must be re-fetched)
+                let cacheKeys = state.directoryCache.keys.filter { $0 == oldPath || $0.hasPrefix(oldPrefix) }
+                for key in cacheKeys {
+                    state.directoryCache.removeValue(forKey: key)
+                }
+                // Re-fetch contents for directories that remain expanded under the new path
+                let newExpandedDirs = state.expandedDirs.filter { $0 == newPath || $0.hasPrefix(newPath + "/") }
+                for dir in newExpandedDirs {
+                    if let response = await workspaceClient.fetchWorkspaceTree(path: dir, showHidden: state.showHiddenFiles) {
+                        state.directoryCache[dir] = response.entries
+                    }
+                }
+            }
+        }
+    }
+
+    private func parentDirectory(of path: String) -> String {
+        let components = path.split(separator: "/")
+        guard components.count > 1 else { return "" }
+        return components.dropLast().joined(separator: "/")
     }
 }
 
@@ -499,228 +659,6 @@ private func fileURLFromDropItem(_ item: NSSecureCoding?) -> URL? {
     return nil
 }
 
-// MARK: - Tree Row
-
-private struct WorkspaceTreeRow: View {
-    let entry: WorkspaceTreeEntry
-    let depth: Int
-    @Bindable var state: WorkspaceBrowserState
-    let workspaceClient: WorkspaceClient
-    var minRowWidth: CGFloat = 0
-
-    private var isExpanded: Bool {
-        state.expandedDirs.contains(entry.path)
-    }
-
-    private var isSelected: Bool {
-        state.selectedFilePath == entry.path
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                Task { await handleTap() }
-            } label: {
-                Group {
-                    if state.renamingPath == entry.path {
-                        // Rename mode: inline TextField (cannot use shared label)
-                        HStack(spacing: VSpacing.xs) {
-                            if entry.isDirectory {
-                                VIconView(isExpanded ? .chevronDown : .chevronRight, size: 9)
-                                    .foregroundStyle(VColor.contentTertiary)
-                                    .frame(width: 12)
-                            } else {
-                                Spacer().frame(width: 12)
-                            }
-                            VIconView(entry.isDirectory ? .folder : .fileText, size: 12)
-                                .foregroundStyle(entry.isDirectory ? VColor.primaryBase : VColor.contentSecondary)
-                            TextField("Name", text: $state.renamingText)
-                                .textFieldStyle(.plain)
-                                .font(VFont.bodyMediumLighter)
-                                .fixedSize(horizontal: true, vertical: false)
-                                .onSubmit { submitRename() }
-                                .onExitCommand { state.renamingPath = nil }
-                        }
-                        .padding(.leading, CGFloat(depth) * VSpacing.lg + VSpacing.sm)
-                        .padding(.trailing, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xs)
-                        .frame(minWidth: minRowWidth, alignment: .leading)
-                        .background(isSelected ? VColor.surfaceActive : Color.clear)
-                    } else {
-                        // Normal mode: shared label
-                        FileTreeRowLabel(
-                            name: entry.name,
-                            isDirectory: entry.isDirectory,
-                            isExpanded: isExpanded,
-                            depth: depth,
-                            fileIcon: fileIcon(for: entry.mimeType ?? "application/octet-stream", fileName: entry.name),
-                            minRowWidth: minRowWidth,
-                            isDimmed: isHiddenPath(entry.path),
-                            isActive: state.selectedFilePath == entry.path,
-                            trailingText: entry.isDirectory ? nil : formattedFileSize(entry.size)
-                        )
-                    }
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .onDrop(of: entry.isDirectory && !isHiddenPath(entry.path) ? [.fileURL] : [], isTargeted: .none) { providers in
-                guard entry.isDirectory, !isHiddenPath(entry.path) else { return false }
-                handleDrop(providers: providers, targetDir: entry.path, state: state, workspaceClient: workspaceClient)
-                return true
-            }
-
-            // Expanded children
-            if entry.isDirectory && isExpanded {
-                if let children = state.directoryCache[entry.path] {
-                    ForEach(children) { child in
-                        WorkspaceTreeRow(
-                            entry: child,
-                            depth: depth + 1,
-                            state: state,
-                            workspaceClient: workspaceClient,
-                            minRowWidth: minRowWidth
-                        )
-                    }
-                }
-            }
-        }
-        .contextMenu {
-            let hidden = isHiddenPath(entry.path)
-            if entry.isDirectory && !hidden {
-                Button {
-                    state.newItemParentPath = entry.path
-                    state.newItemName = ""
-                    state.showingNewFileAlert = true
-                } label: {
-                    Label { Text("New File") } icon: { VIconView(.filePlus, size: 12) }
-                }
-                Button {
-                    state.newItemParentPath = entry.path
-                    state.newItemName = ""
-                    state.showingNewFolderAlert = true
-                } label: {
-                    Label { Text("New Folder") } icon: { VIconView(.folder, size: 12) }
-                }
-                Divider()
-            }
-            if !hidden {
-                Button(role: .destructive) {
-                    state.deleteConfirmPath = entry.path
-                    state.deleteConfirmName = entry.name
-                } label: {
-                    Label { Text("Delete") } icon: { VIconView(.trash, size: 12) }
-                }
-                Button {
-                    state.renamingPath = entry.path
-                    state.renamingText = entry.name
-                } label: {
-                    Label { Text("Rename") } icon: { VIconView(.pencil, size: 12) }
-                }
-            }
-        }
-    }
-
-    private func submitRename() {
-        let oldPath = entry.path
-        let parentPath = parentDirectory(of: oldPath)
-        let newPath = parentPath.isEmpty ? state.renamingText : "\(parentPath)/\(state.renamingText)"
-        Task {
-            let success = await workspaceClient.renameWorkspaceItem(oldPath: oldPath, newPath: newPath)
-            if success {
-                if let response = await workspaceClient.fetchWorkspaceTree(path: parentPath, showHidden: state.showHiddenFiles) {
-                    state.directoryCache[parentPath] = response.entries
-                }
-
-                // Update selectedFilePath and selectedFileDetail for exact match or descendants
-                if state.selectedFilePath == oldPath {
-                    state.selectedFilePath = newPath
-                    if let detail = state.selectedFileDetail {
-                        let newName = String(newPath.split(separator: "/").last ?? Substring(newPath))
-                        state.selectedFileDetail = WorkspaceFileResponse(
-                            path: newPath, name: newName, size: detail.size,
-                            mimeType: detail.mimeType, modifiedAt: detail.modifiedAt,
-                            content: detail.content, isBinary: detail.isBinary
-                        )
-                    }
-                } else if let selected = state.selectedFilePath, selected.hasPrefix(oldPath + "/") {
-                    let updatedPath = newPath + selected.dropFirst(oldPath.count)
-                    state.selectedFilePath = updatedPath
-                    if let detail = state.selectedFileDetail {
-                        let newName = String(updatedPath.split(separator: "/").last ?? Substring(updatedPath))
-                        state.selectedFileDetail = WorkspaceFileResponse(
-                            path: updatedPath, name: newName, size: detail.size,
-                            mimeType: detail.mimeType, modifiedAt: detail.modifiedAt,
-                            content: detail.content, isBinary: detail.isBinary
-                        )
-                    }
-                }
-
-                // Migrate expandedDirs and directoryCache for renamed directories
-                if entry.isDirectory {
-                    let oldPrefix = oldPath + "/"
-                    // Transfer expanded state
-                    if state.expandedDirs.remove(oldPath) != nil {
-                        state.expandedDirs.insert(newPath)
-                    }
-                    let descendantDirs = state.expandedDirs.filter { $0.hasPrefix(oldPrefix) }
-                    for dir in descendantDirs {
-                        state.expandedDirs.remove(dir)
-                        state.expandedDirs.insert(newPath + dir.dropFirst(oldPath.count))
-                    }
-                    // Invalidate directory cache for renamed directory and descendants
-                    // (WorkspaceTreeEntry.path is immutable, so entries must be re-fetched)
-                    let cacheKeys = state.directoryCache.keys.filter { $0 == oldPath || $0.hasPrefix(oldPrefix) }
-                    for key in cacheKeys {
-                        state.directoryCache.removeValue(forKey: key)
-                    }
-                    // Re-fetch contents for directories that remain expanded under the new path
-                    let newExpandedDirs = state.expandedDirs.filter { $0 == newPath || $0.hasPrefix(newPath + "/") }
-                    for dir in newExpandedDirs {
-                        if let response = await workspaceClient.fetchWorkspaceTree(path: dir, showHidden: state.showHiddenFiles) {
-                            state.directoryCache[dir] = response.entries
-                        }
-                    }
-                }
-            }
-            state.renamingPath = nil
-        }
-    }
-
-    private func parentDirectory(of path: String) -> String {
-        let components = path.split(separator: "/")
-        guard components.count > 1 else { return "" }
-        return components.dropLast().joined(separator: "/")
-    }
-
-    private func handleTap() async {
-        if entry.isDirectory {
-            if isExpanded {
-                state.expandedDirs.remove(entry.path)
-            } else {
-                state.expandedDirs.insert(entry.path)
-                // Load children if not cached
-                if state.directoryCache[entry.path] == nil {
-                    if let response = await workspaceClient.fetchWorkspaceTree(path: entry.path, showHidden: state.showHiddenFiles) {
-                        state.directoryCache[entry.path] = response.entries
-                    }
-                }
-            }
-        } else {
-            let targetPath = entry.path
-            // Skip if already selected
-            guard targetPath != state.selectedFilePath else { return }
-            // If there are unsaved changes, confirm before switching
-            if state.isDirty {
-                state.pendingSwitchPath = targetPath
-                state.showingDirtyAlert = true
-            } else {
-                await state.loadFile(path: targetPath, using: workspaceClient)
-            }
-        }
-    }
-}
-
 // MARK: - File Viewer
 
 private struct WorkspaceFileViewer: View {
@@ -739,17 +677,11 @@ private struct WorkspaceFileViewer: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let detail = state.selectedFileDetail {
+                // VFileBrowser.rightPane provides the outer card (bordered
+                // RoundedRectangle with surfaceLift background). Render the
+                // file content edge-to-edge so it doesn't duplicate that
+                // chrome with an inner card.
                 fileContent(detail)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .fill(VColor.surfaceBase)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .strokeBorder(VColor.borderBase, lineWidth: 1)
-                    )
-                    .padding(.horizontal, VSpacing.md)
             } else {
                 emptyState
             }
@@ -841,8 +773,7 @@ private struct WorkspaceFileViewer: View {
                     .keyboardShortcut("s", modifiers: .command)
                 }
             }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
+            .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.md, bottom: VSpacing.sm, trailing: VSpacing.md))
             .background(VColor.surfaceOverlay)
         }
     }
@@ -910,20 +841,6 @@ private struct WorkspaceFileViewer: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-}
-
-// MARK: - File Size Formatter
-
-/// Formats an optional byte count into a human-readable size string.
-private func formattedFileSize(_ bytes: Int?) -> String? {
-    guard let bytes else { return nil }
-    if bytes < 1024 {
-        return "\(bytes) bytes"
-    } else if bytes < 1024 * 1024 {
-        return "\(bytes / 1024) KB"
-    } else {
-        return "\(String(format: "%.1f", Double(bytes) / (1024 * 1024))) MB"
-    }
 }
 
 // MARK: - Hidden Path Helper

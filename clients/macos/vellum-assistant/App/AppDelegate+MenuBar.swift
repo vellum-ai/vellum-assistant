@@ -122,6 +122,15 @@ extension AppDelegate {
 
         rebindConnectionStatusObserver()
 
+        // Read the multi-platform-assistant flag exactly once when the
+        // status item is constructed. Flag changes require relaunch.
+        multiAssistantSwitcherEnabled = featureFlagStore.isEnabled("multi-platform-assistant")
+        if multiAssistantSwitcherEnabled {
+            assistantSwitcherViewModel = makeAssistantSwitcherViewModel()
+        } else {
+            assistantSwitcherViewModel = nil
+        }
+
         // Update menu bar icon when the assistant's avatar changes.
         if avatarChangeObserver == nil {
             avatarChangeObserver = NotificationCenter.default.addObserver(
@@ -318,7 +327,7 @@ extension AppDelegate {
     var currentAssistantStatus: AssistantStatus {
         if !connectionManager.isConnected { return .disconnected }
         guard let viewModel = mainWindow?.conversationManager.activeViewModel else { return .idle }
-        if let error = viewModel.errorText { return .error(error) }
+        if viewModel.errorText != nil { return .error }
         if viewModel.isThinking { return .thinking }
         return .idle
     }
@@ -413,6 +422,23 @@ extension AppDelegate {
             menu.addItem(restartItem)
         }
 
+        if multiAssistantSwitcherEnabled, onboardingWindow == nil, let switcherVM = assistantSwitcherViewModel {
+            // Force a re-read of the lockfile before rebuilding so items
+            // reflect any changes the active assistant may have missed
+            // (e.g. just after a create).
+            switcherVM.refresh()
+            menu.addItem(NSMenuItem.separator())
+            for item in AssistantSwitcherMenu.buildItems(
+                viewModel: switcherVM,
+                target: self,
+                selectAction: #selector(assistantSwitcherDidSelect(_:)),
+                createAction: #selector(assistantSwitcherDidRequestCreate(_:)),
+                retireAction: #selector(assistantSwitcherDidRequestRetire(_:))
+            ) {
+                menu.addItem(item)
+            }
+        }
+
         menu.addItem(NSMenuItem.separator())
 
         let quitItem = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -433,7 +459,7 @@ extension AppDelegate {
         guard !markedIds.isEmpty else { return }
         let count = markedIds.count
         let toastId = mainWindow?.windowState.showToast(
-            message: "Marked \(count) conversation\(count == 1 ? "" : "s") as seen",
+            message: "Marked \(count) conversation\(count == 1 ? "" : "s") as read",
             style: .success,
             primaryAction: VToastAction(label: "Undo") { [weak self] in
                 self?.mainWindow?.conversationManager.restoreUnseen(conversationIds: markedIds)
@@ -459,7 +485,7 @@ extension AppDelegate {
         menu.addItem(newChatItem)
 
         let markAllSeenItem = NSMenuItem(
-            title: "Mark All Conversations as Seen",
+            title: "Mark All Conversations as Read",
             action: #selector(markAllConversationsSeen),
             keyEquivalent: ""
         )
@@ -505,7 +531,7 @@ extension AppDelegate {
         // where the Software Update card lives and auto-loads releases.
         // Sparkle is only relevant for local topology.
         let assistants = LockfileAssistant.loadAll()
-        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let connectedId = LockfileAssistant.loadActiveAssistantId()
         if let id = connectedId,
            let assistant = assistants.first(where: { $0.assistantId == id }),
            assistant.isDocker || assistant.isManaged {
@@ -697,6 +723,135 @@ extension AppDelegate {
         }
     }
 
+    // MARK: - Assistant Switcher (multi-platform-assistant)
+
+    /// Build the view model used by the menu-bar switcher. Production
+    /// handlers wrap `ManagedAssistantConnectionCoordinator.switchToManagedAssistant`,
+    /// the hatch path, and the existing vellum CLI retire path.
+    func makeAssistantSwitcherViewModel() -> AssistantSwitcherViewModel {
+        // Reuse one coordinator + controller for the lifetime of the
+        // switcher rather than allocating per-click. The coordinator is
+        // effectively stateless today, but caching keeps this call site
+        // consistent with how `activateManagedAssistant` is wired and
+        // guards against silent drift if state is added later.
+        let controller = AppDelegateManagedConnectionController(appDelegate: self)
+        let coordinator = ManagedAssistantConnectionCoordinator(
+            connectionController: controller
+        )
+        assistantSwitcherConnectionController = controller
+        assistantSwitcherCoordinator = coordinator
+        return AssistantSwitcherViewModel(
+            switchHandler: { assistantId in
+                _ = try await coordinator.switchToManagedAssistant(assistantId: assistantId)
+            },
+            createHandler: { [weak self] name in
+                guard let self else { return }
+                try await self.hatchAndPersistManagedAssistant(name: name)
+            },
+            retireHandler: { [weak self] assistantId in
+                guard let self else { return }
+                try await self.retireManagedAssistantFromSwitcher(assistantId: assistantId)
+            }
+        )
+    }
+
+    /// Hatch a new managed assistant against the platform and persist it to
+    /// the lockfile. The organization id is read from UserDefaults —
+    /// matching the path the onboarding flow and TeleportSection use. There
+    /// is no centralized constant for this key yet; see TeleportSection for
+    /// the other call site that reads it directly.
+    private func hatchAndPersistManagedAssistant(name: String) async throws {
+        guard let organizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId"),
+              !organizationId.isEmpty else {
+            throw AssistantSwitcherError.noOrganizationConnected
+        }
+        let result = try await AuthService.shared.hatchAssistant(
+            organizationId: organizationId,
+            name: name
+        )
+        let platformAssistant: PlatformAssistant
+        switch result {
+        case .reusedExisting(let assistant), .createdNew(let assistant):
+            platformAssistant = assistant
+        }
+        let success = LockfileAssistant.ensureManagedEntry(
+            assistantId: platformAssistant.id,
+            runtimeUrl: AuthService.shared.baseURL,
+            hatchedAt: platformAssistant.created_at ?? Date().iso8601String
+        )
+        guard success else {
+            throw AssistantSwitcherError.lockfilePersistenceFailed
+        }
+    }
+
+    /// Retire an assistant requested from the switcher. Today the switcher
+    /// only exposes a retire row for the currently active assistant (the
+    /// menu builder enforces this), so we always delegate to the existing
+    /// `performRetireAsync()` path which handles fallback selection and
+    /// tear-down. Retiring a non-active managed assistant requires a
+    /// variant that targets an arbitrary id without tearing down the
+    /// current connection — tracked as a follow-up.
+    private func retireManagedAssistantFromSwitcher(assistantId: String) async throws {
+        let activeId = LockfileAssistant.loadActiveAssistantId()
+        guard assistantId == activeId else {
+            // Defensive: the menu should never surface this row, but throw
+            // a typed error rather than silently no-op if it ever does.
+            throw AssistantSwitcherError.retireNonActiveNotSupported
+        }
+        _ = await performRetireAsync()
+    }
+
+    @objc func assistantSwitcherDidSelect(_ sender: NSMenuItem) {
+        guard let assistantId = sender.representedObject as? String else { return }
+        guard let vm = assistantSwitcherViewModel else { return }
+        Task { @MainActor in
+            do {
+                try await vm.select(assistantId: assistantId)
+            } catch {
+                log.error("Assistant switch failed: \(error.localizedDescription, privacy: .public)")
+                let alert = NSAlert()
+                alert.messageText = "Could not switch assistant"
+                alert.informativeText = error.localizedDescription
+                alert.alertStyle = .warning
+                alert.runModal()
+            }
+        }
+    }
+
+    @objc func assistantSwitcherDidRequestCreate(_ sender: NSMenuItem) {
+        guard let vm = assistantSwitcherViewModel else { return }
+        guard let name = AssistantSwitcherMenu.promptForNewAssistantName() else { return }
+        Task { @MainActor in
+            do {
+                try await vm.createNewAssistant(name: name)
+            } catch {
+                log.error("New managed assistant failed: \(error.localizedDescription, privacy: .public)")
+                let alert = NSAlert()
+                alert.messageText = "Could not create assistant"
+                alert.informativeText = error.localizedDescription
+                alert.alertStyle = .warning
+                alert.runModal()
+            }
+        }
+    }
+
+    @objc func assistantSwitcherDidRequestRetire(_ sender: NSMenuItem) {
+        guard let assistantId = sender.representedObject as? String else { return }
+        guard let vm = assistantSwitcherViewModel else { return }
+        Task { @MainActor in
+            do {
+                try await vm.retire(assistantId: assistantId)
+            } catch {
+                log.error("Retire from switcher failed: \(error.localizedDescription, privacy: .public)")
+                let alert = NSAlert()
+                alert.messageText = "Could not retire assistant"
+                alert.informativeText = error.localizedDescription
+                alert.alertStyle = .warning
+                alert.runModal()
+            }
+        }
+    }
+
     #if DEBUG
     @objc func showComponentGallery() {
         AvatarGallerySection.registerInGallery()
@@ -705,4 +860,52 @@ extension AppDelegate {
     }
 
     #endif
+}
+
+/// Bridges `ManagedAssistantConnectionController` onto the live
+/// `AppDelegate` connection stack. On teardown it disconnects the current
+/// gateway client; on bring-up it re-runs `setupGatewayConnectionManager()`
+/// which reads the (now-updated) active assistant from the lockfile and
+/// reconnects.
+@MainActor
+final class AppDelegateManagedConnectionController: ManagedAssistantConnectionController {
+    private weak var appDelegate: AppDelegate?
+
+    init(appDelegate: AppDelegate) {
+        self.appDelegate = appDelegate
+    }
+
+    func teardown() async {
+        appDelegate?.connectionManager.disconnect()
+    }
+
+    func bringUp(for assistant: LockfileAssistant) async {
+        // Reuse the existing `reconnectManagedAssistant()` entry point so
+        // the "reset the idempotency flag + re-run setup" dance lives in
+        // one place, rather than having the switcher toggle
+        // `hasSetupDaemon` directly and silently couple to every one-shot
+        // initializer inside `setupGatewayConnectionManager()`.
+        appDelegate?.reconnectManagedAssistant()
+    }
+}
+
+/// Typed errors surfaced from the menu-bar assistant switcher. Defined here
+/// (rather than alongside `ManagedAssistantConnectionCoordinatorError`)
+/// because these are UI-layer failures — no organization connected, the
+/// lockfile write failed, etc. — that never originate from the coordinator.
+enum AssistantSwitcherError: LocalizedError {
+    case noOrganizationConnected
+    case lockfilePersistenceFailed
+    case retireNonActiveNotSupported
+
+    var errorDescription: String? {
+        switch self {
+        case .noOrganizationConnected:
+            return "No organization connected. Sign in first, then try again."
+        case .lockfilePersistenceFailed:
+            return "Failed to save the new assistant to your lockfile."
+        case .retireNonActiveNotSupported:
+            return "Retiring a non-active assistant from the switcher isn't supported yet. Switch to the assistant first, then retire it."
+        }
+    }
 }

@@ -1,6 +1,6 @@
 /**
- * Watches feature-flags.json for external modifications and invalidates the
- * module-level cache in feature-flag-store.ts.
+ * Watches feature flag files for external modifications and invalidates /
+ * refreshes the corresponding module-level caches.
  *
  * Uses the same fs.watch() + debounce pattern as CredentialWatcher and
  * ConfigFileWatcher. Watches the parent directory (not the file itself)
@@ -15,6 +15,10 @@ import {
   clearFeatureFlagStoreCache,
   getFeatureFlagStorePath,
 } from "./feature-flag-store.js";
+import {
+  refreshRemoteFeatureFlagStoreCache,
+  getRemoteFeatureFlagStorePath,
+} from "./feature-flag-remote-store.js";
 import { getLogger } from "./logger.js";
 
 const log = getLogger("feature-flag-watcher");
@@ -24,16 +28,18 @@ const DEBOUNCE_MS = 500;
 export class FeatureFlagWatcher {
   private watcher: FSWatcher | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private flagPath: string;
-  private flagFilename: string;
+  private localFlagFilename: string;
+  private remoteFlagFilename: string;
+  /** Accumulates which files changed during the debounce window. */
+  private pendingFilenames = new Set<string>();
 
   constructor() {
-    this.flagPath = getFeatureFlagStorePath();
-    this.flagFilename = basename(this.flagPath);
+    this.localFlagFilename = basename(getFeatureFlagStorePath());
+    this.remoteFlagFilename = basename(getRemoteFeatureFlagStorePath());
   }
 
   start(): void {
-    const dir = dirname(this.flagPath);
+    const dir = dirname(getFeatureFlagStorePath());
 
     // Ensure the directory exists so fs.watch() doesn't throw ENOENT
     // on a fresh instance where no flags have been persisted yet.
@@ -43,10 +49,14 @@ export class FeatureFlagWatcher {
 
     try {
       this.watcher = watch(dir, { persistent: false }, (_event, filename) => {
-        if (filename && filename !== this.flagFilename) {
+        if (
+          filename &&
+          filename !== this.localFlagFilename &&
+          filename !== this.remoteFlagFilename
+        ) {
           return;
         }
-        this.scheduleInvalidation();
+        this.scheduleInvalidation(filename ?? undefined);
       });
 
       log.info({ path: dir }, "Watching for feature flag file changes");
@@ -66,14 +76,30 @@ export class FeatureFlagWatcher {
     }
   }
 
-  private scheduleInvalidation(): void {
+  private scheduleInvalidation(filename?: string): void {
+    if (filename) {
+      this.pendingFilenames.add(filename);
+    }
+
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
     }
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
-      clearFeatureFlagStoreCache();
-      log.info("Feature flag cache invalidated due to file change");
+
+      const filenames = this.pendingFilenames;
+      this.pendingFilenames = new Set<string>();
+
+      if (filenames.has(this.localFlagFilename)) {
+        clearFeatureFlagStoreCache();
+      }
+      if (filenames.has(this.remoteFlagFilename)) {
+        refreshRemoteFeatureFlagStoreCache();
+      }
+      log.info(
+        { filenames: [...filenames] },
+        "Feature flag cache invalidated due to file change",
+      );
     }, DEBOUNCE_MS);
   }
 }

@@ -486,40 +486,6 @@ describe("createProxyApprovalCallback", () => {
   // in contrast to the proxied bash activation path which CANNOT (tested
   // in tool-executor.test.ts).
 
-  test("always_allow_high_risk persists rule with allowHighRisk flag", async () => {
-    const ctx = makeContext();
-    const prompterSendToClient = mock(() => {});
-    const prompter = new PermissionPrompter(prompterSendToClient);
-
-    const originalPrompt = prompter.prompt.bind(prompter);
-    prompter.prompt = async (...args) => {
-      const p = originalPrompt(...args);
-      await new Promise((r) => setTimeout(r, 10));
-      const call = (prompterSendToClient.mock.calls as unknown[][])[0];
-      const msg = call[0] as { requestId: string };
-      prompter.resolveConfirmation(
-        msg.requestId,
-        "always_allow_high_risk",
-        "network_request:https://api.fal.ai:443/*",
-        "/tmp/test-project",
-      );
-      return p;
-    };
-
-    const callback = createProxyApprovalCallback(prompter, ctx);
-    const result = await callback(makeAskMissingCredentialRequest());
-
-    expect(result).toBe(true);
-    expect(addRuleMock).toHaveBeenCalledWith(
-      "network_request",
-      "network_request:https://api.fal.ai:443/*",
-      "/tmp/test-project",
-      "allow",
-      100,
-      { allowHighRisk: true },
-    );
-  });
-
   test("one-time allow does NOT persist any rule", async () => {
     const ctx = makeContext();
     const prompterSendToClient = mock(() => {});

@@ -94,7 +94,7 @@ describe("wipeConversation", () => {
 
   test("cancels pending memory jobs", async () => {
     const conv = createConversation("test");
-    const msg = await addMessage(conv.id, "user", "hello", undefined, {
+    await addMessage(conv.id, "user", "hello", undefined, {
       skipIndexing: true,
     });
 
@@ -102,7 +102,7 @@ describe("wipeConversation", () => {
     const db = getDb();
     db.run(`DELETE FROM memory_jobs`);
 
-    enqueueMemoryJob("extract_items", { messageId: msg.id });
+    enqueueMemoryJob("graph_extract", { conversationId: conv.id });
     enqueueMemoryJob("build_conversation_summary", {
       conversationId: conv.id,
     });
@@ -121,8 +121,6 @@ describe("wipeConversation", () => {
       .all() as Array<{ status: string; last_error: string | null }>;
 
     for (const job of jobs) {
-      // Skip embed_item jobs enqueued by wipeConversation's unsupersede logic
-      if (job.status === "pending") continue;
       expect(job.status).toBe("failed");
       expect(job.last_error).toContain("conversation_wiped");
     }
@@ -137,8 +135,6 @@ describe("wipeConversation", () => {
 
     expect(getConversation(conv.id)).toBeNull();
     expect(result.segmentIds).toEqual([]);
-    expect(result.orphanedItemIds).toEqual([]);
-    expect(result.unsupersededItemIds).toEqual([]);
     expect(result.deletedSummaryIds).toEqual([]);
     expect(result.cancelledJobCount).toBe(0);
   });

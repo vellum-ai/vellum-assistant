@@ -169,9 +169,9 @@ The assistant's container root (`/`) stores per-container ephemeral and persiste
 - **Credentials** are owned by the CES. In Docker mode, the assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`). Neither service has direct filesystem access to `keys.enc` or `store.key`.
 - The legacy shared data volume (`<name>-data`) is no longer created for new instances. Existing instances are migrated: gateway security files and CES security files are copied from the data volume to their respective security volumes on startup (see `migrateGatewaySecurityFiles()` and `migrateCesSecurityFiles()` in `cli/src/lib/docker.ts`).
 
-## Workspace Export & Secrets
+## Workspace & Secrets
 
-The entire ~/.vellum/workspace directory (minus embedding models, Qdrant vector indices, attachments, and conversation disk-view files) is included in diagnostic log exports when users choose "Send logs to Vellum". **Never store secrets, API keys, or sensitive credentials in the workspace directory.**
+**Never store secrets, API keys, or sensitive credentials in the workspace directory.**
 
 - **Local mode**: Use the credential store (`assistant credentials`) or the `~/.vellum/protected/` directory for sensitive data.
 - **Docker mode**: Sensitive files are isolated on dedicated security volumes that only the owning service can access. Trust rules (`trust.json`, `actor-token-signing-key`) live on the gateway security volume (`/gateway-security`). Credential keys (`keys.enc`, `store.key`) live on the CES security volume (`/ces-security`). The assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`), and the assistant accesses trust rules via the gateway's trust HTTP API. Neither the assistant nor the gateway has direct filesystem access to the other service's security volume.

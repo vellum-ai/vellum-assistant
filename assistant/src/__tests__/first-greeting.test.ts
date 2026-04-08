@@ -53,7 +53,7 @@ describe("first-greeting", () => {
       const greeting = getCannedFirstGreeting();
       expect(greeting).toBe(CANNED_FIRST_GREETING);
       expect(greeting).toContain("brand new");
-      expect(greeting).toContain("no name, no memories");
+      expect(greeting).toContain("No name, no memories");
     });
   });
 });

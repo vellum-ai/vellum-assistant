@@ -5,6 +5,7 @@ import Speech
 import AVFoundation
 import PhotosUI
 import UniformTypeIdentifiers
+import ObjCExceptionCatcher
 import VellumAssistantShared
 
 private let log = Logger(
@@ -187,7 +188,7 @@ struct InputBarView: View {
                 VButton(
                     label: "Stop generation",
                     iconOnly: VIcon.square.rawValue,
-                    style: .contrast,
+                    style: .primary,
                     action: onStop
                 )
             } else {
@@ -351,31 +352,50 @@ struct InputBarView: View {
         isAutoStopPending = false
         textAtAutoStop = ""
 
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
-            request.append(buffer)
+        // installTap throws an Objective-C NSException (not a Swift Error) on
+        // format mismatch or stale engine state during audio route changes.
+        // Swift's do/catch cannot intercept NSExceptions — they propagate
+        // unhandled and call abort(). The ObjC bridge converts them to NSError.
+        // See: https://developer.apple.com/documentation/avfaudio/avaudionode/1387122-installtap
+        var installError: NSError?
+        let installed = VLMPerformWithObjCExceptionHandling({
+            inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
+                request.append(buffer)
 
-            // Compute RMS amplitude for both voice orb animation and silence detection.
-            guard let floatData = buffer.floatChannelData else { return }
-            let frameCount = Int(buffer.frameLength)
-            guard frameCount > 0 else { return }
-            var sum: Float = 0
-            for i in 0..<frameCount {
-                let s = floatData[0][i]
-                sum += s * s
-            }
-            let rms = (sum / Float(frameCount)).squareRoot()
+                // Compute RMS amplitude for both voice orb animation and silence detection.
+                guard let floatData = buffer.floatChannelData else { return }
+                let frameCount = Int(buffer.frameLength)
+                guard frameCount > 0 else { return }
+                var sum: Float = 0
+                for i in 0..<frameCount {
+                    let s = floatData[0][i]
+                    sum += s * s
+                }
+                let rms = (sum / Float(frameCount)).squareRoot()
 
-            Task { @MainActor in
-                // Drive the orb animation with the scaled amplitude.
-                micAmplitude = min(rms * 5, 1.0)
+                Task { @MainActor in
+                    // Drive the orb animation with the scaled amplitude.
+                    micAmplitude = min(rms * 5, 1.0)
 
-                // Update last-speech timestamp whenever the mic picks up audible signal
-                // (used by the silence detection timer to decide when to auto-stop).
-                if rms > 0.015 {
-                    self.lastSpeechTime = Date()
-                    self.hasSpeechOccurred = true
+                    // Update last-speech timestamp whenever the mic picks up audible signal
+                    // (used by the silence detection timer to decide when to auto-stop).
+                    if rms > 0.015 {
+                        self.lastSpeechTime = Date()
+                        self.hasSpeechOccurred = true
+                    }
                 }
             }
+        }, &installError)
+        guard installed else {
+            log.error("installTap threw ObjC exception: \(installError?.localizedDescription ?? "unknown")")
+            isVoiceOrbExpanded = false
+            viewModel.errorText = "Voice input failed. Please try again."
+            // Remove any partially-installed tap before cleanup — otherwise the
+            // next recording attempt fails trying to install a second tap on bus 0.
+            audioEngine.inputNode.removeTap(onBus: 0)
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            cleanupRecognition()
+            return
         }
 
         recognitionTask = recognizer.recognitionTask(with: request) { result, error in
@@ -451,6 +471,7 @@ struct InputBarView: View {
             // Remove the tap installed above before cleanupRecognition — otherwise the
             // next recording attempt fails trying to install a second tap on bus 0.
             audioEngine.inputNode.removeTap(onBus: 0)
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             cleanupRecognition()
         }
     }

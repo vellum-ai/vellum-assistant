@@ -22,7 +22,9 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import { derefToolResultReReads,postTurnTruncateToolResults } from "../context/post-turn-tool-result-truncation.js";
 import { estimatePromptTokens } from "../context/token-estimator.js";
 import type { ContextWindowManager } from "../context/window-manager.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
@@ -44,6 +46,7 @@ import {
   updateConversationTitle,
   updateMessageMetadata,
 } from "../memory/conversation-crud.js";
+import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import {
   isReplaceableTitle,
@@ -58,6 +61,7 @@ import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { getSubagentManager } from "../subagent/index.js";
 import type { UsageActor } from "../usage/actors.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
@@ -100,14 +104,17 @@ import type {
 } from "./conversation-runtime-assembly.js";
 import {
   applyRuntimeInjections,
+  buildSubagentStatusBlock,
   buildUnifiedTurnContextBlock,
   findLastInjectedNowContent,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
   readNowScratchpad,
+  readPkbContext,
   stripInjectionsForCompaction,
 } from "./conversation-runtime-assembly.js";
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
+import { markSurfaceCompleted } from "./conversation-surfaces.js";
 import { resolveTrustClass } from "./conversation-tool-setup.js";
 import { recordUsage } from "./conversation-usage.js";
 import { formatTurnTimestamp } from "./date-context.js";
@@ -259,6 +266,8 @@ export interface AgentLoopConversationContext {
   lastAttachmentWarnings: string[];
 
   hasNoClient: boolean;
+  /** True when this conversation is itself a subagent (suppresses subagent status injection). */
+  isSubagent?: boolean;
   headlessLock?: boolean;
   readonly streamThinking: boolean;
   readonly prompter: PermissionPrompter;
@@ -437,6 +446,7 @@ export async function runAgentLoopImpl(
           surfaceId,
           summary: "Dismissed",
         });
+        markSurfaceCompleted(ctx, surfaceId, "Dismissed");
         ctx.pendingSurfaceActions.delete(surfaceId);
       }
     }
@@ -500,6 +510,7 @@ export async function runAgentLoopImpl(
 
     const isFirstMessage = ctx.messages.length === 1;
     let shouldInjectWorkspace = isFirstMessage;
+    let compactedThisTurn = false;
 
     const compactCheck = ctx.contextWindowManager.shouldCompact(ctx.messages);
     if (compactCheck.needed) {
@@ -555,6 +566,9 @@ export async function runAgentLoopImpl(
         collapseRawResponses(compacted.summaryRawResponses),
       );
       shouldInjectWorkspace = true;
+      if (compacted.compactedPersistedMessages > 0) {
+        compactedThisTurn = true;
+      }
     }
 
     const state = createEventHandlerState();
@@ -654,6 +668,7 @@ export async function runAgentLoopImpl(
           })),
           injectedText: graphResult.injectedBlockText ?? undefined,
           reason: `graph:${graphResult.mode}`,
+          queryContext: m?.queryContext ?? undefined,
         });
       } catch (err) {
         log.warn({ err }, "Failed to persist memory recall log (non-fatal)");
@@ -774,13 +789,24 @@ export async function runAgentLoopImpl(
     const isInteractiveResolved =
       options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
 
-    // Only inject NOW.md if it changed since the last injection in the
-    // conversation.  Keeping the previous injection in place avoids mutating
-    // historical user messages and preserves the cached prefix.
+    // Inject NOW.md and PKB content only on the first turn (or after
+    // compaction re-strips them).  Old injections persist in history and
+    // are never stripped on normal turns — this preserves the cached prefix.
     const currentNowContent = readNowScratchpad();
-    const lastInjectedNow = findLastInjectedNowContent(ctx.messages);
-    const nowScratchpad =
-      currentNowContent !== lastInjectedNow ? currentNowContent : null;
+    const shouldInjectNowAndPkb = isFirstMessage || compactedThisTurn;
+    const nowScratchpad = shouldInjectNowAndPkb ? currentNowContent : null;
+
+    const currentPkbContent = readPkbContext();
+    const pkbContext = shouldInjectNowAndPkb ? currentPkbContent : null;
+    const pkbActive = currentPkbContent !== null;
+
+    // Subagent status injection — gives the parent LLM visibility into active/completed children.
+    // Skipped when this conversation IS a subagent (no nesting) or has no children.
+    const subagentStatusBlock = ctx.isSubagent
+      ? null
+      : buildSubagentStatusBlock(
+          getSubagentManager().getChildrenOf(ctx.conversationId),
+        );
 
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
@@ -791,10 +817,13 @@ export async function runAgentLoopImpl(
       channelCapabilities: ctx.channelCapabilities ?? null,
       channelCommandContext: ctx.commandIntent ?? null,
       unifiedTurnContext: unifiedTurnContextStr,
+      pkbContext,
+      pkbActive,
       nowScratchpad,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       transportHints: ctx.transportHints ?? null,
       isNonInteractive: !isInteractiveResolved,
+      subagentStatusBlock,
     } as const;
 
     let currentInjectionMode: InjectionMode = "full";
@@ -910,9 +939,14 @@ export async function runAgentLoopImpl(
           shouldInjectWorkspace = true;
         }
 
-        // Re-inject with potentially downgraded injection mode
+        // Re-inject with potentially downgraded injection mode.
+        // When compaction ran it strips existing NOW.md / PKB blocks, so we
+        // must re-inject the current content. Otherwise rely on the deduplicated
+        // value from injectionOpts to avoid duplicate injection.
         runMessages = applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
+          ...(step.compactionResult?.compacted && { pkbContext: currentPkbContent }),
+          ...(step.compactionResult?.compacted && { nowScratchpad: currentNowContent }),
           workspaceTopLevelContext: shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
             : null,
@@ -1103,9 +1137,14 @@ export async function runAgentLoopImpl(
         shouldInjectWorkspace = true;
       }
 
-      // Re-inject runtime context and re-enter the agent loop
+      // Re-inject runtime context and re-enter the agent loop.
+      // stripInjectionsForCompaction() unconditionally removed the existing
+      // NOW.md block from ctx.messages above, so we must always re-inject
+      // the current content regardless of whether compaction actually ran.
       runMessages = applyRuntimeInjections(ctx.messages, {
         ...injectionOpts,
+        pkbContext: currentPkbContent,
+        nowScratchpad: currentNowContent,
         workspaceTopLevelContext: shouldInjectWorkspace
           ? ctx.workspaceTopLevelContext
           : null,
@@ -1186,8 +1225,16 @@ export async function runAgentLoopImpl(
     // limit), incorporate those new messages into ctx.messages so the
     // convergence loop operates on the full (larger) history.
     if (state.contextTooLargeDetected) {
+      // Detect whether ctx.messages currently lacks NOW.md so we know if
+      // it needs to be re-injected.  Mid-loop compaction (line ~1067) may
+      // have already stripped injections before escalating here, so we
+      // check actual message state rather than tracking mutation sites.
+      let convergenceStripped =
+        findLastInjectedNowContent(ctx.messages) === null;
+
       if (updatedHistory.length > preRunHistoryLength) {
         ctx.messages = stripInjectionsForCompaction(updatedHistory);
+        convergenceStripped = true;
         preRepairMessages = updatedHistory;
         preRunHistoryLength = updatedHistory.length;
       }
@@ -1310,8 +1357,13 @@ export async function runAgentLoopImpl(
           shouldInjectWorkspace = true;
         }
 
+        // Only re-inject NOW.md when ctx.messages was actually stripped;
+        // otherwise the existing NOW.md block is still present and
+        // re-injecting would duplicate it.
         runMessages = applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
+          pkbContext: currentPkbContent,
+          nowScratchpad: convergenceStripped ? currentNowContent : null,
           workspaceTopLevelContext: shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
             : null,
@@ -1353,6 +1405,7 @@ export async function runAgentLoopImpl(
           // pre-rerun messages.
           if (updatedHistory.length > preRunHistoryLength) {
             ctx.messages = stripInjectionsForCompaction(updatedHistory);
+            convergenceStripped = true;
             preRepairMessages = updatedHistory;
             preRunHistoryLength = updatedHistory.length;
           }
@@ -1428,8 +1481,12 @@ export async function runAgentLoopImpl(
               shouldInjectWorkspace = true;
             }
 
+            // Only re-inject NOW.md when ctx.messages was actually stripped;
+            // otherwise the existing block is still present.
             runMessages = applyRuntimeInjections(ctx.messages, {
               ...injectionOpts,
+              pkbContext: currentPkbContent,
+              nowScratchpad: convergenceStripped ? currentNowContent : null,
               workspaceTopLevelContext: shouldInjectWorkspace
                 ? ctx.workspaceTopLevelContext
                 : null,
@@ -1544,8 +1601,12 @@ export async function runAgentLoopImpl(
             shouldInjectWorkspace = true;
           }
 
+          // Only re-inject NOW.md when ctx.messages was actually stripped;
+          // otherwise the existing block is still present.
           runMessages = applyRuntimeInjections(ctx.messages, {
             ...injectionOpts,
+            pkbContext: currentPkbContent,
+            nowScratchpad: convergenceStripped ? currentNowContent : null,
             workspaceTopLevelContext: shouldInjectWorkspace
               ? ctx.workspaceTopLevelContext
               : null,
@@ -1684,7 +1745,29 @@ export async function runAgentLoopImpl(
       // would create a duplicate plain-text bubble below the alert card.
     }
 
-    const restoredHistory = [...preRepairMessages, ...newMessages];
+    let restoredHistory = [...preRepairMessages, ...newMessages];
+
+    // Post-turn tool result truncation: save large results to disk and
+    // replace in-context content with a prefix/suffix stub + file pointer.
+    if (isAssistantFeatureFlagEnabled("tool-result-truncation", config)) {
+      try {
+        const conv = getConversation(ctx.conversationId);
+        if (conv) {
+          const convDir = getResolvedConversationDirPath(ctx.conversationId, conv.createdAt);
+          const { messages: derefMessages, dereferencedCount } = derefToolResultReReads(restoredHistory);
+          const { messages: truncatedMessages, truncatedCount } = postTurnTruncateToolResults(derefMessages, { conversationDir: convDir });
+          if (truncatedCount > 0 || dereferencedCount > 0) {
+            rlog.info(
+              { truncatedCount, dereferencedCount },
+              "Post-turn tool result truncation applied",
+            );
+          }
+          restoredHistory = truncatedMessages;
+        }
+      } catch (err) {
+        rlog.warn({ err }, "Post-turn tool result truncation failed (non-fatal)");
+      }
+    }
 
     const postLoopContextEstimate = estimatePromptTokens(
       restoredHistory,

@@ -8,7 +8,14 @@ export async function executeSubagentSpawn(
   const label = input.label as string;
   const objective = input.objective as string;
   const extraContext = input.context as string | undefined;
-  const sendResultToUser = input.send_result_to_user !== false;
+  const fork = input.fork === true;
+  const role = (input.role as string | undefined) ?? undefined;
+
+  // For fork mode, sendResultToUser defaults to false unless explicitly set to true.
+  // For regular mode, sendResultToUser defaults to true (existing behavior).
+  const sendResultToUser = fork
+    ? input.send_result_to_user === true
+    : input.send_result_to_user !== false;
 
   if (!label || !objective) {
     return {
@@ -28,6 +35,36 @@ export async function executeSubagentSpawn(
     };
   }
 
+  // ── Fork mode: resolve parent context ────────────────────────────
+  let forkFields: {
+    fork: true;
+    parentMessages: import("../../providers/types.js").Message[];
+    parentSystemPrompt: string;
+  } | undefined;
+
+  if (fork) {
+    const parentConversation = manager.resolveParentConversation?.(
+      context.conversationId,
+    );
+    if (!parentConversation) {
+      return {
+        content:
+          "Cannot fork: parent conversation could not be resolved. " +
+          "This may happen if the conversation was evicted or the resolveParentConversation callback is not wired.",
+        isError: true,
+      };
+    }
+
+    const parentMessages = [...parentConversation.messages];
+    const parentSystemPrompt = parentConversation.getCurrentSystemPrompt();
+
+    forkFields = {
+      fork: true,
+      parentMessages,
+      parentSystemPrompt,
+    };
+  }
+
   try {
     const subagentId = await manager.spawn(
       {
@@ -36,6 +73,12 @@ export async function executeSubagentSpawn(
         objective,
         context: extraContext,
         sendResultToUser,
+        // For fork mode, role is ignored by the manager (forced to general),
+        // but we still omit it from the config to signal intent.
+        ...(!fork && role
+          ? { role: role as import("../../subagent/types.js").SubagentRole }
+          : {}),
+        ...forkFields,
       },
       sendToClient as (msg: unknown) => void,
     );
@@ -45,7 +88,10 @@ export async function executeSubagentSpawn(
         subagentId,
         label,
         status: "pending",
-        message: `Subagent "${label}" spawned. You will be notified automatically when it completes or fails - do NOT poll subagent_status. Continue the conversation normally.`,
+        ...(fork ? { isFork: true } : {}),
+        message: fork
+          ? `Forked subagent "${label}" spawned with full parent context. You will be notified automatically when it completes or fails - do NOT poll subagent_status. Continue the conversation normally.`
+          : `Subagent "${label}" spawned. You will be notified automatically when it completes or fails - do NOT poll subagent_status. Continue the conversation normally.`,
       }),
       isError: false,
     };

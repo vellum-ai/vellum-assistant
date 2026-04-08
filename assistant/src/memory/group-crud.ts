@@ -33,7 +33,7 @@ export function listGroups(): ConversationGroupRow[] {
     created_at: number;
     updated_at: number;
   }>(
-    "SELECT id, name, sort_position, is_system_group, created_at, updated_at FROM conversation_groups WHERE id != '_backfill_complete' ORDER BY sort_position ASC",
+    "SELECT id, name, sort_position, is_system_group, created_at, updated_at FROM conversation_groups WHERE id NOT IN ('_backfill_complete', '_backfill_all_complete', '_sort_shift_complete') ORDER BY sort_position ASC",
   );
   return rows.map((r) => ({
     id: r.id,
@@ -79,8 +79,8 @@ export function getGroup(groupId: string): ConversationGroupRow | null {
 
 /**
  * Create a custom group. Server assigns sort_position as max(custom) + 1.
- * System groups occupy positions 0 (pinned), 1 (scheduled), 2 (background).
- * First custom group gets position 3. Fallback ?? 2 ensures 2 + 1 = 3 when
+ * System groups occupy positions 0–3 (pinned, scheduled, background, all).
+ * First custom group gets position 4. Fallback ?? 3 ensures 3 + 1 = 4 when
  * no custom groups exist.
  */
 export function createGroup(name: string): ConversationGroupRow {
@@ -88,7 +88,7 @@ export function createGroup(name: string): ConversationGroupRow {
   const maxPos =
     rawGet<{ max: number | null }>(
       "SELECT MAX(sort_position) as max FROM conversation_groups WHERE is_system_group = 0",
-    )?.max ?? 2;
+    )?.max ?? 3;
   const sortPosition = maxPos + 1;
   const id = uuid();
   const now = Math.floor(Date.now() / 1000);
@@ -153,13 +153,16 @@ export function updateGroup(
 // Delete
 // ---------------------------------------------------------------------------
 
-// Relies on PRAGMA foreign_keys = ON (set at connection time) so that
-// ON DELETE SET NULL fires and clears group_id on conversations when
-// a group is deleted. If FK enforcement is ever disabled, orphaned
-// group_id values would persist and conversations would appear in a
-// non-existent group.
+// Reassign conversations to system:all before deleting the group so they
+// don't end up with NULL group_id (which would violate the system:all
+// invariant). The FK ON DELETE SET NULL would otherwise leave NULLs that
+// the one-time backfill won't re-fix.
 export function deleteGroup(groupId: string): boolean {
   ensureGroupMigration();
+  rawRun(
+    "UPDATE conversations SET group_id = 'system:all' WHERE group_id = ?",
+    groupId,
+  );
   rawRun("DELETE FROM conversation_groups WHERE id = ?", groupId);
   return true;
 }
@@ -176,6 +179,19 @@ export function reorderGroups(
   rawExec("BEGIN");
   try {
     for (const update of updates) {
+      // Look up the group first — skip unknown/stale IDs and system groups
+      const group = rawGet<{ id: string; is_system_group: number }>(
+        "SELECT id, is_system_group FROM conversation_groups WHERE id = ?",
+        update.groupId,
+      );
+      if (!group) continue;
+      if (group.is_system_group === 1) continue;
+
+      if (update.sortPosition < 4) {
+        throw new Error(
+          `Custom group sort_position must be >= 4 (got ${update.sortPosition} for ${update.groupId})`,
+        );
+      }
       rawRun(
         "UPDATE conversation_groups SET sort_position = ?, updated_at = ? WHERE id = ?",
         update.sortPosition,

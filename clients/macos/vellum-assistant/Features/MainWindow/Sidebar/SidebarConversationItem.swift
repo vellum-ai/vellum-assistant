@@ -20,6 +20,7 @@ struct SidebarConversationItem: View, Equatable {
     var onStartRename: () -> Void
     var onMarkUnread: () -> Void
     var onDragStart: () -> Void
+    var onAnalyze: (() -> Void)?
     var onOpenInNewWindow: (() -> Void)?
     var onShowFeedback: (() -> Void)?
     /// Available groups for the "Move to" submenu. Excludes the conversation's current group.
@@ -42,6 +43,7 @@ struct SidebarConversationItem: View, Equatable {
         if gid == ConversationGroup.pinned.id { return ConversationGroup.pinned }
         if gid == ConversationGroup.scheduled.id { return ConversationGroup.scheduled }
         if gid == ConversationGroup.background.id { return ConversationGroup.background }
+        if gid == ConversationGroup.all.id { return ConversationGroup.all }
         // Custom group — not in moveToGroups (it's filtered out), but we know it's non-system
         return ConversationGroup(id: gid, name: "", sortPosition: 0, isSystemGroup: false)
     }
@@ -54,6 +56,7 @@ struct SidebarConversationItem: View, Equatable {
     private var hasTrailingIcon: Bool { isHovered || isMenuOpen }
     private var canMarkUnread: Bool {
         !conversation.hasUnseenLatestAssistantMessage &&
+            !conversation.shouldSuppressUnreadIndicator &&
             conversation.conversationId != nil &&
             conversation.latestAssistantMessageAt != nil
     }
@@ -78,6 +81,12 @@ struct SidebarConversationItem: View, Equatable {
             .disabled(!canMarkUnread)
         }
 
+        if !conversation.isChannelConversation && conversation.kind != .private, let onAnalyze {
+            VMenuItem(icon: VIcon.sparkles.rawValue, label: "Analyze") {
+                onAnalyze()
+            }
+        }
+
         if !moveToGroups.isEmpty, let onMoveToGroup {
             VSubMenuItem(icon: VIcon.folder.rawValue, label: "Move to") {
                 ForEach(moveToGroups) { group in
@@ -85,10 +94,10 @@ struct SidebarConversationItem: View, Equatable {
                         onMoveToGroup(group.id)
                     }
                 }
-                if conversation.groupId != nil {
+                if let gid = conversation.groupId, !gid.hasPrefix("system:") {
                     VMenuDivider()
                     VMenuItem(label: "Remove from group") {
-                        onMoveToGroup(nil)
+                        onMoveToGroup(ConversationGroup.all.id)
                     }
                 }
             }
@@ -112,21 +121,13 @@ struct SidebarConversationItem: View, Equatable {
         // Use a tap gesture instead of Button so .onDrag can coexist —
         // Button captures mouse-down and prevents drag initiation on macOS.
         HStack(spacing: VSpacing.xs) {
-            // Leading 20x20 slot: single render path.
-            // Hovered -> interactive pin button; not hovered -> status indicator.
+            // Leading 20x20 slot: status indicator when not hovered, clear
+            // placeholder when hovered (pin overlay covers this slot visually
+            // but uses ghost/transparent styling, so we suppress the indicator
+            // to prevent visual overlap).
             if isHovered {
-                VButton(
-                    label: conversation.isPinned ? "Unpin \(conversation.title)" : "Pin \(conversation.title)",
-                    iconOnly: conversation.isPinned ? VIcon.pinOff.rawValue : VIcon.pin.rawValue,
-                    style: .ghost,
-                    iconSize: 20,
-                    tooltip: conversation.isPinned ? "Unpin" : "Pin",
-                    iconColor: VColor.contentSecondary,
-                    iconRotation: conversation.isPinned ? .degrees(0) : .degrees(-45)
-                ) {
-                    onTogglePin()
-                }
-                .transition(.opacity)
+                Color.clear
+                    .frame(width: 20, height: 20)
             } else {
                 switch interactionState {
                 case .processing:
@@ -167,12 +168,13 @@ struct SidebarConversationItem: View, Equatable {
                     .nativeTooltip("Private conversation")
                     .accessibilityLabel("Private conversation")
             }
-            Text(conversation.title)
-                .font(VFont.bodyMediumDefault)
-                .foregroundStyle(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .nativeTooltip(conversation.title)
+            VMarqueeText(
+                text: conversation.title,
+                font: VFont.bodyMediumDefault,
+                measuringFont: VFont.nsBodyMediumDefault,
+                foregroundStyle: isSelected ? VColor.contentEmphasized : VColor.contentSecondary,
+                isHovered: isHovered
+            )
 
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -198,6 +200,28 @@ struct SidebarConversationItem: View, Equatable {
         .onTapGesture {
             selectConversation()
             onSelect?()
+        }
+        .overlay(alignment: .leading) {
+            // Pin button rendered as an overlay so it sits above .onTapGesture
+            // in the hit-test chain. Without this, .contentShape(Rectangle()) +
+            // .onTapGesture on the parent intercepts clicks before they reach
+            // child Button views on macOS (same pattern as the trailing
+            // "More options" overlay below).
+            if isHovered {
+                VButton(
+                    label: conversation.isPinned ? "Unpin \(conversation.title)" : "Pin \(conversation.title)",
+                    iconOnly: conversation.isPinned ? VIcon.pinOff.rawValue : VIcon.pin.rawValue,
+                    style: .ghost,
+                    iconSize: 20,
+                    tooltip: conversation.isPinned ? "Unpin" : "Pin",
+                    iconColor: VColor.contentSecondary,
+                    iconRotation: conversation.isPinned ? .degrees(0) : .degrees(-45)
+                ) {
+                    onTogglePin()
+                }
+                .padding(.leading, VSpacing.xs)
+                .transition(.opacity)
+            }
         }
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel("Conversation: \(conversation.title)")

@@ -7,6 +7,7 @@ struct IntelligencePanel: View {
     var onClose: () -> Void
     var onInvokeSkill: ((SkillInfo) -> Void)?
     var onCreateSkill: (() -> Void)?
+    var onImportMemory: ((String) -> Void)?
     let connectionManager: GatewayConnectionManager
     let eventStreamClient: EventStreamClient?
     var store: SettingsStore?
@@ -23,10 +24,11 @@ struct IntelligencePanel: View {
     @State private var pendingFilePath: String?
     private static let emailFeatureFlagKey = "email-channel"
 
-    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, authManager: AuthManager? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil), pendingSkillId: Binding<String?> = .constant(nil)) {
+    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, onImportMemory: ((String) -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil), pendingSkillId: Binding<String?> = .constant(nil)) {
         self.onClose = onClose
         self.onInvokeSkill = onInvokeSkill
         self.onCreateSkill = onCreateSkill
+        self.onImportMemory = onImportMemory
         self.connectionManager = connectionManager
         self.eventStreamClient = eventStreamClient
         self.store = store
@@ -154,7 +156,7 @@ struct IntelligencePanel: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
         case .memories:
-            MemoriesPanel(connectionManager: connectionManager, focusedMemoryId: $pendingMemoryId)
+            MemoriesPanel(connectionManager: connectionManager, assistantName: cachedAssistantName, onImportMemory: onImportMemory, focusedMemoryId: $pendingMemoryId)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }

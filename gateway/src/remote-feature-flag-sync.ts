@@ -1,20 +1,28 @@
 import type { CredentialCache } from "./credential-cache.js";
 import { credentialKey } from "./credential-key.js";
 import { fetchImpl } from "./fetch.js";
+import { loadFeatureFlagDefaults } from "./feature-flag-defaults.js";
 import { writeRemoteFeatureFlags } from "./feature-flag-remote-store.js";
 import { getLogger } from "./logger.js";
 
 const log = getLogger("remote-feature-flag-sync");
 
 /**
- * Default polling interval: 5 minutes.
+ * Steady-state polling interval: 5 minutes.
  *
  * Configurable via `REMOTE_FF_POLL_INTERVAL_MS` env var for testing or
  * deployment tuning.
  */
 const DEFAULT_POLL_INTERVAL_MS = 5 * 60 * 1000;
 
-function getPollIntervalMs(): number {
+/**
+ * Initial polling interval when the first fetch fails (e.g. CES sidecar
+ * not ready yet). Doubles on each consecutive failure until it reaches
+ * the steady-state interval.
+ */
+const INITIAL_POLL_INTERVAL_MS = 10_000;
+
+function getMaxPollIntervalMs(): number {
   const envVal = process.env.REMOTE_FF_POLL_INTERVAL_MS;
   if (envVal) {
     const parsed = parseInt(envVal, 10);
@@ -26,63 +34,114 @@ function getPollIntervalMs(): number {
 export type RemoteFeatureFlagSyncConfig = {
   /** Credential cache for resolving platform URL, API key, and assistant ID dynamically. */
   credentials: CredentialCache;
+  /** Override the initial poll interval (ms) — useful for testing. Defaults to 10 000. */
+  initialPollIntervalMs?: number;
 };
 
 /**
  * Manages the lifecycle of syncing remote feature flags from the platform.
  *
  * On start, fetches the current flag state and persists it to disk via the
- * remote feature flag store, then polls on a configurable interval. Errors
- * are caught and logged — the system falls through to registry defaults if
- * this fails.
+ * remote feature flag store, then polls with adaptive back-off: starts at
+ * {@link INITIAL_POLL_INTERVAL_MS} and doubles on each failure until it
+ * reaches the steady-state interval. On the first success the interval
+ * snaps to steady-state immediately.
  */
 export class RemoteFeatureFlagSync {
   private started = false;
-  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private pollTimer: ReturnType<typeof setTimeout> | null = null;
+  private currentIntervalMs: number;
+  private readonly maxIntervalMs: number;
   private readonly credentials: CredentialCache;
 
   constructor(config: RemoteFeatureFlagSyncConfig) {
     this.credentials = config.credentials;
+    this.currentIntervalMs =
+      config.initialPollIntervalMs ?? INITIAL_POLL_INTERVAL_MS;
+    this.maxIntervalMs = getMaxPollIntervalMs();
   }
 
   async start(): Promise<void> {
     this.started = true;
 
+    let ok = false;
     try {
-      await this.fetchAndCache();
+      ok = await this.fetchAndCache();
     } catch (err) {
       log.warn({ err }, "Failed to sync remote feature flags on startup");
     }
 
-    const intervalMs = getPollIntervalMs();
-    this.pollTimer = setInterval(() => {
-      this.fetchAndCache().catch((err) => {
-        log.warn({ err }, "Failed to sync remote feature flags during poll");
-      });
-    }, intervalMs);
+    if (ok) {
+      // First fetch succeeded — jump straight to steady-state polling.
+      this.currentIntervalMs = this.maxIntervalMs;
+    }
 
-    log.info({ intervalMs }, "Remote feature flag polling started");
+    this.scheduleNextPoll();
+    log.info(
+      { intervalMs: this.currentIntervalMs },
+      "Remote feature flag polling started",
+    );
   }
 
   stop(): void {
     this.started = false;
     if (this.pollTimer) {
-      clearInterval(this.pollTimer);
+      clearTimeout(this.pollTimer);
       this.pollTimer = null;
     }
   }
 
-  private async fetchAndCache(): Promise<void> {
+  private scheduleNextPoll(): void {
+    this.pollTimer = setTimeout(() => {
+      this.poll();
+    }, this.currentIntervalMs);
+  }
+
+  private poll(): void {
+    if (!this.started) return;
+    this.fetchAndCache()
+      .then((ok) => {
+        if (ok) {
+          // Success — snap to steady-state interval.
+          this.currentIntervalMs = this.maxIntervalMs;
+        } else {
+          // Failure — double the interval, capped at max.
+          this.currentIntervalMs = Math.min(
+            this.currentIntervalMs * 2,
+            this.maxIntervalMs,
+          );
+        }
+      })
+      .catch((err) => {
+        log.warn({ err }, "Failed to sync remote feature flags during poll");
+        this.currentIntervalMs = Math.min(
+          this.currentIntervalMs * 2,
+          this.maxIntervalMs,
+        );
+      })
+      .finally(() => {
+        if (this.started) {
+          this.scheduleNextPoll();
+        }
+      });
+  }
+
+  /**
+   * Fetch remote flags and write them to the store.
+   * Returns true if flags were successfully written, false otherwise.
+   */
+  private async fetchAndCache(): Promise<boolean> {
     const values = await this.fetchRemoteFeatureFlags();
     if (values === null) {
-      log.debug("Skipping cache write — fetch returned no usable data");
-      return;
+      log.warn("Skipping cache write — fetch returned no usable data");
+      return false;
     }
     writeRemoteFeatureFlags(values);
     log.info(
       { count: Object.keys(values).length },
       "Synced remote feature flags",
     );
+    return true;
   }
 
   private async fetchRemoteFeatureFlags(): Promise<Record<
@@ -153,12 +212,23 @@ export class RemoteFeatureFlagSync {
       return null;
     }
 
-    // Filter to boolean values only (defensive)
+    // Filter to boolean values only (defensive), and prevent the platform
+    // from disabling flags that are already GA (defaultEnabled: true in the
+    // registry). The platform uses a blanket-deny posture, sending false for
+    // every flag it knows about. Without this filter, shipped features get
+    // silently turned off for all users.
+    const registry = loadFeatureFlagDefaults();
     const result: Record<string, boolean> = {};
     for (const [key, value] of Object.entries(body.flags)) {
-      if (typeof value === "boolean") {
-        result[key] = value;
+      if (typeof value !== "boolean") continue;
+      if (!value && registry[key]?.defaultEnabled) {
+        log.debug(
+          { key },
+          "Ignoring remote false for GA flag (defaultEnabled: true)",
+        );
+        continue;
       }
+      result[key] = value;
     }
 
     return result;

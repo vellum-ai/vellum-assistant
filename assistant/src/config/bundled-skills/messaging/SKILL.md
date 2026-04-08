@@ -148,6 +148,7 @@ Telegram is supported as a messaging provider with limited capabilities compared
 - `send_notification` is provided by the **notifications** skill (always active) -- use it when the user asks for an alert/notification (for example "send this as a desktop notification").
 - Use `messaging_send` when the user asks to send a message into a specific chat/email destination.
 - `send_notification` channel routing is LLM-driven; `preferred_channels` are hints, not hard channel forcing.
+- Before using `messaging_send` or `send_notification`, look up the recipient's contact record with `contact_search` to inform tone and content (see **Recipient Context** below).
 
 ## Personalized Drafting
 
@@ -156,6 +157,12 @@ When drafting messages, check your `<dynamic-user-profile>` for style items (e.g
 If no style items exist and the user asks you to draft a message, suggest running `messaging_analyze_style`:
 
 > "I can analyze your sent messages to learn your writing style so drafts sound like you. Want me to do that?"
+
+## Recipient Context
+
+Before composing or sending a message to someone, look up their contact record with `contact_search` using their name or channel address. If the contact has notes (e.g. relationship context, communication preferences, response expectations), use that context to inform the message's tone, level of detail, and content. This ensures outbound messages are personalized to the recipient — not just the sender's style.
+
+If no contact record exists, proceed without recipient context.
 
 ## Confidence Scores
 

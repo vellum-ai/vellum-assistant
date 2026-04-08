@@ -19,7 +19,7 @@ The app supports a **managed sign-in** flow that connects to a platform-hosted a
 1. User clicks "Sign in" during first-run onboarding
 2. WorkOS authentication opens in the system browser
 3. On success, `ManagedAssistantBootstrapService.ensureManagedAssistant()` discovers or creates a platform assistant
-4. A lockfile entry is written with `cloud: "vellum"` and the `connectedAssistantId` is persisted in UserDefaults
+4. A lockfile entry is written with `cloud: "vellum"` and the `activeAssistant` field is set in the lockfile
 5. HTTP transport is configured in `platformAssistantProxy` mode with session token auth
 
 ### Transport Modes
@@ -42,7 +42,7 @@ The app supports a **managed sign-in** flow that connects to a platform-hosted a
 |-------|----------|
 | Session token | Credential Store (`AuthManager`) |
 | Lockfile entry | `~/.vellum.lock.json` (with `cloud: "vellum"`) |
-| Connected assistant ID | UserDefaults (`connectedAssistantId`) |
+| Connected assistant ID | Lockfile (`activeAssistant` field in `~/.vellum.lock.json`) |
 
 For the full managed sign-in architecture, see `clients/ARCHITECTURE.md`.
 
@@ -70,13 +70,13 @@ All releases are available at [github.com/vellum-ai/velly/releases](https://gith
 
 ### Local Mode
 - macOS 15.0 (Sequoia) or later
-- Xcode 15+ (for building from source)
+- Xcode 26+ (for building from source)
 - Anthropic API key
 - Local daemon running (`vellum wake`)
 
 ### Managed Mode
 - macOS 15.0 (Sequoia) or later
-- Xcode 15+ (for building from source)
+- Xcode 26+ (for building from source)
 - Internet connection (assistant runs on the Vellum platform)
 - No API key or local daemon required
 
@@ -95,6 +95,14 @@ To point managed sign-in at a specific platform host for a local run:
 ```bash
 VELLUM_PLATFORM_URL=https://platform.vellum.ai ./build.sh run
 ```
+
+To point in-app docs links at a staging or local docs server for a local run:
+
+```bash
+VELLUM_DOCS_BASE_URL=https://staging.vellum.ai/docs ./build.sh run
+```
+
+Defaults to `https://www.vellum.ai/docs`. The override must be a parseable absolute http(s) URL with no query or fragment, otherwise it's ignored and the default is used.
 
 This builds a debug `.app` bundle, codesigns it, and launches it immediately.
 
@@ -124,6 +132,7 @@ The build script uses incremental compilation and caching:
 - Running `./build.sh` again without code changes takes ~1-2s (skips binary copying, still updates Info.plist/assets/codesigning)
 - Small code changes rebuild in ~4 seconds
 - Use `./build.sh clean` if you encounter build issues, need to force a complete rebuild, or after removing resources/frameworks (incremental builds don't detect deletions)
+- The first app build downloads and caches the Kata 3.17.0 ARM64 kernel in `clients/macos/.container-cache/`, then bundles it into `Vellum.app/Contents/Resources/DeveloperVM/`
 
 ### First-Time Setup: Code Signing (Optional but Recommended)
 

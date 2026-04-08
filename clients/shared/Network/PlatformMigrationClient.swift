@@ -114,6 +114,63 @@ public enum PlatformMigrationClient {
         }
     }
 
+    /// Uploads binary bundle data to a GCS signed URL with progress tracking.
+    ///
+    /// - Parameters:
+    ///   - url: The signed upload URL from `requestUploadUrl()`.
+    ///   - bundleData: The raw bundle data to upload.
+    ///   - onProgress: A closure called on the main actor with values from 0.0 to 1.0
+    ///     representing the fraction of bytes uploaded.
+    /// - Throws: `PlatformMigrationError.uploadFailed` if the upload returns a non-2xx status.
+    public static func uploadToSignedUrl(
+        _ url: String,
+        bundleData: Data,
+        onProgress: @escaping @MainActor (Double) -> Void
+    ) async throws {
+        guard let uploadURL = URL(string: url) else {
+            throw PlatformMigrationError.uploadFailed(statusCode: 0)
+        }
+
+        var request = URLRequest(url: uploadURL)
+        request.httpMethod = "PUT"
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 600
+
+        let delegate = UploadProgressDelegate(onProgress: onProgress)
+        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+        defer {
+            delegate.reset()
+            session.finishTasksAndInvalidate()
+        }
+
+        let urlPath = logPath(from: uploadURL)
+
+        for attempt in 0...maxRetries {
+            log.info("PUT \(urlPath, privacy: .public)\(attempt > 0 ? " (retry \(attempt)/\(maxRetries))" : "")")
+            let (_, response) = try await session.upload(for: request, from: bundleData, delegate: delegate)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            log.info("PUT \(urlPath, privacy: .public) → \(statusCode)")
+
+            if attempt < maxRetries
+                && retryableStatusCodes.contains(statusCode)
+            {
+                let delay = UInt64(pow(2.0, Double(attempt))) * 1_000_000_000
+                log.warning("Transient server error (\(statusCode)) — retrying in \(1 << attempt)s")
+                try await Task.sleep(nanoseconds: delay)
+                delegate.reset()
+                await onProgress(0)
+                continue
+            }
+
+            guard (200..<300).contains(statusCode) else {
+                throw PlatformMigrationError.uploadFailed(statusCode: statusCode)
+            }
+            return
+        }
+
+        throw PlatformMigrationError.requestFailed(statusCode: 0, detail: "Unexpected retry loop exit")
+    }
+
     /// Triggers a GCS-based import on the platform after the bundle has been uploaded.
     ///
     /// - Parameter bundleKey: The bundle key returned by `requestUploadUrl()`.
@@ -226,6 +283,46 @@ public enum PlatformMigrationClient {
         }
         components.query = nil
         return components.path
+    }
+
+    // MARK: - Upload Progress Delegate
+
+    /// Tracks upload progress and dispatches throttled updates to the main actor.
+    /// Uses a generation counter to prevent stale callbacks from firing after reset.
+    private class UploadProgressDelegate: NSObject, URLSessionTaskDelegate {
+        private let onProgress: @MainActor (Double) -> Void
+        private var lastReportedFraction: Double = 0.0
+        private var generation: Int = 0
+
+        init(onProgress: @escaping @MainActor (Double) -> Void) {
+            self.onProgress = onProgress
+        }
+
+        func urlSession(
+            _ session: URLSession,
+            task: URLSessionTask,
+            didSendBodyData bytesSent: Int64,
+            totalBytesSent: Int64,
+            totalBytesExpectedToSend: Int64
+        ) {
+            guard totalBytesExpectedToSend > 0 else { return }
+            let progress = Double(totalBytesSent) / Double(totalBytesExpectedToSend)
+            guard progress - lastReportedFraction >= 0.01 || progress >= 1.0 else { return }
+            lastReportedFraction = progress
+            let callback = self.onProgress
+            let gen = self.generation
+            Task { [weak self] in
+                guard self?.generation == gen else { return }
+                await callback(progress)
+            }
+        }
+
+        /// Resets the throttle and increments the generation counter so any
+        /// in-flight callbacks from the previous attempt are discarded.
+        func reset() {
+            lastReportedFraction = 0.0
+            generation += 1
+        }
     }
 
     /// Resolves the platform base URL, session token, and org ID for authenticated requests.

@@ -14,6 +14,7 @@ import type {
   ServerMessage,
   UserMessageAttachment,
 } from "./message-protocol.js";
+import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 
 const log = getLogger("conversation-queue");
 
@@ -29,6 +30,8 @@ export interface QueuedMessage {
   turnInterfaceContext?: TurnInterfaceContext;
   /** When false, the turn has no interactive user and should skip clarification prompts. */
   isInteractive?: boolean;
+  /** Transport metadata snapshot captured at enqueue time, applied when this message becomes active. */
+  transport?: ConversationTransportMetadata;
   /** Original user message text to persist to DB when recording intent stripping produced a different `content`. */
   displayContent?: string;
   /** Wall-clock time (ms since epoch) when the message was enqueued, used as the display timestamp. */
@@ -154,6 +157,11 @@ function estimateItemBytes(item: QueuedMessage): number {
   for (const a of item.attachments) {
     bytes += a.data.length * 2;
     if (a.extractedText) bytes += a.extractedText.length * 2;
+  }
+  // Include transport metadata in the estimate so large transport
+  // payloads (e.g. hostHomeDir, hostUsername) count against the budget.
+  if (item.transport) {
+    bytes += JSON.stringify(item.transport).length * 2;
   }
   // Small fixed overhead for metadata, pointers, etc. (not worth
   // measuring precisely — the content/attachment data dominates).

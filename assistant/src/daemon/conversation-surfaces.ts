@@ -4,11 +4,15 @@ import {
   getApp,
   getAppDirPath,
   getAppPreview,
-  inlineDistAssets,
   isMultifileApp,
   resolveAppDir,
+  resolveEffectiveAppHtml,
   updateApp,
 } from "../memory/app-store.js";
+import {
+  getMessages,
+  updateMessageContent,
+} from "../memory/conversation-crud.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
@@ -26,11 +30,73 @@ import type {
   UiSurfaceShow,
 } from "./message-protocol.js";
 import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
+import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import type { UserMessageAttachment } from "./message-types/shared.js";
 
 const log = getLogger("conversation-surfaces");
 
 const MAX_UNDO_DEPTH = 10;
+
+/**
+ * Mark a `ui_surface` content block as completed in the database so that
+ * history reconstruction preserves the completion state.  Also updates
+ * in-memory messages when available.
+ */
+export function markSurfaceCompleted(
+  ctx: { conversationId: string; messages?: Array<{ content: unknown }> },
+  surfaceId: string,
+  summary: string,
+): void {
+  // Update in-memory messages when available so subsequent reads within
+  // this session see the change without waiting for DB.
+  if (ctx.messages) {
+    for (let i = ctx.messages.length - 1; i >= 0; i--) {
+      const msg = ctx.messages[i];
+      if (!Array.isArray(msg.content)) continue;
+      for (const block of msg.content) {
+        const b = block as Record<string, unknown>;
+        if (b.type === "ui_surface" && b.surfaceId === surfaceId) {
+          b.completed = true;
+          b.completionSummary = summary;
+          break;
+        }
+      }
+    }
+  }
+
+  // Persist to DB.
+  try {
+    const rows = getMessages(ctx.conversationId);
+    for (let r = rows.length - 1; r >= 0; r--) {
+      let parsed: unknown[];
+      try {
+        const result = JSON.parse(rows[r].content);
+        if (!Array.isArray(result)) continue;
+        parsed = result;
+      } catch {
+        // Some rows store plain text content (e.g. notification seeding) —
+        // skip them and keep scanning.
+        continue;
+      }
+      let found = false;
+      for (const pb of parsed) {
+        const rb = pb as Record<string, unknown>;
+        if (rb.type === "ui_surface" && rb.surfaceId === surfaceId) {
+          rb.completed = true;
+          rb.completionSummary = summary;
+          found = true;
+          break;
+        }
+      }
+      if (found) {
+        updateMessageContent(rows[r].id, JSON.stringify(parsed));
+        return;
+      }
+    }
+  } catch (err) {
+    log.warn({ err, surfaceId }, "Failed to persist surface completion to DB");
+  }
+}
 const TASK_PROGRESS_TEMPLATE_FIELDS = ["title", "status", "steps"] as const;
 
 /**
@@ -226,6 +292,7 @@ export interface SurfaceConversationContext {
     metadata?: Record<string, unknown>,
     options?: { isInteractive?: boolean },
     displayContent?: string,
+    transport?: ConversationTransportMetadata,
   ): { queued: boolean; requestId: string; rejected?: boolean };
   getQueueDepth(): number;
   processMessage(
@@ -857,6 +924,7 @@ export function handleSurfaceAction(
       summary,
       submittedData: mergedData,
     });
+    markSurfaceCompleted(ctx, surfaceId, summary);
   }
 
   // Extract file attachments from action data so they are sent as proper
@@ -1082,10 +1150,12 @@ export function refreshSurfacesForApp(
     // Push current HTML onto the undo stack before overwriting
     pushUndoState(ctx.surfaceUndoStacks, surfaceId, data.html);
 
-    // Update in-memory surface state so the next refinement gets fresh HTML
+    // Update in-memory surface state so the next refinement gets fresh HTML.
+    // For multifile apps, resolve the compiled dist/index.html with inlined
+    // assets rather than the empty root index.html (app.htmlDefinition).
     const updatedData: DynamicPageSurfaceData = {
       ...data,
-      html: app.htmlDefinition,
+      html: resolveEffectiveAppHtml(app),
       ...(opts?.fileChange
         ? { reloadGeneration: (data.reloadGeneration ?? 0) + 1 }
         : {}),
@@ -1442,6 +1512,7 @@ export async function surfaceProxyResolver(
         summary,
         submittedData: lastAction.data,
       });
+      markSurfaceCompleted(ctx, surfaceId, summary);
     } else {
       ctx.sendToClient({
         type: "ui_surface_dismiss",
@@ -1474,11 +1545,10 @@ export async function surfaceProxyResolver(
     const storedPreview = getAppPreview(app.id);
     const { dirName } = resolveAppDir(app.id);
 
-    // For multifile TSX apps, resolve HTML from compiled dist/index.html
-    // rather than the root index.html (which is empty for formatVersion 2).
-    let html = app.htmlDefinition;
+    // For multifile TSX apps, auto-compile if dist is missing, then
+    // resolve HTML from compiled dist/index.html with inlined assets.
     if (isMultifileApp(app)) {
-      const { existsSync, readFileSync } = await import("node:fs");
+      const { existsSync } = await import("node:fs");
       const { join } = await import("node:path");
       const appDir = getAppDirPath(app.id);
       const distIndex = join(appDir, "dist", "index.html");
@@ -1492,12 +1562,8 @@ export async function surfaceProxyResolver(
           );
         }
       }
-      if (existsSync(distIndex)) {
-        html = inlineDistAssets(appDir, readFileSync(distIndex, "utf-8"));
-      } else {
-        html = `<p>App compilation failed. Edit a source file to trigger a rebuild.</p>`;
-      }
     }
+    const html = resolveEffectiveAppHtml(app);
 
     const surfaceData: DynamicPageSurfaceData = {
       html,

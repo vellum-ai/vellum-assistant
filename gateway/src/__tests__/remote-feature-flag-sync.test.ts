@@ -60,7 +60,7 @@ function fakeCredentialCache(
 
 function defaultCredentials(): Record<string, string> {
   return {
-    "credential/vellum/platform_base_url": "https://assistant.vellum.ai",
+    "credential/vellum/platform_base_url": "https://platform.vellum.ai",
     "credential/vellum/platform_assistant_id": "asst-123",
     "credential/vellum/assistant_api_key": "test-api-key",
   };
@@ -428,6 +428,43 @@ describe("RemoteFeatureFlagSync", () => {
     );
   });
 
+  test("ignores remote false for GA flags (defaultEnabled: true in registry)", async () => {
+    // The platform sends false for all flags it knows about (blanket-deny).
+    // GA flags (defaultEnabled: true in the registry) should not be disabled
+    // by remote overrides — only local persisted overrides can do that.
+    fetchMock = mock(async () =>
+      Response.json({
+        flags: {
+          // GA flag (defaultEnabled: true) — remote false should be dropped
+          "conversation-starters": false,
+          // Gated flag (defaultEnabled: false) — remote false is kept
+          "email-channel": false,
+          // GA flag set to true — should be kept (redundant but harmless)
+          browser: true,
+          // Unknown flag — remote false is kept (not in registry)
+          "unknown-flag": false,
+        },
+      }),
+    );
+
+    const sync = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+    });
+    await sync.start();
+    sync.stop();
+
+    clearRemoteFeatureFlagStoreCache();
+    const cached = readRemoteFeatureFlags();
+    // conversation-starters (GA, remote false) should be absent
+    expect(cached["conversation-starters"]).toBeUndefined();
+    // email-channel (gated, remote false) should be present
+    expect(cached["email-channel"]).toBe(false);
+    // browser (GA, remote true) should be present
+    expect(cached.browser).toBe(true);
+    // unknown-flag (not in registry, remote false) should be present
+    expect(cached["unknown-flag"]).toBe(false);
+  });
+
   test("trims whitespace from credential values", async () => {
     fetchMock = mock(async () => Response.json({ flags: {} }));
 
@@ -449,5 +486,98 @@ describe("RemoteFeatureFlagSync", () => {
     );
     const headers = init?.headers as Record<string, string>;
     expect(headers.Authorization).toBe("Api-Key trimmed-key");
+  });
+
+  test("polls with backoff when initial fetch fails, then snaps to steady-state on success", async () => {
+    // Simulate: first two fetches fail (missing creds), third succeeds.
+    let callCount = 0;
+    const credsFn = async (key: string) => {
+      callCount++;
+      // First 6 calls = 2 attempts × 3 credential reads each → missing API key.
+      // After that, credentials are available.
+      if (callCount <= 6) {
+        if (key === "credential/vellum/assistant_api_key") return undefined;
+        return defaultCredentials()[key];
+      }
+      return defaultCredentials()[key];
+    };
+    const creds = { get: credsFn } as unknown as CredentialCache;
+
+    fetchMock = mock(async () =>
+      Response.json({ flags: { "backoff-flag": true } }),
+    );
+
+    const sync = new RemoteFeatureFlagSync({
+      credentials: creds,
+      initialPollIntervalMs: 50,
+    });
+    await sync.start();
+
+    // Initial fetch failed (missing creds) — no fetch calls yet
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // Wait for first poll (50ms) — still fails (creds still missing)
+    await new Promise((r) => setTimeout(r, 80));
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // Wait for second poll (100ms = 50ms doubled) — creds now available
+    await new Promise((r) => setTimeout(r, 130));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    clearRemoteFeatureFlagStoreCache();
+    expect(readRemoteFeatureFlags()).toEqual({ "backoff-flag": true });
+
+    sync.stop();
+  });
+
+  test("snaps to steady-state interval immediately when initial fetch succeeds", async () => {
+    fetchMock = mock(async () => Response.json({ flags: { "ok-flag": true } }));
+
+    const sync = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+      initialPollIntervalMs: 50,
+    });
+    await sync.start();
+
+    // Initial fetch succeeded — 1 call
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Wait past what would be the initial poll interval — should NOT poll
+    // again because the interval snapped to steady-state (5 min)
+    await new Promise((r) => setTimeout(r, 100));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    sync.stop();
+  });
+
+  test("doubles poll interval on consecutive failures", async () => {
+    // Always fail — missing creds
+    const creds = defaultCredentials();
+    delete creds["credential/vellum/assistant_api_key"];
+
+    fetchMock = mock(async () => Response.json({ flags: {} }));
+
+    const sync = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(creds),
+      initialPollIntervalMs: 50,
+    });
+    await sync.start();
+
+    // No fetch calls (missing creds)
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // After 50ms: first poll fires, still fails → interval doubles to 100ms
+    await new Promise((r) => setTimeout(r, 80));
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // After another 100ms: second poll fires, still fails → interval doubles to 200ms
+    await new Promise((r) => setTimeout(r, 130));
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // After another 200ms: third poll fires
+    await new Promise((r) => setTimeout(r, 230));
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    sync.stop();
   });
 });

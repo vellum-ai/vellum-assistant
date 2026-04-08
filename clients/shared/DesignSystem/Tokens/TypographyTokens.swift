@@ -7,7 +7,7 @@ import UIKit
 
 /// Font presets for the app. Always use these instead of raw Font.system() calls.
 ///
-/// **Inter** — clean sans-serif for headings, body, and UI text.
+/// **DM Sans** — geometric sans-serif for headings, body, and UI text.
 ///
 /// Token names follow the Figma type system: Category/Size-Weight.
 /// See: Figma → New App → Type (node 2193-4447)
@@ -32,12 +32,15 @@ public enum VFont {
     /// The `wght` OpenType variation axis tag (0x77676874).
     private static let wghtTag: Int = 0x77676874
 
-    /// Creates an Inter font at the given CSS weight (400/500/600) and size.
+    /// Creates a DM Sans font at the given CSS weight (400/500/600) and size.
     ///
-    /// Loads the bundled Inter variable font by PostScript name, then creates
-    /// a variation copy with the requested `wght` axis value via CTFont.
-    private static func inter(weight: Int, size: CGFloat) -> Font {
-        let baseName = "InterVariable" as CFString
+    /// Loads the base font by PostScript name (which CTFontManagerRegisterFontsForURL
+    /// makes available at process scope), then creates a variation copy with the
+    /// requested `wght` axis value via CTFont.
+    private static func dmSans(weight: Int, size: CGFloat) -> Font {
+        // Use the PostScript name that matches the registered file's default instance.
+        // Any of the three registered files works — we override the weight axis below.
+        let baseName = "DMSans-Regular" as CFString
         let baseFont = CTFontCreateWithName(baseName, size, nil)
         let variations: [CFNumber: CFNumber] = [
             wghtTag as CFNumber: weight as CFNumber,
@@ -55,12 +58,11 @@ public enum VFont {
         let uiFont = variantFont as! UIFont
         return Font(uiFont)
         #else
-        return Font.custom("Inter-Regular", fixedSize: size)
+        return Font.custom("DMSans-Regular", fixedSize: size)
         #endif
     }
 
     /// Creates an Instrument Serif font at the given CSS weight and size.
-
     private static func instrumentSerif(weight: Int, size: CGFloat) -> Font {
         let baseName = "InstrumentSerif-Regular" as CFString
         let baseFont = CTFontCreateWithName(baseName, size, nil)
@@ -92,37 +94,38 @@ public enum VFont {
 
     // MARK: - Display
 
-    public static let displayLarge = inter(weight: 300, size: adaptiveSize(32))
+    public static let displayLarge = dmSans(weight: 400, size: adaptiveSize(32))
 
-    // MARK: - Title (Figma — Inter Medium)
+    // MARK: - Title (Figma)
 
-    public static let titleLarge  = inter(weight: 400, size: adaptiveSize(24))
-    public static let titleMedium = inter(weight: 400, size: adaptiveSize(20))
-    public static let titleSmall  = inter(weight: 400, size: adaptiveSize(16))
+    public static let titleLarge  = dmSans(weight: 400, size: adaptiveSize(24))
+    public static let titleMedium = dmSans(weight: 400, size: adaptiveSize(20))
+    public static let titleSmall  = dmSans(weight: 500, size: adaptiveSize(16))
 
-    // MARK: - Body (Figma — Inter)
+    // MARK: - Body (Figma)
 
-    public static let bodyLargeLighter    = inter(weight: 300, size: 16)
-    public static let bodyLargeDefault    = inter(weight: 400, size: 16)
-    public static let bodyMediumLighter   = inter(weight: 300, size: 14)
-    public static let bodyMediumDefault   = inter(weight: 400, size: 14)
-    public static let bodySmallDefault    = inter(weight: 400, size: 12)
-    public static let bodySmallEmphasised = inter(weight: 500, size: 12)
+    public static let bodyLargeLighter    = dmSans(weight: 300, size: 16)
+    public static let bodyLargeDefault    = dmSans(weight: 400, size: 16)
+    public static let bodyLargeEmphasised = dmSans(weight: 500, size: 16)
+    public static let bodyMediumLighter    = dmSans(weight: 300, size: 14)
+    public static let bodyMediumDefault    = dmSans(weight: 400, size: 14)
+    public static let bodyMediumEmphasised = dmSans(weight: 500, size: 14)
+    public static let bodySmallDefault    = dmSans(weight: 400, size: 12)
+    public static let bodySmallEmphasised = dmSans(weight: 500, size: 12)
 
+    // MARK: - Label (Figma)
 
-    // MARK: - Label (Figma — Inter Medium)
-
-    public static let labelDefault = inter(weight: 400, size: 11)
-    public static let labelSmall   = inter(weight: 400, size: 10)
+    public static let labelDefault = dmSans(weight: 400, size: 11)
+    public static let labelSmall   = dmSans(weight: 400, size: 10)
 
     // MARK: - Menu
 
-    /// 13pt Inter — compact menu item text matching sidebar conversation rows.
-    public static let menuCompact = inter(weight: 300, size: 13)
+    /// 13pt DM Sans — compact menu item text matching sidebar conversation rows.
+    public static let menuCompact = dmSans(weight: 400, size: 13)
 
-    // MARK: - Chat (Figma — Inter Regular, 16pt, 24px line height)
+    // MARK: - Chat (Figma — 16pt Medium with 24px line height, applied via .lineSpacing)
 
-    public static let chat = inter(weight: 300, size: 16)
+    public static let chat = dmSans(weight: 400, size: 16)
 
     // MARK: - Specialized
 
@@ -132,26 +135,46 @@ public enum VFont {
     // MARK: - NSFont (AppKit — for NSTextView and TextKit 1)
 
     #if os(macOS)
-    /// Creates an Inter `NSFont` at the given CSS weight and size via CTFont variation axis.
-    public static func nsInter(weight: Int, size: CGFloat) -> NSFont {
-        let baseName = "InterVariable" as CFString
-        let baseFont = CTFontCreateWithName(baseName, size, nil)
-        let variations: [CFNumber: CFNumber] = [
-            wghtTag as CFNumber: weight as CFNumber,
-        ]
-        return CTFontCreateCopyWithAttributes(
-            baseFont, size, nil,
-            CTFontDescriptorCreateWithAttributes([
-                kCTFontVariationAttribute: variations,
-            ] as CFDictionary)
-        ) as NSFont
+    package struct ChatMarkdownFontSet {
+        package let regular: NSFont
+        package let bold: NSFont
+        package let italic: NSFont
+        package let boldItalic: NSFont
+        package let regularIsResolved: Bool
+        package let boldIsResolved: Bool
+        package let italicIsResolved: Bool
+        package let boldItalicIsResolved: Bool
+        package let isResolved: Bool
+        package let diagnosticPostScriptNames: [String: String]
     }
 
-    /// NSFont equivalent of `VFont.chat`.
-    public static let nsChat: NSFont = nsInter(weight: 300, size: 16)
+    @MainActor
+    package final class TypographyRefreshObserver: ObservableObject {
+        @Published package fileprivate(set) var generation: Int = 0
+    }
 
-    /// NSFont equivalent of `VFont.bodyMediumDefault`.
-    public static let nsBodyMediumDefault: NSFont = nsInter(weight: 400, size: 14)
+    private static let dmSansFamilyName = "DM Sans"
+    @MainActor package static var typographyGeneration: Int = 0
+    @MainActor package static let typographyObserver = TypographyRefreshObserver()
+
+    #if DEBUG
+    package static var _chatMarkdownFontSetOverride: ((CGFloat) -> ChatMarkdownFontSet)?
+    #endif
+
+    /// Creates a DM Sans `NSFont` at the given CSS weight and size.
+    /// AppKit equivalent of the SwiftUI `dmSans(weight:size:)` helper.
+    private static func nsDmSans(weight: Int, size: CGFloat) -> NSFont {
+        resolvedDMSansFont(weight: weight, size: size)
+    }
+
+    /// DM Sans 400 at 16pt — NSFont equivalent of `VFont.chat`.
+    public static let nsChat: NSFont = nsDmSans(weight: 400, size: 16)
+
+    /// DM Sans 400 at 14pt — NSFont equivalent of `VFont.bodyMediumDefault`.
+    public static let nsBodyMediumDefault: NSFont = nsDmSans(weight: 400, size: 14)
+
+    /// DM Sans 400 at 12pt — NSFont equivalent of `VFont.bodySmallDefault`.
+    public static let nsBodySmallDefault: NSFont = nsDmSans(weight: 400, size: 12)
 
     public static let nsMono: NSFont = {
         let base = NSFont(name: "DMMono-Regular", size: 13)
@@ -172,6 +195,112 @@ public enum VFont {
     public static let nsMonoItalic: NSFont = {
         NSFontManager.shared.convert(nsMono, toHaveTrait: .italicFontMask)
     }()
+
+    @MainActor
+    package static func bumpTypographyGeneration() {
+        typographyGeneration &+= 1
+        typographyObserver.generation = typographyGeneration
+    }
+
+    package static func resolvedChatMarkdownFontSet(size: CGFloat = 16) -> ChatMarkdownFontSet {
+        #if DEBUG
+        if let override = _chatMarkdownFontSetOverride {
+            return override(size)
+        }
+        #endif
+
+        let regular = resolvedDMSansFont(weight: 400, size: size)
+        let bold = resolvedDMSansFont(weight: 700, size: size)
+        let italic = resolvedDMSansFont(weight: 400, size: size, obliqueDegrees: 12)
+        let boldItalic = resolvedDMSansFont(weight: 700, size: size, obliqueDegrees: 12)
+
+        let diagnosticPostScriptNames = [
+            "regular": postScriptName(for: regular),
+            "bold": postScriptName(for: bold),
+            "italic": postScriptName(for: italic),
+            "boldItalic": postScriptName(for: boldItalic),
+        ]
+
+        let regularIsResolved = isResolvedDMSans(regular)
+        let boldIsResolved = isResolvedDMSans(bold) && hasWeightAxis(bold, expected: 700)
+        let italicIsResolved = isResolvedDMSans(italic) && hasObliqueTransform(italic)
+        let boldItalicIsResolved =
+            isResolvedDMSans(boldItalic)
+            && hasWeightAxis(boldItalic, expected: 700)
+            && hasObliqueTransform(boldItalic)
+
+        return ChatMarkdownFontSet(
+            regular: regular,
+            bold: bold,
+            italic: italic,
+            boldItalic: boldItalic,
+            regularIsResolved: regularIsResolved,
+            boldIsResolved: boldIsResolved,
+            italicIsResolved: italicIsResolved,
+            boldItalicIsResolved: boldItalicIsResolved,
+            isResolved: regularIsResolved && boldIsResolved && italicIsResolved && boldItalicIsResolved,
+            diagnosticPostScriptNames: diagnosticPostScriptNames
+        )
+    }
+
+    package static func resolvedDMSansFont(
+        weight: Int,
+        size: CGFloat,
+        obliqueDegrees: CGFloat? = nil
+    ) -> NSFont {
+        let baseName = "DMSans-Regular" as CFString
+        let baseFont = CTFontCreateWithName(baseName, size, nil)
+        let variations: [CFNumber: CFNumber] = [
+            wghtTag as CFNumber: weight as CFNumber,
+        ]
+        let descriptor = CTFontDescriptorCreateWithAttributes([
+            kCTFontVariationAttribute: variations,
+        ] as CFDictionary)
+
+        if let obliqueDegrees {
+            var oblique = CGAffineTransform(
+                a: 1,
+                b: 0,
+                c: CGFloat(tan(obliqueDegrees * .pi / 180.0)),
+                d: 1,
+                tx: 0,
+                ty: 0
+            )
+            return CTFontCreateCopyWithAttributes(baseFont, size, &oblique, descriptor) as NSFont
+        }
+
+        return CTFontCreateCopyWithAttributes(baseFont, size, nil, descriptor) as NSFont
+    }
+
+    private static func isResolvedDMSans(_ font: NSFont) -> Bool {
+        familyName(for: font) == dmSansFamilyName
+    }
+
+    private static func familyName(for font: NSFont) -> String {
+        CTFontCopyFamilyName(font as CTFont) as String
+    }
+
+    private static func postScriptName(for font: NSFont) -> String {
+        CTFontCopyPostScriptName(font as CTFont) as String
+    }
+
+    private static func hasObliqueTransform(_ font: NSFont) -> Bool {
+        let matrix = CTFontGetMatrix(font as CTFont)
+        return abs(matrix.b) > 0.0001
+            || abs(matrix.c) > 0.0001
+            || abs(matrix.a - 1) > 0.0001
+            || abs(matrix.d - 1) > 0.0001
+            || abs(matrix.tx) > 0.0001
+            || abs(matrix.ty) > 0.0001
+    }
+
+    private static func hasWeightAxis(_ font: NSFont, expected: Int) -> Bool {
+        guard let variations = CTFontCopyVariation(font as CTFont) as? [NSNumber: NSNumber],
+              let value = variations[wghtTag as NSNumber] else {
+            return false
+        }
+        return abs(CGFloat(truncating: value) - CGFloat(expected)) < 0.5
+    }
     #endif
 
     // MARK: - Prewarm
@@ -195,8 +324,10 @@ public enum VFont {
         _ = titleSmall
         _ = bodyLargeLighter
         _ = bodyLargeDefault
+        _ = bodyLargeEmphasised
         _ = bodyMediumLighter
         _ = bodyMediumDefault
+        _ = bodyMediumEmphasised
         _ = bodySmallDefault
         _ = bodySmallEmphasised
         _ = labelDefault
@@ -204,10 +335,11 @@ public enum VFont {
         _ = menuCompact
         _ = chat
 
-        // NSFont tokens (macOS only)
+        // NSFont tokens (macOS only — CoreText-only, no AppKit dependency)
         #if os(macOS)
         _ = nsChat
         _ = nsBodyMediumDefault
+        _ = nsBodySmallDefault
         _ = nsMono
         // NOTE: nsMonoBold and nsMonoItalic are intentionally excluded here.
         // They use NSFontManager.shared.convert() which requires the main thread.

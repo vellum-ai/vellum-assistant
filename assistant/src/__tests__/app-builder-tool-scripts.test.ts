@@ -25,6 +25,7 @@ function makeMockStore(overrides: Partial<AppStore> = {}): AppStore {
   return {
     getApp: () => makeApp(),
     listApps: () => [makeApp()],
+    appFileExists: () => false,
     createApp: (params) =>
       makeApp({ name: params.name, description: params.description }),
     updateApp: (id, updates) => makeApp({ id, ...updates }),

@@ -5,19 +5,19 @@ import VellumAssistantShared
 
 final class ComposerEmojiPickerTests: XCTestCase {
 
-    func testEmojiCatalogSearchReturnsResultsForCommonPrefixes() {
-        let results = EmojiCatalog.search(prefix: "thu")
-        XCTAssertFalse(results.isEmpty, "Expected results for prefix 'thu'")
+    func testEmojiCatalogSearchReturnsSubstringMatches() {
+        let results = EmojiCatalog.search(query: "eart")
+        XCTAssertFalse(results.isEmpty, "Expected results for substring 'eart'")
         for entry in results {
             XCTAssertTrue(
-                entry.shortcode.hasPrefix("thu"),
-                "Expected shortcode '\(entry.shortcode)' to start with 'thu'"
+                entry.shortcode.contains("eart"),
+                "Expected shortcode '\(entry.shortcode)' to contain 'eart'"
             )
         }
     }
 
     func testEmojiCatalogSearchCapsAtEightByDefault() {
-        let results = EmojiCatalog.search(prefix: "s")
+        let results = EmojiCatalog.search(query: "s")
         XCTAssertLessThanOrEqual(results.count, 8, "Default limit should cap results at 8")
     }
 

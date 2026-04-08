@@ -65,6 +65,23 @@ export function isMultifileApp(app: AppDefinition): boolean {
 }
 
 /**
+ * Resolve the effective HTML for an app. For single-file apps this is
+ * `htmlDefinition` (the root index.html). For multifile apps it reads the
+ * compiled `dist/index.html` and inlines JS/CSS assets so the result is a
+ * self-contained HTML string suitable for `loadHTMLString`.
+ */
+export function resolveEffectiveAppHtml(app: AppDefinition): string {
+  if (!isMultifileApp(app)) return app.htmlDefinition;
+
+  const appDir = getAppDirPath(app.id);
+  const distIndex = join(appDir, "dist", "index.html");
+  if (existsSync(distIndex)) {
+    return inlineDistAssets(appDir, readFileSync(distIndex, "utf-8"));
+  }
+  return app.htmlDefinition;
+}
+
+/**
  * Inline dist assets (main.js, main.css) into the compiled HTML so it can be
  * delivered as a self-contained string via loadHTMLString/SSE without needing
  * the client to resolve external script/stylesheet URLs.
@@ -75,7 +92,10 @@ export function inlineDistAssets(appDir: string, html: string): string {
   // Inline main.js
   const jsPath = join(distDir, "main.js");
   if (existsSync(jsPath)) {
-    const js = readFileSync(jsPath, "utf-8").replace(/<\/script>/g, "<\\/script>");
+    const js = readFileSync(jsPath, "utf-8").replace(
+      /<\/script>/g,
+      "<\\/script>",
+    );
     html = html.replace(
       /<script\s+type="module"\s+src="main\.js"\s*><\/script>/,
       () => `<script type="module">${js}</script>`,
@@ -816,6 +836,16 @@ export function listAppFiles(appId: string): string[] {
 
   walk(appDir);
   return results.sort();
+}
+
+/**
+ * Check whether a file exists in the app directory.
+ * Path is validated to prevent traversal.
+ */
+export function appFileExists(appId: string, path: string): boolean {
+  validateId(appId);
+  const resolved = validateFilePath(appId, path);
+  return existsSync(resolved);
 }
 
 /**

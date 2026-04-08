@@ -30,9 +30,9 @@ export interface PlatformConnectionEntry {
  * lookup so that callers (e.g. `isManagedMode`, `mode.ts`) don't duplicate the
  * validation.
  */
-export function getManagedServiceConfigKey(providerKey: string): string | null {
-  const provider = getProvider(providerKey);
-  const managedKey = provider?.managedServiceConfigKey;
+export function getManagedServiceConfigKey(provider: string): string | null {
+  const providerRow = getProvider(provider);
+  const managedKey = providerRow?.managedServiceConfigKey;
   if (!managedKey || !(managedKey in ServicesSchema.shape)) return null;
   return managedKey;
 }
@@ -41,8 +41,8 @@ export function getManagedServiceConfigKey(providerKey: string): string | null {
  * Determine whether a provider is running in platform-managed mode.
  * Returns false if config is unavailable (e.g. in test environments).
  */
-export function isManagedMode(providerKey: string): boolean {
-  const managedKey = getManagedServiceConfigKey(providerKey);
+export function isManagedMode(provider: string): boolean {
+  const managedKey = getManagedServiceConfigKey(provider);
   if (!managedKey) return false;
   try {
     const services: Services = getConfig().services;

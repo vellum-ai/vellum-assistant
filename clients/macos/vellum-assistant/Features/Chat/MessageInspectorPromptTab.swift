@@ -29,7 +29,7 @@ struct MessageInspectorPromptTab: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(VColor.surfaceBase)
-        .task {
+        .task(id: entry.id) {
             model = MessageInspectorPromptTabModel(entry: entry)
         }
     }
@@ -115,10 +115,11 @@ struct MessageInspectorPromptTab: View {
                 text: .constant(section.displayText),
                 language: section.syntaxLanguage,
                 isEditable: false,
-                isActivelyEditing: .constant(false)
+                isActivelyEditing: .constant(false),
+                allowsVerticalScrolling: false
             )
             .frame(maxWidth: .infinity)
-            .frame(minHeight: 120, maxHeight: 260)
+            .frame(minHeight: 120)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         }
     }

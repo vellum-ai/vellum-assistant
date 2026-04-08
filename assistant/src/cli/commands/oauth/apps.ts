@@ -41,14 +41,17 @@ const log = getCliLogger("cli");
 /** Format an app row for output, converting timestamps to ISO strings. */
 function formatAppRow(row: {
   id: string;
-  providerKey: string;
+  provider: string;
   clientId: string;
   createdAt: number;
   updatedAt: number;
 }) {
   return {
     id: row.id,
-    providerKey: row.providerKey,
+    // Wire key stays `providerKey` for backward compatibility with existing
+    // CLI script consumers of `assistant oauth apps list/get/upsert --json`;
+    // the internal Drizzle TS-side field is `provider`.
+    providerKey: row.provider,
     clientId: row.clientId,
     createdAt: new Date(row.createdAt).toISOString(),
     updatedAt: new Date(row.updatedAt).toISOString(),
@@ -94,7 +97,7 @@ Examples:
 Returns registered OAuth apps with their provider key, client ID, and
 timestamps. Output is an array of app objects.
 
-When --provider-key is specified, only apps whose providerKey exactly matches
+When --provider-key is specified, only apps whose provider exactly matches
 the given value are returned. Without the flag, all apps are listed.
 
 In JSON mode (--json), returns the array directly. In human mode, logs a
@@ -288,7 +291,7 @@ Examples:
           );
 
           if (!shouldOutputJson(cmd)) {
-            log.info(`Upserted app: ${row.id} (provider: ${row.providerKey})`);
+            log.info(`Upserted app: ${row.id} (provider: ${row.provider})`);
           }
 
           writeOutput(cmd, formatAppRow(row));

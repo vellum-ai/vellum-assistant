@@ -121,7 +121,10 @@ export const llmRequestLogs = sqliteTable(
     responsePayload: text("response_payload").notNull(),
     createdAt: integer("created_at").notNull(),
   },
-  (table) => [index("idx_llm_request_logs_message_id").on(table.messageId)],
+  (table) => [
+    index("idx_llm_request_logs_message_id").on(table.messageId),
+    index("idx_llm_request_logs_created_at").on(table.createdAt),
+  ],
 );
 
 export const memoryRecallLogs = sqliteTable(
@@ -147,6 +150,7 @@ export const memoryRecallLogs = sqliteTable(
     topCandidatesJson: text("top_candidates_json").notNull(),
     injectedText: text("injected_text"),
     reason: text("reason"),
+    queryContext: text("query_context"),
     createdAt: integer("created_at").notNull(),
   },
   (table) => [

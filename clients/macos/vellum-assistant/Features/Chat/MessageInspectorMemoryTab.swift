@@ -29,6 +29,7 @@ struct MessageInspectorMemoryTabModel: Equatable {
     let searchRows: [Row]
     let candidates: [CandidateRow]
     let injectedText: String?
+    let queryContext: String?
     let degradationReason: String?
     let degradationSemanticUnavailable: Bool
     let degradationFallbackSources: String?
@@ -43,6 +44,7 @@ struct MessageInspectorMemoryTabModel: Equatable {
             searchRows = []
             candidates = []
             injectedText = nil
+            queryContext = nil
             degradationReason = nil
             degradationSemanticUnavailable = false
             degradationFallbackSources = nil
@@ -59,6 +61,7 @@ struct MessageInspectorMemoryTabModel: Equatable {
             searchRows = []
             candidates = []
             injectedText = nil
+            queryContext = nil
             degradationReason = nil
             degradationSemanticUnavailable = false
             degradationFallbackSources = nil
@@ -103,6 +106,7 @@ struct MessageInspectorMemoryTabModel: Equatable {
             }
 
         injectedText = recall.injectedText
+        queryContext = recall.queryContext
 
         if let degradation = recall.degradation {
             degradationReason = degradation.reason
@@ -171,6 +175,10 @@ struct MessageInspectorMemoryTab: View {
                 statusCard
                 funnelCard
                 searchDetailsCard
+
+                if model.queryContext != nil {
+                    queryContextCard
+                }
 
                 if !model.candidates.isEmpty {
                     candidatesCard
@@ -318,6 +326,37 @@ struct MessageInspectorMemoryTab: View {
             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
     }
 
+    // MARK: - Query context card
+
+    private var queryContextCard: some View {
+        VCard {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                HStack(alignment: .firstTextBaseline, spacing: VSpacing.sm) {
+                    cardHeader(title: "Query context", subtitle: "The text embedded as the search vector for semantic retrieval.")
+
+                    Spacer(minLength: VSpacing.md)
+
+                    VCopyButton(
+                        text: model.queryContext ?? "",
+                        size: .compact,
+                        accessibilityHint: "Copy query context"
+                    )
+                }
+
+                HighlightedTextView(
+                    text: .constant(model.queryContext ?? ""),
+                    language: .plain,
+                    isEditable: false,
+                    isActivelyEditing: .constant(false),
+                    allowsVerticalScrolling: false
+                )
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 80)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            }
+        }
+    }
+
     // MARK: - Injected text card
 
     private var injectedTextCard: some View {
@@ -339,10 +378,11 @@ struct MessageInspectorMemoryTab: View {
                     text: .constant(model.injectedText ?? ""),
                     language: .plain,
                     isEditable: false,
-                    isActivelyEditing: .constant(false)
+                    isActivelyEditing: .constant(false),
+                    allowsVerticalScrolling: false
                 )
                 .frame(maxWidth: .infinity)
-                .frame(minHeight: 120, maxHeight: 400)
+                .frame(minHeight: 120)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             }
         }

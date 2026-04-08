@@ -8,7 +8,7 @@
 import { getGatewayInternalBaseUrl } from "../../config/env.js";
 import { getDataDir, getWorkspaceDir } from "../../util/platform.js";
 
-const SAFE_ENV_VARS = [
+export const SAFE_ENV_VARS = [
   "PATH",
   "HOME",
   "TERM",
@@ -32,11 +32,28 @@ const SAFE_ENV_VARS = [
   "CES_BOOTSTRAP_SOCKET_DIR",
   "GATEWAY_INTERNAL_URL",
   "VELLUM_PLATFORM_URL",
+  "VELLUM_DOCS_BASE_URL",
   "CES_CREDENTIAL_URL",
   "CES_MANAGED_MODE",
   "IS_CONTAINERIZED",
   "IS_PLATFORM",
   "CES_SERVICE_TOKEN",
+  "VELLUM_PROFILER_RUN_ID",
+  "VELLUM_PROFILER_MODE",
+  "VELLUM_PROFILER_MAX_BYTES",
+  "VELLUM_PROFILER_MAX_RUNS",
+  "VELLUM_PROFILER_MIN_FREE_MB",
+  "VELLUM_MEMORY_LIMIT",
+] as const;
+
+/**
+ * Keys that buildSanitizedEnv always injects into the returned env,
+ * independent of what is present in process.env.
+ */
+export const ALWAYS_INJECTED_ENV_VARS = [
+  "INTERNAL_GATEWAY_BASE_URL",
+  "VELLUM_DATA_DIR",
+  "VELLUM_WORKSPACE_DIR",
 ] as const;
 
 export function buildSanitizedEnv(): Record<string, string> {
@@ -56,5 +73,9 @@ export function buildSanitizedEnv(): Record<string, string> {
   // Expose the workspace directory so skills and child processes can read/write
   // workspace-scoped files (e.g. avatar traits, user data).
   env.VELLUM_WORKSPACE_DIR = getWorkspaceDir();
+  // Ensure UTF-8 locale so multi-byte characters (em dashes, curly quotes,
+  // arrows, etc.) survive piping through tools like pbcopy without corruption.
+  if (!env.LANG) env.LANG = "C.UTF-8";
+  if (!env.LC_ALL) env.LC_ALL = "C.UTF-8";
   return env;
 }

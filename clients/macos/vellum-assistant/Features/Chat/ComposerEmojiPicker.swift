@@ -54,7 +54,7 @@ extension ComposerView {
             return
         }
         if let trigger = emojiTriggerRange() {
-            let results = EmojiCatalog.search(prefix: trigger.filter)
+            let results = EmojiCatalog.search(query: trigger.filter)
             if !results.isEmpty {
                 withAnimation(VAnimation.fast) { showEmojiMenu = true }
                 if emojiFilter != trigger.filter {
@@ -70,7 +70,7 @@ extension ComposerView {
     }
 
     func filteredEmoji(_ filter: String) -> [EmojiEntry] {
-        EmojiCatalog.search(prefix: filter, limit: 8)
+        EmojiCatalog.search(query: filter, limit: 8)
     }
 
     func selectEmoji(_ entry: EmojiEntry) {
@@ -148,7 +148,7 @@ struct EmojiPickerRow: View {
                 Text(entry.emoji)
                     .font(.system(size: 20))
                 Text(":\(entry.shortcode):")
-                    .font(VFont.bodyMediumDefault)
+                    .font(VFont.bodyMediumEmphasised)
                     .foregroundStyle(VColor.contentDefault)
                 Spacer()
             }

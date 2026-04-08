@@ -23,7 +23,9 @@ import { getLogger } from "../util/logger.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import {
   SUBAGENT_LIMITS,
+  SUBAGENT_ROLE_REGISTRY,
   type SubagentConfig,
+  type SubagentRole,
   type SubagentState,
   type SubagentStatus,
   TERMINAL_STATUSES,
@@ -31,35 +33,76 @@ import {
 
 const log = getLogger("subagent-manager");
 
+/** How long to keep terminal subagent metadata after the live conversation is released (ms). */
+const TERMINAL_RETENTION_MS = 30 * 60 * 1000; // 30 minutes
+/** How often to sweep expired terminal entries (ms). */
+const SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+// ── Skill ID merge helper ──────────────────────────────────────────────
+
+/**
+ * Merge role-defined skill IDs with caller-provided skill IDs, deduplicating.
+ * Exported for direct unit testing.
+ */
+export function mergeSkillIds(
+  roleSkillIds: string[],
+  configSkillIds?: string[],
+): string[] {
+  return [...new Set([...roleSkillIds, ...(configSkillIds ?? [])])];
+}
+
 // ── Default subagent system prompt ──────────────────────────────────────
 
-function buildSubagentSystemPrompt(config: SubagentConfig): string {
+function buildSubagentSystemPrompt(
+  config: SubagentConfig,
+  role: SubagentRole,
+): string {
+  const roleConfig = SUBAGENT_ROLE_REGISTRY[role];
   const sections: string[] = [
-    "You are a focused subagent working on a specific task delegated by a parent assistant.",
-    "Complete the task thoroughly and concisely.",
+    roleConfig.systemPromptPreamble,
     "",
-    `## Your Task`,
+    "## Your Task",
     config.objective,
   ];
   if (config.context) {
     sections.push("", "## Context from Parent", config.context);
   }
+  sections.push(
+    "",
+    "## Constraints",
+    `- Role: ${role}`,
+    "- You cannot spawn nested subagents.",
+    "- Use notify_parent to report important findings or if you are blocked.",
+  );
   return sections.join("\n");
 }
 
 // ── Manager ─────────────────────────────────────────────────────────────
 
 interface ManagedSubagent {
-  conversation: Conversation;
+  /** Live conversation — null after the subagent reaches a terminal state and is released. */
+  conversation: Conversation | null;
   state: SubagentState;
   /** Mutable reference to the parent's current sendToClient. Updated on reconnect. */
   parentSendToClient: (msg: ServerMessage) => void;
+  /** Epoch ms after which this terminal entry can be removed by the TTL sweep. */
+  retainedUntil?: number;
+  /**
+   * Set to true when sendMessage enqueues a follow-up message while the
+   * initial objective loop is running.  runAgentLoop fires drainQueue without
+   * awaiting it, and drainQueue shift()s the item synchronously — so both
+   * hasQueuedMessages() and isProcessing() can return false while the drain
+   * is still active.  This flag lets the finally block in runSubagent defer
+   * the release to the TTL sweep rather than tearing down the conversation
+   * mid-drain.
+   */
+  hadEnqueuedMessages?: boolean;
 }
 
 export interface SubagentNotificationInfo {
   subagentId: string;
   label: string;
-  status: "completed" | "failed" | "aborted";
+  status: "running" | "completed" | "failed" | "aborted";
   error?: string;
   conversationId?: string;
 }
@@ -76,6 +119,8 @@ export class SubagentManager {
   private subagents = new Map<string, ManagedSubagent>();
   /** parentConversationId → Set<subagentId> */
   private parentToChildren = new Map<string, Set<string>>();
+  /** `${parentConversationId}:${normalizedLabel}` → subagentId */
+  private labelIndex = new Map<string, string>();
 
   /**
    * Optional callback to inject a completion/failure message into the parent
@@ -96,6 +141,14 @@ export class SubagentManager {
    * to all connected clients (e.g. app_files_changed side-effects).
    */
   broadcastToAllClients?: (msg: ServerMessage) => void;
+
+  /**
+   * Resolve a live parent Conversation by conversationId.
+   * Wired by DaemonServer at startup — follows the same pattern as
+   * `onSubagentFinished`.  Used by fork spawn to resolve the parent's
+   * system prompt when `config.parentSystemPrompt` is not provided.
+   */
+  resolveParentConversation?: (conversationId: string) => Conversation | undefined;
 
   // ── Spawn ───────────────────────────────────────────────────────────
 
@@ -119,10 +172,32 @@ export class SubagentManager {
       );
     }
 
+    // ── Resolve role ─────────────────────────────────────────────────
+    const isFork = config.fork === true;
+    let role: SubagentRole = (config.role as SubagentRole) ?? "general";
+    if (isFork && role !== "general") {
+      log.warn(
+        {
+          requestedRole: role,
+          parentConversationId: config.parentConversationId,
+          label: config.label,
+        },
+        "Fork requested with non-general role — forcing general to preserve KV cache alignment",
+      );
+      role = "general";
+    }
+    if (!SUBAGENT_ROLE_REGISTRY[role]) {
+      throw new Error(
+        `Invalid subagent role "${config.role}". Must be one of: ${Object.keys(SUBAGENT_ROLE_REGISTRY).join(", ")}`,
+      );
+    }
+    const roleConfig = SUBAGENT_ROLE_REGISTRY[role];
+
     // ── Create conversation ─────────────────────────────────────────
     const subagentId = uuid();
     const conversationRecord = bootstrapConversation({
       conversationType: "background",
+      source: "subagent",
       origin: "subagent",
       systemHint: `Subagent: ${config.label}`,
     });
@@ -139,24 +214,58 @@ export class SubagentManager {
       );
     }
 
-    const systemPrompt =
-      config.systemPromptOverride ??
-      buildSubagentSystemPrompt({ ...config, id: subagentId });
+    let systemPrompt: string;
+    if (isFork) {
+      // Forks use the parent's system prompt directly — no subagent preamble.
+      if (config.parentSystemPrompt) {
+        systemPrompt = config.parentSystemPrompt;
+      } else if (this.resolveParentConversation) {
+        const parentConv = this.resolveParentConversation(config.parentConversationId);
+        const resolved = parentConv?.getCurrentSystemPrompt();
+        if (!resolved) {
+          throw new Error(
+            "Fork spawn requires a parent system prompt but neither config.parentSystemPrompt " +
+            "nor resolveParentConversation yielded one.",
+          );
+        }
+        systemPrompt = resolved;
+      } else {
+        throw new Error(
+          "Fork spawn requires a parent system prompt but neither config.parentSystemPrompt " +
+          "is set nor resolveParentConversation callback is wired.",
+        );
+      }
+    } else {
+      systemPrompt =
+        config.systemPromptOverride ??
+        buildSubagentSystemPrompt({ ...config, id: subagentId }, role);
+    }
     const maxTokens = appConfig.maxTokens;
     const workingDir = getSandboxWorkingDir();
 
-    const memoryPolicy: ConversationMemoryPolicy = {
-      scopeId: `subagent:${subagentId}`,
-      includeDefaultFallback: true,
-      strictSideEffects: false,
-    };
+    const memoryPolicy: ConversationMemoryPolicy = isFork
+      ? {
+          scopeId: "default",
+          includeDefaultFallback: false,
+          strictSideEffects: false,
+        }
+      : {
+          scopeId: `subagent:${subagentId}`,
+          includeDefaultFallback: true,
+          strictSideEffects: false,
+        };
 
     // ── Initialise state ────────────────────────────────────────────
     const now = Date.now();
+    // For forks, default sendResultToUser to false (silent) unless explicitly true.
+    const resolvedSendResultToUser = isFork
+      ? (config.sendResultToUser === true ? true : false)
+      : config.sendResultToUser;
     const state: SubagentState = {
-      config: { ...config, id: subagentId },
+      config: { ...config, id: subagentId, sendResultToUser: resolvedSendResultToUser },
       status: "pending",
       conversationId: conversationRecord.id,
+      isFork,
       createdAt: now,
       usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     };
@@ -190,14 +299,53 @@ export class SubagentManager {
       workingDir,
       this.broadcastToAllClients, // forward parent's broadcast so tool side-effects (e.g. app_files_changed) reach all clients
       memoryPolicy,
+      undefined, // sharedCesClient
+      undefined, // speedOverride
+      "5m", // cacheTtl — subagents run tight tool-use loops, 5m is always hot
     );
 
     // Mark conversation as having no direct client — it routes through parent.
     // This ensures interactive prompts (host attachment reads) fail fast.
     conversation.updateClient(wrappedSendToClient, true);
+    conversation.setIsSubagent(true);
+
+    if (isFork) {
+      // Force the fork to use the parent's system prompt as-is without dynamic rebuild.
+      // This ensures KV cache alignment with the parent conversation.
+      conversation.hasSystemPromptOverride = true;
+    }
+
+    // Apply role-based tool filter if the role defines one.
+    // Skip for forks — general role has allowedTools: undefined, and forks
+    // should have the same tool access as the parent.
+    if (!isFork && roleConfig.allowedTools) {
+      conversation.setSubagentAllowedTools(new Set(roleConfig.allowedTools));
+    }
+
+    // Pre-activate skills defined by the role config, merged with any caller-provided skill IDs.
+    const mergedSkillIds = mergeSkillIds(
+      roleConfig.skillIds,
+      config.preactivatedSkillIds,
+    );
+    if (mergedSkillIds.length > 0) {
+      conversation.setPreactivatedSkillIds(mergedSkillIds);
+    }
 
     managed.conversation = conversation;
     this.subagents.set(subagentId, managed);
+    const labelKey = `${config.parentConversationId}:${config.label.toLowerCase().trim()}`;
+    if (this.labelIndex.has(labelKey)) {
+      log.warn(
+        {
+          label: config.label,
+          parentConversationId: config.parentConversationId,
+          existingSubagentId: this.labelIndex.get(labelKey),
+          newSubagentId: subagentId,
+        },
+        "Label collision: new subagent overwrites label index entry (previous subagent still accessible by UUID)",
+      );
+    }
+    this.labelIndex.set(labelKey, subagentId);
 
     // Track parent → child relationship.
     if (!this.parentToChildren.has(config.parentConversationId)) {
@@ -212,6 +360,7 @@ export class SubagentManager {
       parentConversationId: config.parentConversationId,
       label: config.label,
       objective: config.objective,
+      isFork: config.fork ?? false,
     } as ServerMessage);
 
     log.info(
@@ -240,25 +389,54 @@ export class SubagentManager {
     const managed = this.subagents.get(subagentId);
     if (!managed) return;
 
+    // Capture the live conversation — it is non-null at this point because
+    // spawn() sets it before firing runSubagent.
+    const conversation = managed.conversation!;
+
     // Read the current parent sender so reconnects are picked up.
     const getSender = () => managed.parentSendToClient;
 
     this.setStatus(subagentId, "running", getSender());
     managed.state.startedAt = Date.now();
 
-    const onEvent = managed.conversation.sendToClient;
+    const onEvent = conversation.sendToClient;
 
     try {
+      // For forks, inject the parent's message history before the first message.
+      // This prepends the inherited context so the fork has full conversational
+      // awareness while the objective becomes the latest user turn.
+      if (managed.state.isFork && managed.state.config.parentMessages) {
+        conversation.injectInheritedContext(managed.state.config.parentMessages);
+        // Release the parent message arrays now that they've been injected — holding
+        // them in SubagentState.config would retain significant memory until the TTL
+        // sweep disposes this entry (up to 30 minutes for terminal subagents).
+        managed.state.config.parentMessages = undefined;
+        managed.state.config.parentSystemPrompt = undefined;
+      }
+
       // Send the objective as the first user message and process it.
-      const messageId = await managed.conversation.persistUserMessage(
-        objective,
-        [],
-      );
-      await managed.conversation.runAgentLoop(objective, messageId, onEvent);
+      // For forks, wrap the objective in directive framing so it overrides
+      // conversational momentum from the inherited context. Without this,
+      // the fork tends to continue the parent conversation instead of
+      // pivoting to the task — the inherited context is louder than a bare
+      // objective buried after 100k+ tokens of chat history.
+      const message = managed.state.isFork
+        ? [
+            "⎯⎯⎯ FORK TASK ⎯⎯⎯",
+            "You have been forked from the parent conversation to execute a specific task.",
+            "The conversation above is context — do NOT continue it. Do NOT spawn sub-agents.",
+            "Complete this task directly and return only your findings:",
+            "",
+            objective,
+            "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯",
+          ].join("\n")
+        : objective;
+      const messageId = await conversation.persistUserMessage(message, []);
+      await conversation.runAgentLoop(message, messageId, onEvent);
 
       // Agent loop completed successfully.
       // Copy usage stats from the conversation before sending status (which includes usage).
-      managed.state.usage = { ...managed.conversation.usageStats };
+      managed.state.usage = { ...conversation.usageStats };
       // Only update state + notify if still non-terminal (guards against abort race).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
         managed.state.completedAt = Date.now();
@@ -267,21 +445,40 @@ export class SubagentManager {
         log.info({ subagentId }, "Subagent completed");
 
         // Notify the parent conversation so the LLM can call subagent_read.
-        this.notifyParent(managed, "completed", getSender());
+        this.notifyParentTerminal(managed, "completed", getSender());
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       managed.state.error = errorMsg;
       managed.state.completedAt = Date.now();
-      managed.state.usage = { ...managed.conversation.usageStats };
+      // Copy usage from the captured conversation reference — managed.conversation
+      // may have been nulled by an external dispose() before catch runs.
+      managed.state.usage = { ...conversation.usageStats };
 
       // Only update status if not already terminal (e.g. aborted).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
         this.setStatus(subagentId, "failed", getSender(), errorMsg);
-        this.notifyParent(managed, "failed", getSender());
+        this.notifyParentTerminal(managed, "failed", getSender());
       }
 
       log.error({ subagentId, err }, "Subagent failed");
+    } finally {
+      // Release the heavyweight Conversation — output is already persisted in DB.
+      // runAgentLoop fires drainQueue without awaiting it, and drainQueue shift()s
+      // the next item synchronously — so both hasQueuedMessages() and
+      // isProcessing() can return false while a drain is still active.  Use the
+      // hadEnqueuedMessages flag (set in sendMessage) to detect this case and
+      // defer the release to the TTL sweep rather than tearing down mid-drain.
+      if (managed.hadEnqueuedMessages) {
+        log.debug(
+          { subagentId },
+          "Deferring conversation release — messages were enqueued during run",
+        );
+        managed.retainedUntil = Date.now() + TERMINAL_RETENTION_MS;
+        this.ensureSweepRunning();
+      } else {
+        this.releaseConversation(managed);
+      }
     }
   }
 
@@ -312,7 +509,7 @@ export class SubagentManager {
       return false;
     }
 
-    managed.conversation.abort();
+    managed.conversation?.abort();
     managed.state.completedAt = Date.now();
     if (parentSendToClient) {
       // Route the status update through the stored parent sender so the
@@ -325,9 +522,10 @@ export class SubagentManager {
       // Skip when the parent LLM itself called subagent_abort (it already has the tool result).
       if (this.onSubagentFinished && !options?.suppressNotification) {
         const label = managed.state.config.label;
+        const prefix = managed.state.isFork ? "Fork" : "Subagent";
         const message =
-          `[Subagent "${label}" was explicitly aborted]\n\n` +
-          `This subagent was cancelled on purpose. Do NOT re-spawn or retry it.`;
+          `[${prefix} "${label}" was explicitly aborted]\n\n` +
+          `This ${prefix.toLowerCase()} was cancelled on purpose. Do NOT re-spawn or retry it.`;
         try {
           // Use the managed subagent's stored parentSendToClient so the
           // notification routes to the parent conversation's socket, not the
@@ -393,7 +591,8 @@ export class SubagentManager {
 
     const managed = this.subagents.get(subagentId);
     if (!managed) return "not_found";
-    if (TERMINAL_STATUSES.has(managed.state.status)) return "terminal";
+    if (TERMINAL_STATUSES.has(managed.state.status) || !managed.conversation)
+      return "terminal";
 
     const onEvent = managed.conversation.sendToClient;
     const requestId = uuid();
@@ -408,13 +607,15 @@ export class SubagentManager {
     if (result.rejected) {
       return "sent"; // error event already delivered via onEvent
     }
+    if (result.queued) {
+      managed.hadEnqueuedMessages = true;
+    }
     if (!result.queued) {
-      // Conversation is idle — send directly.  Fire-and-forget so we don't block.
-      const messageId = await managed.conversation.persistUserMessage(
-        trimmed,
-        [],
-      );
-      managed.conversation
+      // Capture conversation before the await — managed.conversation may be
+      // nulled by an external dispose() while persistUserMessage is awaited.
+      const conversation = managed.conversation;
+      const messageId = await conversation.persistUserMessage(trimmed, []);
+      conversation
         .runAgentLoop(trimmed, messageId, onEvent)
         .catch((err) => {
           log.error({ subagentId, err }, "Subagent message processing failed");
@@ -427,6 +628,15 @@ export class SubagentManager {
 
   getState(subagentId: string): SubagentState | undefined {
     return this.subagents.get(subagentId)?.state;
+  }
+
+  getByLabel(
+    label: string,
+    parentConversationId: string,
+  ): SubagentState | undefined {
+    const key = `${parentConversationId}:${label.toLowerCase().trim()}`;
+    const id = this.labelIndex.get(key);
+    return id ? this.getState(id) : undefined;
   }
 
   getChildrenOf(parentConversationId: string): SubagentState[] {
@@ -466,6 +676,24 @@ export class SubagentManager {
   // ── Cleanup ───────────────────────────────────────────────────────────
 
   /**
+   * Release the live Conversation from a terminal subagent, keeping only
+   * lightweight metadata (state, config, usage) for later queries.
+   * The conversation's output is already persisted in the database.
+   */
+  private releaseConversation(managed: ManagedSubagent): void {
+    if (!managed.conversation) return;
+    managed.conversation.dispose();
+    managed.conversation = null;
+    managed.retainedUntil = Date.now() + TERMINAL_RETENTION_MS;
+    this.ensureSweepRunning();
+
+    log.debug(
+      { subagentId: managed.state.config.id },
+      "Released live conversation for terminal subagent",
+    );
+  }
+
+  /**
    * Dispose a subagent and remove it from tracking.
    * Should be called after the subagent reaches a terminal state
    * and its data is no longer needed.
@@ -474,11 +702,23 @@ export class SubagentManager {
     const managed = this.subagents.get(subagentId);
     if (!managed) return;
 
-    if (!TERMINAL_STATUSES.has(managed.state.status)) {
-      managed.conversation.abort();
+    if (managed.conversation) {
+      if (!TERMINAL_STATUSES.has(managed.state.status)) {
+        managed.conversation.abort();
+      }
+      managed.conversation.dispose();
+      managed.conversation = null;
     }
-    managed.conversation.dispose();
     this.subagents.delete(subagentId);
+
+    // Remove from label index only if it still maps to this subagent
+    // (guards against stale delete when a newer subagent reused the label).
+    const label = managed.state.config.label;
+    const parentConvId = managed.state.config.parentConversationId;
+    const labelKey = `${parentConvId}:${label.toLowerCase().trim()}`;
+    if (this.labelIndex.get(labelKey) === subagentId) {
+      this.labelIndex.delete(labelKey);
+    }
 
     // Remove from parent tracking.
     const parentId = managed.state.config.parentConversationId;
@@ -493,8 +733,68 @@ export class SubagentManager {
 
   /** Dispose all subagents. Called on daemon shutdown. */
   disposeAll(): void {
+    this.stopSweep();
     for (const id of [...this.subagents.keys()]) {
       this.dispose(id);
+    }
+  }
+
+  // ── TTL sweep for terminal metadata ──────────────────────────────────
+
+  private sweepTimer?: ReturnType<typeof setInterval>;
+
+  private ensureSweepRunning(): void {
+    if (this.sweepTimer) return;
+    this.sweepTimer = setInterval(
+      () => this.sweepTerminal(),
+      SWEEP_INTERVAL_MS,
+    );
+    // Don't let the sweep timer keep the process alive.
+    if (
+      this.sweepTimer &&
+      typeof this.sweepTimer === "object" &&
+      "unref" in this.sweepTimer
+    ) {
+      (this.sweepTimer as { unref: () => void }).unref();
+    }
+  }
+
+  private stopSweep(): void {
+    if (this.sweepTimer) {
+      clearInterval(this.sweepTimer);
+      this.sweepTimer = undefined;
+    }
+  }
+
+  /** Remove terminal entries whose retention period has expired. */
+  private sweepTerminal(): void {
+    const now = Date.now();
+    const expired: string[] = [];
+    for (const [id, managed] of this.subagents) {
+      if (!managed.retainedUntil || now < managed.retainedUntil) continue;
+      // If the retention window has expired and the conversation is still live,
+      // release it now — the drain has had ample time to complete.
+      if (managed.conversation) {
+        this.releaseConversation(managed);
+        // releaseConversation resets retainedUntil to keep metadata around for
+        // another window; the entry will be swept on the next pass.
+        continue;
+      }
+      expired.push(id);
+    }
+    for (const id of expired) {
+      log.debug(
+        { subagentId: id },
+        "Sweeping expired terminal subagent metadata",
+      );
+      this.dispose(id);
+    }
+    // Stop the timer if there are no more entries to sweep.
+    const hasTerminal = [...this.subagents.values()].some(
+      (s) => s.retainedUntil !== undefined,
+    );
+    if (!hasTerminal) {
+      this.stopSweep();
     }
   }
 
@@ -529,11 +829,83 @@ export class SubagentManager {
     } as ServerMessage);
   }
 
+  // ── Child → Parent notification ────────────────────────────────────
+
+  /**
+   * Look up the parent info for a child conversation.
+   * Returns undefined if the conversationId doesn't belong to a subagent.
+   */
+  getParentInfo(childConversationId: string):
+    | {
+        parentConversationId: string;
+        subagentId: string;
+        label: string;
+        parentSendToClient: (msg: ServerMessage) => void;
+      }
+    | undefined {
+    for (const [subagentId, managed] of this.subagents) {
+      if (managed.state.conversationId === childConversationId) {
+        return {
+          parentConversationId: managed.state.config.parentConversationId,
+          subagentId,
+          label: managed.state.config.label,
+          parentSendToClient: managed.parentSendToClient,
+        };
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Send a notification from a running subagent to its parent conversation.
+   * Returns true if the notification was sent, false if the child is not a
+   * subagent, is in a terminal state, or the parent callback is not wired.
+   */
+  notifyParent(
+    childConversationId: string,
+    message: string,
+    urgency: string,
+  ): boolean {
+    const info = this.getParentInfo(childConversationId);
+    if (!info) return false;
+
+    const managed = this.subagents.get(info.subagentId);
+    if (!managed || TERMINAL_STATUSES.has(managed.state.status)) return false;
+    if (!this.onSubagentFinished) return false;
+
+    const prefix = managed.state.isFork ? "Fork" : "Subagent";
+    let notificationString = `[${prefix} "${info.label}" — ${urgency}] ${message}`;
+    if (urgency === "blocked") {
+      notificationString +=
+        `\nUse subagent_message to send guidance to this ${prefix.toLowerCase()}.`;
+    }
+
+    try {
+      this.onSubagentFinished(
+        info.parentConversationId,
+        notificationString,
+        info.parentSendToClient,
+        {
+          subagentId: info.subagentId,
+          label: info.label,
+          status: "running",
+        },
+      );
+      return true;
+    } catch (err) {
+      log.error(
+        { subagentId: info.subagentId, err },
+        "Failed to notify parent from subagent",
+      );
+      return false;
+    }
+  }
+
   /**
    * Inject a completion/failure notification into the parent conversation
    * so the LLM automatically informs the user.
    */
-  private notifyParent(
+  private notifyParentTerminal(
     managed: ManagedSubagent,
     outcome: "completed" | "failed",
     parentSendToClient: (msg: ServerMessage) => void,
@@ -541,22 +913,34 @@ export class SubagentManager {
     if (!this.onSubagentFinished) return;
 
     const { config } = managed.state;
+    const isFork = managed.state.isFork;
     let message: string;
 
     if (outcome === "completed") {
-      const silent = config.sendResultToUser === false;
-      message =
-        `[Subagent "${config.label}" completed]\n\n` +
-        `Use subagent_read with subagent_id "${config.id}" to retrieve the full output.\n` +
-        (silent
-          ? `This subagent was spawned for internal processing. Read the result for your own use but do NOT share it with the user.\nDo NOT re-spawn this subagent.`
-          : `Do NOT re-spawn this subagent — just read and share the results.`);
+      if (isFork) {
+        const silent = config.sendResultToUser !== true;
+        message =
+          `[Fork "${config.label}" completed]\n\n` +
+          `Use subagent_read with subagent_id "${config.id}" and last_n: 1 to retrieve the final synthesis.\n` +
+          (silent
+            ? `This fork was spawned for internal processing. Process the findings internally — do NOT share raw fork output with the user.`
+            : `Do NOT re-spawn this fork — just read and share the results.`);
+      } else {
+        const silent = config.sendResultToUser === false;
+        message =
+          `[Subagent "${config.label}" completed]\n\n` +
+          `Use subagent_read with subagent_id "${config.id}" to retrieve the full output.\n` +
+          (silent
+            ? `This subagent was spawned for internal processing. Read the result for your own use but do NOT share it with the user.\nDo NOT re-spawn this subagent.`
+            : `Do NOT re-spawn this subagent — just read and share the results.`);
+      }
     } else {
       const error = managed.state.error ?? "Unknown error";
+      const prefix = isFork ? "Fork" : "Subagent";
       message =
-        `[Subagent "${config.label}" failed]\n\n` +
+        `[${prefix} "${config.label}" failed]\n\n` +
         `Error: ${error}\n` +
-        `Do NOT re-spawn or retry this subagent unless the user explicitly asks.`;
+        `Do NOT re-spawn or retry this ${prefix.toLowerCase()} unless the user explicitly asks.`;
     }
 
     const notification: SubagentNotificationInfo = {

@@ -4,7 +4,7 @@ import VellumAssistantShared
 // MARK: - JSON Node Model
 
 /// Recursive data model representing a parsed JSON value for tree rendering.
-private enum JSONNode: Identifiable {
+internal enum JSONNode: Identifiable {
     case object(id: String, entries: [(key: String, value: JSONNode)])
     case array(id: String, elements: [JSONNode])
     case string(id: String, value: String)
@@ -70,7 +70,7 @@ private enum JSONNode: Identifiable {
 // MARK: - Parse Result
 
 /// Result of parsing a JSON string: either a valid tree or an error message.
-private enum JSONParseResult {
+internal enum JSONParseResult {
     case success(JSONNode)
     case failure(String)
 }
@@ -78,7 +78,7 @@ private enum JSONParseResult {
 // MARK: - JSON Parsing
 
 /// Parses a JSON string into a recursive `JSONNode` tree.
-private func parseJSON(_ text: String) -> JSONParseResult {
+internal func parseJSON(_ text: String) -> JSONParseResult {
     do {
         let parsed = try JSONSerialization.jsonObject(
             with: Data(text.utf8),
@@ -88,6 +88,55 @@ private func parseJSON(_ text: String) -> JSONParseResult {
     } catch {
         return .failure(error.localizedDescription)
     }
+}
+
+/// Parses a JSONL (newline-delimited JSON) string by parsing each non-empty
+/// line as an independent JSON value. Returns a synthetic top-level array
+/// node containing one element per line. Lines that fail to parse are
+/// included as string nodes annotated with the parse error so the tree view
+/// shows them rather than dropping them silently.
+internal func parseJSONL(_ text: String) -> JSONParseResult {
+    // Normalize all three line-ending conventions to LF before splitting:
+    //   1. CRLF → LF (Windows). Swift's String treats "\r\n" as a single
+    //      grapheme cluster (Character), so a per-Character split on "\n"
+    //      would never match CRLF line endings without this step.
+    //   2. Lone CR → LF (classic Mac). After step 1, any remaining "\r" is a
+    //      standalone carriage return used as a line terminator, so convert
+    //      it to LF too. Without this, CR-delimited files would parse as one
+    //      giant line and surface as a single parse-error node.
+    let normalized = text
+        .replacingOccurrences(of: "\r\n", with: "\n")
+        .replacingOccurrences(of: "\r", with: "\n")
+    // Empty / whitespace-only lines are skipped — they're explicitly
+    // permitted by the de-facto JSONL spec and are common at end-of-file.
+    let rawLines = normalized.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "\n" })
+    var elements: [JSONNode] = []
+    elements.reserveCapacity(rawLines.count)
+
+    for (index, rawLine) in rawLines.enumerated() {
+        var line = String(rawLine)
+        if line.hasSuffix("\r") { line.removeLast() }
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { continue }
+
+        let elementPath = "$[\(elements.count)]"
+        do {
+            let parsed = try JSONSerialization.jsonObject(
+                with: Data(line.utf8),
+                options: [.fragmentsAllowed]
+            )
+            elements.append(convert(parsed, path: elementPath))
+        } catch {
+            // Surface unparseable lines as string nodes so the tree view
+            // doesn't silently drop them. The label includes the original
+            // line number (1-indexed, matching most editors) and the parse
+            // error message for debuggability.
+            let label = "[line \(index + 1) parse error: \(error.localizedDescription)] \(line)"
+            elements.append(.string(id: elementPath, value: label))
+        }
+    }
+
+    return .success(.array(id: "$", elements: elements))
 }
 
 /// Escapes a JSON key for use in node ID paths, preventing ambiguity when keys
@@ -164,6 +213,11 @@ private func collectContainerPaths(_ node: JSONNode) -> Set<String> {
 /// `expandAllTrigger` or `collapseAllTrigger`.
 struct JSONTreeView: View {
     let content: String
+    /// When true, `content` is parsed as JSONL (one JSON value per non-empty
+    /// line) rather than as a single JSON document. Defaults to false to
+    /// preserve existing call-sites; set to true by `FileContentView` for
+    /// `.jsonl` / `.ndjson` files.
+    var isJSONL: Bool = false
     var expandAllTrigger: Int = 0
     var collapseAllTrigger: Int = 0
     @State private var root: JSONParseResult?
@@ -184,10 +238,17 @@ struct JSONTreeView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .task(id: content) {
-            let result = content.isEmpty
-                ? .success(.object(id: "$", entries: []))
-                : parseJSON(content)
+        .task(id: "jsonl=\(isJSONL)|\(content)") {
+            let result: JSONParseResult
+            if content.isEmpty {
+                result = isJSONL
+                    ? .success(.array(id: "$", elements: []))
+                    : .success(.object(id: "$", entries: []))
+            } else if isJSONL {
+                result = parseJSONL(content)
+            } else {
+                result = parseJSON(content)
+            }
             root = result
             expandedPaths = []
             if case .success(let node) = result {
@@ -227,19 +288,30 @@ struct JSONTreeView: View {
 
     @ViewBuilder
     private func treeContent(_ node: JSONNode) -> some View {
-        ScrollView([.vertical, .horizontal]) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                JSONNodeRow(
-                    node: node,
-                    key: nil,
-                    depth: 0,
-                    expandedPaths: $expandedPaths
+        // GeometryReader is used here so the inner content can claim at
+        // least the viewport's width and height. Without this, SwiftUI's
+        // bi-directional ScrollView visually centers content that is
+        // smaller than the viewport instead of anchoring it to the
+        // top-leading corner, which is the desired reading experience for
+        // a short JSON document like `install-meta.json`.
+        GeometryReader { proxy in
+            ScrollView([.vertical, .horizontal]) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    JSONNodeRow(
+                        node: node,
+                        key: nil,
+                        depth: 0,
+                        expandedPaths: $expandedPaths
+                    )
+                }
+                .padding(VSpacing.md)
+                .frame(
+                    minWidth: proxy.size.width,
+                    minHeight: proxy.size.height,
+                    alignment: .topLeading
                 )
             }
-            .padding(VSpacing.md)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func autoExpandInitial(_ node: JSONNode) {

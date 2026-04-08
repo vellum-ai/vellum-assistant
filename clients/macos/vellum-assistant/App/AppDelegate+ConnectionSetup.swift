@@ -15,9 +15,8 @@ extension AppDelegate {
 
     // MARK: - Lockfile & Transport
 
-    /// Reads `connectedAssistantId` from UserDefaults, looks it up in the lockfile
-    /// (falling back to the latest entry), and writes its config so the client connects
-    /// to the correct assistant.
+    /// Reads the active assistant from the lockfile (falling back to the latest
+    /// entry), and writes its config so the client connects to the correct assistant.
     ///
     /// Returns the loaded assistant for transport selection, or nil if none found.
     /// Rejects managed assistants from a different platform environment (e.g.
@@ -25,14 +24,14 @@ extension AppDelegate {
     /// first valid current-environment assistant.
     @discardableResult
     func loadAssistantFromLockfile() -> LockfileAssistant? {
-        let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        // Migration: fall back to UserDefaults for users upgrading from
+        // the old version whose lockfile doesn't yet have activeAssistant.
+        let storedId = LockfileAssistant.loadActiveAssistantId()
+            ?? UserDefaults.standard.string(forKey: "connectedAssistantId")
         var assistant: LockfileAssistant?
 
         if let storedId, let found = LockfileAssistant.loadByName(storedId) {
             assistant = found
-        } else if let activeId = LockfileAssistant.loadActiveAssistantId(),
-                  let active = LockfileAssistant.loadByName(activeId) {
-            assistant = active
         } else {
             assistant = LockfileAssistant.loadLatest()
         }
@@ -41,7 +40,7 @@ extension AppDelegate {
         // clear the stale stored ID and fall back to any valid assistant.
         if let resolved = assistant, !resolved.isCurrentEnvironment {
             log.info("Stored assistant \(resolved.assistantId, privacy: .public) is cross-environment — searching for fallback")
-            UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+            LockfileAssistant.setActiveAssistantId(nil)
             assistant = LockfileAssistant.loadAll().first { $0.isCurrentEnvironment }
         }
 
@@ -61,7 +60,7 @@ extension AppDelegate {
             featureFlagStore.reloadFromDisk()
         }
 
-        UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
+        LockfileAssistant.setActiveAssistantId(assistant.assistantId)
         SentryDeviceInfo.updateAssistantTag(assistant.assistantId)
         return assistant
     }
@@ -106,6 +105,22 @@ extension AppDelegate {
         setupGatewayConnectionManager()
     }
 
+    // MARK: - Backend Dispatch
+
+    /// Return the `AssistantManagementClient` appropriate for `assistant`'s cloud type.
+    ///
+    /// - Non-apple-container (or absent): delegates to the bundled `VellumCli` hatch path.
+    /// - `apple-container`: reserved — falls back to `VellumCli` today so existing
+    ///   behavior is preserved until the Apple Containers runtime is wired.
+    ///   A log warning is emitted so the absence of a dedicated client is visible.
+    func managementClient(for assistant: LockfileAssistant?) -> AssistantManagementClient {
+        guard let assistant, assistant.isAppleContainer else {
+            return vellumCli
+        }
+        log.warning("managementClient: apple-containers backend not yet implemented — falling back to CLI hatch for '\(assistant.assistantId, privacy: .public)'")
+        return vellumCli
+    }
+
     // MARK: - Gateway Connection Setup
 
     func setupGatewayConnectionManager() {
@@ -124,7 +139,7 @@ extension AppDelegate {
         // wake it via the CLI before retrying.
         connectionManager.wakeHandler = { [weak self] in
             guard let self else { return }
-            let name = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? "default"
+            let name = LockfileAssistant.loadActiveAssistantId() ?? "default"
             log.info("Auto-wake: waking assistant '\(name, privacy: .public)' via CLI")
             try await self.vellumCli.wake(name: name)
         }
@@ -145,7 +160,7 @@ extension AppDelegate {
         Task {
             // Import guardian token from CLI file before connecting, so the
             // health check has valid credentials in the credential store.
-            if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+            if let assistantId = LockfileAssistant.loadActiveAssistantId(),
                !ActorTokenManager.hasToken {
                 _ = GuardianTokenFileReader.importIfAvailable(assistantId: assistantId)
             }
@@ -166,6 +181,7 @@ extension AppDelegate {
                 refreshAppsCache()
                 refreshSkillsCache()
                 syncPrivacyConfig()
+                featureFlagStore.reloadFromGateway()
             }
         }
     }
@@ -305,6 +321,12 @@ extension AppDelegate {
                     )
                 case .avatarUpdated(let msg):
                     AvatarAppearanceManager.shared.reloadAvatar(avatarPath: msg.avatarPath)
+                case .soundsConfigUpdated:
+                    SoundManager.shared.reloadConfig()
+                case .configChanged:
+                    NotificationCenter.default.post(name: .configChanged, object: nil)
+                case .featureFlagsChanged:
+                    self.featureFlagStore.reloadFromGateway()
                 // Host tool execution — run locally and post results back
                 case .hostBashRequest(let msg):
                     HostToolExecutor.executeHostBashRequest(msg)
@@ -366,10 +388,13 @@ extension AppDelegate {
                     ))
                 case .appFilesChanged(let msg):
                     self.refreshAppsCache()
-                    for (surfaceId, appSurfaceId) in self.surfaceManager.surfaceAppIds {
-                        guard appSurfaceId == msg.appId else { continue }
-                        self.surfaceManager.surfaceCoordinators[surfaceId]?.webView?.reload()
-                    }
+                    // WebView reload is handled by the separate ui_surface_update
+                    // message which triggers updateNSView → reloadGeneration →
+                    // loadHTMLString with fresh compiled HTML. Calling
+                    // webView.reload() here would replay stale inline HTML for
+                    // surfaces loaded via loadHTMLString (isInlineFallback),
+                    // racing with the correct ui_surface_update path.
+                    _ = msg
                 case .uiLayoutConfig(let msg):
                     self.mainWindow?.windowState.applyLayoutConfig(msg)
 
@@ -387,7 +412,7 @@ extension AppDelegate {
                         log.info("Received authenticationRequired error for managed assistant — showing reauth screen")
                         // Only set pending if not already set (preserve user's intended switch target)
                         if UserDefaults.standard.string(forKey: "pendingManagedSwitchAssistantId") == nil,
-                           let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") {
+                           let assistantId = LockfileAssistant.loadActiveAssistantId() {
                             UserDefaults.standard.set(assistantId, forKey: "pendingManagedSwitchAssistantId")
                         }
                         self.showAuthWindow()
@@ -476,6 +501,43 @@ extension AppDelegate {
         }
     }
 
+    // MARK: - Legacy Migration
+
+    /// One-time migration: copies the legacy `connectedAssistantId` value from
+    /// UserDefaults into the lockfile's `activeAssistant` field, then removes
+    /// the UserDefaults key. This ensures users upgrading from a version that
+    /// stored the active assistant in UserDefaults don't silently switch to a
+    /// different assistant on first launch.
+    ///
+    /// Safe to call multiple times — exits immediately when:
+    /// - The lockfile already has an `activeAssistant` value (migration not needed)
+    /// - UserDefaults has no `connectedAssistantId` (nothing to migrate)
+    static func migrateConnectedAssistantIdToLockfile() {
+        // If the lockfile already has an active assistant, the migration is
+        // either already done or the user set it via CLI — nothing to do.
+        if LockfileAssistant.loadActiveAssistantId() != nil {
+            UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+            return
+        }
+
+        // Check for legacy UserDefaults value
+        guard let legacyId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+              !legacyId.isEmpty else {
+            return
+        }
+
+        // Verify the assistant exists in the lockfile before writing
+        if LockfileAssistant.loadByName(legacyId) != nil {
+            LockfileAssistant.setActiveAssistantId(legacyId)
+            log.info("Migrated connectedAssistantId '\(legacyId, privacy: .public)' from UserDefaults to lockfile")
+        } else {
+            log.warning("Legacy connectedAssistantId '\(legacyId, privacy: .public)' not found in lockfile — skipping migration")
+        }
+
+        // Always clean up the legacy key
+        UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+    }
+
     // MARK: - Privacy
 
     /// Synchronously migrates legacy privacy UserDefaults keys to their
@@ -557,7 +619,7 @@ extension AppDelegate {
             guard let self else { return }
             let currentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
             let targetVersion = self.updateManager.pendingUpdateVersion ?? "unknown"
-            let name = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+            let name = LockfileAssistant.loadActiveAssistantId() ?? ""
 
             // Single CLI call replaces 8 steps of pre-update orchestration
             let backupPath = try? await self.vellumCli.upgradePrepare(

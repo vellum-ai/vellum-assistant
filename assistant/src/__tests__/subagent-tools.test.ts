@@ -75,6 +75,7 @@ function injectSubagent(
       }
     >;
     parentToChildren: Map<string, Set<string>>;
+    labelIndex: Map<string, string>;
   };
   const state: SubagentState = {
     config: {
@@ -85,6 +86,7 @@ function injectSubagent(
     },
     status,
     conversationId: `conv-${subagentId}`,
+    isFork: false,
     createdAt: Date.now(),
     usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     ...overrides,
@@ -108,6 +110,14 @@ function injectSubagent(
     internals.parentToChildren.set(parentConversationId, new Set());
   }
   internals.parentToChildren.get(parentConversationId)!.add(subagentId);
+
+  // Populate label index so label-based lookups work in tests.
+  const label = state.config.label;
+  internals.labelIndex.set(
+    `${parentConversationId}:${label.toLowerCase().trim()}`,
+    subagentId,
+  );
+
   return state;
 }
 
@@ -135,25 +145,29 @@ describe("Subagent tool definitions", () => {
   test("abort tool has correct definition", () => {
     const def = findTool("subagent_abort");
     expect(def).toBeDefined();
-    expect(def.input_schema.required).toEqual(["subagent_id"]);
+    expect(def.input_schema.required).toEqual([]);
+    expect(def.input_schema.properties.label).toBeDefined();
   });
 
   test("message tool has correct definition", () => {
     const def = findTool("subagent_message");
     expect(def).toBeDefined();
-    expect(def.input_schema.required).toEqual(["subagent_id", "content"]);
+    expect(def.input_schema.required).toEqual(["content"]);
+    expect(def.input_schema.properties.label).toBeDefined();
   });
 
   test("read tool has correct definition", () => {
     const def = findTool("subagent_read");
     expect(def).toBeDefined();
-    expect(def.input_schema.required).toEqual(["subagent_id"]);
+    expect(def.input_schema.required).toEqual([]);
+    expect(def.input_schema.properties.label).toBeDefined();
   });
 
   test("status tool has correct definition", () => {
     const def = findTool("subagent_status");
     expect(def).toBeDefined();
     expect(def.input_schema.required).toEqual([]);
+    expect(def.input_schema.properties.label).toBeDefined();
   });
 });
 
@@ -247,7 +261,7 @@ describe("Subagent tool execute validation", () => {
     expect(result.content).toContain("required");
   });
 
-  test("message returns error when missing subagent_id", async () => {
+  test("message returns error when missing subagent_id and label", async () => {
     const result = await executeSubagentMessage(
       { content: "hello" },
       makeContext("sess-1"),
@@ -790,6 +804,111 @@ describe("Subagent read tool", () => {
     }
   });
 
+  test("read with last_n: 1 returns only the last message", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-last-n-1";
+    injectSubagent(manager, subagentId, ownerConversation, "completed");
+
+    mockGetMessages = (convId: string) => {
+      if (convId !== `conv-${subagentId}`) return null;
+      return [
+        { role: "assistant", content: "First message" },
+        { role: "assistant", content: "Second message" },
+        { role: "assistant", content: "Third message" },
+      ];
+    };
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId, last_n: 1 },
+        makeContext(ownerConversation),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toBe("Third message");
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("read with last_n: 2 returns last 2 messages joined", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-last-n-2";
+    injectSubagent(manager, subagentId, ownerConversation, "completed");
+
+    mockGetMessages = (convId: string) => {
+      if (convId !== `conv-${subagentId}`) return null;
+      return [
+        { role: "assistant", content: "First message" },
+        { role: "assistant", content: "Second message" },
+        { role: "assistant", content: "Third message" },
+      ];
+    };
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId, last_n: 2 },
+        makeContext(ownerConversation),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toBe("Second message\n\nThird message");
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("read with last_n omitted returns all messages", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-last-n-omit";
+    injectSubagent(manager, subagentId, ownerConversation, "completed");
+
+    mockGetMessages = (convId: string) => {
+      if (convId !== `conv-${subagentId}`) return null;
+      return [
+        { role: "assistant", content: "First message" },
+        { role: "assistant", content: "Second message" },
+        { role: "assistant", content: "Third message" },
+      ];
+    };
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId },
+        makeContext(ownerConversation),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toBe(
+        "First message\n\nSecond message\n\nThird message",
+      );
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("read with last_n larger than available returns all messages", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-last-n-large";
+    injectSubagent(manager, subagentId, ownerConversation, "completed");
+
+    mockGetMessages = (convId: string) => {
+      if (convId !== `conv-${subagentId}`) return null;
+      return [
+        { role: "assistant", content: "First message" },
+        { role: "assistant", content: "Second message" },
+      ];
+    };
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId, last_n: 100 },
+        makeContext(ownerConversation),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toBe("First message\n\nSecond message");
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
   test("read concatenates multiple assistant messages", async () => {
     const manager = getSubagentManager();
     const subagentId = "read-multi-1";
@@ -818,6 +937,113 @@ describe("Subagent read tool", () => {
       expect(result.content).toBe(
         "First response\n\nSecond response\n\nThird response",
       );
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("read with last_n: 1 returns only the last message", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-last-n-1";
+    injectSubagent(manager, subagentId, ownerConversation, "completed");
+
+    mockGetMessages = (convId: string) => {
+      if (convId !== `conv-${subagentId}`) return null;
+      return [
+        { role: "assistant", content: "First response" },
+        { role: "user", content: "Follow up" },
+        { role: "assistant", content: "Second response" },
+        { role: "assistant", content: "Third response" },
+      ];
+    };
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId, last_n: 1 },
+        makeContext(ownerConversation),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toBe("Third response");
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("read with last_n: 2 returns last two messages", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-last-n-2";
+    injectSubagent(manager, subagentId, ownerConversation, "completed");
+
+    mockGetMessages = (convId: string) => {
+      if (convId !== `conv-${subagentId}`) return null;
+      return [
+        { role: "assistant", content: "First response" },
+        { role: "user", content: "Follow up" },
+        { role: "assistant", content: "Second response" },
+        { role: "assistant", content: "Third response" },
+      ];
+    };
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId, last_n: 2 },
+        makeContext(ownerConversation),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toBe("Second response\n\nThird response");
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("read without last_n returns all messages", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-no-last-n-1";
+    injectSubagent(manager, subagentId, ownerConversation, "completed");
+
+    mockGetMessages = (convId: string) => {
+      if (convId !== `conv-${subagentId}`) return null;
+      return [
+        { role: "assistant", content: "First response" },
+        { role: "assistant", content: "Second response" },
+        { role: "assistant", content: "Third response" },
+      ];
+    };
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId },
+        makeContext(ownerConversation),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toBe(
+        "First response\n\nSecond response\n\nThird response",
+      );
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("read with last_n larger than available messages returns all", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-last-n-big-1";
+    injectSubagent(manager, subagentId, ownerConversation, "completed");
+
+    mockGetMessages = (convId: string) => {
+      if (convId !== `conv-${subagentId}`) return null;
+      return [
+        { role: "assistant", content: "First response" },
+        { role: "assistant", content: "Second response" },
+      ];
+    };
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId, last_n: 100 },
+        makeContext(ownerConversation),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toBe("First response\n\nSecond response");
     } finally {
       mockGetMessages = () => null;
     }
@@ -867,5 +1093,240 @@ describe("Subagent abort success responses", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Could not abort");
+  });
+});
+
+// ── Label-based subagent lookup ────────────────────────────────────
+
+describe("Label-based subagent lookup", () => {
+  const parentConversation = "label-test-sess";
+  const subagentId = "label-sub-1";
+
+  // Inject a subagent with a specific label for the test suite.
+  const manager = getSubagentManager();
+  injectSubagent(manager, subagentId, parentConversation, "running", {
+    config: {
+      id: subagentId,
+      parentConversationId: parentConversation,
+      label: "Research task",
+      objective: "research something",
+    },
+  });
+
+  test("subagent_status with label returns status", async () => {
+    const result = await executeSubagentStatus(
+      { label: "Research task" },
+      makeContext(parentConversation),
+    );
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.subagentId).toBe(subagentId);
+    expect(parsed.label).toBe("Research task");
+    expect(parsed.status).toBe("running");
+  });
+
+  test("subagent_status with lowercase label (case-insensitive)", async () => {
+    const result = await executeSubagentStatus(
+      { label: "research task" },
+      makeContext(parentConversation),
+    );
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.subagentId).toBe(subagentId);
+  });
+
+  test("subagent_status with nonexistent label returns error", async () => {
+    const result = await executeSubagentStatus(
+      { label: "nonexistent" },
+      makeContext(parentConversation),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("No subagent found");
+  });
+
+  test("subagent_message with label succeeds", async () => {
+    const result = await executeSubagentMessage(
+      { label: "Research task", content: "hello" },
+      makeContext(parentConversation),
+    );
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.subagentId).toBe(subagentId);
+    expect(parsed.message).toContain("Message sent");
+  });
+
+  test("subagent_read with label on completed subagent returns output", async () => {
+    // Inject a completed subagent for the read test.
+    const readSubId = "label-read-sub-1";
+    injectSubagent(manager, readSubId, parentConversation, "completed", {
+      config: {
+        id: readSubId,
+        parentConversationId: parentConversation,
+        label: "Read task",
+        objective: "read something",
+      },
+    });
+
+    mockGetMessages = (convId: string) => {
+      if (convId !== `conv-${readSubId}`) return null;
+      return [
+        {
+          role: "assistant",
+          content: JSON.stringify([
+            { type: "text", text: "Research findings here" },
+          ]),
+        },
+      ];
+    };
+
+    try {
+      const result = await executeSubagentRead(
+        { label: "Read task" },
+        makeContext(parentConversation),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("Research findings here");
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+});
+
+// ── Label collision & dispose guard ─────────────────────────────────
+
+describe("Label collision and dispose guard", () => {
+  test("disposing second subagent with same label keeps first reachable by label", () => {
+    const manager = getSubagentManager();
+    const parentConversation = "label-collision-sess";
+    const firstId = "collision-sub-1";
+    const secondId = "collision-sub-2";
+    const sharedLabel = "Shared Worker";
+
+    // Inject two subagents with the same label — second overwrites label index.
+    injectSubagent(manager, firstId, parentConversation, "running", {
+      config: {
+        id: firstId,
+        parentConversationId: parentConversation,
+        label: sharedLabel,
+        objective: "first task",
+      },
+    });
+    injectSubagent(manager, secondId, parentConversation, "completed", {
+      config: {
+        id: secondId,
+        parentConversationId: parentConversation,
+        label: sharedLabel,
+        objective: "second task",
+      },
+    });
+
+    // Label should currently resolve to the second subagent.
+    expect(manager.getByLabel(sharedLabel, parentConversation)?.config.id).toBe(
+      secondId,
+    );
+
+    // Dispose the FIRST subagent — its label was already overwritten,
+    // so the label index entry (pointing to second) must survive.
+    manager.dispose(firstId);
+
+    const afterDispose = manager.getByLabel(sharedLabel, parentConversation);
+    expect(afterDispose).toBeDefined();
+    expect(afterDispose!.config.id).toBe(secondId);
+
+    // The second subagent should still be directly accessible too.
+    expect(manager.getState(secondId)).toBeDefined();
+    // And the first should be gone.
+    expect(manager.getState(firstId)).toBeUndefined();
+  });
+});
+
+// ── Role-based spawn ──────────────────────────────────────────────
+
+describe("Subagent role-based spawn", () => {
+  test("spawn with role 'researcher' passes role to manager", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "role-researcher-id";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        {
+          label: "Research task",
+          objective: "Find pricing data",
+          role: "researcher",
+        },
+        makeContext("sess-role-1", { sendToClient: () => {} }),
+      );
+      expect(result.isError).toBe(false);
+      const parsed = JSON.parse(result.content);
+      expect(parsed.subagentId).toBe("role-researcher-id");
+      expect(capturedConfig).toBeDefined();
+      expect(capturedConfig!.role).toBe("researcher");
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("spawn without role defaults to general (backwards compat)", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "role-default-id";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "General task", objective: "Do something" },
+        makeContext("sess-role-2", { sendToClient: () => {} }),
+      );
+      expect(result.isError).toBe(false);
+      const parsed = JSON.parse(result.content);
+      expect(parsed.subagentId).toBe("role-default-id");
+      expect(capturedConfig).toBeDefined();
+      // When role is not specified, it should not be present in config
+      expect(capturedConfig!.role).toBeUndefined();
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("spawn with invalid role returns clear error message", async () => {
+    const result = await executeSubagentSpawn(
+      {
+        label: "Bad role task",
+        objective: "Should fail",
+        role: "nonexistent-role",
+      },
+      makeContext("sess-role-invalid", { sendToClient: () => {} }),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Invalid subagent role");
+    expect(result.content).toContain("nonexistent-role");
+    expect(result.content).toContain("Must be one of");
+    expect(result.content).toContain("general");
+    expect(result.content).toContain("researcher");
+  });
+
+  test("spawn tool definition includes role property", () => {
+    const def = findTool("subagent_spawn");
+    expect(def).toBeDefined();
+    expect(def.input_schema.properties.role).toBeDefined();
+    expect(def.input_schema.properties.role.type).toBe("string");
+    expect(def.input_schema.properties.role.enum).toEqual([
+      "general",
+      "researcher",
+      "coder",
+      "planner",
+    ]);
+    // role is not required
+    expect(def.input_schema.required).not.toContain("role");
   });
 });

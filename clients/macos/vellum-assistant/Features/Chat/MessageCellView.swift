@@ -9,20 +9,19 @@ import VellumAssistantShared
 struct MessageCellView: View, Equatable {
     static func == (lhs: MessageCellView, rhs: MessageCellView) -> Bool {
         lhs.message == rhs.message
-            && lhs.index == rhs.index
             && lhs.showTimestamp == rhs.showTimestamp
             && lhs.nextDecidedConfirmation == rhs.nextDecidedConfirmation
             && lhs.isConfirmationRenderedInline == rhs.isConfirmationRenderedInline
             && lhs.hasPrecedingAssistant == rhs.hasPrecedingAssistant
-            && lhs.hasUserMessage == rhs.hasUserMessage
-            && lhs.hasEverSentMessage == rhs.hasEverSentMessage
             && lhs.activePendingRequestId == rhs.activePendingRequestId
-            && lhs.latestAssistantId == rhs.latestAssistantId
-            && lhs.anchoredThinkingIndex == rhs.anchoredThinkingIndex
             && lhs.subagentsByParent[lhs.message.id] == rhs.subagentsByParent[rhs.message.id]
-            && lhs.canInlineProcessing == rhs.canInlineProcessing
-            && lhs.shouldShowThinkingIndicator == rhs.shouldShowThinkingIndicator
-            && lhs.assistantStatusText == rhs.assistantStatusText
+            && lhs.isLatestAssistantMessage == rhs.isLatestAssistantMessage
+            && lhs.typographyGeneration == rhs.typographyGeneration
+            && lhs.isProcessingAfterTools == rhs.isProcessingAfterTools
+            && lhs.processingStatusText == rhs.processingStatusText
+            && lhs.hideInlineAvatar == rhs.hideInlineAvatar
+            && lhs.showAnchoredThinkingIndicator == rhs.showAnchoredThinkingIndicator
+            && lhs.anchoredThinkingLabel == rhs.anchoredThinkingLabel
             && lhs.dismissedDocumentSurfaceIds == rhs.dismissedDocumentSurfaceIds
             && lhs.activeSurfaceId == rhs.activeSurfaceId
             && lhs.isHighlighted == rhs.isHighlighted
@@ -36,20 +35,19 @@ struct MessageCellView: View, Equatable {
     }
 
     let message: ChatMessage
-    let index: Int
     let showTimestamp: Bool
     let nextDecidedConfirmation: ToolConfirmationData?
     let isConfirmationRenderedInline: Bool
     let hasPrecedingAssistant: Bool
-    let hasUserMessage: Bool
-    let hasEverSentMessage: Bool
     let activePendingRequestId: String?
-    let latestAssistantId: UUID?
-    let anchoredThinkingIndex: Int?
     let subagentsByParent: [UUID: [SubagentInfo]]
-    let canInlineProcessing: Bool
-    let shouldShowThinkingIndicator: Bool
-    let assistantStatusText: String?
+    let isLatestAssistantMessage: Bool
+    let typographyGeneration: Int
+    let isProcessingAfterTools: Bool
+    let processingStatusText: String?
+    let hideInlineAvatar: Bool
+    let showAnchoredThinkingIndicator: Bool
+    let anchoredThinkingLabel: String
     let dismissedDocumentSurfaceIds: Set<String>
     let activeSurfaceId: String?
     let isHighlighted: Bool
@@ -127,11 +125,12 @@ struct MessageCellView: View, Equatable {
                 activeConfirmationRequestId: activePendingRequestId,
                 onRetryFailedMessage: onRetryFailedMessage,
                 onRetryConversationError: message.isError ? { onRetryConversationError?(message.id) } : nil,
-                isLatestAssistantMessage: message.role == .assistant && message.id == latestAssistantId,
-                isProcessingAfterTools: canInlineProcessing && message.id == latestAssistantId,
-                processingStatusText: canInlineProcessing && message.id == latestAssistantId ? assistantStatusText : nil,
+                isLatestAssistantMessage: isLatestAssistantMessage,
+                typographyGeneration: typographyGeneration,
+                isProcessingAfterTools: isProcessingAfterTools,
+                processingStatusText: processingStatusText,
                 activeSurfaceId: activeSurfaceId,
-                hideInlineAvatar: shouldShowThinkingIndicator && anchoredThinkingIndex == nil
+                hideInlineAvatar: hideInlineAvatar
             )
             .equatable()
         }
@@ -140,9 +139,7 @@ struct MessageCellView: View, Equatable {
     @ViewBuilder
     private func thinkingIndicatorRow() -> some View {
         RunningIndicator(
-            label: !hasEverSentMessage && hasUserMessage
-                ? "Waking up..."
-                : assistantStatusText ?? "Thinking",
+            label: anchoredThinkingLabel,
             showIcon: false
         )
         .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
@@ -216,18 +213,18 @@ struct MessageCellView: View, Equatable {
                 activeConfirmationRequestId: activePendingRequestId,
                 onRetryFailedMessage: onRetryFailedMessage,
                 onRetryConversationError: message.isError ? { onRetryConversationError?(message.id) } : nil,
-                isLatestAssistantMessage: message.role == .assistant && message.id == latestAssistantId,
-                isProcessingAfterTools: canInlineProcessing && message.id == latestAssistantId,
-                processingStatusText: canInlineProcessing && message.id == latestAssistantId ? assistantStatusText : nil,
+                isLatestAssistantMessage: isLatestAssistantMessage,
+                typographyGeneration: typographyGeneration,
+                isProcessingAfterTools: isProcessingAfterTools,
+                processingStatusText: processingStatusText,
                 activeSurfaceId: activeSurfaceId,
-                hideInlineAvatar: shouldShowThinkingIndicator && anchoredThinkingIndex == nil
+                hideInlineAvatar: hideInlineAvatar
             )
             .equatable()
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
                     .fill(VColor.primaryBase.opacity(isHighlighted ? 0.15 : 0))
-                    .padding(.horizontal, -VSpacing.sm)
-                    .padding(.vertical, -VSpacing.xs)
+                    .padding(EdgeInsets(top: -VSpacing.xs, leading: -VSpacing.sm, bottom: -VSpacing.xs, trailing: -VSpacing.sm))
             )
             .animation(VAnimation.slow, value: isHighlighted)
             .id(message.id)
@@ -244,7 +241,7 @@ struct MessageCellView: View, Equatable {
                 .id("subagent-\(subagent.id)")
         }
 
-        if shouldShowThinkingIndicator && anchoredThinkingIndex == index {
+        if showAnchoredThinkingIndicator {
             thinkingIndicatorRow()
         }
     }

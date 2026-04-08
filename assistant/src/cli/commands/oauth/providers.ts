@@ -171,14 +171,14 @@ Examples:
   $ assistant oauth providers get google
   $ assistant oauth providers get twitter --json`,
     )
-    .action((providerKey: string, _opts: unknown, cmd: Command) => {
+    .action((provider: string, _opts: unknown, cmd: Command) => {
       try {
-        const row = getProvider(providerKey);
+        const row = getProvider(provider);
 
         if (!row) {
           writeOutput(cmd, {
             ok: false,
-            error: `Provider not found: "${providerKey}". Run 'assistant oauth providers list' to see all registered providers. To register a custom provider, run 'assistant oauth providers register --help'.`,
+            error: `Provider not found: "${provider}". Run 'assistant oauth providers list' to see all registered providers. To register a custom provider, run 'assistant oauth providers register --help'.`,
           });
           process.exitCode = 1;
           return;
@@ -187,7 +187,7 @@ Examples:
         if (!isProviderVisible(row, loadConfig())) {
           writeOutput(cmd, {
             ok: false,
-            error: `Provider not found: "${providerKey}". Run 'assistant oauth providers list' to see all registered providers. To register a custom provider, run 'assistant oauth providers register --help'.`,
+            error: `Provider not found: "${provider}". Run 'assistant oauth providers list' to see all registered providers. To register a custom provider, run 'assistant oauth providers register --help'.`,
           });
           process.exitCode = 1;
           return;
@@ -220,11 +220,19 @@ Examples:
       "--token-url <url>",
       "OAuth token endpoint URL (e.g. https://oauth2.example.com/token)",
     )
+    .option(
+      "--refresh-url <url>",
+      "OAuth token refresh endpoint URL. Defaults to --token-url when omitted. Set this when the provider uses a different endpoint for the refresh_token grant than for the authorization_code grant.",
+    )
     .option("--base-url <url>", "API base URL for the service")
     .option("--userinfo-url <url>", "OpenID Connect userinfo endpoint URL")
     .option(
       "--scopes <scopes>",
       'Comma-separated default scopes (e.g. "read,write,profile")',
+    )
+    .option(
+      "--scope-separator <sep>",
+      'Separator used to join scopes in the authorize URL (default: " "). Use "," for providers like Linear that expect comma-separated scopes.',
     )
     .option(
       "--token-auth-method <method>",
@@ -245,6 +253,14 @@ Examples:
     .option(
       "--ping-body <json>",
       'JSON body to send with the ping request (e.g. \'{"query":"{ viewer { id } }"}\')',
+    )
+    .option(
+      "--revoke-url <url>",
+      'OAuth token revocation endpoint URL. Called best-effort during disconnect to invalidate the access token upstream (e.g. "https://oauth2.googleapis.com/revoke"). When omitted, disconnect is local-only — the upstream token is left valid until it naturally expires.',
+    )
+    .option(
+      "--revoke-body-template <json>",
+      'JSON object body template for the revoke request, supporting {access_token} and {client_id} substitution (e.g. \'{"token":"{access_token}","client_id":"{client_id}"}\'). The body is form-encoded and POSTed to --revoke-url.',
     )
     .option(
       "--display-name <name>",
@@ -341,13 +357,30 @@ Examples:
       --ping-method POST \\
       --ping-body '{"query":"{ viewer { id } }"}'
   $ assistant oauth providers register \\
+      --provider-key linear-custom \\
+      --auth-url https://linear.app/oauth/authorize \\
+      --token-url https://api.linear.app/oauth/token \\
+      --scopes read,write \\
+      --scope-separator ","
+  $ assistant oauth providers register \\
+      --provider-key split-grants \\
+      --auth-url https://example.com/oauth/authorize \\
+      --token-url https://example.com/oauth/token \\
+      --refresh-url https://example.com/oauth/refresh
+  $ assistant oauth providers register \\
       --provider-key my-api \\
       --auth-url https://example.com/auth \\
       --token-url https://example.com/token \\
       --loopback-port 17400 \\
       --injection-templates '[{"hostPattern":"api.example.com","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]' \\
       --identity-url https://api.example.com/me \\
-      --identity-response-paths email,name`,
+      --identity-response-paths email,name
+  $ assistant oauth providers register \\
+      --provider-key custom-revokable \\
+      --auth-url https://example.com/oauth/authorize \\
+      --token-url https://example.com/oauth/token \\
+      --revoke-url https://example.com/oauth/revoke \\
+      --revoke-body-template '{"token":"{access_token}","client_id":"{client_id}"}'`,
     )
     .action(
       (
@@ -355,14 +388,18 @@ Examples:
           providerKey: string;
           authUrl: string;
           tokenUrl: string;
+          refreshUrl?: string;
           baseUrl?: string;
           userinfoUrl?: string;
           scopes?: string;
+          scopeSeparator?: string;
           tokenAuthMethod?: string;
           pingUrl?: string;
           pingMethod?: string;
           pingHeaders?: string;
           pingBody?: string;
+          revokeUrl?: string;
+          revokeBodyTemplate?: string;
           displayName?: string;
           description?: string;
           dashboardUrl?: string;
@@ -384,13 +421,15 @@ Examples:
       ) => {
         try {
           const row = registerProvider({
-            providerKey: opts.providerKey,
-            authUrl: opts.authUrl,
-            tokenUrl: opts.tokenUrl,
+            provider: opts.providerKey,
+            authorizeUrl: opts.authUrl,
+            tokenExchangeUrl: opts.tokenUrl,
+            refreshUrl: opts.refreshUrl,
             baseUrl: opts.baseUrl,
             userinfoUrl: opts.userinfoUrl,
             defaultScopes: opts.scopes ? opts.scopes.split(",") : [],
             scopePolicy: {},
+            scopeSeparator: opts.scopeSeparator,
             tokenEndpointAuthMethod: opts.tokenAuthMethod,
             pingUrl: opts.pingUrl,
             pingMethod: opts.pingMethod,
@@ -398,7 +437,11 @@ Examples:
               ? JSON.parse(opts.pingHeaders)
               : undefined,
             pingBody: opts.pingBody ? JSON.parse(opts.pingBody) : undefined,
-            displayName: opts.displayName,
+            revokeUrl: opts.revokeUrl,
+            revokeBodyTemplate: opts.revokeBodyTemplate
+              ? JSON.parse(opts.revokeBodyTemplate)
+              : undefined,
+            displayLabel: opts.displayName,
             description: opts.description,
             dashboardUrl: opts.dashboardUrl,
             clientIdPlaceholder: opts.clientIdPlaceholder,
@@ -455,11 +498,19 @@ Examples:
       "--token-url <url>",
       "OAuth token endpoint URL (e.g. https://oauth2.example.com/token)",
     )
+    .option(
+      "--refresh-url <url>",
+      "OAuth token refresh endpoint URL. Defaults to --token-url when omitted. Set this when the provider uses a different endpoint for the refresh_token grant than for the authorization_code grant.",
+    )
     .option("--base-url <url>", "API base URL for the service")
     .option("--userinfo-url <url>", "OpenID Connect userinfo endpoint URL")
     .option(
       "--scopes <scopes>",
       'Comma-separated default scopes (e.g. "read,write,profile")',
+    )
+    .option(
+      "--scope-separator <sep>",
+      'Separator used to join scopes in the authorize URL (default: " "). Use "," for providers like Linear that expect comma-separated scopes.',
     )
     .option(
       "--token-auth-method <method>",
@@ -480,6 +531,14 @@ Examples:
     .option(
       "--ping-body <json>",
       'JSON body to send with the ping request (e.g. \'{"query":"{ viewer { id } }"}\')',
+    )
+    .option(
+      "--revoke-url <url>",
+      "OAuth token revocation endpoint URL. Called best-effort during disconnect to invalidate the access token upstream. Pass an empty string to clear.",
+    )
+    .option(
+      "--revoke-body-template <json>",
+      "JSON object body template for the revoke request, supporting {access_token} and {client_id} substitution. Pass an empty string to clear.",
     )
     .option(
       "--display-name <name>",
@@ -562,26 +621,35 @@ Examples:
   $ assistant oauth providers update custom-api --display-name "My Custom API"
   $ assistant oauth providers update custom-api --scopes read,write --auth-url https://new.example.com/auth
   $ assistant oauth providers update custom-api --ping-url https://api.example.com/me --json
+  $ assistant oauth providers update custom-api --scope-separator ","
+  $ assistant oauth providers update custom-api --refresh-url https://example.com/oauth/refresh
   $ assistant oauth providers update custom-api \\
       --identity-url https://api.example.com/me \\
       --identity-response-paths email,name
   $ assistant oauth providers update custom-api \\
-      --injection-templates '[{"hostPattern":"api.example.com","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]'`,
+      --injection-templates '[{"hostPattern":"api.example.com","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]'
+  $ assistant oauth providers update custom-api \\
+      --revoke-url https://api.example.com/oauth/revoke \\
+      --revoke-body-template '{"token":"{access_token}"}'`,
     )
     .action(
       (
-        providerKey: string,
+        provider: string,
         opts: {
           authUrl?: string;
           tokenUrl?: string;
+          refreshUrl?: string;
           baseUrl?: string;
           userinfoUrl?: string;
           scopes?: string;
+          scopeSeparator?: string;
           tokenAuthMethod?: string;
           pingUrl?: string;
           pingMethod?: string;
           pingHeaders?: string;
           pingBody?: string;
+          revokeUrl?: string;
+          revokeBodyTemplate?: string;
           displayName?: string;
           description?: string;
           dashboardUrl?: string;
@@ -603,11 +671,11 @@ Examples:
       ) => {
         try {
           // Verify provider exists
-          const existing = getProvider(providerKey);
+          const existing = getProvider(provider);
           if (!existing) {
             writeOutput(cmd, {
               ok: false,
-              error: `Provider "${providerKey}" not found. Run 'assistant oauth providers list' to see all registered providers.`,
+              error: `Provider "${provider}" not found. Run 'assistant oauth providers list' to see all registered providers.`,
             });
             process.exitCode = 1;
             return;
@@ -616,17 +684,17 @@ Examples:
           if (!isProviderVisible(existing, loadConfig())) {
             writeOutput(cmd, {
               ok: false,
-              error: `Provider "${providerKey}" not found. Run 'assistant oauth providers list' to see all registered providers.`,
+              error: `Provider "${provider}" not found. Run 'assistant oauth providers list' to see all registered providers.`,
             });
             process.exitCode = 1;
             return;
           }
 
           // Block updates to built-in providers
-          if (SEEDED_PROVIDER_KEYS.has(providerKey)) {
+          if (SEEDED_PROVIDER_KEYS.has(provider)) {
             writeOutput(cmd, {
               ok: false,
-              error: `Cannot update built-in provider "${providerKey}". Built-in providers are managed by the system and reset on startup. To create a custom provider with different settings, use 'assistant oauth providers register --provider-key <your-custom-key> ...'`,
+              error: `Cannot update built-in provider "${provider}". Built-in providers are managed by the system and reset on startup. To create a custom provider with different settings, use 'assistant oauth providers register --provider-key <your-custom-key> ...'`,
             });
             process.exitCode = 1;
             return;
@@ -635,13 +703,18 @@ Examples:
           // Build params object from provided options, omitting undefined values
           const params: Record<string, unknown> = {};
 
-          if (opts.authUrl !== undefined) params.authUrl = opts.authUrl;
-          if (opts.tokenUrl !== undefined) params.tokenUrl = opts.tokenUrl;
+          if (opts.authUrl !== undefined) params.authorizeUrl = opts.authUrl;
+          if (opts.tokenUrl !== undefined)
+            params.tokenExchangeUrl = opts.tokenUrl;
+          if (opts.refreshUrl !== undefined)
+            params.refreshUrl = opts.refreshUrl;
           if (opts.baseUrl !== undefined) params.baseUrl = opts.baseUrl;
           if (opts.userinfoUrl !== undefined)
             params.userinfoUrl = opts.userinfoUrl;
           if (opts.scopes !== undefined)
             params.defaultScopes = opts.scopes.split(",");
+          if (opts.scopeSeparator !== undefined)
+            params.scopeSeparator = opts.scopeSeparator;
           if (opts.tokenAuthMethod !== undefined)
             params.tokenEndpointAuthMethod = opts.tokenAuthMethod;
           if (opts.pingUrl !== undefined) params.pingUrl = opts.pingUrl;
@@ -651,8 +724,24 @@ Examples:
             params.pingHeaders = JSON.parse(opts.pingHeaders);
           if (opts.pingBody !== undefined)
             params.pingBody = JSON.parse(opts.pingBody);
+          if (opts.revokeUrl !== undefined) {
+            // Empty string means "clear" — normalize to null so the stored
+            // value matches the "disabled" semantics documented in the help
+            // text. `updateProvider`'s Partial type accepts `string | null`
+            // for this field so drizzle writes `null` to clear the column.
+            params.revokeUrl = opts.revokeUrl === "" ? null : opts.revokeUrl;
+          }
+          if (opts.revokeBodyTemplate !== undefined) {
+            // Empty string means "clear" — normalize to null to match --revoke-url's
+            // empty-string-clear semantics documented in the help text. The
+            // updateProvider type accepts `Record<string, string> | null` for this.
+            params.revokeBodyTemplate =
+              opts.revokeBodyTemplate === ""
+                ? null
+                : JSON.parse(opts.revokeBodyTemplate);
+          }
           if (opts.displayName !== undefined)
-            params.displayName = opts.displayName;
+            params.displayLabel = opts.displayName;
           if (opts.description !== undefined)
             params.description = opts.description;
           if (opts.dashboardUrl !== undefined)
@@ -701,7 +790,7 @@ Examples:
             return;
           }
 
-          const row = updateProvider(providerKey, params);
+          const row = updateProvider(provider, params);
 
           writeOutput(cmd, parseProviderRow(row));
         } catch (err) {
@@ -747,53 +836,53 @@ Examples:
   $ assistant oauth providers delete custom-api --force --json`,
     )
     .action(
-      async (providerKey: string, opts: { force?: boolean }, cmd: Command) => {
+      async (provider: string, opts: { force?: boolean }, cmd: Command) => {
         try {
-          const provider = getProvider(providerKey);
-          if (!provider) {
+          const providerRow = getProvider(provider);
+          if (!providerRow) {
             writeOutput(cmd, {
               ok: false,
-              error: `Provider not found: "${providerKey}". Run 'assistant oauth providers list' to see all registered providers.`,
+              error: `Provider not found: "${provider}". Run 'assistant oauth providers list' to see all registered providers.`,
             });
             process.exitCode = 1;
             return;
           }
 
-          if (!isProviderVisible(provider, loadConfig())) {
+          if (!isProviderVisible(providerRow, loadConfig())) {
             writeOutput(cmd, {
               ok: false,
-              error: `Provider not found: "${providerKey}". Run 'assistant oauth providers list' to see all registered providers.`,
+              error: `Provider not found: "${provider}". Run 'assistant oauth providers list' to see all registered providers.`,
             });
             process.exitCode = 1;
             return;
           }
 
-          if (SEEDED_PROVIDER_KEYS.has(providerKey) && !opts.force) {
+          if (SEEDED_PROVIDER_KEYS.has(provider) && !opts.force) {
             log.info(
-              `Note: "${providerKey}" is a built-in provider and will be re-created on next startup.`,
+              `Note: "${provider}" is a built-in provider and will be re-created on next startup.`,
             );
           }
 
           const dependentApps = listApps().filter(
-            (a) => a.providerKey === providerKey,
+            (a) => a.provider === provider,
           );
-          const dependentConnections = listConnections(providerKey);
+          const dependentConnections = listConnections(provider);
           const appCount = dependentApps.length;
           const connCount = dependentConnections.length;
 
           if ((appCount > 0 || connCount > 0) && !opts.force) {
             writeOutput(cmd, {
               ok: false,
-              error: `Cannot delete provider "${providerKey}": ${appCount} app(s) and ${connCount} connection(s) depend on it. Use --force to cascade-delete all dependent apps and connections, or remove them manually first with 'assistant oauth apps delete' and 'assistant oauth disconnect'.`,
+              error: `Cannot delete provider "${provider}": ${appCount} app(s) and ${connCount} connection(s) depend on it. Use --force to cascade-delete all dependent apps and connections, or remove them manually first with 'assistant oauth apps delete' and 'assistant oauth disconnect'.`,
             });
             process.exitCode = 1;
             return;
           }
 
           // Warn about built-in providers when --force is used
-          if (SEEDED_PROVIDER_KEYS.has(providerKey) && opts.force) {
+          if (SEEDED_PROVIDER_KEYS.has(provider) && opts.force) {
             log.info(
-              `Note: "${providerKey}" is a built-in provider and will be re-created on next startup.`,
+              `Note: "${provider}" is a built-in provider and will be re-created on next startup.`,
             );
           }
 
@@ -802,7 +891,7 @@ Examples:
           // storage in addition to deleting the connection DB row.
           for (const conn of dependentConnections) {
             const result = await disconnectOAuthProvider(
-              providerKey,
+              provider,
               undefined,
               conn.id as string,
             );
@@ -816,10 +905,10 @@ Examples:
           for (const app of dependentApps) {
             await deleteApp(app.id);
           }
-          deleteProvider(providerKey);
+          deleteProvider(provider);
 
           if (!shouldOutputJson(cmd)) {
-            log.info(`Deleted provider: ${providerKey}`);
+            log.info(`Deleted provider: ${provider}`);
           }
 
           writeOutput(cmd, {

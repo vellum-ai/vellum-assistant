@@ -60,6 +60,14 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Stamp dev version
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          BASE_VERSION=$(node -p "require('./package.json').version")
+          DEV_VERSION="${BASE_VERSION}-dev.${GITHUB_RUN_NUMBER}.${SHORT_SHA}"
+          echo "Stamping dev version: $DEV_VERSION"
+          jq --arg v "$DEV_VERSION" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
+
       - name: Pack CLI tarball
         run: |
           npm pack

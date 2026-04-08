@@ -114,26 +114,38 @@ public struct GuardianDecisionBubble: View {
             // Activity text (primary description) — falls back to questionText
             if let activityText = decision.activityText, !activityText.isEmpty {
                 Text(activityText)
-                    .font(VFont.bodyMediumDefault)
+                    .font(VFont.bodyMediumEmphasised)
                     .foregroundStyle(VColor.contentDefault)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 Text(decision.questionText)
-                    .font(VFont.bodyMediumDefault)
+                    .font(VFont.bodyMediumEmphasised)
                     .foregroundStyle(VColor.contentDefault)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             // Command preview code block
             if let preview = decision.commandPreview, !preview.isEmpty {
-                ScrollView {
-                    Text(preview)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(VColor.contentSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
+                let previewLineCount = preview.utf8.reduce(1) { $0 + ($1 == 0x0A ? 1 : 0) }
+                let previewIsLong = previewLineCount > 7 || (previewLineCount == 1 && preview.utf8.count > 50_000)
+                Group {
+                    if previewIsLong {
+                        ScrollView {
+                            Text(preview)
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundStyle(VColor.contentSecondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                        }
+                        .frame(height: 120)
+                    } else {
+                        Text(preview)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(VColor.contentSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
                 }
-                .frame(maxHeight: 120)
                 .padding(VSpacing.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(

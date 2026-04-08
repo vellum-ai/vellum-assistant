@@ -18,8 +18,11 @@ private let log = Logger(
 /// - `~/Library/Application Support/vellum-assistant/debug-state.json` — live debug snapshot (includes transcript diagnostics)
 /// - `~/Library/Application Support/vellum-assistant/hang-context.json` — hang diagnostic context written during main-thread stalls
 /// - `~/Library/Application Support/vellum-assistant/hang-sample*.txt` — process sample captures from prolonged stalls
-/// - Daemon logs, audit data, and sanitized config via `POST /v1/export` gateway HTTP API
-/// - Workspace files via `POST /v1/export` — full workspace contents (config, skills, prompts, hooks, DB dump, logs)
+/// - Multi-service logs via `POST /v1/logs/export` gateway HTTP API — the gateway orchestrates
+///   collection from all services (gateway, daemon, CES), returning a combined archive that
+///   includes gateway logs, CES logs, daemon logs, audit data, and sanitized config
+/// - `workspace/conversations/<dir>/` — allowlisted user conversation directories from the
+///   workspace, filtered by time and conversation when applicable
 /// - `~/.config/vellum/logs/` — CLI XDG logs (hatch.log, retire.log, etc.)
 /// - `~/.vellum.lock.json` — sanitized lockfile with assistant entries and resource ports (credentials stripped)
 /// - `user-defaults.json` — snapshot of app-relevant UserDefaults keys
@@ -95,7 +98,7 @@ enum LogExporter {
             throw error
         }
 
-        let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let connectedAssistantId = LockfileAssistant.loadActiveAssistantId()
 
         var removedItems: [String] = []
         for attempt in 0...maxUploadRetries {
@@ -281,7 +284,7 @@ enum LogExporter {
     ) async throws {
 
         let home = NSHomeDirectory()
-        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let connectedId = LockfileAssistant.loadActiveAssistantId()
         let connectedAssistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
         var daemonUnreachable = false
 
@@ -304,7 +307,7 @@ enum LogExporter {
                 // The platform export API would need a startTime parameter to respect cutoffDate here.
                 await fetchPlatformLogs(into: tempDir, assistantId: assistantId, organizationId: orgId)
             } else {
-                let success = await fetchDaemonExports(into: tempDir, scope: formData?.scope ?? .global, cutoffDate: cutoffDate)
+                let success = await fetchServiceExports(into: tempDir, scope: formData?.scope ?? .global, cutoffDate: cutoffDate)
                 if !success {
                     daemonUnreachable = true
                 }
@@ -415,12 +418,13 @@ enum LogExporter {
                 cutoffDate: cutoffDate
             )
 
-            // 12. Sanitized workspace config — client-side fallback if daemon export didn't include it.
-            //     The daemon archive extracts into daemon-exports/, so check both locations.
+            // 12. Sanitized workspace config — client-side fallback if service export didn't include it.
+            //     The gateway archive extracts into service-exports/, and the daemon archive is nested
+            //     inside it under daemon-exports/, so check both locations.
             let configSnapshotPath = tempDir.appendingPathComponent("config-snapshot.json")
-            let daemonConfigPath = tempDir.appendingPathComponent("daemon-exports/config-snapshot.json")
+            let serviceConfigPath = tempDir.appendingPathComponent("service-exports/daemon-exports/config-snapshot.json")
             if !fileManager.fileExists(atPath: configSnapshotPath.path)
-                && !fileManager.fileExists(atPath: daemonConfigPath.path) {
+                && !fileManager.fileExists(atPath: serviceConfigPath.path) {
                 await writeSanitizedWorkspaceConfig(to: configSnapshotPath)
             }
         }
@@ -608,10 +612,15 @@ enum LogExporter {
 
     // MARK: - Assistant Export Helpers
 
-    /// Calls POST /v1/export on the gateway to download a tar.gz archive of
-    /// audit data, assistant logs, workspace files, and config snapshot.
-    /// Extracts the archive into `directory/daemon-exports/`.
+    /// Calls POST /v1/logs/export on the gateway to download a tar.gz archive
+    /// containing logs from all services (gateway, daemon, CES), along with
+    /// audit data and config snapshot.
+    /// Extracts the archive into `directory/service-exports/`.
     /// Returns `true` if the export succeeded, `false` if the assistant was unreachable.
+    ///
+    /// The gateway's orchestrating endpoint collects logs from all services and
+    /// combines them into a single archive. The daemon archive is nested inside
+    /// the gateway archive under `daemon-exports/`.
     ///
     /// On failure, writes an `export-error.log` into `directory` with the
     /// status code and response body so the feedback bundle still contains
@@ -620,7 +629,7 @@ enum LogExporter {
     /// Routes through ``GatewayHTTPClient`` so auth and connection resolution
     /// are handled consistently for both local and managed assistants.
     @discardableResult
-    private nonisolated static func fetchDaemonExports(into directory: URL, scope: LogExportScope, cutoffDate: Date? = nil) async -> Bool {
+    private nonisolated static func fetchServiceExports(into directory: URL, scope: LogExportScope, cutoffDate: Date? = nil) async -> Bool {
         var body: [String: Any] = ["auditLimit": 1000]
         if case .conversation(let conversationId, _, let startTime, let endTime) = scope {
             body["conversationId"] = conversationId
@@ -637,25 +646,25 @@ enum LogExporter {
         }
 
         do {
-            let response = try await GatewayHTTPClient.post(path: "export", json: body, timeout: 30)
+            let response = try await GatewayHTTPClient.post(path: "logs/export", json: body, timeout: 60)
             guard response.isSuccess else {
                 log.warning("Export API failed with status \(response.statusCode)")
                 writeExportErrorLog(
                     to: directory.appendingPathComponent("export-error.log"),
-                    source: "daemon-export",
+                    source: "service-export",
                     statusCode: response.statusCode,
                     responseData: response.data
                 )
                 return false
             }
 
-            try await extractTarGzResponse(data: response.data, into: directory, subdirectory: "daemon-exports")
+            try await extractTarGzResponse(data: response.data, into: directory, subdirectory: "service-exports")
             return true
         } catch {
             log.warning("Export API request failed: \(error.localizedDescription)")
             writeExportErrorLog(
                 to: directory.appendingPathComponent("export-error.log"),
-                source: "daemon-export",
+                source: "service-export",
                 error: error
             )
             return false
@@ -1046,7 +1055,6 @@ enum LogExporter {
         let defaults = UserDefaults.standard
 
         let stringKeys = [
-            "connectedAssistantId",
             "connectedOrganizationId",
             "activationKey",
             "onboarding.step",

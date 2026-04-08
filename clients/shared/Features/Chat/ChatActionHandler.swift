@@ -214,7 +214,8 @@ final class ChatActionHandler {
             if let index = vm.activeSubagents.firstIndex(where: { $0.id == msg.subagentId }) {
                 vm.activeSubagents[index].status = SubagentStatus(wire: msg.status)
                 vm.activeSubagents[index].error = msg.error
-                vm.subagentDetailStore.recordStatusChanged(subagentId: msg.subagentId, usage: msg.usage)
+                let status = SubagentStatus(wire: msg.status)
+                vm.subagentDetailStore.recordStatusChanged(subagentId: msg.subagentId, status: status, usage: msg.usage)
             }
 
         case .subagentEvent(let msg):
@@ -364,6 +365,20 @@ final class ChatActionHandler {
         }
         // Strip heavy binary data from old messages to cap memory growth.
         vm.trimOldMessagesIfNeeded()
+        // Fallback: mark any remaining dynamic page surfaces as complete.
+        // handleToolResult sets isToolCallComplete per-surface when an app tool
+        // finishes, but it can miss surfaces if the tool_result was dropped
+        // (e.g. during workspace refinement) or if the surface ended up in a
+        // different message than the tool call. By message_complete, all tool
+        // calls have definitely finished so it's safe to enable Open App.
+        for i in vm.messages.indices {
+            for surfIdx in vm.messages[i].inlineSurfaces.indices {
+                if !vm.messages[i].inlineSurfaces[surfIdx].isToolCallComplete,
+                   case .dynamicPage = vm.messages[i].inlineSurfaces[surfIdx].data {
+                    vm.messages[i].inlineSurfaces[surfIdx].isToolCallComplete = true
+                }
+            }
+        }
         let wasRefinement = vm.isWorkspaceRefinementInFlight || vm.cancelledDuringRefinement
         vm.isWorkspaceRefinementInFlight = false
         vm.cancelledDuringRefinement = false
@@ -572,18 +587,26 @@ final class ChatActionHandler {
         } else if vm.pendingQueuedCount == 0 {
             vm.isSending = false
         }
-        if let existingId = vm.currentAssistantMessageId,
-           let index = vm.messages.firstIndex(where: { $0.id == existingId }) {
-            vm.messages[index].isStreaming = false
-            vm.messages[index].streamingCodePreview = nil
-            vm.messages[index].streamingCodeToolName = nil
-            // Mark preview-only tool calls (have toolUseId, not complete, no inputRawDict)
-            // as complete/cancelled so they don't remain in a dangling incomplete state.
-            for tcIdx in vm.messages[index].toolCalls.indices {
-                let tc = vm.messages[index].toolCalls[tcIdx]
-                if tc.toolUseId != nil && !tc.isComplete && tc.inputRawDict == nil {
-                    vm.messages[index].toolCalls[tcIdx].isComplete = true
-                    vm.messages[index].toolCalls[tcIdx].completedAt = Date()
+        vm.messageManager.batchUpdateMessages { msgs in
+            if let existingId = vm.currentAssistantMessageId,
+               let index = msgs.firstIndex(where: { $0.id == existingId }) {
+                msgs[index].isStreaming = false
+                msgs[index].streamingCodePreview = nil
+                msgs[index].streamingCodeToolName = nil
+                // Mark preview-only tool calls (have toolUseId, not complete, no inputRawDict)
+                // as complete/cancelled so they don't remain in a dangling incomplete state.
+                for tcIdx in msgs[index].toolCalls.indices {
+                    let tc = msgs[index].toolCalls[tcIdx]
+                    if tc.toolUseId != nil && !tc.isComplete && tc.inputRawDict == nil {
+                        msgs[index].toolCalls[tcIdx].isComplete = true
+                        msgs[index].toolCalls[tcIdx].completedAt = Date()
+                    }
+                }
+            }
+            // Reset processing messages to sent
+            for i in msgs.indices {
+                if msgs[i].role == .user && msgs[i].status == .processing {
+                    msgs[i].status = .sent
                 }
             }
         }
@@ -592,12 +615,6 @@ final class ChatActionHandler {
         vm.currentAssistantHasText = false
         vm.discardStreamingBuffer()
         vm.flushPartialOutputBuffer()
-        // Reset processing messages to sent
-        for i in vm.messages.indices {
-            if vm.messages[i].role == .user && vm.messages[i].status == .processing {
-                vm.messages[i].status = .sent
-            }
-        }
         vm.dispatchPendingSendDirect()
     }
 
@@ -631,38 +648,64 @@ final class ChatActionHandler {
     private func handleMessageDequeued(_ msg: MessageDequeuedMessage, vm: ChatViewModel) {
         guard belongsToConversation(msg.conversationId) else { return }
         vm.pendingQueuedCount = max(0, vm.pendingQueuedCount - 1)
-        // Mark the associated user message as processing and track its text
-        // so assistantTextDelta tags the response correctly.
-        if let messageId = vm.requestIdToMessageId.removeValue(forKey: msg.requestId),
-           let index = vm.messages.firstIndex(where: { $0.id == messageId }) {
+        // Mark the associated user message as processing, clear attachment
+        // payloads, and recompute queued positions in a single batch.
+        var turnUserText: String?
+        if let messageId = vm.requestIdToMessageId.removeValue(forKey: msg.requestId) {
             vm.activeRequestIdToMessageId[msg.requestId] = messageId
-            vm.messages[index].status = .processing
-            // Only update currentTurnUserText when no agent turn is already
-            // in-flight. Synthetic dequeues from inline approval consumption
-            // arrive while the agent owns currentTurnUserText; overwriting it
-            // with the approval text (e.g. "approve") would break the error
-            // handler's secret_blocked message lookup.
-            // Also guard on currentTurnUserText == nil to handle the case where
-            // the agent is processing but hasn't streamed text yet (so
-            // currentAssistantMessageId is still nil).
-            if vm.currentAssistantMessageId == nil && vm.currentTurnUserText == nil {
-                vm.currentTurnUserText = vm.messages[index].text.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            // Clear attachment binary payloads now that the daemon has persisted them.
-            // Keep thumbnailImage for display; the full data can be re-fetched via HTTP if needed.
-            // Only clear for lazy-loadable attachments (sizeBytes != nil); locally-created
-            // attachments (sizeBytes == nil) can't be re-fetched and need their data preserved.
-            for a in vm.messages[index].attachments.indices {
-                if !vm.messages[index].attachments[a].data.isEmpty && vm.messages[index].attachments[a].sizeBytes != nil {
-                    vm.messages[index].attachments[a].data = ""
-                    vm.messages[index].attachments[a].dataLength = 0
+            vm.messageManager.batchUpdateMessages { msgs in
+                if let index = msgs.firstIndex(where: { $0.id == messageId }) {
+                    msgs[index].status = .processing
+                    // Only update currentTurnUserText when no agent turn is already
+                    // in-flight. Synthetic dequeues from inline approval consumption
+                    // arrive while the agent owns currentTurnUserText; overwriting it
+                    // with the approval text (e.g. "approve") would break the error
+                    // handler's secret_blocked message lookup.
+                    if vm.currentAssistantMessageId == nil && vm.currentTurnUserText == nil {
+                        turnUserText = msgs[index].text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                    // Clear attachment binary payloads now that the daemon has persisted them.
+                    // Keep thumbnailImage for display; the full data can be re-fetched via HTTP if needed.
+                    // Only clear for lazy-loadable attachments (sizeBytes != nil); locally-created
+                    // attachments (sizeBytes == nil) can't be re-fetched and need their data preserved.
+                    for a in msgs[index].attachments.indices {
+                        if !msgs[index].attachments[a].data.isEmpty && msgs[index].attachments[a].sizeBytes != nil {
+                            msgs[index].attachments[a].data = ""
+                            msgs[index].attachments[a].dataLength = 0
+                        }
+                    }
+                }
+                // Recompute positions for remaining queued messages
+                for i in msgs.indices {
+                    if case .queued(let position) = msgs[i].status, position > 0 {
+                        msgs[i].status = .queued(position: position - 1)
+                    }
                 }
             }
-        }
-        // Recompute positions for remaining queued messages
-        for i in vm.messages.indices {
-            if case .queued(let position) = vm.messages[i].status, position > 0 {
-                vm.messages[i].status = .queued(position: position - 1)
+            if let text = turnUserText {
+                vm.currentTurnUserText = text
+            }
+        } else {
+            // No matching messageId — still recompute queued positions and
+            // reconcile any false "Failed to send" state: the daemon is
+            // processing a queued message, so if a user message is marked as
+            // sendFailed, the send actually succeeded (transient HTTP error
+            // between enqueue and 202 response).
+            var reconciledId: UUID?
+            vm.messageManager.batchUpdateMessages { msgs in
+                if let idx = msgs.lastIndex(where: { $0.role == .user && $0.status == .sendFailed }) {
+                    msgs[idx].status = .processing
+                    reconciledId = msgs[idx].id
+                }
+                for i in msgs.indices {
+                    if case .queued(let position) = msgs[i].status, position > 0 {
+                        msgs[i].status = .queued(position: position - 1)
+                    }
+                }
+            }
+            if let reconciledId {
+                vm.pendingMessageIds.removeAll { $0 == reconciledId }
+                vm.activeRequestIdToMessageId[msg.requestId] = reconciledId
             }
         }
         // The dequeued message is now being processed
@@ -769,18 +812,65 @@ final class ChatActionHandler {
         // in the assistant message before we clear the turn state.
         vm.flushStreamingBuffer()
         vm.flushPartialOutputBuffer()
-        // Mark current assistant message as no longer streaming
-        if let existingId = vm.currentAssistantMessageId,
-           let index = vm.messages.firstIndex(where: { $0.id == existingId }) {
-            vm.messages[index].isStreaming = false
-            vm.messages[index].streamingCodePreview = nil
-            vm.messages[index].streamingCodeToolName = nil
-            // Mark preview-only tool calls as complete on terminal error
-            for tcIdx in vm.messages[index].toolCalls.indices {
-                let tc = vm.messages[index].toolCalls[tcIdx]
-                if tc.toolUseId != nil && !tc.isComplete && tc.inputRawDict == nil {
-                    vm.messages[index].toolCalls[tcIdx].isComplete = true
-                    vm.messages[index].toolCalls[tcIdx].completedAt = Date()
+        // Capture the blocked message data *before* the batch removes it,
+        // so "Send Anyway" can reconstruct the original user message with
+        // attachments and surface metadata.
+        var capturedBlockedMessage: ChatMessage?
+        // Finalize assistant message, mark preview-only tool calls as
+        // complete, reset processing statuses, and handle secret_blocked
+        // removal — all in a single batch to avoid per-mutation overhead.
+        vm.messageManager.batchUpdateMessages { msgs in
+            // Mark current assistant message as no longer streaming
+            if let existingId = vm.currentAssistantMessageId,
+               let index = msgs.firstIndex(where: { $0.id == existingId }) {
+                msgs[index].isStreaming = false
+                msgs[index].streamingCodePreview = nil
+                msgs[index].streamingCodeToolName = nil
+                // Mark preview-only tool calls as complete on terminal error
+                for tcIdx in msgs[index].toolCalls.indices {
+                    let tc = msgs[index].toolCalls[tcIdx]
+                    if tc.toolUseId != nil && !tc.isComplete && tc.inputRawDict == nil {
+                        msgs[index].toolCalls[tcIdx].isComplete = true
+                        msgs[index].toolCalls[tcIdx].completedAt = Date()
+                    }
+                }
+            }
+            if !wasCancelling && err.category == "secret_blocked" {
+                let normalizedTurnText = savedTurnUserText?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let blockedMessageIndex: Int? = {
+                    if let normalizedTurnText, !normalizedTurnText.isEmpty {
+                        return msgs.lastIndex(where: {
+                            $0.role == .user
+                                && $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == normalizedTurnText
+                        })
+                    }
+                    return msgs.lastIndex(where: { $0.role == .user })
+                }()
+                if let blockedMessageIndex {
+                    // Capture before removal so "Send Anyway" context is preserved.
+                    capturedBlockedMessage = msgs[blockedMessageIndex]
+                    let blockedMessage = msgs[blockedMessageIndex]
+                    if case .queued = blockedMessage.status {
+                        vm.pendingQueuedCount = max(0, vm.pendingQueuedCount - 1)
+                    }
+                    vm.pendingMessageIds.removeAll { $0 == blockedMessage.id }
+                    vm.requestIdToMessageId = vm.requestIdToMessageId.filter { $0.value != blockedMessage.id }
+                    vm.activeRequestIdToMessageId = vm.activeRequestIdToMessageId.filter { $0.value != blockedMessage.id }
+                    vm.pendingLocalDeletions.remove(blockedMessage.id)
+                    msgs.remove(at: blockedMessageIndex)
+                }
+            }
+            // Reset processing messages to sent
+            for i in msgs.indices {
+                if msgs[i].role == .user && msgs[i].status == .processing {
+                    msgs[i].status = .sent
+                }
+            }
+            if wasCancelling {
+                for i in msgs.indices {
+                    if case .queued = msgs[i].status, msgs[i].role == .user {
+                        msgs[i].status = .sent
+                    }
                 }
             }
         }
@@ -793,30 +883,18 @@ final class ChatActionHandler {
             // stash the full send context so "Send Anyway" can reconstruct
             // the original UserMessageMessage with attachments and surface metadata.
             if err.category == "secret_blocked" {
-                let blockedMessageIndex: Int? = {
-                    let normalizedTurnText = savedTurnUserText?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if let normalizedTurnText, !normalizedTurnText.isEmpty {
-                        return vm.messages.lastIndex(where: {
-                            $0.role == .user
-                                && $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == normalizedTurnText
-                        })
-                    }
-                    return vm.messages.lastIndex(where: { $0.role == .user })
-                }()
-                let blockedUserMessage = blockedMessageIndex.map { vm.messages[$0] }
-
                 // Prefer the snapshotted turn text (the text that was actually sent)
                 // over the transcript lookup, which can miss workspace refinements
                 // that don't append a user chat message.
                 if let sendText = savedTurnUserText {
                     vm.secretBlockedMessageText = sendText
-                } else if let blockedUserMessage {
+                } else if let blockedUserMessage = capturedBlockedMessage {
                     vm.secretBlockedMessageText = blockedUserMessage.text
                 }
                 // Reconstruct attachments from the blocked user message's ChatAttachments.
                 // Include filePath, sizeBytes, and thumbnailData so file-backed
                 // attachments survive the secret-ingress redirect.
-                if let blockedUserMessage, !blockedUserMessage.attachments.isEmpty {
+                if let blockedUserMessage = capturedBlockedMessage, !blockedUserMessage.attachments.isEmpty {
                     vm.secretBlockedAttachments = blockedUserMessage.attachments.compactMap { att in
                         guard !att.data.isEmpty || att.filePath != nil else { return nil }
                         return UserMessageAttachment(
@@ -832,27 +910,6 @@ final class ChatActionHandler {
                 }
                 vm.secretBlockedActiveSurfaceId = vm.activeSurfaceId
                 vm.secretBlockedCurrentPage = vm.currentPage
-
-                // Remove the blocked user bubble so secret-like text is not
-                // retained in chat history after secure save redirect.
-                if let blockedMessageIndex {
-                    let blockedMessage = vm.messages[blockedMessageIndex]
-                    let blockedMessageId = blockedMessage.id
-                    if case .queued = blockedMessage.status {
-                        vm.pendingQueuedCount = max(0, vm.pendingQueuedCount - 1)
-                    }
-                    vm.pendingMessageIds.removeAll { $0 == blockedMessageId }
-                    vm.requestIdToMessageId = vm.requestIdToMessageId.filter { $0.value != blockedMessageId }
-                    vm.activeRequestIdToMessageId = vm.activeRequestIdToMessageId.filter { $0.value != blockedMessageId }
-                    vm.pendingLocalDeletions.remove(blockedMessageId)
-                    vm.messages.remove(at: blockedMessageIndex)
-                }
-            }
-        }
-        // Reset processing messages to sent
-        for i in vm.messages.indices {
-            if vm.messages[i].role == .user && vm.messages[i].status == .processing {
-                vm.messages[i].status = .sent
             }
         }
         // When a cancellation-related generic error arrives while we are
@@ -865,11 +922,6 @@ final class ChatActionHandler {
             vm.pendingMessageIds = []
             vm.requestIdToMessageId = [:]
             vm.activeRequestIdToMessageId = [:]
-            for i in vm.messages.indices {
-                if case .queued = vm.messages[i].status, vm.messages[i].role == .user {
-                    vm.messages[i].status = .sent
-                }
-            }
             vm.dispatchPendingSendDirect()
         } else if vm.pendingQueuedCount == 0 {
             // The daemon drains queued work after a non-cancellation
@@ -987,17 +1039,50 @@ final class ChatActionHandler {
         // the `messageComplete` path and preserves partial assistant
         // text for the user to see alongside the error.
         vm.flushStreamingBuffer()
-        if let existingId = vm.currentAssistantMessageId,
-           let index = vm.messages.firstIndex(where: { $0.id == existingId }) {
-            vm.messages[index].isStreaming = false
-            vm.messages[index].streamingCodePreview = nil
-            vm.messages[index].streamingCodeToolName = nil
-            // Mark preview-only tool calls as complete on conversation error
-            for tcIdx in vm.messages[index].toolCalls.indices {
-                let tc = vm.messages[index].toolCalls[tcIdx]
-                if tc.toolUseId != nil && !tc.isComplete && tc.inputRawDict == nil {
-                    vm.messages[index].toolCalls[tcIdx].isComplete = true
-                    vm.messages[index].toolCalls[tcIdx].completedAt = Date()
+        // Build error context before batching so we can reference it after.
+        let typedError = wasCancelling ? nil : ConversationError(from: msg)
+        let shouldCreateInline = !wasCancelling && (vm.shouldCreateInlineErrorMessage?(typedError!) ?? true)
+        // Finalize assistant message, remove empty trailing assistant bubble,
+        // insert inline error, reset processing/queued statuses — single batch.
+        vm.messageManager.batchUpdateMessages { msgs in
+            if let existingId = vm.currentAssistantMessageId,
+               let index = msgs.firstIndex(where: { $0.id == existingId }) {
+                msgs[index].isStreaming = false
+                msgs[index].streamingCodePreview = nil
+                msgs[index].streamingCodeToolName = nil
+                // Mark preview-only tool calls as complete on conversation error
+                for tcIdx in msgs[index].toolCalls.indices {
+                    let tc = msgs[index].toolCalls[tcIdx]
+                    if tc.toolUseId != nil && !tc.isComplete && tc.inputRawDict == nil {
+                        msgs[index].toolCalls[tcIdx].isComplete = true
+                        msgs[index].toolCalls[tcIdx].completedAt = Date()
+                    }
+                }
+            }
+            if !wasCancelling {
+                // Remove empty assistant message left over from the interrupted stream
+                if let last = msgs.last,
+                   last.role == .assistant,
+                   last.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   last.toolCalls.isEmpty {
+                    msgs.removeAll(where: { $0.id == last.id })
+                }
+                if shouldCreateInline {
+                    let errorMsg = ChatMessage(role: .assistant, text: msg.userMessage, isError: true, conversationError: typedError!)
+                    msgs.append(errorMsg)
+                }
+            }
+            // Reset processing messages to sent
+            for i in msgs.indices {
+                if msgs[i].role == .user && msgs[i].status == .processing {
+                    msgs[i].status = .sent
+                }
+            }
+            if wasCancelling {
+                for i in msgs.indices {
+                    if case .queued = msgs[i].status, msgs[i].role == .user {
+                        msgs[i].status = .sent
+                    }
                 }
             }
         }
@@ -1006,37 +1091,21 @@ final class ChatActionHandler {
         vm.currentAssistantHasText = false
         vm.flushPartialOutputBuffer()
         // When the user intentionally cancelled, suppress the error.
-        // Otherwise, insert an inline error message so errors are visually
-        // distinct from normal assistant replies (rendered with a red box).
+        // Otherwise, set error state so the UI shows the error banner.
         if !wasCancelling {
-            let typedError = ConversationError(from: msg)
             vm.conversationError = typedError
             vm.errorText = msg.userMessage
-            // Remove empty assistant message left over from the interrupted stream
-            if let existingId = vm.messages.last?.id,
-               vm.messages.last?.role == .assistant,
-               vm.messages.last?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true,
-               vm.messages.last?.toolCalls.isEmpty == true {
-                vm.messages.removeAll(where: { $0.id == existingId })
-            }
             // When the managed API key is invalid, trigger automatic
             // reprovision in the background so the next retry uses a fresh key.
-            if typedError.isManagedKeyInvalid {
+            if typedError!.isManagedKeyInvalid {
                 vm.onManagedKeyInvalid?()
             }
-            if vm.shouldCreateInlineErrorMessage?(typedError) ?? true {
-                let errorMsg = ChatMessage(role: .assistant, text: msg.userMessage, isError: true, conversationError: typedError)
-                vm.messages.append(errorMsg)
+            if shouldCreateInline {
                 // Mark the error as displayed inline so the toast overlay
                 // suppresses its duplicate display, while keeping the typed
                 // error state available for downstream consumers (credits-
                 // exhausted recovery, sidebar state, iOS banner).
                 vm.errorManager.isConversationErrorDisplayedInline = true
-            }
-        }
-        for i in vm.messages.indices {
-            if vm.messages[i].role == .user && vm.messages[i].status == .processing {
-                vm.messages[i].status = .sent
             }
         }
         if wasCancelling {
@@ -1045,11 +1114,6 @@ final class ChatActionHandler {
             vm.pendingMessageIds = []
             vm.requestIdToMessageId = [:]
             vm.activeRequestIdToMessageId = [:]
-            for i in vm.messages.indices {
-                if case .queued = vm.messages[i].status, vm.messages[i].role == .user {
-                    vm.messages[i].status = .sent
-                }
-            }
         } else {
             // Always clear sending state so regenerate is unblocked.
             vm.isSending = false

@@ -105,6 +105,14 @@ extension MainWindowView {
                         windowState.selection = nil
                     }
                 },
+                onImportMemory: { message in
+                    conversationManager.openConversation(message: message, forceNew: true)
+                    if let id = conversationManager.activeConversationId {
+                        windowState.selection = .conversation(id)
+                    } else {
+                        windowState.selection = nil
+                    }
+                },
                 connectionManager: connectionManager,
                 eventStreamClient: eventStreamClient,
                 store: settingsStore,
@@ -209,6 +217,36 @@ extension MainWindowView {
         )
     }
 
+    /// Clamped binding for the side panel (config/subagent panel) so persisted
+    /// or default widths can't crush the main chat pane below its minimum.
+    func clampedSidePanelWidth(windowSize: CGSize) -> Binding<Double> {
+        let settingsOpen: Bool = {
+            if case .panel(.settings) = windowState.selection { return true }
+            return false
+        }()
+        let sidebarWidth: CGFloat = settingsOpen ? 0 : (sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth)
+        let hstackSpacing: CGFloat = 16
+        let outerPadding: CGFloat = 32
+        let windowWidth: Double = Double(windowSize.width) / zoomManager.zoomLevel
+        let availableWidth: Double = windowWidth - Double(sidebarWidth) - Double(hstackSpacing) - Double(outerPadding)
+
+        let preferredMinPanel: Double = 300
+        let preferredMinMain: Double = 300
+        let dividerBudget: Double = Double(VSpacing.xs) + 12
+        let maxPanel: Double = availableWidth - preferredMinMain - dividerBudget
+        let effectiveMinPanel: Double = min(preferredMinPanel, max(maxPanel, 100))
+
+        return Binding<Double>(
+            get: {
+                let raw = sidePanelWidth
+                return min(max(raw, effectiveMinPanel), max(maxPanel, effectiveMinPanel))
+            },
+            set: {
+                sidePanelWidth = min(max($0, effectiveMinPanel), max(maxPanel, effectiveMinPanel))
+            }
+        )
+    }
+
     func clampedChatDockWidth(windowSize: CGSize) -> Binding<Double> {
         let settingsOpen: Bool = {
             if case .panel(.settings) = windowState.selection { return true }
@@ -241,7 +279,7 @@ extension MainWindowView {
         switch windowState.selection {
         case .conversation:
             // Show chat for this conversation (conversationManager.activeViewModel is synced)
-            defaultChatLayout
+            defaultChatLayout(windowSize: windowSize)
         case .app(let appId), .appEditing(let appId, _):
             if let surface = windowState.activeDynamicParsedSurface,
                case .dynamicPage(let dpData) = surface.data {
@@ -300,7 +338,7 @@ extension MainWindowView {
             } else if panelType == .documentEditor {
                 let config = windowState.layoutConfig
                 VSplitView(
-                    panelWidth: $sidePanelWidth,
+                    panelWidth: clampedSidePanelWidth(windowSize: windowSize),
                     showPanel: documentManager.hasActiveDocument,
                     main: { slotView(for: config.center.content) },
                     panel: {
@@ -338,19 +376,19 @@ extension MainWindowView {
             }
         case nil:
             // Default: show chat for active conversation
-            defaultChatLayout
+            defaultChatLayout(windowSize: windowSize)
         }
     }
 
     /// The default chat layout used when showing a conversation or no specific selection.
     @ViewBuilder
-    var defaultChatLayout: some View {
+    func defaultChatLayout(windowSize: CGSize) -> some View {
         let config = windowState.layoutConfig
         let showConfigPanel = config.right.visible && config.right.content != .empty
         let showSubagentPanel = windowState.selectedSubagentId != nil && conversationManager.activeViewModel != nil
 
         VSplitView(
-            panelWidth: $sidePanelWidth,
+            panelWidth: clampedSidePanelWidth(windowSize: windowSize),
             showPanel: showConfigPanel || showSubagentPanel,
             mainBackground: VColor.surfaceOverlay,
             mainCornerRadius: 0,
@@ -496,6 +534,13 @@ extension MainWindowView {
                         message: "I'd like to create a new custom skill. What info do you need from me?",
                         forceNew: true
                     )
+                    windowState.dismissOverlay()
+                    if let id = conversationManager.activeConversationId {
+                        windowState.selection = .conversation(id)
+                    }
+                },
+                onImportMemory: { message in
+                    conversationManager.openConversation(message: message, forceNew: true)
                     windowState.dismissOverlay()
                     if let id = conversationManager.activeConversationId {
                         windowState.selection = .conversation(id)

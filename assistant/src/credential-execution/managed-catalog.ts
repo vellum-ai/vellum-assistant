@@ -130,16 +130,12 @@ export async function fetchManagedCatalog(): Promise<FetchManagedCatalogResult> 
 
     return { ok: true, descriptors };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const safeMessage = message.replace(
-      /Api-Key\s+\S+/gi,
-      "Api-Key [REDACTED]",
-    );
-    log.warn(`Failed to fetch managed CES catalog: ${safeMessage}`);
+    const errorName = err instanceof Error ? err.constructor.name : "Unknown";
+    log.warn(`Failed to fetch managed CES catalog (${errorName})`);
     return {
       ok: false,
       descriptors: [],
-      error: `Failed to fetch managed CES catalog: ${safeMessage}`,
+      error: `Failed to fetch managed CES catalog (${errorName})`,
     };
   }
 }

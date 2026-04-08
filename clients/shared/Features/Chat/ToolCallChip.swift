@@ -35,15 +35,6 @@ public struct ToolCallChip: View {
         return Int(matched[numRange])
     }
 
-    /// Count lines in a string without allocating an intermediate array.
-    static func countLines(in text: String) -> Int {
-        var count = 1
-        for byte in text.utf8 where byte == UInt8(ascii: "\n") {
-            count += 1
-        }
-        return count
-    }
-
     /// Whether the tool produces diff-formatted output that benefits from line-level highlighting.
     static func isFileEditTool(_ name: String) -> Bool {
         switch name {
@@ -73,6 +64,14 @@ public struct ToolCallChip: View {
 
     private var hasExpandableContent: Bool {
         toolCall.result != nil || !toolCall.cachedImages.isEmpty
+    }
+
+    /// Counts newlines without allocating N substrings.
+    /// Equivalent to `text.components(separatedBy: "\n").count` but O(1) memory.
+    static func countLines(in text: String) -> Int {
+        var count = 1
+        for byte in text.utf8 where byte == 0x0A { count += 1 }
+        return count
     }
 
     /// Lazily resolved full input text, using the cached value when available.
@@ -230,7 +229,7 @@ public struct ToolCallChip: View {
                                 let lineCount = cachedResultLineCount ?? Self.countLines(in: result)
                                 if Self.isFileEditTool(toolCall.toolName) {
                                     VDiffView(result, maxHeight: lineCount > 500 ? 400 : nil)
-                                } else if lineCount > 500 {
+                                } else {
                                     ScrollView {
                                         Text(result)
                                             .font(VFont.bodySmallDefault)
@@ -238,14 +237,7 @@ public struct ToolCallChip: View {
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                             .textSelection(.enabled)
                                     }
-                                    .frame(maxHeight: 400)
-                                } else {
-                                    Text(result)
-                                        .font(VFont.bodySmallDefault)
-                                        .foregroundStyle(VColor.contentSecondary)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .textSelection(.enabled)
-                                        .fixedSize(horizontal: false, vertical: true)
+                                    .adaptiveScrollFrame(for: result, maxHeight: 400, lineCount: lineCount)
                                 }
                             }
                         }

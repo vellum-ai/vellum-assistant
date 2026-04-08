@@ -9,7 +9,7 @@ enum SettingsTab: String {
     case sounds = "Sounds"
     case permissionsAndPrivacy = "Permissions & Privacy"
     case billing = "Billing"
-    case archivedConversations = "Archived Conversations"
+    case archivedConversations = "Archive"
     case schedules = "Schedules"
     case developer = "Developer"
 
@@ -324,18 +324,10 @@ struct SettingsPanel: View {
                                 object: nil,
                                 userInfo: ["key": Self.developerFeatureFlagKey, "enabled": true]
                             )
-                            // Persist locally so the flag survives app restarts
+                            // Persist locally (cache) for optimistic UI + PATCH to gateway
                             AssistantFeatureFlagResolver.mergeCachedFlag(key: Self.developerFeatureFlagKey, enabled: true)
-                            try? AssistantFeatureFlagResolver.mergePersistedFlag(key: Self.developerFeatureFlagKey, enabled: true)
-                            // Best-effort PATCH to the gateway
                             Task {
-                                do {
-                                    try await featureFlagClient.setFeatureFlag(key: Self.developerFeatureFlagKey, enabled: true)
-                                } catch {
-                                    // Local persistence already saved the override. The gateway PATCH
-                                    // may fail for managed assistants where the platform doesn't
-                                    // support the write endpoint. Log but don't revert.
-                                }
+                                try? await featureFlagClient.setFeatureFlag(key: Self.developerFeatureFlagKey, enabled: true)
                             }
                         }
                         devUnlockText = ""
@@ -454,7 +446,7 @@ struct SettingsPanel: View {
                     .foregroundStyle(VColor.contentSecondary)
 
                 Button {
-                    NSWorkspace.shared.open(URL(string: "https://vellum.ai/docs/pricing")!)
+                    NSWorkspace.shared.open(AppURLs.pricingDocs)
                 } label: {
                     HStack(spacing: VSpacing.xs) {
                         Text("View pricing")
@@ -513,7 +505,6 @@ struct SettingsPanel: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
-            store.refreshAPIKeyState()
             store.refreshVercelKeyState()
             store.refreshModelInfo()
             store.loadProviderRoutingSources()

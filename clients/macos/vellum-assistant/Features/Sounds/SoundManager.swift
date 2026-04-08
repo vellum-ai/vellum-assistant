@@ -9,16 +9,13 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Sound
 private let supportedSoundExtensions: Set<String> = ["aiff", "wav", "mp3", "m4a", "caf"]
 
 /// Manages sound playback for configurable app events. Configuration is persisted
-/// to `~/.vellum/workspace/data/sounds/config.json` and watched via FSEvents so
-/// external changes (e.g. the assistant writing config) are picked up automatically.
-///
-/// Follows the same `@MainActor @Observable` singleton + FSEvents file-watcher pattern
-/// as `AvatarAppearanceManager`.
+/// to `data/sounds/config.json` in the assistant's workspace and accessed via the
+/// gateway API so it works identically for all assistants.
 @MainActor @Observable
 final class SoundManager {
     static let shared = SoundManager()
 
-    /// Current sound configuration, loaded from disk.
+    /// Current sound configuration, fetched from the gateway.
     private(set) var config: SoundsConfig = .defaultConfig
 
     /// Cached feature flag store used to check the "sounds" flag without disk I/O.
@@ -27,117 +24,119 @@ final class SoundManager {
     /// synchronous file reads on the main thread).
     @ObservationIgnored private var featureFlagStore: AssistantFeatureFlagStore?
 
-    /// Cache of loaded NSSound instances keyed by filename to avoid repeated disk loads.
+    /// Cache of loaded NSSound instances keyed by filename to avoid repeated gateway fetches.
     @ObservationIgnored private var soundCache: [String: NSSound] = [:]
 
-    @ObservationIgnored private var fileMonitor: DispatchSourceFileSystemObject?
+    /// Cached list of available sound files in the workspace sounds directory.
+    /// NOT marked `@ObservationIgnored` so SwiftUI re-renders when the async
+    /// fetch completes (the Settings dropdown reads this via `availableSounds()`).
+    private var cachedAvailableSounds: [(label: String, filename: String)] = []
 
-    // MARK: - Sounds Directory Path
-
-    /// Resolve the sounds directory for the currently connected assistant.
-    /// Mirrors the pattern used by `AvatarAppearanceManager.customAvatarURL`.
-    private var soundsDirectoryURL: URL {
-        if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
-           let assistant = LockfileAssistant.loadByName(assistantId),
-           let workspace = assistant.workspaceDir {
-            return URL(fileURLWithPath: workspace)
-                .appendingPathComponent("data/sounds")
-        }
-        return Self.defaultSoundsDirectoryURL()
-    }
-
-    /// Default sounds directory when no connected assistant is resolved.
-    nonisolated static func defaultSoundsDirectoryURL(homeDirectory: String = NSHomeDirectory()) -> URL {
-        URL(fileURLWithPath: homeDirectory)
-            .appendingPathComponent(".vellum/workspace/data/sounds")
-    }
-
-    /// URL of the config.json file within the sounds directory.
-    private var configFileURL: URL {
-        soundsDirectoryURL.appendingPathComponent("config.json")
-    }
+    /// Guards against re-entrant `refreshAvailableSounds()` calls. Without this,
+    /// each SwiftUI render of the sounds tab calls `availableSounds()` which
+    /// triggers a fetch when empty, the fetch sets `cachedAvailableSounds`
+    /// (even to `[]`), which triggers another render, creating an infinite loop
+    /// that hammers the workspace/tree API with 429s.
+    @ObservationIgnored private var isRefreshingAvailableSounds = false
 
     // MARK: - Lifecycle
 
     func start(featureFlagStore: AssistantFeatureFlagStore? = nil) {
         self.featureFlagStore = featureFlagStore
-        loadConfig()
-        watchConfigFile()
-    }
-
-    func stop() {
-        fileMonitor?.cancel()
-        fileMonitor = nil
+        // Config is fetched later via reloadConfig() once the gateway is
+        // confirmed ready. Fetching here would race the assistant startup
+        // and fall back to defaults on connection-refused.
     }
 
     // MARK: - Config Loading & Saving
 
-    /// Reads and decodes config.json from the sounds directory. Falls back to
-    /// `SoundsConfig.defaultConfig` if the file doesn't exist or is malformed.
-    func loadConfig() {
-        let url = configFileURL
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            config = .defaultConfig
-            return
-        }
-
+    /// Fetches and decodes config.json from the assistant's workspace via the
+    /// gateway. Falls back to `SoundsConfig.defaultConfig` if the file doesn't
+    /// exist or is malformed.
+    private func fetchConfig() async {
         do {
-            let data = try Data(contentsOf: url)
+            let data = try await WorkspaceClient().fetchWorkspaceFileContent(
+                path: "data/sounds/config.json", showHidden: false
+            )
+            guard !data.isEmpty else {
+                config = .defaultConfig
+                return
+            }
             let decoded = try JSONDecoder().decode(SoundsConfig.self, from: data)
             config = decoded
         } catch {
-            log.warning("Failed to parse sounds config, using defaults: \(error.localizedDescription)")
+            log.warning("Failed to fetch sounds config via gateway, using defaults: \(error.localizedDescription)")
             config = .defaultConfig
         }
     }
 
-    /// Encodes and writes the config to disk with pretty-printing.
+    /// Re-fetches the sound config and available sounds from the gateway.
+    /// Called after reconnection or assistant switches so the UI reflects the
+    /// current workspace state without requiring file watchers.
+    func reloadConfig() {
+        clearCache()
+        Task {
+            await fetchConfig()
+            await refreshAvailableSounds()
+        }
+    }
+
+    /// Encodes and writes the config to the assistant's workspace via the gateway.
     /// Called by the Settings UI when the user changes settings.
     func saveConfig(_ newConfig: SoundsConfig) {
         config = newConfig
-        let url = configFileURL
-        let dir = url.deletingLastPathComponent()
 
-        do {
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        Task {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(newConfig)
-            try data.write(to: url, options: .atomic)
-        } catch {
-            log.error("Failed to save sounds config: \(error.localizedDescription)")
+            guard let data = try? encoder.encode(newConfig) else {
+                log.error("Failed to encode sounds config")
+                return
+            }
+            let client = WorkspaceClient()
+            _ = await client.createWorkspaceDirectory(path: "data/sounds")
+            let success = await client.writeWorkspaceFile(path: "data/sounds/config.json", content: data)
+            if !success {
+                log.error("Failed to save sounds config via gateway")
+            }
         }
     }
 
     // MARK: - Sound Resolution
 
-    /// Validates a custom sound filename (extension check + path traversal guard) and returns
-    /// the resolved file URL if it passes. Returns `nil` if the filename has an unsupported
-    /// extension, attempts path traversal outside the sounds directory, or does not exist on disk.
-    private func resolveCustomSoundURL(filename: String) -> URL? {
-        // Validate the file extension is supported.
+    /// Validates a custom sound filename (extension check + path traversal guard).
+    /// Returns `false` if the filename has an unsupported extension or attempts
+    /// path traversal outside the sounds directory.
+    private func validateSoundFilename(_ filename: String) -> Bool {
         let ext = (filename as NSString).pathExtension.lowercased()
         guard supportedSoundExtensions.contains(ext) else {
             log.warning("Unsupported sound file extension '\(ext)' for '\(filename)', rejecting")
-            return nil
+            return false
         }
 
-        let fileURL = soundsDirectoryURL.appendingPathComponent(filename)
-
-        // Guard against path traversal: ensure the resolved path stays within the sounds directory.
-        let resolvedPath = fileURL.standardizedFileURL.path
-        let safeDirPath = soundsDirectoryURL.standardizedFileURL.path
-        guard resolvedPath.hasPrefix(safeDirPath + "/") || resolvedPath == safeDirPath else {
-            log.warning("Sound filename '\(filename)' resolves outside the sounds directory, ignoring")
-            return nil
+        // Guard against path traversal: ensure the filename doesn't escape the sounds directory.
+        let normalized = (filename as NSString).standardizingPath
+        guard !normalized.contains("..") && !normalized.hasPrefix("/") else {
+            log.warning("Sound filename '\(filename)' attempts path traversal, ignoring")
+            return false
         }
 
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            log.warning("Sound file not found at '\(fileURL.path)'")
+        return true
+    }
+
+    /// Fetches a custom sound file from the assistant's workspace via the gateway
+    /// and returns an `NSSound` instance. Returns `nil` on failure.
+    private func fetchCustomSound(filename: String) async -> NSSound? {
+        do {
+            let data = try await WorkspaceClient().fetchWorkspaceFileContent(
+                path: "data/sounds/\(filename)", showHidden: false
+            )
+            guard !data.isEmpty else { return nil }
+            return NSSound(data: data)
+        } catch {
+            log.warning("Failed to fetch sound file '\(filename)' via gateway: \(error.localizedDescription)")
             return nil
         }
-
-        return fileURL
     }
 
     // MARK: - Playback
@@ -154,41 +153,46 @@ final class SoundManager {
         let eventConfig = config.config(for: event)
         guard eventConfig.enabled else { return }
 
-        let sound: NSSound
-
         if let filename = eventConfig.sound {
-            guard let fileURL = resolveCustomSoundURL(filename: filename) else {
-                sound = defaultBlipSound()
-                sound.volume = config.volume
-                sound.play()
+            guard validateSoundFilename(filename) else {
+                playDefault()
                 return
             }
 
-            // Use cached sound or load from disk.
+            // Use cached sound if available.
             if let cached = soundCache[filename] {
-                sound = cached
-            } else if let loaded = NSSound(contentsOf: fileURL, byReference: true) {
-                soundCache[filename] = loaded
-                sound = loaded
-            } else {
-                log.warning("Failed to load sound file '\(filename)', falling back to default")
-                sound = defaultBlipSound()
-                sound.volume = config.volume
-                sound.play()
+                cached.volume = config.volume
+                cached.play()
                 return
+            }
+
+            // Fetch asynchronously; fall back to default blip for this invocation.
+            // The fetched sound will be cached for subsequent plays.
+            Task {
+                if let sound = await fetchCustomSound(filename: filename) {
+                    soundCache[filename] = sound
+                    sound.volume = config.volume
+                    sound.play()
+                } else {
+                    log.warning("Failed to load sound file '\(filename)', falling back to default")
+                    playDefault()
+                }
             }
         } else {
             // No custom sound set — use default blip.
-            sound = defaultBlipSound()
+            playDefault()
         }
+    }
 
+    /// Plays the default blip at the current volume.
+    private func playDefault() {
+        let sound = defaultBlipSound()
         sound.volume = config.volume
         sound.play()
     }
 
     /// Preview the sound configured for a specific event at the current volume,
-    /// bypassing enabled checks. Uses the instance-aware `soundsDirectoryURL` so
-    /// previews resolve correctly for non-default assistant instances.
+    /// bypassing enabled checks. Fetches the sound from the gateway if not cached.
     func previewSound(for event: SoundEvent) {
         let eventConfig = config.config(for: event)
         guard let filename = eventConfig.sound, !filename.isEmpty else {
@@ -196,16 +200,25 @@ final class SoundManager {
             return
         }
 
-        guard let fileURL = resolveCustomSoundURL(filename: filename) else {
+        guard validateSoundFilename(filename) else {
             previewDefaultBlip()
             return
         }
 
-        if let sound = NSSound(contentsOf: fileURL, byReference: true) {
-            sound.volume = config.volume
-            sound.play()
-        } else {
-            previewDefaultBlip()
+        if let cached = soundCache[filename] {
+            cached.volume = config.volume
+            cached.play()
+            return
+        }
+
+        Task {
+            if let sound = await fetchCustomSound(filename: filename) {
+                soundCache[filename] = sound
+                sound.volume = config.volume
+                sound.play()
+            } else {
+                previewDefaultBlip()
+            }
         }
     }
 
@@ -229,140 +242,46 @@ final class SoundManager {
 
     // MARK: - Cache
 
-    /// Resets the sound cache, forcing sounds to be reloaded from disk on next play.
+    /// Resets the sound cache, forcing sounds to be re-fetched from the gateway on next play.
     func clearCache() {
         soundCache.removeAll()
+        cachedAvailableSounds = []
+        isRefreshingAvailableSounds = false
     }
 
     // MARK: - Available Sounds
 
-    /// Lists audio files in the sounds directory, returning tuples of (label, filename).
-    /// Label is the filename with the extension removed. Filters to supported extensions.
+    /// Returns the cached list of available sound files. The list is populated
+    /// asynchronously via `refreshAvailableSounds()` during `reloadConfig()`.
     /// This powers the Settings UI dropdown for sound selection.
     func availableSounds() -> [(label: String, filename: String)] {
-        let dirURL = soundsDirectoryURL
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: dirURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ) else {
-            return []
+        if cachedAvailableSounds.isEmpty && !isRefreshingAvailableSounds {
+            isRefreshingAvailableSounds = true
+            Task { await refreshAvailableSounds() }
+        }
+        return cachedAvailableSounds
+    }
+
+    /// Fetches the list of audio files from the sounds directory via the gateway
+    /// workspace tree API and updates the cached list.
+    private func refreshAvailableSounds() async {
+        guard let tree = await WorkspaceClient().fetchWorkspaceTree(path: "data/sounds", showHidden: false) else {
+            cachedAvailableSounds = []
+            return
         }
 
-        return contents.compactMap { url in
-            let ext = url.pathExtension.lowercased()
+        let sounds = tree.entries.compactMap { entry -> (label: String, filename: String)? in
+            guard !entry.isDirectory else { return nil }
+            let filename = entry.name
+            let ext = (filename as NSString).pathExtension.lowercased()
             guard supportedSoundExtensions.contains(ext) else { return nil }
-            let filename = url.lastPathComponent
+            // Exclude config.json from the sound file list.
+            guard filename != "config.json" else { return nil }
             let label = (filename as NSString).deletingPathExtension
             return (label: label, filename: filename)
         }
         .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
-    }
 
-    // MARK: - FSEvents File Watcher
-
-    /// Watch config.json for external changes. Follows the same pattern as
-    /// `AvatarAppearanceManager.watchAvatarFile()`.
-    private func watchConfigFile() {
-        fileMonitor?.cancel()
-        fileMonitor = nil
-
-        let path = configFileURL.path
-        let fd = open(path, O_EVTONLY)
-
-        if fd < 0 {
-            // File doesn't exist yet — watch the parent directory instead.
-            watchSoundsDirectory()
-            return
-        }
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .delete, .rename],
-            queue: .global(qos: .utility)
-        )
-
-        source.setEventHandler { [weak self] in
-            let flags = source.data
-            Task { @MainActor [weak self] in
-                self?.loadConfig()
-                self?.clearCache()
-                if flags.contains(.delete) || flags.contains(.rename) {
-                    // File was deleted or renamed — re-establish the watcher
-                    // (may fall back to directory watching if file is gone).
-                    self?.watchConfigFile()
-                }
-            }
-        }
-
-        source.setCancelHandler {
-            close(fd)
-        }
-
-        fileMonitor = source
-        source.resume()
-    }
-
-    /// Watch the sounds directory for file creation when config.json doesn't exist yet.
-    /// Follows the same fallback pattern as `AvatarAppearanceManager.watchAvatarDirectory()`.
-    private func watchSoundsDirectory() {
-        let dirPath = (configFileURL.path as NSString).deletingLastPathComponent
-        let fd = open(dirPath, O_EVTONLY)
-        guard fd >= 0 else {
-            // Directory doesn't exist either — try creating it and watching.
-            let dirURL = soundsDirectoryURL
-            try? FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
-            let retryFd = open(dirURL.path, O_EVTONLY)
-            guard retryFd >= 0 else { return }
-
-            let retrySource = DispatchSource.makeFileSystemObjectSource(
-                fileDescriptor: retryFd,
-                eventMask: .write,
-                queue: .global(qos: .utility)
-            )
-
-            retrySource.setEventHandler { [weak self] in
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    if FileManager.default.fileExists(atPath: self.configFileURL.path) {
-                        self.loadConfig()
-                        self.clearCache()
-                        self.watchConfigFile()
-                    }
-                }
-            }
-
-            retrySource.setCancelHandler {
-                close(retryFd)
-            }
-
-            fileMonitor = retrySource
-            retrySource.resume()
-            return
-        }
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: .write,
-            queue: .global(qos: .utility)
-        )
-
-        source.setEventHandler { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if FileManager.default.fileExists(atPath: self.configFileURL.path) {
-                    self.loadConfig()
-                    self.clearCache()
-                    self.watchConfigFile()
-                }
-            }
-        }
-
-        source.setCancelHandler {
-            close(fd)
-        }
-
-        fileMonitor = source
-        source.resume()
+        cachedAvailableSounds = sounds
     }
 }

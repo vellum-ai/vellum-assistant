@@ -2,10 +2,11 @@
 // Memory Graph — Data access layer
 // ---------------------------------------------------------------------------
 
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../db.js";
+import { enqueueMemoryJob } from "../jobs-store.js";
 import {
   memoryGraphEdges,
   memoryGraphNodeEdits,
@@ -270,7 +271,14 @@ export function updateNode(
 
 export function deleteNode(id: string): void {
   const db = getDb();
-  db.delete(memoryGraphNodes).where(eq(memoryGraphNodes.id, id)).run();
+  db.update(memoryGraphNodes)
+    .set({ fidelity: "gone", lastAccessed: Date.now() })
+    .where(eq(memoryGraphNodes.id, id))
+    .run();
+  enqueueMemoryJob("delete_qdrant_vectors", {
+    targetType: "graph_node",
+    targetId: id,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -343,7 +351,7 @@ export function queryNodes(filters: NodeQueryFilters): MemoryNode[] {
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(sql`${memoryGraphNodes.significance} DESC`);
 
-  if (filters.limit) {
+  if (filters.limit != null) {
     query = query.limit(filters.limit) as typeof query;
   }
 
@@ -396,12 +404,19 @@ export function getEdgesForNode(
   direction?: "incoming" | "outgoing",
 ): MemoryEdge[] {
   const db = getDb();
-  const condition =
+  const dirCondition =
     direction === "outgoing"
       ? eq(memoryGraphEdges.sourceNodeId, nodeId)
       : direction === "incoming"
         ? eq(memoryGraphEdges.targetNodeId, nodeId)
-        : sql`${memoryGraphEdges.sourceNodeId} = ${nodeId} OR ${memoryGraphEdges.targetNodeId} = ${nodeId}`;
+        : or(eq(memoryGraphEdges.sourceNodeId, nodeId), eq(memoryGraphEdges.targetNodeId, nodeId));
+
+  // Exclude edges where either endpoint has fidelity='gone' (soft-deleted)
+  const condition = and(
+    dirCondition,
+    sql`NOT EXISTS (SELECT 1 FROM ${memoryGraphNodes} WHERE ${memoryGraphNodes.id} = ${memoryGraphEdges.sourceNodeId} AND ${memoryGraphNodes.fidelity} = 'gone')`,
+    sql`NOT EXISTS (SELECT 1 FROM ${memoryGraphNodes} WHERE ${memoryGraphNodes.id} = ${memoryGraphEdges.targetNodeId} AND ${memoryGraphNodes.fidelity} = 'gone')`,
+  );
 
   return db
     .select()
@@ -512,12 +527,23 @@ export function getActiveTriggersByType(
     return rows.map((r) => rowToTrigger(r.trigger));
   }
 
-  return db
-    .select()
+  const rows = db
+    .select({
+      trigger: memoryGraphTriggers,
+    })
     .from(memoryGraphTriggers)
-    .where(and(...conditions))
-    .all()
-    .map(rowToTrigger);
+    .innerJoin(
+      memoryGraphNodes,
+      eq(memoryGraphTriggers.nodeId, memoryGraphNodes.id),
+    )
+    .where(
+      and(
+        ...conditions,
+        sql`${memoryGraphNodes.fidelity} != 'gone'`,
+      ),
+    )
+    .all();
+  return rows.map((r) => rowToTrigger(r.trigger));
 }
 
 // ---------------------------------------------------------------------------
@@ -614,9 +640,18 @@ export function applyDiff(
   };
 
   db.transaction((tx) => {
-    // Delete nodes first (cascades edges + triggers)
+    // Soft-delete nodes (set fidelity='gone' and enqueue Qdrant cleanup)
     for (const id of diff.deleteNodeIds) {
-      tx.delete(memoryGraphNodes).where(eq(memoryGraphNodes.id, id)).run();
+      tx.update(memoryGraphNodes)
+        .set({ fidelity: "gone", lastAccessed: Date.now() })
+        .where(eq(memoryGraphNodes.id, id))
+        .run();
+      enqueueMemoryJob(
+        "delete_qdrant_vectors",
+        { targetType: "graph_node", targetId: id },
+        Date.now(),
+        tx,
+      );
       result.nodesDeleted++;
     }
 

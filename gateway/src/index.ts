@@ -68,6 +68,7 @@ import {
 import { createMigrationRollbackProxyHandler } from "./http/routes/migration-rollback-proxy.js";
 import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commit-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
+import { createLogExportHandler } from "./http/routes/log-export.js";
 import {
   createTrustRulesListHandler,
   createTrustRulesAddHandler,
@@ -94,6 +95,11 @@ import { fetchDmContext } from "./slack/dm-context.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
 import { checkAuthRateLimit } from "./http/middleware/rate-limit.js";
 import {
+  resolveWebviewOrigin,
+  handlePreflight,
+  withCorsHeaders,
+} from "./http/middleware/cors.js";
+import {
   createRouter,
   type RouteDefinition,
   type GetClientIp,
@@ -101,6 +107,7 @@ import {
 import { SleepWakeDetector } from "./sleep-wake-detector.js";
 import { callTelegramApi } from "./telegram/api.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
+import { registerEmailCallbackRoute } from "./email/register-callback.js";
 
 const log = getLogger("main");
 
@@ -288,6 +295,7 @@ async function main() {
   const migrationRollbackProxy = createMigrationRollbackProxyHandler(config);
   const workspaceCommitProxy = createWorkspaceCommitProxyHandler(config);
   const brainGraphProxy = createBrainGraphProxyHandler(config);
+  const handleLogExport = createLogExportHandler(config);
   const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
   const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
   const handlePrivacyConfigPatch = createPrivacyConfigPatchHandler();
@@ -358,7 +366,7 @@ async function main() {
       handler: (req) => handleWhatsAppWebhook(req),
     },
     {
-      path: "/webhooks/email/inbound",
+      path: "/webhooks/email",
       handler: (req) => handleEmailWebhook(req),
     },
 
@@ -933,6 +941,15 @@ async function main() {
       handler: (req) => handlePrivacyConfigPatch(req),
     },
 
+    // ── Log export ──
+    {
+      path: "/v1/logs/export",
+      method: "POST",
+      auth: "edge",
+      handler: (req, params, getClientIp) =>
+        handleLogExport(req, params, getClientIp),
+    },
+
     // ── Trust rules ──
     {
       path: "/v1/trust-rules/clear",
@@ -1039,6 +1056,16 @@ async function main() {
       svr.timeout(req, 1800);
       const url = new URL(req.url);
 
+      // ── CORS: webview preflight & origin tracking ──
+      // The macOS WKWebView loads pages from https://{appId}.vellum.local/
+      // which is cross-origin to the gateway at http://127.0.0.1:{port}.
+      // Reflect the origin back on matched requests so window.vellum.fetch
+      // calls succeed.
+      const webviewOrigin = resolveWebviewOrigin(req);
+      if (webviewOrigin && req.method === "OPTIONS") {
+        return handlePreflight(webviewOrigin);
+      }
+
       // ── Pre-router: health/readiness probes ──
       // These bypass rate limiting and tracing for minimal overhead.
       if (url.pathname === "/healthz") {
@@ -1116,7 +1143,11 @@ async function main() {
         authRateLimiter,
         resolveClientIp(),
       );
-      if (rateLimitResponse) return rateLimitResponse;
+      if (rateLimitResponse) {
+        if (webviewOrigin)
+          return withCorsHeaders(rateLimitResponse, webviewOrigin);
+        return rateLimitResponse;
+      }
 
       // ── Pre-router: WebSocket upgrades ──
       // Bun's WS upgrade needs `server.upgrade()` which doesn't return
@@ -1156,13 +1187,48 @@ async function main() {
       }
 
       // ── Route table dispatch ──
-      const response = router(req, url, resolveClientIp, svr);
-      if (response !== null) return response;
+      try {
+        const response = router(req, url, resolveClientIp, svr);
+        if (response !== null) {
+          if (webviewOrigin) {
+            const resolved = await response;
+            return withCorsHeaders(resolved, webviewOrigin);
+          }
+          return response;
+        }
+      } catch (err) {
+        // Mirror the error() handler logic while retaining CORS context.
+        // Bun's error() callback doesn't receive the request, so thrown
+        // errors during webview requests would otherwise lose CORS headers.
+        if (!webviewOrigin) throw err;
+        if (err instanceof CircuitBreakerOpenError) {
+          return withCorsHeaders(
+            Response.json(
+              {
+                error:
+                  "Service temporarily unavailable \u2014 runtime is unreachable",
+              },
+              {
+                status: 503,
+                headers: { "Retry-After": String(err.retryAfterSecs) },
+              },
+            ),
+            webviewOrigin,
+          );
+        }
+        log.error({ err }, "Unhandled gateway error");
+        return withCorsHeaders(
+          Response.json({ error: "Internal server error" }, { status: 500 }),
+          webviewOrigin,
+        );
+      }
 
-      return Response.json(
+      const notFound = Response.json(
         { error: "Not found", source: "gateway" },
         { status: 404 },
       );
+      if (webviewOrigin) return withCorsHeaders(notFound, webviewOrigin);
+      return notFound;
     },
   });
 
@@ -1464,6 +1530,22 @@ async function main() {
         );
       });
     }
+
+    // Register email callback route with the platform so inbound email
+    // webhooks are forwarded to this gateway (same pattern as Telegram).
+    // Fires on initial credential load and whenever vellum credentials change
+    // (key rotation, late provisioning).
+    if (changed.has("vellum")) {
+      registerEmailCallbackRoute({ credentials: credentialCache }).catch(
+        (err) => {
+          log.error(
+            { err },
+            "Failed to register email callback route after credential change",
+          );
+        },
+      );
+    }
+
   });
 
   // The credential watcher callback handles startup side effects (Telegram

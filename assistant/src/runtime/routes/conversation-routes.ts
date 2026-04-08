@@ -17,6 +17,7 @@ import {
   isInteractiveInterface,
   parseChannelId,
   parseInterfaceId,
+  supportsHostProxy,
 } from "../../channels/types.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
@@ -35,9 +36,14 @@ import {
 } from "../../daemon/first-greeting.js";
 import { renderHistoryContent } from "../../daemon/handlers/shared.js";
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
+import { HostBrowserProxy } from "../../daemon/host-browser-proxy.js";
 import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
+import type {
+  MacosTransportMetadata,
+  NonMacosTransportMetadata,
+} from "../../daemon/message-types/conversations.js";
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
@@ -72,6 +78,7 @@ import { silentlyWithLog } from "../../util/silently.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import type { AuthContext } from "../auth/types.js";
+import { getChromeExtensionRegistry } from "../chrome-extension-registry.js";
 import { bridgeConfirmationRequestToGuardian } from "../confirmation-request-guardian-bridge.js";
 import { routeGuardianReply } from "../guardian-reply-router.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
@@ -410,8 +417,15 @@ export function handleListMessages(
     rawMessages = getMessages(resolvedConversationId);
   }
 
+  // During streaming, tool_use (assistant) and tool_result (user) events are
+  // assembled client-side into a single assistant ChatMessage. On reload, they
+  // are separate DB rows. Merge tool_result blocks from user messages into the
+  // preceding assistant message so renderHistoryContent can pair them via its
+  // pendingToolUses map — otherwise they render as "Unknown" tool calls.
+  const mergedMessages = mergeToolResultsIntoAssistantMessages(rawMessages);
+
   // Parse content blocks and extract text + tool calls
-  const parsed = rawMessages.map((msg) => {
+  const parsed = mergedMessages.map((msg) => {
     let content: unknown;
     try {
       content = JSON.parse(msg.content);
@@ -424,10 +438,33 @@ export function handleListMessages(
     // was queued or its persistence was delayed (long assistant generation),
     // sentAt captures the actual event time. Falls back to createdAt.
     let sentAt: number | undefined;
+    let subagentNotification:
+      | {
+          subagentId: string;
+          label: string;
+          status: string;
+          error?: string;
+          conversationId?: string;
+        }
+      | undefined;
     if (msg.metadata) {
       try {
         const meta = JSON.parse(msg.metadata);
         if (typeof meta.sentAt === "number") sentAt = meta.sentAt;
+        if (meta.subagentNotification) {
+          const n = meta.subagentNotification;
+          if (typeof n.subagentId === "string" && typeof n.label === "string") {
+            subagentNotification = {
+              subagentId: n.subagentId,
+              label: n.label,
+              status: typeof n.status === "string" ? n.status : "completed",
+              ...(typeof n.error === "string" ? { error: n.error } : {}),
+              ...(typeof n.conversationId === "string"
+                ? { conversationId: n.conversationId }
+                : {}),
+            };
+          }
+        }
       } catch {
         // Ignore malformed metadata
       }
@@ -475,6 +512,7 @@ export function handleListMessages(
           ? { thinkingSegments: rendered.thinkingSegments }
           : {}),
         id: msg.id,
+        subagentNotification,
       };
     }
 
@@ -492,6 +530,7 @@ export function handleListMessages(
         ? { thinkingSegments: rendered.thinkingSegments }
         : {}),
       id: msg.id,
+      subagentNotification,
     };
   });
 
@@ -580,6 +619,9 @@ export function handleListMessages(
         ? { thinkingSegments: m.thinkingSegments }
         : {}),
       ...(m.contentOrder.length > 0 ? { contentOrder: m.contentOrder } : {}),
+      ...(m.subagentNotification
+        ? { subagentNotification: m.subagentNotification }
+        : {}),
     };
   });
 
@@ -599,14 +641,168 @@ export function handleListMessages(
   return Response.json({ messages });
 }
 
+// ── Tool-result merging ─────────────────────────────────────────────
+
+function isToolResultType(type: string): boolean {
+  return type === "tool_result" || type === "web_search_tool_result";
+}
+
+function isSystemNoticeText(block: Record<string, unknown>): boolean {
+  if (block.type !== "text") return false;
+  const text = typeof block.text === "string" ? block.text : "";
+  return (
+    text.startsWith("<system_notice>") && text.endsWith("</system_notice>")
+  );
+}
+
+/**
+ * Merge tool_result blocks from user messages into the preceding assistant
+ * message's content array. This lets renderHistoryContent's pendingToolUses
+ * map pair tool_use and tool_result blocks, preventing "unknown" tool names.
+ *
+ * User messages that consist entirely of tool_result blocks (and optional
+ * system_notice text) are removed from the output. Mixed messages (tool_result
+ * + real user text) keep only the non-tool-result blocks.
+ */
+function mergeToolResultsIntoAssistantMessages(
+  messages: MessageRow[],
+): MessageRow[] {
+  // Index of the most recent assistant message in the output array.
+  let lastAssistantIdx = -1;
+  // Parsed content caches — lazily populated per assistant message.
+  const parsedAssistantContent = new Map<number, unknown[]>();
+
+  const result: MessageRow[] = [];
+
+  for (const msg of messages) {
+    if (msg.role === "assistant") {
+      lastAssistantIdx = result.length;
+      result.push(msg);
+      continue;
+    }
+
+    // Only process user messages — other roles pass through.
+    if (msg.role !== "user") {
+      result.push(msg);
+      continue;
+    }
+
+    let blocks: unknown[];
+    try {
+      const parsed = JSON.parse(msg.content);
+      if (!Array.isArray(parsed)) {
+        result.push(msg);
+        continue;
+      }
+      blocks = parsed;
+    } catch {
+      result.push(msg);
+      continue;
+    }
+
+    // Separate tool-result blocks from real user content.
+    const toolResultBlocks: unknown[] = [];
+    const otherBlocks: unknown[] = [];
+    for (const block of blocks) {
+      if (
+        typeof block === "object" &&
+        block !== null &&
+        typeof (block as Record<string, unknown>).type === "string"
+      ) {
+        const rec = block as Record<string, unknown>;
+        if (isToolResultType(rec.type as string)) {
+          toolResultBlocks.push(block);
+        } else if (isSystemNoticeText(rec)) {
+          // System notices don't count as user content — drop them when
+          // the message is otherwise tool-result-only.
+          otherBlocks.push(block);
+        } else {
+          otherBlocks.push(block);
+        }
+      } else {
+        otherBlocks.push(block);
+      }
+    }
+
+    // No tool results → pass through unchanged. System notices are only
+    // injected alongside tool results in the agent loop, so a pure user
+    // message (no tool_result blocks) should never be filtered — even if
+    // the user's text happens to look like a system_notice tag.
+    if (toolResultBlocks.length === 0) {
+      result.push(msg);
+      continue;
+    }
+
+    // Append tool_result blocks to the preceding assistant message's content.
+    if (lastAssistantIdx >= 0) {
+      const assistant = result[lastAssistantIdx];
+      let assistantContent = parsedAssistantContent.get(lastAssistantIdx);
+      if (!assistantContent) {
+        try {
+          const parsed = JSON.parse(assistant.content);
+          assistantContent = Array.isArray(parsed) ? parsed : [parsed];
+        } catch {
+          assistantContent = [];
+        }
+        parsedAssistantContent.set(lastAssistantIdx, assistantContent);
+      }
+      assistantContent.push(...toolResultBlocks);
+    } else {
+      // No preceding assistant message (pagination boundary) — keep the
+      // original message as-is to avoid permanent data loss. The preceding
+      // assistant tool_use lives in the previous page; dropping the result
+      // here would be unrecoverable.
+      // Still strip system notices so internal prompt text isn't exposed.
+      const filteredBlocks = blocks.filter(
+        (b) =>
+          !(
+            typeof b === "object" &&
+            b !== null &&
+            isSystemNoticeText(b as Record<string, unknown>)
+          ),
+      );
+      result.push({
+        ...msg,
+        content:
+          filteredBlocks.length === blocks.length
+            ? msg.content
+            : JSON.stringify(filteredBlocks),
+      });
+      continue;
+    }
+
+    // If the user message had only tool_result (+ system_notice) blocks,
+    // suppress it entirely. Otherwise keep the non-tool-result content.
+    const realUserContent = otherBlocks.filter(
+      (b) =>
+        !(
+          typeof b === "object" &&
+          b !== null &&
+          isSystemNoticeText(b as Record<string, unknown>)
+        ),
+    );
+    if (realUserContent.length > 0) {
+      result.push({ ...msg, content: JSON.stringify(otherBlocks) });
+    }
+    // else: tool-result-only → suppressed (results already merged above)
+  }
+
+  // Write back any modified assistant message content.
+  for (const [idx, content] of parsedAssistantContent) {
+    result[idx] = { ...result[idx], content: JSON.stringify(content) };
+  }
+
+  return result;
+}
+
 /**
  * Build an `onEvent` callback that publishes every outbound event to the
  * assistant event hub, maintaining ordered delivery through a serial chain.
  *
  * Also registers pending interactions when confirmation_request,
- * secret_request, host_bash_request, or host_file_request events flow
- * through, so standalone approval/result endpoints can look up the conversation
- * by requestId.
+ * secret_request, host_bash_request, host_browser_request, host_file_request,
+ * or host_cu_request events flow through, so standalone approval/result
+ * endpoints can look up the conversation by requestId.
  */
 function makeHubPublisher(
   deps: SendMessageDeps,
@@ -698,6 +894,12 @@ function makeHubPublisher(
         conversationId,
         kind: "host_bash",
       });
+    } else if (msg.type === "host_browser_request") {
+      pendingInteractions.register(msg.requestId, {
+        conversation,
+        conversationId,
+        kind: "host_browser",
+      });
     } else if (msg.type === "host_file_request") {
       pendingInteractions.register(msg.requestId, {
         conversation,
@@ -756,6 +958,8 @@ export async function handleSendMessage(
     conversationType?: string;
     automated?: boolean;
     bypassSecretCheck?: boolean;
+    hostHomeDir?: string;
+    hostUsername?: string;
   };
 
   const { conversationKey, content, attachmentIds } = body;
@@ -859,8 +1063,25 @@ export async function handleSendMessage(
     conversationType,
   });
   const smDeps = deps.sendMessageDeps;
+
+  // Build transport metadata from the request so the daemon can inject
+  // host environment hints (home directory, username) into the LLM context.
+  const transport =
+    sourceInterface === "macos"
+      ? ({
+          channelId: sourceChannel,
+          interfaceId: "macos" as const,
+          hostHomeDir: body.hostHomeDir,
+          hostUsername: body.hostUsername,
+        } satisfies MacosTransportMetadata)
+      : ({
+          channelId: sourceChannel,
+          interfaceId: sourceInterface,
+        } satisfies NonMacosTransportMetadata);
+
   const conversation = await smDeps.getOrCreateConversation(
     mapping.conversationId,
+    { transport },
   );
 
   // Resolve guardian context from the AuthContext's actorPrincipalId.
@@ -926,12 +1147,13 @@ export async function handleSendMessage(
     conversation,
   );
   const isInteractive = isInteractiveInterface(sourceInterface);
-  // Only create the host bash proxy for desktop client interfaces that can
-  // execute commands on the user's machine. Non-desktop conversations (CLI,
-  // channels, headless) fall back to local execution.
+  // Only create each host proxy for interfaces that support the matching
+  // capability. macOS supports all four; the chrome-extension interface only
+  // supports host_browser. Non-desktop conversations (CLI, channels, headless)
+  // fall back to local execution.
   // Set the proxy BEFORE updateClient so updateClient's call to
   // hostBashProxy.updateSender targets the correct (new) proxy.
-  if (sourceInterface === "macos" || sourceInterface === "ios") {
+  if (supportsHostProxy(sourceInterface, "host_bash")) {
     // Reuse the existing proxy if the conversation is actively processing a
     // host bash request to avoid orphaning in-flight requests.
     if (!conversation.isProcessing() || !conversation.hostBashProxy) {
@@ -940,12 +1162,84 @@ export async function handleSendMessage(
       });
       conversation.setHostBashProxy(proxy);
     }
+  } else if (!conversation.isProcessing()) {
+    conversation.setHostBashProxy(undefined);
+  }
+  // For the chrome-extension interface we route host_browser_request /
+  // host_browser_cancel frames through the in-process ChromeExtensionRegistry
+  // to the WebSocket opened against /v1/browser-relay by the connected
+  // extension, instead of the SSE/onEvent hub used by macOS. The registry
+  // lookup is keyed by the JWT-derived actor principal id, which the
+  // runtime captured at WebSocket upgrade time.
+  //
+  // macOS (and any other interface that supports host_browser in the
+  // future via the SSE hub) keeps using `onEvent` — see the else branch.
+  const browserProxySendToClient: (msg: ServerMessage) => void =
+    sourceInterface === "chrome-extension"
+      ? (msg) => {
+          // Resolve the guardian principal id at send time rather than
+          // capturing it from the POST-time authContext. This closure can be
+          // re-fired on queue drain — if a different actor's POST lands while
+          // the queue is still draining an earlier turn, a captured
+          // authContext.actorPrincipalId would mis-route the earlier turn's
+          // host_browser frames to the *new* actor. Preferring
+          // conversation.trustContext?.guardianPrincipalId makes the routing
+          // follow the conversation's bound guardian, which is stable across
+          // subsequent POSTs. Falls back to the per-POST authContext for
+          // turns that haven't been bound to a trust context yet.
+          const gid =
+            conversation.trustContext?.guardianPrincipalId ??
+            authContext.actorPrincipalId;
+          if (!gid) {
+            // No guardian identity on this turn — nothing to route to.
+            // The proxy will observe this via its try/catch and surface a
+            // transport error back to the caller.
+            throw new Error(
+              "chrome-extension host_browser send skipped: no guardianId on AuthContext",
+            );
+          }
+          const ok = getChromeExtensionRegistry().send(gid, msg);
+          if (!ok) {
+            throw new Error(
+              `chrome-extension host_browser send failed: no active connection for guardian ${gid}`,
+            );
+          }
+        }
+      : onEvent;
+  // Stash the registry-routed sender on the conversation so queue-drain
+  // restores (which run outside of conversation-routes.ts and only have
+  // access to `sendToClient`) can preserve it when calling
+  // `restoreBrowserProxyAvailability()`. For non-chrome-extension
+  // interfaces the override is cleared so the SSE hub sender is used.
+  if (sourceInterface === "chrome-extension") {
+    conversation.hostBrowserSenderOverride = browserProxySendToClient;
+  } else {
+    conversation.hostBrowserSenderOverride = undefined;
+  }
+  if (supportsHostProxy(sourceInterface, "host_browser")) {
+    if (!conversation.isProcessing() || !conversation.hostBrowserProxy) {
+      const browserProxy = new HostBrowserProxy(
+        browserProxySendToClient,
+        (requestId) => {
+          pendingInteractions.resolve(requestId);
+        },
+      );
+      conversation.setHostBrowserProxy(browserProxy);
+    }
+  } else if (!conversation.isProcessing()) {
+    conversation.setHostBrowserProxy(undefined);
+  }
+  if (supportsHostProxy(sourceInterface, "host_file")) {
     if (!conversation.isProcessing() || !conversation.hostFileProxy) {
       const fileProxy = new HostFileProxy(onEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
       conversation.setHostFileProxy(fileProxy);
     }
+  } else if (!conversation.isProcessing()) {
+    conversation.setHostFileProxy(undefined);
+  }
+  if (supportsHostProxy(sourceInterface, "host_cu")) {
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
       const cuProxy = new HostCuProxy(onEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
@@ -959,21 +1253,41 @@ export async function handleSendMessage(
       conversation.addPreactivatedSkillId("computer-use");
     }
   } else if (!conversation.isProcessing()) {
-    conversation.setHostBashProxy(undefined);
-    conversation.setHostFileProxy(undefined);
     conversation.setHostCuProxy(undefined);
   }
   // Wire sendToClient to the SSE hub so all subsystems can reach the HTTP client.
   // Called after setHostBashProxy so updateSender targets the current proxy.
   // When proxies are preserved during an active turn (non-desktop request while
-  // processing), skip updating proxy senders to avoid degrading them.
+  // processing), skip updating proxy senders to avoid degrading them. The gate
+  // matches the host_bash capability because the legacy "reject send during
+  // host bash" flow is what this is really protecting.
   const preservingProxies =
     conversation.isProcessing() &&
-    sourceInterface !== "macos" &&
-    sourceInterface !== "ios";
+    !supportsHostProxy(sourceInterface, "host_bash");
+  // hasNoClient must remain `!isInteractive` so downstream tool gating
+  // (`isToolActiveForContext` for HOST_TOOL_NAMES, `createToolExecutor`'s
+  // `isInteractive: !ctx.hasNoClient`) keeps host_bash/host_file/host_cu
+  // tools gated for non-desktop interfaces. The chrome-extension interface
+  // is non-interactive (no SSE prompter UI) but still has a connected client
+  // that can service host_browser_request events; we restore that single
+  // proxy explicitly below without relaxing `hasNoClient`.
   conversation.updateClient(onEvent, !isInteractive, {
     skipProxySenderUpdate: preservingProxies,
   });
+  // For non-interactive interfaces that DO support host_browser
+  // (chrome-extension), explicitly re-enable just the browser proxy. The
+  // helper bypasses the `hasNoClient` gate so the single-capability
+  // chrome-extension turn can drive the browser via CDP without leaking
+  // host_bash/host_file tool availability into tool gating.
+  //
+  // `restoreBrowserProxyAvailability()` reads `hostBrowserSenderOverride`
+  // (set above for chrome-extension) and applies the registry-routed
+  // sender, so the chrome-extension path gets the correct sender here
+  // — including after queue-drain restores run from conversation-process.ts,
+  // which only have access to the conversation instance.
+  if (supportsHostProxy(sourceInterface, "host_browser")) {
+    conversation.restoreBrowserProxyAvailability?.();
+  }
 
   // ── Canned first-greeting fast path ──
   // On a completely fresh workspace, skip LLM inference for the macOS
@@ -1131,6 +1445,8 @@ export async function handleSendMessage(
         ...(body.automated === true ? { automated: true } : {}),
       },
       { isInteractive },
+      undefined, // displayContent
+      transport,
     );
     if (enqueueResult.rejected) {
       return Response.json(
@@ -1142,36 +1458,47 @@ export async function handleSendMessage(
     // Auto-deny pending confirmations only after enqueue succeeds, so we
     // don't cancel approval-gated workflows when the replacement message
     // is itself rejected by the queue budget.
-    if (conversation.hasAnyPendingConfirmation()) {
-      // Emit authoritative denial state for each pending request.
-      // sendToClient (wired to the SSE hub) delivers these to the client.
-      for (const interaction of pendingInteractions.getByConversation(
-        mapping.conversationId,
-      )) {
-        if (
-          interaction.conversation === conversation &&
-          interaction.kind === "confirmation"
-        ) {
-          conversation.emitConfirmationStateChanged({
-            conversationId: mapping.conversationId,
-            requestId: interaction.requestId,
-            state: "denied" as const,
-            source: "auto_deny" as const,
-          });
-          // Sync canonical guardian request status so stale "pending" DB
-          // records don't get matched by later guardian reply routing.
-          resolveCanonicalGuardianRequest(interaction.requestId, "pending", {
-            status: "denied",
-          });
+    // Wrapped in try-catch: the message is already enqueued, so a failure
+    // here must not turn the 202 response into a 500 — that would leave
+    // the client showing "Failed to send" for a message the daemon will
+    // process from the queue.
+    try {
+      if (conversation.hasAnyPendingConfirmation()) {
+        // Emit authoritative denial state for each pending request.
+        // sendToClient (wired to the SSE hub) delivers these to the client.
+        for (const interaction of pendingInteractions.getByConversation(
+          mapping.conversationId,
+        )) {
+          if (
+            interaction.conversation === conversation &&
+            interaction.kind === "confirmation"
+          ) {
+            conversation.emitConfirmationStateChanged({
+              conversationId: mapping.conversationId,
+              requestId: interaction.requestId,
+              state: "denied" as const,
+              source: "auto_deny" as const,
+            });
+            // Sync canonical guardian request status so stale "pending" DB
+            // records don't get matched by later guardian reply routing.
+            resolveCanonicalGuardianRequest(interaction.requestId, "pending", {
+              status: "denied",
+            });
+          }
         }
+        conversation.denyAllPendingConfirmations();
+        pendingInteractions.removeByConversation(conversation);
       }
-      conversation.denyAllPendingConfirmations();
-      pendingInteractions.removeByConversation(conversation);
-    }
 
-    // Expire any orphaned canonical requests that survived without a
-    // matching in-memory pending interaction (e.g. prompter timeouts).
-    expireOrphanedCanonicalRequests(mapping.conversationId);
+      // Expire any orphaned canonical requests that survived without a
+      // matching in-memory pending interaction (e.g. prompter timeouts).
+      expireOrphanedCanonicalRequests(mapping.conversationId);
+    } catch (err) {
+      log.warn(
+        { err, conversationId: mapping.conversationId },
+        "Post-enqueue auto-deny failed — queued message unaffected",
+      );
+    }
 
     return Response.json(
       { accepted: true, queued: true, conversationId: mapping.conversationId },

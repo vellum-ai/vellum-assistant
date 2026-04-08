@@ -29,6 +29,9 @@ import { createNode } from "./store.js";
 
 const log = getLogger("graph-capability-seed");
 
+/** Default significance for capability nodes. */
+const CAPABILITY_SIGNIFICANCE = 0.6;
+
 /** Stable prefix for capability node source tracking. */
 const SKILL_SOURCE_PREFIX = "capability:skill:";
 const CLI_SOURCE_PREFIX = "capability:cli:";
@@ -115,22 +118,35 @@ export function seedSkillGraphNodes(): void {
     // Protect uninstalled catalog skills from pruning — they are seeded
     // asynchronously by seedUninstalledCatalogSkillMemories() and should
     // not be marked as "gone" just because they aren't locally installed.
-    // Only include catalog entries whose feature-flag is enabled, matching
-    // the filter in seedUninstalledCatalogSkillMemories().
+    // When the catalog cache is cold (empty before the async fetch
+    // completes), we can only prune locally managed skills; full
+    // catalog-based pruning waits until the cache is populated.
     const cachedCatalog = getCachedCatalogSync();
-    for (const entry of cachedCatalog) {
-      const flagKey = entry.metadata?.vellum?.["feature-flag"];
-      if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) continue;
-      seenKeys.add(`${SKILL_SOURCE_PREFIX}${entry.id}`);
+    if (cachedCatalog.length === 0) {
+      // Catalog cache is cold — we can't enumerate remote catalog skills, so
+      // skip catalog-based pruning to avoid incorrectly marking valid
+      // uninstalled catalog nodes as gone. But still prune locally disabled
+      // skills so stale capability nodes don't linger after cold start.
+      log.info("Catalog cache is cold — pruning only locally disabled skills");
+      const disabled = resolved.filter((r) => r.state !== "enabled");
+      for (const { summary } of disabled) {
+        deleteSkillCapabilityNode(summary.id);
+      }
+    } else {
+      for (const entry of cachedCatalog) {
+        const flagKey = entry.metadata?.vellum?.["feature-flag"];
+        if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config))
+          continue;
+        seenKeys.add(`${SKILL_SOURCE_PREFIX}${entry.id}`);
+      }
+      pruneStaleCapabilities(SKILL_SOURCE_PREFIX, seenKeys);
     }
 
-    pruneStaleCapabilities(SKILL_SOURCE_PREFIX, seenKeys);
-
-    // Clean up old-format nodes created by the legacy skill-memory.ts system.
-    // Those nodes have content like "skill:{id}\n..." instead of the current
-    // 'The "..." skill ...' format. Mark them as gone so they stop appearing
-    // as duplicates. Idempotent — once cleaned, subsequent runs find nothing.
-    cleanupOldFormatSkillNodes();
+    // Clean up old-format capability nodes (skill:* and cli:*) that use the
+    // legacy "{prefix}:{id}\n..." content format. Mark them as gone so they
+    // stop appearing as duplicates. Idempotent — once cleaned, subsequent
+    // runs find nothing.
+    cleanupOldFormatCapabilityNodes();
   } catch (err) {
     log.warn({ err }, "Failed to seed skill graph nodes");
   }
@@ -140,9 +156,9 @@ export function seedSkillGraphNodes(): void {
  * Seed graph nodes for all CLI commands.
  * Prunes stale nodes whose commands are no longer registered.
  */
-export function seedCliGraphNodes(): void {
+export async function seedCliGraphNodes(): Promise<void> {
   try {
-    const program = buildCliProgram();
+    const program = await buildCliProgram();
 
     const seenKeys = new Set<string>();
     for (const cmd of program.commands) {
@@ -219,7 +235,7 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
     .where(
       and(
         eq(memoryGraphNodes.scopeId, "default"),
-        like(memoryGraphNodes.sourceConversations, `%${sourceKey}%`),
+        eq(memoryGraphNodes.sourceConversations, JSON.stringify([sourceKey])),
       ),
     )
     .get();
@@ -229,9 +245,12 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
   if (existing) {
     if (existing.content === content && existing.fidelity !== "gone") {
       // Same content — just touch lastAccessed (and backfill lastConsolidated
-      // for nodes created before the fix so they don't decay immediately)
+      // for nodes created before the fix so they don't decay immediately,
+      // and backfill significance for nodes created before the raise to 0.6)
       const updates: Record<string, number> = { lastAccessed: now };
       if (existing.lastConsolidated === 0) updates.lastConsolidated = now;
+      if (existing.significance < CAPABILITY_SIGNIFICANCE)
+        updates.significance = CAPABILITY_SIGNIFICANCE;
       db.update(memoryGraphNodes)
         .set(updates)
         .where(eq(memoryGraphNodes.id, existing.id))
@@ -270,7 +289,7 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
     },
     fidelity: "vivid" as const,
     confidence: 1.0,
-    significance: 0.3,
+    significance: CAPABILITY_SIGNIFICANCE,
     stability: 1000, // Effectively permanent — never decays
     reinforcementCount: 0,
     lastReinforced: now,
@@ -297,7 +316,7 @@ function deleteCapabilityNode(sourceKey: string): void {
     .where(
       and(
         eq(memoryGraphNodes.scopeId, "default"),
-        like(memoryGraphNodes.sourceConversations, `%${sourceKey}%`),
+        eq(memoryGraphNodes.sourceConversations, JSON.stringify([sourceKey])),
       ),
     )
     .get();
@@ -307,19 +326,26 @@ function deleteCapabilityNode(sourceKey: string): void {
       .set({ fidelity: "gone", lastAccessed: Date.now() })
       .where(eq(memoryGraphNodes.id, existing.id))
       .run();
+    enqueueMemoryJob("delete_qdrant_vectors", {
+      targetType: "graph_node",
+      targetId: existing.id,
+    });
   }
 }
 
 /**
- * Find and soft-delete old-format skill memory nodes.
+ * Find and soft-delete old-format capability memory nodes (skill:* and cli:*).
  *
- * The legacy skill-memory.ts system stored content as "skill:{id}\n{statement}".
- * The current system uses "The "..." skill ..." prose format. This marks any
- * remaining old-format nodes as gone so they no longer surface in retrieval.
+ * The legacy system stored content as "skill:{id}\n{statement}" or
+ * "cli:{command}\n{statement}". The current system uses prose format.
+ * This marks any remaining old-format nodes as gone so they no longer
+ * surface in retrieval.
  */
-function cleanupOldFormatSkillNodes(): void {
+function cleanupOldFormatCapabilityNodes(): void {
   const db = getDb();
+  const now = Date.now();
 
+  // --- skill:* old-format nodes ---
   const oldFormatNodes = db
     .select()
     .from(memoryGraphNodes)
@@ -333,7 +359,6 @@ function cleanupOldFormatSkillNodes(): void {
     )
     .all();
 
-  const now = Date.now();
   for (const node of oldFormatNodes) {
     // Verify this is truly old-format: "skill:{id}\n..."
     if (!/^skill:\S+\n/.test(node.content)) continue;
@@ -342,7 +367,38 @@ function cleanupOldFormatSkillNodes(): void {
       .set({ fidelity: "gone", lastAccessed: now })
       .where(eq(memoryGraphNodes.id, node.id))
       .run();
+    enqueueMemoryJob("delete_qdrant_vectors", {
+      targetType: "graph_node",
+      targetId: node.id,
+    });
     log.info({ nodeId: node.id }, "Cleaned up old-format skill memory node");
+  }
+
+  // --- cli:* old-format nodes ---
+  const oldCliNodes = db
+    .select()
+    .from(memoryGraphNodes)
+    .where(
+      and(
+        eq(memoryGraphNodes.type, "procedural"),
+        eq(memoryGraphNodes.scopeId, "default"),
+        sql`${memoryGraphNodes.fidelity} != 'gone'`,
+        sql`${memoryGraphNodes.content} LIKE 'cli:%'`,
+      ),
+    )
+    .all();
+
+  for (const node of oldCliNodes) {
+    if (!/^cli:\S+\n/.test(node.content)) continue;
+    db.update(memoryGraphNodes)
+      .set({ fidelity: "gone", lastAccessed: now })
+      .where(eq(memoryGraphNodes.id, node.id))
+      .run();
+    enqueueMemoryJob("delete_qdrant_vectors", {
+      targetType: "graph_node",
+      targetId: node.id,
+    });
+    log.info({ nodeId: node.id }, "Cleaned up old-format CLI memory node");
   }
 }
 
@@ -379,6 +435,10 @@ function pruneStaleCapabilities(prefix: string, activeKeys: Set<string>): void {
           .set({ fidelity: "gone", lastAccessed: now })
           .where(eq(memoryGraphNodes.id, row.id))
           .run();
+        enqueueMemoryJob("delete_qdrant_vectors", {
+          targetType: "graph_node",
+          targetId: row.id,
+        });
       }
     } catch {
       // Skip malformed JSON

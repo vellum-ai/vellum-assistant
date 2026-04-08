@@ -29,7 +29,7 @@ export interface ResolveOAuthConnectionOptions {
  * BYO providers resolve from the local SQLite oauth-store and require an
  * active connection row and a stored access token.
  *
- * @param providerKey - Provider identifier (e.g. "google").
+ * @param provider - Provider identifier (e.g. "google").
  *   Maps to the `provider_key` primary key in the `oauth_providers` table.
  * @param options.clientId - Optional OAuth app client ID. When multiple BYO
  *   apps exist for the same provider, narrows the connection lookup to the
@@ -38,12 +38,12 @@ export interface ResolveOAuthConnectionOptions {
  *   multi-account connections.
  */
 export async function resolveOAuthConnection(
-  providerKey: string,
+  provider: string,
   options?: ResolveOAuthConnectionOptions,
 ): Promise<OAuthConnection> {
   const { clientId, account } = options ?? {};
-  const provider = getProvider(providerKey);
-  const managedKey = provider?.managedServiceConfigKey;
+  const providerRow = getProvider(provider);
+  const managedKey = providerRow?.managedServiceConfigKey;
 
   if (managedKey && managedKey in ServicesSchema.shape) {
     const services: Services = getConfig().services;
@@ -54,31 +54,31 @@ export async function resolveOAuthConnection(
           ? "missing platform prerequisites"
           : "missing assistant ID";
         throw new Error(
-          `Platform-managed connection for "${providerKey}" cannot be created: ${detail}. ` +
+          `Platform-managed connection for "${provider}" cannot be created: ${detail}. ` +
             `Log in to the Vellum platform or switch to using your own OAuth app.`,
         );
       }
 
       const connectionId = await resolvePlatformConnectionId({
         client,
-        provider: providerKey,
+        provider,
         account,
       });
 
       return new PlatformOAuthConnection({
-        id: providerKey,
-        providerKey,
-        externalId: providerKey,
+        id: provider,
+        provider,
+        externalId: provider,
         accountInfo: account ?? null,
         client,
         connectionId,
-        baseUrl: provider?.baseUrl ?? undefined,
+        baseUrl: providerRow?.baseUrl ?? undefined,
       });
     }
   }
 
   // BYO path — requires a local connection row, access token, and base URL.
-  const conn = getActiveConnection(providerKey, { clientId, account });
+  const conn = getActiveConnection(provider, { clientId, account });
   if (!conn) {
     const filters = [
       account && `account "${account}"`,
@@ -88,7 +88,7 @@ export async function resolveOAuthConnection(
       ? ` matching ${filters.join(" and ")}`
       : "";
     throw new Error(
-      `No active OAuth connection found for "${providerKey}"${qualifier}. Connect the service first with \`assistant oauth connect ${providerKey}\`.`,
+      `No active OAuth connection found for "${provider}"${qualifier}. Connect the service first with \`assistant oauth connect ${provider}\`.`,
     );
   }
 
@@ -97,20 +97,20 @@ export async function resolveOAuthConnection(
   );
   if (!accessToken) {
     throw new Error(
-      `OAuth connection for "${providerKey}" exists but has no access token. Re-authorize with \`assistant oauth connect ${providerKey}\`.`,
+      `OAuth connection for "${provider}" exists but has no access token. Re-authorize with \`assistant oauth connect ${provider}\`.`,
     );
   }
 
-  const baseUrl = provider?.baseUrl;
+  const baseUrl = providerRow?.baseUrl;
   if (!baseUrl) {
     throw new Error(
-      `OAuth provider "${providerKey}" has no base URL configured. Check provider setup.`,
+      `OAuth provider "${provider}" has no base URL configured. Check provider setup.`,
     );
   }
 
   return new BYOOAuthConnection({
     id: conn.id,
-    providerKey: conn.providerKey,
+    provider: conn.provider,
     baseUrl,
     accountInfo: conn.accountInfo,
   });

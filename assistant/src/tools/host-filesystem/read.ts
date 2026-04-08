@@ -13,7 +13,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 class HostFileReadTool implements Tool {
   name = "host_file_read";
   description =
-    "Read the contents of a file on the host filesystem, including images (JPEG, PNG, GIF, WebP). Not for workspace files under .vellum (use file_read instead).";
+    "Read the contents of a file on your guardian's device, including images (JPEG, PNG, GIF, WebP). For files on your own machine, use file_read instead.";
   category = "host-filesystem";
   defaultRiskLevel = RiskLevel.Medium;
 

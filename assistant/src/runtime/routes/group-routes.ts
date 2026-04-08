@@ -63,8 +63,22 @@ export function groupRouteDefinitions(): RouteDefinition[] {
         if (!body.name || typeof body.name !== "string") {
           return httpError("BAD_REQUEST", "Missing or invalid name", 400);
         }
-        const group = createGroup(body.name);
-        return Response.json(serializeGroup(group), { status: 201 });
+        try {
+          const group = createGroup(body.name);
+          return Response.json(serializeGroup(group), { status: 201 });
+        } catch (err) {
+          if (
+            err instanceof Error &&
+            err.message.includes("sort_position must be >= 4")
+          ) {
+            return httpError(
+              "BAD_REQUEST",
+              "Too many custom groups — sort_position ceiling reached",
+              400,
+            );
+          }
+          throw err;
+        }
       },
     },
     {
@@ -105,16 +119,16 @@ export function groupRouteDefinitions(): RouteDefinition[] {
             403,
           );
         }
-        // Custom group sort_position must be >= 3
+        // Custom group sort_position must be >= 4 (0–3 reserved for system groups)
         if (
           body.sortPosition !== undefined &&
           (typeof body.sortPosition !== "number" ||
             !isFinite(body.sortPosition) ||
-            body.sortPosition < 3)
+            body.sortPosition < 4)
         ) {
           return httpError(
             "BAD_REQUEST",
-            "Custom group sort_position must be >= 3",
+            "Custom group sort_position must be >= 4",
             400,
           );
         }
@@ -176,7 +190,7 @@ export function groupRouteDefinitions(): RouteDefinition[] {
         if (!Array.isArray(body.updates)) {
           return httpError("BAD_REQUEST", "Missing updates array", 400);
         }
-        // Validate: no system group reordering, no sort_position < 3 for custom groups
+        // Validate: no system group reordering, sort_position >= 4 for custom groups
         for (const update of body.updates) {
           const group = getGroup(update.groupId);
           if (!group) continue;
@@ -190,11 +204,11 @@ export function groupRouteDefinitions(): RouteDefinition[] {
           if (
             typeof update.sortPosition !== "number" ||
             !isFinite(update.sortPosition) ||
-            update.sortPosition < 3
+            update.sortPosition < 4
           ) {
             return httpError(
               "BAD_REQUEST",
-              `Custom group sort_position must be >= 3 (got ${update.sortPosition} for ${update.groupId})`,
+              `Custom group sort_position must be >= 4 (got ${update.sortPosition} for ${update.groupId})`,
               400,
             );
           }

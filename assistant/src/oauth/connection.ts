@@ -32,6 +32,6 @@ export interface OAuthConnection {
   withToken<T>(fn: (token: string) => Promise<T>): Promise<T>;
 
   readonly id: string;
-  readonly providerKey: string;
+  readonly provider: string;
   readonly accountInfo: string | null;
 }

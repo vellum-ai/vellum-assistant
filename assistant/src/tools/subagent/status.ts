@@ -1,12 +1,22 @@
 import { getSubagentManager } from "../../subagent/index.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+import { resolveSubagentId } from "./resolve.js";
 
 export async function executeSubagentStatus(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const subagentId = input.subagent_id as string | undefined;
+  const subagentId = resolveSubagentId(input, context);
   const manager = getSubagentManager();
+
+  // If a label was provided but didn't resolve, that's an error — don't fall
+  // through to the "list all" path.
+  if (!subagentId && input.label) {
+    return {
+      content: `No subagent found with label "${input.label as string}".`,
+      isError: true,
+    };
+  }
 
   if (subagentId) {
     const state = manager.getState(subagentId);
@@ -24,6 +34,7 @@ export async function executeSubagentStatus(
         subagentId: state.config.id,
         label: state.config.label,
         status: state.status,
+        isFork: state.isFork,
         error: state.error,
         createdAt: state.createdAt,
         startedAt: state.startedAt,
@@ -47,6 +58,7 @@ export async function executeSubagentStatus(
     subagentId: s.config.id,
     label: s.config.label,
     status: s.status,
+    isFork: s.isFork,
     error: s.error,
   }));
 

@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 import SwiftUI
 import UniformTypeIdentifiers
 import VellumAssistantShared
@@ -9,6 +10,64 @@ extension Notification.Name {
     static let internalImageDragStarted = Notification.Name("com.vellum.internalImageDragStarted")
 }
 
+// MARK: - Display-Resolution Image Downsampling
+
+/// Downsample raw image data to the target display size using ImageIO's streaming
+/// decoder (`CGImageSourceCreateThumbnailAtIndex`). This is the preferred path —
+/// it feeds compressed bytes directly to ImageIO, avoiding a full-resolution
+/// bitmap allocation entirely.
+///
+/// - Parameters:
+///   - data: Raw image file data (JPEG, PNG, HEIC, etc.).
+///   - targetSize: The maximum display-point dimensions for rendering.
+///   - scale: The display scale factor (e.g., 2.0 for Retina).
+/// - Returns: A downsampled `NSImage` sized for display, or `nil` if decoding fails.
+///
+/// Reference: [WWDC18 — Images and Graphics Best Practices](https://developer.apple.com/videos/play/wwdc2018/219/)
+private func downsampleForDisplay(data: Data, targetSize: CGSize, scale: CGFloat) -> NSImage? {
+    let maxPixelDimension = max(targetSize.width, targetSize.height) * scale
+    guard maxPixelDimension > 0 else { return nil }
+    guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+
+    let options: [CFString: Any] = [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+        kCGImageSourceThumbnailMaxPixelSize: Int(maxPixelDimension)
+    ]
+    guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+        return nil
+    }
+    return NSImage(cgImage: cgImage, size: .zero)
+}
+
+/// Downsample an already-decoded `NSImage` to the target display size.
+/// Falls back to TIFF → ImageIO when raw file bytes are unavailable (e.g. images
+/// arriving from cache or tool calls as decoded `NSImage` objects).
+///
+/// - Parameters:
+///   - image: The source image (may be arbitrarily large).
+///   - targetSize: The maximum display-point dimensions for rendering.
+///   - scale: The display scale factor (e.g., 2.0 for Retina).
+/// - Returns: A downsampled `NSImage` sized for display, or the original if
+///   downsampling fails or the image is already small enough.
+private func downsampleForDisplay(_ image: NSImage, targetSize: CGSize, scale: CGFloat) -> NSImage {
+    let maxPixelDimension = max(targetSize.width, targetSize.height) * scale
+    guard maxPixelDimension > 0 else { return image }
+
+    // Check if the image is already small enough — skip downsampling to avoid
+    // unnecessary re-encoding and potential quality loss.
+    if let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+        let sourceMaxDim = max(CGFloat(cgImage.width), CGFloat(cgImage.height))
+        if sourceMaxDim <= maxPixelDimension * 1.1 {
+            return image
+        }
+    }
+
+    // Fall back to TIFF round-trip when raw file bytes are unavailable.
+    guard let tiffData = image.tiffRepresentation else { return image }
+    return downsampleForDisplay(data: tiffData, targetSize: targetSize, scale: scale) ?? image
+}
+
 // MARK: - Inline Tool Call Image
 
 /// Renders a single tool-call-generated image at full width in the message flow.
@@ -17,11 +76,13 @@ private struct InlineToolCallImageView: View {
     let image: NSImage
     @Environment(\.displayScale) private var displayScale
     @State private var sharingServices: [NSSharingService] = []
+    @State private var displayImage: NSImage?
 
     @available(macOS, deprecated: 13.0)
     var body: some View {
         imageContent
             .onTapGesture {
+                // Open lightbox with the original full-resolution image.
                 AppDelegate.shared?.mainWindow?.windowState.showImageLightbox(
                     image: image, filename: "image.png"
                 )
@@ -35,6 +96,13 @@ private struct InlineToolCallImageView: View {
             }
             .task {
                 sharingServices = await ImageActions.loadSharingServices(for: "image.png")
+            }
+            .task(id: displayScale) {
+                let maxDim = VSpacing.chatBubbleMaxWidth
+                let targetSize = CGSize(width: maxDim, height: maxDim)
+                let scale = displayScale
+                let source = image
+                displayImage = downsampleForDisplay(source, targetSize: targetSize, scale: scale)
             }
             .onDrag {
                 NotificationCenter.default.post(name: .internalImageDragStarted, object: nil)
@@ -55,7 +123,8 @@ private struct InlineToolCallImageView: View {
 
     @ViewBuilder
     private var imageContent: some View {
-        if let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+        let renderImage = displayImage ?? image
+        if let cgImage = renderImage.cgImage(forProposedRect: nil, context: nil, hints: nil) {
             let nativeWidth = CGFloat(cgImage.width) / displayScale
             let nativeHeight = CGFloat(cgImage.height) / displayScale
             let maxDim: CGFloat = VSpacing.chatBubbleMaxWidth
@@ -69,7 +138,7 @@ private struct InlineToolCallImageView: View {
                 )
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         } else {
-            Image(nsImage: image)
+            Image(nsImage: renderImage)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
@@ -205,58 +274,83 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                 // SwiftUI can cancel the work immediately when the bubble scrolls off-screen.
                 // Wrapping in Task(priority:){}.value creates an unstructured task that is NOT
                 // cancelled by the .task modifier, causing off-screen decodes to run to completion.
-                .task(id: attachment.id) {
+                .task(id: "\(attachment.id)-\(displayScale)") {
+                    let scale = displayScale
                     if isSingleImage {
+                        let targetSize = CGSize(width: VSpacing.chatBubbleMaxWidth, height: VSpacing.chatBubbleMaxWidth)
                         // Single images: prefer full-resolution data so the frame
                         // sizing (which uses native pixel dimensions) is accurate.
                         // Thumbnails are 800px max — using them gives ~400pt on
                         // Retina, adequate for most previews.
-                        if let fullData = Data(base64Encoded: attachment.data), !fullData.isEmpty,
-                           let img = NSImage(data: fullData) {
+                        if let fullData = Data(base64Encoded: attachment.data), !fullData.isEmpty {
                             guard !Task.isCancelled else { return }
-                            loadedImages[attachment.id] = img
-                            return
+                            // Prefer direct data → ImageIO path (no full-res bitmap allocation).
+                            if let downsampled = downsampleForDisplay(data: fullData, targetSize: targetSize, scale: scale) {
+                                loadedImages[attachment.id] = downsampled
+                                return
+                            }
+                            // Fall back to NSImage decode if ImageIO can't handle the format.
+                            if let img = NSImage(data: fullData) {
+                                loadedImages[attachment.id] = downsampleForDisplay(img, targetSize: targetSize, scale: scale)
+                                return
+                            }
                         }
 
                         guard !Task.isCancelled else { return }
 
                         // Full data unavailable (lazy-load or cleared) — fall back to thumbnail.
                         if let img = attachment.thumbnailImage {
-                            loadedImages[attachment.id] = img
+                            loadedImages[attachment.id] = downsampleForDisplay(img, targetSize: targetSize, scale: scale)
                             return
                         }
 
                         guard !Task.isCancelled else { return }
 
-                        if let thumbnailData = attachment.thumbnailData, !thumbnailData.isEmpty,
-                           let img = NSImage(data: thumbnailData) {
+                        if let thumbnailData = attachment.thumbnailData, !thumbnailData.isEmpty {
                             guard !Task.isCancelled else { return }
-                            loadedImages[attachment.id] = img
-                            return
+                            if let downsampled = downsampleForDisplay(data: thumbnailData, targetSize: targetSize, scale: scale) {
+                                loadedImages[attachment.id] = downsampled
+                                return
+                            }
+                            if let img = NSImage(data: thumbnailData) {
+                                loadedImages[attachment.id] = downsampleForDisplay(img, targetSize: targetSize, scale: scale)
+                                return
+                            }
                         }
                     } else {
+                        let gridTargetSize = CGSize(width: 160, height: 120)
                         // Grid mode: prefer thumbnails for fast loading of many images.
                         if let img = attachment.thumbnailImage {
-                            loadedImages[attachment.id] = img
+                            loadedImages[attachment.id] = downsampleForDisplay(img, targetSize: gridTargetSize, scale: scale)
                             return
                         }
 
                         guard !Task.isCancelled else { return }
 
-                        if let thumbnailData = attachment.thumbnailData, !thumbnailData.isEmpty,
-                           let img = NSImage(data: thumbnailData) {
+                        if let thumbnailData = attachment.thumbnailData, !thumbnailData.isEmpty {
                             guard !Task.isCancelled else { return }
-                            loadedImages[attachment.id] = img
-                            return
+                            if let downsampled = downsampleForDisplay(data: thumbnailData, targetSize: gridTargetSize, scale: scale) {
+                                loadedImages[attachment.id] = downsampled
+                                return
+                            }
+                            if let img = NSImage(data: thumbnailData) {
+                                loadedImages[attachment.id] = downsampleForDisplay(img, targetSize: gridTargetSize, scale: scale)
+                                return
+                            }
                         }
 
                         guard !Task.isCancelled else { return }
 
-                        if let fullData = Data(base64Encoded: attachment.data), !fullData.isEmpty,
-                           let img = NSImage(data: fullData) {
+                        if let fullData = Data(base64Encoded: attachment.data), !fullData.isEmpty {
                             guard !Task.isCancelled else { return }
-                            loadedImages[attachment.id] = img
-                            return
+                            if let downsampled = downsampleForDisplay(data: fullData, targetSize: gridTargetSize, scale: scale) {
+                                loadedImages[attachment.id] = downsampled
+                                return
+                            }
+                            if let img = NSImage(data: fullData) {
+                                loadedImages[attachment.id] = downsampleForDisplay(img, targetSize: gridTargetSize, scale: scale)
+                                return
+                            }
                         }
                     }
 

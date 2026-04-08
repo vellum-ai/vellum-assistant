@@ -96,6 +96,10 @@ public final class SubagentDetailStore {
     /// Staged usage stat updates accumulate here between flushes.
     @ObservationIgnored
     private var stagedUsage: [String: SubagentUsageStats] = [:]
+    /// Subagent IDs that have received a terminal status (completed/failed/aborted).
+    /// Late `.usageUpdate` deltas are skipped for these to prevent double-counting.
+    @ObservationIgnored
+    private var terminalSubagentIds: Set<String> = []
     /// The coalescing flush task; non-nil while a flush is scheduled.
     @ObservationIgnored
     private var flushTask: Task<Void, Never>?
@@ -230,7 +234,10 @@ public final class SubagentDetailStore {
     }
 
     /// Record a status change with optional usage stats.
-    public func recordStatusChanged(subagentId: String, usage: UsageStats?) {
+    public func recordStatusChanged(subagentId: String, status: SubagentStatus, usage: UsageStats?) {
+        if status.isTerminal {
+            terminalSubagentIds.insert(subagentId)
+        }
         if let usage {
             stagedUsage[subagentId] = SubagentUsageStats(
                 inputTokens: usage.inputTokens,
@@ -309,6 +316,21 @@ public final class SubagentDetailStore {
             events.append(item)
             stageEvents(events, for: subagentId)
             trimStagedEvents(for: subagentId)
+            #if DEBUG
+            trackMutation()
+            #endif
+
+        case .usageUpdate(let update):
+            // Skip late deltas after terminal status to avoid double-counting
+            // (recordStatusChanged already wrote cumulative stats).
+            guard !terminalSubagentIds.contains(subagentId) else { break }
+            let current = stagedUsage[subagentId] ?? subagentStates[subagentId]?.usageStats ?? SubagentUsageStats()
+            stagedUsage[subagentId] = SubagentUsageStats(
+                inputTokens: update.totalInputTokens,
+                outputTokens: update.totalOutputTokens,
+                estimatedCost: current.estimatedCost + update.estimatedCost
+            )
+            scheduleFlush()
             #if DEBUG
             trackMutation()
             #endif

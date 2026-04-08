@@ -74,7 +74,7 @@ public struct ModelListBubble: View {
                         }
 
                         Text(model.displayName)
-                            .font(model.isCurrent ? VFont.bodyMediumDefault : VFont.bodyMediumLighter)
+                            .font(model.isCurrent ? VFont.bodyMediumEmphasised : VFont.bodyMediumLighter)
                             .foregroundStyle(group.hasKey ? VColor.contentDefault : VColor.contentTertiary)
 
                         Spacer()

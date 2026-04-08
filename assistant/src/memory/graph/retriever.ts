@@ -177,10 +177,11 @@ async function dedupForTurn(
   candidates: ScoredNode[],
   maxNodes: number,
   query: string,
-): Promise<ScoredNode[]> {
+): Promise<{ nodes: ScoredNode[]; llmApplied: boolean }> {
   try {
     const provider = await getConfiguredProvider();
-    if (!provider) return candidates.slice(0, maxNodes);
+    if (!provider)
+      return { nodes: candidates.slice(0, maxNodes), llmApplied: false };
 
     const now = Date.now();
     const listing = candidates
@@ -209,10 +210,12 @@ async function dedupForTurn(
     );
 
     const toolBlock = extractToolUse(response);
-    if (!toolBlock) return candidates.slice(0, maxNodes);
+    if (!toolBlock)
+      return { nodes: candidates.slice(0, maxNodes), llmApplied: false };
 
     const input = toolBlock.input as { items?: number[] };
-    if (!input.items?.length) return candidates.slice(0, maxNodes);
+    if (!input.items?.length)
+      return { nodes: candidates.slice(0, maxNodes), llmApplied: false };
 
     const reranked: ScoredNode[] = [];
     const seen = new Set<number>();
@@ -225,14 +228,14 @@ async function dedupForTurn(
     }
 
     return reranked.length > 0
-      ? reranked.slice(0, maxNodes)
-      : candidates.slice(0, maxNodes);
+      ? { nodes: reranked.slice(0, maxNodes), llmApplied: true }
+      : { nodes: candidates.slice(0, maxNodes), llmApplied: false };
   } catch (err) {
     log.warn(
       { err: err instanceof Error ? err.message : String(err) },
       "Per-turn dedup+rerank failed, using scored order",
     );
-    return candidates.slice(0, maxNodes);
+    return { nodes: candidates.slice(0, maxNodes), llmApplied: false };
   }
 }
 
@@ -368,8 +371,9 @@ export async function loadContextMemory(
   opts: ContextLoadOpts,
 ): Promise<ContextLoadResult> {
   const start = Date.now();
-  const maxNodes = opts.maxNodes ?? 40;
-  const serendipitySlots = opts.serendipitySlots ?? 10;
+  const ctxLoadCfg = opts.config.memory.retrieval.injection.contextLoad;
+  const maxNodes = opts.maxNodes ?? ctxLoadCfg.maxNodes;
+  const serendipitySlots = opts.serendipitySlots ?? ctxLoadCfg.serendipitySlots;
   const now = new Date();
   const nowMs = now.getTime();
 
@@ -377,11 +381,13 @@ export async function loadContextMemory(
   let queryVector: number[] | null = null;
   let embeddingProvider: string | null = null;
   let embeddingModel: string | null = null;
+  let contextQueryText: string | null = null;
   if (opts.recentSummaries.length > 0) {
     try {
       const queryText = opts.recentSummaries.join("\n\n");
       const truncated =
         queryText.length > 3000 ? queryText.slice(0, 3000) : queryText;
+      contextQueryText = truncated;
       const result = await embedWithRetry(opts.config, [truncated], {
         signal: opts.signal,
       });
@@ -542,13 +548,16 @@ export async function loadContextMemory(
   // 5b. Reserve slots for skill/CLI capabilities. Queried directly from
   // SQLite — no Qdrant vectors needed — so capabilities surface even on
   // fresh assistants whose embedding jobs haven't completed yet.
-  const CAPABILITY_RESERVE = 5;
-  const rawCapabilityNodes = queryNodes({
-    scopeId: opts.scopeId,
-    types: ["procedural"],
-    fidelityNot: ["gone"],
-    limit: CAPABILITY_RESERVE * 4,
-  });
+  const capabilityReserve = ctxLoadCfg.capabilityReserve;
+  const rawCapabilityNodes =
+    capabilityReserve > 0
+      ? queryNodes({
+          scopeId: opts.scopeId,
+          types: ["procedural"],
+          fidelityNot: ["gone"],
+          limit: capabilityReserve * 4,
+        })
+      : [];
 
   // Dedup: both seeding systems may create nodes for the same capability.
   // Extract capability ID from content and keep only the first node per ID.
@@ -569,14 +578,14 @@ export async function loadContextMemory(
 
   // Rank by semantic similarity when a query vector exists
   let selectedCapabilities: MemoryNode[];
-  if (queryVector && capabilityNodes.length > CAPABILITY_RESERVE) {
+  if (queryVector && capabilityNodes.length > capabilityReserve) {
     selectedCapabilities = capabilityNodes
       .map((node) => ({ node, sim: semanticCandidateIds.get(node.id) ?? 0 }))
       .sort((a, b) => b.sim - a.sim)
-      .slice(0, CAPABILITY_RESERVE)
+      .slice(0, capabilityReserve)
       .map((e) => e.node);
   } else {
-    selectedCapabilities = capabilityNodes.slice(0, CAPABILITY_RESERVE);
+    selectedCapabilities = capabilityNodes.slice(0, capabilityReserve);
   }
 
   const reservedCapabilities: ScoredNode[] = selectedCapabilities.map(
@@ -595,105 +604,15 @@ export async function loadContextMemory(
     },
   );
 
-  // 6. Reserve slots for recent prospective nodes (commitments, tasks, plans).
-  //    These MUST surface at conversation start regardless of score — if the user
-  //    said "I have a doctor appointment tomorrow," the assistant must remember it.
-  const PROSPECTIVE_RESERVE = 10;
-  const recentProspective = queryNodes({
-    scopeId: opts.scopeId,
-    types: ["prospective"],
-    fidelityNot: ["gone"],
-    createdAfter: nowMs - 3 * 24 * 60 * 60 * 1000, // last 3 days
-    limit: PROSPECTIVE_RESERVE,
-  });
-
-  // Filter out prospective nodes that have been superseded or resolved.
-  // A "supersedes" or "resolved-by" edge targeting a node means its
-  // content has been replaced by a newer memory — stop force-surfacing it.
-  const unresolvedProspective = recentProspective.filter((node) => {
-    const incoming = getEdgesForNode(node.id, "incoming");
-    return !incoming.some(
-      (e) =>
-        e.relationship === "supersedes" || e.relationship === "resolved-by",
-    );
-  });
-
-  // Score them so they have breakdowns, but they're guaranteed inclusion
-  const prospectiveIds = new Set(unresolvedProspective.map((n) => n.id));
-  const reservedNodes: ScoredNode[] = unresolvedProspective.map((node) => {
-    const existing = scored.find((s) => s.node.id === node.id);
-    if (existing) return existing;
-    return scoreCandidate(node, {
-      semanticSimilarity: 0,
-      effectiveSignificance: computeEffectiveSignificance(node, nowMs),
-      emotionalIntensity: node.emotionalCharge.intensity,
-      temporalBoost: (computeTemporalBoost(node, now) + 1) / 2,
-      recencyBoost: computeRecencyBoost(node, nowMs),
-      triggerBoost: 0,
-      activationBoost: 0,
-    });
-  });
-
-  // Reserve slots for upcoming events (nodes with event dates in the future).
-  // Like prospective reservation, these MUST surface — if the user said
-  // "I have a flight Tuesday," the assistant must remember it regardless of score.
-  const UPCOMING_RESERVE = 5;
-  const upcomingEvents = queryNodes({
-    scopeId: opts.scopeId,
-    fidelityNot: ["gone"],
-    hasEventDate: true,
-    eventDateAfter: nowMs,
-    eventDateBefore: nowMs + 30 * 24 * 60 * 60 * 1000, // next 30 days
-    limit: 20, // Fetch extra candidates — post-sort by proximity below
-  });
-
-  // Sort by event date ascending so soonest events get reserved first
-  // (queryNodes sorts by significance, which would drop a tomorrow-event
-  // with low significance in favor of a 3-weeks-away high-significance one)
-  upcomingEvents.sort((a, b) => (a.eventDate ?? 0) - (b.eventDate ?? 0));
-
-  const unresolvedUpcoming = upcomingEvents
-    .filter((node) => {
-      if (prospectiveIds.has(node.id)) return false; // already reserved as prospective
-      const incoming = getEdgesForNode(node.id, "incoming");
-      return !incoming.some(
-        (e) =>
-          e.relationship === "supersedes" || e.relationship === "resolved-by",
-      );
-    })
-    .slice(0, UPCOMING_RESERVE);
-
-  const upcomingIds = new Set(unresolvedUpcoming.map((n) => n.id));
-  const reservedUpcoming: ScoredNode[] = unresolvedUpcoming.map((node) => {
-    const existing = scored.find((s) => s.node.id === node.id);
-    if (existing) return existing;
-    return scoreCandidate(node, {
-      semanticSimilarity: 0,
-      effectiveSignificance: computeEffectiveSignificance(node, nowMs),
-      emotionalIntensity: node.emotionalCharge.intensity,
-      temporalBoost: (computeTemporalBoost(node, now) + 1) / 2,
-      recencyBoost: computeRecencyBoost(node, nowMs),
-      triggerBoost: 0,
-      activationBoost: 0,
-    });
-  });
-
-  // Remove reserved nodes and all procedural nodes from the main pool.
-  // Procedural nodes have dedicated reserved slots — any that didn't make
-  // the cut shouldn't compete with organic memories for general slots.
-  const mainPool = scored.filter(
-    (s) =>
-      !isCapabilityNode(s.node) &&
-      !prospectiveIds.has(s.node.id) &&
-      !upcomingIds.has(s.node.id),
-  );
+  // 6. Remove procedural nodes from the main pool — they have dedicated
+  //    reserved slots and shouldn't compete with organic memories.
+  //    Prospective/upcoming reserves were removed in favor of the PKB
+  //    (personal knowledge base) which handles commitments and schedule
+  //    via always-loaded flat files.
+  const mainPool = scored.filter((s) => !isCapabilityNode(s.node));
   const mainSlots = Math.max(
     0,
-    maxNodes -
-      serendipitySlots -
-      reservedNodes.length -
-      reservedUpcoming.length -
-      reservedCapabilities.length,
+    maxNodes - serendipitySlots - reservedCapabilities.length,
   );
 
   // 7. LLM re-ranking on the main pool: dedup + select
@@ -703,18 +622,14 @@ export async function loadContextMemory(
     opts.config,
   );
 
-  // 8. Combine: reserved prospective + reserved upcoming + reserved capabilities + reranked main pool
-  const deterministic = [
-    ...reservedNodes,
-    ...reservedUpcoming,
-    ...reservedCapabilities,
-    ...reranked,
-  ].slice(0, maxNodes - serendipitySlots);
+  // 8. Combine: reserved capabilities + reranked main pool
+  const deterministic = [...reservedCapabilities, ...reranked].slice(
+    0,
+    maxNodes - serendipitySlots,
+  );
   // Exclude procedural nodes from serendipity — they have reserved slots
   // and shouldn't appear as random wildcard picks.
-  const serendipityPool = scored.filter(
-    (s) => !isCapabilityNode(s.node),
-  );
+  const serendipityPool = scored.filter((s) => !isCapabilityNode(s.node));
   const serendipityPicks = sampleSerendipity(serendipityPool, serendipitySlots);
 
   // Deduplicate serendipity against deterministic
@@ -764,12 +679,13 @@ export async function loadContextMemory(
       semanticHits: pureSemanticHits,
       mergedCount: scored.length,
       selectedCount: dedupedDeterministic.length + dedupedSerendipity.length,
-      tier1Count: reservedNodes.length + reservedUpcoming.length,
+      tier1Count: 0,
       tier2Count: reservedCapabilities.length,
       hybridSearchLatencyMs,
       sparseVectorUsed: false,
       embeddingProvider,
       embeddingModel,
+      queryContext: contextQueryText,
       topCandidates,
     },
   };
@@ -832,6 +748,7 @@ export async function retrieveForTurn(
     sparseVectorUsed: false,
     embeddingProvider: null,
     embeddingModel: null,
+    queryContext: null,
     topCandidates: [],
   };
 
@@ -890,12 +807,17 @@ export async function retrieveForTurn(
 
   if (queryText.trim().length === 0 && allCandidateIds.size === 0) {
     return {
-      nodes: [], serendipityNodes: [], triggeredNodes: [], latencyMs: Date.now() - start,
+      nodes: [],
+      serendipityNodes: [],
+      triggeredNodes: [],
+      latencyMs: Date.now() - start,
       metrics: {
         ...ZERO_METRICS,
-        hybridSearchLatencyMs: imageBlocks.length > 0 ? Date.now() - searchStart : 0,
+        hybridSearchLatencyMs:
+          imageBlocks.length > 0 ? Date.now() - searchStart : 0,
         embeddingProvider,
         embeddingModel,
+        queryContext: queryText || null,
       },
     };
   }
@@ -958,12 +880,16 @@ export async function retrieveForTurn(
       log.warn({ err }, "Embedding/search failed for turn retrieval");
       if (allCandidateIds.size === 0) {
         return {
-          nodes: [], serendipityNodes: [], triggeredNodes: [], latencyMs: Date.now() - start,
+          nodes: [],
+          serendipityNodes: [],
+          triggeredNodes: [],
+          latencyMs: Date.now() - start,
           metrics: {
             ...ZERO_METRICS,
             hybridSearchLatencyMs: Date.now() - searchStart,
             embeddingProvider,
             embeddingModel,
+            queryContext: queryText || null,
           },
         };
       }
@@ -1015,6 +941,7 @@ export async function retrieveForTurn(
         hybridSearchLatencyMs,
         embeddingProvider,
         embeddingModel,
+        queryContext: queryText || null,
       },
     };
   }
@@ -1022,12 +949,19 @@ export async function retrieveForTurn(
   // 5. Hydrate and score
   const nodes = getNodesByIds(newCandidateIds);
   const scored: ScoredNode[] = [];
+  const capabilityCandidates: { node: MemoryNode; sim: number }[] = [];
 
   for (const node of nodes) {
     if (node.fidelity === "gone") continue;
     // Capability nodes (auto-seeded skills/CLI) are excluded from the general
     // scoring pool — they compete in the dedicated procedural reserve below.
-    if (isCapabilityNode(node)) continue;
+    if (isCapabilityNode(node)) {
+      capabilityCandidates.push({
+        node,
+        sim: allCandidateIds.get(node.id) ?? 0,
+      });
+      continue;
+    }
 
     const semanticSim = allCandidateIds.get(node.id) ?? 0;
     const effectiveSig = computeEffectiveSignificance(node, nowMs);
@@ -1054,41 +988,30 @@ export async function retrieveForTurn(
     );
   }
 
-  // 5b. Reserve slots for procedural memories (how-to knowledge + capabilities).
-  // Queried from SQLite — no additional Qdrant call — then ranked by the
-  // semantic similarity scores already computed from vector search.
-  const PROCEDURAL_RESERVE = 3;
-  const rawProceduralNodes = queryNodes({
-    scopeId: opts.scopeId,
-    types: ["procedural"],
-    fidelityNot: ["gone"],
-    limit: PROCEDURAL_RESERVE * 4,
-  });
+  // 5b. Reserve slots for capability nodes (skills/CLI).
+  // Sourced from vector search candidates — only semantically relevant
+  // capabilities compete for reserved slots.
+  const perTurnCfg = opts.config.memory.retrieval.injection.perTurn;
+  const capabilityReserve = perTurnCfg.capabilityReserve;
 
-  const proceduralCandidates = rawProceduralNodes.filter(
-    (node) => !opts.tracker.isInContext(node.id),
-  );
+  const proceduralCandidates = capabilityCandidates
+    .filter(({ node }) => !opts.tracker.isInContext(node.id))
+    .sort((a, b) => b.sim - a.sim);
 
-  // Dedup capability nodes by capability ID before ranking so that the same
-  // skill/CLI command doesn't consume multiple procedural reserve slots.
   const seenProcCapIds = new Set<string>();
-  const dedupedProcedural = proceduralCandidates.filter((node) => {
-    if (!isCapabilityNode(node)) return true; // organic procedural — keep
-    const match = node.content.match(
-      /^skill:(\S+)\n|^cli:(\S+)\n|^\s*The ".*?" skill \(([^)]+)\)|^\s*The "assistant (\S+)" CLI command/,
-    );
-    const capId = match?.[1] ?? match?.[2] ?? match?.[3] ?? match?.[4];
-    if (capId) {
-      if (seenProcCapIds.has(capId)) return false;
-      seenProcCapIds.add(capId);
-    }
-    return true;
-  });
-
-  const rankedProcedural = dedupedProcedural
-    .map((node) => ({ node, sim: allCandidateIds.get(node.id) ?? 0 }))
-    .sort((a, b) => b.sim - a.sim)
-    .slice(0, PROCEDURAL_RESERVE);
+  const rankedProcedural = proceduralCandidates
+    .filter(({ node }) => {
+      const match = node.content.match(
+        /^skill:(\S+)\n|^cli:(\S+)\n|^\s*The ".*?" skill \(([^)]+)\)|^\s*The "assistant (\S+)" CLI command/,
+      );
+      const capId = match?.[1] ?? match?.[2] ?? match?.[3] ?? match?.[4];
+      if (capId) {
+        if (seenProcCapIds.has(capId)) return false;
+        seenProcCapIds.add(capId);
+      }
+      return true;
+    })
+    .slice(0, capabilityReserve);
 
   const proceduralScored: ScoredNode[] = rankedProcedural.map(({ node, sim }) =>
     scoreCandidate(
@@ -1115,30 +1038,48 @@ export async function retrieveForTurn(
   // Sort and apply threshold — pull a wider pool for dedup, then trim
   scored.sort((a, b) => b.score - a.score);
   const INJECTION_THRESHOLD = 0.3;
+  // Hard cap on candidates fed to the dedup LLM — effectively caps maxNodes
   const PRE_DEDUP_POOL = 20;
-  const MAX_INJECTED = 4;
+  const maxGeneralNodes = Math.max(
+    0,
+    perTurnCfg.maxNodes -
+      perTurnCfg.serendipitySlots -
+      proceduralInjected.length,
+  );
   const pool = scored
     .filter((s) => s.score >= INJECTION_THRESHOLD)
     .slice(0, PRE_DEDUP_POOL);
 
   // Dedup + rerank with a fast model when the pool is large enough to warrant it
-  const injected =
-    pool.length > MAX_INJECTED
-      ? await dedupForTurn(pool, MAX_INJECTED, opts.userLastMessage)
-      : pool;
+  let injected: ScoredNode[];
+  let llmDedupApplied = false;
+  if (pool.length > maxGeneralNodes) {
+    const result = await dedupForTurn(
+      pool,
+      maxGeneralNodes,
+      opts.userLastMessage,
+    );
+    injected = result.nodes;
+    llmDedupApplied = result.llmApplied;
+  } else {
+    injected = pool;
+  }
 
   // Remove procedural-reserved nodes from general set to avoid double-counting
   const generalInjected = injected.filter((s) => !proceduralIds.has(s.node.id));
 
   // Backfill vacated general slots from the remaining pool so we always
-  // return up to MAX_INJECTED general memories when eligible candidates exist.
-  if (generalInjected.length < MAX_INJECTED) {
+  // return up to maxGeneralNodes when eligible candidates exist.
+  // Only skip backfill when LLM dedup genuinely ran — it intentionally rejected
+  // items as duplicates/irrelevant. When dedupForTurn fell back to a plain
+  // top-N slice (no provider, tool call failure), backfill is still appropriate.
+  if (generalInjected.length < maxGeneralNodes && !llmDedupApplied) {
     const usedIds = new Set([
       ...generalInjected.map((s) => s.node.id),
       ...proceduralIds,
     ]);
     const backfillCandidates = pool.filter((s) => !usedIds.has(s.node.id));
-    const needed = MAX_INJECTED - generalInjected.length;
+    const needed = maxGeneralNodes - generalInjected.length;
     for (let i = 0; i < Math.min(needed, backfillCandidates.length); i++) {
       generalInjected.push(backfillCandidates[i]);
     }
@@ -1147,11 +1088,14 @@ export async function retrieveForTurn(
   const allDeterministic = [...generalInjected, ...proceduralInjected];
   const deterministicIds = new Set(allDeterministic.map((n) => n.node.id));
 
-  // Reserve 1 serendipity slot from scored candidates not in the deterministic set
+  // Reserve serendipity slots from scored candidates not in the deterministic set
   const serendipityPool = scored.filter(
     (s) => s.score >= INJECTION_THRESHOLD && !deterministicIds.has(s.node.id),
   );
-  const serendipityPicks = sampleSerendipity(serendipityPool, 1);
+  const serendipityPicks = sampleSerendipity(
+    serendipityPool,
+    perTurnCfg.serendipitySlots,
+  );
   const allInjected = [...allDeterministic, ...serendipityPicks];
 
   const TOP_N = 20;
@@ -1178,6 +1122,7 @@ export async function retrieveForTurn(
       sparseVectorUsed: false,
       embeddingProvider,
       embeddingModel,
+      queryContext: queryText || null,
       topCandidates,
     },
   };

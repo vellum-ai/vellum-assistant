@@ -7,7 +7,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Dynam
 
 extension DynamicPageSurfaceView {
 
-    class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
+    class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate {
         var onAction: (String, Any?) -> Void
         var onDataRequest: ((String, String, String?, [String: Any]?) -> Void)?
         var onPageChanged: ((String) -> Void)?
@@ -83,6 +83,7 @@ extension DynamicPageSurfaceView {
                 default:
                     log.info("[WebView] \(msg, privacy: .public)")
                 }
+
                 return
             }
 
@@ -444,6 +445,23 @@ extension DynamicPageSurfaceView {
                         }
                     }
                 }
+            }
+        }
+
+        // MARK: - WKUIDelegate
+
+        func webView(
+            _ webView: WKWebView,
+            runOpenPanelWith parameters: WKOpenPanelParameters,
+            initiatedByFrame frame: WKFrameInfo,
+            completionHandler: @escaping ([URL]?) -> Void
+        ) {
+            let panel = NSOpenPanel()
+            panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = false
+            panel.begin { response in
+                completionHandler(response == .OK ? panel.urls : nil)
             }
         }
 

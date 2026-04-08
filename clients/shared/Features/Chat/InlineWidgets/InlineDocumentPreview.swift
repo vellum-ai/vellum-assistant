@@ -21,7 +21,7 @@ public struct InlineDocumentPreview: View {
 
                 VStack(alignment: .leading, spacing: VSpacing.xxs) {
                     Text(data.title)
-                        .font(VFont.bodyMediumDefault)
+                        .font(VFont.bodyMediumEmphasised)
                         .foregroundStyle(VColor.contentDefault)
                         .lineLimit(2)
 

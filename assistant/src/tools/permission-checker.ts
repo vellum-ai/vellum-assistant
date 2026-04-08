@@ -1,3 +1,4 @@
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import { getHookManager } from "../hooks/manager.js";
 import {
@@ -6,9 +7,11 @@ import {
   generateAllowlistOptions,
   generateScopeOptions,
 } from "../permissions/checker.js";
+import { getMode } from "../permissions/permission-mode-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { addRule } from "../permissions/trust-store.js";
 import { RiskLevel } from "../permissions/types.js";
+import { isHostTool } from "../permissions/workspace-policy.js";
 import {
   getEffectiveMode,
   setConversationMode,
@@ -17,7 +20,6 @@ import {
 import { getLogger } from "../util/logger.js";
 import { buildPolicyContext } from "./policy-context.js";
 import { isSideEffectTool } from "./side-effects.js";
-import { wrapCommand } from "./terminal/sandbox.js";
 import type { ExecutionTarget } from "./types.js";
 import type { Tool, ToolContext, ToolLifecycleEvent } from "./types.js";
 
@@ -65,6 +67,52 @@ export class PermissionChecker {
         }
       | undefined,
   ): Promise<PermissionDecision> {
+    // ── permission-controls-v2 early gate ──────────────────────────────
+    // When the v2 flag is enabled, replace the entire risk-classification
+    // path with a simple binary check: is it a host tool + is host access
+    // enabled? Certain security gates (requireFreshApproval,
+    // forcePromptSideEffects, hostAccess=false) fall through to the v1
+    // prompt flow so the interactive prompter is engaged.
+    const cfg = getConfig();
+    let v2ForcePrompt = false;
+    if (isAssistantFeatureFlagEnabled("permission-controls-v2", cfg)) {
+      // requireFreshApproval demands an interactive prompt every time —
+      // fall through to v1 so the prompter is engaged.
+      const needsFreshApproval = !!context.requireFreshApproval;
+
+      // forcePromptSideEffects (private conversations, untrusted actors)
+      // requires explicit approval for side-effect tools.
+      const needsSideEffectPrompt =
+        !!context.forcePromptSideEffects && isSideEffectTool(name, input);
+
+      if (!needsFreshApproval && !needsSideEffectPrompt) {
+        if (isHostTool(name)) {
+          const mode = getMode();
+          if (mode.hostAccess) {
+            return {
+              allowed: true,
+              decision: "allow",
+              riskLevel: RiskLevel.Low,
+            };
+          }
+          // Host tool with hostAccess disabled — fall through to v1 so the
+          // interactive prompter is engaged (returning allowed:false here
+          // would surface an error string instead of a permission dialog).
+          // The v2ForcePrompt flag ensures check()'s allow decision is
+          // promoted to prompt so the user sees a permission dialog.
+          v2ForcePrompt = true;
+        } else {
+          // Non-host tools are auto-allowed when v2 is on
+          return {
+            allowed: true,
+            decision: "allow",
+            riskLevel: RiskLevel.Low,
+          };
+        }
+      }
+      // Falls through to the v1 risk-classification + prompter path
+    }
+
     const risk = await classifyRisk(
       name,
       input,
@@ -114,6 +162,14 @@ export class PermissionChecker {
           "Fresh approval required: per-invocation human review enforced";
       }
 
+      // v2 host-access-disabled: the v2 gate fell through because
+      // hostAccess is off. Promote allow → prompt so the user sees an
+      // interactive permission dialog instead of an error string.
+      if (v2ForcePrompt && result.decision === "allow") {
+        result.decision = "prompt";
+        result.reason = "Host access disabled: requires explicit approval";
+      }
+
       if (result.decision === "deny") {
         const durationMs = Date.now() - startTime;
         emitLifecycleEvent({
@@ -137,6 +193,26 @@ export class PermissionChecker {
         };
       }
 
+      // Platform-hosted mode: auto-approve sandboxed bash for guardians.
+      // The sandbox provides the security boundary — prompting is unnecessary
+      // friction. host_bash is excluded because it runs unsandboxed on the
+      // user's machine and warrants explicit approval.
+      // Deny rules are still respected (checked above). requireFreshApproval
+      // is preserved as a belt-and-suspenders guard.
+      if (
+        result.decision === "prompt" &&
+        context.isPlatformHosted &&
+        name === "bash" &&
+        context.trustClass === "guardian" &&
+        !context.requireFreshApproval
+      ) {
+        log.info(
+          { toolName: name, riskLevel },
+          "Auto-approving bash tool for platform-hosted guardian session",
+        );
+        return { allowed: true, decision: "platform_auto_approve", riskLevel };
+      }
+
       if (result.decision === "prompt") {
         // Guardian-trust sessions (e.g. scheduled jobs, reminders) should be
         // able to use bundled tools without interactive approval. The guardian
@@ -158,6 +234,7 @@ export class PermissionChecker {
           context.trustClass === "guardian" &&
           !context.requireFreshApproval &&
           !isDynamicSkillLoad &&
+          !v2ForcePrompt &&
           riskLevel !== RiskLevel.High
         ) {
           log.info(
@@ -232,21 +309,6 @@ export class PermissionChecker {
         const scopeOptions = generateScopeOptions(context.workingDir, name);
         const previewDiff = computePreviewDiff(name, input, context.workingDir);
 
-        let sandboxed: boolean | undefined;
-        if (name === "bash" && typeof input.command === "string") {
-          const cfg = getConfig();
-          const sandboxConfig =
-            context.sandboxOverride != null
-              ? { ...cfg.sandbox, enabled: context.sandboxOverride }
-              : cfg.sandbox;
-          const wrapped = wrapCommand(
-            input.command,
-            context.workingDir,
-            sandboxConfig,
-          );
-          sandboxed = wrapped.sandboxed;
-        }
-
         const persistentDecisionsAllowed = !context.requireFreshApproval;
 
         // Offer temporary approval options to guardians. Suppressed when
@@ -272,7 +334,6 @@ export class PermissionChecker {
           allowlistOptions,
           scopeOptions,
           diff: previewDiff,
-          sandboxed,
           persistentDecisionsAllowed,
         });
 
@@ -290,7 +351,6 @@ export class PermissionChecker {
           allowlistOptions,
           scopeOptions,
           previewDiff,
-          sandboxed,
           context.conversationId,
           executionTarget,
           persistentDecisionsAllowed,

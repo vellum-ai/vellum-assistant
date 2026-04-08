@@ -98,8 +98,8 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
 
     // MARK: - API Keys
 
-    var elevenLabsKey: String? { APIKeyManager.getKey(for: "elevenlabs") }
-    var hasElevenLabsKey: Bool { elevenLabsKey != nil }
+    func elevenLabsKey() async -> String? { APIKeyManager.getKey(for: "elevenlabs") }
+    func hasElevenLabsKey() async -> Bool { await elevenLabsKey() != nil }
 
     // MARK: - Speech Recognition Authorization
 
@@ -152,14 +152,10 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         latestTranscription = ""
         livePartialText = ""
 
-        guard let format = engineController.inputNodeFormat() else {
-            log.error("No audio input channels")
-            return false
-        }
-
         // Reuse existing SFSpeechRecognizer across turns to avoid OS resource
         // release delays that make isAvailable return false on the second turn.
-        if speechRecognizer == nil {
+        // Recreate if transiently unavailable (e.g. after sleep/wake or heavy use).
+        if speechRecognizer == nil || speechRecognizer?.isAvailable != true {
             speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
         }
         guard let recognizer = speechRecognizer, recognizer.isAvailable else {
@@ -225,8 +221,10 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
             }
         }
 
-        // Install audio tap — feeds buffers to SFSpeechRecognizer + computes RMS for amplitude
-        engineController.installTap(bufferSize: 4096, format: format) { [weak self] buffer, _ in
+        // Atomically validate format, install tap, and start engine.
+        // Passes nil for format so AVAudioEngine uses its internal hardware
+        // format, preventing sampleRate mismatch crashes.
+        guard engineController.installTapAndStart(bufferSize: 4096, block: { [weak self] buffer, _ in
             guard let floatData = buffer.floatChannelData else { return }
             let frameCount = Int(buffer.frameLength)
             guard frameCount > 0 else { return }
@@ -269,24 +267,17 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
                     self.onSilenceDetected?()
                 }
             }
-        }
-
-        // prepare() is async, start() is sync — serial queue guarantees
-        // prepare() completes before start() executes.
-        engineController.prepare()
-        do {
-            try engineController.start()
-            isRecording = true
-            lastSpeechTime = Date()
-            recordingStartTime = Date()
-            log.info("Recording started (SFSpeechRecognizer, onDevice: \(recognizer.supportsOnDeviceRecognition, privacy: .public))")
-            return true
-        } catch {
-            log.error("Failed to start audio engine: \(error.localizedDescription)")
-            engineController.removeTap()
+        }) else {
+            log.error("Failed to start audio engine for recording")
             tearDownRecognition()
             return false
         }
+
+        isRecording = true
+        lastSpeechTime = Date()
+        recordingStartTime = Date()
+        log.info("Recording started (SFSpeechRecognizer, onDevice: \(recognizer.supportsOnDeviceRecognition, privacy: .public))")
+        return true
     }
 
     /// Stop recording and return the transcription from SFSpeechRecognizer.
@@ -380,8 +371,8 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         let text = TTSRedactor.redact(raw)
         ttsTextBuffer = ""
 
-        guard !text.isEmpty, elevenLabsKey != nil else {
-            log.info("TTS: no text or no ElevenLabs key, completing immediately")
+        guard !text.isEmpty else {
+            log.info("TTS: no text, completing immediately")
             onComplete()
             return
         }
@@ -390,6 +381,15 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         startSpeakingAmplitudePolling()
 
         ttsTask = Task {
+            // Fetch the key once at the start of the task.
+            guard await elevenLabsKey() != nil else {
+                log.info("TTS: no ElevenLabs key, completing immediately")
+                self.finishSpeaking()
+                self.ttsOnComplete?()
+                self.ttsOnComplete = nil
+                return
+            }
+            guard !Task.isCancelled else { return }
             do {
                 let audioData = try await fetchElevenLabsTTS(text: text)
                 guard !Task.isCancelled else { return }
@@ -453,12 +453,10 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         guard !bargeInMonitorActive else { return }
         bargeInMonitorActive = true
 
-        guard let format = engineController.inputNodeFormat() else {
-            bargeInMonitorActive = false
-            return
-        }
-
-        engineController.installTap(bufferSize: 4096, format: format) { [weak self] buffer, _ in
+        // Atomically validate format, install tap, and start engine.
+        // Passes nil for format so AVAudioEngine uses its internal hardware
+        // format, preventing sampleRate mismatch crashes.
+        if engineController.installTapAndStart(bufferSize: 4096, block: { [weak self] buffer, _ in
             guard let floatData = buffer.floatChannelData else { return }
             let frameCount = Int(buffer.frameLength)
             guard frameCount > 0 else { return }
@@ -479,9 +477,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
                     self.onBargeInDetected?()
                 }
             }
-        }
-
-        if engineController.prepareAndStart() {
+        }) {
             log.info("Barge-in monitor started")
         } else {
             log.error("Failed to start barge-in monitor")
@@ -497,7 +493,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
 
     /// Call ElevenLabs REST API to convert text to speech. Returns MP3 audio data.
     private func fetchElevenLabsTTS(text: String) async throws -> Data {
-        guard let elevenLabsKey else {
+        guard let elevenLabsKey = await elevenLabsKey() else {
             throw VoiceServiceError.noAPIKey
         }
 

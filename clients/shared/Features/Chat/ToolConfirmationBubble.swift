@@ -114,7 +114,7 @@ public struct ToolConfirmationBubble: View {
                     .foregroundStyle(VColor.primaryBase)
 
                 Text(confirmation.permissionFriendlyName)
-                    .font(VFont.bodyMediumDefault)
+                    .font(VFont.bodyMediumEmphasised)
                     .foregroundStyle(VColor.contentDefault)
             }
 
@@ -322,7 +322,7 @@ public struct ToolConfirmationBubble: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         }
-        .frame(maxHeight: maxHeight)
+        .adaptiveScrollFrame(for: content, maxHeight: maxHeight, lineThreshold: Int(maxHeight / 16))
         .padding(VSpacing.sm)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
@@ -457,7 +457,7 @@ public struct ToolConfirmationBubble: View {
 
     private var confirmationDescription: some View {
         Text(confirmation.humanDescription)
-            .font(VFont.bodyMediumDefault)
+            .font(VFont.bodyMediumEmphasised)
             .foregroundStyle(VColor.contentDefault)
             .fixedSize(horizontal: false, vertical: true)
     }

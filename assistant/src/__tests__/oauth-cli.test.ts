@@ -26,6 +26,11 @@ const disconnectOAuthProviderCalls: string[] = [];
 const disconnectOAuthProviderResult: "disconnected" | "not-found" | "error" =
   "not-found";
 
+// In-memory provider store used by registerProvider/updateProvider/getProvider
+// mocks below. Tests that exercise the providers register/update/get commands
+// can read and write through this map directly.
+const mockProviderStore = new Map<string, Record<string, unknown>>();
+
 // App upsert mock state
 let mockUpsertAppCalls: Array<{
   provider: string;
@@ -37,7 +42,7 @@ let mockUpsertAppCalls: Array<{
 }> = [];
 let mockUpsertAppResult: Record<string, unknown> = {
   id: "app-upsert-1",
-  providerKey: "test",
+  provider: "test",
   clientId: "test-client-id",
   createdAt: 1700000000000,
   updatedAt: 1700000000000,
@@ -58,18 +63,18 @@ let mockOrchestrateOAuthConnect: (
   opts: Record<string, unknown>,
 ) => Promise<Record<string, unknown>>;
 let mockGetAppByProviderAndClientId: (
-  providerKey: string,
+  provider: string,
   clientId: string,
 ) => Record<string, unknown> | undefined = () => undefined;
 let mockGetMostRecentAppByProvider: (
-  providerKey: string,
+  provider: string,
 ) => Record<string, unknown> | undefined = () => undefined;
 let mockGetProvider: (
-  providerKey: string,
+  provider: string,
 ) => Record<string, unknown> | undefined = () => undefined;
 let mockGetSecureKey: (account: string) => string | undefined = () => undefined;
 let mockResolveOAuthConnection: (
-  providerKey: string,
+  provider: string,
   options?: Record<string, unknown>,
 ) => Promise<{
   request: (req: Record<string, unknown>) => Promise<{
@@ -79,7 +84,7 @@ let mockResolveOAuthConnection: (
   }>;
   withToken: <T>(fn: (token: string) => Promise<T>) => Promise<T>;
   id: string;
-  providerKey: string;
+  provider: string;
   accountInfo: string | null;
 }> = async () => {
   throw new Error("resolveOAuthConnection not configured in test");
@@ -120,9 +125,9 @@ mock.module("../security/token-manager.js", () => ({
 
 mock.module("../oauth/oauth-store.js", () => ({
   disconnectOAuthProvider: async (
-    providerKey: string,
+    provider: string,
   ): Promise<"disconnected" | "not-found" | "error"> => {
-    disconnectOAuthProviderCalls.push(providerKey);
+    disconnectOAuthProviderCalls.push(provider);
     return disconnectOAuthProviderResult;
   },
   getConnection: () => undefined,
@@ -145,16 +150,116 @@ mock.module("../oauth/oauth-store.js", () => ({
     return mockUpsertAppResult;
   },
   getApp: () => undefined,
-  getAppByProviderAndClientId: (providerKey: string, clientId: string) =>
-    mockGetAppByProviderAndClientId(providerKey, clientId),
-  getMostRecentAppByProvider: (providerKey: string) =>
-    mockGetMostRecentAppByProvider(providerKey),
+  getAppByProviderAndClientId: (provider: string, clientId: string) =>
+    mockGetAppByProviderAndClientId(provider, clientId),
+  getMostRecentAppByProvider: (provider: string) =>
+    mockGetMostRecentAppByProvider(provider),
   listApps: () => [],
   deleteApp: async () => false,
-  getProvider: (providerKey: string) => mockGetProvider(providerKey),
+  getProvider: (provider: string) => {
+    // If the test has plugged in a custom mockGetProvider, prefer that.
+    const custom = mockGetProvider(provider);
+    if (custom !== undefined) return custom;
+    return mockProviderStore.get(provider);
+  },
   listProviders: () => mockListProviders(),
-  registerProvider: () => ({}),
-  updateProvider: () => undefined,
+  registerProvider: (params: Record<string, unknown>) => {
+    const now = Date.now();
+    const row: Record<string, unknown> = {
+      provider: params.provider,
+      authorizeUrl: params.authorizeUrl,
+      tokenExchangeUrl: params.tokenExchangeUrl,
+      refreshUrl: (params.refreshUrl as string | undefined) ?? null,
+      tokenEndpointAuthMethod:
+        (params.tokenEndpointAuthMethod as string | undefined) ||
+        "client_secret_post",
+      userinfoUrl: params.userinfoUrl ?? null,
+      baseUrl: params.baseUrl ?? null,
+      defaultScopes: JSON.stringify(params.defaultScopes ?? []),
+      scopePolicy: JSON.stringify(params.scopePolicy ?? {}),
+      scopeSeparator: (params.scopeSeparator as string | undefined) ?? " ",
+      authorizeParams: params.authorizeParams
+        ? JSON.stringify(params.authorizeParams)
+        : null,
+      pingUrl: params.pingUrl ?? null,
+      pingMethod: params.pingMethod ?? null,
+      pingHeaders: params.pingHeaders
+        ? JSON.stringify(params.pingHeaders)
+        : null,
+      pingBody:
+        params.pingBody !== undefined ? JSON.stringify(params.pingBody) : null,
+      revokeUrl: (params.revokeUrl as string | undefined) ?? null,
+      revokeBodyTemplate: params.revokeBodyTemplate
+        ? JSON.stringify(params.revokeBodyTemplate)
+        : null,
+      managedServiceConfigKey: params.managedServiceConfigKey ?? null,
+      displayLabel: params.displayLabel ?? null,
+      description: params.description ?? null,
+      dashboardUrl: params.dashboardUrl ?? null,
+      clientIdPlaceholder: params.clientIdPlaceholder ?? null,
+      requiresClientSecret: params.requiresClientSecret ?? 1,
+      loopbackPort: params.loopbackPort ?? null,
+      injectionTemplates: params.injectionTemplates
+        ? JSON.stringify(params.injectionTemplates)
+        : null,
+      appType: params.appType ?? null,
+      setupNotes: params.setupNotes ? JSON.stringify(params.setupNotes) : null,
+      identityUrl: params.identityUrl ?? null,
+      identityMethod: params.identityMethod ?? null,
+      identityHeaders: params.identityHeaders
+        ? JSON.stringify(params.identityHeaders)
+        : null,
+      identityBody:
+        params.identityBody !== undefined
+          ? JSON.stringify(params.identityBody)
+          : null,
+      identityResponsePaths: params.identityResponsePaths
+        ? JSON.stringify(params.identityResponsePaths)
+        : null,
+      identityFormat: params.identityFormat ?? null,
+      identityOkField: params.identityOkField ?? null,
+      featureFlag: params.featureFlag ?? null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    mockProviderStore.set(params.provider as string, row);
+    return row;
+  },
+  updateProvider: (provider: string, params: Record<string, unknown>) => {
+    const existing = mockProviderStore.get(provider);
+    if (!existing) return undefined;
+    const updated: Record<string, unknown> = { ...existing };
+    if (params.scopeSeparator !== undefined) {
+      updated.scopeSeparator = params.scopeSeparator;
+    }
+    if (params.authorizeUrl !== undefined) {
+      updated.authorizeUrl = params.authorizeUrl;
+    }
+    if (params.tokenExchangeUrl !== undefined) {
+      updated.tokenExchangeUrl = params.tokenExchangeUrl;
+    }
+    if (params.refreshUrl !== undefined) {
+      updated.refreshUrl = params.refreshUrl;
+    }
+    if (params.revokeUrl !== undefined) {
+      updated.revokeUrl = params.revokeUrl;
+    }
+    if (params.revokeBodyTemplate !== undefined) {
+      updated.revokeBodyTemplate =
+        params.revokeBodyTemplate === null
+          ? null
+          : JSON.stringify(params.revokeBodyTemplate);
+    }
+    if (params.defaultScopes !== undefined) {
+      updated.defaultScopes = JSON.stringify(params.defaultScopes);
+    }
+    if (params.displayLabel !== undefined) {
+      updated.displayLabel = params.displayLabel;
+    }
+    updated.updatedAt = Date.now();
+    mockProviderStore.set(provider, updated);
+    return updated;
+  },
   deleteProvider: () => false,
   seedProviders: () => {},
   getActiveConnection: () => undefined,
@@ -229,9 +334,9 @@ mock.module("../oauth/seed-providers.js", () => ({
 
 mock.module("../oauth/connection-resolver.js", () => ({
   resolveOAuthConnection: (
-    providerKey: string,
+    provider: string,
     options?: Record<string, unknown>,
-  ) => mockResolveOAuthConnection(providerKey, options),
+  ) => mockResolveOAuthConnection(provider, options),
 }));
 
 // ---------------------------------------------------------------------------
@@ -439,45 +544,45 @@ describe("assistant oauth token <provider-key>", () => {
 describe("assistant oauth providers list", () => {
   const fakeProviders = [
     {
-      providerKey: "google",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
+      provider: "google",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: "[]",
       scopePolicy: "{}",
-      extraParams: null,
+      authorizeParams: null,
       managedServiceConfigKey: "google-oauth",
       createdAt: "2025-01-01T00:00:00.000Z",
       updatedAt: "2025-01-01T00:00:00.000Z",
     },
     {
-      providerKey: "google-calendar",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
+      provider: "google-calendar",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: "[]",
       scopePolicy: "{}",
-      extraParams: null,
+      authorizeParams: null,
       managedServiceConfigKey: "google-calendar-oauth",
       createdAt: "2025-01-01T00:00:00.000Z",
       updatedAt: "2025-01-01T00:00:00.000Z",
     },
     {
-      providerKey: "slack",
-      authUrl: "https://slack.com/oauth/v2/authorize",
-      tokenUrl: "https://slack.com/api/oauth.v2.access",
+      provider: "slack",
+      authorizeUrl: "https://slack.com/oauth/v2/authorize",
+      tokenExchangeUrl: "https://slack.com/api/oauth.v2.access",
       defaultScopes: "[]",
       scopePolicy: "{}",
-      extraParams: null,
+      authorizeParams: null,
       managedServiceConfigKey: null,
       createdAt: "2025-01-01T00:00:00.000Z",
       updatedAt: "2025-01-01T00:00:00.000Z",
     },
     {
-      providerKey: "twitter",
-      authUrl: "https://twitter.com/i/oauth2/authorize",
-      tokenUrl: "https://api.twitter.com/2/oauth2/token",
+      provider: "twitter",
+      authorizeUrl: "https://twitter.com/i/oauth2/authorize",
+      tokenExchangeUrl: "https://api.twitter.com/2/oauth2/token",
       defaultScopes: "[]",
       scopePolicy: "{}",
-      extraParams: null,
+      authorizeParams: null,
       managedServiceConfigKey: null,
       createdAt: "2025-01-01T00:00:00.000Z",
       updatedAt: "2025-01-01T00:00:00.000Z",
@@ -638,7 +743,7 @@ describe("assistant oauth apps upsert --client-secret-credential-path", () => {
     mockUpsertAppCalls = [];
     mockUpsertAppResult = {
       id: "app-upsert-1",
-      providerKey: "google",
+      provider: "google",
       clientId: "abc123",
       createdAt: 1700000000000,
       updatedAt: 1700000000000,
@@ -890,19 +995,19 @@ describe("assistant oauth ping <provider-key>", () => {
 
   test("returns ok when ping endpoint returns 200", async () => {
     mockGetProvider = () => ({
-      providerKey: "google",
+      provider: "google",
       pingUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: "[]",
       scopePolicy: "{}",
-      extraParams: null,
+      authorizeParams: null,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
     mockResolveOAuthConnection = async () => ({
       id: "conn-1",
-      providerKey: "google",
+      provider: "google",
       accountInfo: null,
       request: async () => ({ status: 200, headers: {}, body: {} }),
       withToken: async (fn) => fn("mock-access-token-xyz"),
@@ -925,13 +1030,13 @@ describe("assistant oauth ping <provider-key>", () => {
 
   test("exits 1 when no ping URL configured", async () => {
     mockGetProvider = () => ({
-      providerKey: "telegram",
+      provider: "telegram",
       pingUrl: null,
-      authUrl: "urn:manual-token",
-      tokenUrl: "urn:manual-token",
+      authorizeUrl: "urn:manual-token",
+      tokenExchangeUrl: "urn:manual-token",
       defaultScopes: "[]",
       scopePolicy: "{}",
-      extraParams: null,
+      authorizeParams: null,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -944,19 +1049,19 @@ describe("assistant oauth ping <provider-key>", () => {
 
   test("exits 1 when ping endpoint returns non-2xx", async () => {
     mockGetProvider = () => ({
-      providerKey: "google",
+      provider: "google",
       pingUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: "[]",
       scopePolicy: "{}",
-      extraParams: null,
+      authorizeParams: null,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
     mockResolveOAuthConnection = async () => ({
       id: "conn-1",
-      providerKey: "google",
+      provider: "google",
       accountInfo: null,
       request: async () => ({ status: 403, headers: {}, body: "Forbidden" }),
       withToken: async (fn) => fn("mock-access-token-xyz"),
@@ -970,13 +1075,13 @@ describe("assistant oauth ping <provider-key>", () => {
 
   test("exits 1 when no connection can be resolved", async () => {
     mockGetProvider = () => ({
-      providerKey: "google",
+      provider: "google",
       pingUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: "[]",
       scopePolicy: "{}",
-      extraParams: null,
+      authorizeParams: null,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -1023,12 +1128,12 @@ describe("assistant oauth connect managed mode — platform 401/403 errors", () 
     // Set up managed mode: provider has managedServiceConfigKey, config
     // returns the matching service with mode "managed".
     mockGetProvider = () => ({
-      providerKey: "google",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
+      provider: "google",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: "[]",
       scopePolicy: "{}",
-      extraParams: null,
+      authorizeParams: null,
       managedServiceConfigKey: "google-oauth",
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -1249,12 +1354,12 @@ describe("assistant oauth mode", () => {
   beforeEach(() => {
     mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
     mockGetProvider = () => ({
-      providerKey: "google",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
+      provider: "google",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: "[]",
       scopePolicy: "{}",
-      extraParams: null,
+      authorizeParams: null,
       managedServiceConfigKey: "google-oauth",
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -1311,5 +1416,543 @@ describe("assistant oauth mode", () => {
     expect(parsed.ok).toBe(true);
     expect(parsed.provider).toBe("google");
     expect(parsed.mode).toBe("your-own");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// providers register / update / get — --scope-separator wiring
+// ---------------------------------------------------------------------------
+
+describe("assistant oauth providers --scope-separator", () => {
+  beforeEach(() => {
+    mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
+    mockProviderStore.clear();
+    // Default getProvider falls through to mockProviderStore via the
+    // oauth-store mock module. Tests in this describe block don't need
+    // a per-test mockGetProvider override.
+    mockGetProvider = () => undefined;
+    mockGetConfig = () => ({ services: {} });
+  });
+
+  afterEach(() => {
+    mockProviderStore.clear();
+    mockGetProvider = () => undefined;
+  });
+
+  test("providers register --scope-separator , stores ',' on the provider row", async () => {
+    const { exitCode } = await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-linear",
+      "--auth-url",
+      "https://linear.app/oauth/authorize",
+      "--token-url",
+      "https://api.linear.app/oauth/token",
+      "--scopes",
+      "read,write",
+      "--scope-separator",
+      ",",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const stored = mockProviderStore.get("custom-linear");
+    expect(stored).toBeDefined();
+    expect(stored?.scopeSeparator).toBe(",");
+  });
+
+  test("providers register without --scope-separator stores the default ' '", async () => {
+    const { exitCode } = await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-default-sep",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--scopes",
+      "read,write",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const stored = mockProviderStore.get("custom-default-sep");
+    expect(stored).toBeDefined();
+    expect(stored?.scopeSeparator).toBe(" ");
+  });
+
+  test("providers update --scope-separator , updates an existing custom provider", async () => {
+    // Seed the store with an existing custom provider that uses the default
+    // " " separator.
+    await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-update-target",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--scopes",
+      "read",
+      "--json",
+    ]);
+    expect(mockProviderStore.get("custom-update-target")?.scopeSeparator).toBe(
+      " ",
+    );
+
+    const { exitCode } = await runCli([
+      "providers",
+      "update",
+      "custom-update-target",
+      "--scope-separator",
+      ",",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    expect(mockProviderStore.get("custom-update-target")?.scopeSeparator).toBe(
+      ",",
+    );
+  });
+
+  test("providers get <key> --json includes scopeSeparator from the serialized output", async () => {
+    // Seed the store with a custom provider that uses ',' as the separator.
+    await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-get-target",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--scopes",
+      "read,write",
+      "--scope-separator",
+      ",",
+      "--json",
+    ]);
+
+    const { exitCode, stdout } = await runCli([
+      "providers",
+      "get",
+      "custom-get-target",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.scopeSeparator).toBe(",");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// providers register / update / get — --refresh-url wiring
+// ---------------------------------------------------------------------------
+
+describe("assistant oauth providers --refresh-url", () => {
+  beforeEach(() => {
+    mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
+    mockProviderStore.clear();
+    // Default getProvider falls through to mockProviderStore via the
+    // oauth-store mock module.
+    mockGetProvider = () => undefined;
+    mockGetConfig = () => ({ services: {} });
+  });
+
+  afterEach(() => {
+    mockProviderStore.clear();
+    mockGetProvider = () => undefined;
+  });
+
+  test("providers register --refresh-url stores the URL on the provider row", async () => {
+    const { exitCode } = await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-refresh-url",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--refresh-url",
+      "https://refresh.example.com/token",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const stored = mockProviderStore.get("custom-refresh-url");
+    expect(stored).toBeDefined();
+    expect(stored?.refreshUrl).toBe("https://refresh.example.com/token");
+  });
+
+  test("providers register without --refresh-url stores null", async () => {
+    const { exitCode } = await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-no-refresh-url",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const stored = mockProviderStore.get("custom-no-refresh-url");
+    expect(stored).toBeDefined();
+    expect(stored?.refreshUrl).toBeNull();
+  });
+
+  test("providers update --refresh-url updates an existing custom provider", async () => {
+    // Seed the store with an existing custom provider that has no refresh URL.
+    await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-update-refresh",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--json",
+    ]);
+    expect(
+      mockProviderStore.get("custom-update-refresh")?.refreshUrl,
+    ).toBeNull();
+
+    const { exitCode } = await runCli([
+      "providers",
+      "update",
+      "custom-update-refresh",
+      "--refresh-url",
+      "https://new-refresh.example.com/token",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    expect(mockProviderStore.get("custom-update-refresh")?.refreshUrl).toBe(
+      "https://new-refresh.example.com/token",
+    );
+  });
+
+  test("providers get <key> --json includes refreshUrl from the serialized output", async () => {
+    // Seed the store with a custom provider that has a refresh URL set.
+    await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-get-refresh",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--refresh-url",
+      "https://refresh.example.com/token",
+      "--json",
+    ]);
+
+    const { exitCode, stdout } = await runCli([
+      "providers",
+      "get",
+      "custom-get-refresh",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.refreshUrl).toBe("https://refresh.example.com/token");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// providers register / update / get — --revoke-url and --revoke-body-template wiring
+// ---------------------------------------------------------------------------
+
+describe("assistant oauth providers --revoke-url and --revoke-body-template", () => {
+  beforeEach(() => {
+    mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
+    mockProviderStore.clear();
+    mockGetProvider = () => undefined;
+    mockGetConfig = () => ({ services: {} });
+  });
+
+  afterEach(() => {
+    mockProviderStore.clear();
+    mockGetProvider = () => undefined;
+  });
+
+  test("providers register --revoke-url and --revoke-body-template stores both fields", async () => {
+    const { exitCode } = await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-revoke-roundtrip",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--revoke-url",
+      "https://revoke.example.com",
+      "--revoke-body-template",
+      '{"token":"{access_token}"}',
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const stored = mockProviderStore.get("custom-revoke-roundtrip");
+    expect(stored).toBeDefined();
+    expect(stored?.revokeUrl).toBe("https://revoke.example.com");
+    // revokeBodyTemplate is JSON-stringified at the storage layer.
+    expect(JSON.parse(stored?.revokeBodyTemplate as string)).toEqual({
+      token: "{access_token}",
+    });
+  });
+
+  test("providers register without --revoke-url or --revoke-body-template stores both as null", async () => {
+    const { exitCode } = await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-no-revoke",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const stored = mockProviderStore.get("custom-no-revoke");
+    expect(stored).toBeDefined();
+    expect(stored?.revokeUrl).toBeNull();
+    expect(stored?.revokeBodyTemplate).toBeNull();
+  });
+
+  test("providers register with malformed --revoke-body-template fails with a JSON parse error", async () => {
+    const { exitCode, stdout } = await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-bad-revoke",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--revoke-body-template",
+      "not-json{",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    // The error message comes from JSON.parse — match permissively.
+    expect(parsed.error).toMatch(/JSON|Unexpected|parse/i);
+    // Provider should not have been written.
+    expect(mockProviderStore.get("custom-bad-revoke")).toBeUndefined();
+  });
+
+  test("providers update --revoke-url updates only the URL", async () => {
+    // Seed an existing custom provider.
+    await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-update-revoke-url",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--json",
+    ]);
+    expect(
+      mockProviderStore.get("custom-update-revoke-url")?.revokeUrl,
+    ).toBeNull();
+
+    const { exitCode } = await runCli([
+      "providers",
+      "update",
+      "custom-update-revoke-url",
+      "--revoke-url",
+      "https://new-revoke.example.com",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    expect(mockProviderStore.get("custom-update-revoke-url")?.revokeUrl).toBe(
+      "https://new-revoke.example.com",
+    );
+    // revokeBodyTemplate should still be null (unchanged).
+    expect(
+      mockProviderStore.get("custom-update-revoke-url")?.revokeBodyTemplate,
+    ).toBeNull();
+  });
+
+  test("providers update --revoke-url with empty string clears the stored URL to null", async () => {
+    // Seed an existing custom provider that already has a non-null revokeUrl.
+    await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-clear-revoke-url",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--revoke-url",
+      "https://revoke.example.com",
+      "--json",
+    ]);
+    expect(mockProviderStore.get("custom-clear-revoke-url")?.revokeUrl).toBe(
+      "https://revoke.example.com",
+    );
+
+    // Pass an empty string to --revoke-url — the help text promises this
+    // clears the field, so the stored value should end up as null (not "").
+    const { exitCode, stdout } = await runCli([
+      "providers",
+      "update",
+      "custom-clear-revoke-url",
+      "--revoke-url",
+      "",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    expect(
+      mockProviderStore.get("custom-clear-revoke-url")?.revokeUrl,
+    ).toBeNull();
+
+    // The serialized --json output should also reflect null, not "".
+    const parsed = JSON.parse(stdout);
+    expect(parsed.revokeUrl).toBeNull();
+  });
+
+  test("providers update --revoke-body-template updates only the template (JSON round-trip)", async () => {
+    await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-update-revoke-body",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--json",
+    ]);
+
+    const { exitCode } = await runCli([
+      "providers",
+      "update",
+      "custom-update-revoke-body",
+      "--revoke-body-template",
+      '{"token":"{access_token}","client_id":"{client_id}"}',
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const stored = mockProviderStore.get("custom-update-revoke-body");
+    expect(stored).toBeDefined();
+    expect(JSON.parse(stored?.revokeBodyTemplate as string)).toEqual({
+      token: "{access_token}",
+      client_id: "{client_id}",
+    });
+    // revokeUrl should still be null (unchanged).
+    expect(stored?.revokeUrl).toBeNull();
+  });
+
+  test("providers update --revoke-body-template with empty string clears the stored template to null", async () => {
+    // Seed an existing custom provider that already has a non-null
+    // revokeBodyTemplate set via register.
+    await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-clear-revoke-body",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--revoke-url",
+      "https://revoke.example.com",
+      "--revoke-body-template",
+      '{"token":"{access_token}"}',
+      "--json",
+    ]);
+    const initial = mockProviderStore.get("custom-clear-revoke-body");
+    expect(initial?.revokeBodyTemplate).toBeDefined();
+    expect(JSON.parse(initial?.revokeBodyTemplate as string)).toEqual({
+      token: "{access_token}",
+    });
+
+    // Pass an empty string to --revoke-body-template — the help text promises
+    // this clears the field, so the stored value should end up as null
+    // (not the string "null" or a JSON.parse crash).
+    const { exitCode, stdout } = await runCli([
+      "providers",
+      "update",
+      "custom-clear-revoke-body",
+      "--revoke-body-template",
+      "",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    expect(
+      mockProviderStore.get("custom-clear-revoke-body")?.revokeBodyTemplate,
+    ).toBeNull();
+
+    // The serialized --json output should also reflect null.
+    const parsed = JSON.parse(stdout);
+    expect(parsed.revokeBodyTemplate).toBeNull();
+  });
+
+  test("providers get google --json includes both fields populated from PR 1's seed data", async () => {
+    // Simulate the seeded "google" provider row by overriding mockGetProvider
+    // to return a row matching what PR 1's seed inserts.
+    const now = Date.now();
+    mockGetProvider = (provider: string) => {
+      if (provider !== "google") return undefined;
+      return {
+        provider: "google",
+        authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+        tokenExchangeUrl: "https://oauth2.googleapis.com/token",
+        refreshUrl: null,
+        tokenEndpointAuthMethod: "client_secret_post",
+        userinfoUrl: null,
+        baseUrl: null,
+        defaultScopes: "[]",
+        scopePolicy: "{}",
+        scopeSeparator: " ",
+        authorizeParams: null,
+        pingUrl: null,
+        pingMethod: null,
+        pingHeaders: null,
+        pingBody: null,
+        revokeUrl: "https://oauth2.googleapis.com/revoke",
+        revokeBodyTemplate: JSON.stringify({ token: "{access_token}" }),
+        managedServiceConfigKey: null,
+        displayLabel: "Google",
+        description: null,
+        dashboardUrl: null,
+        clientIdPlaceholder: null,
+        requiresClientSecret: 1,
+        loopbackPort: null,
+        injectionTemplates: null,
+        appType: null,
+        setupNotes: null,
+        identityUrl: null,
+        identityMethod: null,
+        identityHeaders: null,
+        identityBody: null,
+        identityResponsePaths: null,
+        identityFormat: null,
+        identityOkField: null,
+        featureFlag: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+    };
+
+    const { exitCode, stdout } = await runCli([
+      "providers",
+      "get",
+      "google",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.revokeUrl).toBe("https://oauth2.googleapis.com/revoke");
+    expect(parsed.revokeBodyTemplate).toEqual({ token: "{access_token}" });
   });
 });

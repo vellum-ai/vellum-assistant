@@ -115,7 +115,7 @@ struct AboutVellumView: View {
         .multilineTextAlignment(.center)
         .background(VColor.surfaceBase)
         .onAppear {
-            selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+            selectedAssistantId = LockfileAssistant.loadActiveAssistantId() ?? ""
             Task {
                 let assistants = await Task.detached { LockfileAssistant.loadAll() }.value
                 lockfileAssistants = assistants

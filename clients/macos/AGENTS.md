@@ -247,6 +247,10 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 - **`@Observable` → `ObservableObject` bridge**: When an `@Observable` child is owned by an `ObservableObject` parent, use a recursive `withObservationTracking` loop to forward changes. See `MainWindowState.observeNavigationHistory()`.
 - **Dependency injection**: Pass dependencies through init parameters, not singletons. Session dependencies use protocols for testability.
 - **Previews**: Do not add `#Preview` or `PreviewProvider` blocks. Use the Component Gallery as the single visual review surface. If you encounter existing `#Preview` blocks, remove them. See `clients/AGENTS.md` § "Preview Policy & Component Gallery" for full rationale and guidance on when to reconsider this policy.
+- **Flatten modifier chains**: Never stack consecutive `.padding()` modifiers or duplicate `.background()` calls. Merge them into a single modifier to reduce `UnaryLayoutEngine` wrapper depth. Each modifier creates a layout engine wrapper that SwiftUI traverses recursively during alignment resolution — deep chains cause measurable layout stalls in `LazyVStack` / `LazyHStack` (see [WWDC23: Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)).
+  - **Padding**: Use `.padding(EdgeInsets(top:leading:bottom:trailing:))` instead of separate `.padding(.horizontal, x).padding(.vertical, y)` or `.padding(.leading, a).padding(.trailing, b).padding(.vertical, c)`.
+  - **Background**: Use a single `.background { }` with a `ZStack` inside instead of chaining multiple `.background()` calls.
+  - **No-op backgrounds**: Never add invisible backgrounds like `.background(Capsule().fill(Color.clear))` — they create layout wrappers with zero visual effect.
 - **Gallery**: When adding or modifying a design system primitive/component, update the corresponding Gallery section file (`Gallery/Sections/`) so the visual catalog stays current.
 - **Accessibility**: See `clients/AGENTS.md` § [Accessibility](../AGENTS.md#accessibility) for the full checklist (labels, hidden elements, custom interactions, AppKit panels). All rules there apply to macOS components.
 
@@ -291,6 +295,9 @@ The macOS app pairs with iOS devices via QR code with Mac-side approval. The Con
 - **Bearer Token:** Managed via JWT authentication. The pairing hero shows a "Generate Token" button when missing and a "Regenerate Token" link when present.
 
 ---
+## Build Flags
+
+- `clients/macos/build.sh` bundles the Kata 3.17.0 ARM64 kernel into `Vellum.app/Contents/Resources/DeveloperVM/` and caches the downloaded archive under `clients/macos/.container-cache/`.
 
 ## Keyboard Shortcuts
 
@@ -325,6 +332,14 @@ When adding a new keyboard shortcut to the macOS app, you **must** also add a co
 - Destructive key combinations (Cmd+Q, Cmd+W on sensitive apps, Ctrl+C in Terminal) are blocked by default.
 - Loop detection prevents the agent from repeating the same action indefinitely.
 - Clipboard save/restore wraps all paste-based text input to avoid data loss.
+
+### External URLs
+
+All `vellum.ai` and external links the app navigates to (docs pages, terms of service, help menu items, etc.) live in `vellum-assistant/App/AppURLs.swift` as `public static` accessors. Do not hardcode `URL(string: "https://...")!` at call sites — add a new accessor to `AppURLs` and reference it.
+
+- All `AppURLs` members are `public` so the `vellum-assistant-app` shell target can use them via `import VellumAssistantLib`.
+- The docs base URL honors a `VELLUM_DOCS_BASE_URL` env var (validated as an absolute http(s) URL with no query/fragment, falls back to `https://www.vellum.ai/docs` on failure).
+- If you introduce a new env-var-overridable URL, also: (1) embed the var into `Info.plist`'s `LSEnvironment` in `clients/macos/build.sh` — LaunchServices doesn't inherit shell env, so `./build.sh run` requires the embedding (XML-escape values; see the existing `VELLUM_DOCS_BASE_URL` block for the pattern); (2) register the var in `assistant/src/tools/terminal/safe-env.ts` and `assistant/src/config/env-registry.ts` per `assistant/CLAUDE.md` § "Adding new environment variables".
 
 ---
 

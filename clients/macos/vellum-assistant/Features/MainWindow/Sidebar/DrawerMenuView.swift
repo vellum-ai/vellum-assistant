@@ -9,11 +9,13 @@ struct DrawerMenuView: View {
     let onLogOut: () -> Void
     let onSignIn: () -> Void
     let onOpenBilling: () -> Void
+    let onEarnCredits: () -> Void
 
     @State private var effectiveBalance: String?
     @State private var isLowBalance = false
     @State private var isZeroBalance = false
     @State private var bootstrapGeneration: Int = 0
+    @State private var isReferralCodesEnabled: Bool = false
     @AppStorage("connectedOrganizationId") private var connectedOrgId: String?
 
     private var isBillingVisible: Bool {
@@ -23,18 +25,24 @@ struct DrawerMenuView: View {
         connectedOrgId != nil
     }
 
+    private var isReferralVisible: Bool {
+        isBillingVisible && isReferralCodesEnabled
+    }
+
     var body: some View {
         VMenu {
             VMenuCustomRow {
                 DrawerThemeToggle()
             }
 
-            VMenuDivider()
+            VMenuCustomRow {
+                tightDividerLine
+            }
 
             if let balance = effectiveBalance {
                 VMenuCustomRow {
                     HStack {
-                        Text("$\(balance) remaining")
+                        Text("\(balance) credits")
                             .font(VFont.bodyMediumDefault)
                             .foregroundStyle(
                                 isZeroBalance ? VColor.systemNegativeStrong :
@@ -43,27 +51,31 @@ struct DrawerMenuView: View {
                             )
                         Spacer()
                         if isBillingVisible {
-                            Button("Add funds") { onOpenBilling() }
+                            Button("Add credits") { onOpenBilling() }
                                 .font(VFont.labelDefault)
                                 .foregroundStyle(VColor.primaryBase)
                                 .buttonStyle(.plain)
                         }
                     }
+                    .frame(minHeight: VSize.rowMinHeight)
                 }
 
-                VMenuDivider()
+                VMenuCustomRow {
+                    tightDividerLine
+                }
+
+                if isReferralVisible {
+                    VMenuItem(icon: VIcon.gift.rawValue, label: String(localized: "Earn credits")) {
+                        onEarnCredits()
+                    }
+
+                    VMenuCustomRow {
+                        tightDividerLine
+                    }
+                }
             }
 
             VMenuItem(icon: VIcon.settings.rawValue, label: String(localized: "Settings"), action: onSettings)
-
-            VMenuCustomRow {
-                Text("Ask the assistant in chat to help you with any settings you wish to alter.")
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentDisabled)
-                    .padding(.top, VSpacing.xs)
-            }
-
-            VMenuDivider()
 
             VMenuItem(icon: VIcon.barChart.rawValue, label: String(localized: "Usage"), action: onUsage)
             VMenuItem(icon: VIcon.scrollText.rawValue, label: String(localized: "Logs"), action: onDebug)
@@ -77,9 +89,25 @@ struct DrawerMenuView: View {
         .onReceive(NotificationCenter.default.publisher(for: .localBootstrapCompleted)) { _ in
             bootstrapGeneration += 1
         }
+        .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
+            if let key = notification.userInfo?["key"] as? String,
+               key == "referral-codes",
+               let enabled = notification.userInfo?["enabled"] as? Bool {
+                isReferralCodesEnabled = enabled
+            }
+        }
         .task {
+            isReferralCodesEnabled = MacOSClientFeatureFlagManager.shared.isEnabled("referral-codes")
             await loadBalance()
         }
+    }
+
+    /// 1pt divider line without VMenuDivider's 4pt vertical padding,
+    /// used for sections that should sit tight against neighboring rows.
+    private var tightDividerLine: some View {
+        Rectangle()
+            .fill(VColor.surfaceBase)
+            .frame(height: 1)
     }
 
     private func loadBalance() async {
@@ -89,7 +117,7 @@ struct DrawerMenuView: View {
             if let bootstrapped = await BillingService.shared.bootstrapBillingSummaryIfNeeded(summary: summary) {
                 summary = bootstrapped
             }
-            let balanceString = summary.effective_balance_usd
+            let balanceString = summary.effective_balance
             effectiveBalance = balanceString
             if let value = Double(balanceString) {
                 isZeroBalance = value <= 0

@@ -24,6 +24,13 @@ function flag(name: string): boolean {
   return raw === "true" || raw === "1";
 }
 
+function int(name: string): number | undefined {
+  const raw = str(name);
+  if (raw === undefined) return undefined;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 // ── Registry ─────────────────────────────────────────────────────────────────
 // Each entry documents the env var name, type, default, and purpose.
 
@@ -74,6 +81,57 @@ export function getWorkspaceDirOverride(): string | undefined {
   return str("VELLUM_WORKSPACE_DIR");
 }
 
+// ── Profiler env vars ───────────────────────────────────────────────────
+// These are injected by the platform when running a managed assistant in
+// profiler mode. The runtime uses them to locate, scope, and budget-limit
+// profiler output on the workspace volume.
+
+/**
+ * VELLUM_PROFILER_RUN_ID — string, default: undefined
+ * Unique identifier for the current profiler run. When set, the profiler
+ * run store treats this run as "active" and will never prune its directory.
+ */
+export function getProfilerRunId(): string | undefined {
+  return str("VELLUM_PROFILER_RUN_ID");
+}
+
+/**
+ * VELLUM_PROFILER_MODE — string, default: undefined
+ * The profiling mode to activate (e.g. "cpu", "heap", "cpu+heap").
+ * When unset, profiling is disabled.
+ */
+export function getProfilerMode(): string | undefined {
+  return str("VELLUM_PROFILER_MODE");
+}
+
+/**
+ * VELLUM_PROFILER_MAX_BYTES — integer, default: undefined
+ * Maximum total bytes retained across all profiler runs (including active).
+ * The startup sweep prunes oldest completed runs to stay within budget.
+ */
+export function getProfilerMaxBytes(): number | undefined {
+  return int("VELLUM_PROFILER_MAX_BYTES");
+}
+
+/**
+ * VELLUM_PROFILER_MAX_RUNS — integer, default: undefined
+ * Maximum number of completed profiler runs retained on disk.
+ * The startup sweep prunes oldest completed runs to stay within budget.
+ */
+export function getProfilerMaxRuns(): number | undefined {
+  return int("VELLUM_PROFILER_MAX_RUNS");
+}
+
+/**
+ * VELLUM_PROFILER_MIN_FREE_MB — integer, default: undefined
+ * Minimum free disk space (in megabytes) that must remain after profiler
+ * runs are accounted for. The startup sweep prunes oldest completed runs
+ * until at least this much free space is available.
+ */
+export function getProfilerMinFreeMb(): number | undefined {
+  return int("VELLUM_PROFILER_MIN_FREE_MB");
+}
+
 // ── Known env var names ──────────────────────────────────────────────────────
 
 /**
@@ -90,6 +148,7 @@ const KNOWN_VELLUM_VARS = new Set([
   "VELLUM_DATA_DIR",
   "VELLUM_DESKTOP_APP",
   "VELLUM_DEV",
+  "VELLUM_DOCS_BASE_URL",
   "VELLUM_ENABLE_INSECURE_LAN_PAIRING",
   "VELLUM_HATCHED_BY",
   "VELLUM_HOOK_EVENT",
@@ -97,6 +156,11 @@ const KNOWN_VELLUM_VARS = new Set([
   "VELLUM_HOOK_SETTINGS",
   "VELLUM_LOCKFILE_DIR",
   "VELLUM_PLATFORM_URL",
+  "VELLUM_PROFILER_MAX_BYTES",
+  "VELLUM_PROFILER_MAX_RUNS",
+  "VELLUM_PROFILER_MIN_FREE_MB",
+  "VELLUM_PROFILER_MODE",
+  "VELLUM_PROFILER_RUN_ID",
   "VELLUM_ROOT_DIR",
   "VELLUM_SSH_USER",
   "VELLUM_UNSAFE_AUTH_BYPASS",

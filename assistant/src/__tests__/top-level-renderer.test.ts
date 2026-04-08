@@ -1,10 +1,11 @@
+import { homedir, userInfo } from "node:os";
 import { describe, expect, test } from "bun:test";
 
 import { renderWorkspaceTopLevelContext } from "../workspace/top-level-renderer.js";
 import type { TopLevelSnapshot } from "../workspace/top-level-scanner.js";
 
 describe("renderWorkspaceTopLevelContext", () => {
-  test("renders basic snapshot with directories and files", () => {
+  test("renders basic snapshot with directories, files, and host env", () => {
     const snapshot: TopLevelSnapshot = {
       rootPath: "/sandbox",
       directories: ["lib", "src", "tests"],
@@ -19,6 +20,8 @@ describe("renderWorkspaceTopLevelContext", () => {
         "Root: /sandbox",
         "Directories: lib, src, tests",
         "Files: README.md, package.json",
+        `Host home directory: ${homedir()}`,
+        `Host username: ${userInfo().username}`,
         "</workspace>",
       ].join("\n"),
     );
@@ -65,6 +68,8 @@ describe("renderWorkspaceTopLevelContext", () => {
         "Root: /empty",
         "Directories: ",
         "Files: ",
+        `Host home directory: ${homedir()}`,
+        `Host username: ${userInfo().username}`,
         "</workspace>",
       ].join("\n"),
     );

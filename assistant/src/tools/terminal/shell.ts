@@ -261,11 +261,9 @@ class ShellTool implements Tool {
       "Executing shell command",
     );
 
-    // Resolve sandbox config early - needed both for proxy env and command wrapping.
-    const sandboxConfig =
-      context.sandboxOverride != null
-        ? { ...config.sandbox, enabled: context.sandboxOverride }
-        : config.sandbox;
+    // The assistant runs exclusively in Docker or platform-managed
+    // environments where the container provides isolation.
+    const sandboxConfig = { enabled: false } as const;
 
     // Acquire proxy session if proxied mode is requested.
     // `getOrStartSession` serializes per-conversation so concurrent proxied
@@ -329,30 +327,35 @@ class ShellTool implements Tool {
         detached: true,
       });
 
+      // Kill the entire process tree. Tries the process group first
+      // (negative PID), then falls back to killing the direct child if the
+      // PID is unavailable or the group kill fails.
+      const killTree = () => {
+        if (child.pid != null) {
+          try {
+            process.kill(-child.pid, "SIGKILL");
+            return;
+          } catch {
+            // Process group may have already exited — fall through.
+          }
+        }
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // Child may have already exited.
+        }
+      };
+
       const timer = setTimeout(() => {
         timedOut = true;
-        try {
-          process.kill(-child.pid!, "SIGKILL");
-        } catch {
-          // Process group may have already exited.
-        }
+        killTree();
       }, timeoutMs);
 
       // Cooperative cancellation via AbortSignal
-      const onAbort = () => {
-        try {
-          process.kill(-child.pid!, "SIGKILL");
-        } catch {
-          // Process group may have already exited.
-        }
-      };
+      const onAbort = () => killTree();
       if (context.signal) {
         if (context.signal.aborted) {
-          try {
-            process.kill(-child.pid!, "SIGKILL");
-          } catch {
-            // Process group may have already exited.
-          }
+          killTree();
         } else {
           context.signal.addEventListener("abort", onAbort, { once: true });
         }

@@ -30,23 +30,16 @@ struct AssistantProgressViewLoggingTests {
         return tc
     }
 
-    /// Simulates the auto-expand diagnostic that `onAppear` would emit for a
-    /// completed step group when the `expand-completed-steps` flag is enabled.
-    ///
-    /// This mirrors the exact recording logic in AssistantProgressView.onAppear
-    /// so that test assertions stay tightly coupled to production behavior.
+    /// Simulates the auto-expand diagnostic that `onAppear` emits when a
+    /// pending confirmation forces the card open.
     @MainActor
-    private static func simulateOnAppearAutoExpand(
+    private static func simulateOnAppearPendingConfirmationAutoExpand(
         store: ChatDiagnosticsStore,
-        toolCalls: [ToolCallData],
-        hasPendingConfirmation: Bool = false,
-        hasRehydrate: Bool = false
+        toolCalls: [ToolCallData]
     ) {
-        let groupId = toolCalls.first?.id.uuidString ?? "no-tools"
-        let completedCount = toolCalls.filter(\.isComplete).count
         store.record(ChatDiagnosticEvent(
             kind: .progressCardTransition,
-            reason: "auto_expand:completed_steps_flag_on_appear group=\(groupId) phase=complete expand_flag=true completed=\(completedCount)/\(toolCalls.count) pending_confirm=\(hasPendingConfirmation) rehydrate=\(hasRehydrate)",
+            reason: "auto_expand:pending_confirmation_on_appear",
             toolCallCount: toolCalls.count
         ))
     }
@@ -54,52 +47,36 @@ struct AssistantProgressViewLoggingTests {
     // MARK: - Enriched Fields
 
     @Test @MainActor
-    func autoExpandOnAppearIncludesEnrichedFields() {
+    func pendingConfirmationOnAppearIncludesToolCallCount() {
         let store = ChatDiagnosticsStore()
         let toolCalls = [
             Self.completedToolCall(index: 1),
             Self.completedToolCall(index: 2, toolName: "run_command"),
         ]
 
-        Self.simulateOnAppearAutoExpand(store: store, toolCalls: toolCalls)
+        Self.simulateOnAppearPendingConfirmationAutoExpand(store: store, toolCalls: toolCalls)
 
         let events = store.events.filter { $0.kind == .progressCardTransition }
         #expect(events.count == 1)
 
         let reason = events[0].reason ?? ""
-
-        // Group ID matches the first tool call's UUID.
-        #expect(reason.contains("group=00000000-0000-0000-0000-000000000001"))
-        // Phase is complete.
-        #expect(reason.contains("phase=complete"))
-        // Feature flag state is included.
-        #expect(reason.contains("expand_flag=true"))
-        // Completed tool count ratio is present.
-        #expect(reason.contains("completed=2/2"))
-        // Pending confirmation state is included.
-        #expect(reason.contains("pending_confirm=false"))
-        // Rehydration availability is included.
-        #expect(reason.contains("rehydrate=false"))
+        #expect(reason == "auto_expand:pending_confirmation_on_appear")
         // toolCallCount is populated.
         #expect(events[0].toolCallCount == 2)
     }
 
     @Test @MainActor
-    func autoExpandOnAppearWithRehydrateAvailable() {
+    func pendingConfirmationOnAppearSupportsSingleToolGroup() {
         let store = ChatDiagnosticsStore()
         let toolCalls = [Self.completedToolCall(index: 5)]
 
-        Self.simulateOnAppearAutoExpand(
-            store: store,
-            toolCalls: toolCalls,
-            hasRehydrate: true
-        )
+        Self.simulateOnAppearPendingConfirmationAutoExpand(store: store, toolCalls: toolCalls)
 
         let events = store.events.filter { $0.kind == .progressCardTransition }
         #expect(events.count == 1)
         let reason = events[0].reason ?? ""
-        #expect(reason.contains("rehydrate=true"))
-        #expect(reason.contains("completed=1/1"))
+        #expect(reason == "auto_expand:pending_confirmation_on_appear")
+        #expect(events[0].toolCallCount == 1)
     }
 
     // MARK: - Once-Per-Appearance Guard
@@ -111,7 +88,7 @@ struct AssistantProgressViewLoggingTests {
     /// confirming that the dedup is at the SwiftUI lifecycle level, not
     /// inside the store.
     @Test @MainActor
-    func autoExpandDiagnosticEmittedOncePerAppearance() {
+    func pendingConfirmationDiagnosticEmittedOncePerAppearance() {
         let store = ChatDiagnosticsStore()
         let toolCalls = [
             Self.completedToolCall(index: 10),
@@ -120,11 +97,11 @@ struct AssistantProgressViewLoggingTests {
         ]
 
         // First appearance: one diagnostic emitted.
-        Self.simulateOnAppearAutoExpand(store: store, toolCalls: toolCalls)
+        Self.simulateOnAppearPendingConfirmationAutoExpand(store: store, toolCalls: toolCalls)
 
         let afterFirstAppear = store.events.filter {
             $0.kind == .progressCardTransition
-                && ($0.reason ?? "").contains("auto_expand:completed_steps_flag_on_appear")
+                && ($0.reason ?? "").contains("auto_expand:pending_confirmation_on_appear")
         }
         #expect(afterFirstAppear.count == 1,
                 "onAppear should emit exactly one auto-expand diagnostic")
@@ -136,7 +113,7 @@ struct AssistantProgressViewLoggingTests {
         // in the SwiftUI lifecycle (onAppear vs body).
         let afterRerender = store.events.filter {
             $0.kind == .progressCardTransition
-                && ($0.reason ?? "").contains("auto_expand:completed_steps_flag_on_appear")
+                && ($0.reason ?? "").contains("auto_expand:pending_confirmation_on_appear")
         }
         #expect(afterRerender.count == 1,
                 "A render pass without a new onAppear must not produce duplicate diagnostics")
@@ -146,18 +123,18 @@ struct AssistantProgressViewLoggingTests {
     /// each emit their own diagnostic — the once-per-appearance invariant
     /// allows one event per appearance, not one event total.
     @Test @MainActor
-    func distinctAppearancesEachEmitDiagnostic() {
+    func distinctAppearancesEachEmitPendingConfirmationDiagnostic() {
         let store = ChatDiagnosticsStore()
         let toolCalls = [Self.completedToolCall(index: 20)]
 
         // First appearance.
-        Self.simulateOnAppearAutoExpand(store: store, toolCalls: toolCalls)
+        Self.simulateOnAppearPendingConfirmationAutoExpand(store: store, toolCalls: toolCalls)
         // Second appearance (view was removed and re-added to the hierarchy).
-        Self.simulateOnAppearAutoExpand(store: store, toolCalls: toolCalls)
+        Self.simulateOnAppearPendingConfirmationAutoExpand(store: store, toolCalls: toolCalls)
 
         let events = store.events.filter {
             $0.kind == .progressCardTransition
-                && ($0.reason ?? "").contains("auto_expand:completed_steps_flag_on_appear")
+                && ($0.reason ?? "").contains("auto_expand:pending_confirmation_on_appear")
         }
         #expect(events.count == 2,
                 "Each distinct appearance should emit its own diagnostic")

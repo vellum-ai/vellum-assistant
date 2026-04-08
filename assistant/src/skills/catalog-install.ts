@@ -392,6 +392,14 @@ export async function autoInstallFromCatalog(
     return false;
   }
 
+  // If the skill already exists on disk (stale index), re-index it instead
+  // of attempting a fresh install that would fail.
+  const skillDir = join(getWorkspaceSkillsDir(), skillId);
+  if (existsSync(join(skillDir, "SKILL.md"))) {
+    upsertSkillsIndex(skillId);
+    return true;
+  }
+
   // installSkillLocally handles dependency installation and SKILLS.md indexing.
   await installSkillLocally(skillId, entry, false);
 

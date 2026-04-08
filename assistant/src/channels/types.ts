@@ -48,6 +48,7 @@ export const INTERFACE_IDS = [
   "whatsapp",
   "slack",
   "email",
+  "chrome-extension",
 ] as const;
 
 export type InterfaceId = (typeof INTERFACE_IDS)[number];
@@ -88,6 +89,39 @@ export const INTERACTIVE_INTERFACES: ReadonlySet<InterfaceId> = new Set([
 
 export function isInteractiveInterface(id: InterfaceId): boolean {
   return INTERACTIVE_INTERFACES.has(id);
+}
+
+/**
+ * Host proxy capabilities that an interface can support. The macOS client
+ * supports all four; the chrome-extension interface only supports
+ * host_browser (via the Chrome DevTools Protocol proxy).
+ */
+export type HostProxyCapability =
+  | "host_bash"
+  | "host_file"
+  | "host_cu"
+  | "host_browser";
+
+/**
+ * Whether the interface supports a host proxy capability.
+ *
+ * The no-arg form `supportsHostProxy(id)` asks "does this interface support
+ * the full desktop host proxy set?" — it returns `true` only for macOS, which
+ * supports all four capabilities. It returns `false` for
+ * chrome-extension because chrome-extension only supports `host_browser`,
+ * and the no-arg form is the gate that legacy desktop-only call sites use
+ * (e.g. preactivating computer-use, restoring all four proxies in the drain
+ * queue). Callers that want to check a single capability — for example, to
+ * decide whether to keep `hostBrowserProxy` available for chrome-extension —
+ * should pass the capability explicitly: `supportsHostProxy(id, "host_browser")`.
+ */
+export function supportsHostProxy(
+  id: InterfaceId,
+  capability?: HostProxyCapability,
+): boolean {
+  if (id === "macos") return true;
+  if (id === "chrome-extension" && capability === "host_browser") return true;
+  return false;
 }
 
 export interface TurnInterfaceContext {
