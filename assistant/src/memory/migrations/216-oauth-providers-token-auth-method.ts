@@ -12,21 +12,19 @@ import { getSqliteFrom } from "../db-connection.js";
  * column without a full table rebuild, so the underlying column remains
  * nullable at the SQLite level. All writes go through Drizzle, which
  * applies the default for any insert that omits the field.
+ *
+ * The UPDATE is inherently idempotent and safe to re-run. Errors are
+ * allowed to propagate to the migration runner in `db-init.ts`, which
+ * records the failure, logs it, and continues to the next migration.
  */
 export function migrateOAuthProvidersTokenAuthMethodDefault(
   database: DrizzleDb,
 ): void {
   const raw = getSqliteFrom(database);
-  try {
-    raw.exec(
-      `UPDATE oauth_providers
-       SET token_endpoint_auth_method = 'client_secret_post'
-       WHERE token_endpoint_auth_method IS NULL
-          OR token_endpoint_auth_method = ''`,
-    );
-  } catch {
-    // Backfill failed — log via the migration runner's outer catch.
-    // No state to roll back: the UPDATE is idempotent and partial
-    // updates are tolerable (they will be retried on next startup).
-  }
+  raw.exec(
+    `UPDATE oauth_providers
+     SET token_endpoint_auth_method = 'client_secret_post'
+     WHERE token_endpoint_auth_method IS NULL
+        OR token_endpoint_auth_method = ''`,
+  );
 }
