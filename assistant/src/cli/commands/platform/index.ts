@@ -285,11 +285,11 @@ Examples:
     .action(async (_opts: Record<string, unknown>, cmd: Command) => {
       try {
         const context = await resolvePlatformCallbackRegistrationContext();
-        if (!context.enabled || !context.authHeader) {
+        if (!context.platformBaseUrl || !context.authHeader) {
           writeOutput(cmd, {
             ok: false,
             error:
-              "Platform callbacks not available — missing platform registration context",
+              "Platform credentials not available — run 'assistant platform connect' or set VELLUM_PLATFORM_URL",
           });
           process.exitCode = 1;
           return;
