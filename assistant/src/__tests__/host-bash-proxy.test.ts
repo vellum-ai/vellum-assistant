@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 
 const mockConfig = {
   timeouts: {
@@ -466,33 +466,36 @@ describe("HostBashProxy", () => {
     test("removes abort listener from signal on timer timeout", async () => {
       setup();
 
-      const controller = new AbortController();
-      const spy = spySignal(controller.signal);
+      jest.useFakeTimers();
+      try {
+        const controller = new AbortController();
+        const spy = spySignal(controller.signal);
 
-      // Use a negative timeout_seconds so that proxyTimeoutSec = -2.99 + 3 = 0.01s,
-      // causing the timer to fire quickly.
-      const resultPromise = proxy.request(
-        { command: "echo slow", timeout_seconds: -2.99 },
-        "session-1",
-        spy.signal,
-      );
+        const resultPromise = proxy.request(
+          { command: "echo slow", timeout_seconds: 30 },
+          "session-1",
+          spy.signal,
+        );
 
-      expect(spy.addCalls).toEqual(["abort"]);
-      expect(spy.removeCalls).toEqual([]);
+        expect(spy.addCalls).toEqual(["abort"]);
+        expect(spy.removeCalls).toEqual([]);
 
-      // Wait long enough for the timer (10ms) to fire.
-      await new Promise((r) => setTimeout(r, 50));
+        // Proxy timeout is timeout_seconds + 3 = 33s. Advance past it.
+        jest.advanceTimersByTime(34 * 1000);
 
-      const result = await resultPromise;
-      expect(result.isError).toBe(true);
-      expect(result.content).toContain("Host bash proxy timed out");
+        const result = await resultPromise;
+        expect(result.isError).toBe(true);
+        expect(result.content).toContain("Host bash proxy timed out");
 
-      // Listener is detached after the timer fires.
-      expect(spy.removeCalls).toEqual(["abort"]);
+        // Listener is detached after the timer fires.
+        expect(spy.removeCalls).toEqual(["abort"]);
 
-      // Subsequent aborts should be harmless — no cancel emitted.
-      controller.abort();
-      expect(sentMessages).toHaveLength(1);
+        // Subsequent aborts should be harmless — no cancel emitted.
+        controller.abort();
+        expect(sentMessages).toHaveLength(1);
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 
