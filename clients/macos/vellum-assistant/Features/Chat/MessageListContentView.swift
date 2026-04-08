@@ -109,7 +109,7 @@ struct MessageListContentView: View, Equatable {
         }
         .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
         .id("thinking-indicator")
-        .transition(.opacity.combined(with: .move(edge: .bottom)))
+        .transition(.opacity)
     }
 
     @ViewBuilder
@@ -120,7 +120,7 @@ struct MessageListContentView: View, Equatable {
         )
         .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
         .id("compacting-indicator")
-        .transition(.opacity.combined(with: .move(edge: .bottom)))
+        .transition(.opacity)
     }
 
     @ViewBuilder
@@ -149,6 +149,9 @@ struct MessageListContentView: View, Equatable {
     // MARK: - Body
 
     var body: some View {
+        // WARNING: Items in this LazyVStack must NOT use .transition(.move(edge:)) —
+        // it triggers full-content measurement via motionVectors and causes
+        // multi-minute hangs. Use .transition(.opacity) only. See AGENTS.md.
         LazyVStack(alignment: .leading, spacing: VSpacing.md) {
             if isLoadingMoreMessages {
                 HStack {
@@ -228,7 +231,7 @@ struct MessageListContentView: View, Equatable {
                 )
                     .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
                     .id("subagent-\(subagent.id)")
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    .transition(.opacity)
             }
 
             if isUnanchoredThinking {
@@ -245,7 +248,7 @@ struct MessageListContentView: View, Equatable {
                 }
                 .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
                 .id("streaming-without-text-indicator")
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                .transition(.opacity)
             } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
                 compactingIndicatorRow()
             }
