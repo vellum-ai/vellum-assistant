@@ -12,7 +12,14 @@ mock.module("../util/logger.js", () => ({
 // ── Fake CdpClient ───────────────────────────────────────────────────
 //
 // Programmable send handler + call log shared across tests. Each test
-// resets these in `beforeEach` via `resetCdp()`.
+// resets these in `beforeEach` via `resetCdp()`. The mocked
+// `getCdpClient` mirrors the real factory's routing decision (local
+// vs extension is driven by `context.hostBrowserProxy`) so individual
+// tests can exercise either transport without process-wide coupling.
+//
+// Note: bun's `mock.module` is process-global, but `scripts/test.sh`
+// runs each test file in its own bun process so this mock only
+// affects this file's tests.
 
 let cdpSendCalls: Array<{ method: string; params?: unknown }> = [];
 let cdpSendHandler: (
@@ -20,25 +27,34 @@ let cdpSendHandler: (
   params?: Record<string, unknown>,
 ) => unknown = () => ({});
 let cdpDisposed = false;
-let cdpKind: "local" | "extension" = "local";
 
-const fakeCdp = {
-  get kind() {
-    return cdpKind;
-  },
-  conversationId: "test-conversation",
-  async send<T>(method: string, params?: Record<string, unknown>): Promise<T> {
-    cdpSendCalls.push({ method, params });
-    const value = cdpSendHandler(method, params);
-    return (await value) as T;
-  },
-  dispose() {
-    cdpDisposed = true;
-  },
-};
+function makeFakeCdp(kind: "local" | "extension", conversationId: string) {
+  return {
+    kind,
+    conversationId,
+    async send<T>(
+      method: string,
+      params?: Record<string, unknown>,
+    ): Promise<T> {
+      cdpSendCalls.push({ method, params });
+      const value = cdpSendHandler(method, params);
+      return (await value) as T;
+    },
+    dispose() {
+      cdpDisposed = true;
+    },
+  };
+}
 
 mock.module("../tools/browser/cdp-client/factory.js", () => ({
-  getCdpClient: () => fakeCdp,
+  getCdpClient: (context: {
+    hostBrowserProxy?: unknown;
+    conversationId: string;
+  }) =>
+    makeFakeCdp(
+      context.hostBrowserProxy ? "extension" : "local",
+      context.conversationId,
+    ),
 }));
 
 // ── Minimal browserManager stub ──────────────────────────────────────
@@ -147,7 +163,6 @@ function defaultCdpHandler(
 function resetCdp() {
   cdpSendCalls = [];
   cdpDisposed = false;
-  cdpKind = "local";
   cdpSendHandler = defaultCdpHandler;
 }
 
@@ -445,14 +460,20 @@ describe("executeBrowserNavigate", () => {
 
   test("extension path skips getOrCreateSessionPage and route interception", async () => {
     parseUrlResult = new URL("https://example.com/page");
-    cdpKind = "extension";
+    // Supplying a non-null hostBrowserProxy on the context routes the
+    // mocked getCdpClient to the extension path (it mirrors the real
+    // factory's routing logic).
+    const extensionCtx: ToolContext = {
+      ...ctx,
+      hostBrowserProxy: {} as unknown as ToolContext["hostBrowserProxy"],
+    };
     // Reset page call trackers to verify they are not touched.
     const routeCallsBefore = mockPage.route.mock.calls.length;
     const unrouteCallsBefore = mockPage.unroute.mock.calls.length;
 
     const result = await executeBrowserNavigate(
       { url: "https://example.com/page" },
-      ctx,
+      extensionCtx,
     );
 
     expect(result.isError).toBe(false);
