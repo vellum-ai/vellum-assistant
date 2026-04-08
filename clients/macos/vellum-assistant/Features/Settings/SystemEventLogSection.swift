@@ -169,8 +169,7 @@ struct SystemEventLogSection: View {
                             expandedEventIds.insert(event.id)
                         }
                     } label: {
-                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                            .font(.caption)
+                        VIconView(isExpanded ? .chevronUp : .chevronDown, size: 12)
                             .foregroundStyle(VColor.contentTertiary)
                     }
                     .buttonStyle(.plain)
@@ -195,7 +194,9 @@ struct SystemEventLogSection: View {
 
     private func statusLine(refreshedAt: Date) -> String {
         let suffix = hasMore ? "+" : ""
-        let countLabel = events.count == 1 ? "1 event" : "\(events.count)\(suffix) events"
+        let countLabel = (events.count == 1 && !hasMore)
+            ? "1 event"
+            : "\(events.count)\(suffix) events"
         let refreshed = refreshedAt.formatted(date: .omitted, time: .standard)
         return "\(countLabel) loaded • Refreshed \(refreshed)"
     }
