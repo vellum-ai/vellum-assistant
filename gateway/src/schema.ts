@@ -613,7 +613,7 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/webhooks/email/inbound": {
+      "/webhooks/email": {
         post: {
           summary: "Email inbound webhook",
           description:
