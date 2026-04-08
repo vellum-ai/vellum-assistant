@@ -135,7 +135,7 @@ export function derefToolResultReReads(messages: Message[]): {
       if (block.type !== "tool_use") continue;
       const tu = block as ToolUseContent;
       if (tu.name !== "file_read") continue;
-      const filePath = tu.input.path;
+      const filePath = tu.input.path ?? tu.input.file_path;
       if (typeof filePath !== "string") continue;
       if (filePath.includes(`/${TOOL_RESULT_DIR}/`)) {
         reReadToolUseIds.add(tu.id);
@@ -157,6 +157,9 @@ export function derefToolResultReReads(messages: Message[]): {
       if (block.type !== "tool_result") return block;
       const tr = block as ToolResultContent;
       if (!reReadToolUseIds.has(tr.tool_use_id)) return block;
+
+      // Skip error results — preserve diagnostics (e.g. file not found).
+      if (tr.is_error) return block;
 
       changed = true;
       dereferencedCount++;
