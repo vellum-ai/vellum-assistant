@@ -214,11 +214,6 @@ struct IntegrationDetailModal: View {
                     }
                 }
             } else {
-                // Connection count
-                Text("\(connections.count) connected")
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-
                 managedConnectionsList
 
                 // Connect another account inside card area
@@ -315,27 +310,13 @@ struct IntegrationDetailModal: View {
                 }
             } else {
                 if isShowingAddAppForm {
-                    // Form only, no top row
                     yourOwnFormStep
-                } else {
-                    // Top row: count
-                    Text("\(apps.count) connected")
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentSecondary)
                 }
 
                 // App list
                 if !apps.isEmpty {
                     ForEach(apps) { app in
                         yourOwnAppCard(for: app)
-                    }
-
-                    if !isShowingAddAppForm {
-                        VButton(label: "Add another app", leftIcon: VIcon.plus.rawValue, style: .outlined) {
-                            createAppClientId = ""
-                            createAppClientSecret = ""
-                            isShowingAddAppForm = true
-                        }
                     }
                 }
             }
@@ -457,7 +438,7 @@ struct IntegrationDetailModal: View {
                     }
                 } else {
                     VButton(
-                        label: "Connect Account",
+                        label: "Connect another account",
                         leftIcon: "lucide-external-link",
                         style: .outlined,
                         isDisabled: store.yourOwnOAuthConnectingAppId != nil

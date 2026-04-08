@@ -413,7 +413,13 @@ struct SettingsPanel: View {
             IntegrationsPanelContent(
                 store: store,
                 authManager: authManager,
-                showToast: showToast
+                showToast: showToast,
+                onEnableIntegration: {
+                    conversationManager.openConversation(
+                        message: "I'd like to enable an integration. What integrations are available?",
+                        forceNew: true
+                    )
+                }
             )
         case .voice:
             VoiceSettingsView(store: store)

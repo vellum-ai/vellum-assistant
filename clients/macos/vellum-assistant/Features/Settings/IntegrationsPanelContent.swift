@@ -15,6 +15,7 @@ struct IntegrationsPanelContent: View {
     @ObservedObject var store: SettingsStore
     var authManager: AuthManager
     var showToast: (String, ToastInfo.Style) -> Void
+    var onEnableIntegration: (() -> Void)?
 
     @State private var searchText: String = ""
     @State private var selectedProviderKey: String? = nil
@@ -115,13 +116,25 @@ struct IntegrationsPanelContent: View {
 
     // MARK: - Tip Banner
 
+    private static let enableIntegrationURL = URL(string: "vellum://enable-integration")!
+
     private var integrationsTipBanner: some View {
         HStack(spacing: VSpacing.xs) {
             VIconView(.sparkles, size: 14)
                 .foregroundStyle(VColor.primaryBase)
-            Text("**Tip:** You can enable integrations by mentioning them in chat.")
-                .font(VFont.bodyMediumDefault)
-                .foregroundStyle(VColor.contentDefault)
+            HStack(spacing: 0) {
+                Text("**Tip:** You can ")
+                VLink(
+                    "enable integrations",
+                    destination: Self.enableIntegrationURL,
+                    font: VFont.bodyMediumDefault,
+                    underline: true
+                )
+                .tint(VColor.primaryBase)
+                Text(" by mentioning them in chat.")
+            }
+            .font(VFont.bodyMediumDefault)
+            .foregroundStyle(VColor.contentDefault)
             Spacer()
             Button(action: {
                 withAnimation(VAnimation.fast) { bannerDismissed = true }
@@ -141,8 +154,13 @@ struct IntegrationsPanelContent: View {
             RoundedRectangle(cornerRadius: VRadius.md)
                 .stroke(VColor.primaryBase.opacity(0.18), lineWidth: 1)
         )
+        .environment(\.openURL, OpenURLAction { _ in
+            onEnableIntegration?()
+            return .handled
+        })
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Tip: You can enable integrations by mentioning them in chat.")
+        .accessibilityAddTraits(.isButton)
     }
 
     // MARK: - Filter Bar
