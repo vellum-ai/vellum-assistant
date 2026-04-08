@@ -94,7 +94,7 @@ struct IntegrationDetailModal: View {
         } footer: {
             HStack {
                 Spacer()
-                VButton(label: "Close", style: .outlined, action: onClose)
+                VButton(label: "Confirm", style: .outlined, action: onClose)
             }
         }
         .frame(width: 520)
@@ -214,29 +214,26 @@ struct IntegrationDetailModal: View {
                     }
                 }
             } else {
-                // Connection count + add button row
-                HStack {
-                    Text("\(connections.count) connected")
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-
-                    Spacer()
-
-                    if isConnecting {
-                        HStack(spacing: VSpacing.sm) {
-                            VBusyIndicator(size: 8, color: VColor.contentTertiary)
-                            Text("Waiting for authorization...")
-                                .font(VFont.bodyMediumDefault)
-                                .foregroundStyle(VColor.contentTertiary)
-                        }
-                    } else {
-                        VButton(label: "Add Another App", leftIcon: VIcon.plus.rawValue, style: .outlined) {
-                            store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
-                        }
-                    }
-                }
+                // Connection count
+                Text("\(connections.count) connected")
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentSecondary)
 
                 managedConnectionsList
+
+                // Connect another account inside card area
+                if isConnecting {
+                    HStack(spacing: VSpacing.sm) {
+                        VBusyIndicator(size: 8, color: VColor.contentTertiary)
+                        Text("Waiting for authorization...")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
+                } else {
+                    VButton(label: "Connect another account", leftIcon: VIcon.plus.rawValue, style: .outlined) {
+                        store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
+                    }
+                }
             }
 
             if let error = store.managedError(for: providerKey) {
@@ -321,20 +318,10 @@ struct IntegrationDetailModal: View {
                     // Form only, no top row
                     yourOwnFormStep
                 } else {
-                    // Top row: count + add button
-                    HStack {
-                        Text("\(apps.count) connected")
-                            .font(VFont.bodyMediumDefault)
-                            .foregroundStyle(VColor.contentSecondary)
-
-                        Spacer()
-
-                        VButton(label: "Add Another App", leftIcon: VIcon.plus.rawValue, style: .outlined) {
-                            createAppClientId = ""
-                            createAppClientSecret = ""
-                            isShowingAddAppForm = true
-                        }
-                    }
+                    // Top row: count
+                    Text("\(apps.count) connected")
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
 
                 // App list
