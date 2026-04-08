@@ -467,17 +467,17 @@ describe('RelayConnection', () => {
       conn.close();
     });
 
-    test('updates the mode getter', () => {
+    test('updates the mode accessor', () => {
       const cbs = makeCallbacks();
       const conn = makeConn(
         { kind: 'self-hosted', baseUrl: 'http://127.0.0.1:7830', token: 't' },
         cbs,
       );
       conn.start();
-      expect(conn.mode.kind).toBe('self-hosted');
+      expect(conn.getCurrentMode().kind).toBe('self-hosted');
 
       conn.setMode({ kind: 'cloud', baseUrl: 'https://api.vellum.ai', token: 'c' });
-      expect(conn.mode.kind).toBe('cloud');
+      expect(conn.getCurrentMode().kind).toBe('cloud');
 
       conn.close();
     });
@@ -508,7 +508,7 @@ describe('RelayConnection', () => {
       expect(newSocket.url).toBe(
         'wss://api.vellum.ai/v1/browser-relay?token=cloud-jwt',
       );
-      expect(conn.mode.kind).toBe('cloud');
+      expect(conn.getCurrentMode().kind).toBe('cloud');
 
       // Now simulate the asynchronous close event that socket A fires
       // after setMode already re-pointed this.ws at socket B. The
