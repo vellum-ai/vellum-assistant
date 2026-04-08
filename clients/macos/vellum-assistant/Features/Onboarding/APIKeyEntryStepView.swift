@@ -120,10 +120,13 @@ struct APIKeyEntryStepView: View {
                         Text("Get an API key here")
                             .font(VFont.bodyMediumDefault)
                             .foregroundStyle(VColor.contentDefault)
+                            .underline()
                             .onTapGesture {
                                 NSWorkspace.shared.open(url)
                             }
+                            .pointerCursor()
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
                 VButton(label: "Start", style: .primary, isFullWidth: true, isDisabled: providerRequiresKey && apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
