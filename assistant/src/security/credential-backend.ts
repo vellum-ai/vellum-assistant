@@ -47,6 +47,11 @@ export interface CredentialBackend {
 
   /** List all account names. */
   list(): Promise<CredentialListResult>;
+
+  /** Bulk-set multiple credentials. Optional — backends without native bulk support omit this. */
+  bulkSet?(
+    credentials: Array<{ account: string; value: string }>,
+  ): Promise<Array<{ account: string; ok: boolean }>>;
 }
 
 // ---------------------------------------------------------------------------
