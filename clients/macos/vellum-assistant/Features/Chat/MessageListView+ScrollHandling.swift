@@ -13,6 +13,7 @@ extension ScrollCoordinator.Phase {
         switch phase {
         case .idle: .idle
         case .interacting: .interacting
+        case .tracking: .interacting
         case .decelerating: .decelerating
         case .animating: .animating
         @unknown default: .idle
