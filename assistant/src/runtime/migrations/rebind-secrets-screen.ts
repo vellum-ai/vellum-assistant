@@ -342,7 +342,15 @@ export function completeMigration(
   wizardState: MigrationWizardState,
   completionState: RebindTaskCompletionState,
 ): MigrationWizardState {
-  if (!areAllRequiredTasksComplete(completionState)) {
+  // Apply credential-aware effective completion: if all credentials were
+  // imported successfully, treat re-enter-secrets as auto-completed
+  // (mirrors the logic in deriveRebindSecretsScreenState).
+  let effectiveCompletion = completionState;
+  const credInfo = wizardState?.credentialsImported;
+  if (credInfo && credInfo.total > 0 && credInfo.failed === 0) {
+    effectiveCompletion = { ...completionState, "re-enter-secrets": true };
+  }
+  if (!areAllRequiredTasksComplete(effectiveCompletion)) {
     throw new Error(
       "Cannot complete migration: not all required tasks are done",
     );

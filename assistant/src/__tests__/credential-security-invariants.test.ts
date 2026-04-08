@@ -194,6 +194,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "oauth/token-persistence.ts", // OAuth token persistence (set/delete tokens)
       "oauth/connection-resolver.ts", // resolve OAuthConnection from oauth-store (access_token lookup)
       "runtime/routes/secret-routes.ts", // HTTP secret management routes (set/delete secrets)
+      "runtime/routes/migration-routes.ts", // migration import credential restore
       "daemon/conversation-messaging.ts", // credential storage during session messaging
       "runtime/routes/settings-routes.ts", // settings routes OAuth credential lookup (client_secret)
       "oauth/oauth-store.ts", // OAuth provider disconnect (delete stored tokens)

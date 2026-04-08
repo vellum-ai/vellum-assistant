@@ -98,14 +98,9 @@ export async function handleCredentialRoute(
   const accountSegment = pathname.slice(CREDENTIAL_PATH_PREFIX.length);
 
   // POST /v1/credentials/bulk — bulk set credentials
-  if (accountSegment === "/bulk") {
-    if (req.method !== "POST") {
-      return new Response(
-        JSON.stringify({ error: "Method not allowed" }),
-        { status: 405, headers: { "Content-Type": "application/json" } },
-      );
-    }
-
+  // Only intercept POST; other methods (GET, DELETE) fall through to the
+  // :account handler so a credential literally named "bulk" stays accessible.
+  if (accountSegment === "/bulk" && req.method === "POST") {
     let body: { credentials?: unknown };
     try {
       body = await req.json();
