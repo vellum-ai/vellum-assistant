@@ -129,6 +129,8 @@ struct SettingsDeveloperTab: View {
             featureFlagSection
             // Environment Variables
             environmentVariablesSection
+            // Hello World VM
+            DeveloperHelloWorldVMSection()
             // Sentry Testing
             sentryTestingSection
         }
