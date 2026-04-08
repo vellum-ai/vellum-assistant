@@ -27,23 +27,7 @@ struct MessageListContentView: View, Equatable {
     // MARK: - Equatable
 
     static func == (lhs: MessageListContentView, rhs: MessageListContentView) -> Bool {
-        lhs.state.displayMessages == rhs.state.displayMessages
-            && lhs.state.showTimestamp == rhs.state.showTimestamp
-            && lhs.state.hasPrecedingAssistantByIndex == rhs.state.hasPrecedingAssistantByIndex
-            && lhs.state.hasUserMessage == rhs.state.hasUserMessage
-            && lhs.state.latestAssistantId == rhs.state.latestAssistantId
-            && lhs.state.subagentsByParent == rhs.state.subagentsByParent
-            && lhs.state.orphanSubagents == rhs.state.orphanSubagents
-            && lhs.state.effectiveStatusText == rhs.state.effectiveStatusText
-            && lhs.state.activePendingRequestId == rhs.state.activePendingRequestId
-            && lhs.state.nextDecidedConfirmationByIndex == rhs.state.nextDecidedConfirmationByIndex
-            && lhs.state.isConfirmationRenderedInlineByIndex == rhs.state.isConfirmationRenderedInlineByIndex
-            && lhs.state.anchoredThinkingIndex == rhs.state.anchoredThinkingIndex
-            && lhs.state.hasActiveToolCall == rhs.state.hasActiveToolCall
-            && lhs.state.canInlineProcessing == rhs.state.canInlineProcessing
-            && lhs.state.shouldShowThinkingIndicator == rhs.state.shouldShowThinkingIndicator
-            && lhs.state.isStreamingWithoutText == rhs.state.isStreamingWithoutText
-            && lhs.state.hasMessages == rhs.state.hasMessages
+        lhs.state == rhs.state
             && lhs.providerCatalogHash == rhs.providerCatalogHash
             && lhs.typographyGeneration == rhs.typographyGeneration
             && lhs.isLoadingMoreMessages == rhs.isLoadingMoreMessages
@@ -65,7 +49,7 @@ struct MessageListContentView: View, Equatable {
 
     // MARK: - Data properties (compared in ==)
 
-    let state: MessageListDerivedState
+    let state: TranscriptRenderModel
     let providerCatalog: [ProviderCatalogEntry]
     let providerCatalogHash: Int
     let typographyGeneration: Int
@@ -178,39 +162,36 @@ struct MessageListContentView: View, Equatable {
             }
 
             let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
+            let isUnanchoredThinking = state.shouldShowThinkingIndicator && !state.rows.contains(where: \.isAnchoredThinkingRow)
             let thinkingLabel = !hasEverSentMessage && state.hasUserMessage
                 ? "Waking up..."
                 : (state.effectiveStatusText ?? "Thinking")
-            ForEach(state.displayMessages, id: \.id) { message in
-                let isLatestAssistant = message.role == .assistant && message.id == state.latestAssistantId
-                let messageIndex = state.messageIndexById[message.id] ?? 0
-                let isAnchored = state.shouldShowThinkingIndicator && state.anchoredThinkingIndex == messageIndex
-                let isUnanchoredThinking = state.shouldShowThinkingIndicator && state.anchoredThinkingIndex == nil
+            ForEach(state.rows) { row in
                 // Only pass activePendingRequestId to cells that could use it:
                 // confirmation bubbles need it for keyboard focus, tool-call messages
                 // need it for inline confirmation rendering in AssistantProgressView.
                 // Text-only cells get nil, so they won't fail == when the ID changes.
                 let cellActivePendingRequestId: String? =
-                    (message.confirmation != nil || !message.toolCalls.isEmpty)
+                    (row.message.confirmation != nil || !row.message.toolCalls.isEmpty)
                     ? state.activePendingRequestId : nil
                 MessageCellView(
-                    message: message,
-                    showTimestamp: state.showTimestamp.contains(message.id),
-                    nextDecidedConfirmation: state.nextDecidedConfirmationByIndex[messageIndex],
-                    isConfirmationRenderedInline: state.isConfirmationRenderedInlineByIndex.contains(messageIndex),
-                    hasPrecedingAssistant: state.hasPrecedingAssistantByIndex.contains(messageIndex),
+                    message: row.message,
+                    showTimestamp: row.showTimestamp,
+                    nextDecidedConfirmation: row.decidedConfirmation,
+                    isConfirmationRenderedInline: row.isConfirmationRenderedInline,
+                    hasPrecedingAssistant: row.hasPrecedingAssistant,
                     activePendingRequestId: cellActivePendingRequestId,
                     subagentsByParent: state.subagentsByParent,
-                    isLatestAssistantMessage: isLatestAssistant,
+                    isLatestAssistantMessage: row.isLatestAssistant,
                     typographyGeneration: typographyGeneration,
-                    isProcessingAfterTools: state.canInlineProcessing && isLatestAssistant,
-                    processingStatusText: state.canInlineProcessing && isLatestAssistant ? state.effectiveStatusText : nil,
-                    hideInlineAvatar: isLatestAssistant && isUnanchoredThinking,
-                    showAnchoredThinkingIndicator: isAnchored,
-                    anchoredThinkingLabel: isAnchored ? thinkingLabel : "",
+                    isProcessingAfterTools: state.canInlineProcessing && row.isLatestAssistant,
+                    processingStatusText: state.canInlineProcessing && row.isLatestAssistant ? state.effectiveStatusText : nil,
+                    hideInlineAvatar: row.isLatestAssistant && isUnanchoredThinking,
+                    showAnchoredThinkingIndicator: row.isAnchoredThinkingRow,
+                    anchoredThinkingLabel: row.isAnchoredThinkingRow ? thinkingLabel : "",
                     dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                     activeSurfaceId: activeSurfaceId,
-                    isHighlighted: highlightedMessageId == message.id,
+                    isHighlighted: row.isHighlighted,
                     mediaEmbedSettings: mediaEmbedSettings,
                     onConfirmationAllow: onConfirmationAllow,
                     onConfirmationDeny: onConfirmationDeny,
@@ -250,7 +231,7 @@ struct MessageListContentView: View, Equatable {
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
-            if state.shouldShowThinkingIndicator && state.anchoredThinkingIndex == nil {
+            if isUnanchoredThinking {
                 if isCompacting {
                     compactingIndicatorRow()
                 } else {
