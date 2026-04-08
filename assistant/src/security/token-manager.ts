@@ -1,7 +1,7 @@
 /**
  * Token manager for OAuth2 credentials.
  *
- * Reads refresh configuration (tokenExchangeUrl, clientId, authMethod) exclusively
+ * Reads refresh configuration (refreshUrl with fallback to tokenExchangeUrl, clientId, authMethod) exclusively
  * from the SQLite oauth-store (provider + app + connection rows). After a
  * successful refresh, writes tokens to new-format secure key paths and
  * updates the oauth_connection row.
@@ -90,6 +90,10 @@ const secureKeyBackend: SecureKeyBackend = {
 
 /** Shared shape for resolved refresh configuration. */
 interface RefreshConfig {
+  /**
+   * Token endpoint used for the refresh grant. Resolved from
+   * `provider.refreshUrl` when set, otherwise `provider.tokenExchangeUrl`.
+   */
   tokenExchangeUrl: string;
   clientId: string;
   /** OAuth client secret (optional — PKCE flows may omit it). */
@@ -102,8 +106,9 @@ interface RefreshConfig {
 /**
  * Resolve refresh configuration from the SQLite oauth-store.
  *
- * Looks up connection -> app -> provider to read tokenExchangeUrl, clientId, and
- * authMethod. Throws `TokenExpiredError` if the connection is not found
+ * Looks up connection -> app -> provider to read the refresh endpoint (preferring
+ * `provider.refreshUrl`, falling back to `provider.tokenExchangeUrl`), clientId,
+ * and authMethod. Throws `TokenExpiredError` if the connection is not found
  * or incomplete.
  */
 async function resolveRefreshConfig(
@@ -134,7 +139,11 @@ async function resolveRefreshConfig(
     );
   }
 
-  const tokenExchangeUrl = provider.tokenExchangeUrl;
+  // Prefer provider.refreshUrl when set; fall back to tokenExchangeUrl.
+  // This mirrors platform's `oauth_app.refresh_url or oauth_app.token_exchange_url`
+  // in `token_service.py:112`, so both repos resolve the refresh endpoint
+  // identically for managed and BYO flows.
+  const tokenExchangeUrl = provider.refreshUrl ?? provider.tokenExchangeUrl;
   const resolvedClientId = app.clientId;
   if (!tokenExchangeUrl || !resolvedClientId) {
     throw new TokenExpiredError(
