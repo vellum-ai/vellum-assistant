@@ -364,9 +364,15 @@ export const SLACK_CHANNEL_CREDENTIAL_SPEC: ServiceCredentialSpec = {
   requiredFields: ["bot_token", "app_token"],
 } as const;
 
+export const VELLUM_CREDENTIAL_SPEC: ServiceCredentialSpec = {
+  service: "vellum",
+  requiredFields: ["platform_base_url", "assistant_api_key", "platform_assistant_id", "webhook_secret"],
+} as const;
+
 export const ALL_CREDENTIAL_SPECS: readonly ServiceCredentialSpec[] = [
   TELEGRAM_CREDENTIAL_SPEC,
   TWILIO_CREDENTIAL_SPEC,
   WHATSAPP_CREDENTIAL_SPEC,
   SLACK_CHANNEL_CREDENTIAL_SPEC,
+  VELLUM_CREDENTIAL_SPEC,
 ];
