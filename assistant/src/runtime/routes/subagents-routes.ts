@@ -35,6 +35,14 @@ export interface SubagentDetailResult {
   }>;
 }
 
+const FORK_DIRECTIVE_RE =
+  /^⎯⎯⎯ FORK TASK ⎯⎯⎯\n.*?Complete this task directly and return only your findings:\n\n([\s\S]*?)\n⎯⎯⎯+$/;
+
+function stripForkDirectiveFraming(text: string): string {
+  const match = FORK_DIRECTIVE_RE.exec(text);
+  return match ? match[1] : text;
+}
+
 /**
  * Parse raw message rows into subagent detail events. Extracted as a pure
  * function so it can be unit-tested without a database.
@@ -54,7 +62,7 @@ export function parseSubagentMessages(
           (b: Record<string, unknown>) => isRecord(b) && b.type === "text",
         );
         if (textBlock && typeof textBlock.text === "string") {
-          objective = textBlock.text;
+          objective = stripForkDirectiveFraming(textBlock.text);
         }
       }
     } catch {
