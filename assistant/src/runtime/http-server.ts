@@ -10,6 +10,7 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -508,6 +509,28 @@ export class RuntimeHttpServer {
     }
   }
 
+  /**
+   * Remove the runtime port file written by `writeRuntimePortFile`.
+   * Called from `stop()` on clean shutdown so a stale file does not
+   * point thin helpers (e.g. the chrome-extension native messaging
+   * helper) at a dead port until the next daemon start overwrites it.
+   * Best-effort — unlink failures never block shutdown.
+   *
+   * Note: this only runs on graceful shutdown. A crash leaves the
+   * file in place; the next successful startup overwrites it.
+   */
+  private removeRuntimePortFile(): void {
+    try {
+      const portFile = getRuntimePortFilePath();
+      if (existsSync(portFile)) {
+        unlinkSync(portFile);
+        log.info({ portFile }, "Removed runtime port file");
+      }
+    } catch (err) {
+      log.warn({ err }, "Failed to remove runtime port file");
+    }
+  }
+
   async stop(): Promise<void> {
     this.pairingStore.stop();
     stopGuardianExpirySweep();
@@ -522,6 +545,7 @@ export class RuntimeHttpServer {
       this.server = null;
       log.info("Runtime HTTP server stopped");
     }
+    this.removeRuntimePortFile();
   }
 
   private async handleRequest(
