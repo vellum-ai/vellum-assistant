@@ -84,7 +84,7 @@ struct ImproveExperienceStepView: View {
                     saveAndContinue()
                 }
 
-                VButton(label: "Back", style: .outlined) {
+                VButton(label: "Back", style: .outlined, isFullWidth: true) {
                     goBack()
                 }
             }

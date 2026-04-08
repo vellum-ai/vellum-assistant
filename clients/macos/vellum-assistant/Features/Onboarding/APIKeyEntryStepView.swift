@@ -130,7 +130,7 @@ struct APIKeyEntryStepView: View {
                     saveAndHatch()
                 }
 
-                VButton(label: "Back", style: .outlined) {
+                VButton(label: "Back", style: .outlined, isFullWidth: true) {
                     goBack()
                 }
             }
