@@ -1566,6 +1566,20 @@ async function main() {
         );
       });
     }
+
+    // Side effect: re-register email callback when ingress URL changes so
+    // the platform callback route points at the new self-hosted URL.
+    if (event.changedKeys.has("ingress")) {
+      registerEmailCallbackRoute({
+        credentials: credentialCache,
+        configFile: configFileCache,
+      }).catch((err) => {
+        log.error(
+          { err },
+          "Failed to re-register email callback route after ingress URL change",
+        );
+      });
+    }
   });
 
   configFileWatcher.start();
