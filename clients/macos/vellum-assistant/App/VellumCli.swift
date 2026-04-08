@@ -152,13 +152,23 @@ final class VellumCli: AssistantManagementClient {
         return FileManager.default.fileExists(atPath: candidate.path) ? candidate : nil
     }
 
+    // MARK: - AssistantManagementClient
+
+    func hatch(name: String?, configValues: [String: String]) async throws {
+        try await cliHatch(name: name, configValues: configValues)
+    }
+
     // MARK: - Public API
 
-    /// Hatch a new assistant via the CLI. The CLI spawns the daemon binary,
-    /// waits for the socket, and registers the assistant entry.
+    /// Hatch (or restart) an assistant via the CLI.
     ///
-    /// - Parameter name: Optional assistant name to reuse (for health monitor restarts).
-    func hatch(name: String? = nil, restart: Bool = false, configValues: [String: String] = [:]) async throws {
+    /// - Parameters:
+    ///   - name: Optional assistant name to reuse.
+    ///   - restart: Pass `true` to restart processes without lockfile side-effects
+    ///     (used by the Settings "Restart" button). Not part of the
+    ///     `AssistantManagementClient` protocol — callers should use `hatch(name:configValues:)`.
+    ///   - configValues: Key-value pairs forwarded as `--config k=v` flags.
+    func cliHatch(name: String? = nil, restart: Bool = false, configValues: [String: String] = [:]) async throws {
         guard let binaryURL = cliBinaryURL else {
             log.info("No bundled CLI binary found — skipping hatch (dev mode)")
             return

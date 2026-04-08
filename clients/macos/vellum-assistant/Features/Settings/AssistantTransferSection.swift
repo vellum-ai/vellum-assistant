@@ -250,7 +250,7 @@ struct AssistantTransferSection: View {
             currentStep = "Preparing local assistant..."
             var localAssistant = LockfileAssistant.loadAll().first(where: { !$0.isRemote && !$0.isManaged })
             if localAssistant == nil {
-                try await AppDelegate.shared?.vellumCli.hatch()
+                try await AppDelegate.shared?.vellumCli.cliHatch()
                 localAssistant = LockfileAssistant.loadAll().first(where: { !$0.isRemote && !$0.isManaged })
             } else {
                 // Existing local assistant may be sleeping — wake it before health check
