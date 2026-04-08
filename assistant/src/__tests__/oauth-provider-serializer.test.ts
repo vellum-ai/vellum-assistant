@@ -18,6 +18,7 @@ function makeRow(overrides: Partial<OAuthProviderRow> = {}): OAuthProviderRow {
     baseUrl: null,
     defaultScopes: "[]",
     scopePolicy: "{}",
+    scopeSeparator: " ",
     authorizeParams: null,
     pingUrl: null,
     pingMethod: null,
@@ -167,6 +168,18 @@ describe("serializeProvider", () => {
   test("returns null for null input", () => {
     expect(serializeProvider(null)).toBeNull();
   });
+
+  test("emits scopeSeparator from the row when set to ','", () => {
+    const row = makeRow({ scopeSeparator: "," });
+    const result = serializeProvider(row)!;
+    expect(result.scopeSeparator).toBe(",");
+  });
+
+  test("emits scopeSeparator default ' ' when row uses the default", () => {
+    const row = makeRow({ scopeSeparator: " " });
+    const result = serializeProvider(row)!;
+    expect(result.scopeSeparator).toBe(" ");
+  });
 });
 
 describe("serializeProviderSummary", () => {
@@ -229,5 +242,12 @@ describe("serializeProviderSummary", () => {
 
   test("returns null for undefined input", () => {
     expect(serializeProviderSummary(undefined)).toBeNull();
+  });
+
+  test("does NOT include scope_separator (intentionally omitted from the HTTP summary)", () => {
+    const row = makeRow({ scopeSeparator: "," });
+    const result = serializeProviderSummary(row)!;
+    expect(result).not.toHaveProperty("scope_separator");
+    expect(result).not.toHaveProperty("scopeSeparator");
   });
 });

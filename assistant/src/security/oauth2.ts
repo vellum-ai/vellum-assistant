@@ -49,6 +49,13 @@ export interface OAuth2Config {
    * Defaults to `client_secret_post`.
    */
   tokenEndpointAuthMethod?: TokenEndpointAuthMethod;
+  /**
+   * Separator used to join scopes in the authorize URL and split the
+   * granted-scope string returned by the token endpoint. Defaults to
+   * `" "` (space) per the OAuth 2.0 spec, but providers like Linear
+   * use `","` (comma).
+   */
+  scopeSeparator: string;
 }
 
 export interface OAuth2TokenResult {
@@ -187,9 +194,19 @@ async function exchangeCodeForTokens(
       (tokenData.token_type as string | undefined),
   };
 
+  // Defensive split: providers (e.g. GitHub, Slack) may return comma-separated
+  // scopes in token responses regardless of the scope_separator used to join
+  // outbound authorize URLs, so we tolerate both spaces and commas here. When
+  // a provider explicitly configures a non-default separator (e.g. Linear uses
+  // ","), we honor that to keep symmetric round-tripping of configured scopes.
+  const splitPattern =
+    config.scopeSeparator === " " ? /[ ,]/ : config.scopeSeparator;
   const grantedScopes =
     typeof tokens.scope === "string"
-      ? tokens.scope.split(/[ ,]/).filter(Boolean)
+      ? tokens.scope
+          .split(splitPattern)
+          .map((s) => s.trim())
+          .filter(Boolean)
       : [...config.scopes];
 
   return { tokens, grantedScopes, rawTokenResponse: tokenData };
@@ -232,7 +249,7 @@ async function runGatewayFlow(
     client_id: config.clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: config.scopes.join(" "),
+    scope: config.scopes.join(config.scopeSeparator),
     state,
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
@@ -405,7 +422,7 @@ function startLoopbackServerAndWaitForCode(
         client_id: config.clientId,
         redirect_uri: boundRedirectUri,
         response_type: "code",
-        scope: config.scopes.join(" "),
+        scope: config.scopes.join(config.scopeSeparator),
         state,
         code_challenge: codeChallenge,
         code_challenge_method: "S256",
@@ -497,7 +514,7 @@ export async function prepareOAuth2Flow(
     client_id: config.clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: config.scopes.join(" "),
+    scope: config.scopes.join(config.scopeSeparator),
     state,
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
@@ -537,7 +554,7 @@ async function prepareLoopbackFlow(
     client_id: config.clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: config.scopes.join(" "),
+    scope: config.scopes.join(config.scopeSeparator),
     state,
     code_challenge: codeChallenge,
     code_challenge_method: "S256",

@@ -53,7 +53,8 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
  * pingUrl, pingMethod, pingHeaders, pingBody, managedServiceConfigKey,
  * loopbackPort, injectionTemplates, appType, setupNotes,
  * identityUrl, identityMethod, identityHeaders, identityBody,
- * identityResponsePaths, identityFormat, identityOkField, featureFlag)
+ * identityResponsePaths, identityFormat, identityOkField, featureFlag,
+ * scopeSeparator)
  * and display metadata (displayLabel, description, dashboardUrl,
  * clientIdPlaceholder, requiresClientSecret) propagate to existing
  * installations on every startup, while user-customizable fields
@@ -76,6 +77,7 @@ export function seedProviders(
     baseUrl?: string;
     defaultScopes: string[];
     scopePolicy: Record<string, unknown>;
+    scopeSeparator?: string;
     authorizeParams?: Record<string, string>;
     managedServiceConfigKey?: string;
     displayLabel?: string;
@@ -117,6 +119,10 @@ export function seedProviders(
     const baseUrl = p.baseUrl ?? null;
     const defaultScopes = JSON.stringify(p.defaultScopes);
     const scopePolicy = JSON.stringify(p.scopePolicy);
+    // Coerce empty string to the default space separator. An empty separator
+    // would join scopes into a single concatenated token (e.g. "readwrite"),
+    // which is never a valid OAuth authorize URL value.
+    const scopeSeparator = p.scopeSeparator || " ";
     const authorizeParams = p.authorizeParams
       ? JSON.stringify(p.authorizeParams)
       : null;
@@ -156,6 +162,7 @@ export function seedProviders(
         baseUrl,
         defaultScopes,
         scopePolicy,
+        scopeSeparator,
         authorizeParams,
         pingUrl,
         pingMethod,
@@ -190,6 +197,7 @@ export function seedProviders(
           tokenEndpointAuthMethod,
           userinfoUrl,
           baseUrl: sql`COALESCE(${oauthProviders.baseUrl}, ${baseUrl})`,
+          scopeSeparator,
           authorizeParams,
           pingUrl,
           pingMethod,
@@ -253,6 +261,7 @@ export function registerProvider(params: {
   baseUrl?: string;
   defaultScopes: string[];
   scopePolicy: Record<string, unknown>;
+  scopeSeparator?: string;
   authorizeParams?: Record<string, string>;
   managedServiceConfigKey?: string;
   displayLabel?: string;
@@ -295,6 +304,8 @@ export function registerProvider(params: {
     baseUrl: params.baseUrl ?? null,
     defaultScopes: JSON.stringify(params.defaultScopes),
     scopePolicy: JSON.stringify(params.scopePolicy),
+    // Coerce empty string to the default space separator (see seedProviders).
+    scopeSeparator: params.scopeSeparator || " ",
     authorizeParams: params.authorizeParams
       ? JSON.stringify(params.authorizeParams)
       : null,
@@ -362,6 +373,7 @@ export function updateProvider(
     baseUrl: string;
     defaultScopes: string[];
     scopePolicy: Record<string, unknown>;
+    scopeSeparator: string;
     authorizeParams: Record<string, string>;
     displayLabel: string;
     description: string;
@@ -410,6 +422,9 @@ export function updateProvider(
     set.defaultScopes = JSON.stringify(params.defaultScopes);
   if (params.scopePolicy !== undefined)
     set.scopePolicy = JSON.stringify(params.scopePolicy);
+  if (params.scopeSeparator !== undefined)
+    // Coerce empty string to the default space separator (see seedProviders).
+    set.scopeSeparator = params.scopeSeparator || " ";
   if (params.authorizeParams !== undefined)
     set.authorizeParams = JSON.stringify(params.authorizeParams);
   if (params.displayLabel !== undefined) set.displayLabel = params.displayLabel;
