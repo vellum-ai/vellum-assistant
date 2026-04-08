@@ -314,7 +314,7 @@ export class ContextWindowManager {
     }
 
     const injectedInCompactable = Math.min(
-      this.nonPersistedPrefixCount,
+      Math.max(0, this.nonPersistedPrefixCount - summaryOffset),
       compactableMessages.length,
     );
     const compactedPersistedMessages =
