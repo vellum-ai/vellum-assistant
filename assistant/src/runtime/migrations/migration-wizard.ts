@@ -658,6 +658,7 @@ export function prepareForResume(
       preflightResult: undefined,
       exportResult: undefined,
       importResult: undefined,
+      credentialsImported: undefined,
     };
   }
 
