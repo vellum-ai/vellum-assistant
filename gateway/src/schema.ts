@@ -2308,7 +2308,7 @@ export function buildSchema(): Record<string, unknown> {
         patch: {
           summary: "Update privacy config",
           description:
-            "Scope-protected gateway endpoint that updates privacy configuration (collectUsageData, sendDiagnostics). Requires a bearer token with `feature_flags.write` scope.",
+            "Scope-protected gateway endpoint that updates privacy configuration (collectUsageData, sendDiagnostics). Requires a bearer token with `settings.write` scope.",
           operationId: "privacyConfigPatch",
           security: [{ BearerAuth: [] }],
           requestBody: {
