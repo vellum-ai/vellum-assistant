@@ -81,10 +81,14 @@ extension MessageListView {
         // trigger .animating — the scroll position changes instantly and
         // scrollPhase stays .idle.
         //
-        // Animated pins (handleSendingChanged, handleMessagesCountChanged)
-        // briefly trigger .animating (~150ms with VAnimation.fast), during
-        // which auto-follow is paused. After the animation completes and
-        // phase returns to .idle, auto-follow resumes immediately.
+        // Animated pins (handleSendingChanged; handleMessagesCountChanged
+        // when NOT streaming) briefly trigger .animating (~150ms with
+        // VAnimation.fast), during which auto-follow is paused. During
+        // active streaming in followingBottom, handleMessagesCountChanged
+        // uses non-animated pins to avoid blocking auto-follow — see the
+        // shouldAnimate guard in handleMessagesCountChanged. After an
+        // animated pin completes and phase returns to .idle, auto-follow
+        // resumes immediately.
         let phaseAllowsAutoFollow = !scrollState.scrollPhase.isScrolling
 
         // --- Viewport height update ---
