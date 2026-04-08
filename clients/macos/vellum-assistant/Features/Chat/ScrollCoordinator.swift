@@ -10,8 +10,9 @@ import Foundation
 /// describing what scroll action the view layer should perform — without owning
 /// `ScrollPosition`, `ScrollGeometrySnapshot`, or any SwiftUI view references.
 ///
-/// **Not yet wired into the live message list.** This PR is additive scaffolding;
-/// existing transcript scrolling is unchanged.
+/// Wired into the live message list in MessageListView, MessageListView+Lifecycle,
+/// and MessageListView+ScrollHandling. Output intents are translated into concrete
+/// ScrollPosition mutations by executeCoordinatorIntents().
 ///
 /// Scroll policy domains modeled:
 ///   - following-bottom vs free-browsing

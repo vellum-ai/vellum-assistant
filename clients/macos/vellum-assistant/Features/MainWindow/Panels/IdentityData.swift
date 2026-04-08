@@ -3,7 +3,7 @@ import VellumAssistantShared
 
 // MARK: - Home Location
 
-enum AssistantHome {
+enum AssistantHome: Equatable {
     case local(workspacePath: String)
     case gcp(project: String, zone: String, instance: String)
     case aws(project: String, region: String, instance: String)
@@ -120,42 +120,101 @@ enum AssistantDisplayName {
 
 // MARK: - Identity Info (parsed from IDENTITY.md)
 
-struct IdentityInfo {
+struct IdentityInfo: Codable, Equatable {
     let name: String
     let role: String
     let personality: String
     let emoji: String
+    /// Parsed home location. Not persisted across launches because
+    /// `AssistantHome` is an enum with associated values and the field is
+    /// only consumed from a fresh fetch. After a `IdentityInfoStore` reload
+    /// this will be `nil` until the next live `loadAsync()`.
     let home: AssistantHome?
 
-    // MARK: - In-memory cache
-
-    /// Most-recently loaded identity, cached in memory so that
-    /// hot paths (menu bar, command palette, session overlay) never
-    /// block on the main thread.
-    ///
-    /// All reads and writes are confined to `@MainActor` to eliminate
-    /// data races between the async `refreshCache()` writer and the
-    /// synchronous `current` reader.
-    @MainActor private static var cached: IdentityInfo?
-
-    /// Returns the cached identity if available (nil before first refresh).
-    @MainActor static var current: IdentityInfo? {
-        cached
+    init(name: String, role: String, personality: String, emoji: String, home: AssistantHome?) {
+        self.name = name
+        self.role = role
+        self.personality = personality
+        self.emoji = emoji
+        self.home = home
     }
 
-    /// Populate (or refresh) the in-memory cache via the gateway API.
-    /// Call this at app launch, on workspace switch, and whenever
-    /// IDENTITY.md is known to have changed.
+    // MARK: - Codable (skips `home`)
+
+    private enum CodingKeys: String, CodingKey {
+        case name, role, personality, emoji
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.role = try container.decode(String.self, forKey: .role)
+        self.personality = try container.decode(String.self, forKey: .personality)
+        self.emoji = try container.decode(String.self, forKey: .emoji)
+        self.home = nil
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        try container.encode(role, forKey: .role)
+        try container.encode(personality, forKey: .personality)
+        try container.encode(emoji, forKey: .emoji)
+    }
+
+    // MARK: - Per-assistant cache
+
+    /// Map of `assistantId → identity`, persisted across launches via
+    /// `IdentityInfoStore`. Populated incrementally as the user visits each
+    /// assistant: every successful identity fetch writes the result under
+    /// the currently active assistant id and is then available for any UI
+    /// surface that needs to render that assistant by id (e.g. the menu-bar
+    /// switcher rendering names for non-active rows).
+    ///
+    /// All reads and writes are confined to `@MainActor` to eliminate
+    /// data races between async writers and synchronous readers.
+    @MainActor private static var cachedByAssistantId: [String: IdentityInfo] = IdentityInfoStore.load()
+
+    /// The cached identity for the currently active assistant, if any.
+    /// Equivalent to the legacy `IdentityInfo.current` singleton — kept
+    /// under that name so existing call sites (menu bar, command palette,
+    /// session overlay) read unchanged.
+    @MainActor static var current: IdentityInfo? {
+        guard let activeId = LockfileAssistant.loadActiveAssistantId() else { return nil }
+        return cachedByAssistantId[activeId]
+    }
+
+    /// Look up the cached identity for an arbitrary assistant id. Used by
+    /// the menu-bar switcher to render names for non-active rows.
+    @MainActor static func cached(for assistantId: String) -> IdentityInfo? {
+        cachedByAssistantId[assistantId]
+    }
+
+    /// Populate (or refresh) the cache for the currently active assistant
+    /// via the gateway API. Call this at app launch, on workspace switch,
+    /// and whenever IDENTITY.md is known to have changed.
     @MainActor @discardableResult
     static func refreshCache() async -> IdentityInfo? {
         let info = await loadAsync()
-        cached = info
+        store(info)
         return info
     }
 
-    /// Seeds the cache via the gateway API.
+    /// Seeds the cache for the currently active assistant via the gateway API.
     @MainActor static func warmCache() async {
-        cached = await loadAsync()
+        let info = await loadAsync()
+        store(info)
+    }
+
+    /// Writes `info` into the per-assistant cache under the currently active
+    /// id and persists the map to disk. No-op when there's no active id or
+    /// the fetch returned nil — we never want to evict a known-good entry
+    /// just because a single fetch failed.
+    @MainActor private static func store(_ info: IdentityInfo?) {
+        guard let info, let activeId = LockfileAssistant.loadActiveAssistantId() else { return }
+        if cachedByAssistantId[activeId] == info { return }
+        cachedByAssistantId[activeId] = info
+        IdentityInfoStore.save(cachedByAssistantId)
     }
 
     /// Load identity from the gateway API (assistant-side IDENTITY.md parsing).

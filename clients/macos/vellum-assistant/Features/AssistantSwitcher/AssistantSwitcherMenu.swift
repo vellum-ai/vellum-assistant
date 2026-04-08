@@ -42,7 +42,7 @@ enum AssistantSwitcherMenu {
         } else {
             for assistant in assistants {
                 let isActive = assistant.assistantId == activeId
-                let title = displayTitle(for: assistant, isActive: isActive)
+                let title = displayTitle(for: assistant)
                 let item = NSMenuItem(
                     title: title,
                     action: selectAction,
@@ -73,7 +73,7 @@ enum AssistantSwitcherMenu {
         // `AppDelegate.retireManagedAssistantFromSwitcher`.
         if let activeId,
            let activeAssistant = assistants.first(where: { $0.assistantId == activeId }) {
-            let activeTitle = displayTitle(for: activeAssistant, isActive: true)
+            let activeTitle = displayTitle(for: activeAssistant)
             let retireItem = NSMenuItem(
                 title: "Retire \(activeTitle)…",
                 action: retireAction,
@@ -87,18 +87,14 @@ enum AssistantSwitcherMenu {
         return items
     }
 
-    /// Resolve a user-facing title for a menu row. The active assistant
-    /// prefers `IdentityInfo.current?.name` (the same source the status
-    /// tooltip uses) so users see "Luna" rather than a raw UUID. Non-active
-    /// assistants fall back to their id — LockfileAssistant doesn't carry a
-    /// display name yet, so there's nothing better we can show without a
-    /// per-assistant IDENTITY.md read. Both paths go through
+    /// Resolve a user-facing title for a menu row. Reads from the per-
+    /// assistant `IdentityInfo` cache (populated incrementally as the user
+    /// visits each assistant), falling back to the raw `assistantId` UUID
+    /// when no cached identity exists yet. Routed through
     /// `AssistantDisplayName.resolve` so the bootstrap sentinel is masked.
-    private static func displayTitle(for assistant: LockfileAssistant, isActive: Bool) -> String {
-        if isActive {
-            return AssistantDisplayName.resolve(IdentityInfo.current?.name, assistant.assistantId)
-        }
-        return AssistantDisplayName.resolve(assistant.assistantId)
+    private static func displayTitle(for assistant: LockfileAssistant) -> String {
+        let cachedName = IdentityInfo.cached(for: assistant.assistantId)?.name
+        return AssistantDisplayName.resolve(cachedName, assistant.assistantId)
     }
 
     /// Display a modal prompt for a new assistant name. Returns `nil` when

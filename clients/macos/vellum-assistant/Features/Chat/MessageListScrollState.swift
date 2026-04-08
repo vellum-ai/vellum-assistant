@@ -262,7 +262,7 @@ final class MessageListScrollState {
     /// Memoization state intentionally lives outside the observed object so
     /// `MessageListView` can update caches during body evaluation without
     /// tripping SwiftUI's "Modifying state during view update" runtime guard.
-    @ObservationIgnored let derivedStateCache = MessageListDerivedStateCache()
+    @ObservationIgnored let derivedStateCache = ProjectionCache()
 
     @ObservationIgnored var cachedProjectionKey: PrecomputedCacheKey? {
         get { derivedStateCache.cachedProjectionKey }

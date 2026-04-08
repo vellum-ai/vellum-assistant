@@ -93,16 +93,16 @@ extension MessageListView {
     /// Computes all derived values needed by the message list body by
     /// delegating to `TranscriptProjector.project()`.
     ///
-    /// The projector produces a `TranscriptRenderModel` (aliased as
-    /// `MessageListDerivedState`) from the raw chat inputs. A lightweight
-    /// O(1) `PrecomputedCacheKey` gates re-projection so the full O(n)
-    /// scan only runs on structural or state changes.
+    /// The projector produces a `TranscriptRenderModel` from the raw
+    /// chat inputs. A lightweight O(1) `PrecomputedCacheKey` gates
+    /// re-projection so the full O(n) scan only runs on structural or
+    /// state changes.
     var derivedState: TranscriptRenderModel {
         os_signpost(.begin, log: stallLog, name: "DerivedState.resolve")
         scrollState.recordBodyEvaluation()
         let cache = scrollState.derivedStateCache
 
-        if cache.isThrottled, let cached = cache.cachedDerivedState {
+        if cache.isThrottled, let cached = cache.cachedProjection {
             os_signpost(.end, log: stallLog, name: "DerivedState.resolve")
             return cached
         }
@@ -130,7 +130,6 @@ extension MessageListView {
            let cached = cache.cachedProjection,
            cached.rows.count == liveMessages.count {
             os_signpost(.event, log: stallLog, name: "DerivedState.projectionCacheHit")
-            cache.cachedDerivedState = cached
             os_signpost(.end, log: stallLog, name: "DerivedState.resolve")
             return cached
         }
@@ -154,7 +153,6 @@ extension MessageListView {
 
         cache.cachedProjectionKey = key
         cache.cachedProjection = result
-        cache.cachedDerivedState = result
         os_signpost(.end, log: stallLog, name: "DerivedState.resolve")
         return result
     }

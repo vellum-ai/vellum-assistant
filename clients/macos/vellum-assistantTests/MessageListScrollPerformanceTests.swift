@@ -4,9 +4,17 @@ import XCTest
 
 // MARK: - Scroll Performance Regression Tests
 //
-// Baselines for scroll-critical code paths. All tests use `measure {}` with
-// XCTest baselines — no hard-coded timing thresholds. CI detects regressions
-// as statistical deviations from the recorded baseline.
+// Baselines for scroll-critical code paths in the final
+// projected/controller/coordinator architecture.
+//
+// All transcript derivation flows through `TranscriptProjector`, gated by
+// `ProjectionCache`. Scroll policy flows through `ScrollCoordinator`. These
+// tests assert that the measured hot paths stay on these implementations
+// rather than any removed compatibility layer.
+//
+// All tests use `measure {}` with XCTest baselines — no hard-coded timing
+// thresholds. CI detects regressions as statistical deviations from the
+// recorded baseline.
 //
 // Run with:
 //   cd clients/macos && ./build.sh test --filter ScrollPerformance
@@ -368,5 +376,140 @@ final class MessageListScrollPerformanceTests: XCTestCase {
                 _ = view.resolveSelectableRunMeasurement(segments)
             }
         }
+    }
+
+    // MARK: - Test 11: ProjectionCache Reset Clears All State
+
+    /// Verifies that `ProjectionCache.reset()` clears all cached state,
+    /// ensuring no stale projections survive a conversation switch. This is
+    /// the final architecture's cache — no legacy `cachedDerivedState` field
+    /// or `MessageListDerivedState` alias involved.
+    @MainActor
+    func testProjectionCacheResetClearsAllState() {
+        let cache = ProjectionCache()
+
+        // Populate the cache with representative state.
+        cache.cachedProjectionKey = PrecomputedCacheKey(
+            messageListVersion: 42,
+            isSending: true,
+            isThinking: false,
+            isCompacting: false,
+            assistantStatusText: nil,
+            activeSubagentFingerprint: 7,
+            displayedMessageCount: 100
+        )
+        cache.cachedProjection = TranscriptProjector.project(
+            messages: buildMessages(count: 5),
+            paginatedVisibleMessages: buildMessages(count: 5),
+            activeSubagents: [],
+            isSending: false,
+            isThinking: false,
+            isCompacting: false,
+            assistantStatusText: nil,
+            assistantActivityPhase: "",
+            assistantActivityAnchor: "",
+            assistantActivityReason: nil,
+            activePendingRequestId: nil,
+            highlightedMessageId: nil
+        )
+        cache.messageListVersion = 42
+        cache.lastKnownRawMessageCount = 50
+        cache.lastKnownVisibleMessageCount = 50
+        cache.lastKnownLastMessageStreaming = true
+        cache.lastKnownIncompleteToolCallCount = 3
+        cache.lastKnownVisibleIdFingerprint = 999
+        cache.cachedFirstVisibleMessageId = UUID()
+        cache.isThrottled = true
+
+        // Reset.
+        cache.reset()
+
+        // All fields must be zeroed.
+        XCTAssertNil(cache.cachedProjectionKey)
+        XCTAssertNil(cache.cachedProjection)
+        XCTAssertEqual(cache.messageListVersion, 0)
+        XCTAssertEqual(cache.lastKnownRawMessageCount, 0)
+        XCTAssertEqual(cache.lastKnownVisibleMessageCount, 0)
+        XCTAssertFalse(cache.lastKnownLastMessageStreaming)
+        XCTAssertEqual(cache.lastKnownIncompleteToolCallCount, 0)
+        XCTAssertEqual(cache.lastKnownVisibleIdFingerprint, 0)
+        XCTAssertNil(cache.cachedFirstVisibleMessageId)
+        XCTAssertFalse(cache.isThrottled)
+    }
+
+    // MARK: - Test 12: ScrollCoordinator Policy Hot Path
+
+    /// Measures the synchronous hot path of ScrollCoordinator event handling.
+    /// All scroll policy decisions now flow through the coordinator's
+    /// `handle(_:)` method — this test establishes the baseline cost.
+    @MainActor
+    func testScrollCoordinatorPolicyHotPath() {
+        measure(metrics: [XCTClockMetric()]) {
+            let coordinator = ScrollCoordinator()
+
+            // Simulate a realistic event sequence: appear, send, stream,
+            // scroll, reattach — repeated 100 times.
+            for _ in 0..<100 {
+                coordinator.handle(.appeared)
+                coordinator.handle(.sendingChanged(isSending: true))
+                coordinator.handle(.messageCountChanged)
+                coordinator.handle(.messageCountChanged)
+                coordinator.handle(.scrollPhaseChanged(phase: .interacting))
+                coordinator.handle(.manualBrowseIntent)
+                coordinator.handle(.scrollPhaseChanged(phase: .idle))
+                let _ = coordinator.requestUserInitiatedPin()
+                coordinator.handle(.messageCountChanged)
+                coordinator.handle(.sendingChanged(isSending: false))
+                coordinator.reset()
+            }
+
+            // Prevent optimizer from eliding.
+            XCTAssertEqual(coordinator.mode, .initialLoad)
+        }
+    }
+
+    // MARK: - Test 13: Projector Produces Stable Output for Coordinator Inputs
+
+    /// Verifies that the projector produces identical output when called
+    /// with the same inputs, proving that scroll coordinator decisions
+    /// can safely cache on projector output equality.
+    func testProjectorOutputStableForCoordinatorCaching() {
+        let messages = buildMessages(count: 100)
+
+        let model1 = TranscriptProjector.project(
+            messages: messages,
+            paginatedVisibleMessages: messages,
+            activeSubagents: [],
+            isSending: true,
+            isThinking: false,
+            isCompacting: false,
+            assistantStatusText: "Processing...",
+            assistantActivityPhase: "thinking",
+            assistantActivityAnchor: "assistant_turn",
+            assistantActivityReason: nil,
+            activePendingRequestId: nil,
+            highlightedMessageId: nil
+        )
+
+        let model2 = TranscriptProjector.project(
+            messages: messages,
+            paginatedVisibleMessages: messages,
+            activeSubagents: [],
+            isSending: true,
+            isThinking: false,
+            isCompacting: false,
+            assistantStatusText: "Processing...",
+            assistantActivityPhase: "thinking",
+            assistantActivityAnchor: "assistant_turn",
+            assistantActivityReason: nil,
+            activePendingRequestId: nil,
+            highlightedMessageId: nil
+        )
+
+        XCTAssertEqual(model1, model2,
+                       "Projector must produce identical output for identical inputs")
+        XCTAssertEqual(model1.rows.count, model2.rows.count)
+        XCTAssertEqual(model1.hasActiveToolCall, model2.hasActiveToolCall)
+        XCTAssertEqual(model1.shouldShowThinkingIndicator, model2.shouldShowThinkingIndicator)
     }
 }

@@ -50,6 +50,12 @@ extension MessageListView {
             // scroll to it immediately instead of falling through to bottom.
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=onAppear")
             os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundOnAppear")
+            // Notify coordinator of anchor request + immediate resolution.
+            let anchorId = ScrollCoordinator.AnchorID(id)
+            let requestIntents = scrollCoordinator.handle(.anchorRequested(id: anchorId))
+            executeCoordinatorIntents(requestIntents)
+            let resolveIntents = scrollCoordinator.handle(.anchorResolved(id: anchorId))
+            executeCoordinatorIntents(resolveIntents)
             $scrollPosition.wrappedValue.scrollTo(id: id, anchor: .center)
             flashHighlight(messageId: id)
             anchorMessageId = nil
@@ -58,6 +64,10 @@ extension MessageListView {
             // Anchor is set but the target message isn't loaded yet.
             os_signpost(.event, log: PerfSignposts.log, name: "anchorSet", "reason=onAppearPending")
             if scrollState.anchorSetTime == nil { scrollState.anchorSetTime = Date() }
+            // Notify coordinator of the pending anchor request.
+            let anchorId = ScrollCoordinator.AnchorID(anchorMessageId!)
+            let pendingIntents = scrollCoordinator.handle(.anchorRequested(id: anchorId))
+            executeCoordinatorIntents(pendingIntents)
             // Start the independent timeout if not already running.
             if scrollState.anchorTimeoutTask == nil {
                     scrollState.anchorTimeoutTask = Task { @MainActor [scrollState] in
@@ -160,6 +170,11 @@ extension MessageListView {
         if let id = anchorMessageId, messages.contains(where: { $0.id == id }) {
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=messagesChanged")
             os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundInMessages")
+            // Notify coordinator that the anchor resolved.
+            let anchorId = ScrollCoordinator.AnchorID(id)
+            let resolveIntents = scrollCoordinator.handle(.anchorResolved(id: anchorId))
+            executeCoordinatorIntents(resolveIntents)
+            // Keep scrollState in sync as runtime executor.
             scrollState.transition(to: .programmaticScroll(reason: .deepLinkAnchor(id: id)))
             withAnimation {
                 scrollState.scrollTo?(id, .center)
@@ -205,6 +220,9 @@ extension MessageListView {
     func handleContainerWidthChanged() {
         guard containerWidth > 0, abs(containerWidth - scrollState.lastHandledContainerWidth) > 2 else { return }
         scrollState.lastHandledContainerWidth = containerWidth
+        // Route through coordinator for policy decision.
+        let intents = scrollCoordinator.handle(.containerWidthChanged)
+        executeCoordinatorIntents(intents)
         resizeScrollTask?.cancel()
         resizeScrollTask = Task { @MainActor [scrollState] in
             scrollState.beginStabilization(.resize)
@@ -252,6 +270,8 @@ extension MessageListView {
         highlightedMessageId = nil
         scrollState.highlightDismissTask?.cancel()
         scrollState.highlightDismissTask = nil
+        // Reset coordinator for the new conversation.
+        scrollCoordinator.reset()
         // Reset scroll state for the new conversation.
         scrollState.reset(for: conversationId)
         // Capture the new conversation's activity phase so a conversation
@@ -293,6 +313,10 @@ extension MessageListView {
         // non-nil anchor assignments; nil transitions are cleanup handled
         // by messagesChanged and conversationSwitched.
         guard let id = anchorMessageId else { return }
+        // Route through coordinator for policy decision.
+        let anchorId = ScrollCoordinator.AnchorID(id)
+        let intents = scrollCoordinator.handle(.anchorRequested(id: anchorId))
+        executeCoordinatorIntents(intents)
         // Cancel scroll restore when a new anchor is set.
         scrollState.scrollRestoreTask?.cancel()
         scrollState.scrollRestoreTask = nil
@@ -304,6 +328,9 @@ extension MessageListView {
         if messages.contains(where: { $0.id == id }) {
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=anchorChanged")
             os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundOnAnchorChange")
+            // Notify coordinator that the anchor resolved.
+            let resolveIntents = scrollCoordinator.handle(.anchorResolved(id: anchorId))
+            executeCoordinatorIntents(resolveIntents)
             withAnimation {
                 scrollState.scrollTo?(id, .center)
             }

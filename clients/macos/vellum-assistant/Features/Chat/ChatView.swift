@@ -285,10 +285,26 @@ struct ChatView: View {
         }
     }
 
+    /// Active conversation content stack.
+    ///
+    /// Data flow is narrowed to the three stabilized subsystems:
+    /// - **TranscriptProjector** — `MessageListView` calls `TranscriptProjector.project()`
+    ///   to produce an immutable `TranscriptRenderModel` from the raw messages.
+    /// - **ComposerController** — popup state (slash/emoji) and focus intents flow
+    ///   through the controller's event-driven state machine, not raw bindings.
+    /// - **ScrollCoordinator** — scroll policy decisions (follow-bottom, anchor jumps,
+    ///   stabilization) flow through the coordinator's `handle(_:)` method and are
+    ///   translated into concrete `ScrollPosition` mutations by the view layer.
+    ///
+    /// The raw viewModel properties passed here (`messages`, `isSending`, etc.)
+    /// are the projector's inputs — `MessageListView` does not observe them
+    /// individually; it feeds them into the projector and renders the resulting
+    /// `TranscriptRenderModel` via `MessageListContentView`.
     @ViewBuilder
     private func activeConversationContent(containerWidth: CGFloat) -> some View {
         VStack(spacing: 0) {
             MessageListView(
+                // -- TranscriptProjector inputs --
                 messages: viewModel.messages,
                 isSending: viewModel.isSending,
                 isThinking: viewModel.isThinking,
@@ -302,6 +318,7 @@ struct ChatView: View {
                 providerCatalog: providerCatalog,
                 activeSubagents: viewModel.activeSubagents,
                 dismissedDocumentSurfaceIds: viewModel.dismissedDocumentSurfaceIds,
+                // -- Interaction callbacks --
                 onConfirmationAllow: isReadonly ? nil : { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
                 onConfirmationDeny: isReadonly ? nil : { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
                 onAlwaysAllow: isReadonly ? nil : { requestId, selectedPattern, selectedScope, decision in
@@ -325,12 +342,15 @@ struct ChatView: View {
                 onRetryFailedMessage: isReadonly ? nil : { messageId in viewModel.retryFailedMessage(id: messageId) },
                 onRetryConversationError: isReadonly ? nil : { messageId in viewModel.retryAfterConversationError(messageId: messageId) },
                 subagentDetailStore: viewModel.subagentDetailStore,
+                // -- Projector-resolved state --
                 activePendingRequestId: viewModel.activePendingRequestId,
+                // -- Pagination --
                 paginatedVisibleMessages: viewModel.paginatedVisibleMessages,
                 displayedMessageCount: viewModel.displayedMessageCount,
                 hasMoreMessages: viewModel.hasMoreMessages,
                 isLoadingMoreMessages: viewModel.isLoadingMoreMessages,
                 loadPreviousMessagePage: { await viewModel.loadPreviousMessagePage() },
+                // -- ScrollCoordinator inputs --
                 conversationId: conversationId,
                 anchorMessageId: $anchorMessageId,
                 highlightedMessageId: $highlightedMessageId,

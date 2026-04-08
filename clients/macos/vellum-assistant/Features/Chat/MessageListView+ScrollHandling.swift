@@ -3,6 +3,72 @@ import os.signpost
 import SwiftUI
 import VellumAssistantShared
 
+// MARK: - ScrollCoordinator.Phase Bridge
+
+extension ScrollCoordinator.Phase {
+    /// Maps SwiftUI's `ScrollPhase` to the coordinator's phase abstraction.
+    /// Lives in the view layer (not in ScrollCoordinator) to keep the
+    /// coordinator free of SwiftUI imports.
+    static func from(_ phase: ScrollPhase) -> ScrollCoordinator.Phase {
+        switch phase {
+        case .idle: .idle
+        case .interacting: .interacting
+        case .decelerating: .decelerating
+        case .animating: .animating
+        @unknown default: .idle
+        }
+    }
+}
+
+extension MessageListView {
+
+    // MARK: - Coordinator Intent Execution
+
+    /// Translates `ScrollCoordinator.OutputIntent`s into concrete scroll
+    /// mutations on `scrollState` / `ScrollPosition`. The coordinator is
+    /// the policy layer; this method is the execution layer.
+    func executeCoordinatorIntents(_ intents: [ScrollCoordinator.OutputIntent]) {
+        for intent in intents {
+            switch intent {
+            case .scrollToBottom(let animated):
+                if animated {
+                    scrollState.scheduleDeferredBottomPin(animated: true)
+                } else {
+                    scrollState.requestPinToBottom(animated: false)
+                }
+
+            case .scrollToMessage(let anchorId, let anchor):
+                let unitPoint: UnitPoint
+                switch anchor {
+                case .top: unitPoint = .top
+                case .center: unitPoint = .center
+                case .bottom: unitPoint = .bottom
+                }
+                scrollState.performScrollTo(anchorId.rawValue, anchor: unitPoint)
+
+            case .showScrollToLatest:
+                // The coordinator signals that the CTA should appear.
+                // scrollState's mode-based UI sync handles visibility;
+                // this is a forward-looking hook for when the coordinator
+                // fully owns the CTA lifecycle.
+                break
+
+            case .hideIndicators:
+                // Forward-looking hook — scrollState's syncUIImmediately
+                // handles indicator visibility for now.
+                break
+
+            case .startRecoveryWindow:
+                scrollState.bottomAnchorAppeared = false
+                scrollState.recoveryDeadline = Date().addingTimeInterval(2.0)
+
+            case .cancelRecoveryWindow:
+                scrollState.recoveryDeadline = nil
+            }
+        }
+    }
+}
+
 extension MessageListView {
 
     // MARK: - Scroll geometry handler
@@ -59,6 +125,10 @@ extension MessageListView {
                Date().timeIntervalSince(pinTime) < 0.5 {
                 // Stale momentum from before CTA tap — ignore.
             } else {
+                // Route through coordinator for policy decision.
+                let browseIntents = scrollCoordinator.handle(.manualBrowseIntent)
+                executeCoordinatorIntents(browseIntents)
+                // Keep scrollState in sync as runtime executor.
                 scrollState.scrollRestoreTask?.cancel()
                 scrollState.scrollRestoreTask = nil
                 scrollState.handleUserScrollUp()
@@ -111,6 +181,8 @@ extension MessageListView {
         // widening the idle-reattach zone (onScrollPhaseChange reattaches
         // when isAtBottom is true on idle).
         let distanceFromBottom = effectiveContentHeight - newState.contentOffsetY - newState.visibleRectHeight
+        // Update coordinator's bottom state (hysteresis lives in coordinator).
+        scrollCoordinator.updateBottomState(distanceFromBottom: distanceFromBottom)
         let nowAtBottom: Bool
         if scrollState.isAtBottom {
             // Stay "at bottom" until clearly scrolled away.

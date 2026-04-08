@@ -131,14 +131,7 @@ final class ScrollGeometryUpdateDispatcher {
     }
 }
 
-// MARK: - Message List Derived State (type alias)
-
-/// After the switch to `TranscriptProjector`, the render model is the
-/// canonical derived state for the message list. This alias keeps the
-/// cache storage name stable.
-typealias MessageListDerivedState = TranscriptRenderModel
-
-// MARK: - Derived-State Cache
+// MARK: - Projection Cache
 
 /// Non-observable cache used by `MessageListView` during body evaluation.
 ///
@@ -147,8 +140,13 @@ typealias MessageListDerivedState = TranscriptRenderModel
 /// pipeline needs memoization for performance, but those cache writes must not
 /// flow through SwiftUI-managed state. This helper keeps the cache off the
 /// observation graph while preserving the existing hot-path behavior.
+///
+/// All derived transcript state flows through `TranscriptProjector` which
+/// produces a `TranscriptRenderModel`. This cache gates re-projection with
+/// an O(1) `PrecomputedCacheKey` and stores the circuit-breaker state that
+/// protects against runaway body evaluations.
 @MainActor
-final class MessageListDerivedStateCache {
+final class ProjectionCache {
     var cachedProjectionKey: PrecomputedCacheKey?
     var cachedProjection: TranscriptRenderModel?
     var messageListVersion = 0
@@ -160,7 +158,6 @@ final class MessageListDerivedStateCache {
     var cachedFirstVisibleMessageId: UUID?
     var bodyEvalTimestamps: [CFAbsoluteTime] = []
     var isThrottled = false
-    var cachedDerivedState: TranscriptRenderModel?
     var throttleRecoveryTask: Task<Void, Never>?
 
     func reset() {
@@ -173,7 +170,6 @@ final class MessageListDerivedStateCache {
         lastKnownIncompleteToolCallCount = 0
         lastKnownVisibleIdFingerprint = 0
         cachedFirstVisibleMessageId = nil
-        cachedDerivedState = nil
         bodyEvalTimestamps.removeAll()
         throttleRecoveryTask?.cancel()
         throttleRecoveryTask = nil

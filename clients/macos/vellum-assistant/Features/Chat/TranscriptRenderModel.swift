@@ -4,9 +4,9 @@ import VellumAssistantShared
 // MARK: - Transcript Render Model
 
 /// Top-level immutable render model for the entire chat transcript.
-/// Mirrors what `MessageListDerivedState` currently provides but
-/// expresses the layout as pure data — no SwiftUI state, no caching
-/// bookkeeping, no closure callbacks.
+/// Expresses the layout as pure data — no SwiftUI state, no caching
+/// bookkeeping, no closure callbacks. Produced by `TranscriptProjector`
+/// and consumed by `MessageListContentView`.
 ///
 /// - SeeAlso: `TranscriptProjector` which produces this from raw inputs.
 struct TranscriptRenderModel: Equatable {
