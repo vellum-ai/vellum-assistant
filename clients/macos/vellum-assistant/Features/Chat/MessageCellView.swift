@@ -138,6 +138,8 @@ struct MessageCellView: View, Equatable {
 
     @ViewBuilder
     private func thinkingIndicatorRow() -> some View {
+        // ⚠️ Do NOT replace HStack+Spacer with .frame(maxWidth:, alignment:) here.
+        // FlexFrame alignment queries recurse through all children — see AGENTS.md.
         HStack(spacing: 0) {
             RunningIndicator(
                 label: anchoredThinkingLabel,

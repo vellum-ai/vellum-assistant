@@ -266,9 +266,8 @@ struct ChatBubble: View, Equatable {
     func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         let isPlainAssistant = !isUser && !message.isError
         if message.isError {
-            // Error: chrome padding + full-width background via HStack+Spacer.
-            // Replaces nested .frame(maxWidth:) FlexFrames that triggered
-            // recursive explicitAlignment queries (LUM-800).
+            // ⚠️ Do NOT replace HStack+Spacer with .frame(maxWidth:, alignment:) here.
+            // FlexFrame alignment queries recurse through all children — see AGENTS.md.
             HStack(spacing: 0) {
                 content()
                     .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.lg,
@@ -342,9 +341,8 @@ struct ChatBubble: View, Equatable {
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "chatBubbleBody",
                             "id=%{public}s streaming=%d", message.id.uuidString, message.isStreaming ? 1 : 0)
         #endif
-        // HStack+Spacer achieves leading/trailing alignment without
-        // .frame(maxWidth: .infinity, alignment:) which creates a _FlexFrameLayout
-        // that triggers recursive explicitAlignment queries (LUM-800).
+        // ⚠️ Do NOT replace HStack+Spacer with .frame(maxWidth:, alignment:) here.
+        // FlexFrame alignment queries recurse through all children — see AGENTS.md.
         HStack(spacing: 0) {
             if isUser { Spacer(minLength: 0) }
             // Outer VStack ensures a single resolved subview for the parent

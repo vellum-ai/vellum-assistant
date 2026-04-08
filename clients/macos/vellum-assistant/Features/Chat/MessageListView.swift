@@ -121,6 +121,8 @@ struct MessageListView: View {
             .id(conversationId)
             .scrollContentBackground(.hidden)
             .scrollDisabled(messages.isEmpty && !isSending)
+            // ⚠️ Do NOT replace .frame(width:) with .frame(maxWidth:) here.
+            // FlexFrame alignment queries recurse through all children — see AGENTS.md.
             .frame(width: containerWidth > 0 ? min(containerWidth, VSpacing.chatColumnMaxWidth) : VSpacing.chatColumnMaxWidth)
             // Apply only to .initialOffset — where the scroll view starts
             // when first displayed (including .id() recreation on switch).
