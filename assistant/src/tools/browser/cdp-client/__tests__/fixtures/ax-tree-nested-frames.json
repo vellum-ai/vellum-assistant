@@ -1,0 +1,64 @@
+{
+  "nodes": [
+    {
+      "nodeId": "1",
+      "role": { "type": "internalRole", "value": "RootWebArea" },
+      "name": { "type": "computedString", "value": "Parent" },
+      "ignored": false,
+      "backendDOMNodeId": 200,
+      "childIds": ["2", "3", "6"]
+    },
+    {
+      "nodeId": "2",
+      "role": { "type": "role", "value": "button" },
+      "name": { "type": "computedString", "value": "Parent Button" },
+      "backendDOMNodeId": 201,
+      "ignored": false,
+      "childIds": []
+    },
+    {
+      "nodeId": "3",
+      "role": { "type": "internalRole", "value": "RootWebArea" },
+      "name": { "type": "computedString", "value": "Inner Frame" },
+      "backendDOMNodeId": 202,
+      "ignored": false,
+      "childIds": ["4", "5"]
+    },
+    {
+      "nodeId": "4",
+      "role": { "type": "role", "value": "link" },
+      "name": { "type": "computedString", "value": "Inner Link" },
+      "properties": [
+        {
+          "name": "url",
+          "value": {
+            "type": "string",
+            "value": "https://example.com/inner"
+          }
+        }
+      ],
+      "backendDOMNodeId": 203,
+      "ignored": false,
+      "childIds": []
+    },
+    {
+      "nodeId": "5",
+      "role": { "type": "role", "value": "textbox" },
+      "name": { "type": "computedString", "value": "Inner Search" },
+      "backendDOMNodeId": 204,
+      "ignored": false,
+      "childIds": []
+    },
+    {
+      "nodeId": "6",
+      "role": { "type": "role", "value": "checkbox" },
+      "name": { "type": "computedString", "value": "Subscribe" },
+      "properties": [
+        { "name": "checked", "value": { "type": "boolean", "value": true } }
+      ],
+      "backendDOMNodeId": 205,
+      "ignored": false,
+      "childIds": []
+    }
+  ]
+}
