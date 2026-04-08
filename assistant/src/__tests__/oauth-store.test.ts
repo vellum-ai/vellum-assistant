@@ -1935,6 +1935,44 @@ describe("disconnectOAuthProvider", () => {
     expect(params.get("token")).toBe("tok$&abc");
   });
 
+  test("replaces all occurrences of {access_token} in body template values (matching Python str.replace)", async () => {
+    // Python's str.replace(old, new) replaces ALL occurrences by default,
+    // whereas JavaScript's String.prototype.replace with a string pattern
+    // only replaces the FIRST occurrence. The platform's try_revoke_token
+    // is implemented in Python, so any template value containing repeated
+    // placeholders must have ALL of them substituted to preserve parity.
+    // This test guards against a regression to .replace(), which would
+    // leave the second {access_token} as a literal placeholder.
+    seedProviderWithRevoke("google", "https://revoke.example.com/r", {
+      token: "token={access_token}&also={access_token}",
+    });
+    const app = await upsertApp("google", "client-1");
+    const conn = createConnection({
+      oauthAppId: app.id,
+      provider: "google",
+      grantedScopes: ["email"],
+      hasRefreshToken: false,
+    });
+    secureKeyValues.set(`oauth_connection/${conn.id}/access_token`, "fake-abc");
+
+    mockFetch(
+      "https://revoke.example.com/r",
+      { method: "POST" },
+      { status: 200, body: {} },
+    );
+
+    await disconnectOAuthProvider("google");
+
+    const calls = getMockFetchCalls();
+    expect(calls.length).toBe(1);
+    const body = String(calls[0]!.init.body ?? "");
+    const params = new URLSearchParams(body);
+    // Both {access_token} placeholders must be substituted. With the buggy
+    // .replace() (single-occurrence), this would be
+    // "token=fake-abc&also={access_token}" instead.
+    expect(params.get("token")).toBe("token=fake-abc&also=fake-abc");
+  });
+
   test("coerces non-string body template values to strings", async () => {
     // seedProviderWithRevoke restricts to Record<string, string>; bypass it
     // here by inserting a template with a numeric value via a direct seed.
