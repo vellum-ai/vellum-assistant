@@ -110,15 +110,13 @@ extension AppDelegate {
     /// Return the `AssistantManagementClient` appropriate for `assistant`'s cloud type.
     ///
     /// - Non-apple-container (or absent): delegates to the bundled `VellumCli` hatch path.
-    /// - `apple-container`: reserved — falls back to `VellumCli` today so existing
-    ///   behavior is preserved until the Apple Containers runtime is wired.
-    ///   A log warning is emitted so the absence of a dedicated client is visible.
+    /// - `apple-container`: dispatches to the `AppleContainersLauncher` which
+    ///   manages the full container lifecycle via the Containerization framework.
     func managementClient(for assistant: LockfileAssistant?) -> AssistantManagementClient {
         guard let assistant, assistant.isAppleContainer else {
             return vellumCli
         }
-        log.warning("managementClient: apple-containers backend not yet implemented — falling back to CLI hatch for '\(assistant.assistantId, privacy: .public)'")
-        return vellumCli
+        return appleContainersLauncher
     }
 
     // MARK: - Gateway Connection Setup
