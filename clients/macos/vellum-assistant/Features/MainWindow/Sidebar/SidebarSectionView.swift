@@ -300,18 +300,11 @@ struct SidebarSectionView: View {
                 hoveredSubGroupKey = nil
             }
         }
-        .vContextMenu {
-            let unread = subGroup.conversations.filter(\.hasUnseenLatestAssistantMessage)
-            VMenuItem(icon: VIcon.circleCheck.rawValue, label: "Mark All as Read") {
-                onMarkAllReadInSubGroup?(subGroup.label, subGroup.conversations.map(\.id))
-            }
-            .disabled(unread.isEmpty)
-            let archivable = subGroup.conversations.filter { !$0.isChannelConversation }
-            VMenuItem(icon: VIcon.archive.rawValue, label: "Archive All\u{2026}") {
-                onArchiveAllInSubGroup?(subGroup.label, archivable.map(\.id))
-            }
-            .disabled(archivable.isEmpty)
-        }
+        .modifier(SubGroupContextMenu(
+            subGroup: subGroup,
+            onMarkAllReadInSubGroup: onMarkAllReadInSubGroup,
+            onArchiveAllInSubGroup: onArchiveAllInSubGroup
+        ))
 
         if isSubGroupExpanded {
             let subGroupShowAll = showAllInSubGroup.contains(subGroup.key)
@@ -418,6 +411,50 @@ struct SidebarSectionView: View {
                 label = first.title
             }
             return ScheduleSubGroup(key: key, label: label, conversations: conversations)
+        }
+    }
+}
+
+/// Only attaches a `.vContextMenu` to a schedule/background sub-group header
+/// when at least one menu item would be enabled. Prevents an undismissable
+/// panel when every item is disabled (clicking a disabled VMenuItem does not
+/// call `dismissMenu`).
+private struct SubGroupContextMenu: ViewModifier {
+    let subGroup: ScheduleSubGroup
+    let onMarkAllReadInSubGroup: ((String, [UUID]) -> Void)?
+    let onArchiveAllInSubGroup: ((String, [UUID]) -> Void)?
+
+    private var hasUnread: Bool {
+        subGroup.conversations.contains(where: \.hasUnseenLatestAssistantMessage)
+    }
+
+    private var hasArchivable: Bool {
+        subGroup.conversations.contains(where: { !$0.isChannelConversation })
+    }
+
+    private var hasAnyEnabledAction: Bool {
+        (onMarkAllReadInSubGroup != nil && hasUnread) ||
+        (onArchiveAllInSubGroup != nil && hasArchivable)
+    }
+
+    func body(content: Content) -> some View {
+        if hasAnyEnabledAction {
+            content.vContextMenu {
+                if onMarkAllReadInSubGroup != nil {
+                    VMenuItem(icon: VIcon.circleCheck.rawValue, label: "Mark All as Read") {
+                        onMarkAllReadInSubGroup?(subGroup.label, subGroup.conversations.map(\.id))
+                    }
+                    .disabled(!hasUnread)
+                }
+                if onArchiveAllInSubGroup != nil {
+                    VMenuItem(icon: VIcon.archive.rawValue, label: "Archive All\u{2026}") {
+                        onArchiveAllInSubGroup?(subGroup.label, subGroup.conversations.filter { !$0.isChannelConversation }.map(\.id))
+                    }
+                    .disabled(!hasArchivable)
+                }
+            }
+        } else {
+            content
         }
     }
 }
