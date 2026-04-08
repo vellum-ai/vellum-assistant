@@ -56,16 +56,16 @@ extension ComposerView {
         if let trigger = emojiTriggerRange() {
             let results = EmojiCatalog.search(query: trigger.filter)
             if !results.isEmpty {
-                withAnimation(VAnimation.fast) { showEmojiMenu = true }
+                showEmojiMenu = true
                 if emojiFilter != trigger.filter {
                     emojiSelectedIndex = 0
                 }
                 emojiFilter = trigger.filter
             } else {
-                withAnimation(VAnimation.fast) { showEmojiMenu = false }
+                showEmojiMenu = false
             }
         } else {
-            withAnimation(VAnimation.fast) { showEmojiMenu = false }
+            showEmojiMenu = false
         }
     }
 
@@ -83,7 +83,7 @@ extension ComposerView {
 
         textReplacer.replaceText?(nsRange, entry.emoji)
 
-        withAnimation(VAnimation.fast) { showEmojiMenu = false }
+        showEmojiMenu = false
         emojiSelectedIndex = 0
     }
 
@@ -101,7 +101,7 @@ extension ComposerView {
             case .tab:
                 selectEmoji(filtered[emojiSelectedIndex])
             case .dismiss:
-                withAnimation(VAnimation.fast) { showEmojiMenu = false }
+                showEmojiMenu = false
                 suppressEmojiReopen = true
             }
         }
