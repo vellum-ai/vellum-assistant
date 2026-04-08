@@ -287,8 +287,6 @@ struct MessageListContentView: View, Equatable {
         .disabled(!isInteractionEnabled)
         .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.xl,
                             bottom: VSpacing.md, trailing: VSpacing.xl))
-        .frame(maxWidth: VSpacing.chatColumnMaxWidth)
-        .frame(maxWidth: .infinity)
         .environment(\.bubbleMaxWidth, containerWidth > 0
             ? min(VSpacing.chatBubbleMaxWidth, max(containerWidth - 2 * VSpacing.xl, 0))
             : VSpacing.chatBubbleMaxWidth)
