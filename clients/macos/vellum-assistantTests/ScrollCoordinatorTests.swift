@@ -541,4 +541,50 @@ final class ScrollCoordinatorTests: XCTestCase {
         let _ = coordinator.pendingAnchor
         // All pass — the coordinator is a pure policy object.
     }
+
+    // MARK: - Daemon Confirmation Resume
+
+    func testDaemonConfirmationResumeSkipsScrollWhenFreeBrowsing() {
+        // User scrolled up during confirmation wait.
+        coordinator.handle(.manualBrowseIntent)
+        XCTAssertEqual(coordinator.mode, .freeBrowsing)
+
+        // Daemon resumes from confirmation — should NOT force-scroll.
+        let intents = coordinator.handle(
+            .sendingChanged(isSending: true, isDaemonConfirmationResume: true)
+        )
+
+        XCTAssertEqual(coordinator.mode, .freeBrowsing,
+                       "Should stay in free-browsing when daemon resumes from confirmation")
+        XCTAssertTrue(intents.isEmpty,
+                      "Should produce no intents for confirmation resume while free-browsing")
+    }
+
+    func testDaemonConfirmationResumeScrollsWhenFollowingBottom() {
+        // User was already at bottom during confirmation.
+        coordinator.handle(.sendingChanged(isSending: true))
+        XCTAssertTrue(coordinator.isFollowingBottom)
+        coordinator.handle(.sendingChanged(isSending: false))
+
+        // Daemon resumes — user was following bottom, so scroll should happen.
+        let intents = coordinator.handle(
+            .sendingChanged(isSending: true, isDaemonConfirmationResume: true)
+        )
+
+        XCTAssertTrue(coordinator.isFollowingBottom)
+        XCTAssertTrue(intents.contains(.scrollToBottom(animated: true)),
+                      "Should scroll to bottom when user was already following during confirmation")
+    }
+
+    func testDaemonConfirmationResumeDefaultIsFalse() {
+        // Verify the default parameter value works — normal sends still scroll.
+        coordinator.handle(.manualBrowseIntent)
+        XCTAssertEqual(coordinator.mode, .freeBrowsing)
+
+        let intents = coordinator.handle(.sendingChanged(isSending: true))
+
+        XCTAssertTrue(coordinator.isFollowingBottom,
+                      "Normal send should reattach even from free-browsing")
+        XCTAssertTrue(intents.contains(.scrollToBottom(animated: true)))
+    }
 }

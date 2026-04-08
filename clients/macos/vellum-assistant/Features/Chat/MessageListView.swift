@@ -169,13 +169,29 @@ struct MessageListView: View {
                 highlightedMessageId = nil
             }
             .onChange(of: isSending) {
-                let intents = scrollCoordinator.handle(.sendingChanged(isSending: isSending))
-                executeCoordinatorIntents(intents)
+                if conversationId == scrollState.currentConversationId {
+                    let effectivePhase: String
+                    if scrollState.lastActivityPhaseWhenIdle == "awaiting_confirmation"
+                        && assistantActivityPhase != "awaiting_confirmation" {
+                        effectivePhase = assistantActivityPhase
+                    } else {
+                        effectivePhase = scrollState.lastActivityPhaseWhenIdle
+                    }
+                    let isDaemonConfirmationResume =
+                        effectivePhase == "awaiting_confirmation"
+                        && assistantActivityPhase != "awaiting_confirmation"
+                    let intents = scrollCoordinator.handle(
+                        .sendingChanged(isSending: isSending, isDaemonConfirmationResume: isDaemonConfirmationResume)
+                    )
+                    executeCoordinatorIntents(intents)
+                }
                 handleSendingChanged()
             }
             .onChange(of: messages.count) {
-                let intents = scrollCoordinator.handle(.messageCountChanged)
-                executeCoordinatorIntents(intents)
+                if conversationId == scrollState.currentConversationId {
+                    let intents = scrollCoordinator.handle(.messageCountChanged)
+                    executeCoordinatorIntents(intents)
+                }
                 handleMessagesCountChanged()
             }
             .onChange(of: containerWidth) { handleContainerWidthChanged() }

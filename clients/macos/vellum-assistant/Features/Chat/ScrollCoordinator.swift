@@ -33,8 +33,10 @@ final class ScrollCoordinator {
         /// The visible message count changed.
         case messageCountChanged
 
-        /// The sending state changed.
-        case sendingChanged(isSending: Bool)
+        /// The sending state changed. When `isDaemonConfirmationResume` is true,
+        /// the daemon resumed from a tool confirmation — skip auto-scroll if the
+        /// user was browsing freely (they scrolled up during the confirmation wait).
+        case sendingChanged(isSending: Bool, isDaemonConfirmationResume: Bool = false)
 
         /// The scroll phase changed (idle, interacting, decelerating, animating).
         case scrollPhaseChanged(phase: Phase)
@@ -239,8 +241,8 @@ final class ScrollCoordinator {
         case .messageCountChanged:
             return handleMessageCountChanged()
 
-        case .sendingChanged(let isSending):
-            return handleSendingChanged(isSending: isSending)
+        case .sendingChanged(let isSending, let isDaemonConfirmationResume):
+            return handleSendingChanged(isSending: isSending, isDaemonConfirmationResume: isDaemonConfirmationResume)
 
         case .scrollPhaseChanged(let newPhase):
             return handleScrollPhaseChanged(newPhase: newPhase)
@@ -287,9 +289,14 @@ final class ScrollCoordinator {
         return intents
     }
 
-    private func handleSendingChanged(isSending: Bool) -> [OutputIntent] {
+    private func handleSendingChanged(isSending: Bool, isDaemonConfirmationResume: Bool) -> [OutputIntent] {
         var intents: [OutputIntent] = []
         if isSending {
+            if isDaemonConfirmationResume && !isFollowingBottom {
+                // Daemon resumed from tool confirmation while user was
+                // scrolled up — respect their position, don't force-scroll.
+                return intents
+            }
             // User sent a message — reattach to bottom.
             transition(to: .followingBottom)
             intents.append(.startRecoveryWindow)
