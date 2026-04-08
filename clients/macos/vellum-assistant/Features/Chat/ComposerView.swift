@@ -70,21 +70,15 @@ struct ComposerView: View {
     #if os(macOS)
     @Environment(\.dropActions) private var dropActions
     #endif
+    @State private var composerFocus: Bool = false
     @State private var isComposerFocused = false
+    @State private var textViewIsFocused: Bool = false
     @State var cursorPosition: Int = 0
 
+    @State var textReplacer = TextReplacementProxy()
     @State var composerController = ComposerController()
-    /// Bridge commands object shared with ComposerTextEditor. The view layer
-    /// writes pending commands here; the coordinator consumes them during
-    /// updateNSView.
-    @State var bridgeCommands = ComposerBridgeCommands()
     /// Live amplitude from VoiceInputManager, bypassing ChatViewModel's 100ms coalescing.
     @State private var liveAmplitude: Float = 0
-    /// Flag set by the bridge textChanged handler before updating `inputText`.
-    /// When true, the `onChange(of: inputText)` handler skips its
-    /// `composerController.textChanged` call and `pendingSetText` write
-    /// because the bridge already handled both. Cleared after the onChange fires.
-    @State private var isBridgeDrivenChange = false
 
     /// The portion of the suggestion that extends beyond the current input.
     /// Hidden when the user has pending attachments so the composer looks empty
@@ -147,13 +141,12 @@ struct ComposerView: View {
         .task {
             // Delay focus slightly so the NSTextView is fully installed
             // in the view hierarchy before requesting first-responder
-            // status. Setting focus synchronously during an animated
+            // status. Setting @FocusState synchronously during an animated
             // layout pass (e.g. the empty-state fade-in) can give logical
             // focus without rendering the blinking caret.
             try? await Task.sleep(nanoseconds: 50_000_000)
             guard !Task.isCancelled else { return }
-            composerController.focusChanged(isInteractionEnabled)
-            pushFocusCommand()
+            composerFocus = isInteractionEnabled
         }
         .task(id: conversationId) {
             guard isInteractionEnabled, !hasPendingConfirmation else { return }
@@ -161,8 +154,7 @@ struct ComposerView: View {
             // (new empty state) whose layout isn't settled yet.
             try? await Task.sleep(nanoseconds: 50_000_000)
             guard !Task.isCancelled else { return }
-            composerController.focusChanged(true)
-            pushFocusCommand()
+            composerFocus = true
         }
         .onChange(of: currentMode) {
             composerLog.debug("Composer mode: \(String(describing: currentMode))")
@@ -172,12 +164,11 @@ struct ComposerView: View {
         }
         .onChange(of: isInteractionEnabled) { _, enabled in
             composerController.interactionEnabledChanged(enabled, hasPendingConfirmation: hasPendingConfirmation)
-            pushFocusCommand()
+            composerFocus = composerController.focusIntent
         }
         .onChange(of: hasPendingConfirmation) { _, pending in
             if !pending, isInteractionEnabled {
-                composerController.focusChanged(true)
-                pushFocusCommand()
+                composerFocus = true
             }
         }
     }
@@ -234,14 +225,18 @@ struct ComposerView: View {
                 .padding(.leading, ComposerTextEditor.textInsetX)
                 .padding(.top, ComposerTextEditor.textInsetY)
             ComposerTextEditor(
+                text: $inputText,
+                isFocused: $textViewIsFocused,
                 font: nsFont,
                 lineSpacing: 4,
                 insertionPointColor: NSColor(VColor.primaryBase),
                 minHeight: composerActionButtonSize,
                 maxHeight: composerMaxHeight,
+                isEditable: isInteractionEnabled,
                 cmdEnterToSend: cmdEnterToSend,
                 textColorOverride: hasSlashHighlight
                     ? NSColor(VColor.contentDefault).withAlphaComponent(0) : nil,
+                onSubmit: { performSendAction() },
                 onTab: {
                     if composerController.showSlashMenu {
                         if let command = composerController.handleSlashNavigation(.tab) {
@@ -277,34 +272,8 @@ struct ComposerView: View {
                 shouldOverrideReturn: {
                     composerController.isPopupVisible
                 },
-                bridgeEvents: ComposerBridgeEvents(
-                    textChanged: { [self] newText in
-                        composerController.textChanged(newText)
-                        if inputText != newText {
-                            isBridgeDrivenChange = true
-                            inputText = newText
-                        }
-                        // Keep local cursor tracking in sync for emoji picker
-                        // (cursorPosition is emitted separately via selectionChanged)
-                    },
-                    selectionChanged: { [self] pos in
-                        if cursorPosition != pos { cursorPosition = pos }
-                        composerController.cursorMoved(to: pos)
-                    },
-                    focusChanged: { [self] focused in
-                        composerController.focusChanged(focused)
-                        isComposerFocused = focused
-                        if focused {
-                            if let window = NSApp.keyWindow as? TitleBarZoomableWindow {
-                                window.clearComposerDismissed()
-                            }
-                        }
-                    },
-                    submitRequested: { [self] in
-                        performSendAction()
-                    }
-                ),
-                bridgeCommands: bridgeCommands
+                cursorPosition: $cursorPosition,
+                textReplacer: textReplacer
             )
             .fixedSize(horizontal: false, vertical: true)
             // Prevent inherited .animation() modifiers from creating animation
@@ -319,15 +288,30 @@ struct ComposerView: View {
         .frame(maxWidth: .infinity)
         .background(
             ComposerFocusBridge(
-                isFocused: composerController.focusIntent,
+                isFocused: composerFocus,
                 isInteractionEnabled: isInteractionEnabled,
                 onRedirectKeystroke: { chars in
                     inputText += chars
-                    composerController.focusChanged(true)
-                    pushFocusCommand()
+                    composerFocus = true
                 }
             )
         )
+        .onChange(of: composerFocus) {
+            if textViewIsFocused != composerFocus {
+                textViewIsFocused = composerFocus
+            }
+            isComposerFocused = composerFocus
+            if composerFocus {
+                if let window = NSApp.keyWindow as? TitleBarZoomableWindow {
+                    window.clearComposerDismissed()
+                }
+            }
+        }
+        .onChange(of: textViewIsFocused) {
+            if composerFocus != textViewIsFocused {
+                composerFocus = textViewIsFocused
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             guard !hasPendingConfirmation else { return }
             guard let window = NSApp.keyWindow as? TitleBarZoomableWindow else { return }
@@ -336,35 +320,14 @@ struct ComposerView: View {
                window.composerContainerView.map({ !responder.isDescendant(of: $0) }) ?? false {
                 return
             }
-            composerController.focusChanged(true)
-            pushFocusCommand()
+            composerFocus = true
         }
         .onChange(of: inputText) {
-            if isBridgeDrivenChange {
-                // The bridge textChanged handler already called
-                // composerController.textChanged and the AppKit text view
-                // already has the correct string — skip the redundant work.
-                isBridgeDrivenChange = false
-                return
-            }
-            // Push text changes from external sources (e.g. dictation cancel
-            // restoring preDictationText, slash command selection) into the
-            // AppKit text view via the bridge command, and keep the controller
-            // in sync.
-            bridgeCommands.pendingSetText = inputText
             composerController.textChanged(inputText)
         }
-        .onChange(of: isInteractionEnabled) {
-            bridgeCommands.pendingSetEditable = isInteractionEnabled
+        .onChange(of: cursorPosition) {
+            composerController.cursorMoved(to: cursorPosition)
         }
-    }
-
-    /// Pushes the controller's current focusIntent into the bridge commands
-    /// so the coordinator can request/resign first responder on the next
-    /// main turn. This is the single policy point for focus synchronization.
-    private func pushFocusCommand() {
-        bridgeCommands.pendingRequestFocus = composerController.focusIntent
-        isComposerFocused = composerController.focusIntent
     }
 
     /// Shared send logic invoked by the composer's submit callback.
@@ -496,8 +459,7 @@ struct ComposerView: View {
                     isDisabled: !canSend,
                     iconSize: composerActionButtonSize
                 ) {
-                    composerController.focusChanged(true)
-                    pushFocusCommand()
+                    composerFocus = true
                     performSendAction()
                 }
                 .vTooltip("Type a message to send")
@@ -521,8 +483,7 @@ struct ComposerView: View {
                     isDisabled: !canSend,
                     iconSize: composerActionButtonSize
                 ) {
-                    composerController.focusChanged(true)
-                    pushFocusCommand()
+                    composerFocus = true
                     performSendAction()
                 }
                 .vTooltip(canSend ? "Send" : "Type a message to send")
@@ -554,8 +515,7 @@ struct ComposerView: View {
                     isDisabled: !canSend,
                     iconSize: composerActionButtonSize
                 ) {
-                    composerController.focusChanged(true)
-                    pushFocusCommand()
+                    composerFocus = true
                     performSendAction()
                 }
             }
