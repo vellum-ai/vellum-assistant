@@ -39,8 +39,13 @@ struct PreUpdateBackupBanner: View {
                         style: .outlined
                     ) {
                         Task {
-                            await performLocalRestore(URL(fileURLWithPath: backupPath))
-                            preUpdateBackupPath = nil
+                            // Only clear the pre-update path on a successful restore.
+                            // On failure, leave it set so the banner stays visible
+                            // (with the error message) and the user can retry or dismiss.
+                            let restored = await performLocalRestore(URL(fileURLWithPath: backupPath))
+                            if restored {
+                                preUpdateBackupPath = nil
+                            }
                         }
                     }
                     .disabled(isImporting)
@@ -71,9 +76,15 @@ struct PreUpdateBackupBanner: View {
     /// Restores the assistant from a `.vbundle` backup via the gateway's
     /// `migrations/import` endpoint, then bounces the daemon so the restored
     /// state takes effect.
-    private func performLocalRestore(_ fileURL: URL) async {
+    ///
+    /// Returns `true` only when the import succeeded; the caller uses this to
+    /// decide whether to clear `preUpdateBackupPath`. On failure the banner is
+    /// kept on screen so the user can see the error message.
+    private func performLocalRestore(_ fileURL: URL) async -> Bool {
         isImporting = true
         defer { isImporting = false }
+        errorMessage = nil
+        successMessage = nil
 
         do {
             let fileData = try Data(contentsOf: fileURL)
@@ -105,18 +116,23 @@ struct PreUpdateBackupBanner: View {
                             AvatarAppearanceManager.shared.reloadAvatar()
                         }
                     }
-                } else {
-                    errorMessage = "Import completed with warnings. Check assistant logs for details."
+                    return true
                 }
+                errorMessage = "Import completed with warnings. Check assistant logs for details."
+                return false
             } else if response.statusCode == 413 {
                 errorMessage = "Backup file is too large. Please upgrade the assistant to restore this backup."
+                return false
             } else {
                 errorMessage = "Import failed (HTTP \(response.statusCode))"
+                return false
             }
         } catch let error as GatewayHTTPClient.ClientError {
             errorMessage = error.localizedDescription
+            return false
         } catch {
             errorMessage = "Import failed: \(error.localizedDescription)"
+            return false
         }
     }
 }
