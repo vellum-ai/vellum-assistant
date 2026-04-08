@@ -342,6 +342,72 @@ describe("provider operations", () => {
       const row = getProvider("linear");
       expect(row!.scopeSeparator).toBe(",");
     });
+
+    test("persists refreshUrl when provided", () => {
+      seedProviders([
+        {
+          provider: "test-provider",
+          authorizeUrl: "https://example.com/authorize",
+          tokenExchangeUrl: "https://example.com/token",
+          refreshUrl: "https://refresh.example.com/token",
+          defaultScopes: ["read"],
+          scopePolicy: {},
+        },
+      ]);
+
+      const row = getProvider("test-provider");
+      expect(row).toBeDefined();
+      expect(row!.refreshUrl).toBe("https://refresh.example.com/token");
+    });
+
+    test("refreshUrl defaults to null when omitted", () => {
+      seedProviders([
+        {
+          provider: "test-provider",
+          authorizeUrl: "https://example.com/authorize",
+          tokenExchangeUrl: "https://example.com/token",
+          defaultScopes: ["read"],
+          scopePolicy: {},
+        },
+      ]);
+
+      const row = getProvider("test-provider");
+      expect(row).toBeDefined();
+      expect(row!.refreshUrl).toBeNull();
+    });
+
+    test("re-seeding with a changed refreshUrl overwrites the stored value", () => {
+      seedProviders([
+        {
+          provider: "test-provider",
+          authorizeUrl: "https://example.com/authorize",
+          tokenExchangeUrl: "https://example.com/token",
+          refreshUrl: "https://refresh.example.com/token",
+          defaultScopes: ["read"],
+          scopePolicy: {},
+        },
+      ]);
+
+      const first = getProvider("test-provider");
+      expect(first!.refreshUrl).toBe("https://refresh.example.com/token");
+
+      // Re-seed with a different refreshUrl — it should be overwritten,
+      // proving refreshUrl is in the onConflictDoUpdate set clause (not
+      // preserved like defaultScopes).
+      seedProviders([
+        {
+          provider: "test-provider",
+          authorizeUrl: "https://example.com/authorize",
+          tokenExchangeUrl: "https://example.com/token",
+          refreshUrl: "https://refresh-v2.example.com/token",
+          defaultScopes: ["read"],
+          scopePolicy: {},
+        },
+      ]);
+
+      const row = getProvider("test-provider");
+      expect(row!.refreshUrl).toBe("https://refresh-v2.example.com/token");
+    });
   });
 
   describe("getProvider", () => {
@@ -432,6 +498,35 @@ describe("provider operations", () => {
       expect(fetched).toBeDefined();
       expect(fetched!.scopeSeparator).toBe(" ");
     });
+
+    test("persists refreshUrl and round-trips via getProvider", () => {
+      registerProvider({
+        provider: "linear",
+        authorizeUrl: "https://linear.app/oauth/authorize",
+        tokenExchangeUrl: "https://api.linear.app/oauth/token",
+        refreshUrl: "https://api.linear.app/oauth/refresh",
+        defaultScopes: ["read"],
+        scopePolicy: {},
+      });
+
+      const fetched = getProvider("linear");
+      expect(fetched).toBeDefined();
+      expect(fetched!.refreshUrl).toBe("https://api.linear.app/oauth/refresh");
+    });
+
+    test("refreshUrl defaults to null when omitted", () => {
+      registerProvider({
+        provider: "linear",
+        authorizeUrl: "https://linear.app/oauth/authorize",
+        tokenExchangeUrl: "https://api.linear.app/oauth/token",
+        defaultScopes: ["read"],
+        scopePolicy: {},
+      });
+
+      const fetched = getProvider("linear");
+      expect(fetched).toBeDefined();
+      expect(fetched!.refreshUrl).toBeNull();
+    });
   });
 
   describe("updateProvider", () => {
@@ -478,6 +573,61 @@ describe("provider operations", () => {
       expect(updated).toBeDefined();
       expect(updated!.scopeSeparator).toBe(" ");
       expect(getProvider("github")!.scopeSeparator).toBe(" ");
+    });
+
+    test("sets refreshUrl on an existing row where it was previously null", () => {
+      seedProviders([
+        {
+          provider: "github",
+          authorizeUrl: "https://github.com/authorize",
+          tokenExchangeUrl: "https://github.com/token",
+          defaultScopes: ["repo"],
+          scopePolicy: {},
+        },
+      ]);
+
+      const before = getProvider("github");
+      expect(before!.refreshUrl).toBeNull();
+
+      const updated = updateProvider("github", {
+        refreshUrl: "https://github.com/login/oauth/refresh",
+      });
+      expect(updated).toBeDefined();
+      expect(updated!.refreshUrl).toBe(
+        "https://github.com/login/oauth/refresh",
+      );
+
+      const fetched = getProvider("github");
+      expect(fetched!.refreshUrl).toBe(
+        "https://github.com/login/oauth/refresh",
+      );
+    });
+
+    test("leaves refreshUrl unchanged when not passed to updateProvider", () => {
+      seedProviders([
+        {
+          provider: "github",
+          authorizeUrl: "https://github.com/authorize",
+          tokenExchangeUrl: "https://github.com/token",
+          refreshUrl: "https://github.com/login/oauth/refresh",
+          defaultScopes: ["repo"],
+          scopePolicy: {},
+        },
+      ]);
+
+      expect(getProvider("github")!.refreshUrl).toBe(
+        "https://github.com/login/oauth/refresh",
+      );
+
+      // Update a different field — refreshUrl should be left alone.
+      const updated = updateProvider("github", {
+        displayLabel: "GitHub (updated)",
+      });
+      expect(updated).toBeDefined();
+      expect(updated!.refreshUrl).toBe(
+        "https://github.com/login/oauth/refresh",
+      );
+      expect(updated!.displayLabel).toBe("GitHub (updated)");
     });
   });
 

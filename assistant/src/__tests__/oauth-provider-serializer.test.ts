@@ -13,6 +13,7 @@ function makeRow(overrides: Partial<OAuthProviderRow> = {}): OAuthProviderRow {
     provider: "test-provider",
     authorizeUrl: "https://auth.example.com/authorize",
     tokenExchangeUrl: "https://auth.example.com/token",
+    refreshUrl: null,
     tokenEndpointAuthMethod: null,
     userinfoUrl: null,
     baseUrl: null,
