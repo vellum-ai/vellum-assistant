@@ -9,9 +9,11 @@ import {
   TARGET_CHARS,
   TOOL_RESULT_DIR,
   TRUNCATION_MARKER,
+  REREAD_STUB,
   buildTruncatedContent,
   getToolResultFilePath,
   postTurnTruncateToolResults,
+  derefToolResultReReads,
 } from "../context/post-turn-tool-result-truncation.js";
 
 function makeToolResult(
@@ -158,5 +160,137 @@ describe("postTurnTruncateToolResults", () => {
     // Different IDs produce different paths.
     const path3 = getToolResultFilePath("/some/dir", "tool_use_other");
     expect(path3).not.toBe(path1);
+  });
+});
+
+describe("derefToolResultReReads", () => {
+  function makeToolUse(
+    id: string,
+    name: string,
+    input: Record<string, unknown>,
+  ): ContentBlock {
+    return { type: "tool_use" as const, id, name, input };
+  }
+
+  test("file_read of .tool-results/ path: tool_result content replaced with REREAD_STUB", () => {
+    const toolUseId = "tu_reread_1";
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          makeToolUse(toolUseId, "file_read", {
+            file_path: `/home/user/.vellum/workspace/conversations/abc/${TOOL_RESULT_DIR}/abc123.txt`,
+          }),
+        ],
+      },
+      {
+        role: "user",
+        content: [makeToolResult("full file contents here", toolUseId)],
+      },
+    ];
+
+    const { messages: result, dereferencedCount } =
+      derefToolResultReReads(messages);
+
+    expect(dereferencedCount).toBe(1);
+    const block = result[1].content[0] as { type: "tool_result"; content: string };
+    expect(block.content).toBe(REREAD_STUB);
+  });
+
+  test("file_read of normal path: tool_result unchanged", () => {
+    const toolUseId = "tu_normal_read";
+    const originalContent = "some file contents";
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          makeToolUse(toolUseId, "file_read", {
+            file_path: "src/foo.ts",
+          }),
+        ],
+      },
+      {
+        role: "user",
+        content: [makeToolResult(originalContent, toolUseId)],
+      },
+    ];
+
+    const { messages: result, dereferencedCount } =
+      derefToolResultReReads(messages);
+
+    expect(dereferencedCount).toBe(0);
+    expect(result).toBe(messages); // same reference — no copy
+    const block = result[1].content[0] as { type: "tool_result"; content: string };
+    expect(block.content).toBe(originalContent);
+  });
+
+  test("non-file_read tool: tool_result unchanged even if output mentions .tool-results/", () => {
+    const toolUseId = "tu_bash";
+    const outputMentioningDir = `Found file at /home/user/${TOOL_RESULT_DIR}/abc.txt`;
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          makeToolUse(toolUseId, "bash", {
+            command: "ls",
+          }),
+        ],
+      },
+      {
+        role: "user",
+        content: [makeToolResult(outputMentioningDir, toolUseId)],
+      },
+    ];
+
+    const { messages: result, dereferencedCount } =
+      derefToolResultReReads(messages);
+
+    expect(dereferencedCount).toBe(0);
+    expect(result).toBe(messages);
+    const block = result[1].content[0] as { type: "tool_result"; content: string };
+    expect(block.content).toBe(outputMentioningDir);
+  });
+
+  test("multiple re-reads in one turn: each deduplicated independently", () => {
+    const tu1 = "tu_multi_1";
+    const tu2 = "tu_multi_2";
+    const tuNormal = "tu_multi_normal";
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          makeToolUse(tu1, "file_read", {
+            file_path: `/workspace/conv/${TOOL_RESULT_DIR}/aaa.txt`,
+          }),
+          makeToolUse(tu2, "file_read", {
+            file_path: `/workspace/conv/${TOOL_RESULT_DIR}/bbb.txt`,
+          }),
+          makeToolUse(tuNormal, "file_read", {
+            file_path: "src/bar.ts",
+          }),
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          makeToolResult("re-read content 1", tu1),
+          makeToolResult("re-read content 2", tu2),
+          makeToolResult("normal read content", tuNormal),
+        ],
+      },
+    ];
+
+    const { messages: result, dereferencedCount } =
+      derefToolResultReReads(messages);
+
+    expect(dereferencedCount).toBe(2);
+
+    const b0 = result[1].content[0] as { type: "tool_result"; content: string };
+    const b1 = result[1].content[1] as { type: "tool_result"; content: string };
+    const b2 = result[1].content[2] as { type: "tool_result"; content: string };
+
+    expect(b0.content).toBe(REREAD_STUB);
+    expect(b1.content).toBe(REREAD_STUB);
+    expect(b2.content).toBe("normal read content"); // unchanged
   });
 });
