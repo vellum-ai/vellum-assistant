@@ -74,7 +74,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var popOutLocalMonitor: Any?
     public let services = AppServices()
     let vellumCli = VellumCli()
-    let appleContainersLauncher = AppleContainersLauncher()
+    let appleContainersLauncher: AssistantManagementClient? = {
+        if #available(macOS 26.0, *) {
+            return AppleContainersLauncher()
+        }
+        return nil
+    }()
     public let updateManager = UpdateManager()
     let debugStateWriter = DebugStateWriter()
     private let telemetryClient: any TelemetryClientProtocol = TelemetryClient()

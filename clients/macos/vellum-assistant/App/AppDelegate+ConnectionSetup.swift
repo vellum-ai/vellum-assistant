@@ -113,10 +113,10 @@ extension AppDelegate {
     /// - `apple-container`: dispatches to the `AppleContainersLauncher` which
     ///   manages the full container lifecycle via the Containerization framework.
     func managementClient(for assistant: LockfileAssistant?) -> AssistantManagementClient {
-        guard let assistant, assistant.isAppleContainer else {
+        guard let assistant, assistant.isAppleContainer, let launcher = appleContainersLauncher else {
             return vellumCli
         }
-        return appleContainersLauncher
+        return launcher
     }
 
     // MARK: - Gateway Connection Setup

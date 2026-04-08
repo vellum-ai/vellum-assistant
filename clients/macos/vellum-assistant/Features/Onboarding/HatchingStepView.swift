@@ -361,7 +361,8 @@ struct HatchingStepView: View {
     }
 
     private func startAppleContainerHatch() {
-        guard let launcher = AppDelegate.shared?.appleContainersLauncher else {
+        guard #available(macOS 26.0, *),
+              let launcher = AppDelegate.shared?.appleContainersLauncher as? AppleContainersLauncher else {
             log.error("AppleContainersLauncher not available on AppDelegate")
             state.hatchFailed = true
             return
