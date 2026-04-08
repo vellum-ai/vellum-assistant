@@ -194,7 +194,22 @@ extension MessageListView {
             scrollState.lastMessageId = lastId
         }
         if anchorMessageId == nil {
-            scrollState.scheduleDeferredBottomPin(animated: true)
+            // During active streaming in followingBottom, use non-animated
+            // scroll. An animated pin (~150ms VAnimation.fast) triggers
+            // .animating scroll phase, which blocks phaseAllowsAutoFollow
+            // in handleScrollGeometryUpdate. Content keeps growing during
+            // that window; when the animation completes and phase returns
+            // to .idle, the next auto-follow fires a large position
+            // correction — visible as a scroll jump. Non-animated pins
+            // don't trigger .animating, so the content-height auto-follow
+            // path continues smoothly at ~60fps.
+            //
+            // The animated pin is preserved for non-streaming scenarios
+            // (conversation switch, anchor resolution) where a smooth
+            // spring transition is desirable and there's no competing
+            // content-height auto-follow to block.
+            let shouldAnimate = !(isSending && scrollState.isFollowingBottom)
+            scrollState.scheduleDeferredBottomPin(animated: shouldAnimate)
         }
         // --- Confirmation focus handoff ---
         #if os(macOS)
