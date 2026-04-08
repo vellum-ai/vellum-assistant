@@ -49,7 +49,10 @@ import {
   createFeatureFlagsGetHandler,
   createFeatureFlagsPatchHandler,
 } from "./http/routes/feature-flags.js";
-import { createPrivacyConfigPatchHandler } from "./http/routes/privacy-config.js";
+import {
+  createPrivacyConfigGetHandler,
+  createPrivacyConfigPatchHandler,
+} from "./http/routes/privacy-config.js";
 import { createChannelVerificationSessionProxyHandler } from "./http/routes/channel-verification-session-proxy.js";
 import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-control-plane-proxy.js";
 import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-control-plane-proxy.js";
@@ -299,6 +302,7 @@ async function main() {
   const handleLogExport = createLogExportHandler(config);
   const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
   const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
+  const handlePrivacyConfigGet = createPrivacyConfigGetHandler();
   const handlePrivacyConfigPatch = createPrivacyConfigPatchHandler();
   const handleTrustRulesList = createTrustRulesListHandler();
   const handleTrustRulesAdd = createTrustRulesAddHandler();
@@ -927,6 +931,20 @@ async function main() {
     },
 
     // ── Privacy config (scope-protected) ──
+    {
+      path: "/v1/config/privacy",
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handlePrivacyConfigGet(req),
+    },
+    {
+      path: /^\/v1\/assistants\/([^/]+)\/config\/privacy\/$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handlePrivacyConfigGet(req),
+    },
     {
       path: "/v1/config/privacy",
       method: "PATCH",
