@@ -1,7 +1,6 @@
 import XCTest
 @testable import VellumAssistantLib
 
-@available(macOS 26.0, *)
 final class PodRuntimeTests: XCTestCase {
 
     // MARK: - Configuration defaults
