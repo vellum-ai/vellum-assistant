@@ -397,6 +397,47 @@ describe("executeBrowserNavigate", () => {
     expect(cdpDisposed).toBe(true);
   });
 
+  test("surfaces Page.navigate errorText as a navigation failure", async () => {
+    // CDP signals DNS / connection errors via the response's
+    // `errorText` field rather than throwing. Without this, the
+    // navigate helper would poll readyState on the OLD page (which is
+    // "complete") and report success with the stale URL — leaking
+    // potentially sensitive content the agent never asked for.
+    parseUrlResult = new URL("https://nope.invalid");
+    cdpSendHandler = (method, params) => {
+      if (method === "Page.navigate") {
+        return { frameId: "f1", errorText: "net::ERR_NAME_NOT_RESOLVED" };
+      }
+      if (method === "Runtime.evaluate") {
+        const expression = String(params?.["expression"] ?? "");
+        if (expression === "document.location.href") {
+          return { result: { value: "https://example.com/old" } };
+        }
+        return { result: { value: null } };
+      }
+      return {};
+    };
+
+    const result = await executeBrowserNavigate(
+      { url: "https://nope.invalid" },
+      ctx,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Navigation failed");
+    expect(result.content).toContain("ERR_NAME_NOT_RESOLVED");
+    expect(cdpDisposed).toBe(true);
+
+    // Should NOT have polled readyState — navigate failed before the
+    // wait loop ran.
+    const readyStateCalls = cdpSendCalls.filter(
+      (c) =>
+        c.method === "Runtime.evaluate" &&
+        (c.params as { expression?: string } | undefined)?.expression ===
+          "document.readyState",
+    );
+    expect(readyStateCalls).toHaveLength(0);
+  });
+
   // ── SSRF route interception (local path only) ─────────────────
 
   test("returns security message when route handler blocks a redirect", async () => {

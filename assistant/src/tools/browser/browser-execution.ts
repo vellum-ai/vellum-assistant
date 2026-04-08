@@ -46,6 +46,7 @@ import {
   waitForText as cdpWaitForText,
 } from "./cdp-client/cdp-dom-helpers.js";
 import { getCdpClient } from "./cdp-client/factory.js";
+import type { CdpClient } from "./cdp-client/types.js";
 
 const log = getLogger("headless-browser");
 
@@ -744,6 +745,60 @@ export async function executeBrowserClick(
   }
 }
 
+// ── Shared input helpers ─────────────────────────────────────────────
+
+/**
+ * Focus an element, clear its existing value (handling both
+ * `<input>`/`<textarea>` and `contentEditable` targets), re-focus
+ * (sites sometimes blur on a programmatic value reset), and insert
+ * the requested text via `Input.insertText`.
+ *
+ * Used by both `executeBrowserType` and `executeBrowserFillCredential`
+ * so credential fills cannot append to autofilled / pre-populated
+ * fields — appending would leak the existing value into the broker
+ * payload and corrupt the resulting password.
+ */
+async function clearAndInsertText(
+  cdp: CdpClient,
+  backendNodeId: number,
+  value: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  await focusElement(cdp, backendNodeId, signal);
+
+  // Resolve the node to a Runtime.RemoteObject so we can invoke a
+  // function on the element itself via Runtime.callFunctionOn. This
+  // is more reliable than a keyboard select-all + delete sequence
+  // across input, textarea, and contenteditable targets.
+  const { object } = await cdp.send<{ object: { objectId: string } }>(
+    "DOM.resolveNode",
+    { backendNodeId },
+    signal,
+  );
+  await cdp.send(
+    "Runtime.callFunctionOn",
+    {
+      objectId: object.objectId,
+      functionDeclaration: `function() {
+        if (typeof this.value === "string") {
+          this.value = "";
+        } else if (this.isContentEditable) {
+          this.textContent = "";
+        }
+        this.dispatchEvent(new Event("input", { bubbles: true }));
+      }`,
+      arguments: [],
+    },
+    signal,
+  );
+
+  // Re-focus after clearing — some sites move focus when the value
+  // property is reassigned programmatically.
+  await focusElement(cdp, backendNodeId, signal);
+
+  await dispatchInsertText(cdp, value, signal);
+}
+
 // ── browser_type ─────────────────────────────────────────────────────
 
 export async function executeBrowserType(
@@ -779,40 +834,12 @@ export async function executeBrowserType(
       );
     }
 
-    await focusElement(cdp, backendNodeId, context.signal);
-
     if (clearFirst) {
-      // Resolve the node to a Runtime.RemoteObject so we can invoke a
-      // function on the element itself via Runtime.callFunctionOn. This
-      // is more reliable than a keyboard select-all + delete sequence
-      // across input, textarea, and contenteditable targets.
-      const { object } = await cdp.send<{ object: { objectId: string } }>(
-        "DOM.resolveNode",
-        { backendNodeId },
-        context.signal,
-      );
-      await cdp.send(
-        "Runtime.callFunctionOn",
-        {
-          objectId: object.objectId,
-          functionDeclaration: `function() {
-            if (typeof this.value === "string") {
-              this.value = "";
-            } else if (this.isContentEditable) {
-              this.textContent = "";
-            }
-            this.dispatchEvent(new Event("input", { bubbles: true }));
-          }`,
-          arguments: [],
-        },
-        context.signal,
-      );
-      // Re-focus after clearing — some sites move focus when the
-      // value property is reassigned programmatically.
+      await clearAndInsertText(cdp, backendNodeId, text, context.signal);
+    } else {
       await focusElement(cdp, backendNodeId, context.signal);
+      await dispatchInsertText(cdp, text, context.signal);
     }
-
-    await dispatchInsertText(cdp, text, context.signal);
 
     if (pressEnter) {
       await dispatchKeyPress(cdp, "Enter", context.signal);
@@ -999,47 +1026,76 @@ export async function executeBrowserSelectOption(
 
     // CDP does not expose a native "set select value" command, so we
     // resolve the node to a Runtime.RemoteObject and invoke a function
-    // on it that applies value/label/index and dispatches a bubbling
-    // `change` event.
+    // on it that applies value/label/index and dispatches `input`
+    // followed by `change` (HTML spec order — Angular's
+    // DefaultValueAccessor listens for `input`, so missing it breaks
+    // form bindings on Angular sites).
     const { object } = await cdp.send<{ object: { objectId: string } }>(
       "DOM.resolveNode",
       { backendNodeId },
       context.signal,
     );
-    await cdp.send(
+    const callResult = await cdp.send<{
+      result?: { value?: boolean };
+    }>(
       "Runtime.callFunctionOn",
       {
         objectId: object.objectId,
         functionDeclaration: `function(value, label, index) {
+          let matched = false;
           if (value !== null && value !== undefined) {
-            this.value = value;
+            for (const opt of this.options) {
+              if (opt.value === value) {
+                this.value = value;
+                matched = true;
+                break;
+              }
+            }
           } else if (label !== null && label !== undefined) {
             for (const opt of this.options) {
               if (opt.label === label) {
                 this.value = opt.value;
+                matched = true;
                 break;
               }
             }
           } else if (index !== null && index !== undefined) {
-            this.selectedIndex = index;
+            if (index >= 0 && index < this.options.length) {
+              this.selectedIndex = index;
+              matched = true;
+            }
           }
-          this.dispatchEvent(new Event("change", { bubbles: true }));
+          if (matched) {
+            this.dispatchEvent(new Event("input", { bubbles: true }));
+            this.dispatchEvent(new Event("change", { bubbles: true }));
+          }
+          return matched;
         }`,
         arguments: [
           { value: value ?? null },
           { value: label ?? null },
           { value: index ?? null },
         ],
+        returnByValue: true,
       },
       context.signal,
     );
 
+    const matched = callResult?.result?.value === true;
     const desc =
       value !== undefined
         ? `value="${value}"`
         : label !== undefined
           ? `label="${label}"`
           : `index=${index}`;
+
+    if (!matched) {
+      return {
+        content: `Error: Select option failed: no option matched ${desc} on ${targetDescription}.`,
+        isError: true,
+      };
+    }
+
     return {
       content: `Selected option (${desc}) on element: ${targetDescription}`,
       isError: false,
@@ -1276,11 +1332,13 @@ export async function executeBrowserFillCredential(
       toolName: "browser_fill_credential",
       domain: pageDomain,
       fill: async (value) => {
-        // Focus the target immediately before inserting text so
-        // Input.insertText lands on the right element even if a
-        // prior tool call shifted focus.
-        await focusElement(cdp, backendNodeId, context.signal);
-        await dispatchInsertText(cdp, value, context.signal);
+        // Clear-then-focus-then-insert via the shared helper. We
+        // MUST clear first: Input.insertText writes at the cursor,
+        // so on autofilled / pre-populated fields a bare insert
+        // would append the credential to the existing value,
+        // producing a corrupted password and leaking partial state
+        // back into the page.
+        await clearAndInsertText(cdp, backendNodeId, value, context.signal);
       },
     });
 

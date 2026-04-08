@@ -143,7 +143,7 @@ function resetMockPage() {
  *   - `getCurrentUrl` via Runtime.evaluate (for the broker domain check)
  *   - `querySelectorBackendNodeId` via DOM.getDocument / querySelector / describeNode
  *   - `focusElement` via DOM.focus
- *   - `dispatchInsertText` via Input.insertText
+ *   - `clearAndInsertText` via DOM.resolveNode + Runtime.callFunctionOn + Input.insertText
  *   - `dispatchKeyPress` via Input.dispatchKeyEvent
  */
 function defaultCdpHandler(
@@ -160,6 +160,14 @@ function defaultCdpHandler(
       return { nodeId: 42 };
     case "DOM.describeNode":
       return { node: { backendNodeId: 100 } };
+    case "DOM.resolveNode":
+      // Used by clearAndInsertText to obtain a remote object on the
+      // target element so it can run the value-clearing function.
+      return { object: { objectId: "obj-1" } };
+    case "Runtime.callFunctionOn":
+      // The clear-helper function returns undefined; tests don't
+      // depend on the return value.
+      return { result: { value: undefined } };
     default:
       return {};
   }
@@ -199,9 +207,17 @@ describe("executeBrowserFillCredential", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Filled password for gmail");
 
-    // Backend path: Runtime.evaluate (getCurrentUrl) → DOM.focus → Input.insertText
+    // Backend path now goes through clearAndInsertText:
+    //   Runtime.evaluate (getCurrentUrl)
+    //   → DOM.focus
+    //   → DOM.resolveNode
+    //   → Runtime.callFunctionOn (clear)
+    //   → DOM.focus (re-focus)
+    //   → Input.insertText
     const methods = sendCalls.map((c) => c.method);
     expect(methods).toContain("DOM.focus");
+    expect(methods).toContain("DOM.resolveNode");
+    expect(methods).toContain("Runtime.callFunctionOn");
     expect(methods).toContain("Input.insertText");
     expect(methods).not.toContain("DOM.querySelector");
 
@@ -218,6 +234,44 @@ describe("executeBrowserFillCredential", () => {
     // CdpClient disposed in finally → session.detach called.
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(detachCalls).toBe(1);
+  });
+
+  test("clears pre-populated field BEFORE inserting credential text", async () => {
+    // Regression: previously, fillCredential called focus + insertText
+    // directly, which APPENDED the credential to any existing value
+    // (autofill, prior typing, etc.) — corrupting the password and
+    // leaking partial state. The fix routes through the shared
+    // clearAndInsertText helper.
+    snapshotBackendNodeMaps.set("test-conversation", new Map([["e1", 555]]));
+    await executeBrowserFillCredential(
+      { service: "gmail", field: "password", element_id: "e1" },
+      ctx,
+    );
+
+    // The clear must happen BEFORE the insertText. Specifically, the
+    // Runtime.callFunctionOn that runs the clearing function declaration
+    // must precede Input.insertText.
+    const methodSeq = sendCalls.map((c) => c.method);
+    const clearIdx = methodSeq.indexOf("Runtime.callFunctionOn");
+    const insertIdx = methodSeq.indexOf("Input.insertText");
+    expect(clearIdx).toBeGreaterThanOrEqual(0);
+    expect(insertIdx).toBeGreaterThan(clearIdx);
+
+    // The clearing function must reset both `value` and
+    // `textContent` so input/textarea AND contenteditable targets
+    // are handled.
+    const clearCall = sendCalls[clearIdx]!;
+    const fnDecl = (clearCall.params as { functionDeclaration: string })
+      .functionDeclaration;
+    expect(fnDecl).toContain('this.value = ""');
+    expect(fnDecl).toContain("this.textContent");
+    expect(fnDecl).toContain('new Event("input"');
+
+    // After the clear, the helper re-focuses the element (some sites
+    // blur on programmatic value reset) before inserting text — so we
+    // expect at least 2 DOM.focus calls in total.
+    const focusCount = methodSeq.filter((m) => m === "DOM.focus").length;
+    expect(focusCount).toBeGreaterThanOrEqual(2);
   });
 
   test("fills credential by CSS selector", async () => {
@@ -302,20 +356,20 @@ describe("executeBrowserFillCredential", () => {
     expect(result.isError).toBe(false);
     const methods = sendCalls.map((c) => c.method);
     expect(methods).toContain("Input.insertText");
-    // dispatchKeyPress dispatches keyDown + keyUp via Input.dispatchKeyEvent
+    // dispatchKeyPress for "Enter" dispatches keyDown + char + keyUp
+    // (Enter has text "\r" so it now produces a char event too).
     const keyEvents = sendCalls.filter(
       (c) => c.method === "Input.dispatchKeyEvent",
     );
-    expect(keyEvents).toHaveLength(2);
+    expect(keyEvents).toHaveLength(3);
     expect((keyEvents[0]!.params as { type: string; key: string }).type).toBe(
       "keyDown",
     );
     expect((keyEvents[0]!.params as { type: string; key: string }).key).toBe(
       "Enter",
     );
-    expect((keyEvents[1]!.params as { type: string; key: string }).type).toBe(
-      "keyUp",
-    );
+    expect((keyEvents[1]!.params as { type: string }).type).toBe("char");
+    expect((keyEvents[2]!.params as { type: string }).type).toBe("keyUp");
     // Enter must come AFTER Input.insertText.
     const insertIdx = sendCalls.findIndex(
       (c) => c.method === "Input.insertText",
