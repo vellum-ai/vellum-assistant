@@ -351,10 +351,39 @@ struct HatchingStepView: View {
         // Managed assistants handle daemon connection in OnboardingFlowView;
         // this view only provides the animation and failure UI.
         if state.isManagedHatch { return }
-        if isCustomHardware {
+        if state.cloudProvider == "apple-container" {
+            startAppleContainerHatch()
+        } else if isCustomHardware {
             startPairing()
         } else {
             startRemoteHatch()
+        }
+    }
+
+    private func startAppleContainerHatch() {
+        guard let launcher = AppDelegate.shared?.appleContainersLauncher else {
+            log.error("AppleContainersLauncher not available on AppDelegate")
+            state.hatchFailed = true
+            return
+        }
+
+        let configValues = buildOnboardingConfigValues()
+
+        Task {
+            do {
+                state.hatchLogLines.append("Starting Apple Container hatch...")
+                try await launcher.hatch(
+                    name: state.assistantName.isEmpty ? nil : state.assistantName,
+                    configValues: configValues
+                )
+                log.info("Apple container hatch succeeded")
+                handleHatchSuccess()
+            } catch {
+                log.error("Apple container hatch failed: \(error.localizedDescription, privacy: .public)")
+                state.hatchLogLines.append("Error: \(error.localizedDescription)")
+                failureReason = error.localizedDescription
+                state.hatchFailed = true
+            }
         }
     }
 
