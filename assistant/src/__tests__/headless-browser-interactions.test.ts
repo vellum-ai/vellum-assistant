@@ -17,7 +17,6 @@ let mockPage: {
   title: ReturnType<typeof mock>;
   url: ReturnType<typeof mock>;
   goto: ReturnType<typeof mock>;
-  screenshot: ReturnType<typeof mock>;
   selectOption: ReturnType<typeof mock>;
   hover: ReturnType<typeof mock>;
   close: () => Promise<void>;
@@ -65,10 +64,8 @@ mock.module("../tools/browser/browser-screencast.js", () => ({
 import {
   executeBrowserClick,
   executeBrowserClose,
-  executeBrowserExtract,
   executeBrowserHover,
   executeBrowserPressKey,
-  executeBrowserScreenshot,
   executeBrowserScroll,
   executeBrowserSelectOption,
   executeBrowserSnapshot,
@@ -94,7 +91,6 @@ function resetMockPage() {
       status: () => 200,
       url: () => "https://example.com/",
     })),
-    screenshot: mock(async () => Buffer.from("fake-jpeg-data")),
     selectOption: mock(async () => []),
     hover: mock(async () => {}),
     close: async () => {},
@@ -358,54 +354,10 @@ describe("executeBrowserSnapshot", () => {
   });
 });
 
-// ── browser_screenshot ───────────────────────────────────────────────
-
-describe("executeBrowserScreenshot", () => {
-  beforeEach(() => {
-    resetMockPage();
-  });
-
-  test("captures and returns image content", async () => {
-    const fakeBuffer = Buffer.from("fake-jpeg-screenshot-data");
-    mockPage.screenshot = mock(async () => fakeBuffer);
-    const result = await executeBrowserScreenshot({}, ctx);
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("Screenshot captured");
-    expect(result.content).toContain(`${fakeBuffer.length} bytes`);
-    expect(result.content).toContain("viewport");
-    expect(result.contentBlocks).toBeDefined();
-    expect(result.contentBlocks!.length).toBe(1);
-    const imageBlock = result.contentBlocks![0] as {
-      type: string;
-      source: { type: string; media_type: string; data: string };
-    };
-    expect(imageBlock.type).toBe("image");
-    expect(imageBlock.source.media_type).toBe("image/jpeg");
-    expect(imageBlock.source.data).toBe(fakeBuffer.toString("base64"));
-  });
-
-  test("supports full_page mode", async () => {
-    mockPage.screenshot = mock(async () => Buffer.from("full"));
-    const result = await executeBrowserScreenshot({ full_page: true }, ctx);
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("full page");
-    expect(mockPage.screenshot).toHaveBeenCalledWith({
-      type: "jpeg",
-      quality: 80,
-      fullPage: true,
-    });
-  });
-
-  test("handles screenshot error from page", async () => {
-    mockPage.screenshot = mock(async () => {
-      throw new Error("Render failed");
-    });
-    const result = await executeBrowserScreenshot({}, ctx);
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("Screenshot failed");
-    expect(result.content).toContain("Render failed");
-  });
-});
+// browser_screenshot tests live in headless-browser-read-tools.test.ts
+// (alongside browser_extract / browser_wait_for) because it drives
+// CDP via getCdpClient() rather than the Playwright page mock this
+// file uses for the interaction-oriented tools.
 
 // ── browser_close ────────────────────────────────────────────────────
 
@@ -429,61 +381,9 @@ describe("executeBrowserClose", () => {
   });
 });
 
-// ── browser_extract ──────────────────────────────────────────────────
-
-describe("executeBrowserExtract", () => {
-  beforeEach(() => {
-    resetMockPage();
-  });
-
-  test("extracts text content from page", async () => {
-    mockPage.evaluate = mock(
-      async () => "Hello, this is the page text content.",
-    );
-    const result = await executeBrowserExtract({}, ctx);
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("URL: https://example.com/");
-    expect(result.content).toContain("Title: Test Page");
-    expect(result.content).toContain("Hello, this is the page text content.");
-  });
-
-  test("includes links when include_links=true", async () => {
-    // First call returns text content, second returns link list
-    let callCount = 0;
-    mockPage.evaluate = mock(async () => {
-      callCount++;
-      if (callCount === 1) return "Some text";
-      return [
-        { text: "Example Link", href: "https://example.com/link1" },
-        { text: "Another", href: "https://example.com/link2" },
-      ];
-    });
-    const result = await executeBrowserExtract({ include_links: true }, ctx);
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("Links:");
-    expect(result.content).toContain(
-      "[Example Link](https://example.com/link1)",
-    );
-    expect(result.content).toContain("[Another](https://example.com/link2)");
-  });
-
-  test("handles empty page", async () => {
-    mockPage.evaluate = mock(async () => "");
-    const result = await executeBrowserExtract({}, ctx);
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("(empty page)");
-  });
-
-  test("handles extract error from page", async () => {
-    mockPage.evaluate = mock(async () => {
-      throw new Error("Page not loaded");
-    });
-    const result = await executeBrowserExtract({}, ctx);
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("Extract failed");
-    expect(result.content).toContain("Page not loaded");
-  });
-});
+// browser_extract tests live in headless-browser-read-tools.test.ts
+// because it drives CDP via getCdpClient() rather than the
+// Playwright page mock this file uses.
 
 // ── browser_press_key ────────────────────────────────────────────────
 
@@ -796,26 +696,13 @@ describe("browser execution wrapper contract", () => {
     expect(result.isError).toBe(false);
   });
 
-  test("executeBrowserExtract matches wrapper contract", async () => {
-    mockPage.evaluate = mock(async () => "Page text content");
-    mockPage.title = mock(async () => "Test");
-    mockPage.url = mock(() => "https://example.com");
-    const result = await executeBrowserExtract({}, ctx);
-    expect(result).toHaveProperty("content");
-    expect(result).toHaveProperty("isError");
-    expect(result.isError).toBe(false);
-  });
+  // wrapper contract for executeBrowserExtract and
+  // executeBrowserScreenshot lives in
+  // headless-browser-read-tools.test.ts alongside their
+  // CDP-driven tests.
 
   test("executeBrowserPressKey matches wrapper contract", async () => {
     const result = await executeBrowserPressKey({ key: "Enter" }, ctx);
-    expect(result).toHaveProperty("content");
-    expect(result).toHaveProperty("isError");
-    expect(result.isError).toBe(false);
-  });
-
-  test("executeBrowserScreenshot matches wrapper contract", async () => {
-    mockPage.screenshot = mock(async () => Buffer.from("fake-image"));
-    const result = await executeBrowserScreenshot({}, ctx);
     expect(result).toHaveProperty("content");
     expect(result).toHaveProperty("isError");
     expect(result.isError).toBe(false);
