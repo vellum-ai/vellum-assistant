@@ -219,6 +219,14 @@ extension MessageListView {
 
     func handleContainerWidthChanged() {
         guard containerWidth > 0, abs(containerWidth - scrollState.lastHandledContainerWidth) > 2 else { return }
+        // First real measurement (0 → actual width) is not a resize — just
+        // record the width so subsequent changes are detected as real resizes.
+        // This avoids spurious resize stabilization during initial load when
+        // containerWidth starts at 0 (e.g. from @State + .onGeometryChange).
+        guard scrollState.lastHandledContainerWidth > 0 else {
+            scrollState.lastHandledContainerWidth = containerWidth
+            return
+        }
         scrollState.lastHandledContainerWidth = containerWidth
         // Route through coordinator for policy decision.
         let intents = scrollCoordinator.handle(.containerWidthChanged)
