@@ -106,7 +106,7 @@ export class McpClient {
         const isAuthError =
           err instanceof UnauthorizedError ||
           (err instanceof Error &&
-            /\b(401|403|unauthorized|forbidden|authorizationCode is required|prepareTokenRequest|OAuth)\b/i.test(
+            /\b(401|403|unauthorized|forbidden|authorizationCode is required|prepareTokenRequest)\b/i.test(
               err.message,
             )) ||
           (err != null &&
