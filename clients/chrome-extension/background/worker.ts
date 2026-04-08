@@ -256,7 +256,7 @@ function missingTokenMessage(kind: RelayModeKind): string {
   if (kind === 'cloud') {
     return 'Sign in with Vellum (cloud) before connecting';
   }
-  return 'Pair the Vellum daemon (self-hosted) before connecting';
+  return 'Pair the Vellum assistant (self-hosted) before connecting';
 }
 
 async function connect(): Promise<void> {
