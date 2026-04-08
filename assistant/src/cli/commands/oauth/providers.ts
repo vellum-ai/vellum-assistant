@@ -255,6 +255,14 @@ Examples:
       'JSON body to send with the ping request (e.g. \'{"query":"{ viewer { id } }"}\')',
     )
     .option(
+      "--revoke-url <url>",
+      'OAuth token revocation endpoint URL. Called best-effort during disconnect to invalidate the access token upstream (e.g. "https://oauth2.googleapis.com/revoke"). When omitted, disconnect is local-only — the upstream token is left valid until it naturally expires.',
+    )
+    .option(
+      "--revoke-body-template <json>",
+      'JSON object body template for the revoke request, supporting {access_token} and {client_id} substitution (e.g. \'{"token":"{access_token}","client_id":"{client_id}"}\'). The body is form-encoded and POSTed to --revoke-url.',
+    )
+    .option(
       "--display-name <name>",
       "Human-readable display name for the provider",
     )
@@ -366,7 +374,13 @@ Examples:
       --loopback-port 17400 \\
       --injection-templates '[{"hostPattern":"api.example.com","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]' \\
       --identity-url https://api.example.com/me \\
-      --identity-response-paths email,name`,
+      --identity-response-paths email,name
+  $ assistant oauth providers register \\
+      --provider-key custom-revokable \\
+      --auth-url https://example.com/oauth/authorize \\
+      --token-url https://example.com/oauth/token \\
+      --revoke-url https://example.com/oauth/revoke \\
+      --revoke-body-template '{"token":"{access_token}","client_id":"{client_id}"}'`,
     )
     .action(
       (
@@ -384,6 +398,8 @@ Examples:
           pingMethod?: string;
           pingHeaders?: string;
           pingBody?: string;
+          revokeUrl?: string;
+          revokeBodyTemplate?: string;
           displayName?: string;
           description?: string;
           dashboardUrl?: string;
@@ -421,6 +437,10 @@ Examples:
               ? JSON.parse(opts.pingHeaders)
               : undefined,
             pingBody: opts.pingBody ? JSON.parse(opts.pingBody) : undefined,
+            revokeUrl: opts.revokeUrl,
+            revokeBodyTemplate: opts.revokeBodyTemplate
+              ? JSON.parse(opts.revokeBodyTemplate)
+              : undefined,
             displayLabel: opts.displayName,
             description: opts.description,
             dashboardUrl: opts.dashboardUrl,
@@ -513,6 +533,14 @@ Examples:
       'JSON body to send with the ping request (e.g. \'{"query":"{ viewer { id } }"}\')',
     )
     .option(
+      "--revoke-url <url>",
+      "OAuth token revocation endpoint URL. Called best-effort during disconnect to invalidate the access token upstream. Pass an empty string to clear.",
+    )
+    .option(
+      "--revoke-body-template <json>",
+      "JSON object body template for the revoke request, supporting {access_token} and {client_id} substitution.",
+    )
+    .option(
       "--display-name <name>",
       "Human-readable display name for the provider",
     )
@@ -599,7 +627,10 @@ Examples:
       --identity-url https://api.example.com/me \\
       --identity-response-paths email,name
   $ assistant oauth providers update custom-api \\
-      --injection-templates '[{"hostPattern":"api.example.com","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]'`,
+      --injection-templates '[{"hostPattern":"api.example.com","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]'
+  $ assistant oauth providers update custom-api \\
+      --revoke-url https://api.example.com/oauth/revoke \\
+      --revoke-body-template '{"token":"{access_token}"}'`,
     )
     .action(
       (
@@ -617,6 +648,8 @@ Examples:
           pingMethod?: string;
           pingHeaders?: string;
           pingBody?: string;
+          revokeUrl?: string;
+          revokeBodyTemplate?: string;
           displayName?: string;
           description?: string;
           dashboardUrl?: string;
@@ -691,6 +724,9 @@ Examples:
             params.pingHeaders = JSON.parse(opts.pingHeaders);
           if (opts.pingBody !== undefined)
             params.pingBody = JSON.parse(opts.pingBody);
+          if (opts.revokeUrl !== undefined) params.revokeUrl = opts.revokeUrl;
+          if (opts.revokeBodyTemplate !== undefined)
+            params.revokeBodyTemplate = JSON.parse(opts.revokeBodyTemplate);
           if (opts.displayName !== undefined)
             params.displayLabel = opts.displayName;
           if (opts.description !== undefined)

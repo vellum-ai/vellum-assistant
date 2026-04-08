@@ -186,6 +186,10 @@ mock.module("../oauth/oauth-store.js", () => ({
         : null,
       pingBody:
         params.pingBody !== undefined ? JSON.stringify(params.pingBody) : null,
+      revokeUrl: (params.revokeUrl as string | undefined) ?? null,
+      revokeBodyTemplate: params.revokeBodyTemplate
+        ? JSON.stringify(params.revokeBodyTemplate)
+        : null,
       managedServiceConfigKey: params.managedServiceConfigKey ?? null,
       displayLabel: params.displayLabel ?? null,
       description: params.description ?? null,
@@ -234,6 +238,12 @@ mock.module("../oauth/oauth-store.js", () => ({
     }
     if (params.refreshUrl !== undefined) {
       updated.refreshUrl = params.refreshUrl;
+    }
+    if (params.revokeUrl !== undefined) {
+      updated.revokeUrl = params.revokeUrl;
+    }
+    if (params.revokeBodyTemplate !== undefined) {
+      updated.revokeBodyTemplate = JSON.stringify(params.revokeBodyTemplate);
     }
     if (params.defaultScopes !== undefined) {
       updated.defaultScopes = JSON.stringify(params.defaultScopes);
@@ -1643,5 +1653,217 @@ describe("assistant oauth providers --refresh-url", () => {
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
     expect(parsed.refreshUrl).toBe("https://refresh.example.com/token");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// providers register / update / get — --revoke-url and --revoke-body-template wiring
+// ---------------------------------------------------------------------------
+
+describe("assistant oauth providers --revoke-url and --revoke-body-template", () => {
+  beforeEach(() => {
+    mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
+    mockProviderStore.clear();
+    mockGetProvider = () => undefined;
+    mockGetConfig = () => ({ services: {} });
+  });
+
+  afterEach(() => {
+    mockProviderStore.clear();
+    mockGetProvider = () => undefined;
+  });
+
+  test("providers register --revoke-url and --revoke-body-template stores both fields", async () => {
+    const { exitCode } = await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-revoke-roundtrip",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--revoke-url",
+      "https://revoke.example.com",
+      "--revoke-body-template",
+      '{"token":"{access_token}"}',
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const stored = mockProviderStore.get("custom-revoke-roundtrip");
+    expect(stored).toBeDefined();
+    expect(stored?.revokeUrl).toBe("https://revoke.example.com");
+    // revokeBodyTemplate is JSON-stringified at the storage layer.
+    expect(JSON.parse(stored?.revokeBodyTemplate as string)).toEqual({
+      token: "{access_token}",
+    });
+  });
+
+  test("providers register without --revoke-url or --revoke-body-template stores both as null", async () => {
+    const { exitCode } = await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-no-revoke",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const stored = mockProviderStore.get("custom-no-revoke");
+    expect(stored).toBeDefined();
+    expect(stored?.revokeUrl).toBeNull();
+    expect(stored?.revokeBodyTemplate).toBeNull();
+  });
+
+  test("providers register with malformed --revoke-body-template fails with a JSON parse error", async () => {
+    const { exitCode, stdout } = await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-bad-revoke",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--revoke-body-template",
+      "not-json{",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    // The error message comes from JSON.parse — match permissively.
+    expect(parsed.error).toMatch(/JSON|Unexpected|parse/i);
+    // Provider should not have been written.
+    expect(mockProviderStore.get("custom-bad-revoke")).toBeUndefined();
+  });
+
+  test("providers update --revoke-url updates only the URL", async () => {
+    // Seed an existing custom provider.
+    await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-update-revoke-url",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--json",
+    ]);
+    expect(
+      mockProviderStore.get("custom-update-revoke-url")?.revokeUrl,
+    ).toBeNull();
+
+    const { exitCode } = await runCli([
+      "providers",
+      "update",
+      "custom-update-revoke-url",
+      "--revoke-url",
+      "https://new-revoke.example.com",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    expect(mockProviderStore.get("custom-update-revoke-url")?.revokeUrl).toBe(
+      "https://new-revoke.example.com",
+    );
+    // revokeBodyTemplate should still be null (unchanged).
+    expect(
+      mockProviderStore.get("custom-update-revoke-url")?.revokeBodyTemplate,
+    ).toBeNull();
+  });
+
+  test("providers update --revoke-body-template updates only the template (JSON round-trip)", async () => {
+    await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-update-revoke-body",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--json",
+    ]);
+
+    const { exitCode } = await runCli([
+      "providers",
+      "update",
+      "custom-update-revoke-body",
+      "--revoke-body-template",
+      '{"token":"{access_token}","client_id":"{client_id}"}',
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const stored = mockProviderStore.get("custom-update-revoke-body");
+    expect(stored).toBeDefined();
+    expect(JSON.parse(stored?.revokeBodyTemplate as string)).toEqual({
+      token: "{access_token}",
+      client_id: "{client_id}",
+    });
+    // revokeUrl should still be null (unchanged).
+    expect(stored?.revokeUrl).toBeNull();
+  });
+
+  test("providers get google --json includes both fields populated from PR 1's seed data", async () => {
+    // Simulate the seeded "google" provider row by overriding mockGetProvider
+    // to return a row matching what PR 1's seed inserts.
+    const now = Date.now();
+    mockGetProvider = (provider: string) => {
+      if (provider !== "google") return undefined;
+      return {
+        provider: "google",
+        authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+        tokenExchangeUrl: "https://oauth2.googleapis.com/token",
+        refreshUrl: null,
+        tokenEndpointAuthMethod: null,
+        userinfoUrl: null,
+        baseUrl: null,
+        defaultScopes: "[]",
+        scopePolicy: "{}",
+        scopeSeparator: " ",
+        authorizeParams: null,
+        pingUrl: null,
+        pingMethod: null,
+        pingHeaders: null,
+        pingBody: null,
+        revokeUrl: "https://oauth2.googleapis.com/revoke",
+        revokeBodyTemplate: JSON.stringify({ token: "{access_token}" }),
+        managedServiceConfigKey: null,
+        displayLabel: "Google",
+        description: null,
+        dashboardUrl: null,
+        clientIdPlaceholder: null,
+        requiresClientSecret: 1,
+        loopbackPort: null,
+        injectionTemplates: null,
+        appType: null,
+        setupNotes: null,
+        identityUrl: null,
+        identityMethod: null,
+        identityHeaders: null,
+        identityBody: null,
+        identityResponsePaths: null,
+        identityFormat: null,
+        identityOkField: null,
+        featureFlag: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+    };
+
+    const { exitCode, stdout } = await runCli([
+      "providers",
+      "get",
+      "google",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.revokeUrl).toBe("https://oauth2.googleapis.com/revoke");
+    expect(parsed.revokeBodyTemplate).toEqual({ token: "{access_token}" });
   });
 });

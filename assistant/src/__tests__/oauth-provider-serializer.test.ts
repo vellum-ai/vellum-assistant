@@ -197,6 +197,46 @@ describe("serializeProvider", () => {
     const result = serializeProvider(row)!;
     expect(result.refreshUrl).toBeNull();
   });
+
+  test("emits revokeUrl from the row and parses revokeBodyTemplate JSON", () => {
+    const row = makeRow({
+      revokeUrl: "https://revoke.example.com",
+      revokeBodyTemplate: JSON.stringify({ token: "{access_token}" }),
+    });
+    const result = serializeProvider(row)!;
+    expect(result.revokeUrl).toBe("https://revoke.example.com");
+    expect(result.revokeBodyTemplate).toEqual({ token: "{access_token}" });
+    // Make sure it's a parsed object, not a string.
+    expect(typeof result.revokeBodyTemplate).toBe("object");
+    expect(result.revokeBodyTemplate).not.toBe(
+      JSON.stringify({ token: "{access_token}" }),
+    );
+  });
+
+  test("emits revokeUrl and revokeBodyTemplate as null when the row values are null", () => {
+    const row = makeRow({
+      revokeUrl: null,
+      revokeBodyTemplate: null,
+    });
+    const result = serializeProvider(row)!;
+    expect(result.revokeUrl).toBeNull();
+    expect(result.revokeBodyTemplate).toBeNull();
+  });
+
+  test("preserves all keys in a complex revokeBodyTemplate", () => {
+    const template = {
+      token: "{access_token}",
+      client_id: "{client_id}",
+      token_type_hint: "access_token",
+      extra_field: "static-value",
+    };
+    const row = makeRow({
+      revokeUrl: "https://revoke.example.com/oauth/revoke",
+      revokeBodyTemplate: JSON.stringify(template),
+    });
+    const result = serializeProvider(row)!;
+    expect(result.revokeBodyTemplate).toEqual(template);
+  });
 });
 
 describe("serializeProviderSummary", () => {
@@ -273,5 +313,17 @@ describe("serializeProviderSummary", () => {
     const result = serializeProviderSummary(row)!;
     expect(result).not.toHaveProperty("refresh_url");
     expect(result).not.toHaveProperty("refreshUrl");
+  });
+
+  test("does NOT include revoke_url or revoke_body_template (internal protocol details)", () => {
+    const row = makeRow({
+      revokeUrl: "https://revoke.example.com",
+      revokeBodyTemplate: JSON.stringify({ token: "{access_token}" }),
+    });
+    const result = serializeProviderSummary(row)!;
+    expect(result).not.toHaveProperty("revoke_url");
+    expect(result).not.toHaveProperty("revokeUrl");
+    expect(result).not.toHaveProperty("revoke_body_template");
+    expect(result).not.toHaveProperty("revokeBodyTemplate");
   });
 });
