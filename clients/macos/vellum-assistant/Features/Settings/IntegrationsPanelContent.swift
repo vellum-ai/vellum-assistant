@@ -288,11 +288,7 @@ private struct IntegrationItemRow: View {
     var body: some View {
         VCard {
             HStack(alignment: .center, spacing: VSpacing.lg) {
-                IntegrationIcon.image(
-                    for: provider.provider_key,
-                    size: 32,
-                    displayName: provider.display_name
-                )
+                IntegrationIcon.image(for: provider, size: 32)
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(provider.display_name ?? provider.provider_key)
