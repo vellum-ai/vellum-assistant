@@ -63,6 +63,18 @@ const ALLOWED_EXTENSION_IDS: ReadonlySet<string> = new Set<string>([
 const DEFAULT_ASSISTANT_PORT = 7821;
 const RUNTIME_PORT_FILE = join(homedir(), ".vellum", "runtime-port");
 
+/**
+ * Marker header the pair endpoint requires on every request. The assistant
+ * rejects pair attempts without this header to rule out drive-by browser
+ * fetches (browsers cannot set custom headers on cross-origin requests
+ * without a CORS preflight, which the pair endpoint does not serve). Kept
+ * in sync with `NATIVE_HOST_MARKER_HEADER` /
+ * `NATIVE_HOST_MARKER_VALUE` in
+ * `assistant/src/runtime/routes/browser-extension-pair-routes.ts`.
+ */
+export const NATIVE_HOST_MARKER_HEADER = "x-vellum-native-host";
+export const NATIVE_HOST_MARKER_VALUE = "1";
+
 interface TokenResponse {
   token: string;
   expiresAt: string;
@@ -204,9 +216,7 @@ function writeFrameAndExitAsync(
     });
     const safety = setTimeout(() => {
       reject(
-        new Error(
-          "writeFrameAndExitAsync timed out waiting for stdout flush",
-        ),
+        new Error("writeFrameAndExitAsync timed out waiting for stdout flush"),
       );
     }, 5000);
     safety.unref?.();
@@ -250,7 +260,14 @@ async function requestToken(
   try {
     response = await fetch(url, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        // Required by the pair endpoint (PR4 of the browser-use
+        // remediation plan). The assistant rejects requests that
+        // omit or misspell this header so a drive-by browser fetch
+        // can't pair silently.
+        [NATIVE_HOST_MARKER_HEADER]: NATIVE_HOST_MARKER_VALUE,
+      },
       body: JSON.stringify({ extensionOrigin }),
     });
   } catch (err) {

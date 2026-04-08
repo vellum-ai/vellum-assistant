@@ -3,6 +3,10 @@
  *
  * Covers:
  *   - Method/host/origin enforcement (405, 403, 400, 401)
+ *   - Native-host marker header requirement (403 when missing)
+ *   - Browser-origin rejection (non-allowlisted Origin header -> 403)
+ *   - Strict per-peer rate limiting (10/min, then 429)
+ *   - Audit logging field shape for denied attempts
  *   - Successful mint on allowed origin (200) for both the preferred
  *     `extensionOrigin` body field and the legacy `origin` alias
  *   - `expiresAt` response field is an ISO 8601 string matching what the
@@ -23,7 +27,10 @@ import {
 } from "../capability-tokens.js";
 import {
   handleBrowserExtensionPair,
+  NATIVE_HOST_MARKER_HEADER,
+  NATIVE_HOST_MARKER_VALUE,
   parseHostHeader,
+  resetPairRateLimiterForTests,
 } from "../routes/browser-extension-pair-routes.js";
 
 // ---------------------------------------------------------------------------
@@ -46,6 +53,14 @@ const loopbackServer = mockServer("127.0.0.1");
 const lanPeerServer = mockServer("192.168.1.10");
 const publicPeerServer = mockServer("203.0.113.50");
 
+const ALLOWED_ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/";
+
+/**
+ * Build a pair request. By default includes the native-host marker
+ * header so existing tests exercising other invariants continue to
+ * pass. Tests that want to exercise the marker-header gate pass
+ * `nativeHost: false` (or an explicit override value).
+ */
 function buildRequest(
   options: {
     method?: string;
@@ -54,6 +69,12 @@ function buildRequest(
     origin?: string;
     forwardedFor?: string;
     rawBody?: string;
+    /**
+     * When `false`, omits the native-host marker header entirely.
+     * When a string, sets the header to that value (for testing
+     * unexpected values). Defaults to including the expected value.
+     */
+    nativeHost?: boolean | string;
   } = {},
 ): Request {
   const headers = new Headers();
@@ -63,6 +84,15 @@ function buildRequest(
   if (options.forwardedFor) {
     headers.set("x-forwarded-for", options.forwardedFor);
   }
+  if (options.origin !== undefined) {
+    headers.set("origin", options.origin);
+  }
+  if (options.nativeHost === undefined || options.nativeHost === true) {
+    headers.set(NATIVE_HOST_MARKER_HEADER, NATIVE_HOST_MARKER_VALUE);
+  } else if (typeof options.nativeHost === "string") {
+    headers.set(NATIVE_HOST_MARKER_HEADER, options.nativeHost);
+  }
+  // else: nativeHost === false — omit the header entirely.
   let bodyStr: string | undefined;
   if (options.rawBody !== undefined) {
     bodyStr = options.rawBody;
@@ -86,13 +116,16 @@ describe("handleBrowserExtensionPair", () => {
   beforeEach(() => {
     resetCapabilityTokenSecretForTests();
     setCapabilityTokenSecretForTests(randomBytes(32));
+    // Reset the per-peer rate limiter so one test's burst of requests
+    // cannot leak budget into the next test.
+    resetPairRateLimiterForTests();
   });
 
   test("rejects non-POST methods with 405", async () => {
     const req = buildRequest({
       method: "GET",
       body: {
-        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+        extensionOrigin: ALLOWED_ORIGIN,
       },
     });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
@@ -102,7 +135,7 @@ describe("handleBrowserExtensionPair", () => {
   test("rejects non-loopback peer with 403", async () => {
     const req = buildRequest({
       body: {
-        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+        extensionOrigin: ALLOWED_ORIGIN,
       },
     });
     const res = await handleBrowserExtensionPair(req, publicPeerServer);
@@ -112,7 +145,7 @@ describe("handleBrowserExtensionPair", () => {
   test("rejects LAN peer (not loopback) with 403", async () => {
     const req = buildRequest({
       body: {
-        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+        extensionOrigin: ALLOWED_ORIGIN,
       },
     });
     const res = await handleBrowserExtensionPair(req, lanPeerServer);
@@ -122,7 +155,7 @@ describe("handleBrowserExtensionPair", () => {
   test("rejects request with non-loopback Host header", async () => {
     const req = buildRequest({
       body: {
-        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+        extensionOrigin: ALLOWED_ORIGIN,
       },
       host: "vellum.example.com",
     });
@@ -133,13 +166,193 @@ describe("handleBrowserExtensionPair", () => {
   test("rejects request with x-forwarded-for header", async () => {
     const req = buildRequest({
       body: {
-        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+        extensionOrigin: ALLOWED_ORIGIN,
       },
       forwardedFor: "1.2.3.4",
     });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
     expect(res.status).toBe(403);
   });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Native-host marker header enforcement
+  // ─────────────────────────────────────────────────────────────────────
+
+  test("rejects request missing native-host marker header with 403", async () => {
+    const req = buildRequest({
+      body: { extensionOrigin: ALLOWED_ORIGIN },
+      nativeHost: false,
+    });
+    const res = await handleBrowserExtensionPair(req, loopbackServer);
+    expect(res.status).toBe(403);
+    const payload = (await res.json()) as {
+      error?: { code?: string; message?: string };
+    };
+    expect(payload.error?.code).toBe("FORBIDDEN");
+  });
+
+  test("rejects request with wrong native-host marker header value", async () => {
+    const req = buildRequest({
+      body: { extensionOrigin: ALLOWED_ORIGIN },
+      nativeHost: "bogus",
+    });
+    const res = await handleBrowserExtensionPair(req, loopbackServer);
+    expect(res.status).toBe(403);
+  });
+
+  test("rejects request with empty native-host marker header value", async () => {
+    const req = buildRequest({
+      body: { extensionOrigin: ALLOWED_ORIGIN },
+      nativeHost: "",
+    });
+    const res = await handleBrowserExtensionPair(req, loopbackServer);
+    expect(res.status).toBe(403);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Browser-origin rejection
+  // ─────────────────────────────────────────────────────────────────────
+
+  test("rejects request with a non-allowlisted Origin header", async () => {
+    const req = buildRequest({
+      body: { extensionOrigin: ALLOWED_ORIGIN },
+      origin: "https://evil.example.com",
+    });
+    const res = await handleBrowserExtensionPair(req, loopbackServer);
+    expect(res.status).toBe(403);
+    const payload = (await res.json()) as {
+      error?: { code?: string };
+    };
+    expect(payload.error?.code).toBe("FORBIDDEN");
+  });
+
+  test("rejects request with http://localhost Origin header (browser-originated)", async () => {
+    // A web page served from http://localhost:8080 that POSTs to the
+    // pair endpoint would attach this Origin header. The endpoint must
+    // refuse it even though the host itself is loopback — a local web
+    // page in another browser tab is NOT the native messaging helper.
+    const req = buildRequest({
+      body: { extensionOrigin: ALLOWED_ORIGIN },
+      origin: "http://localhost:8080",
+    });
+    const res = await handleBrowserExtensionPair(req, loopbackServer);
+    expect(res.status).toBe(403);
+  });
+
+  test("accepts request with no Origin header (native-host default)", async () => {
+    // Node fetch does not set an Origin header unless explicitly told
+    // to — the native messaging helper's `fetch(...)` call therefore
+    // ships without one. This is the common-case allowed path.
+    const req = buildRequest({
+      body: { extensionOrigin: ALLOWED_ORIGIN },
+      // origin intentionally omitted
+    });
+    const res = await handleBrowserExtensionPair(req, loopbackServer);
+    expect(res.status).toBe(200);
+  });
+
+  test("accepts request when Origin header equals an allowlisted extension origin", async () => {
+    // The allowlist stores entries with a trailing slash. Browsers'
+    // Origin headers never carry a path segment, so both the exact
+    // match and the bare form should succeed.
+    const reqExact = buildRequest({
+      body: { extensionOrigin: ALLOWED_ORIGIN },
+      origin: ALLOWED_ORIGIN,
+    });
+    expect(
+      (await handleBrowserExtensionPair(reqExact, loopbackServer)).status,
+    ).toBe(200);
+
+    const reqBare = buildRequest({
+      body: { extensionOrigin: ALLOWED_ORIGIN },
+      origin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    });
+    expect(
+      (await handleBrowserExtensionPair(reqBare, loopbackServer)).status,
+    ).toBe(200);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Rate limiting
+  // ─────────────────────────────────────────────────────────────────────
+
+  test("rate limits successive pair requests (429 after burst)", async () => {
+    // Fire a tight burst of requests and assert that once the per-peer
+    // budget is exhausted, the endpoint returns 429 with the standard
+    // error envelope and a Retry-After hint. The rate limiter budget
+    // is 10/min per peer IP; we send 12 to ensure we hit it.
+    const results: number[] = [];
+    for (let i = 0; i < 12; i++) {
+      const req = buildRequest({
+        body: { extensionOrigin: ALLOWED_ORIGIN },
+      });
+      const res = await handleBrowserExtensionPair(req, loopbackServer);
+      results.push(res.status);
+      // Drain the body so any async internal state settles (and so
+      // we don't leak unconsumed Response bodies).
+      await res.text();
+    }
+
+    // The first 10 requests should succeed (200). The 11th and 12th
+    // should be rate limited (429).
+    const successes = results.filter((s) => s === 200).length;
+    const rateLimited = results.filter((s) => s === 429).length;
+    expect(successes).toBe(10);
+    expect(rateLimited).toBe(2);
+  });
+
+  test("rate-limited response carries Retry-After and RATE_LIMITED error code", async () => {
+    // Exhaust the budget.
+    for (let i = 0; i < 10; i++) {
+      const req = buildRequest({
+        body: { extensionOrigin: ALLOWED_ORIGIN },
+      });
+      const res = await handleBrowserExtensionPair(req, loopbackServer);
+      await res.text();
+    }
+    // The next request should be rate limited.
+    const req = buildRequest({
+      body: { extensionOrigin: ALLOWED_ORIGIN },
+    });
+    const res = await handleBrowserExtensionPair(req, loopbackServer);
+    expect(res.status).toBe(429);
+    const retryAfter = res.headers.get("Retry-After");
+    expect(retryAfter).not.toBeNull();
+    // Retry-After should be a positive integer of seconds.
+    expect(Number(retryAfter)).toBeGreaterThan(0);
+    expect(res.headers.get("X-RateLimit-Limit")).toBe("10");
+    expect(res.headers.get("X-RateLimit-Remaining")).toBe("0");
+    const payload = (await res.json()) as {
+      error?: { code?: string };
+    };
+    expect(payload.error?.code).toBe("RATE_LIMITED");
+  });
+
+  test("rate limit applies BEFORE native-host marker check (can't probe without spending budget)", async () => {
+    // Attackers shouldn't be able to distinguish "unauthenticated
+    // endpoint" from "endpoint doesn't exist" without consuming a
+    // rate-limit slot. Send 12 unauthenticated probes; after the 10th
+    // request is rate limited, they should get 429 — not 403 — which
+    // proves the limiter runs first.
+    const results: number[] = [];
+    for (let i = 0; i < 12; i++) {
+      const req = buildRequest({
+        body: { extensionOrigin: ALLOWED_ORIGIN },
+        nativeHost: false, // forces a 403 if rate-limiter doesn't run first
+      });
+      const res = await handleBrowserExtensionPair(req, loopbackServer);
+      results.push(res.status);
+      await res.text();
+    }
+    // The first 10 should be 403 (missing marker). Beyond that the
+    // rate limiter kicks in and returns 429.
+    expect(results.slice(0, 10).every((s) => s === 403)).toBe(true);
+    expect(results.slice(10).every((s) => s === 429)).toBe(true);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Body validation
+  // ─────────────────────────────────────────────────────────────────────
 
   test("returns 400 when body is missing", async () => {
     const req = buildRequest({});
@@ -182,7 +395,7 @@ describe("handleBrowserExtensionPair", () => {
   test("returns 200 with a valid token for the preferred extensionOrigin field", async () => {
     const req = buildRequest({
       body: {
-        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+        extensionOrigin: ALLOWED_ORIGIN,
       },
     });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
@@ -222,7 +435,7 @@ describe("handleBrowserExtensionPair", () => {
 
   test("returns 200 using the legacy `origin` field for backwards compat", async () => {
     const req = buildRequest({
-      body: { origin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/" },
+      body: { origin: ALLOWED_ORIGIN },
     });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
     expect(res.status).toBe(200);
@@ -239,7 +452,7 @@ describe("handleBrowserExtensionPair", () => {
     // request must succeed because we honor `extensionOrigin` first.
     const req = buildRequest({
       body: {
-        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+        extensionOrigin: ALLOWED_ORIGIN,
         origin: "chrome-extension://not-allowed/",
       },
     });
@@ -259,10 +472,12 @@ describe("handleBrowserExtensionPair", () => {
       "::1",
     ];
     for (const host of variants) {
+      // Reset the limiter between iterations so the last few variants
+      // don't fall over the 10/min budget.
+      resetPairRateLimiterForTests();
       const req = buildRequest({
         body: {
-          extensionOrigin:
-            "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+          extensionOrigin: ALLOWED_ORIGIN,
         },
         host,
       });
@@ -274,7 +489,7 @@ describe("handleBrowserExtensionPair", () => {
   test("rejects malformed bracketed Host header", async () => {
     const req = buildRequest({
       body: {
-        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+        extensionOrigin: ALLOWED_ORIGIN,
       },
       host: "[::1", // missing closing bracket
     });
@@ -289,7 +504,7 @@ describe("handleBrowserExtensionPair", () => {
     // host while still passing the loopback Host header check.
     const req = buildRequest({
       body: {
-        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+        extensionOrigin: ALLOWED_ORIGIN,
       },
       host: "[::1]attacker.com",
     });
@@ -300,7 +515,7 @@ describe("handleBrowserExtensionPair", () => {
   test("rejects non-loopback IPv6 Host header", async () => {
     const req = buildRequest({
       body: {
-        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+        extensionOrigin: ALLOWED_ORIGIN,
       },
       host: "[2001:db8::1]:8765",
     });
@@ -328,7 +543,7 @@ describe("handleBrowserExtensionPair", () => {
   test("tampered tokens fail verification", async () => {
     const req = buildRequest({
       body: {
-        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+        extensionOrigin: ALLOWED_ORIGIN,
       },
     });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
@@ -352,7 +567,7 @@ describe("handleBrowserExtensionPair", () => {
     // Mint a token, then swap the secret — verification should fail.
     const req = buildRequest({
       body: {
-        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+        extensionOrigin: ALLOWED_ORIGIN,
       },
     });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
@@ -367,7 +582,7 @@ describe("handleBrowserExtensionPair", () => {
   test("rejects tampered payload even with matching signature length", async () => {
     const req = buildRequest({
       body: {
-        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+        extensionOrigin: ALLOWED_ORIGIN,
       },
     });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
