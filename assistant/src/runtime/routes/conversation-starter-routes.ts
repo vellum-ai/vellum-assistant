@@ -4,13 +4,17 @@
  * GET /v1/conversation-starters — list conversation starters (chips)
  */
 
-import { and, desc, eq, inArray, like } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "../../memory/db.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import { rawGet } from "../../memory/raw-query.js";
-import { conversationStarters, memoryJobs } from "../../memory/schema.js";
+import {
+  conversationStarters,
+  memoryCheckpoints,
+  memoryJobs,
+} from "../../memory/schema.js";
 import type { RouteDefinition } from "../http-router.js";
 
 // ---------------------------------------------------------------------------
@@ -24,6 +28,39 @@ interface StarterItem {
   prompt: string;
   category: string | null;
   batch: number;
+}
+
+const CK_ITEM_COUNT = "conversation_starters:item_count_at_last_gen";
+const CK_LAST_GEN_AT = "conversation_starters:last_gen_at";
+export const CONVERSATION_STARTERS_STALE_TTL_MS = 24 * 60 * 60 * 1000;
+
+function checkpointKey(base: string, scopeId: string): string {
+  return `${base}:${scopeId}`;
+}
+
+function parseCheckpointInt(value: string | undefined): number | null {
+  if (!value) return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function hasActiveConversationStarterJob(
+  db: ReturnType<typeof getDb>,
+  scopeId: string,
+): boolean {
+  return (
+    db
+      .select({ id: memoryJobs.id })
+      .from(memoryJobs)
+      .where(
+        and(
+          eq(memoryJobs.type, "generate_conversation_starters"),
+          inArray(memoryJobs.status, ["pending", "running"]),
+          sql`json_extract(${memoryJobs.payload}, '$.scopeId') = ${scopeId}`,
+        ),
+      )
+      .get() != null
+  );
 }
 
 /**
@@ -150,14 +187,47 @@ function handleListConversationStarters(url: URL): Response {
 
   const total = allItems.length;
 
-  // If starters exist, reorder for category diversity then paginate.
+  // If starters exist, return them immediately. If the batch is stale or
+  // the generation checkpoint is ahead of the current active memory count,
+  // kick off a background refresh but keep the existing chips visible.
   if (total > 0) {
+    const totalActive =
+      rawGet<{ c: number }>(
+        `SELECT COUNT(*) AS c FROM memory_graph_nodes WHERE fidelity != 'gone' AND scope_id = ?`,
+        scopeId,
+      )?.c ?? 0;
+    const lastCount = parseCheckpointInt(
+      db
+        .select({ value: memoryCheckpoints.value })
+        .from(memoryCheckpoints)
+        .where(eq(memoryCheckpoints.key, checkpointKey(CK_ITEM_COUNT, scopeId)))
+        .get()?.value,
+    );
+    const lastGenAt = parseCheckpointInt(
+      db
+        .select({ value: memoryCheckpoints.value })
+        .from(memoryCheckpoints)
+        .where(eq(memoryCheckpoints.key, checkpointKey(CK_LAST_GEN_AT, scopeId)))
+        .get()?.value,
+    );
+    const staleByAge =
+      lastGenAt == null ||
+      Date.now() - lastGenAt >= CONVERSATION_STARTERS_STALE_TTL_MS;
+    const checkpointAhead = lastCount != null && totalActive < lastCount;
+    let hasActiveJob = hasActiveConversationStarterJob(db, scopeId);
+    const shouldRefresh = staleByAge || checkpointAhead;
+
+    if (shouldRefresh && !hasActiveJob) {
+      enqueueMemoryJob("generate_conversation_starters", { scopeId });
+      hasActiveJob = true;
+    }
+
     const ordered = orderStrongestFirst(allItems);
     const page = ordered.slice(offsetParam, offsetParam + limitParam);
     return Response.json({
       starters: page,
       total,
-      status: "ready",
+      status: hasActiveJob ? "refreshing" : "ready",
     });
   }
 
@@ -172,17 +242,7 @@ function handleListConversationStarters(url: URL): Response {
   }
 
   // Memory items exist but no starters yet — ensure a generation job is queued.
-  const existing = db
-    .select({ id: memoryJobs.id })
-    .from(memoryJobs)
-    .where(
-      and(
-        eq(memoryJobs.type, "generate_conversation_starters"),
-        inArray(memoryJobs.status, ["pending", "running"]),
-        like(memoryJobs.payload, `%"scopeId":"${scopeId}"%`),
-      ),
-    )
-    .get();
+  const existing = hasActiveConversationStarterJob(db, scopeId);
 
   if (!existing) {
     enqueueMemoryJob("generate_conversation_starters", { scopeId });
@@ -227,7 +287,9 @@ export function conversationStarterRouteDefinitions(): RouteDefinition[] {
           .array(z.unknown())
           .describe("Ordered list of starter chips"),
         total: z.number().int().describe("Total number of available starters"),
-        status: z.string().describe("One of: ready, empty, generating"),
+        status: z
+          .enum(["ready", "refreshing", "empty", "generating"])
+          .describe("One of: ready, refreshing, empty, generating"),
       }),
     },
   ];

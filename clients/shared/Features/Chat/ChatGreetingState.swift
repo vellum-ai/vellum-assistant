@@ -48,15 +48,18 @@ public final class ChatGreetingState {
 
     @ObservationIgnored private let btwClient: any BtwClientProtocol
     @ObservationIgnored private let conversationStarterClient: any ConversationStarterClientProtocol
+    @ObservationIgnored private let conversationStarterPollIntervalNanoseconds: UInt64
 
     // MARK: - Init
 
     init(
         btwClient: any BtwClientProtocol = BtwClient(),
-        conversationStarterClient: any ConversationStarterClientProtocol = ConversationStarterClient()
+        conversationStarterClient: any ConversationStarterClientProtocol = ConversationStarterClient(),
+        conversationStarterPollIntervalNanoseconds: UInt64 = 3_000_000_000
     ) {
         self.btwClient = btwClient
         self.conversationStarterClient = conversationStarterClient
+        self.conversationStarterPollIntervalNanoseconds = conversationStarterPollIntervalNanoseconds
     }
 
     // MARK: - Empty-State Greeting Generation
@@ -113,34 +116,28 @@ public final class ChatGreetingState {
             let response = await self.conversationStarterClient.fetchConversationStarters(limit: 4)
             guard !Task.isCancelled else { return }
 
-            if let response, !response.starters.isEmpty {
-                self.conversationStarters = response.starters
-                self.conversationStartersLoading = false
-                return
-            }
-
-            if response?.status == "generating" {
-                self.conversationStartersLoading = true
-                // Poll every 3 seconds until ready
+            if self.applyConversationStarterResponse(response) {
                 while !Task.isCancelled {
-                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    try? await Task.sleep(nanoseconds: self.conversationStarterPollIntervalNanoseconds)
                     guard !Task.isCancelled else { return }
                     let poll = await self.conversationStarterClient.fetchConversationStarters(limit: 4)
                     guard !Task.isCancelled else { return }
-                    if let poll, !poll.starters.isEmpty {
-                        self.conversationStarters = poll.starters
-                        self.conversationStartersLoading = false
-                        return
-                    }
-                    if poll?.status != "generating" {
-                        self.conversationStartersLoading = false
+                    if !self.applyConversationStarterResponse(poll) {
                         return
                     }
                 }
-            } else {
-                self.conversationStartersLoading = false
             }
         }
+    }
+
+    private func applyConversationStarterResponse(_ response: ConversationStartersResponse?) -> Bool {
+        if let response, !response.starters.isEmpty {
+            conversationStarters = response.starters
+        }
+
+        let shouldPoll = response?.status == "generating" || response?.status == "refreshing"
+        conversationStartersLoading = shouldPoll
+        return shouldPoll
     }
 
     /// Cancel all in-flight tasks. Called from ChatViewModel's nonisolated deinit.

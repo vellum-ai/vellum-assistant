@@ -36,7 +36,7 @@ public struct ConversationStarter: Identifiable, Codable {
 struct ConversationStartersResponse: Codable {
     let starters: [ConversationStarter]
     let total: Int
-    let status: String  // "ready", "generating", "empty"
+    let status: String  // "ready", "refreshing", "generating", "empty"
 }
 
 @MainActor
