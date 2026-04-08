@@ -242,12 +242,10 @@ struct SidebarSectionView: View {
         // Disclosure header — layout matches SidebarConversationItem's skeleton
         // so the chevron aligns with the pin icon and the badge aligns with the ellipsis.
         Button {
-            withAnimation(VAnimation.fast) {
-                if isSubGroupExpanded {
-                    expandedScheduleGroups?.wrappedValue.remove(subGroup.key)
-                } else {
-                    expandedScheduleGroups?.wrappedValue.insert(subGroup.key)
-                }
+            if isSubGroupExpanded {
+                expandedScheduleGroups?.wrappedValue.remove(subGroup.key)
+            } else {
+                expandedScheduleGroups?.wrappedValue.insert(subGroup.key)
             }
         } label: {
             HStack(spacing: VSpacing.xs) {

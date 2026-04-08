@@ -111,15 +111,7 @@ struct SidebarSectionHeader: View {
             }
         }
         .onTapGesture {
-            // Skip the expand/collapse animation when the group has many conversations.
-            // withAnimation forces SwiftUI to animate the opacity transition for every
-            // conversation row simultaneously, blocking the main thread for large groups.
-            // The chevron still animates via its own .animation() modifier.
-            if conversationCount > 15 {
-                onToggleExpand()
-            } else {
-                withAnimation(VAnimation.fast) { onToggleExpand() }
-            }
+            onToggleExpand()
         }
         .pointerCursor(onHover: { hovering in
             isHeaderHovered = hovering
