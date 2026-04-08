@@ -9,24 +9,6 @@ import AppKit
 
 private let composerLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "Composer")
 
-@MainActor
-private final class ComposerMenuRefreshScheduler {
-    private var generation = 0
-
-    func schedule(_ action: @escaping @MainActor () -> Void) {
-        generation += 1
-        let currentGeneration = generation
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.generation == currentGeneration else { return }
-            action()
-        }
-    }
-
-    func cancel() {
-        generation += 1
-    }
-}
-
 struct ComposerView: View {
     private let composerMaxHeight: CGFloat = 300
     private let composerActionButtonSize: CGFloat = 32
@@ -93,18 +75,8 @@ struct ComposerView: View {
     @State private var textViewIsFocused: Bool = false
     @State var cursorPosition: Int = 0
 
-    @State var showSlashMenu = false
-    @State var slashFilter = ""
-    @State var slashSelectedIndex = 0
-    @State var suppressSlashReopen = false
-    @State var suppressEmojiReopen = false
-    @State var showEmojiMenu = false
-    @State var emojiFilter = ""
-    @State var emojiSelectedIndex = 0
     @State var textReplacer = TextReplacementProxy()
-    @State private var menuRefreshScheduler = ComposerMenuRefreshScheduler()
-    /// Snapshot of inputText captured when dictation starts, used to restore on cancel.
-    @State private var preDictationText: String = ""
+    @State var composerController = ComposerController()
     /// Live amplitude from VoiceInputManager, bypassing ChatViewModel's 100ms coalescing.
     @State private var liveAmplitude: Float = 0
 
@@ -121,34 +93,22 @@ struct ComposerView: View {
         return nil
     }
 
-    private func scheduleComposerMenuRefresh() {
-        menuRefreshScheduler.schedule {
-            if inputText.isEmpty {
-                showSlashMenu = false
-                showEmojiMenu = false
-            } else {
-                updateSlashState()
-                updateEmojiState()
-            }
-        }
-    }
-
     var body: some View {
         VStack(spacing: VSpacing.sm) {
             // Slash command popup (above the composer)
-            if showSlashMenu {
+            if composerController.showSlashMenu {
                 SlashCommandPopup(
-                    commands: filteredSlashCommands(slashFilter),
-                    selectedIndex: slashSelectedIndex,
+                    commands: composerController.slashCommandProvider.filteredCommands(composerController.slashFilter),
+                    selectedIndex: composerController.slashSelectedIndex,
                     onSelect: { command in selectSlashCommand(command) }
                 )
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
-            if showEmojiMenu {
+            if composerController.showEmojiMenu {
                 EmojiPickerPopup(
-                    entries: filteredEmoji(emojiFilter),
-                    selectedIndex: emojiSelectedIndex,
+                    entries: composerController.emojiSearchProvider.search(query: composerController.emojiFilter, limit: 8),
+                    selectedIndex: composerController.emojiSelectedIndex,
                     onSelect: { entry in selectEmoji(entry) }
                 )
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -199,20 +159,12 @@ struct ComposerView: View {
         .onChange(of: currentMode) {
             composerLog.debug("Composer mode: \(String(describing: currentMode))")
             if currentMode == .dictationInline {
-                preDictationText = inputText
+                composerController.dictationStarted()
             }
         }
         .onChange(of: isInteractionEnabled) { _, enabled in
-            if enabled, !hasPendingConfirmation {
-                composerFocus = true
-            } else if !enabled {
-                menuRefreshScheduler.cancel()
-                composerFocus = false
-                showSlashMenu = false
-                showEmojiMenu = false
-                suppressSlashReopen = false
-                suppressEmojiReopen = false
-            }
+            composerController.interactionEnabledChanged(enabled, hasPendingConfirmation: hasPendingConfirmation)
+            composerFocus = composerController.focusIntent
         }
         .onChange(of: hasPendingConfirmation) { _, pending in
             if !pending, isInteractionEnabled {
@@ -286,29 +238,39 @@ struct ComposerView: View {
                     ? NSColor(VColor.contentDefault).withAlphaComponent(0) : nil,
                 onSubmit: { performSendAction() },
                 onTab: {
-                    if showSlashMenu { handleSlashNavigation(.tab); return true }
-                    if showEmojiMenu { handleEmojiNavigation(.tab); return true }
+                    if composerController.showSlashMenu {
+                        if let command = composerController.handleSlashNavigation(.tab) {
+                            inputText = command.selectedInputText
+                        }
+                        return true
+                    }
+                    if composerController.showEmojiMenu {
+                        if let entry = composerController.handleEmojiNavigation(.tab) {
+                            selectEmoji(entry)
+                        }
+                        return true
+                    }
                     if ghostSuffix != nil { onAcceptSuggestion(); return true }
                     return false
                 },
                 onUpArrow: {
-                    if showSlashMenu { handleSlashNavigation(.up); return true }
-                    if showEmojiMenu { handleEmojiNavigation(.up); return true }
+                    if composerController.showSlashMenu { composerController.handleSlashNavigation(.up); return true }
+                    if composerController.showEmojiMenu { composerController.handleEmojiNavigation(.up); return true }
                     return false
                 },
                 onDownArrow: {
-                    if showSlashMenu { handleSlashNavigation(.down); return true }
-                    if showEmojiMenu { handleEmojiNavigation(.down); return true }
+                    if composerController.showSlashMenu { composerController.handleSlashNavigation(.down); return true }
+                    if composerController.showEmojiMenu { composerController.handleEmojiNavigation(.down); return true }
                     return false
                 },
                 onEscape: {
-                    if showSlashMenu { handleSlashNavigation(.dismiss); return true }
-                    if showEmojiMenu { handleEmojiNavigation(.dismiss); return true }
+                    if composerController.showSlashMenu { composerController.handleSlashNavigation(.dismiss); return true }
+                    if composerController.showEmojiMenu { composerController.handleEmojiNavigation(.dismiss); return true }
                     return false
                 },
                 onPasteImage: onPaste,
                 shouldOverrideReturn: {
-                    showSlashMenu || showEmojiMenu
+                    composerController.isPopupVisible
                 },
                 cursorPosition: $cursorPosition,
                 textReplacer: textReplacer
@@ -361,12 +323,10 @@ struct ComposerView: View {
             composerFocus = true
         }
         .onChange(of: inputText) {
-            scheduleComposerMenuRefresh()
+            composerController.textChanged(inputText)
         }
         .onChange(of: cursorPosition) {
-            if !inputText.isEmpty {
-                scheduleComposerMenuRefresh()
-            }
+            composerController.cursorMoved(to: cursorPosition)
         }
     }
 
@@ -375,12 +335,16 @@ struct ComposerView: View {
     /// regardless of how "send" is triggered.
     private func performSendAction() {
         let sendPath: String
-        if showSlashMenu {
+        if composerController.showSlashMenu {
             sendPath = "slashSelection"
-            handleSlashNavigation(.select)
-        } else if showEmojiMenu {
+            if let command = composerController.handleSlashNavigation(.select) {
+                selectSlashCommand(command)
+            }
+        } else if composerController.showEmojiMenu {
             sendPath = "emojiSelection"
-            handleEmojiNavigation(.select)
+            if let entry = composerController.handleEmojiNavigation(.select) {
+                selectEmoji(entry)
+            }
         } else if canSend {
             sendPath = "normalSend"
             onSend()
@@ -589,8 +553,8 @@ VStreamingWaveform(
                         style: .danger,
                         iconSize: composerActionButtonSize,
                         action: {
-                            inputText = preDictationText
-                            preDictationText = ""
+                            inputText = composerController.preDictationText
+                            composerController.dictationStopped()
                             (onDictateToggle ?? onMicrophoneToggle)()
                         }
                     )
@@ -603,7 +567,7 @@ VStreamingWaveform(
                         style: .primary,
                         iconSize: composerActionButtonSize,
                         action: {
-                            preDictationText = ""
+                            composerController.dictationStopped()
                             (onDictateToggle ?? onMicrophoneToggle)()
                         }
                     )

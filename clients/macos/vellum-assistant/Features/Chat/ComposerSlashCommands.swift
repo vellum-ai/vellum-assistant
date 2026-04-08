@@ -40,18 +40,9 @@ struct SlashCommand: Identifiable {
     }
 }
 
-// MARK: - Slash Navigation
-
-enum SlashNavigation {
-    case up, down, select, tab, dismiss
-}
-
 // MARK: - Slash Command Logic (ComposerView extension)
 
 extension ComposerView {
-    static func slashCommandInputTextForSelection(_ command: SlashCommand) -> String {
-        command.selectedInputText
-    }
 
     /// Range of a slash command token (e.g. `/model`) at the start of input.
     var slashCommandRange: Range<String.Index>? {
@@ -75,68 +66,10 @@ extension ComposerView {
         return attr
     }
 
-    func filteredSlashCommands(_ filter: String) -> [SlashCommand] {
-        SlashCommand.all.filter {
-            filter.isEmpty || $0.name.lowercased().hasPrefix(filter.lowercased())
-        }
-    }
-
-    func updateSlashState() {
-        if suppressSlashReopen {
-            suppressSlashReopen = false
-            return
-        }
-        let text = inputText
-
-        if text.hasPrefix("/") && !text.contains(" ") {
-            let filter = String(text.dropFirst())
-            let filtered = filteredSlashCommands(filter)
-            if !filtered.isEmpty {
-                showSlashMenu = true
-                if slashFilter != filter {
-                    slashSelectedIndex = 0
-                }
-                slashFilter = filter
-            } else {
-                showSlashMenu = false
-            }
-        } else {
-            showSlashMenu = false
-        }
-    }
-
     func selectSlashCommand(_ command: SlashCommand) {
-        showSlashMenu = false
-        slashSelectedIndex = 0
-        inputText = Self.slashCommandInputTextForSelection(command)
+        inputText = command.selectedInputText
         if command.shouldAutoSendOnSelect {
             onSend()
-        }
-    }
-
-    func handleSlashNavigation(_ action: SlashNavigation) {
-        if showSlashMenu {
-            let filtered = filteredSlashCommands(slashFilter)
-            guard !filtered.isEmpty else { return }
-            switch action {
-            case .up:
-                slashSelectedIndex = (slashSelectedIndex - 1 + filtered.count) % filtered.count
-            case .down:
-                slashSelectedIndex = (slashSelectedIndex + 1) % filtered.count
-            case .select:
-                selectSlashCommand(filtered[slashSelectedIndex])
-            case .tab:
-                let command = filtered[slashSelectedIndex]
-                let newText = Self.slashCommandInputTextForSelection(command)
-                if inputText != newText {
-                    suppressSlashReopen = true
-                }
-                inputText = newText
-                showSlashMenu = false
-            case .dismiss:
-                showSlashMenu = false
-                inputText = ""
-            }
         }
     }
 }
