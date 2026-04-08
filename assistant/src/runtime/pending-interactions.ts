@@ -52,6 +52,17 @@ export interface PendingInteraction {
   confirmationDetails?: ConfirmationDetails;
   /** For ACP permissions: resolves directly without a Conversation object. */
   directResolve?: (decision: UserDecision) => void;
+  /**
+   * For host_browser interactions originating outside an agent loop
+   * (e.g. the `assistant browser chrome relay` CLI shim that POSTs to
+   * /v1/browser-cdp). Resolves the CDP round-trip directly without
+   * touching a Conversation. When set, /v1/host-browser-result invokes
+   * this instead of `interaction.conversation.resolveHostBrowser`.
+   */
+  directBrowserResolve?: (response: {
+    content: string;
+    isError: boolean;
+  }) => void;
 }
 
 const pending = new Map<string, PendingInteraction>();

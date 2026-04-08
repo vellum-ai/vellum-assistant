@@ -1169,15 +1169,9 @@ paths:
       responses:
         "200":
           description: Successful response
-  /v1/browser-relay/command:
+  /v1/browser-cdp:
     post:
-      operationId: browserrelay_command_post
-      responses:
-        "200":
-          description: Successful response
-  /v1/browser-relay/status:
-    get:
-      operationId: browserrelay_status_get
+      operationId: browsercdp_post
       responses:
         "200":
           description: Successful response
