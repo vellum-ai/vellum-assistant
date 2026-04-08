@@ -81,7 +81,7 @@ describe("AssistantConfigSchema", () => {
       "inference-provider-native",
     );
     expect(result.services["web-search"].mode).toBe("your-own");
-    expect(result.maxTokens).toBe(16000);
+    expect(result.maxTokens).toBe(64000);
     expect(result.thinking).toEqual({
       enabled: true,
       streamThinking: true,
@@ -981,7 +981,7 @@ describe("loadConfig with schema validation", () => {
     const config = loadConfig();
     expect(config.services.inference.provider).toBe("anthropic");
     expect(config.services.inference.model).toBe("claude-opus-4-6");
-    expect(config.maxTokens).toBe(16000);
+    expect(config.maxTokens).toBe(64000);
     expect(config.thinking).toEqual({
       enabled: true,
       streamThinking: true,
@@ -1013,7 +1013,7 @@ describe("loadConfig with schema validation", () => {
   test("falls back to default for invalid maxTokens", () => {
     writeConfig({ maxTokens: -100 });
     const config = loadConfig();
-    expect(config.maxTokens).toBe(16000);
+    expect(config.maxTokens).toBe(64000);
   });
 
   test("falls back to defaults for invalid nested values", () => {
@@ -1038,13 +1038,13 @@ describe("loadConfig with schema validation", () => {
     expect(config.services.inference.provider).toBe("openai");
     expect(config.services.inference.model).toBe("gpt-4");
     expect(config.thinking.enabled).toBe(true);
-    expect(config.maxTokens).toBe(16000);
+    expect(config.maxTokens).toBe(64000);
   });
 
   test("handles no config file", () => {
     const config = loadConfig();
     expect(config.services.inference.provider).toBe("anthropic");
-    expect(config.maxTokens).toBe(16000);
+    expect(config.maxTokens).toBe(64000);
   });
 
   test("partial nested objects get defaults for missing fields", () => {

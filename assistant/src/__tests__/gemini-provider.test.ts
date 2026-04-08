@@ -519,11 +519,11 @@ describe("GeminiProvider", () => {
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
       undefined,
       undefined,
-      { config: { max_tokens: 32000 } },
+      { config: { max_tokens: 64000 } },
     );
 
     const config = lastStreamParams!.config as Record<string, unknown>;
-    expect(config.maxOutputTokens).toBe(32000);
+    expect(config.maxOutputTokens).toBe(64000);
   });
 
   // -----------------------------------------------------------------------

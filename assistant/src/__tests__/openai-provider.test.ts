@@ -653,10 +653,10 @@ describe("OpenAIProvider", () => {
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
       undefined,
       undefined,
-      { config: { max_tokens: 32000 } },
+      { config: { max_tokens: 64000 } },
     );
 
-    expect(lastCreateParams!.max_completion_tokens).toBe(32000);
+    expect(lastCreateParams!.max_completion_tokens).toBe(64000);
   });
 
   // -----------------------------------------------------------------------
