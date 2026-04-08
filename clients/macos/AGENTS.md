@@ -330,6 +330,14 @@ When adding a new keyboard shortcut to the macOS app, you **must** also add a co
 - Loop detection prevents the agent from repeating the same action indefinitely.
 - Clipboard save/restore wraps all paste-based text input to avoid data loss.
 
+### External URLs
+
+All `vellum.ai` and external links the app navigates to (docs pages, terms of service, help menu items, etc.) live in `vellum-assistant/App/AppURLs.swift` as `public static` accessors. Do not hardcode `URL(string: "https://...")!` at call sites — add a new accessor to `AppURLs` and reference it.
+
+- All `AppURLs` members are `public` so the `vellum-assistant-app` shell target can use them via `import VellumAssistantLib`.
+- The docs base URL honors a `VELLUM_DOCS_BASE_URL` env var (validated as an absolute http(s) URL with no query/fragment, falls back to `https://www.vellum.ai/docs` on failure).
+- If you introduce a new env-var-overridable URL, also: (1) embed the var into `Info.plist`'s `LSEnvironment` in `clients/macos/build.sh` — LaunchServices doesn't inherit shell env, so `./build.sh run` requires the embedding (XML-escape values; see the existing `VELLUM_DOCS_BASE_URL` block for the pattern); (2) register the var in `assistant/src/tools/terminal/safe-env.ts` and `assistant/src/config/env-registry.ts` per `assistant/CLAUDE.md` § "Adding new environment variables".
+
 ---
 
 ## Data Storage
