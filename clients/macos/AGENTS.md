@@ -258,7 +258,7 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
   - `HStack { Spacer(minLength: 0); content }` — trailing alignment without alignment queries.
   - `.containerRelativeFrame(.horizontal) { width, _ in min(width, maxWidth) }` — width constraint without FlexFrame.
   
-  **History**: PR #23594 replaced a safe `HStack + Spacer` pattern with `.frame(maxWidth: .infinity, alignment:)` as a "performance optimization" (fewer layout nodes). This created the worst hang regression in the app — the node count decreased but each remaining node now triggered O(n) recursive alignment queries. Never trade HStack+Spacer for `.frame(alignment:)` in lazy containers.
+  **History**: A past change replaced a safe `HStack + Spacer` pattern with `.frame(maxWidth: .infinity, alignment:)` as a "performance optimization" (fewer layout nodes). This created the worst hang regression in the app — the node count decreased but each remaining node now triggered O(n) recursive alignment queries. Never trade HStack+Spacer for `.frame(alignment:)` in lazy containers.
 - **Gallery**: When adding or modifying a design system primitive/component, update the corresponding Gallery section file (`Gallery/Sections/`) so the visual catalog stays current.
 - **Accessibility**: See `clients/AGENTS.md` § [Accessibility](../AGENTS.md#accessibility) for the full checklist (labels, hidden elements, custom interactions, AppKit panels). All rules there apply to macOS components.
 
