@@ -463,14 +463,20 @@ export async function bulkSetSecureKeysAsync(
     async () => {
       const backend = await resolveBackendAsync();
       if (backend.bulkSet) {
-        return backend.bulkSet(credentials);
+        const results = await backend.bulkSet(credentials);
+        const anyFailed = results.some((r) => !r.ok);
+        updateCesHttpReachability(backend, anyFailed);
+        return results;
       }
       // Fallback: loop individual sets
       const results = [];
+      let anyFailed = false;
       for (const { account, value } of credentials) {
         const ok = await backend.set(account, value);
+        if (!ok) anyFailed = true;
         results.push({ account, ok });
       }
+      updateCesHttpReachability(backend, anyFailed);
       return results;
     },
     credentials.map((c) => ({ account: c.account, ok: false })),
