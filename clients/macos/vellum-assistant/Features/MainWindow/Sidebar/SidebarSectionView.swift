@@ -12,6 +12,12 @@ struct ScheduleSubGroup: Identifiable {
 
 /// Container wrapping a collapsible section header + conversation list.
 ///
+/// Section content (conversation rows, show-more button, etc.) is emitted as
+/// direct siblings so the parent `LazyVStack` can virtualize individual rows.
+/// Only rows within the scroll viewport are materialized, preventing the
+/// main-thread stall that occurred when an inner `VStack` eagerly created
+/// all 70+ rows in a single layout pass.
+///
 /// Handles expand/collapse, show-more/less truncation, auto-expand on unread,
 /// and optional schedule sub-grouping for the Scheduled system group.
 struct SidebarSectionView: View {
@@ -52,13 +58,6 @@ struct SidebarSectionView: View {
     /// (mirrors showAll at the section level but per sub-group key).
     @State private var showAllInSubGroup: Set<String> = []
     @State private var hoveredSubGroupKey: String?
-
-    /// Number of rows rendered so far when progressively revealing content.
-    /// Starts at `initialBatch` when a section expands, then grows by
-    /// `batchIncrement` per run-loop cycle until all rows are visible.
-    @State private var renderedCount: Int = 0
-    private static let initialBatch = 15
-    private static let batchIncrement = 20
 
     enum CountMode {
         case items
@@ -132,38 +131,18 @@ struct SidebarSectionView: View {
             sidebar: sidebar,
             conversationManager: conversationManager
         ))
-        // Progressive rendering state management — attached to the header
-        // (always present) so it fires even when the section is collapsed.
-        .onChange(of: isExpanded) { _, expanded in
-            renderedCount = expanded ? Self.initialBatch : 0
-        }
-        .onChange(of: effectiveShowAll) { _, _ in
-            renderedCount = Self.initialBatch
-        }
-        .onAppear {
-            if isExpanded {
-                renderedCount = Self.initialBatch
-            }
-        }
 
         if isExpanded && !conversations.isEmpty {
-            VStack(spacing: 0) {
-                sectionContent
-            }
-            .padding(.bottom, VSpacing.xxs)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(
-                        sidebar?.dropForbiddenSectionId == group.id ? VColor.systemNegativeWeak :
-                        isDropTarget ? VColor.systemPositiveWeak : .clear
-                    )
-            )
-            .modifier(SectionBodyDropModifier(
-                groupId: group.id,
-                sidebar: sidebar,
-                conversationManager: conversationManager
-            ))
-            .transition(.opacity)
+            sectionContent
+
+            // Drop zone for section-level drops below the last visible row.
+            Color.clear
+                .frame(height: VSpacing.xxs)
+                .modifier(SectionBodyDropModifier(
+                    groupId: group.id,
+                    sidebar: sidebar,
+                    conversationManager: conversationManager
+                ))
         }
     }
 
@@ -208,21 +187,6 @@ struct SidebarSectionView: View {
                     .id(ConversationRowIdentity(conversationId: conversation.id, groupId: conversation.groupId))
                     .padding(.bottom, SidebarLayoutMetrics.listRowGap)
             }
-        }
-
-        // Sentinel: triggers the next progressive-rendering batch when it
-        // appears. Defers the state update to the next run-loop cycle so the
-        // current layout pass completes before more rows are added.
-        if renderedCount < totalDisplayedCount {
-            Color.clear
-                .frame(height: 1)
-                .id(renderedCount)
-                .onAppear {
-                    let next = min(renderedCount + Self.batchIncrement, totalDisplayedCount)
-                    DispatchQueue.main.async {
-                        renderedCount = next
-                    }
-                }
         }
 
         showMoreLessButton
@@ -414,23 +378,11 @@ struct SidebarSectionView: View {
     }
 
     private var displayedConversations: [ConversationModel] {
-        let base: [ConversationModel]
         if effectiveShowAll {
-            base = conversations
+            return conversations
         } else {
-            base = Array(conversations.prefix(maxCollapsed))
+            return Array(conversations.prefix(maxCollapsed))
         }
-        // Progressive rendering: only return as many rows as renderedCount
-        // allows so we never create all views in a single layout pass.
-        guard renderedCount < base.count else { return base }
-        return Array(base.prefix(renderedCount))
-    }
-
-    /// Total number of conversations that *would* be displayed without
-    /// progressive rendering. Used by the "show more / show less" button
-    /// and the sentinel to decide when all rows have been revealed.
-    private var totalDisplayedCount: Int {
-        effectiveShowAll ? conversations.count : min(conversations.count, maxCollapsed)
     }
 
     // MARK: - Sub-group helpers
