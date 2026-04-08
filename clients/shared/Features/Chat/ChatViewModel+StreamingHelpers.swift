@@ -451,13 +451,27 @@ extension ChatViewModel {
                messages[msgIndex].toolCalls[tcIndex].confirmationDecision == .approved {
                 messages[msgIndex].toolCalls[tcIndex].confirmationDecision = .denied
             }
-            // When an app tool call completes, mark dynamic page surfaces in the
-            // same message as ready so the inline card enables its "Open App" button.
+            // When an app tool call completes, mark dynamic page surfaces as
+            // ready so the inline card enables its "Open App" button. Search
+            // the matched message first, then fall back to the current assistant
+            // message in case the surface ended up in a different message due
+            // to rotation or toolUseId-based matching across messages.
             let toolName = messages[msgIndex].toolCalls[tcIndex].toolName
             if toolName == "app_create" || toolName == "app_refresh" || toolName == "app_update" {
+                var found = false
                 for surfIdx in messages[msgIndex].inlineSurfaces.indices {
                     if case .dynamicPage = messages[msgIndex].inlineSurfaces[surfIdx].data {
                         messages[msgIndex].inlineSurfaces[surfIdx].isToolCallComplete = true
+                        found = true
+                    }
+                }
+                if !found, let currentId = currentAssistantMessageId,
+                   let currentIdx = messages.firstIndex(where: { $0.id == currentId }),
+                   currentIdx != msgIndex {
+                    for surfIdx in messages[currentIdx].inlineSurfaces.indices {
+                        if case .dynamicPage = messages[currentIdx].inlineSurfaces[surfIdx].data {
+                            messages[currentIdx].inlineSurfaces[surfIdx].isToolCallComplete = true
+                        }
                     }
                 }
             }
