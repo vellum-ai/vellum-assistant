@@ -46,7 +46,7 @@ struct WakeUpStepView: View {
             .padding(.bottom, VSpacing.md)
 
         // Subtitle
-        Text("Your personal AI assistant,\nrunning on your terms.")
+        Text("The safest way to create your personal assistant.")
             .font(VFont.titleSmall)
             .foregroundStyle(VColor.contentSecondary)
             .multilineTextAlignment(.center)
@@ -79,13 +79,17 @@ struct WakeUpStepView: View {
                 }
                 .frame(height: 36)
             } else if managedSignInEnabled {
-                VButton(label: "Log In", style: .primary, isFullWidth: true) {
-                    onContinueWithVellum()
-                }
+                HStack(spacing: VSpacing.sm) {
+                    VButton(label: "Sign In", style: .primary) {
+                        onContinueWithVellum()
+                    }
+                    .frame(maxWidth: .infinity)
 
-                VButton(label: "Continue without account", style: .ghost) {
-                    state?.skippedAuth = true
-                    onStartWithAPIKey()
+                    VButton(label: "Self-Host", style: .outlined) {
+                        state?.skippedAuth = true
+                        onStartWithAPIKey()
+                    }
+                    .frame(maxWidth: .infinity)
                 }
             } else {
                 VButton(label: "Get Started", style: .primary, isFullWidth: true) {
@@ -121,7 +125,7 @@ struct WakeUpStepView: View {
 
         Text("\u{00A9} 2026 Vellum Inc.")
             .font(VFont.bodySmallDefault)
-            .foregroundStyle(VColor.contentTertiary.opacity(0.5))
+            .foregroundStyle(VColor.borderElement)
             .padding(.bottom, VSpacing.sm)
 
         // Characters peeking up from the bottom — single composed image
