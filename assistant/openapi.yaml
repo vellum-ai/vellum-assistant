@@ -1737,6 +1737,48 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/client-log:
+    post:
+      operationId: clientlog_post
+      summary: Forward client log message
+      description: Accept a log entry from the native client and write it to the daemon logger.
+      tags:
+        - telemetry
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                required:
+                  - ok
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                level:
+                  description: "Log level (default: info)"
+                  type: string
+                  enum:
+                    - info
+                    - warn
+                    - error
+                    - debug
+                message:
+                  type: string
+                  description: Log message text
+              required:
+                - message
+              additionalProperties: false
   /v1/computer-use/watch:
     post:
       operationId: computeruse_watch_post
