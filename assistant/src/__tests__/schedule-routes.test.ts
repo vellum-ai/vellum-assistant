@@ -8,10 +8,10 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import { getDb, initializeDb } from "../memory/db.js";
-import { createSchedule } from "../schedule/schedule-store.js";
 import { scheduleRouteDefinitions } from "../runtime/routes/schedule-routes.js";
-import { createTask } from "../tasks/task-store.js";
+import { createSchedule } from "../schedule/schedule-store.js";
 import { scheduleTask } from "../tasks/task-scheduler.js";
+import { createTask } from "../tasks/task-store.js";
 
 initializeDb();
 
