@@ -322,26 +322,24 @@ struct IntegrationDetailModal: View {
                     isShowingAddAppForm = true
                 }
             } else {
-                // Top row: count + add button
-                HStack {
-                    Text("\(apps.count) connected")
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentSecondary)
+                if isShowingAddAppForm {
+                    // Form only, no top row
+                    yourOwnFormStep
+                } else {
+                    // Top row: count + add button
+                    HStack {
+                        Text("\(apps.count) connected")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentSecondary)
 
-                    Spacer()
+                        Spacer()
 
-                    if !isShowingAddAppForm {
                         VButton(label: "Add Another App", leftIcon: VIcon.plus.rawValue, style: .outlined) {
                             createAppClientId = ""
                             createAppClientSecret = ""
                             isShowingAddAppForm = true
                         }
                     }
-                }
-
-                // Form at top when adding
-                if isShowingAddAppForm {
-                    yourOwnFormStep
                 }
 
                 // App list
