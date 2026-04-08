@@ -1,4 +1,5 @@
 import { describe, test, expect, afterEach } from "bun:test";
+import type { ConfigFileCache } from "../config-file-cache.js";
 import type { CredentialCache } from "../credential-cache.js";
 import { credentialKey } from "../credential-key.js";
 import {
@@ -18,11 +19,22 @@ afterEach(() => {
   delete process.env.PLATFORM_ASSISTANT_ID;
 });
 
+function makeConfigFile(
+  values: Record<string, Record<string, string>> = {},
+): ConfigFileCache {
+  return {
+    getString: (section: string, key: string) =>
+      values[section]?.[key] ?? undefined,
+    invalidate: () => {},
+  } as unknown as ConfigFileCache;
+}
+
 function makeCaches(opts: {
   platformBaseUrl?: string;
   assistantApiKey?: string;
   platformAssistantId?: string;
-}): { credentials: CredentialCache } {
+  ingressUrl?: string;
+}): { credentials: CredentialCache; configFile?: ConfigFileCache } {
   const store = new Map<string, string>();
   if (opts.platformBaseUrl)
     store.set(
@@ -40,12 +52,23 @@ function makeCaches(opts: {
       opts.platformAssistantId,
     );
 
-  return {
+  const result: {
+    credentials: CredentialCache;
+    configFile?: ConfigFileCache;
+  } = {
     credentials: {
       get: async (key: string) => store.get(key),
       invalidate: () => {},
     } as CredentialCache,
   };
+
+  if (opts.ingressUrl) {
+    result.configFile = makeConfigFile({
+      ingress: { publicBaseUrl: opts.ingressUrl },
+    });
+  }
+
+  return result;
 }
 
 describe("registerEmailCallbackRoute", () => {
@@ -70,10 +93,14 @@ describe("registerEmailCallbackRoute", () => {
     const callbackUrl =
       "https://platform.example.com/v1/gateway/callbacks/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee/webhooks/email/";
 
-    mockFetch("callback-routes/register", { method: "POST" }, {
-      body: { callback_url: callbackUrl },
-      status: 201,
-    });
+    mockFetch(
+      "callback-routes/register",
+      { method: "POST" },
+      {
+        body: { callback_url: callbackUrl },
+        status: 201,
+      },
+    );
 
     const result = await registerEmailCallbackRoute(caches);
 
@@ -100,10 +127,14 @@ describe("registerEmailCallbackRoute", () => {
     const callbackUrl =
       "https://env-platform.example.com/v1/gateway/callbacks/11111111-2222-3333-4444-555555555555/webhooks/email/";
 
-    mockFetch("callback-routes/register", { method: "POST" }, {
-      body: { callback_url: callbackUrl },
-      status: 201,
-    });
+    mockFetch(
+      "callback-routes/register",
+      { method: "POST" },
+      {
+        body: { callback_url: callbackUrl },
+        status: 201,
+      },
+    );
 
     const result = await registerEmailCallbackRoute();
 
@@ -140,14 +171,80 @@ describe("registerEmailCallbackRoute", () => {
       platformAssistantId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
     });
 
-    mockFetch("callback-routes/register", { method: "POST" }, {
-      body: { id: "route-id" },
-      status: 201,
-    });
+    mockFetch(
+      "callback-routes/register",
+      { method: "POST" },
+      {
+        body: { id: "route-id" },
+        status: 201,
+      },
+    );
 
     await expect(registerEmailCallbackRoute(caches)).rejects.toThrow(
       /did not include callback_url/,
     );
+  });
+
+  test("sends callback_base_url when ingress URL is configured (self-hosted)", async () => {
+    const caches = makeCaches({
+      platformBaseUrl: "https://platform.example.com",
+      assistantApiKey: "vak_selfhosted",
+      platformAssistantId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      ingressUrl: "https://my-assistant.example.com",
+    });
+
+    const callbackUrl =
+      "https://my-assistant.example.com/v1/gateway/callbacks/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee/webhooks/email/";
+
+    mockFetch(
+      "callback-routes/register",
+      { method: "POST" },
+      {
+        body: { callback_url: callbackUrl },
+        status: 201,
+      },
+    );
+
+    const result = await registerEmailCallbackRoute(caches);
+
+    expect(result).toBe(callbackUrl);
+
+    const calls = getMockFetchCalls();
+    expect(calls).toHaveLength(1);
+    const body = JSON.parse(calls[0].init.body as string);
+    expect(body).toEqual({
+      assistant_id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      callback_path: EMAIL_CALLBACK_PATH,
+      type: "email",
+      callback_base_url: "https://my-assistant.example.com",
+    });
+  });
+
+  test("omits callback_base_url when no ingress URL is configured (platform-managed)", async () => {
+    const caches = makeCaches({
+      platformBaseUrl: "https://platform.example.com",
+      assistantApiKey: "vak_managed",
+      platformAssistantId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    });
+
+    const callbackUrl =
+      "https://platform.example.com/v1/gateway/callbacks/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee/webhooks/email/";
+
+    mockFetch(
+      "callback-routes/register",
+      { method: "POST" },
+      {
+        body: { callback_url: callbackUrl },
+        status: 201,
+      },
+    );
+
+    await registerEmailCallbackRoute(caches);
+
+    const calls = getMockFetchCalls();
+    expect(calls).toHaveLength(1);
+    const body = JSON.parse(calls[0].init.body as string);
+    expect(body).not.toHaveProperty("callback_base_url");
   });
 
   test("EMAIL_CALLBACK_PATH matches gateway route", () => {

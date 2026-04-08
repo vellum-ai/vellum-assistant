@@ -1536,16 +1536,16 @@ async function main() {
     // Fires on initial credential load and whenever vellum credentials change
     // (key rotation, late provisioning).
     if (changed.has("vellum")) {
-      registerEmailCallbackRoute({ credentials: credentialCache }).catch(
-        (err) => {
-          log.error(
-            { err },
-            "Failed to register email callback route after credential change",
-          );
-        },
-      );
+      registerEmailCallbackRoute({
+        credentials: credentialCache,
+        configFile: configFileCache,
+      }).catch((err) => {
+        log.error(
+          { err },
+          "Failed to register email callback route after credential change",
+        );
+      });
     }
-
   });
 
   // The credential watcher callback handles startup side effects (Telegram
