@@ -729,13 +729,19 @@ extension AppDelegate {
     /// handlers wrap `ManagedAssistantConnectionCoordinator.switchToManagedAssistant`,
     /// the hatch path, and the existing vellum CLI retire path.
     func makeAssistantSwitcherViewModel() -> AssistantSwitcherViewModel {
-        AssistantSwitcherViewModel(
-            switchHandler: { [weak self] assistantId in
-                guard let self else { return }
-                let controller = AppDelegateManagedConnectionController(appDelegate: self)
-                let coordinator = ManagedAssistantConnectionCoordinator(
-                    connectionController: controller
-                )
+        // Reuse one coordinator + controller for the lifetime of the
+        // switcher rather than allocating per-click. The coordinator is
+        // effectively stateless today, but caching keeps this call site
+        // consistent with how `activateManagedAssistant` is wired and
+        // guards against silent drift if state is added later.
+        let controller = AppDelegateManagedConnectionController(appDelegate: self)
+        let coordinator = ManagedAssistantConnectionCoordinator(
+            connectionController: controller
+        )
+        assistantSwitcherConnectionController = controller
+        assistantSwitcherCoordinator = coordinator
+        return AssistantSwitcherViewModel(
+            switchHandler: { assistantId in
                 _ = try await coordinator.switchToManagedAssistant(assistantId: assistantId)
             },
             createHandler: { [weak self] name in
@@ -750,16 +756,14 @@ extension AppDelegate {
     }
 
     /// Hatch a new managed assistant against the platform and persist it to
-    /// the lockfile. The organization id is read from UserDefaults — matching
-    /// the path the onboarding flow and TeleportSection use.
+    /// the lockfile. The organization id is read from UserDefaults —
+    /// matching the path the onboarding flow and TeleportSection use. There
+    /// is no centralized constant for this key yet; see TeleportSection for
+    /// the other call site that reads it directly.
     private func hatchAndPersistManagedAssistant(name: String) async throws {
         guard let organizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId"),
               !organizationId.isEmpty else {
-            throw NSError(
-                domain: "AssistantSwitcher",
-                code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "No organization connected."]
-            )
+            throw AssistantSwitcherError.noOrganizationConnected
         }
         let result = try await AuthService.shared.hatchAssistant(
             organizationId: organizationId,
@@ -776,36 +780,25 @@ extension AppDelegate {
             hatchedAt: platformAssistant.created_at ?? Date().iso8601String
         )
         guard success else {
-            throw NSError(
-                domain: "AssistantSwitcher",
-                code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "Failed to persist new assistant to lockfile."]
-            )
+            throw AssistantSwitcherError.lockfilePersistenceFailed
         }
     }
 
-    /// Retire an assistant requested from the switcher. If the target is the
-    /// currently active assistant we delegate to the existing `performRetire`
-    /// path which handles fallback selection and tear-down. Retiring a
-    /// non-active managed assistant from the switcher is not yet wired — we
-    /// surface a log and throw so the user sees a clear failure rather than
-    /// a silent no-op. Tracked as a follow-up; see the TODO below.
+    /// Retire an assistant requested from the switcher. Today the switcher
+    /// only exposes a retire row for the currently active assistant (the
+    /// menu builder enforces this), so we always delegate to the existing
+    /// `performRetireAsync()` path which handles fallback selection and
+    /// tear-down. Retiring a non-active managed assistant requires a
+    /// variant that targets an arbitrary id without tearing down the
+    /// current connection — tracked as a follow-up.
     private func retireManagedAssistantFromSwitcher(assistantId: String) async throws {
         let activeId = LockfileAssistant.loadActiveAssistantId()
-        if assistantId == activeId {
-            _ = await performRetireAsync()
-            return
+        guard assistantId == activeId else {
+            // Defensive: the menu should never surface this row, but throw
+            // a typed error rather than silently no-op if it ever does.
+            throw AssistantSwitcherError.retireNonActiveNotSupported
         }
-        // TODO(multi-host-asst): retire a non-active managed assistant from
-        // the switcher. This requires a variant of `performRetireAsync()`
-        // that targets an arbitrary id without tearing down the current
-        // connection. Tracked separately from PR 4.
-        log.warning("Retire for non-active managed assistant not yet supported: \(assistantId, privacy: .public)")
-        throw NSError(
-            domain: "AssistantSwitcher",
-            code: 3,
-            userInfo: [NSLocalizedDescriptionKey: "Retiring a non-active assistant is not yet supported. Switch to this assistant first, then retire it."]
-        )
+        _ = await performRetireAsync()
     }
 
     @objc func assistantSwitcherDidSelect(_ sender: NSMenuItem) {
@@ -887,12 +880,32 @@ final class AppDelegateManagedConnectionController: ManagedAssistantConnectionCo
     }
 
     func bringUp(for assistant: LockfileAssistant) async {
-        guard let appDelegate else { return }
-        // `setupGatewayConnectionManager()` short-circuits when
-        // `hasSetupDaemon` is true, which it always is after the app has
-        // finished launching. Reset it here so the switched assistant gets a
-        // fresh gateway client + SSE connection instead of a silent no-op.
-        appDelegate.hasSetupDaemon = false
-        appDelegate.setupGatewayConnectionManager()
+        // Reuse the existing `reconnectManagedAssistant()` entry point so
+        // the "reset the idempotency flag + re-run setup" dance lives in
+        // one place, rather than having the switcher toggle
+        // `hasSetupDaemon` directly and silently couple to every one-shot
+        // initializer inside `setupGatewayConnectionManager()`.
+        appDelegate?.reconnectManagedAssistant()
+    }
+}
+
+/// Typed errors surfaced from the menu-bar assistant switcher. Defined here
+/// (rather than alongside `ManagedAssistantConnectionCoordinatorError`)
+/// because these are UI-layer failures — no organization connected, the
+/// lockfile write failed, etc. — that never originate from the coordinator.
+enum AssistantSwitcherError: LocalizedError {
+    case noOrganizationConnected
+    case lockfilePersistenceFailed
+    case retireNonActiveNotSupported
+
+    var errorDescription: String? {
+        switch self {
+        case .noOrganizationConnected:
+            return "No organization connected. Sign in first, then try again."
+        case .lockfilePersistenceFailed:
+            return "Failed to save the new assistant to your lockfile."
+        case .retireNonActiveNotSupported:
+            return "Retiring a non-active assistant from the switcher isn't supported yet. Switch to the assistant first, then retire it."
+        }
     }
 }

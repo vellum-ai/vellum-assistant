@@ -46,15 +46,17 @@ enum AssistantSwitcherMenu {
             items.append(empty)
         } else {
             for assistant in assistants {
+                let isActive = assistant.assistantId == activeId
+                let title = displayTitle(for: assistant, isActive: isActive)
                 let item = NSMenuItem(
-                    title: assistant.assistantId,
+                    title: title,
                     action: selectAction,
                     keyEquivalent: ""
                 )
                 item.target = target
                 item.tag = assistantRowTag
                 item.representedObject = assistant.assistantId
-                item.state = (assistant.assistantId == activeId) ? .on : .off
+                item.state = isActive ? .on : .off
                 items.append(item)
             }
         }
@@ -70,37 +72,41 @@ enum AssistantSwitcherMenu {
         newItem.tag = newAssistantTag
         items.append(newItem)
 
-        // Retire submenu: one entry per assistant (including the active one).
-        // A `performRetire`-style path that only retires the *active* assistant
-        // already exists, but retiring a non-active managed assistant from the
-        // switcher is not yet implemented — gate those rows behind a TODO so
-        // the UI shows the affordance without wiring an incomplete operation.
-        // See `AssistantSwitcherViewModel.retire(assistantId:)`.
-        let retireParent = NSMenuItem(title: "Retire", action: nil, keyEquivalent: "")
-        retireParent.tag = retireParentTag
-        let retireSubmenu = NSMenu(title: "Retire")
-        retireSubmenu.autoenablesItems = false
-        if assistants.isEmpty {
-            let empty = NSMenuItem(title: "Nothing to retire", action: nil, keyEquivalent: "")
-            empty.isEnabled = false
-            retireSubmenu.addItem(empty)
-        } else {
-            for assistant in assistants {
-                let item = NSMenuItem(
-                    title: "Retire \(assistant.assistantId)…",
-                    action: retireAction,
-                    keyEquivalent: ""
-                )
-                item.target = target
-                item.representedObject = assistant.assistantId
-                retireSubmenu.addItem(item)
-            }
+        // Retire row: only surfaced for the *active* assistant, since the
+        // existing retire path (`AppDelegate.performRetireAsync`) only
+        // handles that case. Retiring a non-active managed assistant
+        // requires a dedicated code path and is tracked as a follow-up —
+        // don't show a row we can't back. See
+        // `AppDelegate.retireManagedAssistantFromSwitcher`.
+        if let activeId,
+           let activeAssistant = assistants.first(where: { $0.assistantId == activeId }) {
+            let activeTitle = AssistantDisplayName.resolve(activeAssistant.assistantId)
+            let retireItem = NSMenuItem(
+                title: "Retire \(activeTitle)…",
+                action: retireAction,
+                keyEquivalent: ""
+            )
+            retireItem.target = target
+            retireItem.representedObject = activeAssistant.assistantId
+            retireItem.tag = retireParentTag
+            items.append(retireItem)
         }
-        retireParent.submenu = retireSubmenu
-        retireParent.isEnabled = !assistants.isEmpty
-        items.append(retireParent)
 
         return items
+    }
+
+    /// Resolve a user-facing title for a menu row. The active assistant
+    /// prefers `IdentityInfo.current?.name` (the same source the status
+    /// tooltip uses) so users see "Luna" rather than a raw UUID. Non-active
+    /// assistants fall back to their id — LockfileAssistant doesn't carry a
+    /// display name yet, so there's nothing better we can show without a
+    /// per-assistant IDENTITY.md read. Both paths go through
+    /// `AssistantDisplayName.resolve` so the bootstrap sentinel is masked.
+    private static func displayTitle(for assistant: LockfileAssistant, isActive: Bool) -> String {
+        if isActive {
+            return AssistantDisplayName.resolve(IdentityInfo.current?.name, assistant.assistantId)
+        }
+        return AssistantDisplayName.resolve(assistant.assistantId)
     }
 
     /// Display a modal prompt for a new assistant name. Returns `nil` when

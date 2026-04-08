@@ -147,6 +147,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// View model for the menu-bar assistant switcher. Lazily constructed in
     /// `setupMenuBar()` when `multiAssistantSwitcherEnabled` is true.
     var assistantSwitcherViewModel: AssistantSwitcherViewModel?
+    /// Cached coordinator + controller for the switcher's handlers. Stored
+    /// so every menu click doesn't allocate fresh instances and so future
+    /// state on the coordinator isn't silently bypassed by the switcher.
+    var assistantSwitcherCoordinator: ManagedAssistantConnectionCoordinator?
+    var assistantSwitcherConnectionController: AppDelegateManagedConnectionController?
     var cachedSkills: [SkillInfo] = []
     var refreshSkillsTask: Task<Void, Never>?
     var cachedApps: [AppItem] = []
