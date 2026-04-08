@@ -448,7 +448,6 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   private disposeIfIdle(): void {
     if (!this.disposeRequested) return;
     if (this.activeEmbeds > 0) return;
-    if (this.initGuard.active) return;
     if (this.pendingRequests.size > 0) return;
     if (this.readyResolve || this.readyReject) return;
 
