@@ -82,7 +82,12 @@ export type AgentEvent =
       toolUseId: string;
       input: Record<string, unknown>;
     }
-  | { type: "server_tool_complete"; toolUseId: string; isError: boolean; content?: unknown[] }
+  | {
+      type: "server_tool_complete";
+      toolUseId: string;
+      isError: boolean;
+      content?: unknown[];
+    }
   | { type: "error"; error: Error }
   | {
       type: "usage";
@@ -98,7 +103,7 @@ export type AgentEvent =
     };
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
-  maxTokens: 16000,
+  maxTokens: 32000,
   effort: "high",
   minTurnIntervalMs: 150,
 };
