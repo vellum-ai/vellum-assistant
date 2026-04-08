@@ -13,6 +13,15 @@ export interface WorkspaceConversationContext {
   workingDir: string;
   workspaceTopLevelContext: string | null;
   workspaceTopLevelDirty: boolean;
+  /**
+   * Client-reported host home directory, populated from macOS transport
+   * metadata. Used to render the `<workspace>` block correctly for
+   * platform-managed daemons where `os.homedir()` would return the
+   * container's home instead of the user's actual Mac.
+   */
+  hostHomeDir?: string;
+  /** Client-reported host username. See `hostHomeDir`. */
+  hostUsername?: string;
 }
 
 /** Refresh workspace top-level directory context if needed. */
@@ -36,6 +45,8 @@ export function refreshWorkspaceTopLevelContextIfNeeded(
     conversationAttachmentsPath: currentConversationPath
       ? `${currentConversationPath}attachments/`
       : null,
+    hostHomeDir: ctx.hostHomeDir,
+    hostUsername: ctx.hostUsername,
   });
   ctx.workspaceTopLevelDirty = false;
 }

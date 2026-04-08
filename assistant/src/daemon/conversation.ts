@@ -262,6 +262,20 @@ export class Conversation {
   }> = [];
   /** @internal */ workspaceTopLevelContext: string | null = null;
   /** @internal */ workspaceTopLevelDirty = true;
+  /**
+   * Host home directory reported by the client (macOS `NSHomeDirectory()`).
+   * Populated from `MacosTransportMetadata` when a message arrives. Consumed
+   * by the `<workspace>` block renderer so platform-managed (containerized)
+   * daemons show the user's actual Mac home dir instead of the container's.
+   * @internal
+   */
+  hostHomeDir?: string;
+  /**
+   * Host username reported by the client (macOS `NSUserName()`). See
+   * `hostHomeDir`.
+   * @internal
+   */
+  hostUsername?: string;
   public readonly traceEmitter: TraceEmitter;
   /** @internal */ hasSystemPromptOverride: boolean;
   public memoryPolicy: ConversationMemoryPolicy;

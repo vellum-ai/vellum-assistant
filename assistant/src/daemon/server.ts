@@ -66,7 +66,10 @@ import {
   getWorkspacePromptPath,
 } from "../util/platform.js";
 import { registerDaemonCallbacks } from "../work-items/work-item-runner.js";
-import { AppSourceWatcher, setEnsureAppSourceWatcher } from "./app-source-watcher.js";
+import {
+  AppSourceWatcher,
+  setEnsureAppSourceWatcher,
+} from "./app-source-watcher.js";
 import { ConfigWatcher } from "./config-watcher.js";
 import {
   Conversation,
@@ -384,6 +387,23 @@ export class DaemonServer {
       "Transport metadata received",
     );
     conversation.setTransportHints(buildTransportHints(transport));
+    if (transport.interfaceId === "macos") {
+      // Client-reported host env flows into the `<workspace>` block so
+      // platform-managed (containerized) daemons show the user's actual
+      // Mac paths instead of the container's `os.homedir()`. Invalidate
+      // the cached workspace block when the values change so the next
+      // render picks them up.
+      const prevHomeDir = conversation.hostHomeDir;
+      const prevUsername = conversation.hostUsername;
+      conversation.hostHomeDir = transport.hostHomeDir;
+      conversation.hostUsername = transport.hostUsername;
+      if (
+        prevHomeDir !== conversation.hostHomeDir ||
+        prevUsername !== conversation.hostUsername
+      ) {
+        conversation.workspaceTopLevelDirty = true;
+      }
+    }
   }
 
   constructor() {

@@ -269,6 +269,48 @@ describe("Conversation workspace cache state", () => {
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
   });
 
+  test("renders client-reported host env when set on the conversation", () => {
+    conversation.hostHomeDir = "/Users/alice";
+    conversation.hostUsername = "alice";
+    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+
+    const block = conversation.getWorkspaceTopLevelContext();
+    expect(block).not.toBeNull();
+    expect(block!).toContain("Host home directory: /Users/alice");
+    expect(block!).toContain("Host username: alice");
+  });
+
+  test("falls back to daemon os info when client host env is absent", async () => {
+    const { homedir, userInfo } = await import("node:os");
+    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+
+    const block = conversation.getWorkspaceTopLevelContext();
+    expect(block).not.toBeNull();
+    expect(block!).toContain(`Host home directory: ${homedir()}`);
+    expect(block!).toContain(`Host username: ${userInfo().username}`);
+  });
+
+  test("re-renders with updated host env after marking dirty", () => {
+    conversation.hostHomeDir = "/Users/alice";
+    conversation.hostUsername = "alice";
+    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    expect(conversation.getWorkspaceTopLevelContext()!).toContain(
+      "Host home directory: /Users/alice",
+    );
+
+    conversation.hostHomeDir = "/Users/bob";
+    conversation.hostUsername = "bob";
+    conversation.markWorkspaceTopLevelDirty();
+    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+
+    const block = conversation.getWorkspaceTopLevelContext();
+    expect(block).not.toBeNull();
+    expect(block!).toContain("Host home directory: /Users/bob");
+    expect(block!).toContain("Host username: bob");
+    expect(block!).not.toContain("Host home directory: /Users/alice");
+    expect(block!).not.toContain("Host username: alice");
+  });
+
   test("workspace hints follow the resolved legacy directory when canonical is absent", () => {
     const workspaceRoot = mkdtempSync(
       join(tmpdir(), "conversation-workspace-cache-state-"),
