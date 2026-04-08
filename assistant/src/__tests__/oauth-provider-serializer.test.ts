@@ -181,6 +181,20 @@ describe("serializeProvider", () => {
     const result = serializeProvider(row)!;
     expect(result.scopeSeparator).toBe(" ");
   });
+
+  test("emits refreshUrl from the row when set to a URL", () => {
+    const row = makeRow({
+      refreshUrl: "https://refresh.example.com/token",
+    });
+    const result = serializeProvider(row)!;
+    expect(result.refreshUrl).toBe("https://refresh.example.com/token");
+  });
+
+  test("emits refreshUrl as null when the row value is null", () => {
+    const row = makeRow({ refreshUrl: null });
+    const result = serializeProvider(row)!;
+    expect(result.refreshUrl).toBeNull();
+  });
 });
 
 describe("serializeProviderSummary", () => {
@@ -250,5 +264,12 @@ describe("serializeProviderSummary", () => {
     const result = serializeProviderSummary(row)!;
     expect(result).not.toHaveProperty("scope_separator");
     expect(result).not.toHaveProperty("scopeSeparator");
+  });
+
+  test("does NOT include refresh_url (intentionally omitted from the HTTP summary)", () => {
+    const row = makeRow({ refreshUrl: "https://refresh.example.com/token" });
+    const result = serializeProviderSummary(row)!;
+    expect(result).not.toHaveProperty("refresh_url");
+    expect(result).not.toHaveProperty("refreshUrl");
   });
 });
