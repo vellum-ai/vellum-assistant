@@ -887,6 +887,12 @@ final class AppDelegateManagedConnectionController: ManagedAssistantConnectionCo
     }
 
     func bringUp(for assistant: LockfileAssistant) async {
-        appDelegate?.setupGatewayConnectionManager()
+        guard let appDelegate else { return }
+        // `setupGatewayConnectionManager()` short-circuits when
+        // `hasSetupDaemon` is true, which it always is after the app has
+        // finished launching. Reset it here so the switched assistant gets a
+        // fresh gateway client + SSE connection instead of a silent no-op.
+        appDelegate.hasSetupDaemon = false
+        appDelegate.setupGatewayConnectionManager()
     }
 }
