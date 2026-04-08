@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "subagent_spawn",
-      "description": "Spawn an independent subagent to work on a task in parallel. The subagent runs autonomously and its results are reported back when complete.",
+      "description": "Spawn an independent subagent to work on a task in parallel. The subagent runs autonomously and its results are reported back when complete.\n\nTwo modes:\n- **Regular sub-agent** (fork: false or omitted): Gets only the objective + context fields. Use for self-contained tasks with clear objectives. Can use scoped roles (researcher, coder, planner).\n- **Fork** (fork: true): Inherits full parent context (messages, system prompt, memory). Shares KV cache for near-free context inheritance. Use when the task benefits from knowing what you've been discussing. Always runs as general role. Results are internal by default (send_result_to_user: false). Read with last_n: 1 to get only the final synthesis.\n\nDecision heuristic: Does the task need to know what we've been talking about? Fork. Is it self-contained? Regular sub-agent.",
       "category": "orchestration",
       "risk": "low",
       "input_schema": {
@@ -21,14 +21,18 @@
             "type": "string",
             "description": "Optional additional context to pass to the subagent"
           },
+          "fork": {
+            "type": "boolean",
+            "description": "When true, the subagent inherits the parent's full context (messages, system prompt, memory) instead of receiving only the objective + context fields. Fork mode always runs as 'general' role (the role parameter is ignored) and defaults send_result_to_user to false. Use for tasks that benefit from the full conversational context."
+          },
           "send_result_to_user": {
             "type": "boolean",
-            "description": "Whether to present the subagent's result to the user when it completes. Defaults to true. Set to false for internal/silent processing."
+            "description": "Whether to present the subagent's result to the user when it completes. Defaults to true for regular sub-agents, false for forks. Set explicitly to override."
           },
           "role": {
             "type": "string",
             "enum": ["general", "researcher", "coder", "planner"],
-            "description": "Agent specialization that controls tool access. 'researcher': read-only (web, files, memory). 'coder': file and bash access. 'planner': read-only analysis. 'general': full access (default)."
+            "description": "Agent specialization that controls tool access. 'researcher': read-only (web, files, memory). 'coder': file and bash access. 'planner': read-only analysis. 'general': full access (default). Ignored when fork: true (forks always use general)."
           },
           "activity": {
             "type": "string",
