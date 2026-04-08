@@ -216,8 +216,20 @@ struct ChatBubble: View, Equatable {
     var activeSurfaceId: String?
 
     var isUser: Bool { message.role == .user }
+    var hasCopyableText: Bool {
+        !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var canForkFromMessage: Bool {
         onForkFromMessage != nil && message.daemonMessageId != nil && !message.isStreaming
+    }
+
+    var canInspectMessage: Bool {
+        showInspectButton && !isUser && message.daemonMessageId != nil
+    }
+
+    var supportsOverflowHover: Bool {
+        !message.isStreaming && (hasCopyableText || canInspectMessage || canForkFromMessage)
     }
 
     /// Composite identity for the `.task` modifier so it re-runs when either
@@ -416,7 +428,13 @@ struct ChatBubble: View, Equatable {
         .onChange(of: message.contentOrder) { _, _ in recomputeInterleavedContentCache() }
         .onChange(of: message.textSegments) { _, _ in recomputeInterleavedContentCache() }
         .onHover { hovering in
-            hoverState.isHovered = hovering
+            guard supportsOverflowHover else {
+                if hoverState.isHovered { hoverState.isHovered = false }
+                return
+            }
+            if hoverState.isHovered != hovering {
+                hoverState.isHovered = hovering
+            }
         }
         .task(id: mediaEmbedTaskID) {
             guard !message.isStreaming else { return }
