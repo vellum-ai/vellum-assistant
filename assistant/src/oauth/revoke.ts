@@ -11,7 +11,10 @@
  * - `{client_id}` — replaced with the OAuth app's client ID
  *
  * Non-string template values are coerced via String(value), matching platform's str(value)
- * fallback. Returns void on every path — callers must NOT depend on the upstream result.
+ * fallback. Substitution replaces ALL occurrences of each placeholder within a value
+ * (matching Python's str.replace default) and preserves literal semantics for replacement
+ * text (no $-pattern expansion). Returns void on every path — callers must NOT depend on
+ * the upstream result.
  */
 
 import { getLogger } from "../util/logger.js";
@@ -36,14 +39,14 @@ export async function tryRevokeOAuthToken(params: {
   if (bodyTemplate) {
     for (const [key, value] of Object.entries(bodyTemplate)) {
       if (typeof value === "string") {
-        // Use function replacements to bypass String.replace's $-pattern
-        // expansion (e.g. $&, $', $`, $$). This preserves literal semantics
-        // and mirrors Python's str.replace() behavior. Without this, an
-        // access token containing "$&" would expand to the matched string
-        // ("{access_token}") instead of being substituted literally.
+        // Use .replaceAll with function callbacks to:
+        // 1. Replace ALL occurrences (matching Python's str.replace default).
+        // 2. Bypass String.replace's $-pattern expansion (e.g. $&, $', $`, $$),
+        //    so an access token containing "$&" substitutes literally.
+        // This mirrors platform's str.replace() semantics character-for-character.
         body[key] = value
-          .replace("{access_token}", () => accessToken)
-          .replace("{client_id}", () => clientId);
+          .replaceAll("{access_token}", () => accessToken)
+          .replaceAll("{client_id}", () => clientId);
       } else {
         body[key] = String(value);
       }
