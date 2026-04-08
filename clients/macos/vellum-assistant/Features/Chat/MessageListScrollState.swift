@@ -538,6 +538,35 @@ final class MessageListScrollState {
         }
     }
 
+    /// Treats manual content expansion/collapse as explicit browsing intent.
+    ///
+    /// When the user opens tool details while the transcript is following the
+    /// bottom, immediately re-pinning defeats the interaction: the viewport
+    /// jumps, recovery keeps chasing new content, and the user loses their
+    /// place mid-inspection. Instead we:
+    /// 1. cancel any delayed restore/recovery bottom pins
+    /// 2. detach into `freeBrowsing`
+    /// 3. start a short expansion stabilization window so layout settles
+    ///
+    /// After the stabilization timeout, the transcript stays in
+    /// `freeBrowsing` until the user explicitly returns to latest.
+    func handleManualExpansionInteraction() {
+        scrollRestoreTask?.cancel()
+        scrollRestoreTask = nil
+        recoveryDeadline = nil
+
+        switch mode {
+        case .freeBrowsing:
+            break
+        case .stabilizing(let previousMode, _) where previousMode == .freeBrowsing:
+            break
+        default:
+            transition(to: .freeBrowsing)
+        }
+
+        beginStabilization(.expansion)
+    }
+
     private func cancelStabilizationTasks() {
         expansionTimeoutTask?.cancel()
         expansionTimeoutTask = nil
