@@ -506,8 +506,9 @@ export class SubagentManager {
       // Skip when the parent LLM itself called subagent_abort (it already has the tool result).
       if (this.onSubagentFinished && !options?.suppressNotification) {
         const label = managed.state.config.label;
+        const prefix = managed.state.isFork ? "Fork" : "Subagent";
         const message =
-          `[Subagent "${label}" was explicitly aborted]\n\n` +
+          `[${prefix} "${label}" was explicitly aborted]\n\n` +
           `This subagent was cancelled on purpose. Do NOT re-spawn or retry it.`;
         try {
           // Use the managed subagent's stored parentSendToClient so the
@@ -856,7 +857,8 @@ export class SubagentManager {
     if (!managed || TERMINAL_STATUSES.has(managed.state.status)) return false;
     if (!this.onSubagentFinished) return false;
 
-    let notificationString = `[Subagent "${info.label}" — ${urgency}] ${message}`;
+    const prefix = managed.state.isFork ? "Fork" : "Subagent";
+    let notificationString = `[${prefix} "${info.label}" — ${urgency}] ${message}`;
     if (urgency === "blocked") {
       notificationString +=
         "\nUse subagent_message to send guidance to this subagent.";
