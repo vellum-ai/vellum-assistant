@@ -27,6 +27,7 @@ struct HatchingStepView: View {
     private var managedSignInEnabled: Bool {
         MacOSClientFeatureFlagManager.shared.isEnabled("managed-sign-in")
     }
+    @State private var showFooterCharacters = false
     @State private var completionTask: Task<Void, Never>?
     @State private var isAnimatingProgress: Bool = false
     @State private var progressStartTime: CFAbsoluteTime?
@@ -51,6 +52,24 @@ struct HatchingStepView: View {
             }
 
             Spacer()
+
+            if let characters = Self.welcomeCharacters {
+                Image(nsImage: characters)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(UnevenRoundedRectangle(
+                        topLeadingRadius: 0,
+                        bottomLeadingRadius: VRadius.window,
+                        bottomTrailingRadius: VRadius.window,
+                        topTrailingRadius: 0
+                    ))
+                    .opacity(showFooterCharacters ? 1 : 0)
+                    .offset(y: showFooterCharacters ? 0 : 30)
+                    .animation(.easeOut(duration: 0.6).delay(0.5), value: showFooterCharacters)
+                    .onAppear { showFooterCharacters = true }
+                    .accessibilityHidden(true)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .opacity(showContent ? 1 : 0)
@@ -114,6 +133,11 @@ struct HatchingStepView: View {
             }
         }
     }
+
+    private static let welcomeCharacters: NSImage? = {
+        guard let url = ResourceBundle.bundle.url(forResource: "welcome-characters", withExtension: "png") else { return nil }
+        return NSImage(contentsOf: url)
+    }()
 
     // MARK: - Avatar
 
