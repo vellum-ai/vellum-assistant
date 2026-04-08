@@ -79,10 +79,11 @@ mock.module("../../../../config/loader.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Import module under test (after mocks are registered)
+// Import shared test utility (after mocks are registered)
 // ---------------------------------------------------------------------------
 
-const { buildCliProgram } = await import("../../../program.js");
+const { runAssistantCommandFull } =
+  await import("../../../__tests__/run-assistant-command.js");
 
 // ---------------------------------------------------------------------------
 // Fetch mock
@@ -93,47 +94,6 @@ const originalFetch = globalThis.fetch;
 afterEach(() => {
   globalThis.fetch = originalFetch;
 });
-
-// ---------------------------------------------------------------------------
-// Test helper
-// ---------------------------------------------------------------------------
-
-async function runCommand(
-  args: string[],
-): Promise<{ stdout: string; exitCode: number }> {
-  const originalStdoutWrite = process.stdout.write.bind(process.stdout);
-  const originalStderrWrite = process.stderr.write.bind(process.stderr);
-  const stdoutChunks: string[] = [];
-
-  process.stdout.write = ((chunk: unknown) => {
-    stdoutChunks.push(typeof chunk === "string" ? chunk : String(chunk));
-    return true;
-  }) as typeof process.stdout.write;
-
-  process.stderr.write = (() => true) as typeof process.stderr.write;
-
-  process.exitCode = 0;
-
-  try {
-    const program = await buildCliProgram();
-    program.exitOverride();
-    program.configureOutput({
-      writeErr: () => {},
-      writeOut: (str: string) => stdoutChunks.push(str),
-    });
-    await program.parseAsync(["node", "assistant", ...args]);
-  } catch {
-    if (process.exitCode === 0) process.exitCode = 1;
-  } finally {
-    process.stdout.write = originalStdoutWrite;
-    process.stderr.write = originalStderrWrite;
-  }
-
-  const exitCode = process.exitCode ?? 0;
-  process.exitCode = 0;
-
-  return { exitCode, stdout: stdoutChunks.join("") };
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -173,17 +133,21 @@ describe("assistant platform callback-routes list", () => {
     process.exitCode = 0;
   });
 
+  afterEach(() => {
+    process.exitCode = 0;
+  });
+
   test("returns empty list when no routes registered", async () => {
     mockFetchJson([]);
 
-    const { exitCode, stdout } = await runCommand([
+    const { stdout } = await runAssistantCommandFull(
       "platform",
       "callback-routes",
       "list",
       "--json",
-    ]);
+    );
 
-    expect(exitCode).toBe(0);
+    expect(process.exitCode ?? 0).toBe(0);
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(true);
     expect(parsed.routes).toEqual([]);
@@ -210,14 +174,14 @@ describe("assistant platform callback-routes list", () => {
     ];
     mockFetchJson(routes);
 
-    const { exitCode, stdout } = await runCommand([
+    const { stdout } = await runAssistantCommandFull(
       "platform",
       "callback-routes",
       "list",
       "--json",
-    ]);
+    );
 
-    expect(exitCode).toBe(0);
+    expect(process.exitCode ?? 0).toBe(0);
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(true);
     expect(parsed.routes).toHaveLength(2);
@@ -236,14 +200,14 @@ describe("assistant platform callback-routes list", () => {
       enabled: false,
     });
 
-    const { exitCode, stdout } = await runCommand([
+    const { stdout } = await runAssistantCommandFull(
       "platform",
       "callback-routes",
       "list",
       "--json",
-    ]);
+    );
 
-    expect(exitCode).toBe(1);
+    expect(process.exitCode).toBe(1);
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("Platform credentials not available");
@@ -252,22 +216,20 @@ describe("assistant platform callback-routes list", () => {
   test("handles platform HTTP error", async () => {
     mockFetchJson({ detail: "Unauthorized" }, 401);
 
-    const { exitCode, stdout } = await runCommand([
+    const { stdout } = await runAssistantCommandFull(
       "platform",
       "callback-routes",
       "list",
       "--json",
-    ]);
+    );
 
-    expect(exitCode).toBe(1);
+    expect(process.exitCode).toBe(1);
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("HTTP 401");
   });
 
   test("works for self-hosted assistants with connected credentials", async () => {
-    // IS_PLATFORM is false but we have stored credentials — enabled is false
-    // but platformBaseUrl and authHeader are set
     mockResolvePlatformCallbackRegistrationContext = async () =>
       connectedContext({ isPlatform: false, enabled: false });
 
@@ -282,14 +244,14 @@ describe("assistant platform callback-routes list", () => {
       },
     ]);
 
-    const { exitCode, stdout } = await runCommand([
+    const { stdout } = await runAssistantCommandFull(
       "platform",
       "callback-routes",
       "list",
       "--json",
-    ]);
+    );
 
-    expect(exitCode).toBe(0);
+    expect(process.exitCode ?? 0).toBe(0);
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(true);
     expect(parsed.routes).toHaveLength(1);
