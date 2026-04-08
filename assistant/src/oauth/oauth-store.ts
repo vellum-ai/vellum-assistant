@@ -396,7 +396,7 @@ export function updateProvider(
     pingHeaders: Record<string, string>;
     pingBody: unknown;
     revokeUrl: string | null;
-    revokeBodyTemplate: Record<string, string>;
+    revokeBodyTemplate: Record<string, string> | null;
     baseUrl: string;
     defaultScopes: string[];
     scopePolicy: Record<string, unknown>;
@@ -447,7 +447,10 @@ export function updateProvider(
     set.pingBody = JSON.stringify(params.pingBody);
   if (params.revokeUrl !== undefined) set.revokeUrl = params.revokeUrl;
   if (params.revokeBodyTemplate !== undefined)
-    set.revokeBodyTemplate = JSON.stringify(params.revokeBodyTemplate);
+    set.revokeBodyTemplate =
+      params.revokeBodyTemplate === null
+        ? null
+        : JSON.stringify(params.revokeBodyTemplate);
   if (params.baseUrl !== undefined) set.baseUrl = params.baseUrl;
   if (params.defaultScopes !== undefined)
     set.defaultScopes = JSON.stringify(params.defaultScopes);

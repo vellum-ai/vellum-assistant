@@ -89,6 +89,7 @@ type ProviderRow = {
   provider: string;
   authorizeUrl: string;
   tokenExchangeUrl: string;
+  refreshUrl: string | null;
   tokenEndpointAuthMethod: string | null;
   userinfoUrl: string | null;
   baseUrl: string | null;
@@ -100,6 +101,8 @@ type ProviderRow = {
   pingMethod: string | null;
   pingHeaders: string | null;
   pingBody: string | null;
+  revokeUrl: string | null;
+  revokeBodyTemplate: string | null;
   managedServiceConfigKey: string | null;
   displayLabel: string | null;
   description: string | null;
@@ -164,6 +167,7 @@ function makeProviderRow(
   return {
     authorizeUrl: "https://provider.example.com/authorize",
     tokenExchangeUrl: "https://provider.example.com/token",
+    refreshUrl: null,
     tokenEndpointAuthMethod: null,
     userinfoUrl: null,
     baseUrl: null,
@@ -176,6 +180,8 @@ function makeProviderRow(
     pingMethod: null,
     pingHeaders: null,
     pingBody: null,
+    revokeUrl: null,
+    revokeBodyTemplate: null,
     managedServiceConfigKey: null,
     displayLabel: null,
     description: null,

@@ -538,7 +538,7 @@ Examples:
     )
     .option(
       "--revoke-body-template <json>",
-      "JSON object body template for the revoke request, supporting {access_token} and {client_id} substitution.",
+      "JSON object body template for the revoke request, supporting {access_token} and {client_id} substitution. Pass an empty string to clear.",
     )
     .option(
       "--display-name <name>",
@@ -731,8 +731,15 @@ Examples:
             // for this field so drizzle writes `null` to clear the column.
             params.revokeUrl = opts.revokeUrl === "" ? null : opts.revokeUrl;
           }
-          if (opts.revokeBodyTemplate !== undefined)
-            params.revokeBodyTemplate = JSON.parse(opts.revokeBodyTemplate);
+          if (opts.revokeBodyTemplate !== undefined) {
+            // Empty string means "clear" — normalize to null to match --revoke-url's
+            // empty-string-clear semantics documented in the help text. The
+            // updateProvider type accepts `Record<string, string> | null` for this.
+            params.revokeBodyTemplate =
+              opts.revokeBodyTemplate === ""
+                ? null
+                : JSON.parse(opts.revokeBodyTemplate);
+          }
           if (opts.displayName !== undefined)
             params.displayLabel = opts.displayName;
           if (opts.description !== undefined)
