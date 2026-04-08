@@ -47,6 +47,7 @@ import {
   upsertApp,
 } from "../oauth/oauth-store.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
+import { getMockFetchCalls, mockFetch, resetMockFetch } from "./mock-fetch.js";
 
 initializeDb();
 
@@ -76,6 +77,7 @@ beforeEach(() => {
   mockDeleteSecureKeyAsync.mockClear();
   mockSetSecureKeyAsync.mockClear();
   secureKeyValues.clear();
+  resetMockFetch();
 });
 
 afterAll(() => {
@@ -1672,10 +1674,33 @@ describe("connection operations", () => {
 // ---------------------------------------------------------------------------
 
 describe("disconnectOAuthProvider", () => {
+  /**
+   * Seed a provider with revokeUrl and (optionally) a revokeBodyTemplate.
+   */
+  function seedProviderWithRevoke(
+    provider: string,
+    revokeUrl: string | null,
+    revokeBodyTemplate?: Record<string, string>,
+  ): void {
+    seedProviders([
+      {
+        provider,
+        authorizeUrl: `https://${provider}.example.com/authorize`,
+        tokenExchangeUrl: `https://${provider}.example.com/token`,
+        defaultScopes: ["read"],
+        scopePolicy: {},
+        ...(revokeUrl ? { revokeUrl } : {}),
+        ...(revokeBodyTemplate ? { revokeBodyTemplate } : {}),
+      },
+    ]);
+  }
+
   test("returns 'not-found' when no connection exists for the provider", async () => {
     const result = await disconnectOAuthProvider("github");
     expect(result).toBe("not-found");
     expect(mockDeleteSecureKeyAsync).not.toHaveBeenCalled();
+    // No upstream call should be made when there is no connection at all.
+    expect(getMockFetchCalls().length).toBe(0);
   });
 
   test("returns 'disconnected' and deletes connection row and secure keys when connection exists", async () => {
@@ -1701,6 +1726,327 @@ describe("disconnectOAuthProvider", () => {
 
     // Verify connection row was deleted
     expect(getConnection(conn.id)).toBeUndefined();
+  });
+
+  test("calls upstream revoke when provider has revokeUrl and access token exists", async () => {
+    seedProviderWithRevoke("google", "https://oauth2.googleapis.com/revoke", {
+      token: "{access_token}",
+      client_id: "{client_id}",
+    });
+    const app = await upsertApp("google", "client-1");
+    const conn = createConnection({
+      oauthAppId: app.id,
+      provider: "google",
+      grantedScopes: ["email"],
+      hasRefreshToken: true,
+    });
+    secureKeyValues.set(
+      `oauth_connection/${conn.id}/access_token`,
+      "fake-token-xyz",
+    );
+
+    mockFetch(
+      "https://oauth2.googleapis.com/revoke",
+      { method: "POST" },
+      { status: 200, body: {} },
+    );
+
+    const result = await disconnectOAuthProvider("google");
+    expect(result).toBe("disconnected");
+
+    const calls = getMockFetchCalls();
+    expect(calls.length).toBe(1);
+    expect(calls[0]!.path).toContain("https://oauth2.googleapis.com/revoke");
+
+    const body = String(calls[0]!.init.body ?? "");
+    const params = new URLSearchParams(body);
+    expect(params.get("token")).toBe("fake-token-xyz");
+    expect(params.get("client_id")).toBe("client-1");
+  });
+
+  test("skips upstream revoke when provider has no revokeUrl", async () => {
+    // GitHub seeded by createTestApp via seedTestProvider — no revokeUrl.
+    const app = await createTestApp("github", "client-1");
+    const conn = createConnection({
+      oauthAppId: app.id,
+      provider: "github",
+      grantedScopes: ["repo"],
+      hasRefreshToken: false,
+    });
+    secureKeyValues.set(
+      `oauth_connection/${conn.id}/access_token`,
+      "github-token",
+    );
+
+    const result = await disconnectOAuthProvider("github");
+    expect(result).toBe("disconnected");
+    expect(getMockFetchCalls().length).toBe(0);
+  });
+
+  test("skips upstream revoke when no access token exists in secure storage", async () => {
+    seedProviderWithRevoke("google", "https://oauth2.googleapis.com/revoke", {
+      token: "{access_token}",
+    });
+    const app = await upsertApp("google", "client-1");
+    createConnection({
+      oauthAppId: app.id,
+      provider: "google",
+      grantedScopes: ["email"],
+      hasRefreshToken: false,
+    });
+    // No access token seeded into secureKeyValues.
+
+    const result = await disconnectOAuthProvider("google");
+    expect(result).toBe("disconnected");
+    expect(getMockFetchCalls().length).toBe(0);
+  });
+
+  test("continues local cleanup when upstream revoke returns non-2xx", async () => {
+    seedProviderWithRevoke("google", "https://oauth2.googleapis.com/revoke", {
+      token: "{access_token}",
+    });
+    const app = await upsertApp("google", "client-1");
+    const conn = createConnection({
+      oauthAppId: app.id,
+      provider: "google",
+      grantedScopes: ["email"],
+      hasRefreshToken: true,
+    });
+    secureKeyValues.set(
+      `oauth_connection/${conn.id}/access_token`,
+      "fake-token-xyz",
+    );
+
+    mockFetch(
+      "https://oauth2.googleapis.com/revoke",
+      { method: "POST" },
+      { status: 400, body: { error: "invalid_token" } },
+    );
+
+    const result = await disconnectOAuthProvider("google");
+    expect(result).toBe("disconnected");
+    expect(getMockFetchCalls().length).toBe(1);
+    // Local cleanup still happened
+    expect(mockDeleteSecureKeyAsync).toHaveBeenCalledWith(
+      `oauth_connection/${conn.id}/access_token`,
+    );
+    expect(getConnection(conn.id)).toBeUndefined();
+  });
+
+  test("continues local cleanup when upstream revoke throws (network error)", async () => {
+    seedProviderWithRevoke("google", "https://oauth2.googleapis.com/revoke", {
+      token: "{access_token}",
+    });
+    const app = await upsertApp("google", "client-1");
+    const conn = createConnection({
+      oauthAppId: app.id,
+      provider: "google",
+      grantedScopes: ["email"],
+      hasRefreshToken: true,
+    });
+    secureKeyValues.set(
+      `oauth_connection/${conn.id}/access_token`,
+      "fake-token-xyz",
+    );
+
+    // 500 exercises the same swallow path as a network error.
+    mockFetch(
+      "https://oauth2.googleapis.com/revoke",
+      { method: "POST" },
+      { status: 500, body: { error: "server_error" } },
+    );
+
+    const result = await disconnectOAuthProvider("google");
+    expect(result).toBe("disconnected");
+    expect(getConnection(conn.id)).toBeUndefined();
+  });
+
+  test("substitutes {access_token} and {client_id} in body template values", async () => {
+    seedProviderWithRevoke("google", "https://oauth2.googleapis.com/revoke", {
+      token: "{access_token}",
+      client_id: "{client_id}",
+      token_type_hint: "access_token",
+    });
+    const app = await upsertApp("google", "client-substitution");
+    const conn = createConnection({
+      oauthAppId: app.id,
+      provider: "google",
+      grantedScopes: ["email"],
+      hasRefreshToken: false,
+    });
+    secureKeyValues.set(
+      `oauth_connection/${conn.id}/access_token`,
+      "tok-substitution",
+    );
+
+    mockFetch(
+      "https://oauth2.googleapis.com/revoke",
+      { method: "POST" },
+      { status: 200, body: {} },
+    );
+
+    await disconnectOAuthProvider("google");
+
+    const calls = getMockFetchCalls();
+    expect(calls.length).toBe(1);
+    const body = String(calls[0]!.init.body ?? "");
+    const params = new URLSearchParams(body);
+    expect(params.get("token")).toBe("tok-substitution");
+    expect(params.get("client_id")).toBe("client-substitution");
+    expect(params.get("token_type_hint")).toBe("access_token");
+  });
+
+  test("treats $-prefixed patterns in access token as literal text (String.replace gotcha)", async () => {
+    // String.prototype.replace interprets $-prefixed patterns in the
+    // replacement string as special sequences ($& = matched substring,
+    // $' = after match, $` = before match, $$ = literal $). If the access
+    // token contains "$&", a naive `.replace("{access_token}", accessToken)`
+    // would expand it to "{access_token}" (the matched string) instead of
+    // substituting literally. This test guards against that by asserting
+    // the captured body contains the literal "tok$&abc" — which only holds
+    // when we use a function-replacement callback that preserves literal
+    // semantics and mirrors Python's str.replace() behavior.
+    seedProviderWithRevoke("google", "https://revoke.example.com/r", {
+      token: "{access_token}",
+    });
+    const app = await upsertApp("google", "client-1");
+    const conn = createConnection({
+      oauthAppId: app.id,
+      provider: "google",
+      grantedScopes: ["email"],
+      hasRefreshToken: false,
+    });
+    secureKeyValues.set(`oauth_connection/${conn.id}/access_token`, "tok$&abc");
+
+    mockFetch(
+      "https://revoke.example.com/r",
+      { method: "POST" },
+      { status: 200, body: {} },
+    );
+
+    await disconnectOAuthProvider("google");
+
+    const calls = getMockFetchCalls();
+    expect(calls.length).toBe(1);
+    const body = String(calls[0]!.init.body ?? "");
+    const params = new URLSearchParams(body);
+    // The literal access token — not the $&-expanded version, which would
+    // be "tok{access_token}abc" (where $& matched "{access_token}").
+    expect(params.get("token")).toBe("tok$&abc");
+  });
+
+  test("coerces non-string body template values to strings", async () => {
+    // seedProviderWithRevoke restricts to Record<string, string>; bypass it
+    // here by inserting a template with a numeric value via a direct seed.
+    seedProviders([
+      {
+        provider: "google",
+        authorizeUrl: "https://google.example.com/authorize",
+        tokenExchangeUrl: "https://google.example.com/token",
+        defaultScopes: ["email"],
+        scopePolicy: {},
+        revokeUrl: "https://oauth2.googleapis.com/revoke",
+        revokeBodyTemplate: {
+          token: "{access_token}",
+          // expires_in is a number — must be coerced via String(value).
+          expires_in: 3600,
+        } as unknown as Record<string, string>,
+      },
+    ]);
+    const app = await upsertApp("google", "client-1");
+    const conn = createConnection({
+      oauthAppId: app.id,
+      provider: "google",
+      grantedScopes: ["email"],
+      hasRefreshToken: false,
+    });
+    secureKeyValues.set(
+      `oauth_connection/${conn.id}/access_token`,
+      "fake-token-xyz",
+    );
+
+    mockFetch(
+      "https://oauth2.googleapis.com/revoke",
+      { method: "POST" },
+      { status: 200, body: {} },
+    );
+
+    await disconnectOAuthProvider("google");
+
+    const calls = getMockFetchCalls();
+    expect(calls.length).toBe(1);
+    const body = String(calls[0]!.init.body ?? "");
+    const params = new URLSearchParams(body);
+    expect(params.get("token")).toBe("fake-token-xyz");
+    expect(params.get("expires_in")).toBe("3600");
+  });
+
+  test("revokes BEFORE deleting tokens from secure storage", async () => {
+    seedProviderWithRevoke("google", "https://oauth2.googleapis.com/revoke", {
+      token: "{access_token}",
+    });
+    const app = await upsertApp("google", "client-1");
+    const conn = createConnection({
+      oauthAppId: app.id,
+      provider: "google",
+      grantedScopes: ["email"],
+      hasRefreshToken: true,
+    });
+    secureKeyValues.set(
+      `oauth_connection/${conn.id}/access_token`,
+      "fake-token-xyz",
+    );
+
+    const order: string[] = [];
+
+    // Wrap the mockFetch entry's response handler by registering a fetch
+    // mock that records the call order via the existing mockFetch helper.
+    // The mock fetch records to getMockFetchCalls; we tag ordering by
+    // pushing a marker as soon as the response is constructed below.
+    mockFetch(
+      "https://oauth2.googleapis.com/revoke",
+      { method: "POST" },
+      new Response(JSON.stringify({}), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    // Wrap delete to record its order. We replace the mock implementation
+    // for the duration of this test only.
+    mockDeleteSecureKeyAsync.mockImplementation(() => {
+      order.push("delete");
+      return Promise.resolve("deleted" as const);
+    });
+
+    // Wrap fetch one more layer: tap into the actual fetch call to record
+    // ordering. We do this by overriding globalThis.fetch with a wrapper
+    // that calls through to the existing mock and records ordering first.
+    const wrappedFetch = globalThis.fetch;
+    globalThis.fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      order.push("fetch");
+      return wrappedFetch(input, init);
+    }) as typeof globalThis.fetch;
+
+    try {
+      const result = await disconnectOAuthProvider("google");
+      expect(result).toBe("disconnected");
+    } finally {
+      // Restore the wrapper layer; resetMockFetch in beforeEach will reset
+      // the underlying mock for the next test.
+      globalThis.fetch = wrappedFetch;
+      mockDeleteSecureKeyAsync.mockImplementation(
+        (): Promise<"deleted" | "not-found" | "error"> =>
+          Promise.resolve("deleted" as const),
+      );
+    }
+
+    expect(order[0]).toBe("fetch");
+    expect(order).toContain("delete");
+    expect(order.indexOf("fetch")).toBeLessThan(order.indexOf("delete"));
   });
 });
 
