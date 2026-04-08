@@ -112,6 +112,16 @@ describe("sanitizeConfigForTransfer", () => {
     expect(result).toBe(malformed);
   });
 
+  test("handles JSON null by returning original string", () => {
+    const result = sanitizeConfigForTransfer("null");
+    expect(result).toBe("null");
+  });
+
+  test("handles JSON array by returning original string", () => {
+    const result = sanitizeConfigForTransfer("[1, 2, 3]");
+    expect(result).toBe("[1, 2, 3]");
+  });
+
   test("output uses 2-space indentation with trailing newline", () => {
     const input = { name: "test" };
     const result = sanitizeConfigForTransfer(JSON.stringify(input));

@@ -11,7 +11,11 @@
 export function sanitizeConfigForTransfer(configJson: string): string {
   let config: Record<string, unknown>;
   try {
-    config = JSON.parse(configJson);
+    const parsed = JSON.parse(configJson);
+    if (typeof parsed !== "object" || parsed === null) {
+      return configJson;
+    }
+    config = parsed;
   } catch {
     return configJson;
   }
