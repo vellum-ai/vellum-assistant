@@ -259,6 +259,7 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
   - [`.containerRelativeFrame(.horizontal)`](https://developer.apple.com/documentation/swiftui/view/containerrelativeframe(_:alignment:)) — width constraint without FlexFrame.
   
   Never trade `HStack+Spacer` for `.frame(alignment:)` in lazy containers — fewer layout nodes is not worth O(n) recursive alignment queries per node.
+- **`AlignmentBarrierLayout` for LazyVStack protection**: Wrap content inside a `ScrollView` that contains a `LazyVStack` with `AlignmentBarrierLayout { ... }` to block `explicitAlignment` queries from cascading into the lazy container. The barrier returns `nil` for all alignment queries while passing through sizing and placement unchanged. This is a defense-in-depth measure — even if `.frame(maxWidth:, alignment:)` modifiers exist above the barrier, the alignment cascade stops at the barrier and never reaches the `LazyVStack`. See [`Layout.explicitAlignment`](https://developer.apple.com/documentation/swiftui/layout/explicitalignment(of:in:proposal:subviews:cache:)-3iqmu) and `clients/shared/DesignSystem/Layout/AlignmentBarrierLayout.swift`.
 - **Gallery**: When adding or modifying a design system primitive/component, update the corresponding Gallery section file (`Gallery/Sections/`) so the visual catalog stays current.
 - **Accessibility**: See `clients/AGENTS.md` § [Accessibility](../AGENTS.md#accessibility) for the full checklist (labels, hidden elements, custom interactions, AppKit panels). All rules there apply to macOS components.
 
