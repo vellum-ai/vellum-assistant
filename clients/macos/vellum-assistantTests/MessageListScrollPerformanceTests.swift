@@ -26,12 +26,13 @@ final class MessageListScrollPerformanceTests: XCTestCase {
         }
     }
 
-    // MARK: - Test 1: CachedMessageLayoutMetadata Computation (500 messages)
+    // MARK: - Test 1: TranscriptProjector Full Projection (500 messages)
 
-    /// Measures the wall-clock time to compute CachedMessageLayoutMetadata from
-    /// 500 messages. This exercises the O(n) scans (timestamp indices, subagent
-    /// grouping, preceding-assistant detection) that run on every cache miss.
-    func testCachedMessageLayoutMetadataComputation() {
+    /// Measures the wall-clock time to run `TranscriptProjector.project()` with
+    /// 500 messages. This exercises all O(n) scans (deduplication, timestamp
+    /// grouping, subagent grouping, confirmation detection, preceding-assistant
+    /// detection, thinking state) that run on every cache miss.
+    func testTranscriptProjectorFullProjection() {
         let messages = buildMessages(count: 500)
         let subagents: [SubagentInfo] = (0..<5).map { i in
             SubagentInfo(
@@ -43,60 +44,25 @@ final class MessageListScrollPerformanceTests: XCTestCase {
         }
 
         measure(metrics: [XCTClockMetric()]) {
-            // Replicate the core computation from MessageListView.precomputedState.
-            let displayMessages = messages
-
-            // Timestamp grouping (O(n) scan)
-            var showTimestamp = Set<UUID>()
-            if !displayMessages.isEmpty {
-                showTimestamp.insert(displayMessages[0].id)
-                let calendar = Calendar.current
-                for i in 1..<displayMessages.count {
-                    let current = displayMessages[i].timestamp
-                    let previous = displayMessages[i - 1].timestamp
-                    if !calendar.isDate(current, inSameDayAs: previous)
-                        || current.timeIntervalSince(previous) > 300 {
-                        showTimestamp.insert(displayMessages[i].id)
-                    }
-                }
-            }
-
-            // Index by ID (O(n))
-            let messageIndexById = Dictionary(
-                displayMessages.enumerated().map { ($1.id, $0) },
-                uniquingKeysWith: { _, last in last }
+            let model = TranscriptProjector.project(
+                messages: messages,
+                paginatedVisibleMessages: messages,
+                activeSubagents: subagents,
+                isSending: true,
+                isThinking: false,
+                isCompacting: false,
+                assistantStatusText: nil,
+                assistantActivityPhase: "",
+                assistantActivityAnchor: "",
+                assistantActivityReason: nil,
+                activePendingRequestId: nil,
+                highlightedMessageId: nil
             )
-
-            // Subagent grouping (O(s))
-            let subagentsByParent = Dictionary(
-                grouping: subagents.filter { $0.parentMessageId != nil },
-                by: { $0.parentMessageId! }
-            )
-
-            // Confirmation detection (O(n))
-            var nextDecidedConfirmationByIndex: [Int: ToolConfirmationData] = [:]
-            for i in displayMessages.indices {
-                if i + 1 < displayMessages.count,
-                   let conf = displayMessages[i + 1].confirmation,
-                   conf.state != .pending {
-                    nextDecidedConfirmationByIndex[i] = conf
-                }
-            }
-
-            // Preceding assistant detection (O(n))
-            var hasPrecedingAssistantByIndex = Set<Int>()
-            for i in displayMessages.indices where i > 0 {
-                if displayMessages[i - 1].role == .assistant {
-                    hasPrecedingAssistantByIndex.insert(i)
-                }
-            }
 
             // Prevent the compiler from optimizing away the work.
-            XCTAssertEqual(messageIndexById.count, 500)
-            XCTAssertFalse(showTimestamp.isEmpty)
-            _ = subagentsByParent
-            _ = nextDecidedConfirmationByIndex
-            _ = hasPrecedingAssistantByIndex
+            XCTAssertEqual(model.rows.count, 500)
+            XCTAssertFalse(model.rows.isEmpty)
+            XCTAssertEqual(model.subagentsByParent.count, 5)
         }
     }
 
@@ -163,13 +129,13 @@ final class MessageListScrollPerformanceTests: XCTestCase {
         }
     }
 
-    // MARK: - Test 5: Streaming Text Visible Through Cache Hit
+    // MARK: - Test 5: Streaming Text Visible Through Projection
 
-    /// Verifies that streaming text updates are visible even when the layout
-    /// cache returns a hit. The layout cache key should NOT change when only
-    /// text content changes (same message count, same streaming flag), but
-    /// the live message data passed to the ForEach must reflect the update.
-    @MainActor func testStreamingTextVisibleThroughCacheHit() {
+    /// Verifies that streaming text updates are reflected when the projector
+    /// is called with updated messages. Even when the cache key has not changed
+    /// (same count, same streaming flag), re-projecting with updated message
+    /// content produces rows containing the updated text.
+    func testStreamingTextVisibleThroughProjection() {
         var messages = buildMessages(count: 10)
         // Simulate an assistant message that is actively streaming.
         messages[messages.count - 1] = ChatMessage(
@@ -180,34 +146,25 @@ final class MessageListScrollPerformanceTests: XCTestCase {
             isStreaming: true
         )
 
-        let tracking = MessageListScrollState()
-
-        // Build initial cache.
-        let key = PrecomputedCacheKey(
-            messageListVersion: 1,
+        // Build initial projection.
+        let model1 = TranscriptProjector.project(
+            messages: messages,
+            paginatedVisibleMessages: messages,
+            activeSubagents: [],
             isSending: true,
             isThinking: false,
             isCompacting: false,
             assistantStatusText: nil,
-            activeSubagentFingerprint: 0,
-            displayedMessageCount: .max
+            assistantActivityPhase: "",
+            assistantActivityAnchor: "",
+            assistantActivityReason: nil,
+            activePendingRequestId: nil,
+            highlightedMessageId: nil
         )
-        let layout = CachedMessageLayoutMetadata(
-            displayMessageIds: messages.map(\.id),
-            messageIndexById: Dictionary(messages.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first }),
-            showTimestamp: [messages[0].id],
-            hasPrecedingAssistantByIndex: Set((1..<messages.count).filter { messages[$0 - 1].role == .assistant }),
-            hasUserMessage: true,
-            latestAssistantId: messages.last?.id,
-            subagentsByParent: [:],
-            orphanSubagents: [],
-            effectiveStatusText: nil
-        )
-        tracking.cachedLayoutKey = key
-        tracking.cachedLayoutMetadata = layout
+        XCTAssertEqual(model1.rows.last?.message.text, "Hello")
 
         // Simulate streaming: append text to the last message (same count,
-        // same isStreaming flag — the version counter does NOT bump).
+        // same isStreaming flag).
         messages[messages.count - 1] = ChatMessage(
             id: messages.last!.id,
             role: .assistant,
@@ -216,22 +173,28 @@ final class MessageListScrollPerformanceTests: XCTestCase {
             isStreaming: true
         )
 
-        // Build live message dictionary (as derivedState does on every body eval).
-        let liveMessageById = Dictionary(
-            messages.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
+        // Re-project with updated messages.
+        let model2 = TranscriptProjector.project(
+            messages: messages,
+            paginatedVisibleMessages: messages,
+            activeSubagents: [],
+            isSending: true,
+            isThinking: false,
+            isCompacting: false,
+            assistantStatusText: nil,
+            assistantActivityPhase: "",
+            assistantActivityAnchor: "",
+            assistantActivityReason: nil,
+            activePendingRequestId: nil,
+            highlightedMessageId: nil
         )
 
-        // The cache key hasn't changed — layout cache should still hit.
-        XCTAssertEqual(key, tracking.cachedLayoutKey)
-        XCTAssertNotNil(tracking.cachedLayoutMetadata)
-
-        // But the live message must reflect the updated text.
-        let lastId = messages.last!.id
-        let liveMessage = liveMessageById[lastId]
-        XCTAssertNotNil(liveMessage)
-        XCTAssertTrue(liveMessage!.text.contains("more streamed text"),
-                       "Live message must reflect streaming text update even on cache hit")
+        // The projected model must reflect the updated text.
+        XCTAssertTrue(model2.rows.last!.message.text.contains("more streamed text"),
+                       "Projected model must reflect streaming text update")
+        // Row count and identity should be stable.
+        XCTAssertEqual(model1.rows.count, model2.rows.count)
+        XCTAssertEqual(model1.rows.last?.id, model2.rows.last?.id)
     }
 
     // MARK: - Test 6: Confirmation Resolution Updates Live State
@@ -310,61 +273,35 @@ final class MessageListScrollPerformanceTests: XCTestCase {
                           "Subagent slices for the same message ID must differ")
     }
 
-    // MARK: - Test 8: Cache-Hit Steady-State Performance
+    // MARK: - Test 8: Projector Cache-Hit Steady-State Performance
 
-    /// Measures the cost of the live-data stage (message dictionary + confirmation
-    /// scans) that runs on every body evaluation, including cache hits.
-    /// This is the per-frame cost during streaming.
-    func testLiveStateSteadyStatePerformance() {
+    /// Measures the cost of repeated projector calls with identical inputs.
+    /// On cache hits in the real code path, the projector is not called
+    /// (the cached TranscriptRenderModel is returned). This test measures
+    /// re-projection cost as a worst-case baseline for the per-frame cost
+    /// during streaming when the cache misses.
+    func testProjectorSteadyStatePerformance() {
         let messages = buildMessages(count: 200)
 
         measure(metrics: [XCTClockMetric()]) {
             for _ in 0..<100 {
-                // Live message dictionary construction.
-                let liveMessageById = Dictionary(
-                    messages.map { ($0.id, $0) },
-                    uniquingKeysWith: { first, _ in first }
+                let model = TranscriptProjector.project(
+                    messages: messages,
+                    paginatedVisibleMessages: messages,
+                    activeSubagents: [],
+                    isSending: true,
+                    isThinking: false,
+                    isCompacting: false,
+                    assistantStatusText: nil,
+                    assistantActivityPhase: "",
+                    assistantActivityAnchor: "",
+                    assistantActivityReason: nil,
+                    activePendingRequestId: nil,
+                    highlightedMessageId: nil
                 )
 
-                // Confirmation detection (O(n)).
-                var nextDecided: [Int: ToolConfirmationData] = [:]
-                for i in messages.indices {
-                    if i + 1 < messages.count,
-                       let conf = messages[i + 1].confirmation,
-                       conf.state != .pending {
-                        nextDecided[i] = conf
-                    }
-                }
-
-                // Inline confirmation detection (O(n)).
-                var inlineSet = Set<Int>()
-                for i in messages.indices {
-                    guard let confirmation = messages[i].confirmation,
-                          confirmation.state == .pending,
-                          let toolUseId = confirmation.toolUseId,
-                          !toolUseId.isEmpty else { continue }
-                    for j in (0..<i).reversed() {
-                        let msg = messages[j]
-                        guard msg.role == .assistant, msg.confirmation == nil else { continue }
-                        if msg.toolCalls.contains(where: { $0.toolUseId == toolUseId && $0.pendingConfirmation != nil }) {
-                            inlineSet.insert(i)
-                        }
-                        break
-                    }
-                }
-
-                // Current turn detection (O(n)).
-                let lastTurnStart = messages.indices.reversed().first(where: { idx in
-                    messages[idx].role == .user
-                        && messages.index(after: idx) < messages.endIndex
-                        && messages[messages.index(after: idx)].role != .user
-                })
-
                 // Prevent compiler from optimizing away work.
-                XCTAssertEqual(liveMessageById.count, 200)
-                _ = nextDecided
-                _ = inlineSet
-                _ = lastTurnStart
+                XCTAssertEqual(model.rows.count, 200)
             }
         }
     }

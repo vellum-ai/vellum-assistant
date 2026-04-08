@@ -28,7 +28,7 @@ final class MessageListTypographyRefreshTests: XCTestCase {
         )
     }
 
-    private func makeMessageListContentView(state: MessageListDerivedState, typographyGeneration: Int) -> MessageListContentView {
+    private func makeMessageListContentView(state: TranscriptRenderModel, typographyGeneration: Int) -> MessageListContentView {
         MessageListContentView(
             state: state,
             providerCatalog: [],
@@ -94,27 +94,21 @@ final class MessageListTypographyRefreshTests: XCTestCase {
         )
     }
 
-    private func makeDerivedState() -> MessageListDerivedState {
+    private func makeDerivedState() -> TranscriptRenderModel {
         let message = ChatMessage(role: .assistant, text: "*italic*")
-        return MessageListDerivedState(
-            messageIndexById: [message.id: 0],
-            showTimestamp: [],
-            hasPrecedingAssistantByIndex: [],
-            hasUserMessage: false,
-            latestAssistantId: message.id,
-            subagentsByParent: [:],
-            orphanSubagents: [],
-            effectiveStatusText: nil,
-            displayMessages: [message],
+        return TranscriptProjector.project(
+            messages: [message],
+            paginatedVisibleMessages: [message],
+            activeSubagents: [],
+            isSending: false,
+            isThinking: false,
+            isCompacting: false,
+            assistantStatusText: nil,
+            assistantActivityPhase: "",
+            assistantActivityAnchor: "",
+            assistantActivityReason: nil,
             activePendingRequestId: nil,
-            nextDecidedConfirmationByIndex: [:],
-            isConfirmationRenderedInlineByIndex: [],
-            anchoredThinkingIndex: nil,
-            hasActiveToolCall: false,
-            canInlineProcessing: false,
-            shouldShowThinkingIndicator: false,
-            isStreamingWithoutText: false,
-            hasMessages: true
+            highlightedMessageId: nil
         )
     }
 }

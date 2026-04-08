@@ -417,8 +417,8 @@ final class MessageListScrollStateTests: XCTestCase {
         XCTAssertFalse(state.lastKnownLastMessageStreaming)
         XCTAssertEqual(state.lastKnownIncompleteToolCallCount, 0)
         XCTAssertEqual(state.lastKnownVisibleIdFingerprint, 0)
-        XCTAssertNil(state.cachedLayoutKey)
-        XCTAssertNil(state.cachedLayoutMetadata)
+        XCTAssertNil(state.cachedProjectionKey)
+        XCTAssertNil(state.cachedProjection)
     }
 
     // MARK: - cancelAll

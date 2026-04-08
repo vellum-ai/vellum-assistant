@@ -264,14 +264,14 @@ final class MessageListScrollState {
     /// tripping SwiftUI's "Modifying state during view update" runtime guard.
     @ObservationIgnored let derivedStateCache = MessageListDerivedStateCache()
 
-    @ObservationIgnored var cachedLayoutKey: PrecomputedCacheKey? {
-        get { derivedStateCache.cachedLayoutKey }
-        set { derivedStateCache.cachedLayoutKey = newValue }
+    @ObservationIgnored var cachedProjectionKey: PrecomputedCacheKey? {
+        get { derivedStateCache.cachedProjectionKey }
+        set { derivedStateCache.cachedProjectionKey = newValue }
     }
 
-    @ObservationIgnored var cachedLayoutMetadata: CachedMessageLayoutMetadata? {
-        get { derivedStateCache.cachedLayoutMetadata }
-        set { derivedStateCache.cachedLayoutMetadata = newValue }
+    @ObservationIgnored var cachedProjection: TranscriptRenderModel? {
+        get { derivedStateCache.cachedProjection }
+        set { derivedStateCache.cachedProjection = newValue }
     }
 
     @ObservationIgnored var messageListVersion: Int {
