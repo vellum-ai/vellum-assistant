@@ -92,6 +92,14 @@ export interface MigrationWizardState {
   /** Import commit result. */
   importResult?: ImportCommitResponse;
 
+  /** Credential import results from the transfer step (if credentials were in the bundle). */
+  credentialsImported?: {
+    total: number;
+    succeeded: number;
+    failed: number;
+    failedAccounts: string[];
+  };
+
   /** Timestamp of last state change (ISO 8601). */
   updatedAt: string;
 
@@ -317,7 +325,11 @@ export function goBackTo(
       ? { preflightResult: undefined }
       : {}),
     ...(targetIdx <= STEP_INDEX.get("transfer")!
-      ? { exportResult: undefined, importResult: undefined }
+      ? {
+          exportResult: undefined,
+          importResult: undefined,
+          credentialsImported: undefined,
+        }
       : {}),
   });
 }
@@ -488,7 +500,17 @@ export async function executeTransferStep(
 
     if (importResult.success) {
       current = setStepStatus(current, "transfer", "success");
-      current = { ...current, currentStep: "rebind-secrets" };
+      // Extract credential import results from the response (if present)
+      const credentialsImported = (
+        importResult as unknown as Record<string, unknown>
+      ).credentialsImported as
+        | MigrationWizardState["credentialsImported"]
+        | undefined;
+      current = {
+        ...current,
+        currentStep: "rebind-secrets",
+        ...(credentialsImported ? { credentialsImported } : {}),
+      };
     } else {
       current = setStepStatus(current, "transfer", "error", {
         message:
