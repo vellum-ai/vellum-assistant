@@ -726,23 +726,25 @@ extension AppDelegate {
     // MARK: - Assistant Switcher (multi-platform-assistant)
 
     /// Build the view model used by the menu-bar switcher. Production
-    /// handlers wrap `ManagedAssistantConnectionCoordinator.switchToManagedAssistant`,
-    /// the hatch path, and the existing vellum CLI retire path.
+    /// handlers wrap the existing `performSwitchAssistant(to:)` path, the
+    /// hatch path, and the existing vellum CLI retire path.
     func makeAssistantSwitcherViewModel() -> AssistantSwitcherViewModel {
-        // Reuse one coordinator + controller for the lifetime of the
-        // switcher rather than allocating per-click. The coordinator is
-        // effectively stateless today, but caching keeps this call site
-        // consistent with how `activateManagedAssistant` is wired and
-        // guards against silent drift if state is added later.
-        let controller = AppDelegateManagedConnectionController(appDelegate: self)
-        let coordinator = ManagedAssistantConnectionCoordinator(
-            connectionController: controller
-        )
-        assistantSwitcherConnectionController = controller
-        assistantSwitcherCoordinator = coordinator
         return AssistantSwitcherViewModel(
-            switchHandler: { assistantId in
-                _ = try await coordinator.switchToManagedAssistant(assistantId: assistantId)
+            switchHandler: { [weak self] assistantId in
+                guard let self else { return }
+                // Delegate to the existing full-switch path rather than
+                // `ManagedAssistantConnectionCoordinator.switchToManagedAssistant`.
+                // The coordinator only handles SSE teardown + reconnect; it
+                // does not close/recreate the main window, reset the avatar,
+                // clear the cached organization id, cancel actor-token
+                // bootstrap, or re-bootstrap the managed assistant. Wiring
+                // the switcher straight into `performSwitchAssistant(to:)`
+                // gives us the same battle-tested code path that
+                // TeleportSection and the post-retire fallback already use.
+                guard let target = LockfileAssistant.loadByName(assistantId) else {
+                    throw AssistantSwitcherError.assistantNotFound(assistantId)
+                }
+                self.performSwitchAssistant(to: target)
             },
             createHandler: { [weak self] name in
                 guard let self else { return }
@@ -862,33 +864,6 @@ extension AppDelegate {
     #endif
 }
 
-/// Bridges `ManagedAssistantConnectionController` onto the live
-/// `AppDelegate` connection stack. On teardown it disconnects the current
-/// gateway client; on bring-up it re-runs `setupGatewayConnectionManager()`
-/// which reads the (now-updated) active assistant from the lockfile and
-/// reconnects.
-@MainActor
-final class AppDelegateManagedConnectionController: ManagedAssistantConnectionController {
-    private weak var appDelegate: AppDelegate?
-
-    init(appDelegate: AppDelegate) {
-        self.appDelegate = appDelegate
-    }
-
-    func teardown() async {
-        appDelegate?.connectionManager.disconnect()
-    }
-
-    func bringUp(for assistant: LockfileAssistant) async {
-        // Reuse the existing `reconnectManagedAssistant()` entry point so
-        // the "reset the idempotency flag + re-run setup" dance lives in
-        // one place, rather than having the switcher toggle
-        // `hasSetupDaemon` directly and silently couple to every one-shot
-        // initializer inside `setupGatewayConnectionManager()`.
-        appDelegate?.reconnectManagedAssistant()
-    }
-}
-
 /// Typed errors surfaced from the menu-bar assistant switcher. Defined here
 /// (rather than alongside `ManagedAssistantConnectionCoordinatorError`)
 /// because these are UI-layer failures — no organization connected, the
@@ -897,6 +872,7 @@ enum AssistantSwitcherError: LocalizedError {
     case noOrganizationConnected
     case lockfilePersistenceFailed
     case retireNonActiveNotSupported
+    case assistantNotFound(String)
 
     var errorDescription: String? {
         switch self {
@@ -906,6 +882,8 @@ enum AssistantSwitcherError: LocalizedError {
             return "Failed to save the new assistant to your lockfile."
         case .retireNonActiveNotSupported:
             return "Retiring a non-active assistant from the switcher isn't supported yet. Switch to the assistant first, then retire it."
+        case .assistantNotFound(let id):
+            return "Could not find assistant \(id) in the lockfile."
         }
     }
 }

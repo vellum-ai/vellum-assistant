@@ -73,7 +73,7 @@ enum AssistantSwitcherMenu {
         // `AppDelegate.retireManagedAssistantFromSwitcher`.
         if let activeId,
            let activeAssistant = assistants.first(where: { $0.assistantId == activeId }) {
-            let activeTitle = AssistantDisplayName.resolve(activeAssistant.assistantId)
+            let activeTitle = displayTitle(for: activeAssistant, isActive: true)
             let retireItem = NSMenuItem(
                 title: "Retire \(activeTitle)…",
                 action: retireAction,
