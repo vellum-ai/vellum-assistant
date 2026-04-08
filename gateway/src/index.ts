@@ -203,6 +203,7 @@ async function main() {
   let telegramReady = false;
   let whatsappReady = false;
   let slackReady = false;
+  let vellumReady = false;
 
   const twilioValidationCaches = {
     credentials: credentialCache,
@@ -1512,6 +1513,13 @@ async function main() {
     const slackCreds = event.credentials.get("slack_channel");
     slackReady = !!(slackCreds?.bot_token && slackCreds?.app_token);
 
+    const vellumCreds = event.credentials.get("vellum");
+    vellumReady = !!(
+      vellumCreds?.platform_base_url &&
+      vellumCreds?.assistant_api_key &&
+      vellumCreds?.platform_assistant_id
+    );
+
     // Side effects keyed by service name
     if (changed.has("telegram") && telegramReady) {
       registerTelegramCommands();
@@ -1569,7 +1577,7 @@ async function main() {
 
     // Side effect: re-register email callback when ingress URL changes so
     // the platform callback route points at the new self-hosted URL.
-    if (event.changedKeys.has("ingress")) {
+    if (event.changedKeys.has("ingress") && vellumReady) {
       registerEmailCallbackRoute({
         credentials: credentialCache,
         configFile: configFileCache,
