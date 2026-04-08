@@ -388,10 +388,13 @@ extension AppDelegate {
                     ))
                 case .appFilesChanged(let msg):
                     self.refreshAppsCache()
-                    for (surfaceId, appSurfaceId) in self.surfaceManager.surfaceAppIds {
-                        guard appSurfaceId == msg.appId else { continue }
-                        self.surfaceManager.surfaceCoordinators[surfaceId]?.webView?.reload()
-                    }
+                    // WebView reload is handled by the separate ui_surface_update
+                    // message which triggers updateNSView → reloadGeneration →
+                    // loadHTMLString with fresh compiled HTML. Calling
+                    // webView.reload() here would replay stale inline HTML for
+                    // surfaces loaded via loadHTMLString (isInlineFallback),
+                    // racing with the correct ui_surface_update path.
+                    _ = msg
                 case .uiLayoutConfig(let msg):
                     self.mainWindow?.windowState.applyLayoutConfig(msg)
 

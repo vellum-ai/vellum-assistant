@@ -65,6 +65,23 @@ export function isMultifileApp(app: AppDefinition): boolean {
 }
 
 /**
+ * Resolve the effective HTML for an app. For single-file apps this is
+ * `htmlDefinition` (the root index.html). For multifile apps it reads the
+ * compiled `dist/index.html` and inlines JS/CSS assets so the result is a
+ * self-contained HTML string suitable for `loadHTMLString`.
+ */
+export function resolveEffectiveAppHtml(app: AppDefinition): string {
+  if (!isMultifileApp(app)) return app.htmlDefinition;
+
+  const appDir = getAppDirPath(app.id);
+  const distIndex = join(appDir, "dist", "index.html");
+  if (existsSync(distIndex)) {
+    return inlineDistAssets(appDir, readFileSync(distIndex, "utf-8"));
+  }
+  return app.htmlDefinition;
+}
+
+/**
  * Inline dist assets (main.js, main.css) into the compiled HTML so it can be
  * delivered as a self-contained string via loadHTMLString/SSE without needing
  * the client to resolve external script/stylesheet URLs.
