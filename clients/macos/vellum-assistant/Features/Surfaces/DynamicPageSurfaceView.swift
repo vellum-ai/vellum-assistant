@@ -446,6 +446,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.allowsLinkPreview = false
         webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
         context.coordinator.webView = webView
 
         log.info("Creating DynamicPageSurfaceView: appId=\(self.appId ?? "nil", privacy: .public), dataBridge=\(self.appId != nil ? "injected" : "skipped", privacy: .public), sandboxMode=\(self.sandboxMode)")
@@ -697,9 +698,10 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         let controller = webView.configuration.userContentController
         controller.removeScriptMessageHandler(forName: "vellumBridge")
         controller.removeAllUserScripts()
-        // Nil out the navigation delegate to sever the last reference
+        // Nil out delegates to sever the last references
         // from the web view back to the coordinator.
         webView.navigationDelegate = nil
+        webView.uiDelegate = nil
     }
 
 }
