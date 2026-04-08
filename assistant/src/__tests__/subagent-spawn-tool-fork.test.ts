@@ -29,8 +29,8 @@ mock.module("../memory/conversation-crud.js", () => ({
   createConversation: () => ({ id: "mock-conv" }),
 }));
 
-import { getSubagentManager } from "../subagent/index.js";
 import type { Message } from "../providers/types.js";
+import { getSubagentManager } from "../subagent/index.js";
 import { executeSubagentSpawn } from "../tools/subagent/spawn.js";
 
 // ── Shared helpers ──────────────────────────────────────────────────
