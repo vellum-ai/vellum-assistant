@@ -188,12 +188,36 @@ export function ensurePromptFiles(): void {
 }
 
 /**
+ * Structured pre-chat onboarding context collected by the native client flow
+ * (see TDD Phase 2 — pre-chat onboarding).  When present, the assistant treats
+ * identity and work context as already resolved and skips the corresponding
+ * discovery goals in BOOTSTRAP.md.
+ *
+ * All fields are optional so the shape can evolve without breaking callers.
+ * No caller passes this yet — it is a forward-compatible injection point that
+ * Phase 2 (LUM-804) will populate.
+ */
+export interface OnboardingContext {
+  /** Tools/services the user selected in the pre-chat flow (e.g. "slack", "gmail"). */
+  tools?: string[];
+  /** Task categories the user selected (e.g. "code-building", "writing"). */
+  tasks?: string[];
+  /** Tone slider value (e.g. "casual", "balanced", "professional"). */
+  tone?: string;
+  /** What the user wants to be called.  May be null if they skipped. */
+  userName?: string | null;
+  /** What the user named the assistant.  May be null if they skipped. */
+  assistantName?: string | null;
+}
+
+/**
  * Build the system prompt from ~/.vellum prompt files.
  *
  * Composition:
  *   1. Base prompt: IDENTITY.md + SOUL.md (guaranteed to exist after ensurePromptFiles)
  *   2. Append USER.md (user profile)
- *   3. If BOOTSTRAP.md exists, append first-run ritual instructions
+ *   3. If BOOTSTRAP.md exists, append pre-chat onboarding context (when provided)
+ *      and first-run ritual instructions
  */
 export interface BuildSystemPromptOptions {
   hasNoClient?: boolean;
@@ -201,6 +225,11 @@ export interface BuildSystemPromptOptions {
   userPersona?: string | null;
   channelPersona?: string | null;
   userSlug?: string | null;
+  /**
+   * Structured pre-chat onboarding context, if the client collected it.
+   * Only rendered when BOOTSTRAP.md is also being included (first-run).
+   */
+  onboardingContext?: OnboardingContext | null;
 }
 
 /**
@@ -280,6 +309,10 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   if (options?.channelPersona) dynamicParts.push(options.channelPersona);
   if (user && !userIsTemplate && !options?.userPersona) dynamicParts.push(user);
   if (includeBootstrap) {
+    const onboardingBlock = formatOnboardingContext(options?.onboardingContext);
+    if (onboardingBlock) {
+      dynamicParts.push(onboardingBlock);
+    }
     dynamicParts.push(
       "# First-Run Ritual\n\n" +
         "BOOTSTRAP.md is present — this is your first conversation. Follow its instructions.\n\n" +
@@ -319,6 +352,40 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const dynamic = dynamicParts.join("\n\n");
 
   return staticParts.join("\n\n") + SYSTEM_PROMPT_CACHE_BOUNDARY + dynamic;
+}
+
+/**
+ * Render pre-chat onboarding context as a labeled system-prompt block.  The
+ * model is instructed (via BOOTSTRAP.md) to treat any field present here as
+ * already-resolved and skip the corresponding discovery goal.  Returns the
+ * empty string when `ctx` is null/undefined or contains no meaningful fields,
+ * so callers can unconditionally push the result.
+ */
+function formatOnboardingContext(
+  ctx: OnboardingContext | null | undefined,
+): string {
+  if (!ctx) return "";
+
+  const lines: string[] = [];
+  if (ctx.assistantName) lines.push(`- Your name: ${ctx.assistantName}`);
+  if (ctx.userName) lines.push(`- Their name: ${ctx.userName}`);
+  if (ctx.tone) lines.push(`- Tone preference: ${ctx.tone}`);
+  if (ctx.tools && ctx.tools.length > 0) {
+    lines.push(`- Tools they selected: ${ctx.tools.join(", ")}`);
+  }
+  if (ctx.tasks && ctx.tasks.length > 0) {
+    lines.push(`- Tasks they focus on: ${ctx.tasks.join(", ")}`);
+  }
+
+  if (lines.length === 0) return "";
+
+  return [
+    "## Pre-Chat Onboarding Context",
+    "",
+    "The user completed the pre-chat onboarding flow before starting this conversation. These values are already resolved — use them directly, do not re-ask, and write them to IDENTITY.md / USER.md immediately per BOOTSTRAP.md's technical contract.",
+    "",
+    ...lines,
+  ].join("\n");
 }
 
 function buildAttachmentSection(): string {

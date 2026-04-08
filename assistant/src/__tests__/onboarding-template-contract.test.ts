@@ -17,70 +17,159 @@ describe("onboarding template contracts", () => {
       expect(bootstrap).toMatch(/^_ Lines starting with _/);
     });
 
-    test("contains identity discovery prompts", () => {
+    test("frames the assistant as a new colleague, not a product demo", () => {
       const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("your name");
-      expect(lower).toContain("personality");
+      expect(lower).toContain("new colleague");
+      expect(lower).toContain("not a product demo");
     });
 
-    test("leads with personality-first emotional arc", () => {
+    // ── Core pattern ──────────────────────────────────────────────────────
+
+    test("states the core pattern: infer → do → surface → offer", () => {
       const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("personality");
-      expect(lower).toContain("vibe");
-      // Personality arc should come before usefulness arc
-      const personalityIdx = lower.indexOf("oh, this has personality");
-      const usefulIdx = lower.indexOf("oh, this is useful");
-      expect(personalityIdx).toBeGreaterThan(-1);
-      expect(usefulIdx).toBeGreaterThan(-1);
-      expect(personalityIdx).toBeLessThan(usefulIdx);
+      expect(lower).toContain("core pattern");
+      expect(lower).toContain("infer");
+      expect(lower).toContain("surface what you learned");
+      // The four beats should appear in order inside the core pattern line.
+      const inferIdx = lower.indexOf("infer");
+      const surfaceIdx = lower.indexOf("surface what you learned");
+      const offerIdx = lower.indexOf("offer the next level");
+      expect(inferIdx).toBeLessThan(surfaceIdx);
+      expect(surfaceIdx).toBeLessThan(offerIdx);
     });
 
-    test("contains name selection with change-later instruction", () => {
+    // ── The seven goals ───────────────────────────────────────────────────
+
+    test("declares a Goals section", () => {
+      expect(bootstrap).toMatch(/^## Goals/m);
+    });
+
+    test("goal: mutual identity — gently, or not at all", () => {
       const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("what they want to call you");
-      expect(lower).toContain("change it later");
+      expect(lower).toContain("mutual identity");
+      expect(lower).toContain("gently, or not at all");
     });
 
-    test("name exchange happens before personality quiz", () => {
-      const nameIdx = bootstrap.indexOf("Step 1: Name Exchange");
-      const quizIdx = bootstrap.indexOf("Step 2: Personality Quiz");
-      expect(nameIdx).toBeGreaterThan(-1);
-      expect(quizIdx).toBeGreaterThan(-1);
-      expect(nameIdx).toBeLessThan(quizIdx);
-    });
-
-    test("gathers user context: work role, hobbies, daily tools", () => {
+    test("goal: prove value fast (wow moment)", () => {
       const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("work role");
-      expect(lower).toContain("hobbies");
-      expect(lower).toContain("tools");
+      expect(lower).toContain("prove value fast");
+      expect(lower).toContain("wow moment");
     });
 
-    test("references ui_show payloads from BOOTSTRAP-REFERENCE.md", () => {
-      expect(bootstrap).toContain("ui_show");
-      expect(bootstrap).toContain("BOOTSTRAP-REFERENCE.md");
-    });
-
-    test("contains wrapping-up criteria with deletion instructions", () => {
+    test("goal: infer, don't interrogate — no quiz, no forms", () => {
       const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("wrapping up");
-      expect(lower).toContain("delete");
-      expect(lower).toContain("bootstrap.md");
+      expect(lower).toContain("infer, don't interrogate");
+      expect(lower).toContain("no personality quiz");
+      expect(lower).toContain("no dropdown forms");
     });
 
-    test("contains refusal policy", () => {
+    test("goal: surface what you learned (correctable receipt)", () => {
       const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("hard-required");
-      expect(lower).toContain("best-effort");
-      expect(lower).toContain("declined");
-      expect(lower).toContain("not interrogation");
+      expect(lower).toContain("surface what you learned");
+      expect(lower).toContain("correct");
     });
 
-    test("defines resolved as provided, inferred, or declined", () => {
+    test("goal: offer the next level", () => {
       const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("resolved");
-      expect(lower).toContain("inferred");
-      expect(lower).toContain("declined");
+      expect(lower).toContain("offer the next level");
+    });
+
+    test("goal: write everything immediately, never batch saves", () => {
+      const lower = bootstrap.toLowerCase();
+      expect(lower).toContain("write everything immediately");
+      expect(lower).toContain("never batch saves");
+      expect(lower).toContain("same turn");
+    });
+
+    test("goal: clean up — delete both bootstrap files", () => {
+      const lower = bootstrap.toLowerCase();
+      expect(lower).toContain("clean up");
+      expect(lower).toContain("one shot");
+    });
+
+    // ── The four constraints ──────────────────────────────────────────────
+
+    test("declares a Constraints section", () => {
+      expect(bootstrap).toMatch(/^## Constraints/m);
+    });
+
+    test("constraint: $2 soft / $5 hard budget cap", () => {
+      expect(bootstrap).toContain("$2");
+      expect(bootstrap).toContain("$5");
+      const lower = bootstrap.toLowerCase();
+      expect(lower).toContain("soft");
+      expect(lower).toContain("hard");
+    });
+
+    test("constraint: no more than 2 questions in a row without doing something", () => {
+      const lower = bootstrap.toLowerCase();
+      expect(lower).toContain("2 questions in a row");
+      expect(lower).toContain("without doing something");
+    });
+
+    test("constraint: don't block on setup", () => {
+      const lower = bootstrap.toLowerCase();
+      expect(lower).toContain("don't block on setup");
+    });
+
+    test("constraint: one-shot, bootstrap files deleted at end regardless", () => {
+      const lower = bootstrap.toLowerCase();
+      expect(lower).toContain("one-shot");
+      expect(lower).toContain("regardless of how far you got");
+    });
+
+    // ── What the model owns ───────────────────────────────────────────────
+
+    test("declares what the model owns (no prescribed sequencing)", () => {
+      const lower = bootstrap.toLowerCase();
+      expect(lower).toContain("what you own");
+      expect(lower).toContain("sequencing and pacing");
+      expect(lower).toContain("there is no step 1");
+    });
+
+    test("tells the model to match the user's energy", () => {
+      const lower = bootstrap.toLowerCase();
+      expect(lower).toContain("match the user's energy");
+    });
+
+    // ── Identity handling ─────────────────────────────────────────────────
+
+    test("does not force names — provides the Pax default fallback", () => {
+      expect(bootstrap).toContain("Pax");
+      expect(bootstrap).toContain("I'll go by Pax");
+      const lower = bootstrap.toLowerCase();
+      expect(lower).toContain("do not re-ask names");
+    });
+
+    test("instructs task-first openings to skip introductions", () => {
+      const lower = bootstrap.toLowerCase();
+      expect(lower).toContain("skip introductions");
+    });
+
+    // ── Pre-chat onboarding context (forward-compatible injection) ─────────
+
+    test("describes the pre-chat onboarding context shape for Phase 2", () => {
+      expect(bootstrap).toContain("Pre-Chat Onboarding Context");
+      expect(bootstrap).toContain('"onboarding"');
+      expect(bootstrap).toContain("userName");
+      expect(bootstrap).toContain("assistantName");
+      expect(bootstrap).toContain("tools");
+      expect(bootstrap).toContain("tasks");
+      expect(bootstrap).toContain("tone");
+    });
+
+    test("tells model to use pre-chat context if present, fall back to inference if not", () => {
+      const lower = bootstrap.toLowerCase();
+      expect(lower).toContain("if this block is present");
+      expect(lower).toContain("if this block is not present");
+      expect(lower).toContain("fall back to inferring");
+    });
+
+    // ── Technical contract ────────────────────────────────────────────────
+
+    test("declares a technical contract section", () => {
+      const lower = bootstrap.toLowerCase();
+      expect(lower).toContain("technical contract");
     });
 
     test("instructs saving to IDENTITY.md, USER.md, and SOUL.md via file_edit", () => {
@@ -90,47 +179,133 @@ describe("onboarding template contracts", () => {
       expect(bootstrap).toContain("file_edit");
     });
 
-    test("includes budget constraint", () => {
-      expect(bootstrap).toContain("$5");
-    });
-
-    test("includes new colleague framing", () => {
-      expect(bootstrap).toContain("new colleague");
-    });
-
-    test("instructs checking Connected Services for email task variant", () => {
-      expect(bootstrap).toContain("Connected Services");
-      expect(bootstrap).toContain("Connect my email");
-      expect(bootstrap).toContain("Check my email");
-    });
-
-    test("keeps momentum by chaining off the first task", () => {
+    test("gathers user context fields: work role, hobbies, daily tools", () => {
       const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("keep the momentum");
-      expect(lower).toContain("don't pivot to setup");
-      expect(lower).toContain("chain off the task");
-      expect(lower).toContain("while we're at it");
+      expect(lower).toContain("work role");
+      expect(lower).toContain("hobbies");
+      expect(lower).toContain("daily tools");
+    });
+
+    test("defines resolved as provided, inferred, or declined (with marker format)", () => {
+      const lower = bootstrap.toLowerCase();
+      expect(lower).toContain("resolved");
+      expect(lower).toContain("inferred");
+      expect(lower).toContain("declined");
+      expect(lower).toContain("declined_by_user");
+    });
+
+    test("vibe is hard-required, everything else best-effort", () => {
+      const lower = bootstrap.toLowerCase();
+      expect(lower).toContain("hard-required");
+      expect(lower).toContain("best-effort");
+    });
+
+    test("points at BOOTSTRAP-REFERENCE.md as an inference reference, not a form", () => {
+      expect(bootstrap).toContain("BOOTSTRAP-REFERENCE.md");
+      const lower = bootstrap.toLowerCase();
+      expect(lower).toContain("not a form");
+      expect(lower).toContain("not a quiz");
+    });
+
+    test("references Connected Services section advisorially, not as a scripted gate", () => {
+      expect(bootstrap).toContain("Connected Services");
+    });
+
+    // ── Cleanup ───────────────────────────────────────────────────────────
+
+    test("contains cleanup instructions deleting both bootstrap files", () => {
+      expect(bootstrap).toContain("BOOTSTRAP.md");
+      expect(bootstrap).toContain("BOOTSTRAP-REFERENCE.md");
+      const lower = bootstrap.toLowerCase();
+      expect(lower).toContain("delete");
+    });
+
+    test("instructs writing a journal entry before cleanup", () => {
+      const lower = bootstrap.toLowerCase();
+      expect(lower).toContain("journal entry");
+    });
+
+    // ── Negative assertions: the old scripted contract is gone ────────────
+
+    test("does NOT contain scripted numbered steps (Step 1:, Step 2:, …)", () => {
+      // The whole point of Phase 1 is to strip the rigid scripted sequence.
+      // If these come back, something has regressed.
+      expect(bootstrap).not.toMatch(/^### Step \d+:/m);
+      expect(bootstrap).not.toContain("Step 1: Name Exchange");
+      expect(bootstrap).not.toContain("Step 2: Personality Quiz");
+      expect(bootstrap).not.toContain("Step 3: What's on Your Mind");
+      expect(bootstrap).not.toContain("Step 4: First Task");
+      expect(bootstrap).not.toContain("Step 5: Keep the Momentum");
+    });
+
+    test("does NOT prescribe a personality quiz / dropdown form", () => {
+      // The old scripted version had a "### Step 2: Personality Quiz" header
+      // pointing at a ui_show form payload.  None of those surface strings
+      // should reappear.  The word "dropdowns" is intentionally allowed in
+      // the forbidding sense ("No dropdown forms", "never show dropdowns"),
+      // which is part of the new contract, not a regression.
+      expect(bootstrap).not.toContain("Personality Quiz");
+      expect(bootstrap).not.toContain("personality form");
+      expect(bootstrap).not.toContain("ui_show");
+      expect(bootstrap).not.toContain("surface_type");
+    });
+
+    test("does NOT prescribe the old emotional arc or task-card copy", () => {
+      // These were the tell-tale strings of the scripted version.
+      expect(bootstrap).not.toContain("Oh, this has personality");
+      expect(bootstrap).not.toContain("Oh, this is useful");
+      expect(bootstrap).not.toContain("Pick something. I'll do it right now.");
+      expect(bootstrap).not.toContain("chain off the task");
+      expect(bootstrap).not.toContain("while we're at it");
     });
   });
 
   describe("BOOTSTRAP-REFERENCE.md", () => {
-    test("contains personality form with 4 dropdowns", () => {
-      expect(bootstrapRef).toContain('surface_type: "form"');
-      expect(bootstrapRef).toContain("communication_style");
-      expect(bootstrapRef).toContain("task_style");
-      expect(bootstrapRef).toContain("humor");
-      expect(bootstrapRef).toContain("depth");
+    test("preserves comment line format instruction", () => {
+      expect(bootstrapRef).toMatch(/^_ /);
     });
 
-    test("contains email-not-connected task card variant", () => {
-      expect(bootstrapRef).toContain("Email Not Connected");
-      expect(bootstrapRef).toContain("Connect my email");
-      expect(bootstrapRef).toContain("relay_prompt");
+    test("is explicitly framed as inference reference, not a form/quiz/menu", () => {
+      const lower = bootstrapRef.toLowerCase();
+      expect(lower).toContain("not a form");
+      expect(lower).toContain("not a quiz");
+      expect(lower).toContain("not a menu");
+      expect(lower).toContain("inference reference");
     });
 
-    test("contains email-already-connected task card variant", () => {
-      expect(bootstrapRef).toContain("Email Already Connected");
-      expect(bootstrapRef).toContain("Check my email");
+    test("covers all four personality dimensions", () => {
+      const lower = bootstrapRef.toLowerCase();
+      expect(lower).toContain("communication style");
+      expect(lower).toContain("task style");
+      expect(lower).toContain("humor");
+      expect(lower).toContain("depth");
+    });
+
+    test("tells the model to save specific observations to SOUL.md", () => {
+      expect(bootstrapRef).toContain("SOUL.md");
+      const lower = bootstrapRef.toLowerCase();
+      expect(lower).toContain("specific observations");
+    });
+
+    test("explicitly forbids self-reporting / dropdown delivery", () => {
+      const lower = bootstrapRef.toLowerCase();
+      expect(lower).toContain("never ask the user to self-report");
+      expect(lower).toContain("never show them as dropdowns");
+    });
+
+    // ── Negative assertions: the old ui_show payloads are gone ────────────
+
+    test("does NOT contain any ui_show form payload", () => {
+      expect(bootstrapRef).not.toContain("ui_show");
+      expect(bootstrapRef).not.toContain('surface_type: "form"');
+      expect(bootstrapRef).not.toContain("submitLabel");
+    });
+
+    test("does NOT contain the old task-card ui_show payloads", () => {
+      expect(bootstrapRef).not.toContain('surface_type: "card"');
+      expect(bootstrapRef).not.toContain("relay_prompt");
+      expect(bootstrapRef).not.toContain("Email Not Connected");
+      expect(bootstrapRef).not.toContain("Email Already Connected");
     });
   });
 

@@ -271,6 +271,73 @@ describe("buildSystemPrompt", () => {
     expect(basePrompt(result)).toBe("");
   });
 
+  describe("pre-chat onboarding context injection", () => {
+    test("renders the Pre-Chat Onboarding Context block when context is provided and BOOTSTRAP.md is present", () => {
+      writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "# First run");
+      const result = buildSystemPrompt({
+        onboardingContext: {
+          tools: ["slack", "linear", "figma"],
+          tasks: ["code-building", "writing"],
+          tone: "casual",
+          userName: "Alex",
+          assistantName: "Pax",
+        },
+      });
+      expect(result).toContain("## Pre-Chat Onboarding Context");
+      expect(result).toContain("Your name: Pax");
+      expect(result).toContain("Their name: Alex");
+      expect(result).toContain("Tone preference: casual");
+      expect(result).toContain("Tools they selected: slack, linear, figma");
+      expect(result).toContain("Tasks they focus on: code-building, writing");
+      // Must be positioned before the First-Run Ritual so the model reads
+      // the already-resolved values before the BOOTSTRAP.md instructions.
+      const ctxIdx = result.indexOf("## Pre-Chat Onboarding Context");
+      const ritualIdx = result.indexOf("# First-Run Ritual");
+      expect(ctxIdx).toBeGreaterThan(-1);
+      expect(ritualIdx).toBeGreaterThan(-1);
+      expect(ctxIdx).toBeLessThan(ritualIdx);
+    });
+
+    test("omits the onboarding block when BOOTSTRAP.md is absent, even if context is provided", () => {
+      const result = buildSystemPrompt({
+        onboardingContext: {
+          userName: "Alex",
+          assistantName: "Pax",
+        },
+      });
+      expect(result).not.toContain("## Pre-Chat Onboarding Context");
+    });
+
+    test("omits the onboarding block when no context is provided", () => {
+      writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "# First run");
+      const result = buildSystemPrompt();
+      expect(result).not.toContain("## Pre-Chat Onboarding Context");
+    });
+
+    test("omits the onboarding block when context is an empty object", () => {
+      writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "# First run");
+      const result = buildSystemPrompt({ onboardingContext: {} });
+      expect(result).not.toContain("## Pre-Chat Onboarding Context");
+    });
+
+    test("renders partial context — only the provided fields", () => {
+      writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "# First run");
+      const result = buildSystemPrompt({
+        onboardingContext: {
+          tools: ["gmail"],
+          userName: null, // explicitly unset; should be omitted
+          assistantName: "Nova",
+        },
+      });
+      expect(result).toContain("## Pre-Chat Onboarding Context");
+      expect(result).toContain("Your name: Nova");
+      expect(result).toContain("Tools they selected: gmail");
+      expect(result).not.toContain("Their name:");
+      expect(result).not.toContain("Tone preference:");
+      expect(result).not.toContain("Tasks they focus on:");
+    });
+  });
+
   describe("app-builder tool ownership guidance", () => {
     test("iteration guidance does not mention app_update for HTML changes", () => {
       const result = buildSystemPrompt();
