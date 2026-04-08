@@ -13,6 +13,7 @@ private let log = Logger(
 ///
 /// Conforms to `AssistantManagementClient` so `AppDelegate.managementClient(for:)`
 /// can dispatch to it for `isAppleContainer` entries.
+@available(macOS 26.0, *)
 @MainActor
 final class AppleContainersLauncher: AssistantManagementClient {
 
@@ -113,7 +114,8 @@ final class AppleContainersLauncher: AssistantManagementClient {
         Self.writeLockfileEntry(
             assistantId: assistantName,
             hatchedAt: hatchedAt,
-            signingKey: signingKey
+            signingKey: signingKey,
+            runtimeUrl: runtime.gatewayURL
         )
         LockfileAssistant.setActiveAssistantId(assistantName)
         log.info("Apple container '\(assistantName, privacy: .public)' is running")
@@ -154,6 +156,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
         assistantId: String,
         hatchedAt: String,
         signingKey: String,
+        runtimeUrl: String? = nil,
         lockfilePath: String? = nil
     ) -> Bool {
         let path = lockfilePath ?? LockfilePaths.primaryPath
@@ -169,7 +172,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
 
         var assistants = lockfile["assistants"] as? [[String: Any]] ?? []
 
-        let newEntry: [String: Any] = [
+        var newEntry: [String: Any] = [
             "assistantId": assistantId,
             "cloud": "apple-container",
             "hatchedAt": hatchedAt,
@@ -178,6 +181,9 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 "signingKey": signingKey,
             ],
         ]
+        if let runtimeUrl {
+            newEntry["runtimeUrl"] = runtimeUrl
+        }
 
         if let existingIndex = assistants.firstIndex(where: { ($0["assistantId"] as? String) == assistantId }) {
             assistants[existingIndex] = newEntry

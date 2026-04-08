@@ -13,6 +13,7 @@ private let log = Logger(
 ///
 /// All three services can communicate over localhost,
 /// similar to container networks in Docker or k8s sidecar.
+@available(macOS 26.0, *)
 final class AppleContainersPodRuntime: @unchecked Sendable {
 
     struct Configuration: Sendable {
@@ -36,7 +37,9 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
 
     private let lock = NSLock()
     private var _pod: LinuxPod?
+    private var _network: VmnetNetwork?
     private var _assistantLogStream: AsyncStream<String>?
+    private var _gatewayURL: String?
 
     init(kernelStore: KataKernelStore, configuration: Configuration) {
         self.kernelStore = kernelStore
@@ -110,12 +113,22 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         }
 
-        // 4. Assemble the LinuxPod.
+        // 4. Assemble the LinuxPod with vmnet networking.
         await progress("Starting containers...")
         let vmm = VZVirtualMachineManager(kernel: kernel, initialFilesystem: initMount)
-        let pod = try LinuxPod("\(config.instanceName)-pod", vmm: vmm) { podConfig in
+        let podID = "\(config.instanceName)-pod"
+
+        var network = try VmnetNetwork()
+        guard let interface = try network.createInterface(podID) else {
+            throw PodRuntimeError.networkSetupFailed
+        }
+        let podIP = interface.ipv4Address.address.description
+        log.info("Pod network: \(podIP, privacy: .public)")
+
+        let pod = try LinuxPod(podID, vmm: vmm) { podConfig in
             podConfig.cpus = self.config.cpus
             podConfig.memoryInBytes = self.config.memoryInBytes
+            podConfig.interfaces = [interface]
         }
 
         // Shared virtiofs mounts.
@@ -202,25 +215,34 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
             log.info("Container \(cid, privacy: .public) started")
         }
 
+        let gatewayURL = "http://\(podIP):\(VellumContainerPorts.gatewayHTTP)"
         lock.withLock {
             _pod = pod
+            _network = network
             _assistantLogStream = logStream
+            _gatewayURL = gatewayURL
         }
 
-        log.info("Pod started for '\(self.config.instanceName, privacy: .public)'")
+        log.info("Pod started for '\(self.config.instanceName, privacy: .public)' at \(gatewayURL, privacy: .public)")
     }
 
     /// Stops all containers and shuts down the VM.
     func stop() async throws {
-        let pod: LinuxPod? = lock.withLock {
+        let (pod, network): (LinuxPod?, VmnetNetwork?) = lock.withLock {
             let p = _pod
+            let n = _network
             _pod = nil
+            _network = nil
             _assistantLogStream = nil
-            return p
+            _gatewayURL = nil
+            return (p, n)
         }
         guard let pod else { return }
         log.info("Stopping pod for '\(self.config.instanceName, privacy: .public)'")
         try await pod.stop()
+        if var network {
+            try? network.releaseInterface("\(config.instanceName)-pod")
+        }
     }
 
     /// The assistant container's log stream for readiness detection.
@@ -228,15 +250,23 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
         lock.withLock { _assistantLogStream }
     }
 
+    /// The gateway URL reachable from the host.
+    var gatewayURL: String? {
+        lock.withLock { _gatewayURL }
+    }
+
     // MARK: - Errors
 
     enum PodRuntimeError: LocalizedError {
         case missingImageRef(VellumServiceName)
+        case networkSetupFailed
 
         var errorDescription: String? {
             switch self {
             case .missingImageRef(let service):
                 return "No image reference provided for \(service.rawValue)."
+            case .networkSetupFailed:
+                return "Failed to create vmnet network interface for pod."
             }
         }
     }
