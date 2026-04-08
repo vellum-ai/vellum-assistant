@@ -52,7 +52,7 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
             path: url.pathname,
             origin,
             hasAuth: !!authHeader,
-            authPrefix: authHeader ? authHeader.slice(0, 20) + "..." : "<none>",
+            authScheme: authHeader ? authHeader.split(" ")[0] : "<none>",
           },
           "Runtime proxy auth rejected: missing or malformed Authorization header",
         );
