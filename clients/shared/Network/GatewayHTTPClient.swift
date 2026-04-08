@@ -593,11 +593,14 @@ public enum GatewayHTTPClient {
             let authHeader: (String, String)? = (token != nil && !token!.isEmpty)
                 ? ("Authorization", "Bearer \(token!)")
                 : nil
-            if let runtimeUrl = assistant.runtimeUrl, !runtimeUrl.isEmpty {
-                return ConnectionInfo(baseURL: runtimeUrl, authHeader: authHeader, assistantId: assistant.assistantId, isManaged: false)
-            } else {
+            if assistant.runsLocally {
                 let port = assistant.gatewayPort ?? LockfilePaths.resolveGatewayPort(connectedAssistantId: assistant.assistantId)
                 return ConnectionInfo(baseURL: "http://127.0.0.1:\(port)", authHeader: authHeader, assistantId: assistant.assistantId, isManaged: false)
+            } else {
+                guard let runtimeUrl = assistant.runtimeUrl, !runtimeUrl.isEmpty else {
+                    throw ClientError.invalidURL
+                }
+                return ConnectionInfo(baseURL: runtimeUrl, authHeader: authHeader, assistantId: assistant.assistantId, isManaged: false)
             }
         }
 
