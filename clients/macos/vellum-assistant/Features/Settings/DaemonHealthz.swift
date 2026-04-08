@@ -29,6 +29,36 @@ struct DaemonHealthz: Decodable {
     struct MemoryInfo: Decodable {
         let currentMb: Double
         let maxMb: Double
+        let process: ProcessInfo?
+        let jsc: JscInfo?
+        let peaks: PeakInfo?
+    }
+
+    struct ProcessInfo: Decodable {
+        let rssMb: Double
+        let heapTotalMb: Double
+        let heapUsedMb: Double
+        let externalMb: Double
+        let arrayBuffersMb: Double
+    }
+
+    struct JscInfo: Decodable {
+        let heapSizeMb: Double
+        let heapCapacityMb: Double
+        let extraMemorySizeMb: Double
+        let objectCount: Int
+        let protectedObjectCount: Int
+        let globalObjectCount: Int
+        let protectedGlobalObjectCount: Int
+    }
+
+    struct PeakInfo: Decodable {
+        let rssMb: Double
+        let heapUsedMb: Double
+        let externalMb: Double
+        let arrayBuffersMb: Double
+        let jscHeapSizeMb: Double?
+        let jscExtraMemorySizeMb: Double?
     }
 
     struct CpuInfo: Decodable {
