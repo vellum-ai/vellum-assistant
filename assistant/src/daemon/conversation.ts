@@ -616,6 +616,7 @@ export class Conversation {
       );
     }
     this.messages = [...messages];
+    this.contextWindowManager.nonPersistedPrefixCount = messages.length;
   }
 
   /**
