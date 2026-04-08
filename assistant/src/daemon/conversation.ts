@@ -18,6 +18,7 @@
 import type { ResolvedSystemPrompt } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type {
+  InterfaceId,
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
@@ -1088,6 +1089,16 @@ export class Conversation {
 
   getTurnInterfaceContext(): TurnInterfaceContext | null {
     return this.currentTurnInterfaceContext;
+  }
+
+  /**
+   * Implements the `transportInterface` field of `SkillProjectionContext` so
+   * that `isToolActiveForContext` can gate host tools by per-capability
+   * `supportsHostProxy(transport, capability)`. Derived from the live turn
+   * interface context so it tracks the connected client across turns.
+   */
+  get transportInterface(): InterfaceId | undefined {
+    return this.currentTurnInterfaceContext?.userMessageInterface;
   }
 
   async persistUserMessage(

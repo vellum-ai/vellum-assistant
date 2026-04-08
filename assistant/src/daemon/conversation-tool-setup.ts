@@ -6,6 +6,11 @@
  * keeping the constructor body focused on wiring.
  */
 
+import {
+  type HostProxyCapability,
+  type InterfaceId,
+  supportsHostProxy,
+} from "../channels/types.js";
 import { isHttpAuthDisabled } from "../config/env.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import type { CesClient } from "../credential-execution/client.js";
@@ -459,6 +464,15 @@ export interface SkillProjectionContext {
   subagentAllowedTools?: Set<string>;
   /** True when this conversation belongs to a subagent spawned by SubagentManager. */
   readonly isSubagent?: boolean;
+  /**
+   * The interface id of the connected client driving the current turn (e.g.
+   * "macos", "chrome-extension"). Used to gate host tools by per-capability
+   * `supportsHostProxy(transport, capability)` so that interfaces which only
+   * support a subset of the host proxy set (e.g. chrome-extension supports
+   * `host_browser` but not `host_bash`/`host_file`) do not leak unsupported
+   * host tools into the LLM tool definitions.
+   */
+  readonly transportInterface?: InterfaceId;
 }
 
 // ── Conditional tool sets ────────────────────────────────────────────
@@ -469,6 +483,25 @@ const HOST_TOOL_NAMES = new Set([
   "host_file_write",
   "host_file_edit",
   "host_bash",
+  "host_browser",
+]);
+/**
+ * Maps each host tool name to the host proxy capability that the connected
+ * client interface must support. `isToolActiveForContext` uses this to gate
+ * each host tool individually so that partial-capability transports (e.g.
+ * chrome-extension only supports `host_browser`) only see the host tools
+ * their interface can actually service.
+ *
+ * Note: there is no `host_cu` tool exposed via the tool gating layer today;
+ * computer-use is preactivated as a skill and projected through the skill
+ * tools path. Only the host tools listed in `HOST_TOOL_NAMES` need entries.
+ */
+const HOST_TOOL_TO_CAPABILITY = new Map<string, HostProxyCapability>([
+  ["host_bash", "host_bash"],
+  ["host_file_read", "host_file"],
+  ["host_file_write", "host_file"],
+  ["host_file_edit", "host_file"],
+  ["host_browser", "host_browser"],
 ]);
 const CLIENT_CAPABILITY_TOOL_NAMES = new Set(["app_open"]);
 const PLATFORM_TOOL_NAMES = new Set(["request_system_permission"]);
@@ -501,7 +534,21 @@ export function isToolActiveForContext(
     // Host tools require a connected client — without one, there is no human
     // to approve execution and the guardian auto-approve path would allow
     // unchecked host command execution on the daemon host.
-    return !ctx.hasNoClient;
+    if (ctx.hasNoClient) return false;
+    // Then gate per-capability against the connected interface so that
+    // partial-capability transports (e.g. chrome-extension only supports
+    // `host_browser`) only see host tools their interface can service.
+    // Without this check, host_bash/host_file_* would surface for
+    // chrome-extension sessions and the model would attempt calls the
+    // transport cannot dispatch.
+    const capability = HOST_TOOL_TO_CAPABILITY.get(name);
+    const transport = ctx.transportInterface;
+    // Backwards-compat fallback: contexts that have not yet been plumbed
+    // with a transport interface (tests, callers that don't pass the new
+    // field) keep the coarse-grained behavior so we don't accidentally hide
+    // tools from them.
+    if (!transport || !capability) return true;
+    return supportsHostProxy(transport, capability);
   }
   if (CLIENT_CAPABILITY_TOOL_NAMES.has(name)) {
     return !ctx.hasNoClient;
