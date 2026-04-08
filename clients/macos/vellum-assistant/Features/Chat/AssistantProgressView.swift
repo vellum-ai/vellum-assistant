@@ -881,13 +881,11 @@ private struct StepDetailRow: View {
                     }
 
                     // Title (reason-first, then skillLabel for skill_execute, then fallback)
-                    VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                        Text(stepTitle)
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(stepTitleColor)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
+                    Text(stepTitle)
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(stepTitleColor)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
 
                     Spacer()
 
@@ -961,13 +959,8 @@ private struct StepDetailRow: View {
                     .foregroundStyle(VColor.contentTertiary)
                     .textCase(.uppercase)
 
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    if let reason = toolCall.reasonDescription, !reason.isEmpty {
-                        Text(toolCall.actionDescription)
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.contentSecondary)
-                    }
-                    Text(toolCall.friendlyName)
+                if let reason = toolCall.reasonDescription, !reason.isEmpty {
+                    Text(toolCall.actionDescription)
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentSecondary)
                     if !resolvedInputFull.isEmpty {
@@ -1086,7 +1079,10 @@ private struct StepDetailRow: View {
             }
             .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.sm + VSpacing.xl))
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(VColor.surfaceOverlay.opacity(0.6))
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .fill(VColor.surfaceOverlay.opacity(0.6))
+            )
             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.sm)
@@ -1190,20 +1186,18 @@ private struct CompactPermissionChip: View {
 
     var body: some View {
         HStack(spacing: VSpacing.xxs) {
-            Group {
-                switch state {
-                case .approved:
-                    VIconView(.circleCheck, size: 10)
-                        .foregroundStyle(chipColor)
-                case .denied:
-                    VIconView(.circleAlert, size: 10)
-                        .foregroundStyle(chipColor)
-                case .timedOut:
-                    VIconView(.clock, size: 10)
-                        .foregroundStyle(chipColor)
-                default:
-                    EmptyView()
-                }
+            switch state {
+            case .approved:
+                VIconView(.circleCheck, size: 10)
+                    .foregroundStyle(chipColor)
+            case .denied:
+                VIconView(.circleAlert, size: 10)
+                    .foregroundStyle(chipColor)
+            case .timedOut:
+                VIconView(.clock, size: 10)
+                    .foregroundStyle(chipColor)
+            default:
+                EmptyView()
             }
 
             Text(state == .approved || state == .denied ? label : "Timed Out")

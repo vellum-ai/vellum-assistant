@@ -826,10 +826,11 @@ private struct CodeBlockView: View, Equatable {
                     Spacer()
                     VCopyButton(text: code, size: .compact)
                         .opacity(isHovered ? 1 : 0)
+                        .allowsHitTesting(isHovered)
+                        .accessibilityHidden(!isHovered)
                         .animation(VAnimation.fast, value: isHovered)
                 }
-                .padding(.horizontal, VSpacing.sm)
-                .padding(.top, VSpacing.xs)
+                .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: 0, trailing: VSpacing.sm))
             }
 
             let codeLineCount = code.utf8.reduce(1) { $0 + ($1 == 0x0A ? 1 : 0) }
@@ -869,6 +870,8 @@ private struct CodeBlockView: View, Equatable {
             if language == nil || language?.isEmpty == true {
                 VCopyButton(text: code, size: .compact)
                     .opacity(isHovered ? 1 : 0)
+                    .allowsHitTesting(isHovered)
+                    .accessibilityHidden(!isHovered)
                     .animation(VAnimation.fast, value: isHovered)
                     .padding(VSpacing.xs)
             }
