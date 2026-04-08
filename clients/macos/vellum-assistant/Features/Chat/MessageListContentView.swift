@@ -149,9 +149,11 @@ struct MessageListContentView: View, Equatable {
     // MARK: - Body
 
     var body: some View {
-        // WARNING: Items in this LazyVStack must NOT use .transition(.move(edge:)) —
-        // it triggers full-content measurement via motionVectors and causes
-        // multi-minute hangs. Use .transition(.opacity) only. See AGENTS.md.
+        // WARNING: This LazyVStack uses .transaction { $0.animation = nil } to suppress
+        // all insertion/removal animations. Without this, SwiftUI calls motionVectors()
+        // during any item insertion, which measures ALL children via sizeThatFits —
+        // causing multi-minute hangs on long conversations. Do NOT remove the
+        // .transaction modifier or wrap content changes in withAnimation.
         LazyVStack(alignment: .leading, spacing: VSpacing.md) {
             if isLoadingMoreMessages {
                 HStack {
@@ -266,6 +268,7 @@ struct MessageListContentView: View, Equatable {
                 }
         }
         .disabled(!isInteractionEnabled)
+        .transaction { $0.animation = nil }
         .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.xl,
                             bottom: VSpacing.md, trailing: VSpacing.xl))
         .environment(\.bubbleMaxWidth, containerWidth > 0

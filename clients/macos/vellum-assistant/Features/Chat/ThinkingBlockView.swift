@@ -56,6 +56,7 @@ struct ThinkingBlockView: View {
         }
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .animation(VAnimation.fast, value: isExpanded)
         .onChange(of: content) { _, newContent in
             guard isExpanded, newContent != cachedContent else { return }
             cachedContent = newContent
