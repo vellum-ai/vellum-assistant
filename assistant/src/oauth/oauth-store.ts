@@ -50,7 +50,8 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
  * Seed well-known provider profiles into the database. Uses INSERT … ON
  * CONFLICT DO UPDATE so that implementation fields (authorizeUrl, tokenExchangeUrl,
  * refreshUrl, tokenEndpointAuthMethod, userinfoUrl, authorizeParams,
- * pingUrl, pingMethod, pingHeaders, pingBody, managedServiceConfigKey,
+ * pingUrl, pingMethod, pingHeaders, pingBody, revokeUrl, revokeBodyTemplate,
+ * managedServiceConfigKey,
  * loopbackPort, injectionTemplates, appType, setupNotes,
  * identityUrl, identityMethod, identityHeaders, identityBody,
  * identityResponsePaths, identityFormat, identityOkField, featureFlag,
@@ -75,6 +76,8 @@ export function seedProviders(
     pingMethod?: string;
     pingHeaders?: Record<string, string>;
     pingBody?: unknown;
+    revokeUrl?: string;
+    revokeBodyTemplate?: Record<string, string>;
     baseUrl?: string;
     defaultScopes: string[];
     scopePolicy: Record<string, unknown>;
@@ -118,6 +121,10 @@ export function seedProviders(
     const pingHeaders = p.pingHeaders ? JSON.stringify(p.pingHeaders) : null;
     const pingBody =
       p.pingBody !== undefined ? JSON.stringify(p.pingBody) : null;
+    const revokeUrl = p.revokeUrl ?? null;
+    const revokeBodyTemplate = p.revokeBodyTemplate
+      ? JSON.stringify(p.revokeBodyTemplate)
+      : null;
     const baseUrl = p.baseUrl ?? null;
     const defaultScopes = JSON.stringify(p.defaultScopes);
     const scopePolicy = JSON.stringify(p.scopePolicy);
@@ -171,6 +178,8 @@ export function seedProviders(
         pingMethod,
         pingHeaders,
         pingBody,
+        revokeUrl,
+        revokeBodyTemplate,
         managedServiceConfigKey,
         displayLabel,
         description,
@@ -207,6 +216,8 @@ export function seedProviders(
           pingMethod,
           pingHeaders,
           pingBody,
+          revokeUrl,
+          revokeBodyTemplate,
           managedServiceConfigKey,
           displayLabel,
           description,
@@ -263,6 +274,8 @@ export function registerProvider(params: {
   pingMethod?: string;
   pingHeaders?: Record<string, string>;
   pingBody?: unknown;
+  revokeUrl?: string;
+  revokeBodyTemplate?: Record<string, string>;
   baseUrl?: string;
   defaultScopes: string[];
   scopePolicy: Record<string, unknown>;
@@ -320,6 +333,10 @@ export function registerProvider(params: {
     pingHeaders: params.pingHeaders ? JSON.stringify(params.pingHeaders) : null,
     pingBody:
       params.pingBody !== undefined ? JSON.stringify(params.pingBody) : null,
+    revokeUrl: params.revokeUrl ?? null,
+    revokeBodyTemplate: params.revokeBodyTemplate
+      ? JSON.stringify(params.revokeBodyTemplate)
+      : null,
     managedServiceConfigKey: params.managedServiceConfigKey ?? null,
     displayLabel: params.displayLabel ?? null,
     description: params.description ?? null,
@@ -377,6 +394,8 @@ export function updateProvider(
     pingMethod: string;
     pingHeaders: Record<string, string>;
     pingBody: unknown;
+    revokeUrl: string;
+    revokeBodyTemplate: Record<string, string>;
     baseUrl: string;
     defaultScopes: string[];
     scopePolicy: Record<string, unknown>;
@@ -425,6 +444,9 @@ export function updateProvider(
     set.pingHeaders = JSON.stringify(params.pingHeaders);
   if (params.pingBody !== undefined)
     set.pingBody = JSON.stringify(params.pingBody);
+  if (params.revokeUrl !== undefined) set.revokeUrl = params.revokeUrl;
+  if (params.revokeBodyTemplate !== undefined)
+    set.revokeBodyTemplate = JSON.stringify(params.revokeBodyTemplate);
   if (params.baseUrl !== undefined) set.baseUrl = params.baseUrl;
   if (params.defaultScopes !== undefined)
     set.defaultScopes = JSON.stringify(params.defaultScopes);

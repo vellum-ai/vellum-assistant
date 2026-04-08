@@ -25,6 +25,8 @@ function makeRow(overrides: Partial<OAuthProviderRow> = {}): OAuthProviderRow {
     pingMethod: null,
     pingHeaders: null,
     pingBody: null,
+    revokeUrl: null,
+    revokeBodyTemplate: null,
     managedServiceConfigKey: null,
     displayLabel: null,
     description: null,

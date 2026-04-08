@@ -22,6 +22,8 @@ export const oauthProviders = sqliteTable("oauth_providers", {
   pingMethod: text("ping_method"),
   pingHeaders: text("ping_headers"),
   pingBody: text("ping_body"),
+  revokeUrl: text("revoke_url"),
+  revokeBodyTemplate: text("revoke_body_template"),
   managedServiceConfigKey: text("managed_service_config_key"),
   displayLabel: text("display_name"),
   description: text("description"),

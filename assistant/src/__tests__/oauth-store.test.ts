@@ -46,6 +46,7 @@ import {
   updateProvider,
   upsertApp,
 } from "../oauth/oauth-store.js";
+import { seedOAuthProviders } from "../oauth/seed-providers.js";
 
 initializeDb();
 
@@ -408,6 +409,117 @@ describe("provider operations", () => {
       const row = getProvider("test-provider");
       expect(row!.refreshUrl).toBe("https://refresh-v2.example.com/token");
     });
+
+    test("persists revokeUrl and revokeBodyTemplate when provided", () => {
+      seedProviders([
+        {
+          provider: "test-provider",
+          authorizeUrl: "https://example.com/authorize",
+          tokenExchangeUrl: "https://example.com/token",
+          revokeUrl: "https://revoke.example.com",
+          revokeBodyTemplate: { token: "{access_token}" },
+          defaultScopes: ["read"],
+          scopePolicy: {},
+        },
+      ]);
+
+      const row = getProvider("test-provider");
+      expect(row).toBeDefined();
+      expect(row!.revokeUrl).toBe("https://revoke.example.com");
+      expect(JSON.parse(row!.revokeBodyTemplate!)).toEqual({
+        token: "{access_token}",
+      });
+    });
+
+    test("revokeUrl and revokeBodyTemplate default to null when omitted", () => {
+      seedProviders([
+        {
+          provider: "test-provider",
+          authorizeUrl: "https://example.com/authorize",
+          tokenExchangeUrl: "https://example.com/token",
+          defaultScopes: ["read"],
+          scopePolicy: {},
+        },
+      ]);
+
+      const row = getProvider("test-provider");
+      expect(row).toBeDefined();
+      expect(row!.revokeUrl).toBeNull();
+      expect(row!.revokeBodyTemplate).toBeNull();
+    });
+
+    test("re-seeding with a changed revokeUrl overwrites the stored value", () => {
+      seedProviders([
+        {
+          provider: "test-provider",
+          authorizeUrl: "https://example.com/authorize",
+          tokenExchangeUrl: "https://example.com/token",
+          revokeUrl: "https://revoke.example.com",
+          defaultScopes: ["read"],
+          scopePolicy: {},
+        },
+      ]);
+
+      const first = getProvider("test-provider");
+      expect(first!.revokeUrl).toBe("https://revoke.example.com");
+
+      // Re-seed with a different revokeUrl — it should be overwritten,
+      // proving revokeUrl is in the onConflictDoUpdate set clause (not
+      // preserved like defaultScopes).
+      seedProviders([
+        {
+          provider: "test-provider",
+          authorizeUrl: "https://example.com/authorize",
+          tokenExchangeUrl: "https://example.com/token",
+          revokeUrl: "https://revoke-v2.example.com",
+          defaultScopes: ["read"],
+          scopePolicy: {},
+        },
+      ]);
+
+      const row = getProvider("test-provider");
+      expect(row!.revokeUrl).toBe("https://revoke-v2.example.com");
+    });
+
+    test("seedOAuthProviders seeds Google, Twitter, and Linear with revoke config and leaves other providers null", () => {
+      seedOAuthProviders();
+
+      const google = getProvider("google");
+      expect(google).toBeDefined();
+      expect(google!.revokeUrl).toBe("https://oauth2.googleapis.com/revoke");
+      expect(JSON.parse(google!.revokeBodyTemplate!)).toEqual({
+        token: "{access_token}",
+      });
+
+      const twitter = getProvider("twitter");
+      expect(twitter).toBeDefined();
+      expect(twitter!.revokeUrl).toBe("https://api.x.com/2/oauth2/revoke");
+      expect(JSON.parse(twitter!.revokeBodyTemplate!)).toEqual({
+        token: "{access_token}",
+        token_type_hint: "access_token",
+        client_id: "{client_id}",
+      });
+
+      const linear = getProvider("linear");
+      expect(linear).toBeDefined();
+      expect(linear!.revokeUrl).toBe("https://api.linear.app/oauth/revoke");
+      expect(JSON.parse(linear!.revokeBodyTemplate!)).toEqual({
+        token: "{access_token}",
+      });
+
+      const slack = getProvider("slack");
+      expect(slack).toBeDefined();
+      expect(slack!.revokeUrl).toBeNull();
+      expect(slack!.revokeBodyTemplate).toBeNull();
+
+      const github = getProvider("github");
+      expect(github).toBeDefined();
+      expect(github!.revokeUrl).toBeNull();
+
+      const outlook = getProvider("outlook");
+      expect(outlook).toBeDefined();
+      expect(outlook!.revokeUrl).toBeNull();
+    });
   });
 
   describe("getProvider", () => {
@@ -527,6 +639,25 @@ describe("provider operations", () => {
       expect(fetched).toBeDefined();
       expect(fetched!.refreshUrl).toBeNull();
     });
+
+    test("persists revokeUrl and revokeBodyTemplate and round-trips via getProvider", () => {
+      registerProvider({
+        provider: "linear",
+        authorizeUrl: "https://linear.app/oauth/authorize",
+        tokenExchangeUrl: "https://api.linear.app/oauth/token",
+        revokeUrl: "https://api.linear.app/oauth/revoke",
+        revokeBodyTemplate: { token: "{access_token}" },
+        defaultScopes: ["read"],
+        scopePolicy: {},
+      });
+
+      const fetched = getProvider("linear");
+      expect(fetched).toBeDefined();
+      expect(fetched!.revokeUrl).toBe("https://api.linear.app/oauth/revoke");
+      expect(JSON.parse(fetched!.revokeBodyTemplate!)).toEqual({
+        token: "{access_token}",
+      });
+    });
   });
 
   describe("updateProvider", () => {
@@ -627,6 +758,95 @@ describe("provider operations", () => {
       expect(updated!.refreshUrl).toBe(
         "https://github.com/login/oauth/refresh",
       );
+      expect(updated!.displayLabel).toBe("GitHub (updated)");
+    });
+
+    test("sets revokeUrl on an existing row where it was previously null", () => {
+      seedProviders([
+        {
+          provider: "github",
+          authorizeUrl: "https://github.com/authorize",
+          tokenExchangeUrl: "https://github.com/token",
+          defaultScopes: ["repo"],
+          scopePolicy: {},
+        },
+      ]);
+
+      const before = getProvider("github");
+      expect(before!.revokeUrl).toBeNull();
+
+      const updated = updateProvider("github", {
+        revokeUrl: "https://github.com/login/oauth/revoke",
+      });
+      expect(updated).toBeDefined();
+      expect(updated!.revokeUrl).toBe("https://github.com/login/oauth/revoke");
+
+      const fetched = getProvider("github");
+      expect(fetched!.revokeUrl).toBe("https://github.com/login/oauth/revoke");
+    });
+
+    test("sets revokeBodyTemplate on an existing row and JSON round-trips", () => {
+      seedProviders([
+        {
+          provider: "github",
+          authorizeUrl: "https://github.com/authorize",
+          tokenExchangeUrl: "https://github.com/token",
+          defaultScopes: ["repo"],
+          scopePolicy: {},
+        },
+      ]);
+
+      const before = getProvider("github");
+      expect(before!.revokeBodyTemplate).toBeNull();
+
+      const updated = updateProvider("github", {
+        revokeBodyTemplate: {
+          token: "{access_token}",
+          client_id: "{client_id}",
+        },
+      });
+      expect(updated).toBeDefined();
+      expect(JSON.parse(updated!.revokeBodyTemplate!)).toEqual({
+        token: "{access_token}",
+        client_id: "{client_id}",
+      });
+
+      const fetched = getProvider("github");
+      expect(JSON.parse(fetched!.revokeBodyTemplate!)).toEqual({
+        token: "{access_token}",
+        client_id: "{client_id}",
+      });
+    });
+
+    test("leaves revokeUrl and revokeBodyTemplate unchanged when not passed to updateProvider", () => {
+      seedProviders([
+        {
+          provider: "github",
+          authorizeUrl: "https://github.com/authorize",
+          tokenExchangeUrl: "https://github.com/token",
+          revokeUrl: "https://github.com/login/oauth/revoke",
+          revokeBodyTemplate: { token: "{access_token}" },
+          defaultScopes: ["repo"],
+          scopePolicy: {},
+        },
+      ]);
+
+      expect(getProvider("github")!.revokeUrl).toBe(
+        "https://github.com/login/oauth/revoke",
+      );
+      expect(JSON.parse(getProvider("github")!.revokeBodyTemplate!)).toEqual({
+        token: "{access_token}",
+      });
+
+      // Update a different field — revoke fields should be left alone.
+      const updated = updateProvider("github", {
+        displayLabel: "GitHub (updated)",
+      });
+      expect(updated).toBeDefined();
+      expect(updated!.revokeUrl).toBe("https://github.com/login/oauth/revoke");
+      expect(JSON.parse(updated!.revokeBodyTemplate!)).toEqual({
+        token: "{access_token}",
+      });
       expect(updated!.displayLabel).toBe("GitHub (updated)");
     });
   });
