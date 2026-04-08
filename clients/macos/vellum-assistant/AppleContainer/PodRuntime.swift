@@ -280,7 +280,29 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
             let unpacker = EXT4Unpacker(blockSizeInBytes: sizeInBytes)
             return try await unpacker.unpack(image, for: .current, at: path)
         } catch let error as ContainerizationError where error.code == .exists {
-            return .block(format: "ext4", source: path.path, destination: "/", options: [])
+            // Validate the cached rootfs is actually ext4 before reusing it.
+            if Self.isValidEXT4(at: path) {
+                return .block(format: "ext4", source: path.path, destination: "/", options: [])
+            }
+            // Corrupt from a previous interrupted unpack — delete and retry.
+            log.warning("Corrupt rootfs at \(path.path, privacy: .public) — deleting and re-unpacking")
+            try? FileManager.default.removeItem(at: path)
+            let unpacker = EXT4Unpacker(blockSizeInBytes: sizeInBytes)
+            return try await unpacker.unpack(image, for: .current, at: path)
+        }
+    }
+
+    /// Quick check: ext4 superblock magic number 0xEF53 at offset 0x438.
+    private static func isValidEXT4(at path: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: path) else { return false }
+        defer { try? handle.close() }
+        do {
+            try handle.seek(toOffset: 0x438)
+            guard let data = try handle.read(upToCount: 2), data.count == 2 else { return false }
+            // ext4 magic is 0xEF53 in little-endian
+            return data[0] == 0x53 && data[1] == 0xEF
+        } catch {
+            return false
         }
     }
 
