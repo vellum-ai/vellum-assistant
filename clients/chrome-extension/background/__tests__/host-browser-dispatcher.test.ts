@@ -30,6 +30,14 @@ import type {
 interface MockCdpProxyOptions {
   /** Optional override for the next `send()` call's resolved frame. */
   sendResult?: CdpResultFrame;
+  /**
+   * Optional FIFO queue of canned `send()` results. Each call to `send()`
+   * shifts the head of this queue and returns it. Falls back to
+   * `sendResult` (or the default `{ id, result: { ok: true } }`) once the
+   * queue is empty. Useful for tests that need to sequence multiple
+   * different responses across repeat requests.
+   */
+  sendResults?: CdpResultFrame[];
   /** If set, the next `send()` call will throw this error. */
   sendThrows?: Error;
   /** If set, `attach()` will reject with this error. */
@@ -57,6 +65,10 @@ function createMockCdpProxy(options: MockCdpProxyOptions = {}): MockCdpProxy {
   const sendCalls: Array<{ target: CdpTarget; frame: CdpRequestFrame }> = [];
   const detachCalls: CdpTarget[] = [];
   let disposeCalls = 0;
+  // Mutable copy so each `send()` invocation can shift one off the front.
+  const queuedSendResults: CdpResultFrame[] = options.sendResults
+    ? [...options.sendResults]
+    : [];
 
   const proxy: MockCdpProxy = {
     attachCalls,
@@ -76,6 +88,12 @@ function createMockCdpProxy(options: MockCdpProxyOptions = {}): MockCdpProxy {
     async send(target, frame) {
       sendCalls.push({ target, frame });
       if (options.sendThrows) throw options.sendThrows;
+      const queued = queuedSendResults.shift();
+      if (queued) {
+        // Re-tag the queued frame's id with the actual request id so the
+        // dispatcher's monotonic counter doesn't drift in the test view.
+        return { ...queued, id: frame.id };
+      }
       return options.sendResult ?? { id: frame.id, result: { ok: true } };
     },
     onEvent(handler) {
@@ -371,6 +389,73 @@ describe('createHostBrowserDispatcher', () => {
       // Cache entry for tabId 42 is still there → no new attach.
       await harness.dispatcher.handle({ ...sampleRequest, requestId: 'req-2' });
       expect(harness.proxy.attachCalls.length).toBe(1);
+    });
+  });
+
+  describe('handle — send-error cache eviction', () => {
+    test('evicts the cache when send returns a detach-style error so the next request re-attaches', async () => {
+      // Two requests against the same target. The first send returns a
+      // "Target closed" error frame; the dispatcher must surface that
+      // error to the caller AND evict the cached attach so the second
+      // request re-runs proxy.attach instead of silently re-using a
+      // dead session.
+      harness = createHarness({
+        sendResults: [
+          { id: 0, error: { code: -32000, message: 'Target closed' } },
+          { id: 0, result: { ok: true } },
+        ],
+      });
+
+      await harness.dispatcher.handle(sampleRequest);
+      await harness.dispatcher.handle({ ...sampleRequest, requestId: 'req-2' });
+
+      // Two attaches: one before the first request, one before the second
+      // after the cache was evicted by the detach-style error response.
+      expect(harness.proxy.attachCalls.length).toBe(2);
+      expect(harness.proxy.attachCalls[0].target).toEqual({ tabId: 42 });
+      expect(harness.proxy.attachCalls[1].target).toEqual({ tabId: 42 });
+
+      // Both sends fired against the same resolved target.
+      expect(harness.proxy.sendCalls.length).toBe(2);
+
+      // The first request still surfaces the error frame to the caller —
+      // eviction is a recovery hint, not a retry. The second succeeds.
+      expect(harness.results.length).toBe(2);
+      expect(harness.results[0].isError).toBe(true);
+      expect(harness.results[0].content).toBe(
+        JSON.stringify({ code: -32000, message: 'Target closed' }),
+      );
+      expect(harness.results[1].isError).toBe(false);
+    });
+
+    test('does not evict the cache when send returns a non-detach error', async () => {
+      // A "Method not implemented" failure is unrelated to the attach
+      // lifecycle — re-attaching wouldn't help and would be wasteful.
+      // The dispatcher must keep the cache entry intact and the next
+      // request must reuse the cached attach.
+      harness = createHarness({
+        sendResults: [
+          {
+            id: 0,
+            error: { code: -32601, message: 'Method not implemented' },
+          },
+          { id: 0, result: { ok: true } },
+        ],
+      });
+
+      await harness.dispatcher.handle(sampleRequest);
+      await harness.dispatcher.handle({ ...sampleRequest, requestId: 'req-2' });
+
+      // Only one attach: the cache survived the non-detach error.
+      expect(harness.proxy.attachCalls.length).toBe(1);
+      expect(harness.proxy.sendCalls.length).toBe(2);
+
+      expect(harness.results.length).toBe(2);
+      expect(harness.results[0].isError).toBe(true);
+      expect(harness.results[0].content).toBe(
+        JSON.stringify({ code: -32601, message: 'Method not implemented' }),
+      );
+      expect(harness.results[1].isError).toBe(false);
     });
   });
 
