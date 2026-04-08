@@ -312,7 +312,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
         }
     }
 
-    static func defaultBundledKernelURL() -> URL? {
+    nonisolated static func defaultBundledKernelURL() -> URL? {
         let relativePath = bundledKernelSubdirectory + "/vmlinux.container"
 
         if let resourceURL = Bundle.main.resourceURL?
