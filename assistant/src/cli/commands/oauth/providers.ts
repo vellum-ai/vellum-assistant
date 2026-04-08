@@ -220,6 +220,10 @@ Examples:
       "--token-url <url>",
       "OAuth token endpoint URL (e.g. https://oauth2.example.com/token)",
     )
+    .option(
+      "--refresh-url <url>",
+      "OAuth token refresh endpoint URL. Defaults to --token-url when omitted. Set this when the provider uses a different endpoint for the refresh_token grant than for the authorization_code grant.",
+    )
     .option("--base-url <url>", "API base URL for the service")
     .option("--userinfo-url <url>", "OpenID Connect userinfo endpoint URL")
     .option(
@@ -351,6 +355,11 @@ Examples:
       --scopes read,write \\
       --scope-separator ","
   $ assistant oauth providers register \\
+      --provider-key split-grants \\
+      --auth-url https://example.com/oauth/authorize \\
+      --token-url https://example.com/oauth/token \\
+      --refresh-url https://example.com/oauth/refresh
+  $ assistant oauth providers register \\
       --provider-key my-api \\
       --auth-url https://example.com/auth \\
       --token-url https://example.com/token \\
@@ -365,6 +374,7 @@ Examples:
           providerKey: string;
           authUrl: string;
           tokenUrl: string;
+          refreshUrl?: string;
           baseUrl?: string;
           userinfoUrl?: string;
           scopes?: string;
@@ -398,6 +408,7 @@ Examples:
             provider: opts.providerKey,
             authorizeUrl: opts.authUrl,
             tokenExchangeUrl: opts.tokenUrl,
+            refreshUrl: opts.refreshUrl,
             baseUrl: opts.baseUrl,
             userinfoUrl: opts.userinfoUrl,
             defaultScopes: opts.scopes ? opts.scopes.split(",") : [],
@@ -466,6 +477,10 @@ Examples:
     .option(
       "--token-url <url>",
       "OAuth token endpoint URL (e.g. https://oauth2.example.com/token)",
+    )
+    .option(
+      "--refresh-url <url>",
+      "OAuth token refresh endpoint URL. Defaults to --token-url when omitted. Set this when the provider uses a different endpoint for the refresh_token grant than for the authorization_code grant.",
     )
     .option("--base-url <url>", "API base URL for the service")
     .option("--userinfo-url <url>", "OpenID Connect userinfo endpoint URL")
@@ -579,6 +594,7 @@ Examples:
   $ assistant oauth providers update custom-api --scopes read,write --auth-url https://new.example.com/auth
   $ assistant oauth providers update custom-api --ping-url https://api.example.com/me --json
   $ assistant oauth providers update custom-api --scope-separator ","
+  $ assistant oauth providers update custom-api --refresh-url https://example.com/oauth/refresh
   $ assistant oauth providers update custom-api \\
       --identity-url https://api.example.com/me \\
       --identity-response-paths email,name
@@ -591,6 +607,7 @@ Examples:
         opts: {
           authUrl?: string;
           tokenUrl?: string;
+          refreshUrl?: string;
           baseUrl?: string;
           userinfoUrl?: string;
           scopes?: string;
@@ -656,6 +673,8 @@ Examples:
           if (opts.authUrl !== undefined) params.authorizeUrl = opts.authUrl;
           if (opts.tokenUrl !== undefined)
             params.tokenExchangeUrl = opts.tokenUrl;
+          if (opts.refreshUrl !== undefined)
+            params.refreshUrl = opts.refreshUrl;
           if (opts.baseUrl !== undefined) params.baseUrl = opts.baseUrl;
           if (opts.userinfoUrl !== undefined)
             params.userinfoUrl = opts.userinfoUrl;

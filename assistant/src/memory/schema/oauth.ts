@@ -10,6 +10,7 @@ export const oauthProviders = sqliteTable("oauth_providers", {
   provider: text("provider_key").primaryKey(),
   authorizeUrl: text("auth_url").notNull(),
   tokenExchangeUrl: text("token_url").notNull(),
+  refreshUrl: text("refresh_url"),
   tokenEndpointAuthMethod: text("token_endpoint_auth_method"),
   userinfoUrl: text("userinfo_url"),
   baseUrl: text("base_url"),

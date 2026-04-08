@@ -113,6 +113,7 @@ import {
   migrateOAuthProvidersManagedServiceConfigKey,
   migrateOAuthProvidersPingConfig,
   migrateOAuthProvidersPingUrl,
+  migrateOAuthProvidersRefreshUrl,
   migrateOAuthProvidersScopeSeparator,
   migrateReminderRoutingIntent,
   migrateRemindersToSchedules,
@@ -354,6 +355,7 @@ export function initializeDb(): void {
     migrateMemoryRecallLogsQueryContext,
     migrateLlmRequestLogsCreatedAtIndex,
     migrateOAuthProvidersScopeSeparator,
+    migrateOAuthProvidersRefreshUrl,
   ];
 
   // Run each migration step, catching and logging individual failures so one

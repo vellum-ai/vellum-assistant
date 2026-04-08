@@ -49,7 +49,7 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
 /**
  * Seed well-known provider profiles into the database. Uses INSERT … ON
  * CONFLICT DO UPDATE so that implementation fields (authorizeUrl, tokenExchangeUrl,
- * tokenEndpointAuthMethod, userinfoUrl, authorizeParams,
+ * refreshUrl, tokenEndpointAuthMethod, userinfoUrl, authorizeParams,
  * pingUrl, pingMethod, pingHeaders, pingBody, managedServiceConfigKey,
  * loopbackPort, injectionTemplates, appType, setupNotes,
  * identityUrl, identityMethod, identityHeaders, identityBody,
@@ -68,6 +68,7 @@ export function seedProviders(
     provider: string;
     authorizeUrl: string;
     tokenExchangeUrl: string;
+    refreshUrl?: string;
     tokenEndpointAuthMethod?: string;
     userinfoUrl?: string;
     pingUrl?: string;
@@ -109,6 +110,7 @@ export function seedProviders(
   for (const p of profiles) {
     const authorizeUrl = p.authorizeUrl;
     const tokenExchangeUrl = p.tokenExchangeUrl;
+    const refreshUrl = p.refreshUrl ?? null;
     const tokenEndpointAuthMethod = p.tokenEndpointAuthMethod ?? null;
     const userinfoUrl = p.userinfoUrl ?? null;
     const pingUrl = p.pingUrl ?? null;
@@ -157,6 +159,7 @@ export function seedProviders(
         provider: p.provider,
         authorizeUrl,
         tokenExchangeUrl,
+        refreshUrl,
         tokenEndpointAuthMethod,
         userinfoUrl,
         baseUrl,
@@ -194,6 +197,7 @@ export function seedProviders(
         set: {
           authorizeUrl,
           tokenExchangeUrl,
+          refreshUrl,
           tokenEndpointAuthMethod,
           userinfoUrl,
           baseUrl: sql`COALESCE(${oauthProviders.baseUrl}, ${baseUrl})`,
@@ -252,6 +256,7 @@ export function registerProvider(params: {
   provider: string;
   authorizeUrl: string;
   tokenExchangeUrl: string;
+  refreshUrl?: string;
   tokenEndpointAuthMethod?: string;
   userinfoUrl?: string;
   pingUrl?: string;
@@ -299,6 +304,7 @@ export function registerProvider(params: {
     provider: params.provider,
     authorizeUrl: params.authorizeUrl,
     tokenExchangeUrl: params.tokenExchangeUrl,
+    refreshUrl: params.refreshUrl ?? null,
     tokenEndpointAuthMethod: params.tokenEndpointAuthMethod ?? null,
     userinfoUrl: params.userinfoUrl ?? null,
     baseUrl: params.baseUrl ?? null,
@@ -364,6 +370,7 @@ export function updateProvider(
   params: Partial<{
     authorizeUrl: string;
     tokenExchangeUrl: string;
+    refreshUrl: string;
     tokenEndpointAuthMethod: string;
     userinfoUrl: string;
     pingUrl: string;
@@ -408,6 +415,7 @@ export function updateProvider(
   if (params.authorizeUrl !== undefined) set.authorizeUrl = params.authorizeUrl;
   if (params.tokenExchangeUrl !== undefined)
     set.tokenExchangeUrl = params.tokenExchangeUrl;
+  if (params.refreshUrl !== undefined) set.refreshUrl = params.refreshUrl;
   if (params.tokenEndpointAuthMethod !== undefined)
     set.tokenEndpointAuthMethod = params.tokenEndpointAuthMethod;
   if (params.userinfoUrl !== undefined) set.userinfoUrl = params.userinfoUrl;

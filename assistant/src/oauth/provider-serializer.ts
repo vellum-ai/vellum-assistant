@@ -77,6 +77,7 @@ function _serializeProvider(
     providerKey: provider,
     authUrl: authorizeUrl,
     tokenUrl: tokenExchangeUrl,
+    refreshUrl: row.refreshUrl ?? null,
     displayName: displayLabel ?? null,
     description: row.description ?? null,
     dashboardUrl: row.dashboardUrl ?? null,

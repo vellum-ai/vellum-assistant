@@ -169,6 +169,7 @@ mock.module("../oauth/oauth-store.js", () => ({
       provider: params.provider,
       authorizeUrl: params.authorizeUrl,
       tokenExchangeUrl: params.tokenExchangeUrl,
+      refreshUrl: (params.refreshUrl as string | undefined) ?? null,
       tokenEndpointAuthMethod: params.tokenEndpointAuthMethod ?? null,
       userinfoUrl: params.userinfoUrl ?? null,
       baseUrl: params.baseUrl ?? null,
@@ -230,6 +231,9 @@ mock.module("../oauth/oauth-store.js", () => ({
     }
     if (params.tokenExchangeUrl !== undefined) {
       updated.tokenExchangeUrl = params.tokenExchangeUrl;
+    }
+    if (params.refreshUrl !== undefined) {
+      updated.refreshUrl = params.refreshUrl;
     }
     if (params.defaultScopes !== undefined) {
       updated.defaultScopes = JSON.stringify(params.defaultScopes);
@@ -1523,5 +1527,121 @@ describe("assistant oauth providers --scope-separator", () => {
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
     expect(parsed.scopeSeparator).toBe(",");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// providers register / update / get — --refresh-url wiring
+// ---------------------------------------------------------------------------
+
+describe("assistant oauth providers --refresh-url", () => {
+  beforeEach(() => {
+    mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
+    mockProviderStore.clear();
+    // Default getProvider falls through to mockProviderStore via the
+    // oauth-store mock module.
+    mockGetProvider = () => undefined;
+    mockGetConfig = () => ({ services: {} });
+  });
+
+  afterEach(() => {
+    mockProviderStore.clear();
+    mockGetProvider = () => undefined;
+  });
+
+  test("providers register --refresh-url stores the URL on the provider row", async () => {
+    const { exitCode } = await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-refresh-url",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--refresh-url",
+      "https://refresh.example.com/token",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const stored = mockProviderStore.get("custom-refresh-url");
+    expect(stored).toBeDefined();
+    expect(stored?.refreshUrl).toBe("https://refresh.example.com/token");
+  });
+
+  test("providers register without --refresh-url stores null", async () => {
+    const { exitCode } = await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-no-refresh-url",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const stored = mockProviderStore.get("custom-no-refresh-url");
+    expect(stored).toBeDefined();
+    expect(stored?.refreshUrl).toBeNull();
+  });
+
+  test("providers update --refresh-url updates an existing custom provider", async () => {
+    // Seed the store with an existing custom provider that has no refresh URL.
+    await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-update-refresh",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--json",
+    ]);
+    expect(
+      mockProviderStore.get("custom-update-refresh")?.refreshUrl,
+    ).toBeNull();
+
+    const { exitCode } = await runCli([
+      "providers",
+      "update",
+      "custom-update-refresh",
+      "--refresh-url",
+      "https://new-refresh.example.com/token",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    expect(mockProviderStore.get("custom-update-refresh")?.refreshUrl).toBe(
+      "https://new-refresh.example.com/token",
+    );
+  });
+
+  test("providers get <key> --json includes refreshUrl from the serialized output", async () => {
+    // Seed the store with a custom provider that has a refresh URL set.
+    await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-get-refresh",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--refresh-url",
+      "https://refresh.example.com/token",
+      "--json",
+    ]);
+
+    const { exitCode, stdout } = await runCli([
+      "providers",
+      "get",
+      "custom-get-refresh",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.refreshUrl).toBe("https://refresh.example.com/token");
   });
 });
