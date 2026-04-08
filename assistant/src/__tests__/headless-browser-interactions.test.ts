@@ -208,6 +208,13 @@ function installClickHoverCdpSend(
         return { model: { content: [10, 20, 30, 20, 30, 40, 10, 40] } };
       case "Input.dispatchMouseEvent":
         return {};
+      case "Runtime.evaluate":
+        // cdpWaitForSelector (used by click/hover selector branches)
+        // polls Runtime.evaluate with the visible-state probe and
+        // expects { result: { value: boolean } }. Returning true on
+        // the first poll lets the test resolve immediately instead
+        // of timing out after ACTION_TIMEOUT_MS.
+        return { result: { value: true } };
       default:
         return {};
     }
@@ -230,9 +237,14 @@ describe("executeBrowserClick (CDP)", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Clicked element: #submit-btn");
 
-    // Expected CDP call sequence for the selector path:
+    // Expected CDP call sequence for the selector path. The leading
+    // Runtime.evaluate is the visible-state probe issued by
+    // cdpWaitForSelector before resolving the backend node — this
+    // matches Playwright's `page.click(selector, { timeout })`
+    // semantics and lets click work on async-hydrated pages.
     const methods = sendCalls.map((c) => c.method);
     expect(methods).toEqual([
+      "Runtime.evaluate",
       "DOM.getDocument",
       "DOM.querySelector",
       "DOM.describeNode",
@@ -242,6 +254,14 @@ describe("executeBrowserClick (CDP)", () => {
       "Input.dispatchMouseEvent",
       "Input.dispatchMouseEvent",
     ]);
+
+    // The leading Runtime.evaluate is the visible-state probe.
+    const visibleProbe = sendCalls.find(
+      (c) => c.method === "Runtime.evaluate",
+    )!;
+    expect(
+      (visibleProbe.params as { expression: string }).expression,
+    ).toContain("getBoundingClientRect");
 
     // Arguments threaded through correctly.
     const qsCall = sendCalls.find((c) => c.method === "DOM.querySelector")!;
@@ -377,6 +397,54 @@ describe("executeBrowserClick (CDP)", () => {
     // finally { cdp.dispose() } must still fire → detach called.
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(detachCalls).toBe(1);
+  });
+
+  test("waits for selector that initially doesn't exist but becomes visible", async () => {
+    // Simulates a hydrating page: the visible-state probe returns
+    // false for the first 2 polls, then true on the 3rd. The click
+    // tool must wait through these polls (instead of failing
+    // immediately) and then complete the click as normal.
+    let visibleProbeCount = 0;
+    sendHandler = (method, _params) => {
+      switch (method) {
+        case "Runtime.evaluate":
+          visibleProbeCount++;
+          return { result: { value: visibleProbeCount >= 3 } };
+        case "DOM.getDocument":
+          return { root: { nodeId: 1 } };
+        case "DOM.querySelector":
+          return { nodeId: 2 };
+        case "DOM.describeNode":
+          return { node: { backendNodeId: 8888 } };
+        case "DOM.scrollIntoViewIfNeeded":
+          return {};
+        case "DOM.getBoxModel":
+          return { model: { content: [10, 20, 30, 20, 30, 40, 10, 40] } };
+        case "Input.dispatchMouseEvent":
+          return {};
+        default:
+          return {};
+      }
+    };
+
+    const result = await executeBrowserClick({ selector: "#hydrated" }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Clicked element: #hydrated");
+    // The visible-state probe was polled at least 3 times before
+    // succeeding, then the rest of the click pipeline ran exactly
+    // once.
+    expect(visibleProbeCount).toBeGreaterThanOrEqual(3);
+    const mouseCalls = sendCalls.filter(
+      (c) => c.method === "Input.dispatchMouseEvent",
+    );
+    expect(mouseCalls).toHaveLength(3);
+    // querySelectorBackendNodeId only ran once at the end (after the
+    // probe returned true) — not on every polling iteration.
+    const describeCalls = sendCalls.filter(
+      (c) => c.method === "DOM.describeNode",
+    );
+    expect(describeCalls).toHaveLength(1);
   });
 });
 
@@ -888,8 +956,11 @@ describe("executeBrowserHover (CDP)", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Hovered element: .menu-trigger");
 
+    // Selector path waits for the element to become visible via
+    // cdpWaitForSelector before resolving the backend node.
     const methods = sendCalls.map((c) => c.method);
     expect(methods).toEqual([
+      "Runtime.evaluate",
       "DOM.getDocument",
       "DOM.querySelector",
       "DOM.describeNode",

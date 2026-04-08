@@ -16,6 +16,13 @@ let newCdpSessionCalls = 0;
 let getOrCreateSessionPageCalls = 0;
 let fakeSessionHandler: (method: string, params?: unknown) => unknown = () =>
   undefined;
+// When set, the next call to `browserManager.getOrCreateSessionPage`
+// throws this error then clears it (so subsequent calls succeed). Used
+// by tests that exercise the cache-clear-on-rejection retry path.
+let getOrCreateSessionPageError: Error | null = null;
+// When non-null, every call to `browserManager.getOrCreateSessionPage`
+// throws this error indefinitely.
+let getOrCreateSessionPagePersistentError: Error | null = null;
 
 function resetFakes() {
   fakeSessionSendCalls = [];
@@ -23,6 +30,8 @@ function resetFakes() {
   newCdpSessionCalls = 0;
   getOrCreateSessionPageCalls = 0;
   fakeSessionHandler = () => undefined;
+  getOrCreateSessionPageError = null;
+  getOrCreateSessionPagePersistentError = null;
 }
 
 mock.module("../../browser-manager.js", () => {
@@ -47,6 +56,14 @@ mock.module("../../browser-manager.js", () => {
     browserManager: {
       getOrCreateSessionPage: async (_conversationId: string) => {
         getOrCreateSessionPageCalls += 1;
+        if (getOrCreateSessionPagePersistentError) {
+          throw getOrCreateSessionPagePersistentError;
+        }
+        if (getOrCreateSessionPageError) {
+          const err = getOrCreateSessionPageError;
+          getOrCreateSessionPageError = null;
+          throw err;
+        }
         return fakePage;
       },
     },
@@ -231,5 +248,63 @@ describe("LocalCdpClient", () => {
     expect(cdpErr.code).toBe("aborted");
     expect(cdpErr.cdpMethod).toBe("Page.navigate");
     expect(cdpErr.underlying).toBeInstanceOf(Error);
+  });
+
+  test("send() wraps ensureSession failures as CdpError 'transport_error'", async () => {
+    getOrCreateSessionPagePersistentError = new Error(
+      "Failed to launch chromium",
+    );
+    const client = createLocalCdpClient("conv-launch-fail");
+    let caught: unknown;
+    try {
+      await client.send("Browser.getVersion");
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(CdpError);
+    const cdpErr = caught as InstanceType<typeof CdpError>;
+    expect(cdpErr.code).toBe("transport_error");
+    expect(cdpErr.message).toBe("Failed to launch chromium");
+    expect(cdpErr.cdpMethod).toBe("Browser.getVersion");
+    expect(cdpErr.underlying).toBeInstanceOf(Error);
+    // Underlying session was never created.
+    expect(newCdpSessionCalls).toBe(0);
+  });
+
+  test("send() retries ensureSession after a transient failure", async () => {
+    // First call: ensureSession rejects (transient browser launch error).
+    // Second call: ensureSession succeeds and the underlying CDP method
+    // resolves. The cached promise from the first failure must have
+    // been cleared so the second call actually retries.
+    getOrCreateSessionPageError = new Error("transient launch failure");
+    fakeSessionHandler = (method) => {
+      if (method === "Browser.getVersion") {
+        return { product: "HeadlessChrome/120.0.0.0" };
+      }
+      return undefined;
+    };
+    const client = createLocalCdpClient("conv-retry");
+
+    // First call → CdpError("transport_error") from ensureSession.
+    let firstErr: unknown;
+    try {
+      await client.send("Browser.getVersion");
+    } catch (err) {
+      firstErr = err;
+    }
+    expect(firstErr).toBeInstanceOf(CdpError);
+    expect((firstErr as InstanceType<typeof CdpError>).code).toBe(
+      "transport_error",
+    );
+    expect(getOrCreateSessionPageCalls).toBe(1);
+    expect(newCdpSessionCalls).toBe(0);
+
+    // Second call → cached promise was cleared, so ensureSession is
+    // re-invoked, getOrCreateSessionPage runs again, and the call
+    // succeeds against the freshly created session.
+    const result = await client.send<{ product: string }>("Browser.getVersion");
+    expect(result).toEqual({ product: "HeadlessChrome/120.0.0.0" });
+    expect(getOrCreateSessionPageCalls).toBe(2);
+    expect(newCdpSessionCalls).toBe(1);
   });
 });

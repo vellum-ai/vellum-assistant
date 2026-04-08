@@ -601,11 +601,13 @@ describe("navigateAndWait", () => {
 // ── waitForSelector ───────────────────────────────────────────────────
 
 describe("waitForSelector", () => {
-  test("resolves when the selector appears on the 2nd poll", async () => {
+  test("resolves when the selector appears on the 2nd poll (default visible state)", async () => {
     let evalCount = 0;
-    const cdp = fakeCdp((method) => {
+    let lastExpression = "";
+    const cdp = fakeCdp((method, params) => {
       if (method === "Runtime.evaluate") {
         evalCount++;
+        lastExpression = (params as { expression: string }).expression;
         // First poll: not present. Second poll: present.
         return { result: { value: evalCount >= 2 } };
       }
@@ -619,6 +621,67 @@ describe("waitForSelector", () => {
     const backendNodeId = await waitForSelector(cdp, "#ready", 5_000);
     expect(backendNodeId).toBe(321);
     expect(evalCount).toBeGreaterThanOrEqual(2);
+    // Default state is "visible" — the polling expression must check
+    // bounding box + display + visibility, not just `!== null`.
+    expect(lastExpression).toContain("getBoundingClientRect");
+    expect(lastExpression).toContain("display");
+    expect(lastExpression).toContain("visibility");
+  });
+
+  test("with state: 'attached' polls DOM existence only", async () => {
+    let evalCount = 0;
+    let lastExpression = "";
+    const cdp = fakeCdp((method, params) => {
+      if (method === "Runtime.evaluate") {
+        evalCount++;
+        lastExpression = (params as { expression: string }).expression;
+        return { result: { value: true } };
+      }
+      if (method === "DOM.getDocument") return { root: { nodeId: 1 } };
+      if (method === "DOM.querySelector") return { nodeId: 9 };
+      if (method === "DOM.describeNode")
+        return { node: { backendNodeId: 555 } };
+      throw new Error(`unexpected: ${method}`);
+    });
+
+    const backendNodeId = await waitForSelector(
+      cdp,
+      "#exists",
+      5_000,
+      undefined,
+      { state: "attached" },
+    );
+    expect(backendNodeId).toBe(555);
+    expect(evalCount).toBeGreaterThanOrEqual(1);
+    // Attached state must use the simple `!== null` check, not the
+    // bounding-box / computed-style probe.
+    expect(lastExpression).toBe(`document.querySelector("#exists") !== null`);
+    expect(lastExpression).not.toContain("getBoundingClientRect");
+  });
+
+  test("default state polls until the visible-state probe returns true", async () => {
+    let evalCount = 0;
+    const cdp = fakeCdp((method, params) => {
+      if (method === "Runtime.evaluate") {
+        evalCount++;
+        const expression = (params as { expression: string }).expression;
+        // Sanity-check: the polling expression must be the visible
+        // probe, not the simple existence check.
+        expect(expression).toContain("getBoundingClientRect");
+        // Element exists in DOM but isn't yet visible until the third
+        // poll.
+        return { result: { value: evalCount >= 3 } };
+      }
+      if (method === "DOM.getDocument") return { root: { nodeId: 1 } };
+      if (method === "DOM.querySelector") return { nodeId: 9 };
+      if (method === "DOM.describeNode")
+        return { node: { backendNodeId: 999 } };
+      throw new Error(`unexpected: ${method}`);
+    });
+
+    const backendNodeId = await waitForSelector(cdp, "#hydrating", 5_000);
+    expect(backendNodeId).toBe(999);
+    expect(evalCount).toBeGreaterThanOrEqual(3);
   });
 
   test("throws CdpError on timeout", async () => {

@@ -50,25 +50,42 @@ export class LocalCdpClient implements ScopedCdpClient {
    * conversation. Concurrent callers share the same in-flight promise
    * so `newCDPSession` is only called once per LocalCdpClient
    * instance.
+   *
+   * If the underlying browser launch / `newCDPSession` rejects (e.g.
+   * a transient Chromium spawn failure), the cached promise is
+   * cleared so the next `ensureSession()` call retries from scratch
+   * instead of replaying the same rejection forever.
    */
   private async ensureSession(): Promise<PlaywrightCdpSession> {
     if (this.disposed) {
       throw new CdpError("disposed", "LocalCdpClient already disposed");
     }
     if (this.sessionPromise) return this.sessionPromise;
-    this.sessionPromise = (async () => {
-      const page = await browserManager.getOrCreateSessionPage(
-        this.conversationId,
-      );
-      const rawPage = page as unknown as RawPlaywrightPage;
-      const session = await rawPage.context().newCDPSession(rawPage);
-      log.debug(
-        { conversationId: this.conversationId },
-        "Created Playwright CDP session for LocalCdpClient",
-      );
-      return session;
-    })();
-    return this.sessionPromise;
+    const created = this.createSession();
+    this.sessionPromise = created;
+    // Clear the cached promise on rejection so the next call retries
+    // from scratch instead of replaying the same failure forever.
+    // Only clear if `created` is still the cached promise — a
+    // concurrent dispose may have already nulled it.
+    created.catch(() => {
+      if (this.sessionPromise === created) {
+        this.sessionPromise = null;
+      }
+    });
+    return created;
+  }
+
+  private async createSession(): Promise<PlaywrightCdpSession> {
+    const page = await browserManager.getOrCreateSessionPage(
+      this.conversationId,
+    );
+    const rawPage = page as unknown as RawPlaywrightPage;
+    const session = await rawPage.context().newCDPSession(rawPage);
+    log.debug(
+      { conversationId: this.conversationId },
+      "Created Playwright CDP session for LocalCdpClient",
+    );
+    return session;
   }
 
   async send<T = unknown>(
@@ -88,7 +105,34 @@ export class LocalCdpClient implements ScopedCdpClient {
         cdpParams: params,
       });
     }
-    const session = await this.ensureSession();
+    let session: PlaywrightCdpSession;
+    try {
+      session = await this.ensureSession();
+    } catch (err) {
+      if (signal?.aborted) {
+        throw new CdpError("aborted", "Aborted during send", {
+          cdpMethod: method,
+          cdpParams: params,
+          underlying: err,
+        });
+      }
+      // Re-throw existing CdpError instances unchanged so we don't
+      // double-wrap (e.g. a "disposed" error raised by a concurrent
+      // dispose landing during ensureSession()).
+      if (err instanceof CdpError) {
+        throw err;
+      }
+      // ensureSession failures (browser launch errors, Chromium
+      // spawn failures, etc) are surfaced as transport_error so
+      // callers can distinguish them from CDP protocol errors raised
+      // by session.send below.
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new CdpError("transport_error", msg, {
+        cdpMethod: method,
+        cdpParams: params,
+        underlying: err,
+      });
+    }
     try {
       const result = (await session.send(method, params)) as T;
       return result;
@@ -99,6 +143,9 @@ export class LocalCdpClient implements ScopedCdpClient {
           cdpParams: params,
           underlying: err,
         });
+      }
+      if (err instanceof CdpError) {
+        throw err;
       }
       const msg = err instanceof Error ? err.message : String(err);
       throw new CdpError("cdp_error", msg, {
