@@ -295,7 +295,7 @@ Examples:
           return;
         }
 
-        const url = `${context.platformBaseUrl}/v1/internal/gateway/callback-routes/?assistant_id=${context.assistantId}`;
+        const url = `${context.platformBaseUrl}/v1/internal/gateway/callback-routes/`;
         const response = await fetch(url, {
           method: "GET",
           headers: {
