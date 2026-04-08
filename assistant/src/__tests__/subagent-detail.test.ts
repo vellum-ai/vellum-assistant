@@ -92,6 +92,26 @@ describe("parseSubagentMessages", () => {
     expect(result.objective).toBe("Research vampire lore");
   });
 
+  test("strips fork directive framing from objective", () => {
+    const forkPrompt = [
+      "⎯⎯⎯ FORK TASK ⎯⎯⎯",
+      "You have been forked from the parent conversation to execute a specific task.",
+      "The conversation above is context — do NOT continue it. Do NOT spawn sub-agents.",
+      "Complete this task directly and return only your findings:",
+      "",
+      "Research vampire lore",
+      "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯",
+    ].join("\n");
+
+    const messages = [
+      msg("user", [{ type: "text", text: forkPrompt }]),
+      msg("assistant", [{ type: "text", text: "On it." }]),
+    ];
+
+    const result = parseSubagentMessages("sub-1", messages);
+    expect(result.objective).toBe("Research vampire lore");
+  });
+
   test("includes messageId on text events from assistant messages", () => {
     const messages = [
       msg("user", [{ type: "text", text: "Do something" }]),
