@@ -216,17 +216,19 @@ struct IntegrationDetailModal: View {
             } else {
                 managedConnectionsList
 
-                // Connect another account inside card area
-                if isConnecting {
-                    HStack(spacing: VSpacing.sm) {
-                        VBusyIndicator(size: 8, color: VColor.contentTertiary)
-                        Text("Waiting for authorization...")
-                            .font(VFont.bodyMediumDefault)
-                            .foregroundStyle(VColor.contentTertiary)
-                    }
-                } else {
-                    VButton(label: "Connect another account", leftIcon: VIcon.plus.rawValue, style: .outlined) {
-                        store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
+                // Connect account button inside a card
+                VCard {
+                    if isConnecting {
+                        HStack(spacing: VSpacing.sm) {
+                            VBusyIndicator(size: 8, color: VColor.contentTertiary)
+                            Text("Waiting for authorization...")
+                                .font(VFont.bodyMediumDefault)
+                                .foregroundStyle(VColor.contentTertiary)
+                        }
+                    } else {
+                        VButton(label: "Connect account", leftIcon: "lucide-external-link", style: .outlined) {
+                            store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
+                        }
                     }
                 }
             }
@@ -438,7 +440,7 @@ struct IntegrationDetailModal: View {
                     }
                 } else {
                     VButton(
-                        label: "Connect another account",
+                        label: "Connect account",
                         leftIcon: "lucide-external-link",
                         style: .outlined,
                         isDisabled: store.yourOwnOAuthConnectingAppId != nil
