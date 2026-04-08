@@ -1141,7 +1141,7 @@ enum LogExporter {
                     "assistantId": entry.assistantId,
                     "cloud": entry.cloud,
                     "isManaged": entry.isManaged,
-                    "isRemote": entry.isRemote,
+                    "runsLocally": entry.runsLocally,
                 ]
                 if let hatchedAt = entry.hatchedAt { dict["hatchedAt"] = hatchedAt }
                 if let gatewayPort = entry.gatewayPort { dict["gatewayPort"] = gatewayPort }
