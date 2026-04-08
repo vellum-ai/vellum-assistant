@@ -216,6 +216,50 @@ describe("host_browser cloud-hosted e2e round-trip", () => {
     await mockExt.stop();
   });
 
+  test("happy path (WS result transport): Browser.getVersion round-trips when the extension returns the result over the same WS", async () => {
+    const guardianId = `test-guardian-${crypto.randomUUID()}`;
+    const token = mintActorToken(guardianId);
+
+    const { createMockChromeExtension } =
+      await import("./fixtures/mock-chrome-extension.js");
+    // Same fixture as the HTTP happy path, but configured to return
+    // results over the /v1/browser-relay WebSocket instead of POSTing
+    // /v1/host-browser-result. This exercises the runtime WS
+    // `message` handler's host_browser_result dispatch path added in
+    // PR2 of the browser-use remediation plan.
+    const mockExt = createMockChromeExtension({
+      runtimeBaseUrl,
+      token,
+      resultTransport: "ws",
+    });
+    await mockExt.start();
+    await mockExt.waitForConnection();
+    await waitForRegistryEntry(guardianId);
+
+    const { proxy } = createBoundProxy(guardianId, "conv-happy-ws");
+
+    const result = await proxy.request(
+      { cdpMethod: "Browser.getVersion" },
+      "conv-happy-ws",
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Chrome/MockTest");
+
+    const received = mockExt.receivedRequests();
+    expect(received).toHaveLength(1);
+    expect(received[0].cdpMethod).toBe("Browser.getVersion");
+    expect(received[0].conversationId).toBe("conv-happy-ws");
+
+    // The pending interaction must be fully consumed — if the WS
+    // handler silently no-op'd, the entry would still be registered
+    // after the proxy resolves.
+    expect(pendingInteractions.get(received[0].requestId)).toBeUndefined();
+
+    proxy.dispose();
+    await mockExt.stop();
+  });
+
   test("abort: AbortSignal resolves to 'Aborted' and extension receives host_browser_cancel", async () => {
     const guardianId = `test-guardian-${crypto.randomUUID()}`;
     const token = mintActorToken(guardianId);

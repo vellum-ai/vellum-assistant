@@ -159,7 +159,10 @@ import { handleGuardianBootstrap } from "./routes/guardian-bootstrap-routes.js";
 import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
 import { heartbeatRouteDefinitions } from "./routes/heartbeat-routes.js";
 import { hostBashRouteDefinitions } from "./routes/host-bash-routes.js";
-import { hostBrowserRouteDefinitions } from "./routes/host-browser-routes.js";
+import {
+  hostBrowserRouteDefinitions,
+  resolveHostBrowserResultByRequestId,
+} from "./routes/host-browser-routes.js";
 import { hostCuRouteDefinitions } from "./routes/host-cu-routes.js";
 import { hostFileRouteDefinitions } from "./routes/host-file-routes.js";
 import {
@@ -243,9 +246,13 @@ const MAX_REQUEST_BODY_BYTES = 512 * 1024 * 1024;
 
 /**
  * WebSocket data attached to `/v1/browser-relay` connections. The route
- * is used exclusively by the chrome-extension CDP proxy — inbound frames
- * from the extension travel over HTTP (`/v1/host-browser-result`), and
- * outbound frames are pushed through the {@link ChromeExtensionRegistry}.
+ * is used exclusively by the chrome-extension CDP proxy — outbound
+ * `host_browser_request` frames are pushed through the
+ * {@link ChromeExtensionRegistry}, and inbound `host_browser_result`
+ * frames are dispatched through
+ * `resolveHostBrowserResultByRequestId`. The extension may also submit
+ * results via `POST /v1/host-browser-result` (both transports resolve
+ * through the same core function).
  */
 interface BrowserRelayWebSocketData {
   wsType: "browser-relay";
@@ -391,13 +398,64 @@ export class RuntimeHttpServer {
               ? message
               : new TextDecoder().decode(message);
           if ("wsType" in data && data.wsType === "browser-relay") {
-            // The /v1/browser-relay socket is one-way (server → extension).
-            // The extension POSTs results via /v1/host-browser-result;
-            // inbound frames are unexpected.
-            log.debug(
-              { connectionId: data.connectionId },
-              "Unexpected inbound browser-relay message",
-            );
+            // Inbound frames on `/v1/browser-relay` carry
+            // `host_browser_result` envelopes submitted by the Chrome
+            // extension. The extension can also POST results to
+            // `/v1/host-browser-result` over HTTP — both transports
+            // route through `resolveHostBrowserResultByRequestId` so
+            // the validation and resolution semantics stay in lockstep.
+            //
+            // Malformed frames are logged at debug and swallowed — we
+            // never throw out of a WebSocket `message` handler because
+            // an uncaught exception would tear down the whole socket
+            // for an attacker-controlled payload.
+            let parsed: unknown;
+            try {
+              parsed = JSON.parse(raw);
+            } catch (err) {
+              log.debug(
+                {
+                  connectionId: data.connectionId,
+                  error: err instanceof Error ? err.message : String(err),
+                },
+                "browser-relay: dropped non-JSON inbound frame",
+              );
+              return;
+            }
+            if (!parsed || typeof parsed !== "object") {
+              log.debug(
+                { connectionId: data.connectionId },
+                "browser-relay: dropped non-object inbound frame",
+              );
+              return;
+            }
+            const frame = parsed as Record<string, unknown>;
+            if (frame.type !== "host_browser_result") {
+              log.debug(
+                { connectionId: data.connectionId, type: frame.type },
+                "browser-relay: dropped unsupported inbound frame type",
+              );
+              return;
+            }
+            const resolution = resolveHostBrowserResultByRequestId({
+              requestId: frame.requestId,
+              content: frame.content,
+              isError: frame.isError,
+            });
+            if (!resolution.ok) {
+              log.warn(
+                {
+                  connectionId: data.connectionId,
+                  requestId:
+                    typeof frame.requestId === "string"
+                      ? frame.requestId
+                      : undefined,
+                  code: resolution.code,
+                  message: resolution.message,
+                },
+                "browser-relay: host_browser_result frame rejected",
+              );
+            }
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
