@@ -411,8 +411,11 @@ struct AssistantTransferSection: View {
                     status = try await PlatformMigrationClient.pollImportStatus(jobId: jobId)
                 } catch is CancellationError {
                     throw CancellationError()
+                } catch let error as PlatformMigrationClient.PlatformMigrationError {
+                    // Permanent HTTP errors (auth, not found, etc.) — fail fast
+                    throw error
                 } catch {
-                    // Transient polling error — retry on next cycle
+                    // Transient network errors — retry on next cycle
                     continue
                 }
 
