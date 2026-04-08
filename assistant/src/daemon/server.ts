@@ -390,7 +390,8 @@ export class DaemonServer {
     this.evictor = new ConversationEvictor(this.conversations);
     getSubagentManager().sharedRequestTimestamps = this.sharedRequestTimestamps;
     getSubagentManager().broadcastToAllClients = (msg) => this.broadcast(msg);
-    getSubagentManager().resolveParentConversation = (id) => this.conversations.get(id);
+    getSubagentManager().resolveParentConversation = (id) =>
+      this.conversations.get(id);
     setBroadcastToAllClients((msg) => this.broadcast(msg));
     this.evictor.onEvict = (conversationId: string) => {
       getSubagentManager().abortAllForParent(conversationId);
@@ -1091,6 +1092,28 @@ export class DaemonServer {
         options?.transport?.chatType,
       ),
     );
+    // Chrome-extension host_browser wiring is intentionally not supported
+    // through this entry point. `prepareConversationForMessage` constructs
+    // host_browser proxies that capture `conversation.getCurrentSender()`
+    // directly, which would route browser frames through the daemon SSE
+    // channel instead of the `ChromeExtensionRegistry`. Chrome-extension
+    // flows reach host_browser exclusively through the
+    // `/v1/messages` flow in `conversation-routes.ts`, which wires a
+    // registry-aware sender and sets `hostBrowserSenderOverride`.
+    //
+    // Fail loudly rather than silently returning a mis-wired proxy so that
+    // any future caller that tries to route chrome-extension through this
+    // path discovers the gap immediately. When the time comes, factor the
+    // wiring in conversation-routes.ts (registry lookup + override) into a
+    // shared helper and call it from both sites.
+    if (resolvedInterface === "chrome-extension") {
+      throw new Error(
+        "prepareConversationForMessage does not yet support chrome-extension transport — " +
+          "use the conversation-routes.ts /v1/messages flow which routes host_browser through " +
+          "the ChromeExtensionRegistry. If you need chrome-extension here, factor out the " +
+          "wiring in conversation-routes.ts into a shared helper.",
+      );
+    }
     // Only create each host proxy for interfaces that support the matching
     // capability. macOS supports all four; the chrome-extension interface only
     // supports host_browser. Non-desktop conversations (CLI, channels, headless)

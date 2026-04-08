@@ -1177,7 +1177,19 @@ export async function handleSendMessage(
   const browserProxySendToClient: (msg: ServerMessage) => void =
     sourceInterface === "chrome-extension"
       ? (msg) => {
-          const gid = authContext.actorPrincipalId;
+          // Resolve the guardian principal id at send time rather than
+          // capturing it from the POST-time authContext. This closure can be
+          // re-fired on queue drain — if a different actor's POST lands while
+          // the queue is still draining an earlier turn, a captured
+          // authContext.actorPrincipalId would mis-route the earlier turn's
+          // host_browser frames to the *new* actor. Preferring
+          // conversation.trustContext?.guardianPrincipalId makes the routing
+          // follow the conversation's bound guardian, which is stable across
+          // subsequent POSTs. Falls back to the per-POST authContext for
+          // turns that haven't been bound to a trust context yet.
+          const gid =
+            conversation.trustContext?.guardianPrincipalId ??
+            authContext.actorPrincipalId;
           if (!gid) {
             // No guardian identity on this turn — nothing to route to.
             // The proxy will observe this via its try/catch and surface a

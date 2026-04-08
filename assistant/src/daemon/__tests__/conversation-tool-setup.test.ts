@@ -20,6 +20,8 @@ import { describe, expect, test } from "bun:test";
 
 import type { SkillProjectionCache } from "../conversation-skill-tools.js";
 import {
+  HOST_TOOL_NAMES,
+  HOST_TOOL_TO_CAPABILITY,
   isToolActiveForContext,
   type SkillProjectionContext,
 } from "../conversation-tool-setup.js";
@@ -163,5 +165,22 @@ describe("isToolActiveForContext — host tool capability gating", () => {
         makeCtx({ hasNoClient: true, transportInterface: undefined }),
       ),
     ).toBe(false);
+  });
+});
+
+describe("HOST_TOOL_NAMES derivation", () => {
+  test("HOST_TOOL_NAMES is derived from HOST_TOOL_TO_CAPABILITY", () => {
+    // Sanity check: every tool in the names set has a capability mapping.
+    // This is structurally enforced by the code (HOST_TOOL_NAMES is built
+    // from HOST_TOOL_TO_CAPABILITY.keys()), but we test it to make the
+    // invariant visible to readers and to catch any regression that
+    // splits the two collections back apart.
+    for (const name of HOST_TOOL_NAMES) {
+      expect(HOST_TOOL_TO_CAPABILITY.has(name)).toBe(true);
+    }
+    // Cardinality check: the two collections must have the same size so a
+    // future addition to HOST_TOOL_NAMES without a matching capability entry
+    // (or vice versa) would fail.
+    expect(HOST_TOOL_NAMES.size).toBe(HOST_TOOL_TO_CAPABILITY.size);
   });
 });

@@ -478,31 +478,35 @@ export interface SkillProjectionContext {
 // ── Conditional tool sets ────────────────────────────────────────────
 
 const UI_SURFACE_TOOL_NAMES = new Set(["ui_show", "ui_update", "ui_dismiss"]);
-const HOST_TOOL_NAMES = new Set([
-  "host_file_read",
-  "host_file_write",
-  "host_file_edit",
-  "host_bash",
-  "host_browser",
-]);
 /**
- * Maps each host tool name to the host proxy capability that the connected
- * client interface must support. `isToolActiveForContext` uses this to gate
- * each host tool individually so that partial-capability transports (e.g.
- * chrome-extension only supports `host_browser`) only see the host tools
- * their interface can actually service.
+ * Single source of truth for which tools are host tools and the capability
+ * each one requires from the connected client interface. Adding a tool here
+ * automatically adds it to `HOST_TOOL_NAMES` below, so the two collections
+ * cannot drift apart: if a new host tool is added without a capability
+ * mapping, `isToolActiveForContext` cannot accidentally return `true` for
+ * chrome-extension (or any other partial-capability transport) because
+ * `HOST_TOOL_NAMES` wouldn't contain it either.
+ *
+ * `isToolActiveForContext` uses this map to gate each host tool individually
+ * so that partial-capability transports (e.g. chrome-extension only supports
+ * `host_browser`) only see the host tools their interface can actually
+ * service.
  *
  * Note: there is no `host_cu` tool exposed via the tool gating layer today;
  * computer-use is preactivated as a skill and projected through the skill
- * tools path. Only the host tools listed in `HOST_TOOL_NAMES` need entries.
+ * tools path. Only host tools that flow through the per-capability gate
+ * need entries here.
  */
-const HOST_TOOL_TO_CAPABILITY = new Map<string, HostProxyCapability>([
+export const HOST_TOOL_TO_CAPABILITY = new Map<string, HostProxyCapability>([
   ["host_bash", "host_bash"],
   ["host_file_read", "host_file"],
   ["host_file_write", "host_file"],
   ["host_file_edit", "host_file"],
   ["host_browser", "host_browser"],
 ]);
+// Derived from HOST_TOOL_TO_CAPABILITY so the invariant "every host tool has
+// a capability mapping" is a structural fact — no runtime assertion needed.
+export const HOST_TOOL_NAMES = new Set(HOST_TOOL_TO_CAPABILITY.keys());
 const CLIENT_CAPABILITY_TOOL_NAMES = new Set(["app_open"]);
 const PLATFORM_TOOL_NAMES = new Set(["request_system_permission"]);
 

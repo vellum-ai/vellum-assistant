@@ -397,3 +397,69 @@ describe("handleBrowserExtensionPair", () => {
     expect(verifyHostBrowserCapability(tampered)).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// parseHostHeader — table-driven unit tests for IPv6 / port / malformed edge
+// cases. The handler-level tests above cover end-to-end accept/reject of the
+// pair endpoint; these tests pin down the parser contract itself so that a
+// future refactor of `parseHostHeader` cannot silently change its semantics.
+//
+// Important: `parseHostHeader` does NOT lowercase the hostname — case
+// normalization happens later in `isLoopbackHostHeader`. The tests below
+// reflect that.
+// ---------------------------------------------------------------------------
+describe("parseHostHeader", () => {
+  // [input, expected-parseHostHeader-output]. `null` means "malformed".
+  const cases: Array<[string, string | null]> = [
+    // IPv4 with port
+    ["127.0.0.1:7821", "127.0.0.1"],
+    // Bare IPv4
+    ["127.0.0.1", "127.0.0.1"],
+    // IPv4 in 127.0.0.0/8 range
+    ["127.1.2.3:7821", "127.1.2.3"],
+    // IPv6 with brackets and port
+    ["[::1]:7821", "::1"],
+    // IPv6 with brackets, no port
+    ["[::1]", "::1"],
+    // Bare IPv6 (no brackets, no port) — two or more colons, no brackets,
+    // so treated as a whole IPv6 literal rather than split at the first colon.
+    ["::1", "::1"],
+    // Non-loopback IPv6 with brackets
+    ["[2001:db8::1]:443", "2001:db8::1"],
+    // Non-loopback IPv6, bare (multi-colon → treated as IPv6 literal)
+    ["2001:db8::1", "2001:db8::1"],
+    // Hostname with port
+    ["localhost:7821", "localhost"],
+    // Bare hostname
+    ["localhost", "localhost"],
+    // Mixed-case hostname — the parser preserves case; downstream
+    // `isLoopbackHostHeader` is responsible for case folding.
+    ["LocalHost:7821", "LocalHost"],
+    // Empty string
+    ["", null],
+    // Malformed: content after the closing bracket that isn't `:port`.
+    // Critical security case: `[::1]attacker.com` would slip a non-loopback
+    // hostname past a naive parser that truncates at `]`.
+    ["[::1]attacker.com", null],
+    ["[::1]extra", null],
+    // Malformed: unbalanced brackets (missing closing `]`)
+    ["[::1", null],
+    // Malformed: unbalanced brackets (missing opening `[`) — the leading
+    // character is not `[`, so the bare-host path runs; `"]":"port"` has
+    // two colons so it's treated as an IPv6 literal (garbage in, garbage
+    // out for this edge case — documented for visibility).
+    ["::1]:7821", "::1]:7821"],
+    // Empty brackets: after `[` we see `]` at index 1, after `]` is `:7821`
+    // which is a valid port, so the parser returns the substring between
+    // the brackets — the empty string. `isLoopbackHostHeader` then rejects
+    // it because `""` is not a loopback address.
+    ["[]:7821", ""],
+    // Empty brackets, no port
+    ["[]", ""],
+  ];
+  for (const [input, expected] of cases) {
+    test(`parseHostHeader(${JSON.stringify(input)}) returns ${JSON.stringify(expected)}`, () => {
+      expect(parseHostHeader(input)).toBe(expected);
+    });
+  }
+});

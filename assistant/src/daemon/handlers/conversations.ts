@@ -1,11 +1,5 @@
 import { v4 as uuid } from "uuid";
 
-import {
-  type InterfaceId,
-  parseChannelId,
-  parseInterfaceId,
-  supportsHostProxy,
-} from "../../channels/types.js";
 import { getConfig } from "../../config/loader.js";
 import {
   createCanonicalGuardianRequest,
@@ -14,29 +8,18 @@ import {
 import {
   batchSetDisplayOrders,
   clearAll,
-  createConversation,
   getConversation,
   updateConversationTitle,
 } from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
-import {
-  GENERATING_TITLE,
-  queueGenerateConversationTitle,
-  UNTITLED_FALLBACK,
-} from "../../memory/conversation-title-service.js";
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { summarizeToolInput } from "../../tools/tool-input-summary.js";
 import { truncate } from "../../util/truncate.js";
 import type { Conversation } from "../conversation.js";
-import { HostBashProxy } from "../host-bash-proxy.js";
-import { HostBrowserProxy } from "../host-browser-proxy.js";
-import { HostCuProxy } from "../host-cu-proxy.js";
-import { HostFileProxy } from "../host-file-proxy.js";
 import type {
   ConfirmationResponse,
-  ConversationCreateRequest,
   ConversationRenameRequest,
   ConversationSwitchRequest,
   DeleteQueuedMessage,
@@ -232,141 +215,6 @@ export function clearAllConversations(ctx: HandlerContext): number {
   // the "clear all conversations" intent.
   clearAll();
   return cleared;
-}
-
-export async function handleConversationCreate(
-  msg: ConversationCreateRequest,
-  ctx: HandlerContext,
-): Promise<void> {
-  const conversationType = normalizeConversationType(msg.conversationType);
-  const title =
-    msg.title ?? (msg.initialMessage ? GENERATING_TITLE : "New Conversation");
-  const conversation = createConversation({
-    title,
-    conversationType,
-  });
-  const conversationObj = await ctx.getOrCreateConversation(conversation.id, {
-    systemPromptOverride: msg.systemPromptOverride,
-    maxResponseTokens: msg.maxResponseTokens,
-    transport: msg.transport,
-  });
-
-  // Pre-activate skills before sending conversation_info so they're available
-  // for the initial message processing.
-  if (msg.preactivatedSkillIds?.length) {
-    conversationObj.setPreactivatedSkillIds(msg.preactivatedSkillIds);
-  }
-
-  ctx.send({
-    type: "conversation_info",
-    conversationId: conversation.id,
-    title: conversation.title ?? "New Conversation",
-    ...(msg.correlationId ? { correlationId: msg.correlationId } : {}),
-    conversationType: normalizeConversationType(conversation.conversationType),
-  });
-
-  // Auto-send the initial message if provided, kick-starting the skill.
-  if (msg.initialMessage) {
-    // Queue title generation eagerly — some processMessage paths (guardian
-    // replies, unknown slash commands) bypass the agent loop entirely, so
-    // we can't rely on the agent loop's early title generation alone.
-    // The agent loop also queues title generation, but isReplaceableTitle
-    // prevents double-writes since the first to complete sets a real title.
-    if (title === GENERATING_TITLE) {
-      queueGenerateConversationTitle({
-        conversationId: conversation.id,
-        context: { origin: "local" },
-        userMessage: msg.initialMessage,
-        onTitleUpdated: (newTitle) => {
-          ctx.send({
-            type: "conversation_title_updated",
-            conversationId: conversation.id,
-            title: newTitle,
-          });
-        },
-      });
-    }
-
-    const requestId = uuid();
-    const transportChannel =
-      parseChannelId(msg.transport?.channelId) ?? "vellum";
-    const sendEvent = makeEventSender({
-      ctx,
-      conversation: conversationObj,
-      conversationId: conversation.id,
-      sourceChannel: transportChannel,
-    });
-    conversationObj.setTurnChannelContext({
-      userMessageChannel: transportChannel,
-      assistantMessageChannel: transportChannel,
-    });
-    const transportInterface: InterfaceId =
-      parseInterfaceId(msg.transport?.interfaceId) ?? "vellum";
-    conversationObj.setTurnInterfaceContext({
-      userMessageInterface: transportInterface,
-      assistantMessageInterface: transportInterface,
-    });
-    // Only create each host proxy for interfaces that support the matching
-    // capability. macOS supports all four; the chrome-extension interface only
-    // supports host_browser. Set before updateClient so updateClient's call to
-    // hostBashProxy.updateSender targets the new proxy.
-    if (supportsHostProxy(transportInterface, "host_bash")) {
-      const proxy = new HostBashProxy(sendEvent, (requestId) => {
-        pendingInteractions.resolve(requestId);
-      });
-      conversationObj.setHostBashProxy(proxy);
-    }
-    if (supportsHostProxy(transportInterface, "host_browser")) {
-      const browserProxy = new HostBrowserProxy(sendEvent, (requestId) => {
-        pendingInteractions.resolve(requestId);
-      });
-      conversationObj.setHostBrowserProxy(browserProxy);
-    }
-    if (supportsHostProxy(transportInterface, "host_file")) {
-      const fileProxy = new HostFileProxy(sendEvent, (requestId) => {
-        pendingInteractions.resolve(requestId);
-      });
-      conversationObj.setHostFileProxy(fileProxy);
-    }
-    if (supportsHostProxy(transportInterface, "host_cu")) {
-      const cuProxy = new HostCuProxy(sendEvent, (requestId) => {
-        pendingInteractions.resolve(requestId);
-      });
-      conversationObj.setHostCuProxy(cuProxy);
-      conversationObj.addPreactivatedSkillId("computer-use");
-    }
-    conversationObj.updateClient(sendEvent, false);
-    conversationObj
-      .processMessage(msg.initialMessage, [], sendEvent, requestId)
-      .catch((err) => {
-        const message = err instanceof Error ? err.message : String(err);
-        log.error(
-          { err, conversationId: conversation.id },
-          "Error processing initial message",
-        );
-        ctx.send({
-          type: "error",
-          message: `Failed to process initial message: ${message}`,
-        });
-
-        // Replace stuck loading placeholder with a stable fallback title
-        // if title generation hasn't already completed or been renamed.
-        try {
-          const current = getConversation(conversation.id);
-          if (current && current.title === GENERATING_TITLE) {
-            const fallback = UNTITLED_FALLBACK;
-            updateConversationTitle(conversation.id, fallback);
-            ctx.send({
-              type: "conversation_title_updated",
-              conversationId: conversation.id,
-              title: fallback,
-            });
-          }
-        } catch {
-          // Best-effort fallback
-        }
-      });
-  }
 }
 
 /**

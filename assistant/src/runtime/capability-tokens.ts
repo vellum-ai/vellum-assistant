@@ -285,12 +285,24 @@ export function mintHostBrowserCapability(
 }
 
 /**
- * Verify a capability token. Returns the decoded claims on success or null
- * if the signature is invalid, the payload is malformed, the token has
- * expired, or the bound capability is not `host_browser_command`.
+ * Verify a capability token minted by `mintHostBrowserCapability`.
+ *
+ * Returns the decoded claims on success or null if the signature is
+ * invalid, the payload is malformed, the token has expired, or the bound
+ * capability is not `host_browser_command`.
  *
  * Signature comparison uses `timingSafeEqual` to avoid leaking the secret
  * through timing side channels.
+ *
+ * Phase 2 hand-off: this function has no production caller yet. The
+ * `/v1/browser-relay` WebSocket upgrade handler currently authenticates
+ * with guardian-bound JWTs only. Phase 3 will extend the upgrade handler
+ * to accept capability tokens minted by `mintHostBrowserCapability` so
+ * the chrome extension can present the token from the
+ * `/v1/browser-extension-pair` flow on its WebSocket handshake — at
+ * which point this function becomes the authoritative verifier for
+ * chrome-extension host_browser connections. Until then the tests in
+ * `browser-extension-pair-routes.test.ts` are the only call site.
  */
 export function verifyHostBrowserCapability(
   token: string,

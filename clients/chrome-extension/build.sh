@@ -13,6 +13,12 @@ DIST_DIR="$SCRIPT_DIR/dist"
 
 echo "Building Vellum browser-relay extension…"
 
+# Type-check with tsc --noEmit before bundling so type errors fail fast
+# rather than surfacing as runtime errors in the loaded extension. `bun build`
+# does not run a TypeScript check — it strips types and bundles.
+echo "Type-checking with tsc --noEmit..."
+(cd "$SCRIPT_DIR" && bunx tsc --noEmit)
+
 # Clean previous build
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR/background"
@@ -20,6 +26,7 @@ mkdir -p "$DIST_DIR/popup"
 mkdir -p "$DIST_DIR/icons"
 
 # Build service worker
+echo "Bundling service worker with bun build..."
 bun build \
   "$SCRIPT_DIR/background/worker.ts" \
   --outdir "$DIST_DIR/background" \
@@ -28,6 +35,7 @@ bun build \
   --minify
 
 # Build popup script
+echo "Bundling popup script with bun build..."
 bun build \
   "$SCRIPT_DIR/popup/popup.ts" \
   --outdir "$DIST_DIR/popup" \
