@@ -801,8 +801,9 @@ extension AppDelegate {
 
         // Seed the identity cache so the menu-bar switcher can display the
         // assistant's name immediately without waiting for a gateway fetch.
-        let displayName = platformAssistant.name ?? name
-        IdentityInfo.seedCache(name: displayName, forAssistantId: platformAssistant.id)
+        // Always use the user-provided name rather than platformAssistant.name,
+        // which may be stale for reused assistants.
+        IdentityInfo.seedCache(name: name, forAssistantId: platformAssistant.id)
     }
 
     /// Retire an assistant requested from the switcher. Today the switcher
