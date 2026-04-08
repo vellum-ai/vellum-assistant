@@ -107,6 +107,7 @@ import {
 import { SleepWakeDetector } from "./sleep-wake-detector.js";
 import { callTelegramApi } from "./telegram/api.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
+import { registerEmailCallbackRoute } from "./email/register-callback.js";
 
 const log = getLogger("main");
 
@@ -365,7 +366,7 @@ async function main() {
       handler: (req) => handleWhatsAppWebhook(req),
     },
     {
-      path: "/webhooks/email/inbound",
+      path: "/webhooks/email",
       handler: (req) => handleEmailWebhook(req),
     },
 
@@ -1529,12 +1530,28 @@ async function main() {
         );
       });
     }
+
   });
 
   // The credential watcher callback handles startup side effects (Telegram
   // webhook reconciliation, Slack Socket Mode) during the initial poll, so no
   // additional post-start triggers are needed here.
   await credentialWatcher.start();
+
+  // Register email callback route with the platform so inbound email
+  // webhooks are forwarded to this gateway (same pattern as Telegram).
+  // Runs once after credentials are available. Only in containerized mode —
+  // a local gateway should not silently register email callbacks.
+  if (process.env.IS_CONTAINERIZED) {
+    registerEmailCallbackRoute({ credentials: credentialCache }).catch(
+      (err) => {
+        log.error(
+          { err },
+          "Failed to register email callback route with platform",
+        );
+      },
+    );
+  }
 
   const configFileWatcher = new ConfigFileWatcher((event) => {
     // Invalidate the config file cache so subsequent reads pick up fresh values
