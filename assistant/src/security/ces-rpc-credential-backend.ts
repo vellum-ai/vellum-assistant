@@ -86,4 +86,21 @@ export class CesRpcCredentialBackend implements CredentialBackend {
       return { accounts: [], unreachable: true };
     }
   }
+
+  async bulkSet(
+    credentials: Array<{ account: string; value: string }>,
+  ): Promise<Array<{ account: string; ok: boolean }>> {
+    if (!this.isAvailable()) {
+      return credentials.map((c) => ({ account: c.account, ok: false }));
+    }
+    try {
+      const result = await this.client.call(CesRpcMethod.BulkSetCredentials, {
+        credentials,
+      });
+      return result.results;
+    } catch (err) {
+      log.warn({ err }, "CES RPC bulk credential set failed");
+      return credentials.map((c) => ({ account: c.account, ok: false }));
+    }
+  }
 }
