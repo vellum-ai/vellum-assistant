@@ -14,7 +14,16 @@
  * relay messages — worker.ts owns the envelope dispatch (ExtensionCommand
  * + host_browser_request via the PR 9 dispatcher) via the `onMessage`
  * callback.
+ *
+ * This module also exports {@link postHostBrowserResult}, the relay-aware
+ * helper used by the host-browser dispatcher to ship CDP result envelopes
+ * back to the daemon. In self-hosted mode the result is POSTed to the
+ * local `/v1/host-browser-result` HTTP endpoint; in cloud mode it would
+ * round-trip back through the gateway WebSocket — see the function
+ * docstring for the current Phase 2 behaviour.
  */
+
+import type { HostBrowserResultEnvelope } from './host-browser-dispatcher.js';
 
 /** Reconnect backoff bounds mirror the legacy inline worker.ts values. */
 const RECONNECT_BASE_MS = 1_000;
@@ -244,5 +253,79 @@ export class RelayConnection {
       if (!this.closedByCaller) this.connect();
     }, delay);
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, RECONNECT_MAX_MS);
+  }
+}
+
+// ── host_browser result poster ─────────────────────────────────────
+//
+// The host-browser dispatcher needs a way to ship CDP result envelopes
+// back to the daemon. The transport depends on the relay mode:
+//
+//   - self-hosted: POST to the local daemon's
+//     `/v1/host-browser-result` endpoint, authenticated with the
+//     stored capability token.
+//   - cloud: send the envelope as a `host_browser_result` frame over
+//     the existing browser-relay WebSocket. The gateway proxies the
+//     frame straight through to the runtime — see
+//     `gateway/src/http/routes/browser-relay-websocket.ts`. (Phase 3
+//     will land the runtime-side handler for inbound result frames;
+//     today the runtime drops them, but the cloud CDP path is
+//     feature-flagged off in Phase 2 so this is harmless.)
+
+/**
+ * Minimal subset of {@link RelayConnection} that {@link postHostBrowserResult}
+ * actually consumes. Used by tests to inject a fake without having to
+ * stand up a real WebSocket.
+ */
+export interface RelayConnectionLike {
+  isOpen(): boolean;
+  send(data: string): void;
+}
+
+/**
+ * Ship a host_browser result envelope back to the daemon.
+ *
+ * In self-hosted mode this POSTs to `${mode.baseUrl}/v1/host-browser-result`
+ * with `Authorization: Bearer <mode.token>`. In cloud mode it sends a
+ * `{ type: 'host_browser_result', ...result }` frame over the supplied
+ * relay connection.
+ *
+ * The cloud branch is a no-op (with a console.warn) when the connection
+ * is missing or not currently open. We deliberately do NOT throw — the
+ * dispatcher's error path catches and logs synchronously, but a thrown
+ * rejection here would bubble up to the service worker as an unhandled
+ * promise rejection.
+ */
+export async function postHostBrowserResult(
+  mode: RelayMode,
+  connection: RelayConnectionLike | null,
+  result: HostBrowserResultEnvelope,
+): Promise<void> {
+  if (mode.kind === 'cloud') {
+    if (!connection || !connection.isOpen()) {
+      console.warn(
+        '[vellum-relay] host-browser-result dropped: cloud relay not connected',
+      );
+      return;
+    }
+    connection.send(JSON.stringify({ type: 'host_browser_result', ...result }));
+    return;
+  }
+
+  // self-hosted: POST to the local daemon. The base URL is whatever
+  // `buildRelayModeConfig` resolved at connect time (usually
+  // `http://127.0.0.1:<relayPort>`).
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (mode.token) headers.authorization = `Bearer ${mode.token}`;
+  const url = `${mode.baseUrl.replace(/\/$/, '')}/v1/host-browser-result`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(result),
+  });
+  if (!resp.ok) {
+    console.warn(
+      `[vellum-relay] host-browser-result POST returned ${resp.status}`,
+    );
   }
 }

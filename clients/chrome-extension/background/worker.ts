@@ -38,7 +38,11 @@ import {
   type HostBrowserCancelEnvelope,
   type HostBrowserResultEnvelope,
 } from './host-browser-dispatcher.js';
-import { RelayConnection, type RelayMode } from './relay-connection.js';
+import {
+  RelayConnection,
+  postHostBrowserResult,
+  type RelayMode,
+} from './relay-connection.js';
 
 // Cloud OAuth defaults — kept here so the popup can stay a thin client and the
 // service worker is the single owner of the launchWebAuthFlow lifecycle. This
@@ -66,6 +70,12 @@ function isRelayModeKind(v: unknown): v is RelayModeKind {
 
 let relayMode: RelayModeKind = 'self-hosted';
 let relayConnection: RelayConnection | null = null;
+// Active RelayMode (mode kind + base URL + token) captured at connect
+// time. Tracked alongside `relayConnection` so the host-browser
+// dispatcher's `postResult` callback can route results back through the
+// correct transport (cloud WebSocket vs self-hosted HTTP) using the
+// same credentials the live socket was opened with.
+let activeRelayMode: RelayMode | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let shouldConnect = false;
 
@@ -98,25 +108,36 @@ async function resolveHostBrowserTarget(
   return { tabId: activeTab.id };
 }
 
-async function postHostBrowserResult(result: HostBrowserResultEnvelope): Promise<void> {
-  const [token, port] = await Promise.all([getBearerToken(), getRelayPort()]);
-  const headers: Record<string, string> = { 'content-type': 'application/json' };
-  if (token) headers.authorization = `Bearer ${token}`;
-  const resp = await fetch(`http://127.0.0.1:${port}/v1/host-browser-result`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(result),
-  });
-  if (!resp.ok) {
-    console.warn(
-      `[vellum-relay] host-browser-result POST returned ${resp.status}`,
-    );
+/**
+ * Bridge the host-browser dispatcher to the relay-aware
+ * {@link postHostBrowserResult} helper. Reads the live `activeRelayMode`
+ * and `relayConnection` so a result envelope generated mid-session is
+ * always shipped through the transport that's currently connected — not
+ * a stale snapshot captured at module init.
+ *
+ * Falls back to a self-hosted POST against the bare bearer token + relay
+ * port when no relay session has been established yet (e.g. the host
+ * browser dispatcher fired before `connect()` ran). This preserves the
+ * pre-Phase 2 behaviour for the legacy ExtensionCommand → daemon path.
+ */
+async function dispatchHostBrowserResult(
+  result: HostBrowserResultEnvelope,
+): Promise<void> {
+  if (activeRelayMode) {
+    return postHostBrowserResult(activeRelayMode, relayConnection, result);
   }
+  const [token, port] = await Promise.all([getBearerToken(), getRelayPort()]);
+  const fallback: RelayMode = {
+    kind: 'self-hosted',
+    baseUrl: `http://127.0.0.1:${port}`,
+    token,
+  };
+  return postHostBrowserResult(fallback, null, result);
 }
 
 const hostBrowserDispatcher: HostBrowserDispatcher = createHostBrowserDispatcher({
   resolveTarget: resolveHostBrowserTarget,
-  postResult: postHostBrowserResult,
+  postResult: dispatchHostBrowserResult,
 });
 
 // ── Storage helpers ─────────────────────────────────────────────────
@@ -253,6 +274,10 @@ async function connect(): Promise<void> {
     relayConnection.close(1000, 'reconfigured');
   }
   relayConnection = createRelayConnection(mode);
+  // Stash the resolved mode so the host-browser dispatcher can route
+  // results back through the same transport (cloud WebSocket vs
+  // self-hosted HTTP) without re-resolving the token / base URL.
+  activeRelayMode = mode;
   relayConnection.start();
 }
 
@@ -262,6 +287,7 @@ function disconnect(): void {
     relayConnection.close(1000, 'User disconnected');
     relayConnection = null;
   }
+  activeRelayMode = null;
 }
 
 /**
@@ -579,9 +605,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     // can't tear down the awaited promise before the token is persisted.
     // chrome.runtime.connectNative also requires the "nativeMessaging"
     // permission, which is declared in manifest.json.
+    //
+    // IMPORTANT: use `sendResponseFn` (the chrome.runtime.onMessage
+    // callback) — NOT the module-level `sendResponse` helper, which
+    // forwards to the WebSocket relay and would leave the popup's
+    // requestLocalPair() promise hanging forever.
     bootstrapLocalToken()
-      .then((stored: StoredLocalToken) => sendResponse({ ok: true, token: stored }))
-      .catch((err) => sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+      .then((stored: StoredLocalToken) => sendResponseFn({ ok: true, token: stored }))
+      .catch((err) => sendResponseFn({ ok: false, error: err instanceof Error ? err.message : String(err) }));
     return true; // async
   }
 });
