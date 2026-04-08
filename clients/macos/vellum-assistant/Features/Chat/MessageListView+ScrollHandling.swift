@@ -149,7 +149,29 @@ extension MessageListView {
         if abs(effectiveContentHeight - previousContentHeight) > 0.5,
            scrollState.mode.allowsAutoScroll,
            phaseAllowsAutoFollow {
-            scrollState.requestPinToBottom()
+            // During active following (streaming), use edge-based scroll.
+            // ID-based scroll (requestPinToBottom → scrollTo(id: lastMessageId,
+            // .bottom)) gets deduped by SwiftUI when lastMessageId hasn't
+            // changed — during streaming of a single message, the ID is
+            // constant so ScrollPosition(id: X, .bottom) is structurally
+            // identical on every call and SwiftUI silently ignores the write.
+            // Edge-based scrollToEdge(.bottom) targets the absolute content
+            // bottom and creates a different ScrollPosition value type,
+            // avoiding deduplication. Safe because during streaming the
+            // viewport is already near the bottom and LazyVStack has
+            // materialized the bottom views — no risk of overshooting
+            // into blank estimated space.
+            //
+            // During initial load (conversation switch), keep ID-based scroll.
+            // Edge-based scroll during initial load can overshoot into blank
+            // LazyVStack estimated space because bottom views haven't
+            // materialized yet. ID-based targets a real ForEach item that
+            // SwiftUI can always locate (even when not materialized).
+            if scrollState.isFollowingBottom {
+                scrollState.scrollToEdge?(.bottom)
+            } else {
+                scrollState.requestPinToBottom()
+            }
         }
         // --- Persistent bottom-recovery ---
         // Independent of the content-height auto-follow. Catches cases
@@ -209,16 +231,34 @@ extension MessageListView {
            phaseAllowsAutoFollow,
            effectiveContentHeight > newState.visibleRectHeight,
            (!nowAtBottom || isInRecoveryWindow) {
-            // Throttle recovery to at most once per 100ms. Without this,
-            // geometry updates at ~60fps fire scrollToEdge every ~16ms.
-            // LazyVStack needs time between scroll attempts to materialize
-            // views at the new position — rapid-fire scrolls keep yanking
-            // the viewport before materialization completes, causing the
-            // chat to appear blank (especially in long conversations).
-            // 100ms ≈ 6 frames at 60fps — enough for LazyVStack to
-            // materialize a batch of views while still feeling responsive.
+            // Throttle recovery to prevent overwhelming LazyVStack.
+            // Without throttling, geometry updates at ~60fps fire
+            // scrollToEdge every ~16ms — LazyVStack needs time between
+            // scroll attempts to materialize views at the new position.
+            //
+            // Two throttle rates:
+            //   • Burst (50ms / ~20Hz) — first 500ms after conversation
+            //     switch or reset. LazyVStack height estimates are most
+            //     inaccurate immediately after a switch, especially for
+            //     long conversations with images/tools. Faster recovery
+            //     converges on the actual bottom sooner, reducing the
+            //     window where the viewport shows blank estimated space.
+            //     50ms ≈ 3 frames at 60fps — enough for a batch of views
+            //     to materialize between attempts.
+            //   • Normal (100ms / ~10Hz) — steady-state recovery after
+            //     the burst window. 100ms ≈ 6 frames — gives LazyVStack
+            //     more time to settle, preventing sustained blank flicker
+            //     in very long conversations.
             let now = Date()
-            if now.timeIntervalSince(scrollState.lastRecoveryAttempt) >= 0.1 {
+            let throttleInterval: TimeInterval
+            if let deadline = scrollState.recoveryDeadline,
+               deadline.timeIntervalSince(now) > 1.5 {
+                // Within first 500ms of the 2-second window — burst mode.
+                throttleInterval = 0.05
+            } else {
+                throttleInterval = 0.1
+            }
+            if now.timeIntervalSince(scrollState.lastRecoveryAttempt) >= throttleInterval {
                 scrollState.lastRecoveryAttempt = now
                 scrollState.scrollToEdge?(.bottom)
             }

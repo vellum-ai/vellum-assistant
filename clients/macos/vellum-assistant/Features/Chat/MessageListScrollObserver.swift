@@ -22,6 +22,21 @@ struct MessageListScrollObserver: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         context.coordinator.onGeometryChange = onGeometryChange
+        // Try synchronous attachment first. By the time updateNSView
+        // fires, the view is in the hierarchy so enclosingScrollView
+        // is available. Synchronous attachment reduces the delay
+        // between conversation switch and first geometry update by
+        // one frame — recovery starts sooner, reducing the window
+        // where the viewport shows blank estimated space.
+        // The onGeometryChange callback goes through
+        // ScrollGeometryUpdateDispatcher which defers state mutations,
+        // so calling emitCurrentSnapshotIfPossible synchronously
+        // doesn't trigger "Modifying state during view update".
+        context.coordinator.attachIfNeeded(to: nsView)
+        context.coordinator.emitCurrentSnapshotIfPossible()
+        // Async fallback in case the view hierarchy wasn't fully
+        // ready during the synchronous attempt (e.g. first mount
+        // where the view may not have a parent yet).
         DispatchQueue.main.async { [weak nsView] in
             guard let nsView else { return }
             context.coordinator.attachIfNeeded(to: nsView)
