@@ -501,15 +501,12 @@ export async function executeTransferStep(
     if (importResult.success) {
       current = setStepStatus(current, "transfer", "success");
       // Extract credential import results from the response (if present)
-      const credentialsImported = (
-        importResult as unknown as Record<string, unknown>
-      ).credentialsImported as
-        | MigrationWizardState["credentialsImported"]
-        | undefined;
       current = {
         ...current,
         currentStep: "rebind-secrets",
-        ...(credentialsImported ? { credentialsImported } : {}),
+        ...(importResult.credentialsImported
+          ? { credentialsImported: importResult.credentialsImported }
+          : {}),
       };
     } else {
       current = setStepStatus(current, "transfer", "error", {
