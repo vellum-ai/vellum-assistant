@@ -143,21 +143,6 @@
     .local-status.paired { color: #0f766e; }
     .local-status.error { color: #ef4444; }
 
-    .beta-toggle {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 12px;
-      color: #4b5563;
-      margin-top: 10px;
-      cursor: pointer;
-      user-select: none;
-    }
-    .beta-toggle input[type="checkbox"] {
-      margin: 0;
-      cursor: pointer;
-    }
-
     .mode-group {
       margin-bottom: 14px;
     }
@@ -278,11 +263,6 @@
   <p class="section-label">Cloud</p>
   <p class="cloud-status" id="cloud-status">Not signed in</p>
   <button id="btn-cloud-signin" type="button">Sign in with Vellum (cloud)</button>
-
-  <label class="beta-toggle" for="cdp-proxy-toggle">
-    <input type="checkbox" id="cdp-proxy-toggle" />
-    <span>Enable CDP proxy (beta)</span>
-  </label>
 
   <script type="module" src="popup.js"></script>
 </body>

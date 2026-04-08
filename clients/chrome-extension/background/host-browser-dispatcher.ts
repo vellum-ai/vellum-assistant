@@ -11,11 +11,6 @@
  * `handle()` / `cancel()`, and for providing the `resolveTarget` + `postResult`
  * dependency closures. That keeps the dispatcher easy to unit-test in
  * isolation against a mock CdpProxy.
- *
- * Phase 2 / PR 9: this dispatcher is only wired up when the
- * `vellum.cdpProxyEnabled` feature flag is set in `chrome.storage.local`.
- * With the flag off, the legacy `ExtensionCommand` handlers in worker.ts
- * continue to service browser tools exactly as before.
  */
 
 import {
