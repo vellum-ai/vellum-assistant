@@ -9,37 +9,83 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-let mockPage: {
-  evaluate: ReturnType<typeof mock>;
-  title: ReturnType<typeof mock>;
-  url: ReturnType<typeof mock>;
-  goto: ReturnType<typeof mock>;
-  close: ReturnType<typeof mock>;
-  isClosed: () => boolean;
-};
+/**
+ * Shared fake CDP session state. Tests install a custom `cdpSend`
+ * implementation in their setup, then assert against `cdpCalls` and
+ * `detachCalls` after the tool runs.
+ *
+ * Rather than mocking `factory.js` or `local-cdp-client.js` directly
+ * (both of which would leak module-level mocks into other test files
+ * via bun's shared mock registry), we only mock `browser-manager.js`
+ * and return a fake Playwright page whose CDP session routes through
+ * a programmable handler. That lets the real `LocalCdpClient` +
+ * `getCdpClient` factory code run end-to-end, so this file does not
+ * interfere with `local-cdp-client.test.ts` or `factory.test.ts`.
+ */
+type CdpCall = { method: string; params: Record<string, unknown> };
+let cdpCalls: CdpCall[] = [];
+let cdpSend: (
+  method: string,
+  params?: Record<string, unknown>,
+) => Promise<unknown>;
+let detachCalls: number;
 
 let closeSessionPageMock: ReturnType<typeof mock>;
 let closeAllPagesMock: ReturnType<typeof mock>;
 let storeSnapshotMapMock: ReturnType<typeof mock>;
-let storedMaps: Map<string, Map<string, string>>;
+let storeSnapshotBackendNodeMapMock: ReturnType<typeof mock>;
+let storedStringMaps: Map<string, Map<string, string>>;
+let storedBackendNodeMaps: Map<string, Map<string, number>>;
 
 mock.module("../tools/browser/browser-manager.js", () => {
-  storedMaps = new Map();
+  storedStringMaps = new Map();
+  storedBackendNodeMaps = new Map();
   closeSessionPageMock = mock(async () => {});
   closeAllPagesMock = mock(async () => {});
   storeSnapshotMapMock = mock(
     (conversationId: string, map: Map<string, string>) => {
-      storedMaps.set(conversationId, map);
+      storedStringMaps.set(conversationId, map);
     },
   );
+  storeSnapshotBackendNodeMapMock = mock(
+    (conversationId: string, map: Map<string, number>) => {
+      storedBackendNodeMaps.set(conversationId, map);
+    },
+  );
+  // Fake Playwright page whose CDPSession routes to our per-test
+  // handler. LocalCdpClient lazily creates the session on first send,
+  // which is how the real tool path drives us.
+  const fakeSession = {
+    send: async (method: string, params?: Record<string, unknown>) => {
+      cdpCalls.push({ method, params: params ?? {} });
+      return cdpSend(method, params);
+    },
+    detach: async () => {
+      detachCalls += 1;
+    },
+  };
+  const fakePage = {
+    context: () => ({
+      newCDPSession: async () => fakeSession,
+    }),
+  };
   return {
     browserManager: {
-      getOrCreateSessionPage: async () => mockPage,
+      getOrCreateSessionPage: async (_conversationId: string) => fakePage,
       closeSessionPage: closeSessionPageMock,
       closeAllPages: closeAllPagesMock,
       storeSnapshotMap: storeSnapshotMapMock,
+      storeSnapshotBackendNodeMap: storeSnapshotBackendNodeMapMock,
       resolveSnapshotSelector: (conversationId: string, elementId: string) => {
-        const map = storedMaps.get(conversationId);
+        const map = storedStringMaps.get(conversationId);
+        if (!map) return null;
+        return map.get(elementId) ?? null;
+      },
+      resolveSnapshotBackendNodeId: (
+        conversationId: string,
+        elementId: string,
+      ) => {
+        const map = storedBackendNodeMaps.get(conversationId);
         if (!map) return null;
         return map.get(elementId) ?? null;
       },
@@ -67,95 +113,265 @@ const ctx: ToolContext = {
   trustClass: "guardian",
 };
 
-function resetMockPage() {
-  mockPage = {
-    evaluate: mock(async () => []),
-    title: mock(async () => "Test Page"),
-    url: mock(() => "https://example.com/"),
-    goto: mock(async () => ({
-      status: () => 200,
-      url: () => "https://example.com/",
-    })),
-    close: mock(async () => {}),
-    isClosed: () => false,
+// ── Fixtures ─────────────────────────────────────────────────────────
+
+/**
+ * Minimal three-element Accessibility.getFullAXTree fixture. Mirrors
+ * the shape CDP returns — a flat array of nodes with parent/child
+ * references via `childIds`. Roles are chosen from the snapshot
+ * transformer's interactive-role allowlist so the output contains
+ * exactly three elements. The root `WebArea` node owns all three as
+ * children so document-order traversal yields e1/e2/e3.
+ */
+function buildAxTreeFixture(): { nodes: Record<string, unknown>[] } {
+  return {
+    nodes: [
+      {
+        nodeId: "1",
+        role: { type: "role", value: "WebArea" },
+        name: { type: "computedString", value: "" },
+        childIds: ["2", "3", "4"],
+        backendDOMNodeId: 1,
+      },
+      {
+        nodeId: "2",
+        role: { type: "role", value: "link" },
+        name: { type: "computedString", value: "About Us" },
+        properties: [
+          { name: "url", value: { type: "string", value: "/about" } },
+        ],
+        childIds: [],
+        backendDOMNodeId: 42,
+      },
+      {
+        nodeId: "3",
+        role: { type: "role", value: "button" },
+        name: { type: "computedString", value: "Submit" },
+        properties: [],
+        childIds: [],
+        backendDOMNodeId: 99,
+      },
+      {
+        nodeId: "4",
+        role: { type: "role", value: "textbox" },
+        name: { type: "computedString", value: "Email" },
+        properties: [
+          {
+            name: "placeholder",
+            value: { type: "string", value: "you@example.com" },
+          },
+        ],
+        childIds: [],
+        backendDOMNodeId: 101,
+      },
+    ],
   };
+}
+
+/**
+ * Build a default CDP `send` handler that returns canned success
+ * responses for the methods `executeBrowserSnapshot` touches. Tests
+ * pass a map of overrides to customise individual responses or throw
+ * from a specific method.
+ */
+function installCdpSend(
+  overrides: Partial<{
+    url: string;
+    title: string;
+    axTree: unknown;
+    pushedNodeIds: number[];
+    throwFrom: string;
+  }> = {},
+) {
+  const url = overrides.url ?? "https://example.com/";
+  const title = overrides.title ?? "Example Page";
+  const axTree = overrides.axTree ?? { nodes: [] };
+  const pushedNodeIds = overrides.pushedNodeIds ?? [];
+  const throwFrom = overrides.throwFrom;
+
+  let runtimeEvaluateCall = 0;
+  cdpSend = async (method, _params) => {
+    if (throwFrom === method) {
+      throw new Error("tab detached");
+    }
+    switch (method) {
+      case "Runtime.evaluate": {
+        // First call → URL, second → title. Anything beyond returns "".
+        const value =
+          runtimeEvaluateCall === 0
+            ? url
+            : runtimeEvaluateCall === 1
+              ? title
+              : "";
+        runtimeEvaluateCall += 1;
+        return { result: { value } };
+      }
+      case "Accessibility.enable":
+        return {};
+      case "Accessibility.getFullAXTree":
+        return axTree;
+      case "DOM.pushNodesByBackendIdsToFrontend":
+        return { nodeIds: pushedNodeIds };
+      case "DOM.setAttributeValue":
+        return {};
+      default:
+        return {};
+    }
+  };
+  // Return the params so tests can reference them in assertions.
+  return { url, title, pushedNodeIds };
+}
+
+function resetCdpState() {
+  cdpCalls = [];
+  detachCalls = 0;
+  cdpSend = async () => ({});
 }
 
 // ── browser_snapshot ─────────────────────────────────────────────────
 
-describe("executeBrowserSnapshot", () => {
+describe("executeBrowserSnapshot (CDP Accessibility.getFullAXTree)", () => {
   beforeEach(() => {
-    resetMockPage();
-    storedMaps.clear();
+    resetCdpState();
+    storedStringMaps.clear();
+    storedBackendNodeMaps.clear();
     storeSnapshotMapMock.mockClear();
+    storeSnapshotBackendNodeMapMock.mockClear();
   });
 
-  test("returns page URL and title with no elements", async () => {
+  test("returns URL, title, and a list of interactive elements", async () => {
+    installCdpSend({
+      url: "https://example.com/",
+      title: "Example Page",
+      axTree: buildAxTreeFixture(),
+      pushedNodeIds: [11, 12, 13],
+    });
+
     const result = await executeBrowserSnapshot({}, ctx);
+
     expect(result.isError).toBe(false);
     expect(result.content).toContain("URL: https://example.com/");
-    expect(result.content).toContain("Title: Test Page");
-    expect(result.content).toContain("(no interactive elements found)");
-  });
-
-  test("lists interactive elements with element IDs", async () => {
-    mockPage.evaluate = mock(async () => [
-      { eid: "e1", tag: "a", attrs: { href: "/about" }, text: "About Us" },
-      { eid: "e2", tag: "button", attrs: {}, text: "Submit" },
-      {
-        eid: "e3",
-        tag: "input",
-        attrs: { type: "text", name: "email", placeholder: "Email" },
-        text: "",
-      },
-    ]);
-
-    const result = await executeBrowserSnapshot({}, ctx);
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain('[e1] <a href="/about"> About Us');
+    expect(result.content).toContain("Title: Example Page");
+    expect(result.content).toContain("[e1] <link");
+    expect(result.content).toContain("About Us");
     expect(result.content).toContain("[e2] <button> Submit");
-    expect(result.content).toContain(
-      '[e3] <input type="text" name="email" placeholder="Email">',
-    );
+    expect(result.content).toContain("[e3] <textbox");
+    expect(result.content).toContain("Email");
     expect(result.content).toContain("3 interactive elements found.");
   });
 
-  test("stores selector map in browser manager", async () => {
-    mockPage.evaluate = mock(async () => [
-      { eid: "e1", tag: "a", attrs: { href: "/" }, text: "Home" },
-      { eid: "e2", tag: "button", attrs: {}, text: "OK" },
-    ]);
+  test("calls Accessibility.enable and getFullAXTree via CDP", async () => {
+    installCdpSend();
 
     await executeBrowserSnapshot({}, ctx);
-    expect(storeSnapshotMapMock).toHaveBeenCalledTimes(1);
 
-    const stored = storedMaps.get("test-conversation");
-    expect(stored).toBeDefined();
-    expect(stored!.get("e1")).toBe('[data-vellum-eid="e1"]');
-    expect(stored!.get("e2")).toBe('[data-vellum-eid="e2"]');
+    const methods = cdpCalls.map((c) => c.method);
+    expect(methods).toContain("Accessibility.enable");
+    expect(methods).toContain("Accessibility.getFullAXTree");
   });
 
-  test("handles single element with singular count", async () => {
-    mockPage.evaluate = mock(async () => [
-      { eid: "e1", tag: "button", attrs: {}, text: "Click" },
-    ]);
-
-    const result = await executeBrowserSnapshot({}, ctx);
-    expect(result.content).toContain("1 interactive element found.");
-  });
-
-  test("handles evaluate error", async () => {
-    mockPage.evaluate = mock(async () => {
-      throw new Error("page crashed");
+  test("stores both backendNodeId and legacy string selector maps", async () => {
+    installCdpSend({
+      axTree: buildAxTreeFixture(),
+      pushedNodeIds: [11, 12, 13],
     });
+
+    await executeBrowserSnapshot({}, ctx);
+
+    // Backend-node map stored (new AX-based path).
+    expect(storeSnapshotBackendNodeMapMock).toHaveBeenCalledTimes(1);
+    const backendMap = storedBackendNodeMaps.get("test-conversation");
+    expect(backendMap).toBeDefined();
+    expect(backendMap!.get("e1")).toBe(42);
+    expect(backendMap!.get("e2")).toBe(99);
+    expect(backendMap!.get("e3")).toBe(101);
+
+    // Legacy string map also populated (bridge for unmigrated tools).
+    expect(storeSnapshotMapMock).toHaveBeenCalledTimes(1);
+    const stringMap = storedStringMaps.get("test-conversation");
+    expect(stringMap).toBeDefined();
+    expect(stringMap!.get("e1")).toBe('[data-vellum-eid="e1"]');
+    expect(stringMap!.get("e2")).toBe('[data-vellum-eid="e2"]');
+    expect(stringMap!.get("e3")).toBe('[data-vellum-eid="e3"]');
+  });
+
+  test("tags elements via DOM.pushNodesByBackendIdsToFrontend + setAttributeValue", async () => {
+    installCdpSend({
+      axTree: buildAxTreeFixture(),
+      pushedNodeIds: [11, 12, 13],
+    });
+
+    await executeBrowserSnapshot({}, ctx);
+
+    const pushCalls = cdpCalls.filter(
+      (c) => c.method === "DOM.pushNodesByBackendIdsToFrontend",
+    );
+    expect(pushCalls.length).toBe(1);
+    expect(pushCalls[0]!.params.backendNodeIds).toEqual([42, 99, 101]);
+
+    const setAttrCalls = cdpCalls.filter(
+      (c) => c.method === "DOM.setAttributeValue",
+    );
+    expect(setAttrCalls.length).toBe(3);
+    expect(setAttrCalls[0]!.params).toMatchObject({
+      nodeId: 11,
+      name: "data-vellum-eid",
+      value: "e1",
+    });
+    expect(setAttrCalls[1]!.params).toMatchObject({
+      nodeId: 12,
+      name: "data-vellum-eid",
+      value: "e2",
+    });
+    expect(setAttrCalls[2]!.params).toMatchObject({
+      nodeId: 13,
+      name: "data-vellum-eid",
+      value: "e3",
+    });
+  });
+
+  test("renders '(no interactive elements found)' on empty AX tree", async () => {
+    installCdpSend({ axTree: { nodes: [] } });
+
     const result = await executeBrowserSnapshot({}, ctx);
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("(no interactive elements found)");
+    // Empty maps should still be stored so stale eids from a previous
+    // snapshot cannot resolve after this call.
+    expect(storeSnapshotBackendNodeMapMock).toHaveBeenCalledTimes(1);
+    expect(storeSnapshotMapMock).toHaveBeenCalledTimes(1);
+    const backendMap = storedBackendNodeMaps.get("test-conversation");
+    const stringMap = storedStringMaps.get("test-conversation");
+    expect(backendMap?.size ?? 0).toBe(0);
+    expect(stringMap?.size ?? 0).toBe(0);
+  });
+
+  test("returns error content when Accessibility.getFullAXTree throws", async () => {
+    installCdpSend({ throwFrom: "Accessibility.getFullAXTree" });
+
+    const result = await executeBrowserSnapshot({}, ctx);
+
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Snapshot failed");
-    expect(result.content).toContain("page crashed");
+    expect(result.content).toContain("tab detached");
+    // dispose still runs in the finally block, which schedules an
+    // async session.detach() — flush microtasks before asserting.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(detachCalls).toBe(1);
+  });
+
+  test("disposes the CdpClient even on success", async () => {
+    installCdpSend();
+
+    await executeBrowserSnapshot({}, ctx);
+    // dispose schedules detach asynchronously; flush microtasks.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(detachCalls).toBe(1);
   });
 
   test("shows (none) for empty title", async () => {
-    mockPage.title = mock(async () => "");
+    installCdpSend({ title: "", axTree: { nodes: [] } });
     const result = await executeBrowserSnapshot({}, ctx);
     expect(result.content).toContain("Title: (none)");
   });
@@ -165,7 +381,7 @@ describe("executeBrowserSnapshot", () => {
 
 describe("executeBrowserClose", () => {
   beforeEach(() => {
-    resetMockPage();
+    resetCdpState();
     closeSessionPageMock.mockClear();
     closeAllPagesMock.mockClear();
   });
