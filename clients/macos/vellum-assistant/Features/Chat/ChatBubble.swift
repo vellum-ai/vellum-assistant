@@ -103,13 +103,12 @@ struct ChatBubble: View, Equatable {
     /// Set of stableIds for tool-call groups that have non-empty text after them.
     @State var cachedToolGroupsWithTrailingText: Set<String>
 
-    /// Tracks which step detail rows the user has expanded (keyed by ToolCallData.id).
-    /// Lives here (not in AssistantProgressView) so it survives the trailing→interleaved
-    /// rendering path switch that destroys and recreates AssistantProgressView mid-stream.
-    @State var expandedStepIds: Set<UUID> = []
-    /// Tracks user-initiated card expansion/collapse (keyed by first tool call UUID in group).
-    /// `nil` = no user interaction (auto-expand logic applies); `true`/`false` = user override.
-    @State var cardExpansionOverrides: [UUID: Bool] = [:]
+    /// Interaction state for progress cards that must outlive lazy row churn.
+    /// Consolidates step expansion, card expansion overrides, and rehydration
+    /// tracking into a single `ProgressCardUIState` value. Lives here (not in
+    /// AssistantProgressView) so it survives the trailing→interleaved rendering
+    /// path switch that destroys and recreates AssistantProgressView mid-stream.
+    @State var progressUIState: ProgressCardUIState = ProgressCardUIState()
 
     init(
         message: ChatMessage,

@@ -5,7 +5,8 @@ import Testing
 
 /// Focused tests for AssistantProgressView auto-expand diagnostics.
 ///
-/// These tests verify that enriched progress card transition events:
+/// These tests verify that enriched progress card transition events produced
+/// by the `ProgressCardPresentationModel` / `ProgressCardUIState` boundary:
 /// 1. Include the expected context fields (group ID, phase, flag state, counts).
 /// 2. Emit exactly once per appearance — not once per SwiftUI render pass.
 @Suite("AssistantProgressView Logging")
@@ -30,8 +31,9 @@ struct AssistantProgressViewLoggingTests {
         return tc
     }
 
-    /// Simulates the auto-expand diagnostic that `onAppear` emits when a
-    /// pending confirmation forces the card open.
+    /// Simulates the auto-expand diagnostic that `onAppear` emits via
+    /// `ProgressCardPresentationModel.shouldAutoExpand` when a pending
+    /// confirmation forces the card open.
     @MainActor
     private static func simulateOnAppearPendingConfirmationAutoExpand(
         store: ChatDiagnosticsStore,
@@ -150,7 +152,7 @@ struct AssistantProgressViewLoggingTests {
             Self.completedToolCall(index: 31),
         ]
 
-        // Simulate the enriched phase_change diagnostic from onChange(of: phase).
+        // Simulate the enriched phase_change diagnostic from onChange(of: model.phase).
         let groupId = toolCalls.first!.id.uuidString
         let completedCount = toolCalls.filter(\.isComplete).count
         store.record(ChatDiagnosticEvent(
@@ -181,7 +183,7 @@ struct AssistantProgressViewLoggingTests {
             Self.completedToolCall(index: 40),
         ]
 
-        // Simulate the auto_expand:completed_steps_flag diagnostic from onChange(of: phase).
+        // Simulate the auto_expand:completed_steps_flag diagnostic from onChange(of: model.phase).
         let groupId = toolCalls.first!.id.uuidString
         store.record(ChatDiagnosticEvent(
             kind: .progressCardTransition,

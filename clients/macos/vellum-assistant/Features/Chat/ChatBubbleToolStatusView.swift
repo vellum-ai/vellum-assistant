@@ -50,8 +50,7 @@ extension ChatBubble {
                 onAlwaysAllow: onAlwaysAllow,
                 onTemporaryAllow: onTemporaryAllow,
                 activeConfirmationRequestId: activeConfirmationRequestId,
-                expandedStepIds: $expandedStepIds,
-                cardExpansionOverrides: $cardExpansionOverrides
+                progressUIState: $progressUIState
             )
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
 
