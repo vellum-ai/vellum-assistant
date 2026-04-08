@@ -28,6 +28,7 @@ export const conversations = sqliteTable(
     originInterface: text("origin_interface"),
     forkParentConversationId: text("fork_parent_conversation_id"),
     forkParentMessageId: text("fork_parent_message_id"),
+    hostAccess: integer("host_access").notNull().default(0),
     isAutoTitle: integer("is_auto_title").notNull().default(1),
     scheduleJobId: text("schedule_job_id"),
     lastMessageAt: integer("last_message_at"),
