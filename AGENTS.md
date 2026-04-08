@@ -36,10 +36,13 @@ cd assistant && bun run lint         # Lint
 
 This project is licensed under MIT. All dependencies must have MIT-compatible licenses (MIT, Apache-2.0, ISC, BSD-2-Clause, BSD-3-Clause, Unlicense, or similar permissive licenses). Do not add dependencies with copyleft licenses (GPL, AGPL, LGPL, SSPL, EUPL) or proprietary/restrictive licenses without explicit approval.
 
+**Version pinning**: Always use exact versions in `package.json` — no `^` or `~` prefixes. Use `bun add --exact` (or `bun add -E`) when adding packages. The `bunfig.toml` in each package sets `[install] exact = true` to enforce this by default. See [Bun docs on `--exact`](https://bun.sh/docs/cli/add#exact).
+
 When adding a new dependency:
 1. Check its license in the package's `package.json` or LICENSE file.
 2. Dual-licensed packages (e.g. "MIT OR GPL-3.0") are acceptable — we use them under the MIT-compatible option.
 3. If unsure about compatibility, flag it in the PR for review.
+4. Verify the version in `package.json` is pinned to an exact version (no `^` or `~`).
 
 ## Testing
 
