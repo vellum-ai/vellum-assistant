@@ -297,6 +297,19 @@ async function refreshCloudStatus(): Promise<void> {
     } else {
       setCloudStatus('Not signed in', false);
     }
+    // Surface any auth error the service worker persisted during a
+    // reconnect. The worker writes `vellum.relayAuthError` when the
+    // cloud token refresh fails (see cloudReconnectHook in worker.ts)
+    // and clears it on a successful connect.
+    const authErrResult = await chrome.storage.local.get('vellum.relayAuthError');
+    const authErr = authErrResult['vellum.relayAuthError'];
+    if (
+      authErr &&
+      typeof authErr === 'object' &&
+      typeof (authErr as { message?: unknown }).message === 'string'
+    ) {
+      showError((authErr as { message: string }).message);
+    }
   } catch (err) {
     setCloudStatus(`Error: ${err instanceof Error ? err.message : String(err)}`, false);
   }
@@ -323,6 +336,10 @@ function requestCloudSignIn(): Promise<CloudSignInResponse> {
 btnCloudSignIn.addEventListener('click', async () => {
   btnCloudSignIn.disabled = true;
   setCloudStatus('Signing in…', false);
+  errorText.style.display = 'none';
+  // Clear any stale auth-error the worker persisted during a failed
+  // reconnect — the user is explicitly retrying sign-in now.
+  await chrome.storage.local.remove('vellum.relayAuthError');
   // Delegate to the service worker — see header comment for the rationale.
   const response = await requestCloudSignIn();
   if (response.ok && response.token) {

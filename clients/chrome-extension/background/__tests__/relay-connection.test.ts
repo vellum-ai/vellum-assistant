@@ -9,7 +9,12 @@
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 
-import { RelayConnection, type RelayMode } from '../relay-connection.js';
+import {
+  RelayConnection,
+  type RelayMode,
+  type RelayReconnectContext,
+  type RelayReconnectDecision,
+} from '../relay-connection.js';
 
 // ── Fake WebSocket ──────────────────────────────────────────────────
 
@@ -105,7 +110,7 @@ function closeSocket(ws: FakeWebSocket, code = 1006, reason = 'abnormal'): void 
 
 interface Callbacks {
   openCalls: number;
-  closeCalls: Array<{ code: number; reason: string }>;
+  closeCalls: Array<{ code: number; reason: string; authError?: string }>;
   messages: string[];
 }
 
@@ -113,7 +118,15 @@ function makeCallbacks(): Callbacks {
   return { openCalls: 0, closeCalls: [], messages: [] };
 }
 
-function makeConn(mode: RelayMode, callbacks: Callbacks, onReconnect?: () => Promise<string | null | void>): RelayConnection {
+type ReconnectHook = (
+  ctx: RelayReconnectContext,
+) => Promise<string | null | void | RelayReconnectDecision>;
+
+function makeConn(
+  mode: RelayMode,
+  callbacks: Callbacks,
+  onReconnect?: ReconnectHook,
+): RelayConnection {
   return new RelayConnection({
     mode,
     onOpen: () => {
@@ -122,8 +135,8 @@ function makeConn(mode: RelayMode, callbacks: Callbacks, onReconnect?: () => Pro
     onMessage: (data) => {
       callbacks.messages.push(data);
     },
-    onClose: (code, reason) => {
-      callbacks.closeCalls.push({ code, reason });
+    onClose: (code, reason, authError) => {
+      callbacks.closeCalls.push({ code, reason, authError });
     },
     onReconnect,
   });
@@ -468,6 +481,158 @@ describe('RelayConnection', () => {
 
       // No second socket should have been constructed.
       expect(instances.length).toBe(1);
+    });
+
+    test('cloud reconnect: token refresh replaces URL token on next connect', async () => {
+      const cbs = makeCallbacks();
+      let seenCtx: RelayReconnectContext | null = null;
+      const conn = makeConn(
+        { kind: 'cloud', baseUrl: 'https://api.vellum.ai', token: 'old-jwt' },
+        cbs,
+        async (ctx) => {
+          seenCtx = ctx;
+          // New-style return: explicit refreshed decision. Mimics
+          // the cloudReconnectHook in worker.ts.
+          return { kind: 'refreshed', token: 'fresh-jwt' } satisfies RelayReconnectDecision;
+        },
+      );
+
+      conn.start();
+      openSocket(instances[0]);
+      expect(instances[0].url).toBe(
+        'wss://api.vellum.ai/v1/browser-relay?token=old-jwt',
+      );
+
+      // Simulate the gateway rejecting the JWT with 4001.
+      closeSocket(instances[0], 4001, 'token expired');
+      await new Promise((r) => setTimeout(r, 1100));
+
+      expect(seenCtx).not.toBeNull();
+      expect(seenCtx!.code).toBe(4001);
+      expect(seenCtx!.reason).toBe('token expired');
+
+      expect(instances.length).toBe(2);
+      expect(instances[1].url).toBe(
+        'wss://api.vellum.ai/v1/browser-relay?token=fresh-jwt',
+      );
+
+      conn.close();
+    });
+
+    test('cloud reconnect: getCurrentMode reflects the refreshed token after reconnect', async () => {
+      // The worker relies on getCurrentMode() to pick up the freshly
+      // minted token for subsequent host_browser_result POSTs. This
+      // pins the invariant that a reconnect-with-refresh cycle swaps
+      // the mode's token in place so callers don't need to capture
+      // snapshots themselves.
+      const cbs = makeCallbacks();
+      const conn = makeConn(
+        { kind: 'cloud', baseUrl: 'https://api.vellum.ai', token: 'old-jwt' },
+        cbs,
+        async () => ({ kind: 'refreshed', token: 'fresh-jwt' }),
+      );
+
+      conn.start();
+      openSocket(instances[0]);
+      expect(conn.getCurrentMode().token).toBe('old-jwt');
+
+      closeSocket(instances[0], 4001, 'auth');
+      await new Promise((r) => setTimeout(r, 1100));
+
+      // Mode accessor returns the refreshed token for any future
+      // dispatch reading through it.
+      expect(conn.getCurrentMode().kind).toBe('cloud');
+      expect(conn.getCurrentMode().token).toBe('fresh-jwt');
+
+      conn.close();
+    });
+
+    test('cloud reconnect: abort decision halts reconnect and propagates auth error', async () => {
+      const cbs = makeCallbacks();
+      const conn = makeConn(
+        { kind: 'cloud', baseUrl: 'https://api.vellum.ai', token: 'old-jwt' },
+        cbs,
+        async () => ({
+          kind: 'abort',
+          error: 'Cloud token expired — sign in again.',
+        }),
+      );
+
+      conn.start();
+      openSocket(instances[0]);
+      closeSocket(instances[0], 4001, 'token expired');
+
+      // Wait long enough for the reconnect timer to fire.
+      await new Promise((r) => setTimeout(r, 1100));
+
+      // No second socket should have been constructed — the abort
+      // decision must stop the reconnect loop cold.
+      expect(instances.length).toBe(1);
+
+      // The helper surfaced the auth error via onClose with the
+      // original close code + reason so the worker can route it to
+      // the popup without a second close event.
+      const authCloses = cbs.closeCalls.filter((c) => c.authError !== undefined);
+      expect(authCloses.length).toBe(1);
+      expect(authCloses[0].code).toBe(4001);
+      expect(authCloses[0].reason).toBe('token expired');
+      expect(authCloses[0].authError).toBe('Cloud token expired — sign in again.');
+
+      // isOpen must return false and a subsequent unexpected close
+      // event must not restart reconnects — the helper is marked as
+      // closed by the caller.
+      expect(conn.isOpen()).toBe(false);
+      await new Promise((r) => setTimeout(r, 1100));
+      expect(instances.length).toBe(1);
+    });
+
+    test('cloud reconnect: keep decision reuses the existing token', async () => {
+      const cbs = makeCallbacks();
+      let refreshCalls = 0;
+      const conn = makeConn(
+        { kind: 'cloud', baseUrl: 'https://api.vellum.ai', token: 'still-good' },
+        cbs,
+        async () => {
+          refreshCalls += 1;
+          return { kind: 'keep' };
+        },
+      );
+
+      conn.start();
+      openSocket(instances[0]);
+      // A transient 1006 (abnormal close) shouldn't force a refresh.
+      closeSocket(instances[0], 1006, 'network blip');
+      await new Promise((r) => setTimeout(r, 1100));
+
+      expect(refreshCalls).toBe(1);
+      expect(instances.length).toBe(2);
+      expect(instances[1].url).toContain('token=still-good');
+
+      conn.close();
+    });
+
+    test('reconnect hook receives the close code and reason as context', async () => {
+      const cbs = makeCallbacks();
+      const seen: RelayReconnectContext[] = [];
+      const conn = makeConn(
+        { kind: 'cloud', baseUrl: 'https://api.vellum.ai', token: 't' },
+        cbs,
+        async (ctx) => {
+          seen.push(ctx);
+          return { kind: 'refreshed', token: 't2' };
+        },
+      );
+
+      conn.start();
+      openSocket(instances[0]);
+      closeSocket(instances[0], 4003, 'guardian revoked');
+      await new Promise((r) => setTimeout(r, 1100));
+
+      expect(seen.length).toBe(1);
+      expect(seen[0].code).toBe(4003);
+      expect(seen[0].reason).toBe('guardian revoked');
+
+      conn.close();
     });
   });
 

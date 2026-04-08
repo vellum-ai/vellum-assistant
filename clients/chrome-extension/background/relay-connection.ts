@@ -43,6 +43,39 @@ export type RelayMode =
   | { kind: 'self-hosted'; baseUrl: string; token: string | null }
   | { kind: 'cloud'; baseUrl: string; token: string | null };
 
+/**
+ * Context passed to {@link RelayConnectionDeps.onReconnect}. Includes the
+ * close code / reason so the handler can tell an authentication failure
+ * (e.g. expired JWT closed with a 4001 policy code) apart from a
+ * transient network blip — the cloud refresh path uses this to decide
+ * whether to force a non-interactive OAuth renewal.
+ */
+export interface RelayReconnectContext {
+  /** Close code from the unexpected WebSocket close. */
+  code: number;
+  /** Close reason string from the unexpected WebSocket close. */
+  reason: string;
+}
+
+/**
+ * Outcome of a reconnect refresh attempt.
+ *
+ * - `{ kind: 'refreshed', token }`: the stored token was successfully
+ *   rotated — the relay helper rebuilds `mode.token` and schedules the
+ *   next connect attempt.
+ * - `{ kind: 'keep' }`: nothing to refresh; reuse the current token for
+ *   the next connect attempt (e.g. a transient network drop where the
+ *   existing token is still valid).
+ * - `{ kind: 'abort', error }`: refresh is impossible and reconnects
+ *   must stop. The relay helper marks itself closed and propagates the
+ *   error to its `onClose` hook so the worker can surface an actionable
+ *   UI error.
+ */
+export type RelayReconnectDecision =
+  | { kind: 'refreshed'; token: string }
+  | { kind: 'keep' }
+  | { kind: 'abort'; error: string };
+
 export interface RelayConnectionDeps {
   /**
    * Mode + token. The token is pre-fetched by the caller (so the caller
@@ -54,15 +87,37 @@ export interface RelayConnectionDeps {
   onMessage: (data: string) => void;
   /** Invoked when the socket transitions to OPEN. */
   onOpen: () => void;
-  /** Invoked when the socket closes (user-initiated or unexpected). */
-  onClose: (code: number, reason: string) => void;
+  /**
+   * Invoked when the socket closes (user-initiated or unexpected).
+   * `authError` is populated when the reconnect path aborted because the
+   * refresh hook returned `{ kind: 'abort' }` — callers should surface
+   * the message verbatim to the user and leave the extension disconnected.
+   */
+  onClose: (code: number, reason: string, authError?: string) => void;
   /**
    * Optional: invoked right before a reconnect attempt is scheduled for
    * an unexpected close. Callers use this to refresh stale tokens before
-   * the next `start()` attempt. If this returns a string, the new token
-   * replaces `mode.token` for the next URL build.
+   * the next `start()` attempt.
+   *
+   * The legacy shape (`Promise<string | null | void>`) is preserved for
+   * backwards compatibility:
+   *
+   *   - `string` → treated as `{ kind: 'refreshed', token: <string> }`.
+   *   - `null` / `undefined` → treated as `{ kind: 'keep' }`.
+   *
+   * New callers should return a {@link RelayReconnectDecision} so they
+   * can abort the reconnect loop entirely when refresh is impossible
+   * (e.g. the cloud OAuth flow can no longer renew non-interactively
+   * and the user must sign in again).
+   *
+   * The {@link RelayReconnectContext} argument carries the close code
+   * / reason so handlers can distinguish auth-failure closes from
+   * transient network drops without stashing state in module-level
+   * variables.
    */
-  onReconnect?: () => Promise<string | null | void>;
+  onReconnect?: (
+    ctx: RelayReconnectContext,
+  ) => Promise<string | null | void | RelayReconnectDecision>;
 }
 
 /**
@@ -202,7 +257,7 @@ export class RelayConnection {
       this.deps.onClose(code, reason);
       if (!this.closedByCaller) {
         if (!NORMAL_CLOSE_CODES.has(code)) {
-          this.scheduleReconnectWithRefresh();
+          this.scheduleReconnectWithRefresh({ code, reason });
         } else {
           this.scheduleReconnect();
         }
@@ -242,31 +297,74 @@ export class RelayConnection {
    * Unexpected close path: give the caller a chance to refresh the
    * token (e.g. the self-hosted daemon rotated its edge JWT, or the
    * cloud OAuth flow expired) before the next connect attempt.
+   *
+   * The close `code` / `reason` are forwarded as a
+   * {@link RelayReconnectContext} so the handler can tell an
+   * auth-failure close (4001/4002/4003/1008) apart from a transient
+   * network drop. For auth-failure closes in cloud mode the handler
+   * returns `{ kind: 'abort' }` when refresh is impossible — we stop
+   * the reconnect loop, mark the connection closed, and surface the
+   * error through `onClose` so the popup UI can prompt the user to
+   * sign in again instead of silently hammering the gateway.
    */
-  private scheduleReconnectWithRefresh(): void {
+  private scheduleReconnectWithRefresh(ctx: RelayReconnectContext): void {
     if (this.reconnectTimer !== null) return;
     const delay = this.reconnectDelay;
     this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null;
       if (this.closedByCaller) return;
       if (this.deps.onReconnect) {
+        let decision: RelayReconnectDecision | null = null;
         try {
-          const newToken = await this.deps.onReconnect();
-          if (typeof newToken === 'string') {
-            this.deps = {
-              ...this.deps,
-              mode: { ...this.deps.mode, token: newToken },
-            };
-          }
+          const result = await this.deps.onReconnect(ctx);
+          decision = normaliseReconnectResult(result);
         } catch {
           // Refresh failures fall through to a bare reconnect attempt —
           // the server will reject the handshake and we'll loop.
+          decision = null;
+        }
+        if (decision) {
+          if (decision.kind === 'abort') {
+            // Refresh is impossible (e.g. cloud token expired and
+            // non-interactive renewal failed). Stop reconnecting and
+            // surface the error via onClose so the worker can push an
+            // actionable message into chrome.storage for the popup.
+            this.closedByCaller = true;
+            this.deps.onClose(ctx.code, ctx.reason, decision.error);
+            return;
+          }
+          if (decision.kind === 'refreshed') {
+            this.deps = {
+              ...this.deps,
+              mode: { ...this.deps.mode, token: decision.token },
+            };
+          }
+          // 'keep' → leave mode.token alone and fall through to
+          // connect() with the existing token.
         }
       }
       if (!this.closedByCaller) this.connect();
     }, delay);
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, RECONNECT_MAX_MS);
   }
+}
+
+/**
+ * Coerce the flexible `onReconnect` return shape into a canonical
+ * {@link RelayReconnectDecision}. The legacy shape supported a plain
+ * `string` (treated as a fresh token) or `null`/`undefined` (treated as
+ * "keep the existing token"). New callers return a
+ * {@link RelayReconnectDecision} directly and get access to the
+ * `{ kind: 'abort' }` branch that stops the reconnect loop.
+ */
+function normaliseReconnectResult(
+  result: string | null | void | RelayReconnectDecision,
+): RelayReconnectDecision {
+  if (typeof result === 'string') return { kind: 'refreshed', token: result };
+  if (result && typeof result === 'object' && 'kind' in result) {
+    return result;
+  }
+  return { kind: 'keep' };
 }
 
 // ── host_browser result poster ─────────────────────────────────────
