@@ -7,6 +7,72 @@ import {
 
 const log = getLogger("privacy-config");
 
+// These defaults MUST match the daemon's Zod schema defaults. See
+// `assistant/src/config/schema.ts` (collectUsageData, sendDiagnostics) and
+// `assistant/src/config/schemas/memory-lifecycle.ts`
+// (memory.cleanup.llmRequestLogRetentionMs). Keep them in sync.
+const DEFAULT_COLLECT_USAGE_DATA = true;
+const DEFAULT_SEND_DIAGNOSTICS = true;
+const DEFAULT_LLM_REQUEST_LOG_RETENTION_MS = 1 * 24 * 60 * 60 * 1000;
+
+export function createPrivacyConfigGetHandler() {
+  return async (_req: Request): Promise<Response> => {
+    const result = readConfigFile();
+    if (!result.ok) {
+      log.error(
+        { detail: result.detail },
+        "Failed to read config.json for privacy config GET",
+      );
+      return Response.json(
+        { error: "Config file is malformed" },
+        { status: 500 },
+      );
+    }
+
+    const config = result.data;
+
+    const rawCollectUsageData = (config as { collectUsageData?: unknown })
+      .collectUsageData;
+    const collectUsageData =
+      typeof rawCollectUsageData === "boolean"
+        ? rawCollectUsageData
+        : DEFAULT_COLLECT_USAGE_DATA;
+
+    const rawSendDiagnostics = (config as { sendDiagnostics?: unknown })
+      .sendDiagnostics;
+    const sendDiagnostics =
+      typeof rawSendDiagnostics === "boolean"
+        ? rawSendDiagnostics
+        : DEFAULT_SEND_DIAGNOSTICS;
+
+    // Extract nested memory.cleanup.llmRequestLogRetentionMs safely.
+    const memory = (config as { memory?: unknown }).memory;
+    const cleanup =
+      memory && typeof memory === "object" && !Array.isArray(memory)
+        ? (memory as { cleanup?: unknown }).cleanup
+        : undefined;
+    const rawRetention =
+      cleanup && typeof cleanup === "object" && !Array.isArray(cleanup)
+        ? (cleanup as { llmRequestLogRetentionMs?: unknown })
+            .llmRequestLogRetentionMs
+        : undefined;
+    // Must be a non-negative integer. A value of 0 is valid (means
+    // "never prune") and should be returned verbatim.
+    const llmRequestLogRetentionMs =
+      typeof rawRetention === "number" &&
+      Number.isInteger(rawRetention) &&
+      rawRetention >= 0
+        ? rawRetention
+        : DEFAULT_LLM_REQUEST_LOG_RETENTION_MS;
+
+    return Response.json({
+      collectUsageData,
+      sendDiagnostics,
+      llmRequestLogRetentionMs,
+    });
+  };
+}
+
 export function createPrivacyConfigPatchHandler() {
   return async (req: Request): Promise<Response> => {
     let body: unknown;
