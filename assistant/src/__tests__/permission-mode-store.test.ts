@@ -16,39 +16,21 @@ import {
   test,
 } from "bun:test";
 
-// ---------------------------------------------------------------------------
-// Mocks — declared before imports that depend on platform/logger
-// ---------------------------------------------------------------------------
-
 const WORKSPACE_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 const CONFIG_PATH = join(WORKSPACE_DIR, "config.json");
 
 function ensureTestDir(): void {
-  const dirs = [
-    WORKSPACE_DIR,
-    join(WORKSPACE_DIR, "data"),
-    join(WORKSPACE_DIR, "data", "logs"),
-  ];
+  const dirs = [WORKSPACE_DIR, join(WORKSPACE_DIR, "data")];
   for (const dir of dirs) {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   }
 }
 
 function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
+  return new Proxy({} as Record<string, unknown>, {
+    get: (_target, prop) =>
+      prop === "child" ? () => makeLoggerStub() : () => {},
+  });
 }
 
 mock.module("../util/logger.js", () => ({
@@ -65,13 +47,8 @@ import {
   initPermissionModeStore,
   onModeChanged,
   resetForTesting,
-  setAskBeforeActing,
   setHostAccess,
 } from "../permissions/permission-mode-store.js";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function writeConfig(obj: unknown): void {
   ensureTestDir();
@@ -82,15 +59,10 @@ function readConfig(): Record<string, unknown> {
   return JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 }
 
-// ---------------------------------------------------------------------------
-// Setup / teardown
-// ---------------------------------------------------------------------------
-
 beforeEach(() => {
   ensureTestDir();
   resetForTesting();
   invalidateConfigCache();
-  // Remove config file to start clean
   try {
     rmSync(CONFIG_PATH, { force: true });
   } catch {
@@ -103,175 +75,75 @@ afterEach(() => {
   invalidateConfigCache();
 });
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 describe("PermissionModeStore", () => {
-  describe("getMode", () => {
-    test("returns defaults when no config exists", () => {
-      const mode = getMode();
-      expect(mode.askBeforeActing).toBe(true);
-      expect(mode.hostAccess).toBe(false);
+  test("returns defaults when no config exists", () => {
+    expect(getMode()).toEqual({ hostAccess: false });
+  });
+
+  test("reads initial state from config", () => {
+    writeConfig({
+      permissions: {
+        hostAccess: true,
+      },
     });
 
-    test("reads initial state from config", () => {
-      writeConfig({
-        permissions: {
-          askBeforeActing: false,
-          hostAccess: true,
-        },
-      });
+    initPermissionModeStore();
+    expect(getMode()).toEqual({ hostAccess: true });
+  });
 
-      initPermissionModeStore();
-      const mode = getMode();
-      expect(mode.askBeforeActing).toBe(false);
-      expect(mode.hostAccess).toBe(true);
-    });
+  test("returns a defensive copy", () => {
+    const mode = getMode();
+    mode.hostAccess = true;
+    expect(getMode()).toEqual({ hostAccess: false });
+  });
 
-    test("returns a defensive copy (mutations do not affect store)", () => {
-      const mode = getMode();
-      mode.askBeforeActing = false;
-      mode.hostAccess = true;
-
-      const fresh = getMode();
-      expect(fresh.askBeforeActing).toBe(true);
-      expect(fresh.hostAccess).toBe(false);
+  test("persists hostAccess to config.json", () => {
+    setHostAccess(true);
+    expect(readConfig().permissions).toEqual({
+      mode: "workspace",
+      hostAccess: true,
     });
   });
 
-  describe("setAskBeforeActing", () => {
-    test("updates in-memory state", () => {
-      expect(getMode().askBeforeActing).toBe(true);
-
-      setAskBeforeActing(false);
-      expect(getMode().askBeforeActing).toBe(false);
+  test("persists only hostAccess when saving permission mode", () => {
+    writeConfig({
+      permissions: {
+        mode: "strict",
+        legacyMode: true,
+        hostAccess: false,
+      },
     });
 
-    test("persists to config.json", () => {
-      setAskBeforeActing(false);
+    initPermissionModeStore();
+    setHostAccess(true);
 
-      const raw = readConfig();
-      const permissions = raw.permissions as Record<string, unknown>;
-      expect(permissions.askBeforeActing).toBe(false);
-    });
-
-    test("no-op when value is unchanged", () => {
-      const calls: unknown[] = [];
-      onModeChanged((mode) => calls.push(mode));
-
-      // Default is true; setting to true should not fire
-      setAskBeforeActing(true);
-      expect(calls).toHaveLength(0);
+    expect(readConfig().permissions).toEqual({
+      mode: "strict",
+      hostAccess: true,
     });
   });
 
-  describe("setHostAccess", () => {
-    test("updates in-memory state", () => {
-      expect(getMode().hostAccess).toBe(false);
+  test("no-op when value is unchanged", () => {
+    const calls: unknown[] = [];
+    onModeChanged((mode) => calls.push(mode));
 
-      setHostAccess(true);
-      expect(getMode().hostAccess).toBe(true);
-    });
-
-    test("persists to config.json", () => {
-      setHostAccess(true);
-
-      const raw = readConfig();
-      const permissions = raw.permissions as Record<string, unknown>;
-      expect(permissions.hostAccess).toBe(true);
-    });
-
-    test("no-op when value is unchanged", () => {
-      const calls: unknown[] = [];
-      onModeChanged((mode) => calls.push(mode));
-
-      // Default is false; setting to false should not fire
-      setHostAccess(false);
-      expect(calls).toHaveLength(0);
-    });
+    setHostAccess(false);
+    expect(calls).toHaveLength(0);
   });
 
-  describe("onModeChanged", () => {
-    test("fires on askBeforeActing change", () => {
-      const received: Array<{ askBeforeActing: boolean; hostAccess: boolean }> =
-        [];
-      onModeChanged((mode) => received.push(mode));
+  test("fires on hostAccess change", () => {
+    const received: Array<{ hostAccess: boolean }> = [];
+    onModeChanged((mode) => received.push(mode));
 
-      setAskBeforeActing(false);
-      expect(received).toHaveLength(1);
-      expect(received[0].askBeforeActing).toBe(false);
-      expect(received[0].hostAccess).toBe(false);
-    });
-
-    test("fires on hostAccess change", () => {
-      const received: Array<{ askBeforeActing: boolean; hostAccess: boolean }> =
-        [];
-      onModeChanged((mode) => received.push(mode));
-
-      setHostAccess(true);
-      expect(received).toHaveLength(1);
-      expect(received[0].askBeforeActing).toBe(true);
-      expect(received[0].hostAccess).toBe(true);
-    });
-
-    test("unsubscribe stops notifications", () => {
-      const received: unknown[] = [];
-      const unsubscribe = onModeChanged((mode) => received.push(mode));
-
-      setAskBeforeActing(false);
-      expect(received).toHaveLength(1);
-
-      unsubscribe();
-      setHostAccess(true);
-      expect(received).toHaveLength(1); // no new notification
-    });
-
-    test("listener errors do not break other listeners", () => {
-      const received: unknown[] = [];
-      onModeChanged(() => {
-        throw new Error("boom");
-      });
-      onModeChanged((mode) => received.push(mode));
-
-      setAskBeforeActing(false);
-      expect(received).toHaveLength(1);
-    });
+    setHostAccess(true);
+    expect(received).toEqual([{ hostAccess: true }]);
   });
 
-  describe("persistence round-trip", () => {
-    test("state survives store reset and re-initialization", () => {
-      setAskBeforeActing(false);
-      setHostAccess(true);
-
-      // Simulate daemon restart: reset store and re-init from config
-      resetForTesting();
-      invalidateConfigCache();
-      initPermissionModeStore();
-
-      const mode = getMode();
-      expect(mode.askBeforeActing).toBe(false);
-      expect(mode.hostAccess).toBe(true);
-    });
-
-    test("preserves other config fields when persisting", () => {
-      writeConfig({
-        maxTokens: 8000,
-        permissions: {
-          mode: "strict",
-          askBeforeActing: true,
-          hostAccess: false,
-        },
-      });
-
-      initPermissionModeStore();
-      setHostAccess(true);
-
-      const raw = readConfig();
-      expect(raw.maxTokens).toBe(8000);
-      const permissions = raw.permissions as Record<string, unknown>;
-      expect(permissions.mode).toBe("strict");
-      expect(permissions.hostAccess).toBe(true);
-    });
+  test("state survives store reset and re-initialization", () => {
+    setHostAccess(true);
+    resetForTesting();
+    invalidateConfigCache();
+    initPermissionModeStore();
+    expect(getMode()).toEqual({ hostAccess: true });
   });
 });

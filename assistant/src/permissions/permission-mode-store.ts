@@ -1,13 +1,12 @@
 /**
- * Singleton runtime store for the two-axis permission mode.
+ * Singleton runtime store for host-access permission state.
  *
  * Reads initial state from the `permissions` section of config.json on
  * initialization and persists mutations back to the config file via the
- * raw-config read/write helpers so env-var–derived keys are never leaked
+ * raw-config read/write helpers so env-var-derived keys are never leaked
  * to disk.
  *
- * Downstream consumers (e.g. SSE broadcast) register change listeners
- * via `onModeChanged()`.
+ * Downstream consumers register change listeners via `onModeChanged()`.
  */
 
 import {
@@ -22,23 +21,11 @@ import { DEFAULT_PERMISSION_MODE } from "./permission-mode.js";
 
 const log = getLogger("permission-mode-store");
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 export type ModeChangeListener = (mode: PermissionMode) => void;
-
-// ---------------------------------------------------------------------------
-// Module-level state
-// ---------------------------------------------------------------------------
 
 let currentMode: PermissionMode = { ...DEFAULT_PERMISSION_MODE };
 let initialized = false;
 const listeners: ModeChangeListener[] = [];
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
 
 function notifyListeners(): void {
   const snapshot = { ...currentMode };
@@ -51,54 +38,35 @@ function notifyListeners(): void {
   }
 }
 
-/**
- * Persist the current in-memory permission mode to config.json.
- *
- * Uses the raw-config pattern (loadRawConfig → mutate → saveRawConfig) so
- * that env-var–derived fields (API keys, dataDir) are never written to disk.
- */
 function persistToConfig(): void {
   try {
     const raw = loadRawConfig();
-
-    // Ensure the permissions object exists
-    if (
-      raw.permissions == null ||
-      typeof raw.permissions !== "object" ||
-      Array.isArray(raw.permissions)
-    ) {
-      raw.permissions = {};
-    }
-
-    const permissions = raw.permissions as Record<string, unknown>;
-    permissions.askBeforeActing = currentMode.askBeforeActing;
-    permissions.hostAccess = currentMode.hostAccess;
+    const existingPermissions =
+      raw.permissions != null &&
+      typeof raw.permissions === "object" &&
+      !Array.isArray(raw.permissions)
+        ? (raw.permissions as Record<string, unknown>)
+        : {};
+    raw.permissions = {
+      ...(existingPermissions.mode !== undefined
+        ? { mode: existingPermissions.mode }
+        : {}),
+      hostAccess: currentMode.hostAccess,
+    };
 
     saveRawConfig(raw);
-
-    // Invalidate the cached config so the next loadConfig() picks up the
-    // persisted values rather than returning stale in-memory state.
     invalidateConfigCache();
   } catch (err) {
     log.error({ err }, "Failed to persist permission mode to config");
   }
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-/**
- * Initialize the store from the current config. Safe to call multiple times;
- * subsequent calls are no-ops unless `resetForTesting()` has been called.
- */
 export function initPermissionModeStore(): void {
   if (initialized) return;
 
   try {
     const config = loadConfig();
     currentMode = {
-      askBeforeActing: config.permissions.askBeforeActing,
       hostAccess: config.permissions.hostAccess,
     };
   } catch (err) {
@@ -112,10 +80,6 @@ export function initPermissionModeStore(): void {
   initialized = true;
 }
 
-/**
- * Return the current permission mode. Initializes from config on first call
- * if `initPermissionModeStore()` hasn't been called yet.
- */
 export function getMode(): PermissionMode {
   if (!initialized) {
     initPermissionModeStore();
@@ -123,26 +87,6 @@ export function getMode(): PermissionMode {
   return { ...currentMode };
 }
 
-/**
- * Update the `askBeforeActing` axis. Persists to config.json and notifies
- * change listeners.
- */
-export function setAskBeforeActing(value: boolean): void {
-  if (!initialized) {
-    initPermissionModeStore();
-  }
-
-  if (currentMode.askBeforeActing === value) return;
-
-  currentMode.askBeforeActing = value;
-  persistToConfig();
-  notifyListeners();
-}
-
-/**
- * Update the `hostAccess` axis. Persists to config.json and notifies
- * change listeners.
- */
 export function setHostAccess(value: boolean): void {
   if (!initialized) {
     initPermissionModeStore();
@@ -155,10 +99,6 @@ export function setHostAccess(value: boolean): void {
   notifyListeners();
 }
 
-/**
- * Register a callback that fires whenever the permission mode changes.
- * Returns an unsubscribe function.
- */
 export function onModeChanged(callback: ModeChangeListener): () => void {
   listeners.push(callback);
   return () => {
@@ -169,10 +109,6 @@ export function onModeChanged(callback: ModeChangeListener): () => void {
   };
 }
 
-/**
- * Reset the store to uninitialized state. **Test-only** — production code
- * should never call this.
- */
 export function resetForTesting(): void {
   currentMode = { ...DEFAULT_PERMISSION_MODE };
   initialized = false;
