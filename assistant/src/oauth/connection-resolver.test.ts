@@ -148,6 +148,19 @@ describe("resolveOAuthConnection", () => {
     expect(result.accountInfo).toBe("user@example.com");
   });
 
+  test("returns PlatformOAuthConnection when GitHub is in managed mode", async () => {
+    mockProvider!.provider = "github";
+    mockProvider!.managedServiceConfigKey = "github-oauth";
+    (mockConfig.services as Record<string, unknown>)["github-oauth"] = {
+      mode: "managed",
+    };
+
+    const result = await resolveOAuthConnection("github");
+    expect(result).toBeInstanceOf(PlatformOAuthConnection);
+    expect(result.id).toBe("github");
+    expect(result.provider).toBe("github");
+  });
+
   test("returns BYOOAuthConnection when service config mode is your-own", async () => {
     mockProvider!.managedServiceConfigKey = "google-oauth";
     (mockConfig.services as Record<string, unknown>)["google-oauth"] = {

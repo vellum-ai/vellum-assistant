@@ -18,7 +18,7 @@ import { seedProviders } from "./oauth-store.js";
  * fields (defaultScopes, scopePolicy) are only
  * written on initial insert and preserved across restarts.
  */
-const PROVIDER_SEED_DATA: Record<
+export const PROVIDER_SEED_DATA: Record<
   string,
   {
     provider: string;
@@ -273,6 +273,7 @@ const PROVIDER_SEED_DATA: Record<
       ],
       forbiddenScopes: ["delete_repo", "admin:org"],
     },
+    managedServiceConfigKey: "github-oauth",
     loopbackPort: 17332,
     injectionTemplates: [
       {
