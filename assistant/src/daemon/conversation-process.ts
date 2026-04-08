@@ -166,6 +166,20 @@ export interface ProcessConversationContext {
   forceCompact(): Promise<ContextWindowResult>;
   /** Set transport-derived hints for the conversation. */
   setTransportHints(hints: string[] | undefined): void;
+  /**
+   * Client-reported host home directory from macOS transport metadata.
+   * Used by the workspace block renderer so platform-managed daemons show
+   * the user's actual Mac home instead of the container's `os.homedir()`.
+   */
+  hostHomeDir?: string;
+  /** Client-reported host username. See `hostHomeDir`. */
+  hostUsername?: string;
+  /**
+   * Workspace top-level cache dirty flag. The queue-drain path sets this
+   * when client-reported host env changes so the next render picks up the
+   * new values.
+   */
+  workspaceTopLevelDirty: boolean;
 }
 
 function resolveQueuedTurnContext(
@@ -306,6 +320,25 @@ export async function drainQueue(
   // environment context for internal turns.
   if (next.transport) {
     conversation.setTransportHints(buildTransportHints(next.transport));
+    // Mirror applyTransportMetadata: populate client-reported host env for
+    // macOS transports, and clear it for non-macOS transports so a
+    // conversation reused across interfaces doesn't keep rendering stale
+    // Mac paths in its `<workspace>` block.
+    const prevHomeDir = conversation.hostHomeDir;
+    const prevUsername = conversation.hostUsername;
+    if (next.transport.interfaceId === "macos") {
+      conversation.hostHomeDir = next.transport.hostHomeDir;
+      conversation.hostUsername = next.transport.hostUsername;
+    } else {
+      conversation.hostHomeDir = undefined;
+      conversation.hostUsername = undefined;
+    }
+    if (
+      prevHomeDir !== conversation.hostHomeDir ||
+      prevUsername !== conversation.hostUsername
+    ) {
+      conversation.workspaceTopLevelDirty = true;
+    }
   }
 
   // Non-interactive queued messages (channel requests) must not execute tools

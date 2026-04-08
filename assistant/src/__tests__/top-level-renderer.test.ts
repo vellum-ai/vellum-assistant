@@ -147,4 +147,71 @@ describe("renderWorkspaceTopLevelContext", () => {
     );
     expect(result).not.toContain("Current conversation folder");
   });
+
+  test("prefers client-reported host env over daemon os.homedir()", () => {
+    const snapshot: TopLevelSnapshot = {
+      rootPath: "/sandbox",
+      directories: ["src"],
+      files: ["package.json"],
+      truncated: false,
+    };
+
+    const result = renderWorkspaceTopLevelContext(snapshot, {
+      hostHomeDir: "/Users/alice",
+      hostUsername: "alice",
+    });
+
+    expect(result).toContain("Host home directory: /Users/alice");
+    expect(result).toContain("Host username: alice");
+    // Fallback values must NOT appear when client values are provided.
+    expect(result).not.toContain(`Host home directory: ${homedir()}`);
+    expect(result).not.toContain(`Host username: ${userInfo().username}`);
+  });
+
+  test("falls back to daemon os info when host env options omitted", () => {
+    const snapshot: TopLevelSnapshot = {
+      rootPath: "/sandbox",
+      directories: ["src"],
+      files: ["package.json"],
+      truncated: false,
+    };
+
+    const result = renderWorkspaceTopLevelContext(snapshot, {});
+
+    expect(result).toContain(`Host home directory: ${homedir()}`);
+    expect(result).toContain(`Host username: ${userInfo().username}`);
+  });
+
+  test("falls back to daemon os info when host env options are undefined", () => {
+    const snapshot: TopLevelSnapshot = {
+      rootPath: "/sandbox",
+      directories: ["src"],
+      files: ["package.json"],
+      truncated: false,
+    };
+
+    const result = renderWorkspaceTopLevelContext(snapshot, {
+      hostHomeDir: undefined,
+      hostUsername: undefined,
+    });
+
+    expect(result).toContain(`Host home directory: ${homedir()}`);
+    expect(result).toContain(`Host username: ${userInfo().username}`);
+  });
+
+  test("uses client home dir but falls back to os username when only home is provided", () => {
+    const snapshot: TopLevelSnapshot = {
+      rootPath: "/sandbox",
+      directories: ["src"],
+      files: ["package.json"],
+      truncated: false,
+    };
+
+    const result = renderWorkspaceTopLevelContext(snapshot, {
+      hostHomeDir: "/Users/alice",
+    });
+
+    expect(result).toContain("Host home directory: /Users/alice");
+    expect(result).toContain(`Host username: ${userInfo().username}`);
+  });
 });
