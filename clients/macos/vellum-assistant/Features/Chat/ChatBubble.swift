@@ -480,6 +480,9 @@ struct ChatBubble: View, Equatable {
                 .scaleEffect(avatarBounceScale)
                 .onTapGesture { triggerBounce() }
         }
+        // Ensure the tap-triggered bounce animation is preserved despite the
+        // parent LazyVStack's .transaction { $0.animation = nil } suppression.
+        .animation(.spring(response: 0.3, dampingFraction: 0.5), value: avatarBounceScale)
     }
 
     private func triggerBounce() {
@@ -677,50 +680,4 @@ struct ChatBubble: View, Equatable {
 final class SegmentCacheEntry: NSObject {
     let segments: [MarkdownSegment]
     init(_ segments: [MarkdownSegment]) { self.segments = segments }
-}
-
-
-// MARK: - Avatar Wiggle Modifier
-
-/// Applies a gentle wiggle animation (rotation + scale breathing) while active,
-/// signaling the assistant is streaming/thinking.
-struct AvatarWiggleModifier: ViewModifier {
-    let isActive: Bool
-
-    @State private var wiggleAngle: Double = 0
-    @State private var breathScale: CGFloat = 1.0
-
-    func body(content: Content) -> some View {
-        content
-            .rotationEffect(.degrees(wiggleAngle))
-            .scaleEffect(breathScale)
-            .onChange(of: isActive) {
-                if isActive {
-                    startWiggle()
-                } else {
-                    stopWiggle()
-                }
-            }
-            .onAppear {
-                if isActive {
-                    startWiggle()
-                }
-            }
-    }
-
-    private func startWiggle() {
-        withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
-            wiggleAngle = 3
-        }
-        withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
-            breathScale = 1.03
-        }
-    }
-
-    private func stopWiggle() {
-        withAnimation(.easeOut(duration: 0.3)) {
-            wiggleAngle = 0
-            breathScale = 1.0
-        }
-    }
 }
