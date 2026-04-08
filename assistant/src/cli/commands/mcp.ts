@@ -34,13 +34,25 @@ export async function checkServerHealth(
       }),
     ]);
 
-    if (!client.isConnected) {
-      return "! Needs authentication";
+    if (client.isConnected) {
+      await client.disconnect();
+      return "\u2713 Connected";
     }
 
-    await client.disconnect();
-    return "\u2713 Connected";
+    // connect() swallows errors — check lastError to distinguish auth from
+    // transport failures (DNS, TLS, 500, stdio crash, etc.).
+    const err = client.lastError;
+    if (err) {
+      const message = err.message;
+      if (message.includes("timeout")) {
+        return "\u2717 Timed out";
+      }
+      return `\u2717 Error: ${message}`;
+    }
+
+    return "! Needs authentication";
   } catch (err) {
+    // Only the external timeout Promise can throw here (connect() never does).
     try {
       await client.disconnect();
     } catch {

@@ -35,6 +35,12 @@ export class McpClient {
     | null = null;
   private connected = false;
   private oauthProvider: McpOAuthProvider | null = null;
+  private _lastError: Error | null = null;
+
+  /** The last connection error, if any. Null when connected or not yet attempted. */
+  get lastError(): Error | null {
+    return this._lastError;
+  }
 
   get isConnected(): boolean {
     return this.connected;
@@ -124,6 +130,7 @@ export class McpClient {
       // Non-auth error (DNS, TLS, timeout, etc.) — log but never propagate
       // an MCP connection failure to the caller.  The daemon must keep
       // running even when individual MCP servers are unreachable.
+      this._lastError = err instanceof Error ? err : new Error(String(err));
       log.error(
         { serverId: this.serverId, err },
         "MCP server connection failed",
