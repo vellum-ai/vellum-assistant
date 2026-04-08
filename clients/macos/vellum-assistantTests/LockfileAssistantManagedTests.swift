@@ -339,12 +339,14 @@ final class LockfileAssistantManagedTests: XCTestCase {
             assistantId: "assistant-1",
             runtimeUrl: "https://platform.vellum.ai",
             hatchedAt: "2024-01-01T00:00:00Z",
+            allowMultipleManaged: true,
             lockfilePath: lockfilePath
         )
         LockfileAssistant.ensureManagedEntry(
             assistantId: "assistant-2",
             runtimeUrl: "https://platform.vellum.ai",
             hatchedAt: "2024-02-01T00:00:00Z",
+            allowMultipleManaged: true,
             lockfilePath: lockfilePath
         )
 
@@ -354,5 +356,119 @@ final class LockfileAssistantManagedTests: XCTestCase {
         XCTAssertEqual(assistants.count, 2)
         XCTAssertEqual(assistants[0]["assistantId"] as? String, "assistant-1")
         XCTAssertEqual(assistants[1]["assistantId"] as? String, "assistant-2")
+    }
+
+    // MARK: - allowMultipleManaged flag
+
+    func testEnsureReplacesExistingManagedWhenSingleMode() {
+        // Flag-off regression guard: inserting a different managed assistant
+        // replaces the existing managed entry so only one coexists.
+        LockfileAssistant.ensureManagedEntry(
+            assistantId: "old-managed",
+            runtimeUrl: "https://platform.vellum.ai",
+            hatchedAt: "2024-01-01T00:00:00Z",
+            lockfilePath: lockfilePath
+        )
+        LockfileAssistant.ensureManagedEntry(
+            assistantId: "new-managed",
+            runtimeUrl: "https://platform.vellum.ai",
+            hatchedAt: "2024-06-01T00:00:00Z",
+            lockfilePath: lockfilePath
+        )
+
+        let data = try! Data(contentsOf: URL(fileURLWithPath: lockfilePath))
+        let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let assistants = json["assistants"] as! [[String: Any]]
+        let managed = assistants.filter { ($0["cloud"] as? String) == "vellum" }
+        XCTAssertEqual(managed.count, 1, "Only one managed entry should exist in single-managed mode")
+        XCTAssertEqual(managed[0]["assistantId"] as? String, "new-managed")
+    }
+
+    func testEnsureAppendsNewManagedWhenMultiModeEnabled() {
+        LockfileAssistant.ensureManagedEntry(
+            assistantId: "first-managed",
+            runtimeUrl: "https://platform.vellum.ai",
+            hatchedAt: "2024-01-01T00:00:00Z",
+            allowMultipleManaged: true,
+            lockfilePath: lockfilePath
+        )
+        LockfileAssistant.ensureManagedEntry(
+            assistantId: "second-managed",
+            runtimeUrl: "https://platform.vellum.ai",
+            hatchedAt: "2024-06-01T00:00:00Z",
+            allowMultipleManaged: true,
+            lockfilePath: lockfilePath
+        )
+
+        let data = try! Data(contentsOf: URL(fileURLWithPath: lockfilePath))
+        let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let assistants = json["assistants"] as! [[String: Any]]
+        let managed = assistants.filter { ($0["cloud"] as? String) == "vellum" }
+        XCTAssertEqual(managed.count, 2, "Both managed entries should coexist in multi-managed mode")
+        XCTAssertTrue(managed.contains(where: { ($0["assistantId"] as? String) == "first-managed" }))
+        XCTAssertTrue(managed.contains(where: { ($0["assistantId"] as? String) == "second-managed" }))
+    }
+
+    func testEnsureUpdatesInPlaceWhenIdMatchesInBothModes() {
+        // Flag-off: same ID updates runtimeUrl in place.
+        LockfileAssistant.ensureManagedEntry(
+            assistantId: "same-id",
+            runtimeUrl: "https://old.example.com",
+            hatchedAt: "2024-01-01T00:00:00Z",
+            lockfilePath: lockfilePath
+        )
+        LockfileAssistant.ensureManagedEntry(
+            assistantId: "same-id",
+            runtimeUrl: "https://new.example.com",
+            hatchedAt: "2024-01-01T00:00:00Z",
+            lockfilePath: lockfilePath
+        )
+
+        var data = try! Data(contentsOf: URL(fileURLWithPath: lockfilePath))
+        var json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+        var assistants = json["assistants"] as! [[String: Any]]
+        XCTAssertEqual(assistants.count, 1)
+        XCTAssertEqual(assistants[0]["runtimeUrl"] as? String, "https://new.example.com")
+
+        // Flag-on: same ID also updates in place.
+        LockfileAssistant.ensureManagedEntry(
+            assistantId: "same-id",
+            runtimeUrl: "https://newer.example.com",
+            hatchedAt: "2024-01-01T00:00:00Z",
+            allowMultipleManaged: true,
+            lockfilePath: lockfilePath
+        )
+
+        data = try! Data(contentsOf: URL(fileURLWithPath: lockfilePath))
+        json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+        assistants = json["assistants"] as! [[String: Any]]
+        XCTAssertEqual(assistants.count, 1)
+        XCTAssertEqual(assistants[0]["runtimeUrl"] as? String, "https://newer.example.com")
+    }
+
+    func testActiveAssistantIdSurvivesAddingSecondManagedEntry() {
+        LockfileAssistant.ensureManagedEntry(
+            assistantId: "managed-1",
+            runtimeUrl: "https://platform.vellum.ai",
+            hatchedAt: "2024-01-01T00:00:00Z",
+            allowMultipleManaged: true,
+            lockfilePath: lockfilePath
+        )
+        LockfileAssistant.setActiveAssistantId("managed-1", lockfilePath: lockfilePath)
+
+        LockfileAssistant.ensureManagedEntry(
+            assistantId: "managed-2",
+            runtimeUrl: "https://platform.vellum.ai",
+            hatchedAt: "2024-06-01T00:00:00Z",
+            allowMultipleManaged: true,
+            lockfilePath: lockfilePath
+        )
+
+        let data = try! Data(contentsOf: URL(fileURLWithPath: lockfilePath))
+        let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+        XCTAssertEqual(json["activeAssistant"] as? String, "managed-1",
+                       "Adding a new managed entry must not change activeAssistantId")
+        let assistants = json["assistants"] as! [[String: Any]]
+        XCTAssertEqual(assistants.count, 2)
     }
 }

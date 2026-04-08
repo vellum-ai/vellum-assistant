@@ -444,12 +444,20 @@ public struct LockfileAssistant {
     ///   - assistantId: The platform-assigned assistant UUID string.
     ///   - runtimeUrl: The platform base URL used for managed transport.
     ///   - hatchedAt: ISO-8601 timestamp of when the assistant was created.
+    ///   - allowMultipleManaged: When `false` (default), enforces the single-
+    ///     managed-assistant invariant: any other existing `cloud == "vellum"`
+    ///     entries are removed before inserting a new entry. When `true`
+    ///     (gated by the `multi-platform-assistant` feature flag), a new
+    ///     managed entry is appended without disturbing existing managed
+    ///     entries. In both modes, if an entry with a matching `assistantId`
+    ///     already exists it is updated in place.
     ///   - lockfilePath: Override for tests; defaults to `LockfilePaths.primaryPath`.
     @discardableResult
     public static func ensureManagedEntry(
         assistantId: String,
         runtimeUrl: String,
         hatchedAt: String,
+        allowMultipleManaged: Bool = false,
         lockfilePath: String? = nil
     ) -> Bool {
         let path = lockfilePath ?? LockfilePaths.primaryPath
@@ -497,6 +505,18 @@ public struct LockfileAssistant {
 
             assistants[existingIndex] = existingEntry
         } else {
+            // Single-managed mode: remove any pre-existing managed entries
+            // so only one `cloud == "vellum"` entry can exist at a time.
+            // Multi-managed mode (flag-gated): leave existing managed entries
+            // untouched and simply append the new one.
+            if !allowMultipleManaged {
+                assistants.removeAll { entry in
+                    let cloud = (entry["cloud"] as? String)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .lowercased()
+                    return cloud == "vellum" || cloud == "platform"
+                }
+            }
             let newEntry: [String: Any] = [
                 "assistantId": assistantId,
                 "runtimeUrl": runtimeUrl,

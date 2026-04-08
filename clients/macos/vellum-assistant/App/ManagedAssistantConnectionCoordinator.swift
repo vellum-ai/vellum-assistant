@@ -105,6 +105,7 @@ final class ManagedAssistantConnectionCoordinator {
             assistantId: assistant.id,
             runtimeUrl: runtimeURL,
             hatchedAt: hatchedAt,
+            allowMultipleManaged: AssistantFeatureFlagResolver.isEnabled("multi-platform-assistant"),
             lockfilePath: lockfilePath
         )
 
