@@ -35,6 +35,7 @@ struct ChatBubble: View, Equatable {
             && lhs.mediaEmbedSettings == rhs.mediaEmbedSettings
             && lhs.activeConfirmationRequestId == rhs.activeConfirmationRequestId
             && lhs.isLatestAssistantMessage == rhs.isLatestAssistantMessage
+            && lhs.typographyGeneration == rhs.typographyGeneration
             && lhs.isProcessingAfterTools == rhs.isProcessingAfterTools
             && lhs.processingStatusText == rhs.processingStatusText
             && lhs.isTTSEnabled == rhs.isTTSEnabled
@@ -67,6 +68,7 @@ struct ChatBubble: View, Equatable {
     var onRetryConversationError: (() -> Void)?
 
     var isLatestAssistantMessage: Bool = false
+    var typographyGeneration: Int = 0
     @State private var avatarBounceScale: CGFloat = 1.0
     /// When true, the assistant is still processing after tool calls completed.
     /// Renders an inline loading indicator in trailingStatus to avoid a separate
@@ -126,6 +128,7 @@ struct ChatBubble: View, Equatable {
         onRetryFailedMessage: ((UUID) -> Void)? = nil,
         onRetryConversationError: (() -> Void)? = nil,
         isLatestAssistantMessage: Bool = false,
+        typographyGeneration: Int = 0,
         isProcessingAfterTools: Bool = false,
         processingStatusText: String? = nil,
         activeSurfaceId: String? = nil,
@@ -151,6 +154,7 @@ struct ChatBubble: View, Equatable {
         self.onRetryFailedMessage = onRetryFailedMessage
         self.onRetryConversationError = onRetryConversationError
         self.isLatestAssistantMessage = isLatestAssistantMessage
+        self.typographyGeneration = typographyGeneration
         self.isProcessingAfterTools = isProcessingAfterTools
         self.processingStatusText = processingStatusText
         self.activeSurfaceId = activeSurfaceId
@@ -505,6 +509,7 @@ struct ChatBubble: View, Equatable {
                     MarkdownSegmentView(
                         segments: segments,
                         isStreaming: message.isStreaming,
+                        typographyGeneration: typographyGeneration,
                         maxContentWidth: isUser ? max(bubbleMaxWidth - 2 * VSpacing.lg, 0) : bubbleMaxWidth,
                         textColor: isUser ? VColor.contentDefault : VColor.contentDefault,
                         secondaryTextColor: isUser ? VColor.contentSecondary : VColor.contentSecondary,

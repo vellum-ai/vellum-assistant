@@ -463,7 +463,11 @@ extension ChatBubble {
                         .filter { !$0.isEmpty }
                         .joined(separator: "\n")
                     if !joined.isEmpty {
-                        ThinkingBlockView(content: joined, isStreaming: message.isStreaming)
+                        ThinkingBlockView(
+                            content: joined,
+                            isStreaming: message.isStreaming,
+                            typographyGeneration: typographyGeneration
+                        )
                     }
                 }
             }

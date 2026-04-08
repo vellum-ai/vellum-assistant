@@ -16,6 +16,7 @@ struct MessageCellView: View, Equatable {
             && lhs.activePendingRequestId == rhs.activePendingRequestId
             && lhs.subagentsByParent[lhs.message.id] == rhs.subagentsByParent[rhs.message.id]
             && lhs.isLatestAssistantMessage == rhs.isLatestAssistantMessage
+            && lhs.typographyGeneration == rhs.typographyGeneration
             && lhs.isProcessingAfterTools == rhs.isProcessingAfterTools
             && lhs.processingStatusText == rhs.processingStatusText
             && lhs.hideInlineAvatar == rhs.hideInlineAvatar
@@ -41,6 +42,7 @@ struct MessageCellView: View, Equatable {
     let activePendingRequestId: String?
     let subagentsByParent: [UUID: [SubagentInfo]]
     let isLatestAssistantMessage: Bool
+    let typographyGeneration: Int
     let isProcessingAfterTools: Bool
     let processingStatusText: String?
     let hideInlineAvatar: Bool
@@ -124,6 +126,7 @@ struct MessageCellView: View, Equatable {
                 onRetryFailedMessage: onRetryFailedMessage,
                 onRetryConversationError: message.isError ? { onRetryConversationError?(message.id) } : nil,
                 isLatestAssistantMessage: isLatestAssistantMessage,
+                typographyGeneration: typographyGeneration,
                 isProcessingAfterTools: isProcessingAfterTools,
                 processingStatusText: processingStatusText,
                 activeSurfaceId: activeSurfaceId,
@@ -211,6 +214,7 @@ struct MessageCellView: View, Equatable {
                 onRetryFailedMessage: onRetryFailedMessage,
                 onRetryConversationError: message.isError ? { onRetryConversationError?(message.id) } : nil,
                 isLatestAssistantMessage: isLatestAssistantMessage,
+                typographyGeneration: typographyGeneration,
                 isProcessingAfterTools: isProcessingAfterTools,
                 processingStatusText: processingStatusText,
                 activeSurfaceId: activeSurfaceId,

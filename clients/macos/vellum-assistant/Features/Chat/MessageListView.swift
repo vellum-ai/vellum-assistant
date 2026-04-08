@@ -81,6 +81,7 @@ struct MessageListView: View {
     /// the state; persisted back in `handleSendingChanged()` when flipped.
     @State var hasEverSentMessage: Bool = UserDefaults.standard.bool(forKey: "hasEverSentMessage")
     @State var appearance = AvatarAppearanceManager.shared
+    @ObservedObject var typographyObserver = VFont.typographyObserver
     /// Read at the list level and passed down to each ChatBubble so that
     /// individual bubbles don't each subscribe to the shared manager.
     /// With @Observable fine-grained tracking, reading only `activeSurfaceId`

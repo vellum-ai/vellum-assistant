@@ -7,6 +7,7 @@ import VellumAssistantShared
 struct ThinkingBlockView: View {
     let content: String
     let isStreaming: Bool
+    var typographyGeneration: Int = 0
 
     @State private var isExpanded: Bool
     /// Cached parsed markdown segments — parsed lazily only when the block is
@@ -14,9 +15,10 @@ struct ThinkingBlockView: View {
     @State private var cachedSegments: [MarkdownSegment]
     @State private var cachedContent: String
 
-    init(content: String, isStreaming: Bool, initiallyExpanded: Bool = false) {
+    init(content: String, isStreaming: Bool, typographyGeneration: Int = 0, initiallyExpanded: Bool = false) {
         self.content = content
         self.isStreaming = isStreaming
+        self.typographyGeneration = typographyGeneration
         _isExpanded = State(initialValue: initiallyExpanded)
         if initiallyExpanded {
             _cachedSegments = State(initialValue: parseMarkdownSegments(content))
@@ -38,6 +40,7 @@ struct ThinkingBlockView: View {
                 MarkdownSegmentView(
                     segments: cachedSegments,
                     isStreaming: isStreaming,
+                    typographyGeneration: typographyGeneration,
                     maxContentWidth: nil,
                     textColor: VColor.contentSecondary,
                     secondaryTextColor: VColor.contentTertiary,
