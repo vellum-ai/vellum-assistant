@@ -39,7 +39,6 @@ public struct VCachedRemoteImage<Content: View, Placeholder: View>: View {
     private let placeholder: () -> Placeholder
 
     @State private var loadedImage: PlatformImage?
-    @State private var didFail = false
 
     public init(
         url: URL?,
@@ -66,18 +65,15 @@ public struct VCachedRemoteImage<Content: View, Placeholder: View>: View {
 
     private func load() async {
         loadedImage = nil
-        didFail = false
         guard let url else { return }
         do {
             let (data, _) = try await VRemoteImageCache.session.data(from: url)
             guard !Task.isCancelled else { return }
             if let img = PlatformImage(data: data) {
                 loadedImage = img
-            } else {
-                didFail = true
             }
         } catch {
-            didFail = true
+            // Load failed — placeholder remains visible.
         }
     }
 }
