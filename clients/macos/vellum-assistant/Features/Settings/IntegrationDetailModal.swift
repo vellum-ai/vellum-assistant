@@ -396,6 +396,7 @@ struct IntegrationDetailModal: View {
                 }
             }
         }
+        .padding(VSpacing.lg)
         .vCard()
     }
 
