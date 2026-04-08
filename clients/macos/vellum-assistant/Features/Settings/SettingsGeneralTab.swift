@@ -78,6 +78,9 @@ struct SettingsGeneralTab: View {
                     updateManager: updateManager
                 )
             }
+            if topology == .managed {
+                systemResourcesSection
+            }
             if MacOSClientFeatureFlagManager.shared.isEnabled("teleport"),
                let assistant = currentAssistant,
                !assistant.isManaged && (!assistant.isRemote || assistant.isDocker) {
@@ -179,6 +182,83 @@ struct SettingsGeneralTab: View {
             healthz = DaemonHealthz()
         }
         healthzLoaded = true
+    }
+
+    // MARK: - System Resources
+
+    /// Resource usage card shown for platform-managed assistants. Mirrors the
+    /// disk/memory/CPU rows from the Developer tab so users on the platform can
+    /// see their assistant's resource consumption without enabling dev mode.
+    private var systemResourcesSection: some View {
+        SettingsCard(
+            title: "System Resources",
+            subtitle: "Current resource usage on your platform-managed assistant"
+        ) {
+            if let healthz {
+                if let disk = healthz.disk {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        HStack(alignment: .center) {
+                            Text("Disk")
+                                .font(VFont.labelDefault)
+                                .foregroundStyle(VColor.contentTertiary)
+                                .frame(width: 100, alignment: .leading)
+                            Text("\(formatMb(disk.usedMb)) used of \(formatMb(disk.totalMb))")
+                                .font(VFont.bodyMediumLighter)
+                                .foregroundStyle(VColor.contentDefault)
+                            Spacer()
+                        }
+                        ProgressView(value: Double(disk.usedMb), total: Double(max(disk.totalMb, 1)))
+                            .progressViewStyle(.linear)
+                            .tint(Double(disk.usedMb) / Double(max(disk.totalMb, 1)) > 0.9 ? VColor.systemNegativeStrong : VColor.primaryBase)
+                    }
+                }
+
+                if let memory = healthz.memory {
+                    resourceRow(label: "Memory", value: "\(formatMb(memory.currentMb)) / \(formatMb(memory.maxMb))")
+                }
+
+                if let cpu = healthz.cpu {
+                    resourceRow(label: "CPU", value: String(format: "%.1f%%", cpu.currentPercent))
+                }
+
+                if healthz.disk == nil && healthz.memory == nil && healthz.cpu == nil {
+                    Text("Resource metrics are not available for this assistant.")
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
+            } else {
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading resource metrics...")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
+            }
+        }
+    }
+
+    private func resourceRow(label: String, value: String) -> some View {
+        HStack(alignment: .top) {
+            Text(label)
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentTertiary)
+                .frame(width: 100, alignment: .leading)
+
+            Text(value)
+                .font(VFont.bodyMediumLighter)
+                .foregroundStyle(VColor.contentDefault)
+                .textSelection(.enabled)
+
+            Spacer()
+        }
+    }
+
+    private func formatMb(_ mb: Double) -> String {
+        if mb >= 1024 {
+            return String(format: "%.1f GB", mb / 1024.0)
+        }
+        return String(format: "%.0f MB", mb)
     }
 
     // MARK: - Mobile Pairing
