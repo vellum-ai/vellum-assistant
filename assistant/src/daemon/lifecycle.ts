@@ -780,12 +780,19 @@ export async function runDaemon(): Promise<void> {
           conversationId,
           message,
           undefined,
-          options?.trustClass
+          options
             ? {
-                trustContext: {
-                  sourceChannel: "vellum",
-                  trustClass: options.trustClass,
-                },
+                ...(options.trustClass
+                  ? {
+                      trustContext: {
+                        sourceChannel: "vellum",
+                        trustClass: options.trustClass,
+                      },
+                    }
+                  : {}),
+                ...(options.taskRunId
+                  ? { taskRunId: options.taskRunId }
+                  : {}),
               }
             : undefined,
         );

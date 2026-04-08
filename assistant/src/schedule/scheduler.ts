@@ -23,6 +23,7 @@ const log = getLogger("scheduler");
 
 export interface ScheduleMessageOptions {
   trustClass?: "guardian" | "trusted_contact" | "unknown";
+  taskRunId?: string;
 }
 
 export type ScheduleMessageProcessor = (
@@ -196,11 +197,12 @@ async function runScheduleOnce(
             source: "schedule",
             scheduleJobId: job.id,
           },
-          processMessage as (
-            conversationId: string,
-            message: string,
-            taskRunId: string,
-          ) => Promise<void>,
+          async (conversationId, message, taskRunId) => {
+            await processMessage(conversationId, message, {
+              trustClass: "guardian",
+              taskRunId,
+            });
+          },
         );
 
         onScheduleConversationCreated?.({

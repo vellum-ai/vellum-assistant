@@ -128,9 +128,17 @@ describe("scheduler run_task detection", () => {
     forceScheduleDue(schedule.id);
 
     // Track all processMessage calls
-    const directCalls: { conversationId: string; message: string }[] = [];
-    const processMessage = async (conversationId: string, message: string) => {
-      directCalls.push({ conversationId, message });
+    const directCalls: Array<{
+      conversationId: string;
+      message: string;
+      options?: { trustClass?: string; taskRunId?: string };
+    }> = [];
+    const processMessage = async (
+      conversationId: string,
+      message: string,
+      options?: { trustClass?: string; taskRunId?: string },
+    ) => {
+      directCalls.push({ conversationId, message, options });
     };
 
     const scheduler = startScheduler(
@@ -154,6 +162,8 @@ describe("scheduler run_task detection", () => {
     expect(runTaskCalls.length).toBe(1);
     // The scheduler should NOT pass the raw run_task: message to processMessage
     expect(rawCalls.length).toBe(0);
+    expect(runTaskCalls[0].options?.trustClass).toBe("guardian");
+    expect(typeof runTaskCalls[0].options?.taskRunId).toBe("string");
   });
 
   test("regular messages still go through processMessage normally", async () => {
@@ -167,9 +177,17 @@ describe("scheduler run_task detection", () => {
 
     forceScheduleDue(schedule.id);
 
-    const processedMessages: { conversationId: string; message: string }[] = [];
-    const processMessage = async (conversationId: string, message: string) => {
-      processedMessages.push({ conversationId, message });
+    const processedMessages: Array<{
+      conversationId: string;
+      message: string;
+      options?: { trustClass?: string; taskRunId?: string };
+    }> = [];
+    const processMessage = async (
+      conversationId: string,
+      message: string,
+      options?: { trustClass?: string; taskRunId?: string },
+    ) => {
+      processedMessages.push({ conversationId, message, options });
     };
 
     const scheduler = startScheduler(
@@ -184,6 +202,14 @@ describe("scheduler run_task detection", () => {
     // processMessage should have been called with the regular message
     expect(
       processedMessages.some((m) => m.message === "Do something normal"),
+    ).toBe(true);
+    expect(
+      processedMessages.some(
+        (m) =>
+          m.message === "Do something normal" &&
+          m.options?.trustClass === "guardian" &&
+          m.options?.taskRunId === undefined,
+      ),
     ).toBe(true);
   });
 

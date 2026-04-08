@@ -110,6 +110,11 @@ export interface ConversationCreateOptions {
   transport?: ConversationTransportMetadata;
   assistantId?: string;
   trustContext?: TrustContext;
+  /**
+   * Active task-run scope for this turn. Cleared when omitted so background
+   * task permissions do not leak into later turns on a reused conversation.
+   */
+  taskRunId?: string;
   /** Normalized auth context for the conversation. */
   authContext?: AuthContext;
   /** Whether this turn can block on interactive approval prompts. */

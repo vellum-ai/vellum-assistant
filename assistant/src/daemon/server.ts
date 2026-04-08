@@ -891,10 +891,11 @@ export class DaemonServer {
     let conversation = this.conversations.get(conversationId);
     const sendToClient = () => {};
 
-    if (options && Object.values(options).some((v) => v !== undefined)) {
+    const { taskRunId: _taskRunId, ...persistentOptions } = options ?? {};
+    if (Object.values(persistentOptions).some((v) => v !== undefined)) {
       this.conversationOptions.set(conversationId, {
         ...this.conversationOptions.get(conversationId),
-        ...options,
+        ...persistentOptions,
       });
     }
 
@@ -1066,6 +1067,7 @@ export class DaemonServer {
     conversation.setAssistantId(
       options?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
     );
+    conversation.taskRunId = options?.taskRunId;
     // Only overwrite trust/auth context when explicitly provided. Callers that
     // don't supply a trust context (e.g. signal-injected messages) should
     // inherit whatever the conversation already has from a prior session.
