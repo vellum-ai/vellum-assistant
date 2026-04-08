@@ -60,6 +60,10 @@ final class AssistantSwitcherViewModel {
             object: nil,
             queue: .main
         ) { [weak self] _ in
+            // `queue: .main` hops the closure onto the main queue, which
+            // matches the @MainActor isolation of `refresh()`. Future
+            // Swift-concurrency tightening may flag `assumeIsolated`, at
+            // which point we can switch to a `Task { @MainActor in … }`.
             MainActor.assumeIsolated {
                 self?.refresh()
             }
@@ -67,6 +71,9 @@ final class AssistantSwitcherViewModel {
     }
 
     deinit {
+        // `NotificationCenter.removeObserver` is documented thread-safe,
+        // which is what lets us call it from the non-isolated `deinit`
+        // with the captured `notificationCenter` reference.
         if let activeChangeObserver {
             notificationCenter.removeObserver(activeChangeObserver)
         }
@@ -94,6 +101,10 @@ final class AssistantSwitcherViewModel {
             return
         }
         try await switchHandler(assistantId)
+        // Refresh synchronously so the UI updates within this event loop
+        // tick. `activeAssistantDidChange` will fire from
+        // `setActiveAssistantId` and trigger a second refresh — redundant
+        // but harmless, since `refresh()` is idempotent.
         refresh()
     }
 

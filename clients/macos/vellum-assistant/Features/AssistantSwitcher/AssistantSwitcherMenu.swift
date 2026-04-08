@@ -15,15 +15,6 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Assis
 /// pre-feature build.
 @MainActor
 enum AssistantSwitcherMenu {
-    /// Tag used on the "New Assistant…" item so tests / code inspection can
-    /// find it without string matching.
-    static let newAssistantTag = 9101
-    /// Tag used on the parent "Retire" submenu item.
-    static let retireParentTag = 9102
-    /// Tag used on individual assistant row items. `representedObject` holds
-    /// the assistant id string.
-    static let assistantRowTag = 9103
-
     static func buildItems(
         viewModel: AssistantSwitcherViewModel,
         target: AnyObject,
@@ -41,6 +32,10 @@ enum AssistantSwitcherMenu {
         let activeId = viewModel.selectedAssistantId
 
         if assistants.isEmpty {
+            // Intentional first-launch-under-flag state: the user enabled
+            // the switcher but has no managed assistants yet (e.g. they're
+            // running a local-only lockfile). The "New Assistant…" row
+            // below is the path forward.
             let empty = NSMenuItem(title: "No managed assistants", action: nil, keyEquivalent: "")
             empty.isEnabled = false
             items.append(empty)
@@ -54,7 +49,6 @@ enum AssistantSwitcherMenu {
                     keyEquivalent: ""
                 )
                 item.target = target
-                item.tag = assistantRowTag
                 item.representedObject = assistant.assistantId
                 item.state = isActive ? .on : .off
                 items.append(item)
@@ -69,7 +63,6 @@ enum AssistantSwitcherMenu {
             keyEquivalent: ""
         )
         newItem.target = target
-        newItem.tag = newAssistantTag
         items.append(newItem)
 
         // Retire row: only surfaced for the *active* assistant, since the
@@ -88,7 +81,6 @@ enum AssistantSwitcherMenu {
             )
             retireItem.target = target
             retireItem.representedObject = activeAssistant.assistantId
-            retireItem.tag = retireParentTag
             items.append(retireItem)
         }
 
