@@ -531,24 +531,28 @@ export function isToolActiveForContext(
     return ctx.channelCapabilities?.supportsDynamicUi ?? !ctx.hasNoClient;
   }
   if (HOST_TOOL_NAMES.has(name)) {
-    // Host tools require a connected client — without one, there is no human
-    // to approve execution and the guardian auto-approve path would allow
-    // unchecked host command execution on the daemon host.
-    if (ctx.hasNoClient) return false;
-    // Then gate per-capability against the connected interface so that
-    // partial-capability transports (e.g. chrome-extension only supports
-    // `host_browser`) only see host tools their interface can service.
-    // Without this check, host_bash/host_file_* would surface for
-    // chrome-extension sessions and the model would attempt calls the
-    // transport cannot dispatch.
     const capability = HOST_TOOL_TO_CAPABILITY.get(name);
     const transport = ctx.transportInterface;
-    // Backwards-compat fallback: contexts that have not yet been plumbed
-    // with a transport interface (tests, callers that don't pass the new
-    // field) keep the coarse-grained behavior so we don't accidentally hide
-    // tools from them.
-    if (!transport || !capability) return true;
-    return supportsHostProxy(transport, capability);
+
+    // Per-capability check is authoritative for structural support: if the
+    // transport cannot service this capability, the tool is filtered out.
+    if (transport && capability && !supportsHostProxy(transport, capability)) {
+      return false;
+    }
+
+    // chrome-extension is its own executor — the extension's popup gates
+    // commands via its own UI, and the transport does not use an SSE-level
+    // interactive approval channel. hasNoClient is intentionally `true` for
+    // chrome-extension turns (chrome-extension is not in INTERACTIVE_INTERFACES)
+    // and must not gate host_browser. Trust the per-capability check.
+    if (transport === "chrome-extension") {
+      return true;
+    }
+
+    // For transports that surface approvals over SSE (macos, backwards-compat
+    // fallback), deny when no client is present so the guardian auto-approve
+    // path cannot execute host commands unattended.
+    return !ctx.hasNoClient;
   }
   if (CLIENT_CAPABILITY_TOOL_NAMES.has(name)) {
     return !ctx.hasNoClient;
