@@ -51,7 +51,7 @@ struct MemoryImportSheet: View {
                     Text("Step 1")
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentTertiary)
-                    Text("Copy this prompt and send it to your other AI assistant")
+                    Text("Copy this prompt and send it to the other AI provider")
                         .font(VFont.bodyMediumDefault)
                         .foregroundStyle(VColor.contentDefault)
 
@@ -105,6 +105,7 @@ struct MemoryImportSheet: View {
                                     .foregroundStyle(VColor.contentTertiary)
                                     .padding(VSpacing.sm)
                                     .padding(.top, 1)
+                                    .padding(.leading, 5)
                                     .allowsHitTesting(false)
                             }
                         }
