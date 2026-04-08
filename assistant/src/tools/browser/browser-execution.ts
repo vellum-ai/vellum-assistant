@@ -15,7 +15,7 @@ import {
   detectCaptchaChallenge,
   formatAuthChallenge,
 } from "./auth-detector.js";
-import type { PageResponse, RouteHandler } from "./browser-manager.js";
+import type { RouteHandler } from "./browser-manager.js";
 import { browserManager } from "./browser-manager.js";
 import {
   ensureScreencast,
@@ -32,6 +32,7 @@ import {
   evaluateExpression,
   getCurrentUrl,
   getPageTitle,
+  navigateAndWait,
   waitForSelector as cdpWaitForSelector,
   waitForText as cdpWaitForText,
 } from "./cdp-client/cdp-dom-helpers.js";
@@ -75,6 +76,27 @@ export type SnapshotElement = {
 export const MAX_WAIT_MS = 30_000;
 
 export const MAX_EXTRACT_LENGTH = 50_000;
+
+/**
+ * IIFE evaluated inside the page via `Runtime.evaluate` to auto-dismiss
+ * common blocker modals (regulatory notices, cookie banners) that
+ * aren't exposed in the accessibility tree. Runs silently - if no
+ * matching modal is present the expression is a no-op.
+ */
+const DISMISS_MODALS_EXPRESSION = `(() => {
+  const dismissPatterns = /^(got it|accept|ok|dismiss|i understand|close)$/i;
+  const buttons = document.querySelectorAll('button, [role="button"], input[type="submit"]');
+  for (const btn of buttons) {
+    const text = (btn.textContent || '').trim();
+    if (dismissPatterns.test(text)) {
+      const modal = btn.closest('[role="dialog"], [class*="modal"], [class*="Modal"], [class*="overlay"], [class*="Overlay"]');
+      if (modal) {
+        btn.click();
+        break;
+      }
+    }
+  }
+})()`;
 
 /**
  * IIFE evaluated by {@link executeBrowserExtract} when `include_links`
@@ -220,7 +242,8 @@ export async function executeBrowserNavigate(
   const allowPrivateNetwork = input.allow_private_network === true;
   const safeRequestedUrl = sanitizeUrlForOutput(parsedUrl);
 
-  // Block private/local targets by default
+  // Block private/local targets by default. Runs before any CDP session
+  // is opened so we fail fast on obviously invalid URLs.
   if (!allowPrivateNetwork && isPrivateOrLocalHost(parsedUrl.hostname)) {
     return {
       content: `Error: Refusing to navigate to local/private network target (${parsedUrl.hostname}). Set allow_private_network=true if you explicitly need it.`,
@@ -228,7 +251,7 @@ export async function executeBrowserNavigate(
     };
   }
 
-  // DNS resolution check for non-literal hostnames
+  // DNS resolution check for non-literal hostnames.
   if (!allowPrivateNetwork) {
     const resolution = await resolveRequestAddress(
       parsedUrl.hostname,
@@ -243,29 +266,35 @@ export async function executeBrowserNavigate(
     }
   }
 
-  let routeHandler: RouteHandler | null = null;
-  let blockedUrl: string | null = null;
+  const cdp = getCdpClient(context);
 
-  // Start screencast if a sender is registered for this conversation
-  const sender = getSender(context.conversationId);
-  if (sender) {
+  // Screencast + handoff are Playwright-backed and only meaningful
+  // for the local sacrificial-profile path. On the extension path the
+  // user already has their own Chrome window, so both are no-ops.
+  const sender =
+    cdp.kind === "local" ? getSender(context.conversationId) : null;
+  if (cdp.kind === "local" && sender) {
     await ensureScreencast(context.conversationId);
   }
 
+  // SSRF route interception is a Playwright-specific affordance used on
+  // the local path to block redirect-time requests to private networks.
+  // On the extension path we rely on the pre-CDP URL validation above;
+  // see phase3-cdp-migration.md PR 7 for the rationale.
+  let routeHandler: RouteHandler | null = null;
+  let blockedUrl: string | null = null;
+
   try {
-    const page = await browserManager.getOrCreateSessionPage(
-      context.conversationId,
-    );
     log.debug(
       { url: safeRequestedUrl, conversationId: context.conversationId },
       "Navigating",
     );
 
-    // Install request interception to block redirects/sub-requests to private networks.
-    // This prevents SSRF bypass via server-side redirects and DNS rebinding attacks,
-    // since Playwright follows redirects internally and performs its own DNS resolution.
-    // Only skip for connectOverCDP browsers where page.route() is unreliable.
-    if (!allowPrivateNetwork && browserManager.supportsRouteInterception) {
+    if (
+      cdp.kind === "local" &&
+      !allowPrivateNetwork &&
+      browserManager.supportsRouteInterception
+    ) {
       // Cache DNS results per-hostname to avoid redundant lookups on subrequests
       // (heavy sites like DoorDash fire hundreds of requests to the same CDN hostnames).
       // Use a short TTL to mitigate DNS rebinding attacks where a hostname first
@@ -340,47 +369,60 @@ export async function executeBrowserNavigate(
           );
         }
       };
+      // Bridge through browserManager to reach the Playwright Page for
+      // route installation. The route handler intercepts redirect-time
+      // requests before Page.navigate's network fetches can hit them.
+      const page = await browserManager.getOrCreateSessionPage(
+        context.conversationId,
+      );
       await page.route("**/*", routeHandler);
     }
 
-    // Use domcontentloaded but with a shorter timeout - if it times out,
-    // the page is likely still usable (heavy SPAs like DoorDash keep loading
-    // scripts after DOMContentLoaded). Fall back gracefully instead of failing.
-    let response: PageResponse | null = null;
-    let navigationTimedOut = false;
-    const urlBeforeNav = page.url();
-    try {
-      response = await page.goto(parsedUrl.href, {
-        waitUntil: "domcontentloaded",
-        timeout: NAVIGATE_TIMEOUT_MS,
-      });
-    } catch (navErr) {
-      const navMsg = navErr instanceof Error ? navErr.message : String(navErr);
-      if (navMsg.includes("Timeout") || navMsg.includes("timeout")) {
-        // If the page URL never changed from before navigation, the page
-        // never actually loaded - re-throw instead of reporting success.
-        if (page.url() === urlBeforeNav && urlBeforeNav !== parsedUrl.href) {
-          throw navErr;
-        }
-        navigationTimedOut = true;
-        log.info(
-          { url: safeRequestedUrl },
-          "Navigation timed out waiting for domcontentloaded, continuing with partial load",
+    // Read the current URL BEFORE calling navigateAndWait so we can
+    // detect the "page never moved" case on timeout.
+    const urlBeforeNav = await getCurrentUrl(cdp, context.signal);
+
+    // Navigate via CDP Page.navigate + document.readyState polling.
+    // navigateAndWait returns { finalUrl, timedOut }; HTTP status is
+    // not available on the CDP path because Page.navigate does not
+    // surface the response status.
+    const { finalUrl, timedOut: navigationTimedOut } = await navigateAndWait(
+      cdp,
+      parsedUrl.href,
+      { timeoutMs: NAVIGATE_TIMEOUT_MS },
+      context.signal,
+    );
+    if (navigationTimedOut) {
+      // If the page URL never changed from before navigation, the page
+      // never actually loaded - re-throw instead of reporting success.
+      if (finalUrl === urlBeforeNav && urlBeforeNav !== parsedUrl.href) {
+        throw new Error(
+          `Navigation to ${parsedUrl.href} timed out after ${NAVIGATE_TIMEOUT_MS}ms`,
         );
-      } else {
-        throw navErr;
       }
+      log.info(
+        { url: safeRequestedUrl },
+        "Navigation timed out waiting for document.readyState, continuing with partial load",
+      );
     }
 
-    // Remove the route handler now that navigation is complete
+    // Remove the Playwright route handler now that navigation is
+    // complete (local path only).
     if (routeHandler) {
+      const page = await browserManager.getOrCreateSessionPage(
+        context.conversationId,
+      );
       await page.unroute("**/*", routeHandler);
       routeHandler = null;
     }
 
-    // Reposition the browser window after navigation so the user can watch.
-    // positionWindowSidebar() is a no-op when browserCdpSession is unavailable.
-    if (!browserManager.isInteractive(context.conversationId)) {
+    // Window positioning is a Playwright-internal affordance - on the
+    // extension path the user owns their Chrome window, so positioning
+    // is a no-op.
+    if (
+      cdp.kind === "local" &&
+      !browserManager.isInteractive(context.conversationId)
+    ) {
       await browserManager.positionWindowSidebar();
     }
 
@@ -391,38 +433,34 @@ export async function executeBrowserNavigate(
       };
     }
 
-    // Navigation changed the page content, so clear stale snapshot mappings.
-    // Without this, element IDs from a previous page could resolve and cause
-    // confusing Playwright timeout errors instead of the actionable
-    // "run browser_snapshot first" message.
+    // Navigation changed the page content, so clear stale snapshot
+    // mappings regardless of backend. The snapshot map is shared
+    // per-conversation state that needs to be invalidated on any nav.
     browserManager.clearSnapshotMap(context.conversationId);
 
-    // Auto-dismiss common blocker modals (regulatory notices, cookie banners)
-    // that aren't exposed in the accessibility tree. Runs silently - if no
-    // modal is present the evaluate is a no-op.
+    // Auto-dismiss common blocker modals (regulatory notices, cookie
+    // banners) that aren't exposed in the accessibility tree. Runs
+    // silently - if no modal is present the evaluate is a no-op.
     try {
-      await page.evaluate(`(() => {
-        const dismissPatterns = /^(got it|accept|ok|dismiss|i understand|close)$/i;
-        const buttons = document.querySelectorAll('button, [role="button"], input[type="submit"]');
-        for (const btn of buttons) {
-          const text = (btn.textContent || '').trim();
-          if (dismissPatterns.test(text)) {
-            const modal = btn.closest('[role="dialog"], [class*="modal"], [class*="Modal"], [class*="overlay"], [class*="Overlay"]');
-            if (modal) {
-              btn.click();
-              break;
-            }
-          }
-        }
-      })()`);
+      await evaluateExpression(
+        cdp,
+        DISMISS_MODALS_EXPRESSION,
+        {},
+        context.signal,
+      );
     } catch {
       // Page may have navigated during evaluate - safe to ignore
     }
 
-    const finalUrl = page.url();
     const safeFinalUrl = sanitizeUrlForOutput(new URL(finalUrl));
-    const title = await page.title();
-    const status = response?.status() ?? null;
+    const title = await getPageTitle(cdp, context.signal);
+    // HTTP status is not available on the CDP path: `Page.navigate`
+    // resolves the frame id and (on failure) an error text, but does
+    // not carry the response status code. Both the local and extension
+    // paths therefore print "unknown" here. A future phase may subscribe
+    // to `Network.responseReceived` events during the navigation window
+    // if the status is needed again.
+    const status: number | null = null;
 
     const lines: string[] = [
       `Requested URL: ${safeRequestedUrl}`,
@@ -433,7 +471,7 @@ export async function executeBrowserNavigate(
 
     if (navigationTimedOut) {
       lines.push(
-        `Note: Page is still loading (domcontentloaded timed out). The page should still be interactive - use browser_snapshot to check.`,
+        `Note: Page is still loading (document.readyState timed out). The page should still be interactive - use browser_snapshot to check.`,
       );
     }
 
@@ -441,10 +479,14 @@ export async function executeBrowserNavigate(
       lines.push(`Note: Page redirected from the requested URL.`);
     }
 
-    // Detect auth challenges (login pages, 2FA, OAuth consent) and CAPTCHA challenges
+    // Detect auth challenges (login pages, 2FA, OAuth consent) and CAPTCHA
+    // challenges via the CDP-migrated auth-detector helpers.
     try {
-      const authChallenge = await detectAuthChallenge(page);
-      const captchaChallenge = await detectCaptchaChallenge(page);
+      const authChallenge = await detectAuthChallenge(cdp, context.signal);
+      const captchaChallenge = await detectCaptchaChallenge(
+        cdp,
+        context.signal,
+      );
       // CAPTCHA takes priority - it blocks all interaction including login
       let challenge = captchaChallenge ?? authChallenge;
 
@@ -457,12 +499,12 @@ export async function executeBrowserNavigate(
             return { content: "Navigation cancelled.", isError: true };
           }
           await new Promise((r) => setTimeout(r, 1000));
-          const still = await detectCaptchaChallenge(page);
+          const still = await detectCaptchaChallenge(cdp, context.signal);
           if (!still) {
             log.info("CAPTCHA auto-resolved");
             // Re-check for auth challenge now that CAPTCHA is gone -
             // the page may have loaded a login form behind it.
-            challenge = await detectAuthChallenge(page);
+            challenge = await detectAuthChallenge(cdp, context.signal);
             break;
           }
         }
@@ -471,7 +513,11 @@ export async function executeBrowserNavigate(
       if (challenge) {
         if (challenge.type === "captcha") {
           // CAPTCHA persisted after auto-resolve wait - hand off to user
-          if (sender) {
+          // only when we have a local Playwright-managed Chrome window
+          // AND a sender is registered. The extension path falls back
+          // to the text-only "solve manually" branch because the user
+          // already owns their Chrome window.
+          if (cdp.kind === "local" && sender) {
             const { startHandoff } = await import("./browser-handoff.js");
             await startHandoff(context.conversationId, {
               reason: "captcha",
@@ -479,15 +525,18 @@ export async function executeBrowserNavigate(
                 "Cloudflare verification detected. Please solve the CAPTCHA in the Chrome window. The browser will automatically detect when you're done and resume.",
               bringToFront: true,
             });
-            const newUrl = page.url();
-            const newTitle = await page.title();
+            const newUrl = await getCurrentUrl(cdp, context.signal);
+            const newTitle = await getPageTitle(cdp, context.signal);
             lines.push("");
             lines.push(
               `CAPTCHA solved by user. Current page: ${newTitle} (${newUrl})`,
             );
 
             // Re-check for auth challenges - the page behind the CAPTCHA may have a login form
-            const postCaptchaAuth = await detectAuthChallenge(page);
+            const postCaptchaAuth = await detectAuthChallenge(
+              cdp,
+              context.signal,
+            );
             if (postCaptchaAuth) {
               lines.push("");
               lines.push(formatAuthChallenge(postCaptchaAuth));
@@ -546,7 +595,7 @@ export async function executeBrowserNavigate(
 
     return { content: lines.join("\n"), isError: false };
   } catch (err) {
-    // Best-effort cleanup of route handler on error
+    // Best-effort cleanup of route handler on error (local path only)
     if (routeHandler) {
       try {
         const page = await browserManager.getOrCreateSessionPage(
@@ -559,8 +608,8 @@ export async function executeBrowserNavigate(
     }
 
     // If the route handler blocked a redirect to a private network address,
-    // page.goto() throws. Return the clear security message instead of the
-    // raw Playwright error (which could leak credentials from the URL).
+    // Page.navigate throws. Return the clear security message instead of
+    // the raw underlying error (which could leak credentials from the URL).
     if (blockedUrl) {
       return {
         content: `Error: Navigation blocked. A request targeted a local/private network address (${blockedUrl}). Set allow_private_network=true if you explicitly need it.`,
@@ -571,6 +620,8 @@ export async function executeBrowserNavigate(
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, url: safeRequestedUrl }, "Navigation failed");
     return { content: `Error: Navigation failed: ${msg}`, isError: true };
+  } finally {
+    cdp.dispose();
   }
 }
 
