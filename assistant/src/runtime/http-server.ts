@@ -289,6 +289,16 @@ export class RuntimeHttpServer {
   private getHeartbeatService?: RuntimeHttpServerOptions["getHeartbeatService"];
   private router: HttpRouter;
 
+  /**
+   * Whether the server is fully initialized and can serve all routes.
+   * When false, only health-check, readiness-probe, and pairing endpoints
+   * respond — everything else returns 503 Service Unavailable.  This
+   * allows the HTTP server to bind its port early in daemon startup so
+   * clients can detect liveness immediately, while heavyweight subsystems
+   * (CES, providers, DaemonServer) finish initializing in the background.
+   */
+  private _ready = false;
+
   constructor(options: RuntimeHttpServerOptions = {}) {
     this.port = options.port ?? DEFAULT_PORT;
     this.hostname = options.hostname ?? DEFAULT_HOSTNAME;
@@ -317,6 +327,50 @@ export class RuntimeHttpServer {
   /** The port the server is actually listening on (resolved after start). */
   get actualPort(): number {
     return this.server?.port ?? this.port;
+  }
+
+  /** Whether the server has been fully initialized with all deps. */
+  get ready(): boolean {
+    return this._ready;
+  }
+
+  /**
+   * Wire up the full set of daemon dependencies and mark the server as
+   * ready.  Called once heavyweight initialization (CES, providers,
+   * DaemonServer) has completed.  Rebuilds the internal route table so
+   * conditionally-registered routes (e.g. conversation analysis, skills)
+   * pick up the newly available deps.
+   */
+  setFullDeps(
+    options: Omit<
+      RuntimeHttpServerOptions,
+      "port" | "hostname" | "bearerToken"
+    >,
+  ): void {
+    this.processMessage = options.processMessage;
+    this.approvalCopyGenerator = options.approvalCopyGenerator;
+    this.approvalConversationGenerator = options.approvalConversationGenerator;
+    this.guardianActionCopyGenerator = options.guardianActionCopyGenerator;
+    this.guardianFollowUpConversationGenerator =
+      options.guardianFollowUpConversationGenerator;
+    this.interfacesDir = options.interfacesDir ?? null;
+    this.sendMessageDeps = options.sendMessageDeps;
+    this.findConversation = options.findConversation;
+    this.findConversationBySurfaceId = options.findConversationBySurfaceId;
+    this.getSkillContext = options.getSkillContext;
+    this.conversationManagementDeps = options.conversationManagementDeps;
+    this.getModelSetContext = options.getModelSetContext;
+    this.getWatchDeps = options.getWatchDeps;
+    this.getRecordingDeps = options.getRecordingDeps;
+    this.getCesClient = options.getCesClient;
+    this.onProviderCredentialsChanged = options.onProviderCredentialsChanged;
+    this.getHeartbeatService = options.getHeartbeatService;
+
+    // Rebuild the route table so conditionally-registered routes that
+    // depend on the newly-set deps are included.
+    this.router = new HttpRouter(this.buildRouteTable());
+    this._ready = true;
+    log.info("Runtime HTTP server is now fully ready");
   }
 
   /** Expose the pairing store so the daemon server can wire HTTP handlers. */
@@ -610,7 +664,23 @@ export class RuntimeHttpServer {
     }
 
     if (path === "/readyz" && req.method === "GET") {
+      if (!this._ready) {
+        return Response.json({ status: "initializing" }, { status: 503 });
+      }
       return handleReadyz();
+    }
+
+    // When the server hasn't been fully initialized yet, reject all
+    // non-health / non-pairing requests with 503 so clients know the
+    // daemon is alive but not yet ready to serve traffic.
+    if (!this._ready) {
+      return Response.json(
+        {
+          error: "SERVICE_UNAVAILABLE",
+          message: "Daemon is still initializing",
+        },
+        { status: 503 },
+      );
     }
 
     // WebSocket upgrade for the Chrome extension browser relay.

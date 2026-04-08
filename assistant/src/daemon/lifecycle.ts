@@ -82,6 +82,7 @@ import {
 } from "../runtime/capability-tokens.js";
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
+import type { RuntimeHttpServerOptions } from "../runtime/http-types.js";
 import { startScheduler } from "../schedule/scheduler.js";
 import {
   onCesClientChanged,
@@ -555,6 +556,38 @@ export async function runDaemon(): Promise<void> {
       log.info("Usage telemetry reporter started");
     }
 
+    // ---------------------------------------------------------------
+    // Phase 1: Start the runtime HTTP server early so health-check and
+    // pairing endpoints are reachable while heavyweight subsystems
+    // (CES, providers, DaemonServer) continue initializing.
+    // The server starts in "not ready" mode — /healthz returns 200,
+    // /readyz returns 503, and all other routes return 503 until
+    // setFullDeps() is called after DaemonServer starts.
+    // ---------------------------------------------------------------
+    const httpPort = getRuntimeHttpPort();
+    const httpHostname = getRuntimeHttpHost();
+    const pairingBearerToken = mintPairingBearerToken();
+
+    let runtimeHttp: RuntimeHttpServer | null = null;
+    try {
+      runtimeHttp = new RuntimeHttpServer({
+        port: httpPort,
+        hostname: httpHostname,
+        bearerToken: pairingBearerToken,
+      });
+      await runtimeHttp.start();
+      log.info(
+        { port: httpPort, hostname: httpHostname },
+        "Daemon startup: runtime HTTP server listening (initializing)",
+      );
+    } catch (err) {
+      log.warn(
+        { err, port: httpPort },
+        "Failed to start runtime HTTP server early — will retry after full init",
+      );
+      runtimeHttp = null;
+    }
+
     // CES lifecycle — kick off early so CES handshake runs concurrently with
     // provider/tool initialization. The CES sidecar accepts exactly one
     // bootstrap connection, so startup must happen at the process level.
@@ -891,29 +924,46 @@ export async function runDaemon(): Promise<void> {
       },
     );
 
-    // Start the runtime HTTP server. Required for iOS pairing (gateway proxies
-    // to it) and optional REST API access. Defaults to port 7821.
-    let runtimeHttp: RuntimeHttpServer | null = null;
-    const httpPort = getRuntimeHttpPort();
-    log.info({ httpPort }, "Daemon startup: starting runtime HTTP server");
+    // ---------------------------------------------------------------
+    // Phase 2: Wire up full deps now that DaemonServer is running.
+    // This transitions the HTTP server from "initializing" → "ready",
+    // enabling all API routes.  If the early start failed, construct
+    // a new server with all deps and try again.
+    // ---------------------------------------------------------------
 
-    const hostname = getRuntimeHttpHost();
+    // Inject voice bridge deps — the bridge must be available even when
+    // the HTTP server fails to bind.
+    setVoiceBridgeDeps({
+      getOrCreateConversation: (conversationId, _transport) =>
+        server.getConversationForMessages(conversationId),
+      resolveAttachments: (attachmentIds) => {
+        const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds, {
+          hydrateFileData: true,
+        });
+        const sourcePaths =
+          attachmentsStore.getSourcePathsForAttachments(attachmentIds);
+        return resolved.map((a) => ({
+          id: a.id,
+          filename: a.originalFilename,
+          mimeType: a.mimeType,
+          data: a.dataBase64,
+          ...(sourcePaths.has(a.id) ? { filePath: sourcePaths.get(a.id) } : {}),
+        }));
+      },
+      deriveDefaultStrictSideEffects: (conversationId) => {
+        const conversationType = getConversationType(conversationId);
+        return conversationType === "private";
+      },
+    });
 
-    // Mint a JWT bearer token for the pairing flow. The pairing handler
-    // and HTTP auto-approve logic both guard on a non-empty bearer token.
-    const pairingBearerToken = mintPairingBearerToken();
-
-    runtimeHttp = new RuntimeHttpServer({
-      port: httpPort,
-      hostname,
-      bearerToken: pairingBearerToken,
-      processMessage: (
-        conversationId,
-        content,
-        attachmentIds,
-        options,
-        sourceChannel,
-        sourceInterface,
+    const fullHttpDeps = {
+      processMessage: ((
+        conversationId: string,
+        content: string,
+        attachmentIds?: string[],
+        options?: Parameters<typeof server.processMessage>[3],
+        sourceChannel?: Parameters<typeof server.processMessage>[4],
+        sourceInterface?: Parameters<typeof server.processMessage>[5],
       ) =>
         server.processMessage(
           conversationId,
@@ -922,7 +972,7 @@ export async function runDaemon(): Promise<void> {
           options,
           sourceChannel,
           sourceInterface,
-        ),
+        )) as RuntimeHttpServerOptions["processMessage"],
       interfacesDir: getInterfacesDir(),
       approvalCopyGenerator: createApprovalCopyGenerator(),
       approvalConversationGenerator: createApprovalConversationGenerator(),
@@ -930,10 +980,12 @@ export async function runDaemon(): Promise<void> {
       guardianFollowUpConversationGenerator:
         createGuardianFollowUpConversationGenerator(),
       sendMessageDeps: {
-        getOrCreateConversation: (conversationId, options) =>
-          server.getConversationForMessages(conversationId, options),
+        getOrCreateConversation: (
+          conversationId: string,
+          options?: Parameters<typeof server.getConversationForMessages>[1],
+        ) => server.getConversationForMessages(conversationId, options),
         assistantEventHub,
-        resolveAttachments: (attachmentIds) => {
+        resolveAttachments: (attachmentIds: string[]) => {
           const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds, {
             hydrateFileData: true,
           });
@@ -949,29 +1001,33 @@ export async function runDaemon(): Promise<void> {
               : {}),
           }));
         },
-      },
-      findConversation: (conversationId) =>
-        server.findConversation(conversationId),
-      findConversationBySurfaceId: (surfaceId) =>
-        server.findConversationBySurfaceId(surfaceId),
-      getSkillContext: () => server.getSkillContext(),
-      getModelSetContext: () => server.getHandlerContext(),
+      } satisfies RuntimeHttpServerOptions["sendMessageDeps"],
+      findConversation: ((conversationId: string) =>
+        server.findConversation(
+          conversationId,
+        )) as RuntimeHttpServerOptions["findConversation"],
+      findConversationBySurfaceId: ((surfaceId: string) =>
+        server.findConversationBySurfaceId(
+          surfaceId,
+        )) as RuntimeHttpServerOptions["findConversationBySurfaceId"],
+      getSkillContext: (() =>
+        server.getSkillContext()) as RuntimeHttpServerOptions["getSkillContext"],
+      getModelSetContext: (() =>
+        server.getHandlerContext()) as RuntimeHttpServerOptions["getModelSetContext"],
       conversationManagementDeps: {
-        switchConversation: (conversationId) =>
+        switchConversation: (conversationId: string) =>
           switchConversation(conversationId, server.getHandlerContext()),
-        renameConversation: (conversationId, name) =>
+        renameConversation: (conversationId: string, name: string) =>
           renameConversation(conversationId, name),
         clearAllConversations: () =>
           clearAllConversations(server.getHandlerContext()),
-        cancelGeneration: (conversationId) =>
+        cancelGeneration: (conversationId: string) =>
           cancelGeneration(conversationId, server.getHandlerContext()),
-        destroyConversation: (conversationId) =>
+        destroyConversation: (conversationId: string) =>
           server.destroyConversation(conversationId),
-        undoLastMessage: (conversationId) =>
+        undoLastMessage: (conversationId: string) =>
           undoLastMessage(conversationId, server.getHandlerContext()),
-        regenerateResponse: (conversationId) => {
-          // Resolve conversation key up front so SSE events are tagged with
-          // the internal conversation ID, not the raw client key.
+        regenerateResponse: (conversationId: string) => {
           const resolvedId =
             resolveConversationId(conversationId) ?? conversationId;
           let hubChain: Promise<void> = Promise.resolve();
@@ -1000,63 +1056,58 @@ export async function runDaemon(): Promise<void> {
           );
         },
       },
-      getWatchDeps: () => {
+      getWatchDeps: (() => {
         const ctx = server.getHandlerContext();
         return {
-          handleWatchObservation: async (params) => {
+          handleWatchObservation: async (
+            params: Parameters<
+              Exclude<
+                ReturnType<
+                  Exclude<RuntimeHttpServerOptions["getWatchDeps"], undefined>
+                >,
+                undefined
+              >["handleWatchObservation"]
+            >[0],
+          ) => {
             await handleWatchObservation(
               {
-                type: "watch_observation",
-                watchId: params.watchId,
-                conversationId: params.conversationId,
-                ocrText: params.ocrText,
-                appName: params.appName,
-                windowTitle: params.windowTitle,
-                bundleIdentifier: params.bundleIdentifier,
-                timestamp: params.timestamp,
-                captureIndex: params.captureIndex,
-                totalExpected: params.totalExpected,
+                type: "watch_observation" as const,
+                ...params,
               },
               ctx,
             );
           },
         };
-      },
-      getRecordingDeps: () => ({
+      }) as RuntimeHttpServerOptions["getWatchDeps"],
+      getRecordingDeps: (() => ({
         getHandlerContext: () => server.getHandlerContext(),
-      }),
-      getCesClient: () => server.getCesClient(),
-      onProviderCredentialsChanged: () =>
-        server.refreshConversationsForProviderChange(),
-      getHeartbeatService: () => server.getHeartbeatService(),
-    });
+      })) as RuntimeHttpServerOptions["getRecordingDeps"],
+      getCesClient: (() =>
+        server.getCesClient()) as RuntimeHttpServerOptions["getCesClient"],
+      onProviderCredentialsChanged: (() =>
+        server.refreshConversationsForProviderChange()) as RuntimeHttpServerOptions["onProviderCredentialsChanged"],
+      getHeartbeatService: (() =>
+        server.getHeartbeatService()) as RuntimeHttpServerOptions["getHeartbeatService"],
+    };
 
-    // Inject voice bridge deps BEFORE attempting to start the HTTP server.
-    // The bridge must be available even when the HTTP server fails to bind.
-    setVoiceBridgeDeps({
-      getOrCreateConversation: (conversationId, _transport) =>
-        server.getConversationForMessages(conversationId),
-      resolveAttachments: (attachmentIds) => {
-        const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds, {
-          hydrateFileData: true,
-        });
-        const sourcePaths =
-          attachmentsStore.getSourcePathsForAttachments(attachmentIds);
-        return resolved.map((a) => ({
-          id: a.id,
-          filename: a.originalFilename,
-          mimeType: a.mimeType,
-          data: a.dataBase64,
-          ...(sourcePaths.has(a.id) ? { filePath: sourcePaths.get(a.id) } : {}),
-        }));
-      },
-      deriveDefaultStrictSideEffects: (conversationId) => {
-        const conversationType = getConversationType(conversationId);
-        return conversationType === "private";
-      },
-    });
     try {
-      await runtimeHttp.start();
+      if (runtimeHttp) {
+        // The HTTP server was started early in Phase 1.  Wire up the full
+        // set of deps and flip it to ready.
+        runtimeHttp.setFullDeps(fullHttpDeps);
+      } else {
+        // Phase 1 early start failed — construct a fresh server with all
+        // deps and try once more.
+        runtimeHttp = new RuntimeHttpServer({
+          port: httpPort,
+          hostname: httpHostname,
+          bearerToken: pairingBearerToken,
+          ...fullHttpDeps,
+        });
+        await runtimeHttp.start();
+        // Manually mark ready since we constructed with full deps.
+        runtimeHttp.setFullDeps(fullHttpDeps);
+      }
       setRelayBroadcast((msg) => server.broadcast(msg));
       setPointerMessageProcessor(
         async (conversationId, instruction, requiredFacts) => {
@@ -1199,8 +1250,8 @@ export async function runDaemon(): Promise<void> {
       initSlashPairingContext(runtimeHttp.getPairingStore());
       server.broadcastStatus();
       log.info(
-        { port: httpPort, hostname },
-        "Daemon startup: runtime HTTP server listening",
+        { port: httpPort, hostname: httpHostname },
+        "Daemon startup: runtime HTTP server fully ready",
       );
     } catch (err) {
       log.warn(
