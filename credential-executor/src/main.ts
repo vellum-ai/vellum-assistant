@@ -284,6 +284,15 @@ function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
     return { accounts };
   }) as typeof handlers[string];
 
+  handlers[CesRpcMethod.BulkSetCredentials] = (async (req: { credentials: Array<{ account: string; value: string }> }) => {
+    const results = [];
+    for (const { account, value } of req.credentials) {
+      const ok = await secureKeyBackend.set(account, value);
+      results.push({ account, ok });
+    }
+    return { results };
+  }) as typeof handlers[string];
+
   return handlers;
 }
 

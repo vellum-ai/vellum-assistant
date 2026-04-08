@@ -227,6 +227,12 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
   let backupsCreated = 0;
 
   for (const fileEntry of manifest.files) {
+    // Credential entries are handled separately by extractCredentialsFromBundle()
+    // in migration-routes.ts — skip them silently without warnings or skip counts.
+    if (fileEntry.path.startsWith("credentials/")) {
+      continue;
+    }
+
     const diskPath = pathResolver.resolve(fileEntry.path);
 
     if (!diskPath) {
@@ -378,6 +384,35 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
   };
 
   return { ok: true, report };
+}
+
+// ---------------------------------------------------------------------------
+// Credential extraction
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract credential entries from a validated vbundle tar entries map.
+ *
+ * Credentials are stored under the `credentials/` prefix in the archive,
+ * where the remainder of the path is the account name and the entry data
+ * is the credential value.
+ */
+export function extractCredentialsFromBundle(
+  entries: Map<string, VBundleTarEntry>,
+  manifest: ManifestType,
+): Array<{ account: string; value: string }> {
+  const manifestPaths = new Set(manifest.files.map((f) => f.path));
+  const credentials: Array<{ account: string; value: string }> = [];
+  for (const [path, entry] of entries) {
+    if (path.startsWith("credentials/") && manifestPaths.has(path)) {
+      const account = path.slice("credentials/".length);
+      if (account) {
+        const value = new TextDecoder().decode(entry.data);
+        credentials.push({ account, value });
+      }
+    }
+  }
+  return credentials;
 }
 
 // ---------------------------------------------------------------------------

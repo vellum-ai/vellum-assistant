@@ -65,6 +65,8 @@ export const CesRpcMethod = {
   DeleteCredential: "delete_credential",
   /** List all credential account names. */
   ListCredentials: "list_credentials",
+  /** Bulk-import credentials (set multiple at once). */
+  BulkSetCredentials: "bulk_set_credentials",
 } as const;
 
 export type CesRpcMethod =
@@ -514,6 +516,38 @@ export type ListCredentialsResponse = z.infer<
 >;
 
 // ---------------------------------------------------------------------------
+// bulk_set_credentials
+// ---------------------------------------------------------------------------
+
+export const BulkSetCredentialsSchema = z.object({
+  /** Array of credentials to set in bulk. */
+  credentials: z.array(
+    z.object({
+      /** The account name to store the credential under. */
+      account: z.string(),
+      /** The credential value to store. */
+      value: z.string(),
+    }),
+  ),
+});
+export type BulkSetCredentials = z.infer<typeof BulkSetCredentialsSchema>;
+
+export const BulkSetCredentialsResponseSchema = z.object({
+  /** Per-credential results indicating success or failure. */
+  results: z.array(
+    z.object({
+      /** The account name that was set. */
+      account: z.string(),
+      /** Whether the credential was successfully stored. */
+      ok: z.boolean(),
+    }),
+  ),
+});
+export type BulkSetCredentialsResponse = z.infer<
+  typeof BulkSetCredentialsResponseSchema
+>;
+
+// ---------------------------------------------------------------------------
 // Full RPC contract type map
 // ---------------------------------------------------------------------------
 
@@ -574,6 +608,10 @@ export interface CesRpcContract {
     request: ListCredentials;
     response: ListCredentialsResponse;
   };
+  [CesRpcMethod.BulkSetCredentials]: {
+    request: BulkSetCredentials;
+    response: BulkSetCredentialsResponse;
+  };
 }
 
 /**
@@ -631,5 +669,9 @@ export const CesRpcSchemas = {
   [CesRpcMethod.ListCredentials]: {
     request: ListCredentialsSchema,
     response: ListCredentialsResponseSchema,
+  },
+  [CesRpcMethod.BulkSetCredentials]: {
+    request: BulkSetCredentialsSchema,
+    response: BulkSetCredentialsResponseSchema,
   },
 } as const;

@@ -93,6 +93,11 @@ export class DefaultPathResolver implements PathResolver {
   ) {}
 
   resolve(archivePath: string): string | null {
+    // Skip credential entries — handled separately by the credential import step
+    if (archivePath.startsWith("credentials/")) {
+      return null;
+    }
+
     // New format: workspace/ prefix — maps directly into the workspace dir
     if (archivePath.startsWith("workspace/") && this.workspaceDir) {
       const relPath = archivePath.slice("workspace/".length);
@@ -189,6 +194,20 @@ export function analyzeImport(
 
   for (const fileEntry of manifest.files) {
     const diskPath = pathResolver.resolve(fileEntry.path);
+
+    // Credential entries are handled separately by the credential import
+    // step — skip them without flagging as unknown/conflict.
+    if (fileEntry.path.startsWith("credentials/")) {
+      files.push({
+        path: fileEntry.path,
+        action: "skip",
+        bundle_size: fileEntry.size,
+        bundle_sha256: fileEntry.sha256,
+        current_size: null,
+        current_sha256: null,
+      });
+      continue;
+    }
 
     if (!diskPath) {
       // Unknown archive path — would have nowhere to write
