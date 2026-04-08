@@ -67,6 +67,9 @@ final class AppleContainersLauncher: AssistantManagementClient {
             throw LauncherError.unavailable(reason)
         }
 
+        // TODO: Generate a unique assistant ID like the CLI does (e.g. "adjective-noun")
+        // instead of using the user-facing display name. The display name can contain
+        // spaces and duplicates, which makes it a poor filesystem/lockfile key.
         let assistantName = name ?? "apple-container-\(UUID().uuidString.prefix(8).lowercased())"
         let signingKey = Self.generateSigningKey()
 
