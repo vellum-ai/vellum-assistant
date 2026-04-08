@@ -15,10 +15,12 @@ struct IntegrationsPanelContent: View {
     @ObservedObject var store: SettingsStore
     var authManager: AuthManager
     var showToast: (String, ToastInfo.Style) -> Void
+    var onEnableIntegration: (() -> Void)?
 
     @State private var searchText: String = ""
     @State private var selectedProviderKey: String? = nil
     @State private var selectedFilter: IntegrationFilter = .all
+    @AppStorage("integrationsBannerDismissed") private var bannerDismissed = false
 
     // MARK: - Filtering & Sorting
 
@@ -78,6 +80,10 @@ struct IntegrationsPanelContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if !bannerDismissed {
+                integrationsTipBanner
+                    .padding(.bottom, VSpacing.lg)
+            }
             filterBar
             contentView
                 .padding(.top, VSpacing.lg)
@@ -106,6 +112,55 @@ struct IntegrationsPanelContent: View {
                 )
             }
         }
+    }
+
+    // MARK: - Tip Banner
+
+    private static let enableIntegrationURL = URL(string: "vellum://enable-integration")!
+
+    private var integrationsTipBanner: some View {
+        HStack(spacing: VSpacing.xs) {
+            VIconView(.sparkles, size: 14)
+                .foregroundStyle(VColor.primaryBase)
+            HStack(spacing: 0) {
+                Text("**Tip:** You can ")
+                VLink(
+                    "enable integrations",
+                    destination: Self.enableIntegrationURL,
+                    font: VFont.bodyMediumDefault,
+                    underline: true
+                )
+                .tint(VColor.primaryBase)
+                Text(" by mentioning them in chat.")
+            }
+            .font(VFont.bodyMediumDefault)
+            .foregroundStyle(VColor.contentDefault)
+            Spacer()
+            Button(action: {
+                withAnimation(VAnimation.fast) { bannerDismissed = true }
+            }) {
+                VIconView(.x, size: 12)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss tip")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, VSpacing.md)
+        .padding(.vertical, VSpacing.sm)
+        .background(VColor.primaryBase.opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(VColor.primaryBase.opacity(0.18), lineWidth: 1)
+        )
+        .environment(\.openURL, OpenURLAction { _ in
+            onEnableIntegration?()
+            return .handled
+        })
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Tip: You can enable integrations by mentioning them in chat.")
+        .accessibilityAddTraits(.isButton)
     }
 
     // MARK: - Filter Bar
@@ -157,7 +212,7 @@ struct IntegrationsPanelContent: View {
                                 selectedProviderKey = provider.provider_key
                             },
                             onDisable: {
-                                selectedProviderKey = provider.provider_key
+                                disableIntegration(providerKey: provider.provider_key)
                             }
                         )
                     }
@@ -192,6 +247,24 @@ struct IntegrationsPanelContent: View {
         }
     }
 
+    // MARK: - Disable Integration
+
+    private func disableIntegration(providerKey: String) {
+        let userId = authManager.currentUser?.id
+
+        // Disconnect all managed connections
+        let managedConnections = store.managedOAuthConnections[providerKey] ?? []
+        for connection in managedConnections {
+            store.disconnectManagedOAuthConnection(connection.id, providerKey: providerKey, userId: userId)
+        }
+
+        // Delete all your-own apps (which cascades to their connections)
+        let yourOwnApps = store.yourOwnApps(for: providerKey)
+        for app in yourOwnApps {
+            Task { await store.deleteYourOwnOAuthApp(id: app.id, providerKey: providerKey) }
+        }
+    }
+
     // MARK: - Data Fetching
 
     private func fetchAllConnections() {
@@ -216,6 +289,7 @@ private struct IntegrationItemRow: View {
     @State private var isMenuOpen = false
     @State private var activePanel: VMenuPanel?
     @State private var triggerFrame: CGRect = .zero
+    @State private var showDisableAlert = false
 
     var body: some View {
         VCard {
@@ -245,7 +319,7 @@ private struct IntegrationItemRow: View {
                 Spacer()
 
                 if isConnected {
-                    VButton(label: "Manage", rightIcon: VIcon.chevronDown.rawValue, style: .outlined) {
+                    VButton(label: "Configure", rightIcon: VIcon.chevronDown.rawValue, style: .outlined) {
                         if isMenuOpen {
                             activePanel?.close()
                             activePanel = nil
@@ -271,6 +345,14 @@ private struct IntegrationItemRow: View {
             }
         }
         .accessibilityElement(children: .combine)
+        .alert("Disable \(provider.display_name ?? provider.provider_key)?", isPresented: $showDisableAlert) {
+            Button("Cancel", role: .cancel) {}
+            Button("Disable", role: .destructive) {
+                onDisable()
+            }
+        } message: {
+            Text("This will disconnect all accounts for \(provider.display_name ?? provider.provider_key). You can re-enable it later.")
+        }
     }
 
     private func showMenu() {
@@ -306,7 +388,7 @@ private struct IntegrationItemRow: View {
                     onEdit()
                 }
                 VMenuItem(icon: VIcon.circleX.rawValue, label: "Disable", variant: .destructive) {
-                    onDisable()
+                    showDisableAlert = true
                 }
             }
         } onDismiss: {

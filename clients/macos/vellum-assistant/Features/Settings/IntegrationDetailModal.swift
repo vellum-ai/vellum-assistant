@@ -94,7 +94,7 @@ struct IntegrationDetailModal: View {
         } footer: {
             HStack {
                 Spacer()
-                VButton(label: "Close", style: .outlined, action: onClose)
+                VButton(label: "Confirm", style: .outlined, action: onClose)
             }
         }
         .frame(width: 520)
@@ -214,29 +214,7 @@ struct IntegrationDetailModal: View {
                     }
                 }
             } else {
-                // Connection count + add button row
-                HStack {
-                    Text("\(connections.count) connected")
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-
-                    Spacer()
-
-                    if isConnecting {
-                        HStack(spacing: VSpacing.sm) {
-                            VBusyIndicator(size: 8, color: VColor.contentTertiary)
-                            Text("Waiting for authorization...")
-                                .font(VFont.bodyMediumDefault)
-                                .foregroundStyle(VColor.contentTertiary)
-                        }
-                    } else {
-                        VButton(label: "Add Another App", leftIcon: VIcon.plus.rawValue, style: .outlined) {
-                            store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
-                        }
-                    }
-                }
-
-                managedConnectionsList
+                managedConnectionCard
             }
 
             if let error = store.managedError(for: providerKey) {
@@ -262,33 +240,55 @@ struct IntegrationDetailModal: View {
     }
 
 
-    private var managedConnectionsList: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
-            ForEach(connections, id: \.id) { entry in
-                managedConnectionRow(for: entry)
-            }
-        }
-    }
-
-    private func managedConnectionRow(for entry: OAuthConnectionEntry) -> some View {
+    private var managedConnectionCard: some View {
         VCard {
-            HStack(alignment: .center, spacing: VSpacing.lg) {
-                VIconView(.circleUser, size: 14)
-                    .foregroundStyle(VColor.contentSecondary)
+            VStack(alignment: .leading, spacing: VSpacing.lg) {
+                // Connection rows
+                if connections.isEmpty {
+                    Text("No connected accounts")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                } else {
+                    ForEach(Array(connections.enumerated()), id: \.element.id) { index, entry in
+                        if index > 0 {
+                            Divider()
+                        }
+                        HStack(alignment: .center, spacing: VSpacing.lg) {
+                            VIconView(.circleUser, size: 14)
+                                .foregroundStyle(VColor.contentSecondary)
 
-                Text(entry.account_label ?? "\(displayName) Account")
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentDefault)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                            Text(entry.account_label ?? "\(displayName) Account")
+                                .font(VFont.bodyMediumDefault)
+                                .foregroundStyle(VColor.contentDefault)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
 
-                Spacer()
+                            Spacer()
 
-                VButton(label: "", iconOnly: VIcon.trash.rawValue, style: .dangerOutline, size: .compact) {
-                    connectionToDisconnect = entry
-                    showDisconnectAlert = true
+                            VButton(label: "", iconOnly: VIcon.trash.rawValue, style: .dangerOutline, size: .compact) {
+                                connectionToDisconnect = entry
+                                showDisconnectAlert = true
+                            }
+                            .accessibilityLabel("Disconnect Account")
+                        }
+                    }
                 }
-                .accessibilityLabel("Disconnect Account")
+
+                Divider()
+
+                // Connect account button
+                if isConnecting {
+                    HStack(spacing: VSpacing.sm) {
+                        VBusyIndicator(size: 8, color: VColor.contentTertiary)
+                        Text("Waiting for authorization...")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
+                } else {
+                    VButton(label: "Connect account", leftIcon: "lucide-external-link", style: .outlined) {
+                        store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
+                    }
+                }
             }
         }
     }
@@ -318,23 +318,7 @@ struct IntegrationDetailModal: View {
                 }
             } else {
                 if isShowingAddAppForm {
-                    // Form only, no top row
                     yourOwnFormStep
-                } else {
-                    // Top row: count + add button
-                    HStack {
-                        Text("\(apps.count) connected")
-                            .font(VFont.bodyMediumDefault)
-                            .foregroundStyle(VColor.contentSecondary)
-
-                        Spacer()
-
-                        VButton(label: "Add Another App", leftIcon: VIcon.plus.rawValue, style: .outlined) {
-                            createAppClientId = ""
-                            createAppClientSecret = ""
-                            isShowingAddAppForm = true
-                        }
-                    }
                 }
 
                 // App list
@@ -415,7 +399,7 @@ struct IntegrationDetailModal: View {
 
     private func yourOwnAppCard(for app: YourOwnOAuthApp) -> some View {
         VCard {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
+            VStack(alignment: .leading, spacing: VSpacing.lg) {
                 // Header: client ID, date, trash
                 HStack(alignment: .center, spacing: VSpacing.lg) {
                     Text(maskedClientId(app.client_id))
@@ -444,10 +428,15 @@ struct IntegrationDetailModal: View {
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentTertiary)
                 } else {
-                    ForEach(appConnections) { conn in
+                    ForEach(Array(appConnections.enumerated()), id: \.element.id) { index, conn in
+                        if index > 0 {
+                            Divider()
+                        }
                         yourOwnConnectionRow(for: conn, appId: app.id)
                     }
                 }
+
+                Divider()
 
                 // Connect button
                 if store.yourOwnOAuthConnectingAppId == app.id {
@@ -462,7 +451,7 @@ struct IntegrationDetailModal: View {
                     }
                 } else {
                     VButton(
-                        label: "Connect Account",
+                        label: "Connect account",
                         leftIcon: "lucide-external-link",
                         style: .outlined,
                         isDisabled: store.yourOwnOAuthConnectingAppId != nil

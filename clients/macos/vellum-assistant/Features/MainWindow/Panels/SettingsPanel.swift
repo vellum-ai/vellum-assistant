@@ -51,6 +51,7 @@ struct SettingsPanel: View {
     var authManager: AuthManager
     @ObservedObject var assistantFeatureFlagStore: AssistantFeatureFlagStore
     var showToast: (String, ToastInfo.Style) -> Void
+    var onEnableIntegration: (() -> Void)?
     var featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
 
     // MARK: - Init
@@ -63,6 +64,7 @@ struct SettingsPanel: View {
         authManager: AuthManager,
         assistantFeatureFlagStore: AssistantFeatureFlagStore,
         showToast: @escaping (String, ToastInfo.Style) -> Void,
+        onEnableIntegration: (() -> Void)? = nil,
         featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
     ) {
         self.onClose = onClose
@@ -72,6 +74,7 @@ struct SettingsPanel: View {
         self.authManager = authManager
         self._assistantFeatureFlagStore = ObservedObject(wrappedValue: assistantFeatureFlagStore)
         self.showToast = showToast
+        self.onEnableIntegration = onEnableIntegration
         self.featureFlagClient = featureFlagClient
 
         // Pre-compute the billing flag so the first render already has the
@@ -413,7 +416,8 @@ struct SettingsPanel: View {
             IntegrationsPanelContent(
                 store: store,
                 authManager: authManager,
-                showToast: showToast
+                showToast: showToast,
+                onEnableIntegration: onEnableIntegration
             )
         case .voice:
             VoiceSettingsView(store: store)
