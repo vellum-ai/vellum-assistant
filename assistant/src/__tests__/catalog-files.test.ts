@@ -1,0 +1,556 @@
+/**
+ * Unit tests for `skills/catalog-files.ts` — preview listings and single-file
+ * content for catalog skills (installed or not).
+ *
+ * Covers:
+ *   - sanitizeRelativePath (accepts safe, rejects traversal / absolute / null)
+ *   - readCatalogSkillFiles dev-mode (reads from a temp fake repo skills dir,
+ *     does NOT touch fetch)
+ *   - readCatalogSkillFiles platform-mode (stubbed fetch with success + 500
+ *     + 404 + network-error)
+ *   - readCatalogSkillFileContent dev-mode (text, traversal rejection,
+ *     binary, oversized)
+ *   - readCatalogSkillFileContent platform-mode (text, binary, oversized,
+ *     404, pre-fetch traversal rejection)
+ *   - catalog-miss short-circuit (no fetch call when id unknown)
+ */
+
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import type { CatalogSkill } from "../skills/catalog-install.js";
+
+// ---------------------------------------------------------------------------
+// Mocks — must be declared before importing the module under test
+// ---------------------------------------------------------------------------
+
+// Suppress logger output
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
+}));
+
+let mockCatalog: CatalogSkill[] = [];
+let mockRepoSkillsDir: string | undefined = undefined;
+
+mock.module("../skills/catalog-cache.js", () => ({
+  getCatalog: async () => mockCatalog,
+}));
+
+mock.module("../skills/catalog-install.js", () => ({
+  getRepoSkillsDir: () => mockRepoSkillsDir,
+}));
+
+let mockPlatformToken: string | null = null;
+mock.module("../util/platform.ts", () => ({
+  readPlatformToken: () => mockPlatformToken,
+}));
+mock.module("../util/platform.js", () => ({
+  readPlatformToken: () => mockPlatformToken,
+}));
+
+let mockPlatformBaseUrl = "https://platform.test";
+mock.module("../config/env.ts", () => ({
+  getPlatformBaseUrl: () => mockPlatformBaseUrl,
+}));
+mock.module("../config/env.js", () => ({
+  getPlatformBaseUrl: () => mockPlatformBaseUrl,
+}));
+
+// ---------------------------------------------------------------------------
+// Imports (after mocks)
+// ---------------------------------------------------------------------------
+
+import {
+  readCatalogSkillFileContent,
+  readCatalogSkillFiles,
+  sanitizeRelativePath,
+} from "../skills/catalog-files.js";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+type FetchFn = typeof globalThis.fetch;
+
+interface FetchCall {
+  url: string;
+  init?: RequestInit;
+}
+
+let originalFetch: FetchFn;
+let fetchCalls: FetchCall[] = [];
+
+function installFetchMock(
+  handler: (url: string, init?: RequestInit) => Response | Promise<Response>,
+): void {
+  fetchCalls = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+    fetchCalls.push({ url, init });
+    return handler(url, init);
+  }) as unknown as FetchFn;
+}
+
+function installFetchThrow(error: Error): void {
+  fetchCalls = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+    fetchCalls.push({ url, init });
+    throw error;
+  }) as unknown as FetchFn;
+}
+
+function installFetchForbidden(): void {
+  fetchCalls = [];
+  globalThis.fetch = (async () => {
+    throw new Error("fetch should not have been called");
+  }) as unknown as FetchFn;
+}
+
+// Temp directories created during tests, cleaned up in afterEach.
+const tempDirs: string[] = [];
+
+function makeTempSkillsDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), "catalog-files-test-"));
+  tempDirs.push(dir);
+  return dir;
+}
+
+function writeSkill(
+  root: string,
+  skillId: string,
+  files: Record<string, string | Buffer>,
+): string {
+  const skillDir = join(root, skillId);
+  mkdirSync(skillDir, { recursive: true });
+  for (const [relPath, content] of Object.entries(files)) {
+    const abs = join(skillDir, relPath);
+    mkdirSync(join(abs, ".."), { recursive: true });
+    writeFileSync(abs, content);
+  }
+  return skillDir;
+}
+
+function skill(id: string): CatalogSkill {
+  return { id, name: id, description: id };
+}
+
+// ---------------------------------------------------------------------------
+// Setup / teardown
+// ---------------------------------------------------------------------------
+
+beforeEach(() => {
+  originalFetch = globalThis.fetch;
+  fetchCalls = [];
+  mockCatalog = [];
+  mockRepoSkillsDir = undefined;
+  mockPlatformToken = null;
+  mockPlatformBaseUrl = "https://platform.test";
+});
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+  for (const dir of tempDirs) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // best effort
+    }
+  }
+  tempDirs.length = 0;
+});
+
+// ---------------------------------------------------------------------------
+// sanitizeRelativePath
+// ---------------------------------------------------------------------------
+
+describe("sanitizeRelativePath", () => {
+  test("accepts simple posix paths", () => {
+    expect(sanitizeRelativePath("SKILL.md")).toBe("SKILL.md");
+    expect(sanitizeRelativePath("tools/run.sh")).toBe("tools/run.sh");
+    expect(sanitizeRelativePath("a/b/c.txt")).toBe("a/b/c.txt");
+  });
+
+  test("normalizes leading ./", () => {
+    expect(sanitizeRelativePath("./x")).toBe("x");
+    expect(sanitizeRelativePath("./tools/run.sh")).toBe("tools/run.sh");
+  });
+
+  test("normalizes backslashes to forward slashes", () => {
+    expect(sanitizeRelativePath("tools\\run.sh")).toBe("tools/run.sh");
+  });
+
+  test("rejects empty strings", () => {
+    expect(sanitizeRelativePath("")).toBeNull();
+  });
+
+  test("rejects parent-traversal", () => {
+    expect(sanitizeRelativePath("..")).toBeNull();
+    expect(sanitizeRelativePath("../x")).toBeNull();
+    expect(sanitizeRelativePath("../../etc/passwd")).toBeNull();
+  });
+
+  test("rejects absolute unix paths", () => {
+    expect(sanitizeRelativePath("/etc/passwd")).toBeNull();
+    expect(sanitizeRelativePath("/")).toBeNull();
+  });
+
+  test("rejects windows drive-prefixed paths", () => {
+    expect(sanitizeRelativePath("C:/win")).toBeNull();
+    expect(sanitizeRelativePath("C:\\Windows")).toBeNull();
+  });
+
+  test("rejects paths containing null bytes", () => {
+    expect(sanitizeRelativePath("SKILL.md\0.png")).toBeNull();
+    expect(sanitizeRelativePath("\0")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readCatalogSkillFiles — dev mode
+// ---------------------------------------------------------------------------
+
+describe("readCatalogSkillFiles (dev mode)", () => {
+  test("lists files from the repo skills dir without touching fetch", async () => {
+    const root = makeTempSkillsDir();
+    writeSkill(root, "my-skill", {
+      "SKILL.md": "# hello",
+      "tools/run.sh": "#!/bin/sh\necho hi\n",
+      "data/img.png": Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+    });
+    mockRepoSkillsDir = root;
+    mockCatalog = [skill("my-skill")];
+    installFetchForbidden();
+
+    const entries = await readCatalogSkillFiles("my-skill");
+    expect(entries).not.toBeNull();
+    const paths = entries!.map((e) => e.path).sort();
+    expect(paths).toEqual(["SKILL.md", "data/img.png", "tools/run.sh"]);
+
+    const md = entries!.find((e) => e.path === "SKILL.md")!;
+    expect(md.name).toBe("SKILL.md");
+    expect(md.size).toBe("# hello".length);
+    expect(md.isBinary).toBe(false);
+    expect(md.content).toBeNull();
+
+    const png = entries!.find((e) => e.path === "data/img.png")!;
+    expect(png.name).toBe("img.png");
+    expect(png.isBinary).toBe(true);
+    expect(png.content).toBeNull();
+
+    expect(fetchCalls.length).toBe(0);
+  });
+
+  test("returns null when skill id is not in the catalog (dev mode)", async () => {
+    const root = makeTempSkillsDir();
+    writeSkill(root, "my-skill", { "SKILL.md": "x" });
+    mockRepoSkillsDir = root;
+    mockCatalog = []; // not in catalog
+    installFetchForbidden();
+
+    expect(await readCatalogSkillFiles("my-skill")).toBeNull();
+    expect(fetchCalls.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readCatalogSkillFiles — platform mode
+// ---------------------------------------------------------------------------
+
+describe("readCatalogSkillFiles (platform mode)", () => {
+  test("fetches file listing from the platform and maps it", async () => {
+    mockRepoSkillsDir = undefined;
+    mockCatalog = [skill("remote-skill")];
+    mockPlatformToken = "tok-123";
+    installFetchMock(() =>
+      Response.json({
+        skill_id: "remote-skill",
+        files: [
+          { path: "SKILL.md", name: "SKILL.md", size: 12, sha: "a" },
+          { path: "data/img.png", name: "img.png", size: 200, sha: "b" },
+        ],
+      }),
+    );
+
+    const entries = await readCatalogSkillFiles("remote-skill");
+    expect(entries).not.toBeNull();
+    expect(entries!.length).toBe(2);
+
+    // URL + headers
+    expect(fetchCalls.length).toBe(1);
+    expect(fetchCalls[0]!.url).toBe(
+      "https://platform.test/v1/skills/remote-skill/files/",
+    );
+    const headers = (fetchCalls[0]!.init?.headers ?? {}) as Record<
+      string,
+      string
+    >;
+    expect(headers["Accept"]).toBe("application/json");
+    expect(headers["X-Conversation-Token"]).toBe("tok-123");
+
+    // Mapped entries: always content === null, isBinary from filename.
+    const md = entries!.find((e) => e.path === "SKILL.md")!;
+    expect(md.isBinary).toBe(false);
+    expect(md.content).toBeNull();
+    expect(md.mimeType).toBe("");
+
+    const png = entries!.find((e) => e.path === "data/img.png")!;
+    expect(png.isBinary).toBe(true);
+    expect(png.content).toBeNull();
+    expect(png.mimeType).toBe("");
+  });
+
+  test("does not set X-Conversation-Token when no token is present", async () => {
+    mockCatalog = [skill("remote-skill")];
+    mockPlatformToken = null;
+    installFetchMock(() =>
+      Response.json({ skill_id: "remote-skill", files: [] }),
+    );
+
+    await readCatalogSkillFiles("remote-skill");
+    const headers = (fetchCalls[0]!.init?.headers ?? {}) as Record<
+      string,
+      string
+    >;
+    expect(headers["X-Conversation-Token"]).toBeUndefined();
+  });
+
+  test("returns null on 500", async () => {
+    mockCatalog = [skill("remote-skill")];
+    installFetchMock(
+      () => new Response("boom", { status: 500, statusText: "Server Error" }),
+    );
+    expect(await readCatalogSkillFiles("remote-skill")).toBeNull();
+    expect(fetchCalls.length).toBe(1);
+  });
+
+  test("returns null on 404", async () => {
+    mockCatalog = [skill("remote-skill")];
+    installFetchMock(
+      () => new Response("missing", { status: 404, statusText: "Not Found" }),
+    );
+    expect(await readCatalogSkillFiles("remote-skill")).toBeNull();
+  });
+
+  test("returns null on network error", async () => {
+    mockCatalog = [skill("remote-skill")];
+    installFetchThrow(new Error("ECONNRESET"));
+    expect(await readCatalogSkillFiles("remote-skill")).toBeNull();
+  });
+
+  test("returns null without fetching when skill id missing from catalog", async () => {
+    mockCatalog = [];
+    installFetchForbidden();
+    expect(await readCatalogSkillFiles("unknown")).toBeNull();
+    expect(fetchCalls.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readCatalogSkillFileContent — dev mode
+// ---------------------------------------------------------------------------
+
+describe("readCatalogSkillFileContent (dev mode)", () => {
+  test("returns inline UTF-8 content for a text file", async () => {
+    const root = makeTempSkillsDir();
+    writeSkill(root, "my-skill", { "SKILL.md": "# hello world\n" });
+    mockRepoSkillsDir = root;
+    mockCatalog = [skill("my-skill")];
+    installFetchForbidden();
+
+    const entry = await readCatalogSkillFileContent("my-skill", "SKILL.md");
+    expect(entry).not.toBeNull();
+    expect(entry!.path).toBe("SKILL.md");
+    expect(entry!.name).toBe("SKILL.md");
+    expect(entry!.isBinary).toBe(false);
+    expect(entry!.content).toBe("# hello world\n");
+    expect(fetchCalls.length).toBe(0);
+  });
+
+  test("rejects traversal paths without touching the filesystem", async () => {
+    const root = makeTempSkillsDir();
+    writeSkill(root, "my-skill", { "SKILL.md": "ok" });
+    mockRepoSkillsDir = root;
+    mockCatalog = [skill("my-skill")];
+    installFetchForbidden();
+
+    expect(
+      await readCatalogSkillFileContent("my-skill", "../escape"),
+    ).toBeNull();
+    expect(
+      await readCatalogSkillFileContent("my-skill", "/etc/passwd"),
+    ).toBeNull();
+    expect(await readCatalogSkillFileContent("my-skill", "..")).toBeNull();
+    expect(await readCatalogSkillFileContent("my-skill", "")).toBeNull();
+  });
+
+  test("returns content=null for a binary file", async () => {
+    const root = makeTempSkillsDir();
+    writeSkill(root, "my-skill", {
+      "img.png": Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    });
+    mockRepoSkillsDir = root;
+    mockCatalog = [skill("my-skill")];
+    installFetchForbidden();
+
+    const entry = await readCatalogSkillFileContent("my-skill", "img.png");
+    expect(entry).not.toBeNull();
+    expect(entry!.isBinary).toBe(true);
+    expect(entry!.content).toBeNull();
+  });
+
+  test("returns content=null for oversized text files", async () => {
+    const root = makeTempSkillsDir();
+    // Just over 2 MB of 'a'
+    const oversized = "a".repeat(2 * 1024 * 1024 + 1);
+    writeSkill(root, "my-skill", { "big.txt": oversized });
+    mockRepoSkillsDir = root;
+    mockCatalog = [skill("my-skill")];
+    installFetchForbidden();
+
+    const entry = await readCatalogSkillFileContent("my-skill", "big.txt");
+    expect(entry).not.toBeNull();
+    expect(entry!.isBinary).toBe(false);
+    expect(entry!.content).toBeNull();
+    expect(entry!.size).toBe(oversized.length);
+  });
+
+  test("returns null for a missing file", async () => {
+    const root = makeTempSkillsDir();
+    writeSkill(root, "my-skill", { "SKILL.md": "ok" });
+    mockRepoSkillsDir = root;
+    mockCatalog = [skill("my-skill")];
+    installFetchForbidden();
+
+    expect(
+      await readCatalogSkillFileContent("my-skill", "does/not/exist.txt"),
+    ).toBeNull();
+  });
+
+  test("returns null without fetching when skill id missing from catalog", async () => {
+    mockCatalog = [];
+    installFetchForbidden();
+    expect(await readCatalogSkillFileContent("unknown", "SKILL.md")).toBeNull();
+    expect(fetchCalls.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readCatalogSkillFileContent — platform mode
+// ---------------------------------------------------------------------------
+
+describe("readCatalogSkillFileContent (platform mode)", () => {
+  test("maps snake_case text response to camelCase entry", async () => {
+    mockCatalog = [skill("remote-skill")];
+    installFetchMock(() =>
+      Response.json({
+        path: "SKILL.md",
+        name: "SKILL.md",
+        size: 14,
+        mime_type: "text/markdown",
+        is_binary: false,
+        content: "# hello world\n",
+      }),
+    );
+
+    const entry = await readCatalogSkillFileContent("remote-skill", "SKILL.md");
+    expect(entry).not.toBeNull();
+    expect(entry!.path).toBe("SKILL.md");
+    expect(entry!.name).toBe("SKILL.md");
+    expect(entry!.size).toBe(14);
+    expect(entry!.mimeType).toBe("text/markdown");
+    expect(entry!.isBinary).toBe(false);
+    expect(entry!.content).toBe("# hello world\n");
+
+    expect(fetchCalls.length).toBe(1);
+    const url = fetchCalls[0]!.url;
+    expect(
+      url.startsWith(
+        "https://platform.test/v1/skills/remote-skill/files/content/",
+      ),
+    ).toBe(true);
+    expect(url).toContain("path=SKILL.md");
+  });
+
+  test("preserves binary response (content=null, isBinary=true)", async () => {
+    mockCatalog = [skill("remote-skill")];
+    installFetchMock(() =>
+      Response.json({
+        path: "img.png",
+        name: "img.png",
+        size: 1024,
+        mime_type: "image/png",
+        is_binary: true,
+        content: null,
+      }),
+    );
+
+    const entry = await readCatalogSkillFileContent("remote-skill", "img.png");
+    expect(entry).not.toBeNull();
+    expect(entry!.isBinary).toBe(true);
+    expect(entry!.content).toBeNull();
+    expect(entry!.mimeType).toBe("image/png");
+  });
+
+  test("preserves oversized text response (content=null)", async () => {
+    mockCatalog = [skill("remote-skill")];
+    installFetchMock(() =>
+      Response.json({
+        path: "big.txt",
+        name: "big.txt",
+        size: 3 * 1024 * 1024,
+        mime_type: "text/plain",
+        is_binary: false,
+        content: null,
+      }),
+    );
+
+    const entry = await readCatalogSkillFileContent("remote-skill", "big.txt");
+    expect(entry).not.toBeNull();
+    expect(entry!.isBinary).toBe(false);
+    expect(entry!.content).toBeNull();
+    expect(entry!.size).toBe(3 * 1024 * 1024);
+  });
+
+  test("returns null on 404", async () => {
+    mockCatalog = [skill("remote-skill")];
+    installFetchMock(
+      () => new Response("missing", { status: 404, statusText: "Not Found" }),
+    );
+    expect(
+      await readCatalogSkillFileContent("remote-skill", "ghost.md"),
+    ).toBeNull();
+  });
+
+  test("rejects traversal BEFORE making any fetch call", async () => {
+    mockCatalog = [skill("remote-skill")];
+    installFetchForbidden();
+    expect(await readCatalogSkillFileContent("remote-skill", "..")).toBeNull();
+    expect(
+      await readCatalogSkillFileContent("remote-skill", "../etc/passwd"),
+    ).toBeNull();
+    expect(fetchCalls.length).toBe(0);
+  });
+
+  test("returns null without fetching when skill id missing from catalog", async () => {
+    mockCatalog = [];
+    installFetchForbidden();
+    expect(await readCatalogSkillFileContent("unknown", "SKILL.md")).toBeNull();
+    expect(fetchCalls.length).toBe(0);
+  });
+});

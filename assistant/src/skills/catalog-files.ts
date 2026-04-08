@@ -1,0 +1,353 @@
+/**
+ * catalog-files — preview file listings and single-file content for catalog
+ * skills, including ones that are NOT installed locally.
+ *
+ * This module is pure library code: it does NOT wire itself into any handler
+ * or route. It is consumed by higher-level daemon handlers introduced in
+ * later PRs of the `skill-files-preview` plan.
+ *
+ * Data sources:
+ *   - In `VELLUM_DEV` mode, when `<repo>/skills/<id>/` exists on disk, we
+ *     read the skill files directly from the repo checkout (matching the
+ *     behavior of `getCatalog()` in dev).
+ *   - Otherwise, we call the platform preview endpoints introduced by
+ *     vellum-assistant-platform PR #4103:
+ *       GET /v1/skills/{skill_id}/files/
+ *       GET /v1/skills/{skill_id}/files/content/?path=...
+ *
+ * Crucially, this code does NOT extract any tar/gzip archives. Previewing a
+ * skill's files never installs it or touches the install flow.
+ */
+
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { basename, join, posix, sep } from "node:path";
+
+import { getPlatformBaseUrl } from "../config/env.js";
+import { isTextMimeType as isTextMime } from "../runtime/routes/workspace-utils.js";
+import { getLogger } from "../util/logger.js";
+import { readPlatformToken } from "../util/platform.js";
+import { getCatalog } from "./catalog-cache.js";
+import { getRepoSkillsDir } from "./catalog-install.js";
+
+const log = getLogger("catalog-files");
+
+const MAX_INLINE_SIZE = 2 * 1024 * 1024; // 2 MB
+
+/**
+ * Classify a file as text/binary from its name alone. Used by the preview
+ * listings where we do not have the file's bytes on hand (platform mode) or
+ * where we want to defer reading content until explicitly requested (dev
+ * mode listings). Bun derives the mime type from the file extension, so
+ * this works for non-existent paths too.
+ */
+function classifyByName(name: string): boolean {
+  const mime = Bun.file(name).type;
+  return !isTextMime(mime, name);
+}
+
+// ─── Shared types ────────────────────────────────────────────────────────────
+
+/**
+ * A single file entry in a skill directory or preview listing.
+ *
+ * This module owns the canonical shape; `daemon/handlers/skills.ts`
+ * re-exports it so handler consumers can import it from either location.
+ * Keeping the definition here avoids a circular import — catalog-files
+ * depends on `catalog-cache.ts`, which would otherwise be reachable via
+ * the handler module.
+ */
+export interface SkillFileEntry {
+  path: string; // relative to skill directory root (e.g. "SKILL.md", "tools/foo.ts")
+  name: string; // basename
+  size: number;
+  mimeType: string;
+  isBinary: boolean;
+  content: string | null; // inline text if ≤ 2 MB and text MIME, else null
+}
+
+// ─── Platform response contracts ─────────────────────────────────────────────
+//
+// Wire format is snake_case (vellum-assistant-platform PR #4103). We map to
+// the daemon's camelCase shape inside this module so nothing downstream needs
+// to know about the platform contract.
+
+interface PlatformFileListResponse {
+  skill_id: string;
+  files: Array<{ path: string; name: string; size: number; sha: string }>;
+}
+
+interface PlatformFileContentResponse {
+  path: string;
+  name: string;
+  size: number;
+  mime_type: string;
+  is_binary: boolean;
+  content: string | null;
+}
+
+// ─── Path sanitization ───────────────────────────────────────────────────────
+
+/**
+ * Normalize and validate a relative path coming from untrusted input. Returns
+ * the normalized posix path on success, or `null` if the input is unsafe.
+ *
+ * Rules:
+ *   - Reject empty strings and strings containing null bytes.
+ *   - Reject absolute paths (unix or windows drive-prefixed).
+ *   - Normalize backslashes to forward slashes, strip leading `./`, and
+ *     run `posix.normalize` to collapse redundant segments.
+ *   - Reject paths that escape the root (normalized result equals `..` or
+ *     begins with `../`).
+ *
+ * The platform also validates these server-side; client-side sanitization is
+ * defense in depth and short-circuits obvious bad requests before a network
+ * round trip.
+ */
+export function sanitizeRelativePath(rawPath: string): string | null {
+  if (typeof rawPath !== "string" || rawPath.length === 0) return null;
+  if (rawPath.includes("\0")) return null;
+  if (rawPath.startsWith("/")) return null;
+  if (/^[a-zA-Z]:[/\\]/.test(rawPath)) return null;
+
+  // Normalize separators and strip any leading "./" before posix.normalize
+  // (which would otherwise preserve it in some cases).
+  let candidate = rawPath.replace(/\\/g, "/");
+  while (candidate.startsWith("./")) {
+    candidate = candidate.slice(2);
+  }
+  if (candidate.length === 0) return null;
+
+  const normalized = posix.normalize(candidate);
+  if (normalized === "..") return null;
+  if (normalized.startsWith("../")) return null;
+  // posix.normalize can still return "." for purely no-op paths.
+  if (normalized === ".") return null;
+
+  return normalized;
+}
+
+// ─── Source resolution ───────────────────────────────────────────────────────
+
+type CatalogSource =
+  | { kind: "dir"; dirPath: string }
+  | { kind: "platform"; skillId: string };
+
+/**
+ * Resolve where to read files for a given catalog skill id. Performs NO
+ * network calls — network requests happen only inside `readCatalogSkillFiles`
+ * and `readCatalogSkillFileContent` on the platform path.
+ */
+async function resolveCatalogSource(
+  skillId: string,
+): Promise<CatalogSource | null> {
+  const catalog = await getCatalog();
+  const inCatalog = catalog.some((skill) => skill.id === skillId);
+  if (!inCatalog) return null;
+
+  const repoSkillsDir = getRepoSkillsDir();
+  if (repoSkillsDir) {
+    const candidate = join(repoSkillsDir, skillId);
+    if (existsSync(candidate)) {
+      return { kind: "dir", dirPath: candidate };
+    }
+  }
+  return { kind: "platform", skillId };
+}
+
+// ─── Platform fetch helper ───────────────────────────────────────────────────
+
+/**
+ * Fetch JSON from the platform preview API. Returns `null` on any failure
+ * (non-2xx, network error, abort). The query string is stripped from log
+ * messages to avoid leaking user-supplied file paths.
+ */
+async function fetchPlatformJson<T>(
+  path: string,
+  query?: Record<string, string>,
+): Promise<T | null> {
+  const base = getPlatformBaseUrl();
+  const url = new URL(`${base}${path}`);
+  if (query) {
+    const params = new URLSearchParams(query);
+    url.search = params.toString();
+  }
+
+  const headers: Record<string, string> = { Accept: "application/json" };
+  const token = readPlatformToken();
+  if (token) {
+    headers["X-Conversation-Token"] = token;
+  }
+
+  try {
+    const response = await fetch(url.toString(), {
+      headers,
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) {
+      log.warn(
+        { status: response.status, path },
+        "Platform preview API returned non-2xx",
+      );
+      return null;
+    }
+    return (await response.json()) as T;
+  } catch (err) {
+    log.warn({ err, path }, "Platform preview API request failed");
+    return null;
+  }
+}
+
+// ─── Dev-mode directory walker ───────────────────────────────────────────────
+
+function walkSkillDir(dir: string, rootDir: string): SkillFileEntry[] {
+  const out: SkillFileEntry[] = [];
+  let dirents;
+  try {
+    dirents = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const dirent of dirents) {
+    const abs = join(dir, dirent.name);
+    // Silently skip symlinks, sockets, devices, etc.
+    if (dirent.isSymbolicLink()) continue;
+    if (dirent.isDirectory()) {
+      out.push(...walkSkillDir(abs, rootDir));
+      continue;
+    }
+    if (!dirent.isFile()) continue;
+    try {
+      const stat = statSync(abs);
+      // Convert absolute → relative with manual separator normalization so
+      // the result is always posix-style regardless of the host platform.
+      const relFromRoot = abs.slice(rootDir.length);
+      const cleaned = relFromRoot.startsWith(sep)
+        ? relFromRoot.slice(sep.length)
+        : relFromRoot;
+      const posixPath = cleaned.split(sep).join("/");
+      out.push({
+        path: posixPath,
+        name: basename(posixPath),
+        size: stat.size,
+        mimeType: "",
+        isBinary: classifyByName(dirent.name),
+        content: null,
+      });
+    } catch {
+      // Skip unreadable files silently.
+    }
+  }
+  return out;
+}
+
+// ─── Public API ──────────────────────────────────────────────────────────────
+
+/**
+ * List files for a catalog skill (installed or not).
+ *
+ * Returns `null` if the skill id is not in the catalog at all. Otherwise
+ * returns an array of `SkillFileEntry` with `content === null` for every
+ * entry (single-file content is fetched on demand via
+ * `readCatalogSkillFileContent`).
+ */
+export async function readCatalogSkillFiles(
+  skillId: string,
+): Promise<SkillFileEntry[] | null> {
+  const source = await resolveCatalogSource(skillId);
+  if (!source) return null;
+
+  if (source.kind === "dir") {
+    const entries = walkSkillDir(source.dirPath, source.dirPath);
+    entries.sort((a, b) => a.path.localeCompare(b.path));
+    return entries;
+  }
+
+  const response = await fetchPlatformJson<PlatformFileListResponse>(
+    `/v1/skills/${encodeURIComponent(skillId)}/files/`,
+  );
+  if (!response) return null;
+
+  const entries: SkillFileEntry[] = response.files.map((file) => ({
+    path: file.path,
+    name: file.name,
+    size: file.size,
+    mimeType: "",
+    isBinary: classifyByName(file.name),
+    content: null,
+  }));
+  entries.sort((a, b) => a.path.localeCompare(b.path));
+  return entries;
+}
+
+/**
+ * Read a single file's content from a catalog skill (installed or not).
+ *
+ * Returns `null` if the skill is missing from the catalog, the path fails
+ * sanitization, the underlying source rejects the request, or the file does
+ * not exist. In dev mode, text files up to `MAX_INLINE_SIZE` are returned
+ * with their UTF-8 content inline; anything larger or flagged as binary
+ * returns with `content === null`. In platform mode, the server enforces
+ * the same contract and we pass its response through unchanged.
+ */
+export async function readCatalogSkillFileContent(
+  skillId: string,
+  relativePath: string,
+): Promise<SkillFileEntry | null> {
+  const sanitized = sanitizeRelativePath(relativePath);
+  if (!sanitized) return null;
+
+  const source = await resolveCatalogSource(skillId);
+  if (!source) return null;
+
+  if (source.kind === "dir") {
+    const abs = join(source.dirPath, sanitized);
+    // Defense in depth: make absolutely sure the resolved absolute path is
+    // still inside the skill root, even after `join` normalization.
+    if (!(abs === source.dirPath || abs.startsWith(source.dirPath + sep))) {
+      return null;
+    }
+    if (!existsSync(abs)) return null;
+    let stat;
+    try {
+      stat = statSync(abs);
+    } catch {
+      return null;
+    }
+    if (!stat.isFile()) return null;
+
+    const name = basename(abs);
+    const mimeType = Bun.file(abs).type;
+    const isBinary = !isTextMime(mimeType, name);
+    let content: string | null = null;
+    if (!isBinary && stat.size <= MAX_INLINE_SIZE) {
+      try {
+        content = readFileSync(abs, "utf-8");
+      } catch {
+        content = null;
+      }
+    }
+    return {
+      path: sanitized,
+      name,
+      size: stat.size,
+      mimeType,
+      isBinary,
+      content,
+    };
+  }
+
+  const response = await fetchPlatformJson<PlatformFileContentResponse>(
+    `/v1/skills/${encodeURIComponent(skillId)}/files/content/`,
+    { path: sanitized },
+  );
+  if (!response) return null;
+
+  return {
+    path: response.path,
+    name: response.name,
+    size: response.size,
+    mimeType: response.mime_type,
+    isBinary: response.is_binary,
+    content: response.content,
+  };
+}

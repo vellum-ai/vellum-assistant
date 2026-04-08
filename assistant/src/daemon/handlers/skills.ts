@@ -33,6 +33,7 @@ import {
 } from "../../providers/provider-send-message.js";
 import { isTextMimeType as isTextMime } from "../../runtime/routes/workspace-utils.js";
 import { getCatalog } from "../../skills/catalog-cache.js";
+import type { SkillFileEntry } from "../../skills/catalog-files.js";
 import {
   installSkillLocally,
   upsertSkillsIndex,
@@ -494,14 +495,12 @@ export async function getSkill(
 
 // ─── Skill file listing ──────────────────────────────────────────────────────
 
-export interface SkillFileEntry {
-  path: string; // relative to skill directory root (e.g. "SKILL.md", "tools/foo.ts")
-  name: string; // basename
-  size: number;
-  mimeType: string;
-  isBinary: boolean;
-  content: string | null; // inline text if ≤ 2 MB and text MIME, else null
-}
+// `SkillFileEntry` lives in `../../skills/catalog-files.ts` to keep a single
+// source of truth for the shape and avoid a circular import (catalog-files
+// depends on `catalog-cache.ts`, which would otherwise be reachable via this
+// handler module). Re-exported here so handlers can import it alongside
+// the other skill handler exports.
+export type { SkillFileEntry } from "../../skills/catalog-files.js";
 
 const SKIP_DIRS = new Set(["node_modules", "__pycache__", ".git"]);
 
