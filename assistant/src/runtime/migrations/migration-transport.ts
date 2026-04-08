@@ -202,6 +202,12 @@ export interface ImportCommitSuccessResponse {
   files: ImportedFileReport[];
   manifest: Manifest;
   warnings: string[];
+  credentialsImported?: {
+    total: number;
+    succeeded: number;
+    failed: number;
+    failedAccounts: string[];
+  };
 }
 
 export interface ImportCommitFailureResponse {
