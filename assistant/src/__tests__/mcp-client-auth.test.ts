@@ -13,6 +13,7 @@ mock.module("../inbound/platform-callback-registration.js", () => ({
 }));
 
 const { McpClient } = await import("../mcp/client.js");
+const { McpOAuthProvider } = await import("../mcp/mcp-oauth-provider.js");
 
 /**
  * Mimics the SDK's StreamableHTTPError which has a `.code` property
@@ -113,5 +114,26 @@ describe("McpClient auth error detection", () => {
 
     await client.connect(httpTransport);
     expect(client.isConnected).toBe(false);
+  });
+});
+
+describe("McpOAuthProvider redirectUrl", () => {
+  test("non-interactive provider sets placeholder redirectUrl so SDK uses auth_code flow", () => {
+    const provider = new McpOAuthProvider(
+      "test-server",
+      "https://example.com/mcp",
+      /* interactive */ false,
+    );
+    // Must be truthy so SDK's `!provider.redirectUrl` is false
+    expect(provider.redirectUrl).toBeTruthy();
+  });
+
+  test("interactive provider leaves redirectUrl undefined until startCallbackServer()", () => {
+    const provider = new McpOAuthProvider(
+      "test-server",
+      "https://example.com/mcp",
+      /* interactive */ true,
+    );
+    expect(provider.redirectUrl).toBeUndefined();
   });
 });
