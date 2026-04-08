@@ -224,14 +224,71 @@ interface ChromeDebuggerDebuggee {
   targetId?: string;
 }
 
+/**
+ * Chrome 125+ flat-session target. Extends `Debuggee` with an optional
+ * `sessionId` that addresses a child flat session created via
+ * `Target.attachToTarget` with `flatten: true`. The `chrome.debugger`
+ * sendCommand API and the `onEvent` `source` argument both accept this
+ * shape so child sessions can be routed via the target argument rather
+ * than smuggled into command params.
+ */
+interface ChromeDebuggerSession extends ChromeDebuggerDebuggee {
+  sessionId?: string;
+}
+
+interface ChromeDebuggerOnEventEvent {
+  addListener(
+    callback: (
+      source: ChromeDebuggerSession,
+      method: string,
+      params?: unknown,
+    ) => void,
+  ): void;
+  removeListener(
+    callback: (
+      source: ChromeDebuggerSession,
+      method: string,
+      params?: unknown,
+    ) => void,
+  ): void;
+}
+
+interface ChromeDebuggerOnDetachEvent {
+  addListener(
+    callback: (source: ChromeDebuggerDebuggee, reason: string) => void,
+  ): void;
+  removeListener(
+    callback: (source: ChromeDebuggerDebuggee, reason: string) => void,
+  ): void;
+}
+
 interface ChromeDebuggerNamespace {
+  // Promise-style (modern MV3 usage — used by worker.ts).
   attach(target: ChromeDebuggerDebuggee, requiredVersion: string): Promise<void>;
   detach(target: ChromeDebuggerDebuggee): Promise<void>;
   sendCommand(
-    target: ChromeDebuggerDebuggee,
+    target: ChromeDebuggerSession,
     method: string,
     commandParams?: Record<string, unknown>,
   ): Promise<unknown>;
+  // Callback-style overloads (still supported in MV3). cdp-proxy.ts uses the
+  // callback form so it can thread errors through `chrome.runtime.lastError`
+  // on a per-call basis, which is what makes the injected `ChromeDebuggerApi`
+  // testable against a mock.
+  attach(
+    target: ChromeDebuggerDebuggee,
+    requiredVersion: string,
+    callback: () => void,
+  ): void;
+  detach(target: ChromeDebuggerDebuggee, callback: () => void): void;
+  sendCommand(
+    target: ChromeDebuggerSession,
+    method: string,
+    commandParams: Record<string, unknown> | undefined,
+    callback: (result?: unknown) => void,
+  ): void;
+  onEvent: ChromeDebuggerOnEventEvent;
+  onDetach: ChromeDebuggerOnDetachEvent;
 }
 
 interface ChromeGlobal {

@@ -5,8 +5,7 @@
  * API. The module is decoupled from the service worker lifecycle and from any
  * relay transport so it can be consumed by a host-browser dispatcher and
  * exercised in isolation. The `ChromeDebuggerApi` interface is injectable so
- * tests can drive both success and error paths against a mock; tests will be
- * added once a test runner is configured for this package.
+ * tests can drive both success and error paths against a mock.
  *
  * Flat-session handling
  * ---------------------
@@ -59,10 +58,9 @@ export interface CdpEventFrame {
 }
 
 /**
- * Target identifier passed to chrome.debugger.attach. Mirrors the shape of
- * `chrome.debugger.Debuggee` from `@types/chrome` so that when those types
- * are added to the Chrome extension package in a later PR the cast between
- * the two is a no-op.
+ * Target identifier passed to chrome.debugger.attach. Source-compatible with
+ * `chrome.debugger.Debuggee` so the two values can be interchanged at the
+ * call site without a structural cast.
  */
 export interface CdpDebuggee {
   tabId?: number;
@@ -149,20 +147,6 @@ export interface ChromeDebuggerApi {
     lastError?: { message?: string };
   };
 }
-
-/**
- * Minimal ambient view of the parts of the `chrome` global that this module
- * touches. Declared locally so the module does not depend on `@types/chrome`
- * and can compile standalone under a tsconfig that only includes this file.
- * When `@types/chrome` lands in the extension package these declarations can
- * be removed — the shapes are source-compatible with the real types.
- */
-declare const chrome: {
-  debugger: Omit<ChromeDebuggerApi, "runtime">;
-  runtime: {
-    lastError?: { message?: string };
-  };
-};
 
 /**
  * Compose a default `ChromeDebuggerApi` from the real `chrome` global. We
