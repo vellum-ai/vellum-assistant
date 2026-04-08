@@ -302,7 +302,7 @@ final class ScrollCoordinator {
         let oldPhase = phase
         phase = newPhase
 
-        var intents: [OutputIntent] = []
+        let intents: [OutputIntent] = []
 
         // When scroll settles to idle and we're at the bottom, reattach.
         if newPhase == .idle && oldPhase != .idle && isAtBottom {

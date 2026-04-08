@@ -462,23 +462,25 @@ struct ChatBubble: View, Equatable {
         let appearance = AvatarAppearanceManager.shared
         let avatarSize = ConversationAvatarFollower.avatarSize
 
-        if appearance.customAvatarImage != nil {
-            VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
-                .scaleEffect(avatarBounceScale)
-                .onTapGesture { triggerBounce() }
-        } else if let bodyShape = appearance.characterBodyShape,
-                  let eyeStyle = appearance.characterEyeStyle,
-                  let color = appearance.characterColor {
-            AnimatedAvatarView(bodyShape: bodyShape, eyeStyle: eyeStyle, color: color,
-                               size: avatarSize, blinkEnabled: true, pokeEnabled: true,
-                               isStreaming: message.isStreaming)
-                .frame(width: avatarSize, height: avatarSize)
-                .scaleEffect(avatarBounceScale)
-                .onTapGesture { triggerBounce() }
-        } else {
-            VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
-                .scaleEffect(avatarBounceScale)
-                .onTapGesture { triggerBounce() }
+        Group {
+            if appearance.customAvatarImage != nil {
+                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
+                    .scaleEffect(avatarBounceScale)
+                    .onTapGesture { triggerBounce() }
+            } else if let bodyShape = appearance.characterBodyShape,
+                      let eyeStyle = appearance.characterEyeStyle,
+                      let color = appearance.characterColor {
+                AnimatedAvatarView(bodyShape: bodyShape, eyeStyle: eyeStyle, color: color,
+                                   size: avatarSize, blinkEnabled: true, pokeEnabled: true,
+                                   isStreaming: message.isStreaming)
+                    .frame(width: avatarSize, height: avatarSize)
+                    .scaleEffect(avatarBounceScale)
+                    .onTapGesture { triggerBounce() }
+            } else {
+                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
+                    .scaleEffect(avatarBounceScale)
+                    .onTapGesture { triggerBounce() }
+            }
         }
         // Ensure the tap-triggered bounce animation is preserved despite the
         // parent LazyVStack's .transaction { $0.animation = nil } suppression.

@@ -25,6 +25,7 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
         var signingKey: String
         var bootstrapSecret: String?
         var cesServiceToken: String?
+        var platformURL: String?
         /// Size of the ext4 rootfs block device per service container.
         /// Size declared in ext4 superblock metadata. Must be >= the unpacked
         /// image content. APFS uses sparse files so this doesn't consume real
@@ -141,7 +142,7 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
         let (logStream, logWriter) = Self.makeLogPipe()
 
         // Helper: initialize process from OCI image config, then overlay our env vars.
-        func applyProcess(
+        @Sendable func applyProcess(
             _ c: inout LinuxPod.ContainerConfiguration,
             service: VellumServiceName,
             extraEnv: [String: String]
@@ -163,7 +164,8 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
         let assistantEnv = VellumContainerEnv.assistant(
             instanceName: config.instanceName,
             signingKey: config.signingKey,
-            cesServiceToken: config.cesServiceToken
+            cesServiceToken: config.cesServiceToken,
+            platformURL: config.platformURL
         )
         try await pod.addContainer(
             containerID(.assistant), rootfs: rootfsMounts[.assistant]!
@@ -178,7 +180,8 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
         let gatewayEnv = VellumContainerEnv.gateway(
             signingKey: config.signingKey,
             bootstrapSecret: config.bootstrapSecret,
-            cesServiceToken: config.cesServiceToken
+            cesServiceToken: config.cesServiceToken,
+            platformURL: config.platformURL
         )
         try await pod.addContainer(
             containerID(.gateway), rootfs: rootfsMounts[.gateway]!

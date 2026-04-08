@@ -82,11 +82,19 @@ final class AppleContainersLauncher: AssistantManagementClient {
             uniqueKeysWithValues: imageRefs.map { ($0.key, $0.value.fullReference) }
         )
 
+        let platformURL: String
+        #if DEBUG
+        platformURL = "https://dev-platform.vellum.ai"
+        #else
+        platformURL = "https://platform.vellum.ai"
+        #endif
+
         let config = AppleContainersPodRuntime.Configuration(
             instanceName: assistantName,
             serviceImageRefs: serviceImageRefs,
             instanceDir: instanceDir,
-            signingKey: signingKey
+            signingKey: signingKey,
+            platformURL: platformURL
         )
 
         let runtime = AppleContainersPodRuntime(
