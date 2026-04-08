@@ -39,7 +39,16 @@ extension AppDelegate {
     /// Routing behavior is decided by `DeepLinkRouter.decide(...)`; this
     /// method is the side-effect layer that applies the chosen decision.
     private func handleDeepLink(_ url: URL) {
-        let knownAssistantIds = Set(LockfileAssistant.loadAll().map(\.assistantId))
+        // Only consider assistants that belong to the current runtime
+        // environment. A deep link targeting a managed assistant from a
+        // different environment would otherwise match here and then fail
+        // further down; falling back to the active assistant via the
+        // unknown-id path is cleaner.
+        let knownAssistantIds = Set(
+            LockfileAssistant.loadAll()
+                .filter(\.isCurrentEnvironment)
+                .map(\.assistantId)
+        )
         let multiAssistantEnabled = AssistantFeatureFlagResolver.isEnabled("multi-platform-assistant")
 
         let decision = DeepLinkRouter.decide(
