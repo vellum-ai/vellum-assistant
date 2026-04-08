@@ -15,12 +15,9 @@
     "types": []
   },
   "include": [
-    "background/cdp-proxy.ts",
-    "background/cloud-auth.ts",
-    "background/host-browser-dispatcher.ts",
-    "background/relay-connection.ts",
-    "background/self-hosted-auth.ts",
-    "background/__tests__/**/*.ts",
+    "background/**/*.ts",
+    "popup/**/*.ts",
     "types/**/*.d.ts"
-  ]
+  ],
+  "exclude": ["dist/**", "node_modules/**"]
 }
