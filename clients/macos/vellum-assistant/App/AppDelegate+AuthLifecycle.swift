@@ -353,7 +353,7 @@ extension AppDelegate {
     /// credentials) don't race with this method.
     func ensureLocalAssistantApiKey() {
         guard !isCurrentAssistantManaged, isCurrentAssistantLocal else {
-            log.debug("Skipping local assistant API key provisioning because current assistant is managed=\(self.isCurrentAssistantManaged, privacy: .public) local=\(!self.isCurrentAssistantLocal, privacy: .public)")
+            log.debug("Skipping local assistant API key provisioning because current assistant is managed=\(self.isCurrentAssistantManaged, privacy: .public) local=\(self.isCurrentAssistantLocal, privacy: .public)")
             return
         }
         guard authManager.isAuthenticated else {
