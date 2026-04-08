@@ -81,11 +81,6 @@ export class RelayConnection {
     this.deps = deps;
   }
 
-  /** Current connection mode (read-only; use `setMode` to switch). */
-  get mode(): RelayMode {
-    return this.deps.mode;
-  }
-
   /**
    * Return the live connection mode. Callers must invoke this right
    * before each use — after a reconnect-with-refresh cycle the
@@ -96,6 +91,10 @@ export class RelayConnection {
    * mode through this accessor per-POST so that result envelopes sent
    * after a WebSocket drop authenticate with the new bearer token
    * instead of silently 401/403ing.
+   *
+   * This is the ONLY public accessor for the mode — there is
+   * deliberately no `get mode()` getter, because a property-style
+   * access reads as a static field and invites callers to cache it.
    */
   getCurrentMode(): RelayMode {
     return this.deps.mode;
