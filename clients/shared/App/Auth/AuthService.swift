@@ -406,6 +406,48 @@ public final class AuthService {
         return response.statusCode == 200 ? .reusedExisting(assistant) : .createdNew(assistant)
     }
 
+    /// Update a managed assistant's name and/or description via PATCH.
+    /// Returns the updated `PlatformAssistant` on success.
+    @discardableResult
+    public func updateAssistant(
+        id: String,
+        organizationId: String,
+        name: String? = nil,
+        description: String? = nil
+    ) async throws -> PlatformAssistant {
+        var fields: [String: String] = [:]
+        if let name { fields["name"] = name }
+        if let description { fields["description"] = description }
+        let bodyData = try JSONEncoder().encode(fields)
+
+        let response = try await performPlatformRequest(
+            path: "v1/assistants/\(id)/",
+            method: "PATCH",
+            organizationId: organizationId,
+            body: bodyData
+        )
+
+        switch response.statusCode {
+        case 401:
+            throw PlatformAPIError.authenticationRequired
+        case 403:
+            throw PlatformAPIError.accessDenied(detail: "Access denied")
+        case 404:
+            throw PlatformAPIError.notFound
+        case 200..<300:
+            do {
+                return try JSONDecoder().decode(PlatformAssistant.self, from: response.data)
+            } catch {
+                throw PlatformAPIError.decodingError(error.localizedDescription)
+            }
+        default:
+            throw PlatformAPIError.serverError(
+                statusCode: response.statusCode,
+                detail: String(data: response.data, encoding: .utf8)
+            )
+        }
+    }
+
     // MARK: - Recovery Mode
 
     /// Enter recovery mode for a managed assistant.
