@@ -62,27 +62,43 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
             at: config.instanceDir, withIntermediateDirectories: true
         )
 
-        var rootfsMounts: [VellumServiceName: Containerization.Mount] = [:]
-        var imageConfigs: [VellumServiceName: ContainerizationOCI.ImageConfig?] = [:]
         let rootfsDir = config.instanceDir.appendingPathComponent(".rootfs", isDirectory: true)
         try FileManager.default.createDirectory(at: rootfsDir, withIntermediateDirectories: true)
 
-        for (i, service) in VellumServiceName.startOrder.enumerated() {
-            guard let ref = config.serviceImageRefs[service] else {
-                throw PodRuntimeError.missingImageRef(service)
+        await progress("Pulling and unpacking service images...")
+
+        let results = try await withThrowingTaskGroup(
+            of: (VellumServiceName, Containerization.Mount, ContainerizationOCI.ImageConfig?).self
+        ) { group in
+            for service in VellumServiceName.startOrder {
+                guard let ref = config.serviceImageRefs[service] else {
+                    throw PodRuntimeError.missingImageRef(service)
+                }
+                group.addTask {
+                    let image = try await self.pullImage(
+                        reference: ref, store: imageStore, progress: progress
+                    )
+                    let imgConfig = try await image.config(for: .current).config
+                    let rootfsPath = rootfsDir.appendingPathComponent("\(service.rawValue).ext4")
+                    let mount = try await self.createRootFilesystem(
+                        from: image, sizeInBytes: self.config.rootfsSizeInBytes, at: rootfsPath
+                    )
+                    await progress("\(service.rawValue) ready")
+                    return (service, mount, imgConfig)
+                }
             }
-            await progress("Pulling image \(i + 1)/\(VellumServiceName.startOrder.count): \(service.rawValue)...")
-            let image = try await pullImage(
-                reference: ref, store: imageStore, progress: progress
-            )
-            imageConfigs[service] = try await image.config(for: .current).config
-            await progress("Unpacking \(service.rawValue) rootfs...")
-            let rootfsPath = rootfsDir.appendingPathComponent("\(service.rawValue).ext4")
-            rootfsMounts[service] = try await createRootFilesystem(
-                from: image, sizeInBytes: config.rootfsSizeInBytes, at: rootfsPath
-            )
-            log.info("Rootfs ready for \(service.rawValue, privacy: .public)")
+
+            var rootfs: [VellumServiceName: Containerization.Mount] = [:]
+            var configs: [VellumServiceName: ContainerizationOCI.ImageConfig?] = [:]
+            for try await (service, mount, imgConfig) in group {
+                rootfs[service] = mount
+                configs[service] = imgConfig
+            }
+            return (rootfs, configs)
         }
+
+        let rootfsMounts = results.0
+        let imageConfigs = results.1
 
         // 3. Create host-side shared directories.
         let workspaceDir = config.instanceDir.appendingPathComponent("workspace", isDirectory: true)
