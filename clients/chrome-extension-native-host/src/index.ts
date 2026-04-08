@@ -25,9 +25,11 @@
  * The helper deliberately does NOT persist tokens — the extension is
  * responsible for storing the returned token in `chrome.storage.local`.
  *
- * See PR 11 (`/v1/browser-extension-pair` endpoint) and PR 12 (native
- * messaging host manifest + macOS installer wiring) for the rest of the
- * pairing flow.
+ * The pairing flow as a whole consists of: (a) this helper, (b) the
+ * assistant-side `/v1/browser-extension-pair` endpoint that mints the
+ * capability token, and (c) the macOS installer wiring that drops the
+ * compiled binary alongside the native-messaging host manifest Chrome
+ * reads to resolve `com.vellum.daemon`.
  */
 
 import { readFileSync } from "node:fs";
@@ -133,33 +135,64 @@ function parseExtensionId(origin: string | undefined): string | null {
 }
 
 /**
- * Write a single native-messaging frame to stdout and synchronously
- * terminate the process.
+ * Writes a native-messaging frame to stdout and terminates the process
+ * synchronously. The exit code is the authoritative signal to Chrome;
+ * the frame body is best-effort. Use this for error paths (unauthorized
+ * origin, malformed requests) where Chrome only needs to observe a
+ * non-zero exit and any frame-body truncation is acceptable.
  *
- * Chrome native messaging hosts communicate over a pipe-backed stdout.
- * Earlier versions of this helper used the callback form of
- * `process.stdout.write()` to defer `process.exit()` until the buffer had
- * been handed off, but that introduced a subtle bug: the function had to
- * return a forever-pending Promise to satisfy the `never` return type,
- * meaning callers that awaited it would yield control of the event loop
- * before the process terminated. In the unauthorized-origin path that
- * meant the stdin listener could be installed and start handling frames
- * before the helper actually exited.
- *
- * The synchronous form below avoids that hazard entirely:
- * `process.exit()` is itself `never`, so the function legitimately never
- * returns and there is no event-loop tick between the write and the
- * exit. Any partial flushing concerns are accepted as a trade-off — the
- * exit code is the authoritative signal to Chrome regardless of whether
- * the frame body made it across the pipe.
+ * Typed `never` because `process.exit()` never returns, which lets
+ * callers treat this as an unconditional terminator with no event-loop
+ * tick between the write and the exit.
  */
-function writeFrameAndExit(payload: unknown, exitCode: number): never {
+function writeErrorFrameAndExit(payload: unknown, exitCode: number): never {
   try {
     process.stdout.write(encodeFrame(payload));
   } catch {
-    // ignore — exit code is the authoritative signal
+    // Ignore — exit code is the authoritative signal here.
   }
   process.exit(exitCode);
+}
+
+/**
+ * Writes a native-messaging frame to stdout and terminates the process
+ * only after libuv has flushed the write to the pipe. Use this for
+ * success paths (e.g., `token_response`) where Chrome needs the full
+ * frame body to drive the extension's pairing flow.
+ *
+ * The callback form of `process.stdout.write()` fires once the buffer
+ * has been handed off to the kernel, so awaiting the returned Promise
+ * guarantees the frame made it across the pipe before the process
+ * exits. This matters on pipe-backed stdout (Chrome native messaging)
+ * where a sync `process.exit()` can terminate before libuv finishes
+ * flushing a large-enough frame — most visibly on Windows.
+ *
+ * The Promise never resolves: the callback always ends in
+ * `process.exit(exitCode)`, so from the caller's perspective an `await`
+ * on this function is a terminator. A defensive 5-second safety timeout
+ * rejects if the callback somehow never fires; the timer is `.unref()`ed
+ * so it cannot keep the event loop alive on its own.
+ */
+function writeFrameAndExitAsync(
+  payload: unknown,
+  exitCode: number,
+): Promise<never> {
+  return new Promise<never>((_, reject) => {
+    process.stdout.write(encodeFrame(payload), () => {
+      // Best-effort: exit with the intended code even if the callback
+      // reports a write error. Chrome will observe a disconnect on the
+      // pipe and report the error through its native-messaging UI.
+      process.exit(exitCode);
+    });
+    const safety = setTimeout(() => {
+      reject(
+        new Error(
+          "writeFrameAndExitAsync timed out waiting for stdout flush",
+        ),
+      );
+    }, 5000);
+    safety.unref?.();
+  });
 }
 
 /**
@@ -168,13 +201,14 @@ function writeFrameAndExit(payload: unknown, exitCode: number): never {
  * (or a Chrome extension developer inspecting the host's stderr stream)
  * can see what went wrong.
  *
- * Uses `writeFrameAndExit` so the error frame is written to stdout before
- * the process terminates. `writeFrameAndExit` handles its own write
- * failures internally, so no additional try/catch is needed here.
+ * Uses `writeErrorFrameAndExit` so the error frame is written to stdout
+ * before the process terminates. `writeErrorFrameAndExit` handles its
+ * own write failures internally, so no additional try/catch is needed
+ * here.
  */
 function fail(message: string, code = 1): never {
   process.stderr.write(`vellum-chrome-native-host: ${message}\n`);
-  writeFrameAndExit({ type: "error", message }, code);
+  writeErrorFrameAndExit({ type: "error", message }, code);
 }
 
 /**
@@ -257,11 +291,15 @@ async function main(): Promise<void> {
     process.stderr.write(
       `vellum-chrome-native-host: unauthorized_origin (got ${extensionOrigin ?? "<none>"})\n`,
     );
-    writeFrameAndExit({ type: "error", message: "unauthorized_origin" }, 1);
-    // Defense-in-depth: even though writeFrameAndExit calls process.exit
-    // synchronously and is typed `never`, an explicit `return` here
-    // guarantees we never fall through to the stdin listener setup below
-    // if a future refactor accidentally makes writeFrameAndExit async.
+    writeErrorFrameAndExit(
+      { type: "error", message: "unauthorized_origin" },
+      1,
+    );
+    // Defense-in-depth: even though writeErrorFrameAndExit calls
+    // process.exit synchronously and is typed `never`, an explicit
+    // `return` here guarantees we never fall through to the stdin
+    // listener setup below if a future refactor accidentally makes the
+    // helper async.
     return;
   }
 
@@ -305,7 +343,7 @@ async function main(): Promise<void> {
             extensionOrigin!,
             process.argv,
           );
-          writeFrameAndExit(
+          await writeFrameAndExitAsync(
             { type: "token_response", token, expiresAt, guardianId },
             0,
           );
