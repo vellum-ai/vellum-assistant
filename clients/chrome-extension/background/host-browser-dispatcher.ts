@@ -174,6 +174,29 @@ export function createHostBrowserDispatcher(
         params: envelope.cdpParams,
         sessionId: envelope.cdpSessionId,
       });
+      // Recovery hint: if the CDP send returned an error indicating the
+      // target is no longer attached (tab closed mid-flight, navigated
+      // across origins, another debugger took over, etc.), evict the
+      // cache entry so the *next* request triggers a fresh attach. The
+      // current request still fails — eviction does not retry, it only
+      // unblocks subsequent traffic that would otherwise hit the same
+      // stale-cache failure forever.
+      //
+      // Error matching is intentionally string-based: chrome.debugger
+      // surfaces these failures via `chrome.runtime.lastError.message`
+      // and the wording varies across Chrome versions. cdp-proxy maps
+      // those into `{ code: -32000, message }` JSON-RPC error frames.
+      if (frame.error) {
+        const errMsg = (frame.error.message ?? '').toLowerCase();
+        if (
+          errMsg.includes('not attached') ||
+          errMsg.includes('detached') ||
+          errMsg.includes('target closed') ||
+          errMsg.includes('no target with given id')
+        ) {
+          attachedTargets.delete(key);
+        }
+      }
       await deps.postResult({
         requestId: envelope.requestId,
         content: JSON.stringify(frame.error ?? frame.result ?? {}),
