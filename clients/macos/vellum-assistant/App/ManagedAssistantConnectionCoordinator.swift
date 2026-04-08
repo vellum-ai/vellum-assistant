@@ -13,6 +13,22 @@ protocol ManagedAssistantBootstrapProviding {
 
 extension ManagedAssistantBootstrapService: ManagedAssistantBootstrapProviding {}
 
+/// Abstraction over the live gateway/SSE connection so the coordinator can
+/// tear it down and bring it back up when switching between managed
+/// assistants. Injected so tests can spy on call order without needing a
+/// real `GatewayConnectionManager`. Production wiring lives in the site
+/// that constructs the coordinator with a live SSE connection available
+/// (e.g. from `AppDelegate`).
+@MainActor
+protocol ManagedAssistantConnectionController {
+    /// Disconnect the current gateway/SSE connection. Must complete before
+    /// returning so the coordinator can serialize teardown and bring-up.
+    func teardown() async
+    /// Re-establish the gateway/SSE connection for the assistant that is
+    /// currently marked active in the lockfile.
+    func bringUp(for assistant: LockfileAssistant) async
+}
+
 struct ManagedAssistantConnectionResult {
     let assistant: PlatformAssistant
     let reusedExisting: Bool
@@ -20,11 +36,17 @@ struct ManagedAssistantConnectionResult {
 
 enum ManagedAssistantConnectionCoordinatorError: LocalizedError {
     case persistenceFailed
+    case multiAssistantNotEnabled
+    case assistantNotFound(String)
 
     var errorDescription: String? {
         switch self {
         case .persistenceFailed:
             return "Failed to save assistant configuration. Please try again."
+        case .multiAssistantNotEnabled:
+            return "Switching between managed assistants is not available."
+        case .assistantNotFound(let id):
+            return "Could not find assistant \(id) in the lockfile."
         }
     }
 }
@@ -38,6 +60,7 @@ final class ManagedAssistantConnectionCoordinator {
     private let lockfilePath: String?
     private let dateProvider: () -> Date
     private let multiAssistantEnabledProvider: () -> Bool
+    private let connectionController: ManagedAssistantConnectionController?
 
     init(
         bootstrapService: ManagedAssistantBootstrapProviding,
@@ -54,7 +77,8 @@ final class ManagedAssistantConnectionCoordinator {
             // allocating a new store + NotificationCenter subscriber on every
             // `activateManagedAssistant()` call.
             AssistantFeatureFlagResolver.isEnabled("multi-platform-assistant")
-        }
+        },
+        connectionController: ManagedAssistantConnectionController? = nil
     ) {
         self.bootstrapService = bootstrapService
         self.userDefaults = userDefaults
@@ -63,6 +87,7 @@ final class ManagedAssistantConnectionCoordinator {
         self.lockfilePath = lockfilePath
         self.dateProvider = dateProvider
         self.multiAssistantEnabledProvider = multiAssistantEnabledProvider
+        self.connectionController = connectionController
     }
 
     convenience init(
@@ -71,7 +96,8 @@ final class ManagedAssistantConnectionCoordinator {
             SentryDeviceInfo.updateAssistantTag(assistantId)
         },
         lockfilePath: String? = nil,
-        dateProvider: @escaping () -> Date = Date.init
+        dateProvider: @escaping () -> Date = Date.init,
+        connectionController: ManagedAssistantConnectionController? = nil
     ) {
         self.init(
             bootstrapService: ManagedAssistantBootstrapService.shared,
@@ -79,7 +105,8 @@ final class ManagedAssistantConnectionCoordinator {
             runtimeURLProvider: { AuthService.shared.baseURL },
             updateAssistantTag: updateAssistantTag,
             lockfilePath: lockfilePath,
-            dateProvider: dateProvider
+            dateProvider: dateProvider,
+            connectionController: connectionController
         )
     }
 
@@ -102,6 +129,40 @@ final class ManagedAssistantConnectionCoordinator {
     func activateManagedAssistantAfterReauth() async throws -> ManagedAssistantConnectionResult {
         userDefaults.removeObject(forKey: "connectedOrganizationId")
         return try await activateManagedAssistant()
+    }
+
+    /// Switch the active managed assistant to an already-persisted entry in
+    /// the lockfile. Tears down the current SSE/gateway connection, flips
+    /// `activeAssistantId`, clears the feature-flag cache, and brings up a
+    /// fresh connection for the new assistant — in that order.
+    ///
+    /// Only callable when the `multi-platform-assistant` flag is enabled.
+    /// The UI entry point also gates this, but we check again as defense in
+    /// depth.
+    func switchToManagedAssistant(
+        assistantId: String
+    ) async throws -> ManagedAssistantConnectionResult {
+        guard multiAssistantEnabledProvider() else {
+            throw ManagedAssistantConnectionCoordinatorError.multiAssistantNotEnabled
+        }
+
+        guard let lockfileAssistant = LockfileAssistant.loadByName(assistantId) else {
+            throw ManagedAssistantConnectionCoordinatorError.assistantNotFound(assistantId)
+        }
+
+        await connectionController?.teardown()
+
+        LockfileAssistant.setActiveAssistantId(assistantId, lockfilePath: lockfilePath)
+        AssistantFeatureFlagResolver.clearCachedFlags()
+
+        updateAssistantTag(assistantId)
+
+        await connectionController?.bringUp(for: lockfileAssistant)
+
+        return ManagedAssistantConnectionResult(
+            assistant: PlatformAssistant(id: assistantId),
+            reusedExisting: true
+        )
     }
 
     private func persistManagedAssistant(
