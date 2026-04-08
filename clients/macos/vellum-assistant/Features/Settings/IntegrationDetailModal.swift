@@ -329,6 +329,14 @@ struct IntegrationDetailModal: View {
                     ForEach(apps) { app in
                         yourOwnAppCard(for: app)
                     }
+
+                    if !isShowingAddAppForm {
+                        VButton(label: "Add another app", leftIcon: VIcon.plus.rawValue, style: .outlined) {
+                            createAppClientId = ""
+                            createAppClientSecret = ""
+                            isShowingAddAppForm = true
+                        }
+                    }
                 }
             }
 
