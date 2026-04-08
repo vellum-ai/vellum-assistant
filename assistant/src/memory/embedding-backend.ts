@@ -71,6 +71,12 @@ class LazyLocalEmbeddingBackend implements EmbeddingBackend {
     this.delegate?.dispose?.();
   }
 
+  resetForRetry(): void {
+    if (!this.delegate) {
+      this.initPromise = null;
+    }
+  }
+
   private async getDelegate(): Promise<EmbeddingBackend> {
     if (this.delegate) return this.delegate;
     if (!this.initPromise) {
@@ -199,6 +205,11 @@ export function clearEmbeddingBackendCache(): void {
 /** Reset the sticky local-backend failure flag without evicting live backends. */
 export function resetLocalEmbeddingFailureState(): void {
   localBackendBroken = false;
+  for (const backend of new Set(backendCache.values())) {
+    if (backend instanceof LazyLocalEmbeddingBackend) {
+      backend.resetForRetry();
+    }
+  }
 }
 
 function cacheKey(provider: string, model: string, extras?: string[]): string {

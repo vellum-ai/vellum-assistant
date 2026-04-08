@@ -50,4 +50,26 @@ describe("embedding backend cache invalidation", () => {
     const secondSelection = await selectEmbeddingBackend(LOCAL_CONFIG);
     expect(secondSelection.backend).toBe(firstSelection.backend);
   });
+
+  test("resetLocalEmbeddingFailureState clears poisoned local backend retry state", async () => {
+    const firstSelection = await selectEmbeddingBackend(LOCAL_CONFIG);
+    expect(firstSelection.backend).not.toBeNull();
+
+    const poisonedInitPromise = Promise.reject(new Error("poisoned"));
+    poisonedInitPromise.catch(() => {});
+
+    const backend = firstSelection.backend as {
+      delegate: unknown;
+      initPromise: Promise<unknown> | null;
+    };
+    backend.delegate = null;
+    backend.initPromise = poisonedInitPromise;
+
+    resetLocalEmbeddingFailureState();
+
+    expect(backend.initPromise).toBeNull();
+
+    const secondSelection = await selectEmbeddingBackend(LOCAL_CONFIG);
+    expect(secondSelection.backend).toBe(firstSelection.backend);
+  });
 });
