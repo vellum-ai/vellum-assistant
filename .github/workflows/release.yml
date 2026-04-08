@@ -2294,7 +2294,7 @@ jobs:
   build-ios:
     needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
     runs-on: macos-15
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
 
