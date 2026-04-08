@@ -28,10 +28,13 @@ import {
   transformAxTree,
 } from "./cdp-client/accessibility-snapshot.js";
 import {
+  captureScreenshotJpeg,
   evaluateExpression,
   getCurrentUrl,
   getPageTitle,
   navigateAndWait,
+  waitForSelector as cdpWaitForSelector,
+  waitForText as cdpWaitForText,
 } from "./cdp-client/cdp-dom-helpers.js";
 import { getCdpClient } from "./cdp-client/factory.js";
 
@@ -94,6 +97,24 @@ const DISMISS_MODALS_EXPRESSION = `(() => {
     }
   }
 })()`;
+
+/**
+ * IIFE evaluated by {@link executeBrowserExtract} when `include_links`
+ * is true. Walks `document.querySelectorAll('a[href]')`, caps at 200
+ * anchors, and shapes each entry as `{ text, href }`. Extracted to a
+ * module-level constant so the expression is shared between the
+ * runtime call site and any future refactors / tests that need to
+ * reason about the evaluated source.
+ */
+export const EXTRACT_LINKS_EXPRESSION = `
+(() => {
+  const anchors = Array.from(document.querySelectorAll('a[href]'));
+  return anchors.slice(0, 200).map(a => ({
+    text: (a.textContent || '').trim().slice(0, 80),
+    href: a.href,
+  }));
+})()
+`;
 
 // ── Shared element resolution ────────────────────────────────────────
 
@@ -716,15 +737,13 @@ export async function executeBrowserScreenshot(
 ): Promise<ToolExecutionResult> {
   const fullPage = input.full_page === true;
 
+  const cdp = getCdpClient(context);
   try {
-    const page = await browserManager.getOrCreateSessionPage(
-      context.conversationId,
+    const buffer = await captureScreenshotJpeg(
+      cdp,
+      { quality: 80, fullPage },
+      context.signal,
     );
-    const buffer = await page.screenshot({
-      type: "jpeg",
-      quality: 80,
-      fullPage,
-    });
     const base64Data = buffer.toString("base64");
 
     const imageBlock: ImageContent = {
@@ -747,6 +766,8 @@ export async function executeBrowserScreenshot(
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Screenshot failed");
     return { content: `Error: Screenshot failed: ${msg}`, isError: true };
+  } finally {
+    cdp.dispose();
   }
 }
 
@@ -1067,39 +1088,36 @@ export async function executeBrowserWaitFor(
       ? Math.min(input.timeout, MAX_WAIT_MS)
       : MAX_WAIT_MS;
 
-  try {
-    const page = await browserManager.getOrCreateSessionPage(
-      context.conversationId,
-    );
+  // Duration mode has no CDP interaction — handle without acquiring
+  // a CdpClient so the common "sleep" path stays transport-agnostic.
+  if (duration != null) {
+    const waitMs = Math.min(duration, MAX_WAIT_MS);
+    await new Promise((r) => setTimeout(r, waitMs));
+    return { content: `Waited ${waitMs}ms.`, isError: false };
+  }
 
+  const cdp = getCdpClient(context);
+  try {
     if (selector) {
-      await page.waitForSelector(selector, { timeout });
+      await cdpWaitForSelector(cdp, selector, timeout, context.signal);
       return {
         content: `Element matching "${selector}" appeared.`,
         isError: false,
       };
     }
 
-    if (text) {
-      const escaped = JSON.stringify(text);
-      await page.waitForFunction(
-        `document.body?.innerText?.includes(${escaped})`,
-        { timeout },
-      );
-      return {
-        content: `Text "${truncate(text, 80)}" appeared on page.`,
-        isError: false,
-      };
-    }
-
-    // duration mode (milliseconds)
-    const waitMs = Math.min(duration!, MAX_WAIT_MS);
-    await new Promise((r) => setTimeout(r, waitMs));
-    return { content: `Waited ${waitMs}ms.`, isError: false };
+    // text mode (validated above — modeCount === 1 means text is set)
+    await cdpWaitForText(cdp, text!, timeout, context.signal);
+    return {
+      content: `Text "${truncate(text!, 80)}" appeared on page.`,
+      isError: false,
+    };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Wait failed");
     return { content: `Error: Wait failed: ${msg}`, isError: true };
+  } finally {
+    cdp.dispose();
   }
 }
 
@@ -1111,16 +1129,17 @@ export async function executeBrowserExtract(
 ): Promise<ToolExecutionResult> {
   const includeLinks = input.include_links === true;
 
+  const cdp = getCdpClient(context);
   try {
-    const page = await browserManager.getOrCreateSessionPage(
-      context.conversationId,
-    );
-    const currentUrl = page.url();
-    const title = await page.title();
+    const currentUrl = await getCurrentUrl(cdp, context.signal);
+    const title = await getPageTitle(cdp, context.signal);
 
-    let textContent = (await page.evaluate(
-      `document.body?.innerText ?? ''`,
-    )) as string;
+    let textContent = await evaluateExpression<string>(
+      cdp,
+      "document.body?.innerText ?? ''",
+      {},
+      context.signal,
+    );
 
     if (textContent.length > MAX_EXTRACT_LENGTH) {
       textContent =
@@ -1135,15 +1154,9 @@ export async function executeBrowserExtract(
     ];
 
     if (includeLinks) {
-      const links = (await page.evaluate(`
-        (() => {
-          const anchors = Array.from(document.querySelectorAll('a[href]'));
-          return anchors.slice(0, 200).map(a => ({
-            text: (a.textContent || '').trim().slice(0, 80),
-            href: a.href,
-          }));
-        })()
-      `)) as Array<{ text: string; href: string }>;
+      const links = await evaluateExpression<
+        Array<{ text: string; href: string }>
+      >(cdp, EXTRACT_LINKS_EXPRESSION, {}, context.signal);
 
       if (links.length > 0) {
         lines.push("");
@@ -1159,6 +1172,8 @@ export async function executeBrowserExtract(
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Extract failed");
     return { content: `Error: Extract failed: ${msg}`, isError: true };
+  } finally {
+    cdp.dispose();
   }
 }
 
