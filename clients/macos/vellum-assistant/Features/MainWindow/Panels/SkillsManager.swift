@@ -37,6 +37,7 @@ final class SkillsManager {
     /// Cached skill-id -> category map, rebuilt whenever `skills` changes.
     /// Use `category(for:)` for O(1) lookups instead of calling `inferCategory` in view bodies.
     private(set) var categoryMap: [String: SkillCategory] = [:]
+    @ObservationIgnored private var categoryFingerprints: [String: String] = [:]
     var loadedBodies: [String: String] = [:]
     var isLoading = false
     var uninstallResult: SkillsStore.UninstallResult?
@@ -122,11 +123,20 @@ final class SkillsManager {
 
     private func rebuildCategoryMap(from skills: [SkillInfo]) {
         var map: [String: SkillCategory] = [:]
+        var fingerprints: [String: String] = [:]
         map.reserveCapacity(skills.count)
+        fingerprints.reserveCapacity(skills.count)
         for skill in skills {
-            map[skill.id] = inferCategory(skill)
+            let fp = skill.name + "\0" + skill.description
+            if let cached = categoryMap[skill.id], categoryFingerprints[skill.id] == fp {
+                map[skill.id] = cached
+            } else {
+                map[skill.id] = inferCategory(skill)
+            }
+            fingerprints[skill.id] = fp
         }
         categoryMap = map
+        categoryFingerprints = fingerprints
     }
 
     // MARK: - Recomputation
