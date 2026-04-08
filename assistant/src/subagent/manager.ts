@@ -509,7 +509,7 @@ export class SubagentManager {
         const prefix = managed.state.isFork ? "Fork" : "Subagent";
         const message =
           `[${prefix} "${label}" was explicitly aborted]\n\n` +
-          `This subagent was cancelled on purpose. Do NOT re-spawn or retry it.`;
+          `This ${prefix.toLowerCase()} was cancelled on purpose. Do NOT re-spawn or retry it.`;
         try {
           // Use the managed subagent's stored parentSendToClient so the
           // notification routes to the parent conversation's socket, not the
@@ -861,7 +861,7 @@ export class SubagentManager {
     let notificationString = `[${prefix} "${info.label}" — ${urgency}] ${message}`;
     if (urgency === "blocked") {
       notificationString +=
-        "\nUse subagent_message to send guidance to this subagent.";
+        `\nUse subagent_message to send guidance to this ${prefix.toLowerCase()}.`;
     }
 
     try {
