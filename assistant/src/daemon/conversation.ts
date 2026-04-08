@@ -553,6 +553,34 @@ export class Conversation {
     this.isSubagent = value;
   }
 
+  /**
+   * Prepend inherited parent messages into the in-memory message array so that
+   * the AgentLoop includes them in provider calls (enabling KV cache sharing).
+   *
+   * These messages are NOT persisted to the database — they exist only in
+   * memory. When the conversation is later read from DB via getMessages(),
+   * only the conversation's own persisted messages appear.
+   *
+   * Must be called before the first persistUserMessage() call — i.e. while
+   * `this.messages` is still empty.
+   */
+  injectInheritedContext(messages: Message[]): void {
+    if (this.messages.length !== 0) {
+      throw new Error(
+        "injectInheritedContext must be called before any messages have been added",
+      );
+    }
+    this.messages = [...messages];
+  }
+
+  /**
+   * Return the system prompt string set at construction time (or its override).
+   * Fork consumers use this to pass the parent's system prompt to the fork.
+   */
+  getCurrentSystemPrompt(): string {
+    return this.systemPrompt;
+  }
+
   isProcessing(): boolean {
     return this.processing;
   }
