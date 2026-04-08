@@ -24,6 +24,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 
+import { sanitizeConfigForTransfer } from "../../config/sanitize-for-transfer.js";
 import type { PathResolver } from "./vbundle-import-analyzer.js";
 import type { ManifestType, VBundleTarEntry } from "./vbundle-validator.js";
 import { validateVBundle } from "./vbundle-validator.js";
@@ -321,9 +322,20 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
       }
     }
 
+    // Sanitize config files to strip environment-specific fields (defense-in-depth)
+    let dataToWrite: Uint8Array = archiveEntry.data;
+    if (
+      fileEntry.path === "workspace/config.json" ||
+      fileEntry.path === "config/settings.json"
+    ) {
+      const configJson = new TextDecoder().decode(archiveEntry.data);
+      const sanitized = sanitizeConfigForTransfer(configJson);
+      dataToWrite = new TextEncoder().encode(sanitized);
+    }
+
     // Write the file
     try {
-      writeFileSync(diskPath, archiveEntry.data);
+      writeFileSync(diskPath, dataToWrite);
     } catch (err) {
       return {
         ok: false,

@@ -873,6 +873,104 @@ describe("commitImport — workspace clearing", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Config sanitization tests
+// ---------------------------------------------------------------------------
+
+describe("commitImport — config sanitization", () => {
+  test("imported workspace/config.json has environment-specific fields stripped", () => {
+    const configWithEnvFields = {
+      provider: "anthropic",
+      model: "test-model",
+      ingress: {
+        publicBaseUrl: "https://my-tunnel.example.com",
+        enabled: true,
+        port: 8080,
+      },
+      daemon: {
+        autoStart: true,
+        logLevel: "debug",
+      },
+      skills: {
+        load: {
+          extraDirs: ["/home/user/custom-skills"],
+          autoReload: true,
+        },
+      },
+      memory: { enabled: true },
+    };
+    const configData = new TextEncoder().encode(
+      JSON.stringify(configWithEnvFields, null, 2),
+    );
+
+    const vbundle = createValidVBundle([
+      { path: "workspace/config.json", data: configData },
+    ]);
+
+    const resolver = new DefaultPathResolver(testDir);
+    const result = commitImport({
+      archiveData: vbundle,
+      pathResolver: resolver,
+      workspaceDir: testDir,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // Read the written config from disk and verify sanitization
+    const writtenConfig = JSON.parse(readFileSync(testConfigPath, "utf8"));
+
+    // Environment-specific fields should be stripped/reset
+    expect(writtenConfig.ingress.publicBaseUrl).toBe("");
+    expect(writtenConfig.ingress.enabled).toBeUndefined();
+    expect(writtenConfig.daemon).toBeUndefined();
+    expect(writtenConfig.skills.load.extraDirs).toEqual([]);
+
+    // Non-environment-specific fields should be preserved
+    expect(writtenConfig.provider).toBe("anthropic");
+    expect(writtenConfig.model).toBe("test-model");
+    expect(writtenConfig.ingress.port).toBe(8080);
+    expect(writtenConfig.skills.load.autoReload).toBe(true);
+    expect(writtenConfig.memory.enabled).toBe(true);
+  });
+
+  test("imported config/settings.json (legacy) has environment-specific fields stripped", () => {
+    const configWithEnvFields = {
+      provider: "openai",
+      daemon: { autoStart: false },
+      ingress: {
+        publicBaseUrl: "https://old-tunnel.example.com",
+        enabled: false,
+      },
+      skills: { load: { extraDirs: ["/legacy/skills"] } },
+    };
+    const configData = new TextEncoder().encode(
+      JSON.stringify(configWithEnvFields, null, 2),
+    );
+
+    const vbundle = createValidVBundle([
+      { path: "config/settings.json", data: configData },
+    ]);
+
+    const resolver = new DefaultPathResolver(testDir);
+    const result = commitImport({
+      archiveData: vbundle,
+      pathResolver: resolver,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const writtenConfig = JSON.parse(readFileSync(testConfigPath, "utf8"));
+
+    expect(writtenConfig.ingress.publicBaseUrl).toBe("");
+    expect(writtenConfig.ingress.enabled).toBeUndefined();
+    expect(writtenConfig.daemon).toBeUndefined();
+    expect(writtenConfig.skills.load.extraDirs).toEqual([]);
+    expect(writtenConfig.provider).toBe("openai");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Auth policy registration tests
 // ---------------------------------------------------------------------------
 
