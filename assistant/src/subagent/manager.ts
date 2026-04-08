@@ -415,8 +415,24 @@ export class SubagentManager {
       }
 
       // Send the objective as the first user message and process it.
-      const messageId = await conversation.persistUserMessage(objective, []);
-      await conversation.runAgentLoop(objective, messageId, onEvent);
+      // For forks, wrap the objective in directive framing so it overrides
+      // conversational momentum from the inherited context. Without this,
+      // the fork tends to continue the parent conversation instead of
+      // pivoting to the task — the inherited context is louder than a bare
+      // objective buried after 100k+ tokens of chat history.
+      const message = managed.state.isFork
+        ? [
+            "⎯⎯⎯ FORK TASK ⎯⎯⎯",
+            "You have been forked from the parent conversation to execute a specific task.",
+            "The conversation above is context — do NOT continue it. Do NOT spawn sub-agents.",
+            "Complete this task directly and return only your findings:",
+            "",
+            objective,
+            "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯",
+          ].join("\n")
+        : objective;
+      const messageId = await conversation.persistUserMessage(message, []);
+      await conversation.runAgentLoop(message, messageId, onEvent);
 
       // Agent loop completed successfully.
       // Copy usage stats from the conversation before sending status (which includes usage).
