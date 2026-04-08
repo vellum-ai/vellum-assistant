@@ -157,7 +157,11 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
     // Read all stored credentials to include in the export bundle
     const credentialList = await listSecureKeysAsync();
     const credentials: Array<{ account: string; value: string }> = [];
-    if (!credentialList.unreachable) {
+    if (credentialList.unreachable) {
+      log.warn(
+        "Credential store is unreachable — export will not include credentials",
+      );
+    } else {
       for (const account of credentialList.accounts) {
         const value = await getSecureKeyAsync(account);
         if (value) {
@@ -217,6 +221,7 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
         "Content-Length": String(size),
         "X-Vbundle-Schema-Version": manifest.schema_version,
         "X-Vbundle-Manifest-Sha256": manifest.manifest_sha256,
+        "X-Vbundle-Credentials-Included": String(credentials.length),
       },
     });
   } catch (err) {
