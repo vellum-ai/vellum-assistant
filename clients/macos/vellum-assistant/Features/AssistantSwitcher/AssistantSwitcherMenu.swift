@@ -42,7 +42,7 @@ enum AssistantSwitcherMenu {
         } else {
             for assistant in assistants {
                 let isActive = assistant.assistantId == activeId
-                let title = displayTitle(for: assistant, isActive: isActive)
+                let title = displayTitle(for: assistant)
                 let item = NSMenuItem(
                     title: title,
                     action: selectAction,
@@ -73,7 +73,7 @@ enum AssistantSwitcherMenu {
         // `AppDelegate.retireManagedAssistantFromSwitcher`.
         if let activeId,
            let activeAssistant = assistants.first(where: { $0.assistantId == activeId }) {
-            let activeTitle = displayTitle(for: activeAssistant, isActive: true)
+            let activeTitle = displayTitle(for: activeAssistant)
             let retireItem = NSMenuItem(
                 title: "Retire \(activeTitle)…",
                 action: retireAction,
@@ -87,21 +87,14 @@ enum AssistantSwitcherMenu {
         return items
     }
 
-    /// Resolve a user-facing title for a menu row. Preference order:
-    ///   1. For the active assistant: the live `IdentityInfo.current?.name`
-    ///      (the same source the status tooltip uses) — always freshest.
-    ///   2. `AssistantNameCache` — populated as a side effect of every
-    ///      identity fetch, so it covers any assistant the user has visited
-    ///      at least once on this machine.
-    ///   3. The raw `assistantId` UUID as a final fallback.
-    /// All candidates flow through `AssistantDisplayName.resolve` so the
-    /// bootstrap sentinel is masked.
-    private static func displayTitle(for assistant: LockfileAssistant, isActive: Bool) -> String {
-        let cached = AssistantNameCache.name(for: assistant.assistantId)
-        if isActive {
-            return AssistantDisplayName.resolve(IdentityInfo.current?.name, cached, assistant.assistantId)
-        }
-        return AssistantDisplayName.resolve(cached, assistant.assistantId)
+    /// Resolve a user-facing title for a menu row. Reads from the per-
+    /// assistant `IdentityInfo` cache (populated incrementally as the user
+    /// visits each assistant), falling back to the raw `assistantId` UUID
+    /// when no cached identity exists yet. Routed through
+    /// `AssistantDisplayName.resolve` so the bootstrap sentinel is masked.
+    private static func displayTitle(for assistant: LockfileAssistant) -> String {
+        let cachedName = IdentityInfo.cached(for: assistant.assistantId)?.name
+        return AssistantDisplayName.resolve(cachedName, assistant.assistantId)
     }
 
     /// Display a modal prompt for a new assistant name. Returns `nil` when
