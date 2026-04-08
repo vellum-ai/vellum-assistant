@@ -5,17 +5,14 @@ import XCTest
 final class AppleContainersLauncherTests: XCTestCase {
 
     private var originalCheckAvailability: (() -> AppleContainersAvailabilityChecker.Availability)!
-    private var originalLocateBundledKernel: (() -> URL?)!
 
     override func setUp() {
         super.setUp()
         originalCheckAvailability = AppleContainersLauncher.checkAvailability
-        originalLocateBundledKernel = AppleContainersLauncher.locateBundledKernel
     }
 
     override func tearDown() {
         AppleContainersLauncher.checkAvailability = originalCheckAvailability
-        AppleContainersLauncher.locateBundledKernel = originalLocateBundledKernel
         super.tearDown()
     }
 
@@ -23,96 +20,130 @@ final class AppleContainersLauncherTests: XCTestCase {
 
     func testHatchThrowsWhenFeatureFlagDisabled() async {
         AppleContainersLauncher.checkAvailability = { .unavailable(.featureFlagDisabled) }
-
         let launcher = AppleContainersLauncher()
         do {
             try await launcher.hatch(name: "test", configValues: [:])
-            XCTFail("Expected hatch to throw when feature flag is disabled")
+            XCTFail("Expected throw")
         } catch let error as AppleContainersLauncher.LauncherError {
-            if case .unavailable(.featureFlagDisabled) = error {
-                // expected
-            } else {
-                XCTFail("Expected .unavailable(.featureFlagDisabled), got \(error)")
+            if case .unavailable(.featureFlagDisabled) = error {} else {
+                XCTFail("Expected .featureFlagDisabled, got \(error)")
             }
         } catch {
-            XCTFail("Unexpected error type: \(error)")
+            XCTFail("Unexpected error: \(error)")
         }
     }
 
     func testHatchThrowsWhenOSUnsupported() async {
         AppleContainersLauncher.checkAvailability = { .unavailable(.unsupportedOS) }
-
         let launcher = AppleContainersLauncher()
         do {
             try await launcher.hatch(name: "test", configValues: [:])
-            XCTFail("Expected hatch to throw when OS is unsupported")
+            XCTFail("Expected throw")
         } catch let error as AppleContainersLauncher.LauncherError {
-            if case .unavailable(.unsupportedOS) = error {
-                // expected
-            } else {
-                XCTFail("Expected .unavailable(.unsupportedOS), got \(error)")
+            if case .unavailable(.unsupportedOS) = error {} else {
+                XCTFail("Expected .unsupportedOS, got \(error)")
             }
         } catch {
-            XCTFail("Unexpected error type: \(error)")
+            XCTFail("Unexpected error: \(error)")
         }
     }
 
     func testHatchThrowsWhenHardwareUnsupported() async {
         AppleContainersLauncher.checkAvailability = { .unavailable(.unsupportedHardware) }
-
         let launcher = AppleContainersLauncher()
         do {
             try await launcher.hatch(name: "test", configValues: [:])
-            XCTFail("Expected hatch to throw when hardware is unsupported")
+            XCTFail("Expected throw")
         } catch let error as AppleContainersLauncher.LauncherError {
-            if case .unavailable(.unsupportedHardware) = error {
-                // expected
-            } else {
-                XCTFail("Expected .unavailable(.unsupportedHardware), got \(error)")
+            if case .unavailable(.unsupportedHardware) = error {} else {
+                XCTFail("Expected .unsupportedHardware, got \(error)")
             }
         } catch {
-            XCTFail("Unexpected error type: \(error)")
-        }
-    }
-
-    // MARK: - Kernel not found
-
-    func testHatchThrowsWhenKernelNotFound() async {
-        AppleContainersLauncher.checkAvailability = { .available }
-        AppleContainersLauncher.locateBundledKernel = { nil }
-
-        let launcher = AppleContainersLauncher()
-        do {
-            try await launcher.hatch(name: "test", configValues: [:])
-            XCTFail("Expected hatch to throw when kernel is not found")
-        } catch let error as AppleContainersLauncher.LauncherError {
-            if case .kernelNotFound = error {
-                // expected
-            } else {
-                XCTFail("Expected .kernelNotFound, got \(error)")
-            }
-        } catch {
-            XCTFail("Unexpected error type: \(error)")
+            XCTFail("Unexpected error: \(error)")
         }
     }
 
     // MARK: - Error descriptions
 
     func testErrorDescriptions() {
-        let featureFlagError = AppleContainersLauncher.LauncherError.unavailable(.featureFlagDisabled)
-        XCTAssertTrue(featureFlagError.errorDescription?.contains("feature flag") == true)
+        XCTAssertTrue(
+            AppleContainersLauncher.LauncherError.unavailable(.featureFlagDisabled)
+                .errorDescription!.contains("feature flag")
+        )
+        XCTAssertTrue(
+            AppleContainersLauncher.LauncherError.unavailable(.unsupportedOS)
+                .errorDescription!.contains("macOS 26")
+        )
+        XCTAssertTrue(
+            AppleContainersLauncher.LauncherError.unavailable(.unsupportedHardware)
+                .errorDescription!.contains("ARM64")
+        )
+        XCTAssertTrue(
+            AppleContainersLauncher.LauncherError.hatchFailed("boom")
+                .errorDescription!.contains("boom")
+        )
+    }
 
-        let osError = AppleContainersLauncher.LauncherError.unavailable(.unsupportedOS)
-        XCTAssertTrue(osError.errorDescription?.contains("macOS 26") == true)
+    // MARK: - Lockfile
 
-        let hardwareError = AppleContainersLauncher.LauncherError.unavailable(.unsupportedHardware)
-        XCTAssertTrue(hardwareError.errorDescription?.contains("ARM64") == true)
+    func testWriteLockfileEntryCreatesNewEntry() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("launcher-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
 
-        let kernelError = AppleContainersLauncher.LauncherError.kernelNotFound
-        XCTAssertTrue(kernelError.errorDescription?.contains("kernel") == true)
+        let lockfilePath = tmpDir.appendingPathComponent(".vellum.lock.json").path
 
-        let hatchError = AppleContainersLauncher.LauncherError.hatchFailed("container crashed")
-        XCTAssertTrue(hatchError.errorDescription?.contains("container crashed") == true)
+        let result = AppleContainersLauncher.writeLockfileEntry(
+            assistantId: "test-ac",
+            hatchedAt: "2026-01-01T00:00:00Z",
+            signingKey: "abc123",
+            lockfilePath: lockfilePath
+        )
+        XCTAssertTrue(result)
+
+        let data = try Data(contentsOf: URL(fileURLWithPath: lockfilePath))
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let assistants = json["assistants"] as! [[String: Any]]
+        XCTAssertEqual(assistants.count, 1)
+        XCTAssertEqual(assistants[0]["assistantId"] as? String, "test-ac")
+        XCTAssertEqual(assistants[0]["cloud"] as? String, "apple-container")
+        XCTAssertEqual(assistants[0]["runtimeBackend"] as? String, "apple-containers")
+        let resources = assistants[0]["resources"] as? [String: Any]
+        XCTAssertEqual(resources?["signingKey"] as? String, "abc123")
+    }
+
+    func testWriteLockfileEntryUpdatesExisting() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("launcher-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let lockfilePath = tmpDir.appendingPathComponent(".vellum.lock.json").path
+
+        // Write initial entry
+        AppleContainersLauncher.writeLockfileEntry(
+            assistantId: "test-ac",
+            hatchedAt: "2026-01-01T00:00:00Z",
+            signingKey: "old-key",
+            lockfilePath: lockfilePath
+        )
+
+        // Overwrite
+        AppleContainersLauncher.writeLockfileEntry(
+            assistantId: "test-ac",
+            hatchedAt: "2026-02-01T00:00:00Z",
+            signingKey: "new-key",
+            lockfilePath: lockfilePath
+        )
+
+        let data = try Data(contentsOf: URL(fileURLWithPath: lockfilePath))
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let assistants = json["assistants"] as! [[String: Any]]
+        XCTAssertEqual(assistants.count, 1)
+        XCTAssertEqual(assistants[0]["hatchedAt"] as? String, "2026-02-01T00:00:00Z")
+        let resources = assistants[0]["resources"] as? [String: Any]
+        XCTAssertEqual(resources?["signingKey"] as? String, "new-key")
     }
 
     // MARK: - Protocol conformance

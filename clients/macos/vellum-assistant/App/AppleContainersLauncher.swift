@@ -1,8 +1,6 @@
-import Containerization
-import ContainerizationError
-import ContainerizationOCI
 import Foundation
 import os
+import Security
 import VellumAssistantShared
 
 private let log = Logger(
@@ -11,13 +9,10 @@ private let log = Logger(
 )
 
 /// Manages the lifecycle of an assistant running inside an Apple Container
-/// (lightweight Linux VM via the Containerization framework).
+/// (3-service LinuxPod VM via the Containerization framework).
 ///
 /// Conforms to `AssistantManagementClient` so `AppDelegate.managementClient(for:)`
 /// can dispatch to it for `isAppleContainer` entries.
-///
-/// Requires macOS 26+ and Apple Silicon (ARM64). Callers should gate on
-/// `AppleContainersAvailabilityChecker.check()` before using this launcher.
 @MainActor
 final class AppleContainersLauncher: AssistantManagementClient {
 
@@ -25,7 +20,6 @@ final class AppleContainersLauncher: AssistantManagementClient {
 
     enum LauncherError: LocalizedError {
         case unavailable(AppleContainersAvailabilityChecker.UnavailableReason)
-        case kernelNotFound
         case hatchFailed(String)
 
         var errorDescription: String? {
@@ -39,40 +33,17 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 case .unsupportedHardware:
                     return "Apple Containers require Apple Silicon (ARM64)."
                 }
-            case .kernelNotFound:
-                return "The bundled Linux kernel was not found in the app bundle."
             case .hatchFailed(let detail):
                 return "Failed to hatch Apple Container: \(detail)"
             }
         }
     }
 
-    // MARK: - Configuration
-
-    static let initImageVersion = "0.30.1"
-    static let initImageReference = "ghcr.io/apple/containerization/vminit:\(initImageVersion)"
-    nonisolated(unsafe) static let bundledKernelSubdirectory = "DeveloperVM"
-    static let defaultFilesystemSizeInBytes: UInt64 = 2 * 1024 * 1024 * 1024
-
-    /// OCI image for the assistant container. Will be replaced with the
-    /// production assistant image once the container build pipeline ships.
-    static let assistantImageReference = "docker.io/library/ubuntu:24.04"
-
     // MARK: - Running State
 
-    /// Retains the running container so ARC does not tear it down when hatch() returns.
-    private(set) var runningContainer: LinuxContainer?
-    /// Retains the VM manager backing the running container.
-    private(set) var vmManager: VZVirtualMachineManager?
-    /// Name of the currently-running assistant, if any.
-    private(set) var runningAssistantName: String?
+    private var podRuntime: AppleContainersPodRuntime?
 
     // MARK: - Testable Hooks
-
-    /// Locates the bundled Linux kernel. Override in tests.
-    nonisolated(unsafe) static var locateBundledKernel: () -> URL? = {
-        defaultBundledKernelURL()
-    }
 
     /// Checks availability. Override in tests to bypass OS/hardware gates.
     nonisolated(unsafe) static var checkAvailability: () -> AppleContainersAvailabilityChecker.Availability = {
@@ -87,153 +58,75 @@ final class AppleContainersLauncher: AssistantManagementClient {
             log.error("Apple Containers not available: \(String(describing: reason), privacy: .public)")
             throw LauncherError.unavailable(reason)
         }
-        guard case .available = availability else { return }
-
-        guard let kernelURL = Self.locateBundledKernel() else {
-            log.error("Bundled Linux kernel not found")
-            throw LauncherError.kernelNotFound
-        }
 
         let assistantName = name ?? "apple-container-\(UUID().uuidString.prefix(8).lowercased())"
-        let runtimeRoot = Self.runtimeRoot(for: assistantName)
+        let signingKey = Self.generateSigningKey()
 
-        log.info("Hatching apple-container '\(assistantName, privacy: .public)' at \(runtimeRoot.path, privacy: .public)")
+        let kernelStore = KataKernelStore()
+        let instanceDir = Self.instanceDir(for: assistantName)
+
+        let imageRefs = VellumImageReference.defaults(version: "latest")
+        let serviceImageRefs = Dictionary(
+            uniqueKeysWithValues: imageRefs.map { ($0.key, $0.value.fullReference) }
+        )
+
+        let config = AppleContainersPodRuntime.Configuration(
+            instanceName: assistantName,
+            serviceImageRefs: serviceImageRefs,
+            instanceDir: instanceDir,
+            signingKey: signingKey
+        )
+
+        let runtime = AppleContainersPodRuntime(
+            kernelStore: kernelStore,
+            configuration: config
+        )
+
+        log.info("Hatching apple-container '\(assistantName, privacy: .public)'")
 
         do {
-            try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
-
-            let kernel = Kernel(path: kernelURL, platform: .linuxArm)
-            let contentStore = try LocalContentStore(
-                path: runtimeRoot.appendingPathComponent("content", isDirectory: true)
-            )
-            let imageStore = try ImageStore(path: runtimeRoot, contentStore: contentStore)
-
-            // Fetch or pull init image
-            let initImage = try await Self.fetchOrPull(
-                reference: Self.initImageReference,
-                store: imageStore,
-                label: "vminit"
-            )
-            let initPath = runtimeRoot.appendingPathComponent("vminit-\(Self.initImageVersion).ext4")
-            let initFilesystem = try await Self.createInitFilesystem(
-                from: InitImage(image: initImage),
-                at: initPath
-            )
-
-            // Fetch or pull assistant image
-            let assistantImage = try await Self.fetchOrPull(
-                reference: Self.assistantImageReference,
-                store: imageStore,
-                label: "assistant"
-            )
-            let rootFSPath = runtimeRoot.appendingPathComponent("rootfs.ext4")
-            let rootFilesystem = try await Self.createRootFilesystem(
-                from: assistantImage,
-                at: rootFSPath
-            )
-
-            let manager = VZVirtualMachineManager(
-                kernel: kernel,
-                initialFilesystem: initFilesystem
-            )
-
-            let containerId = "vellum-\(assistantName)"
-            let imageConfig = try await assistantImage.config(for: .current).config
-            let container = try LinuxContainer(containerId, rootfs: rootFilesystem, vmm: manager) { config in
-                if let imageConfig {
-                    config.process = .init(from: imageConfig)
-                }
-                // Keep the container alive so the assistant processes can run.
-                config.process.arguments = ["/bin/sh", "-lc", "sleep infinity"]
-                config.process.workingDirectory = "/"
-                if !config.process.environmentVariables.contains(where: { $0.hasPrefix("HOME=") }) {
-                    config.process.environmentVariables.append("HOME=/root")
-                }
+            try await runtime.start { message in
+                log.info("\(message, privacy: .public)")
             }
-
-            log.info("Starting container '\(containerId, privacy: .public)'...")
-            try await container.create()
-            try await container.start()
-
-            // Retain the container and VM manager so ARC doesn't tear them down.
-            self.runningContainer = container
-            self.vmManager = manager
-            self.runningAssistantName = assistantName
-            log.info("Apple container '\(assistantName, privacy: .public)' is running")
-
-            let hatchedAt = ISO8601DateFormatter().string(from: Date())
-            Self.writeLockfileEntry(assistantId: assistantName, hatchedAt: hatchedAt)
-            LockfileAssistant.setActiveAssistantId(assistantName)
-            log.info("Lockfile entry written for '\(assistantName, privacy: .public)'")
-        } catch let error as LauncherError {
-            throw error
         } catch {
+            // Clean up on failure.
+            try? await runtime.stop()
             log.error("Apple container hatch failed: \(error.localizedDescription, privacy: .public)")
             throw LauncherError.hatchFailed(error.localizedDescription)
         }
+
+        self.podRuntime = runtime
+
+        let hatchedAt = ISO8601DateFormatter().string(from: Date())
+        Self.writeLockfileEntry(
+            assistantId: assistantName,
+            hatchedAt: hatchedAt,
+            signingKey: signingKey
+        )
+        LockfileAssistant.setActiveAssistantId(assistantName)
+        log.info("Apple container '\(assistantName, privacy: .public)' is running")
     }
 
-    // MARK: - Image Fetching
-
-    private static func fetchOrPull(
-        reference: String,
-        store: ImageStore,
-        label: String
-    ) async throws -> Containerization.Image {
-        do {
-            let image = try await store.get(reference: reference)
-            log.info("Using cached \(label, privacy: .public) image")
-            return image
-        } catch let error as ContainerizationError {
-            guard error.code == .notFound else { throw error }
-            log.info("Pulling \(label, privacy: .public) image: \(reference, privacy: .public)")
-            return try await store.pull(reference: reference)
-        }
+    /// Stops the running pod and clears state.
+    func stop() async throws {
+        guard let runtime = podRuntime else { return }
+        podRuntime = nil
+        try await runtime.stop()
     }
 
-    // MARK: - Filesystem Creation
+    // MARK: - Signing Key
 
-    private static func createInitFilesystem(
-        from initImage: InitImage,
-        at path: URL
-    ) async throws -> Containerization.Mount {
-        do {
-            return try await initImage.initBlock(at: path, for: .linuxArm)
-        } catch let error as ContainerizationError {
-            guard error.code == .exists else { throw error }
-            return .block(
-                format: "ext4",
-                source: path.path,
-                destination: "/",
-                options: ["ro"]
-            )
-        }
-    }
-
-    private static func createRootFilesystem(
-        from image: Containerization.Image,
-        at path: URL
-    ) async throws -> Containerization.Mount {
-        do {
-            let unpacker = EXT4Unpacker(blockSizeInBytes: defaultFilesystemSizeInBytes)
-            return try await unpacker.unpack(image, for: .current, at: path)
-        } catch let error as ContainerizationError {
-            guard error.code == .exists else { throw error }
-            return .block(
-                format: "ext4",
-                source: path.path,
-                destination: "/",
-                options: []
-            )
-        }
+    private static func generateSigningKey() -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        return bytes.map { String(format: "%02x", $0) }.joined()
     }
 
     // MARK: - Paths
 
-    private static func runtimeRoot(for assistantName: String) -> URL {
+    private static func instanceDir(for assistantName: String) -> URL {
         let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
+            for: .applicationSupportDirectory, in: .userDomainMask
         ).first ?? FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support", isDirectory: true)
         return appSupport
@@ -244,13 +137,11 @@ final class AppleContainersLauncher: AssistantManagementClient {
 
     // MARK: - Lockfile
 
-    /// Writes or updates a lockfile entry for this apple-container assistant.
-    /// Kept here (not in the shared `LockfileAssistant`) because apple-container
-    /// logic is macOS-only and should not bleed into the shared/iOS/CLI target.
     @discardableResult
     nonisolated static func writeLockfileEntry(
         assistantId: String,
         hatchedAt: String,
+        signingKey: String,
         lockfilePath: String? = nil
     ) -> Bool {
         let path = lockfilePath ?? LockfilePaths.primaryPath
@@ -266,30 +157,19 @@ final class AppleContainersLauncher: AssistantManagementClient {
 
         var assistants = lockfile["assistants"] as? [[String: Any]] ?? []
 
+        let newEntry: [String: Any] = [
+            "assistantId": assistantId,
+            "cloud": "apple-container",
+            "hatchedAt": hatchedAt,
+            "runtimeBackend": "apple-containers",
+            "resources": [
+                "signingKey": signingKey,
+            ],
+        ]
+
         if let existingIndex = assistants.firstIndex(where: { ($0["assistantId"] as? String) == assistantId }) {
-            var existingEntry = assistants[existingIndex]
-            var didUpdate = false
-
-            if (existingEntry["cloud"] as? String) != "apple-container" {
-                existingEntry["cloud"] = "apple-container"
-                didUpdate = true
-            }
-
-            let existingHatchedAt = (existingEntry["hatchedAt"] as? String)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if existingHatchedAt?.isEmpty != false {
-                existingEntry["hatchedAt"] = hatchedAt
-                didUpdate = true
-            }
-
-            if !didUpdate { return true }
-            assistants[existingIndex] = existingEntry
+            assistants[existingIndex] = newEntry
         } else {
-            let newEntry: [String: Any] = [
-                "assistantId": assistantId,
-                "cloud": "apple-container",
-                "hatchedAt": hatchedAt,
-            ]
             assistants.append(newEntry)
         }
 
@@ -301,31 +181,11 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 options: [.prettyPrinted, .sortedKeys]
             )
             let directory = fileURL.deletingLastPathComponent()
-            try FileManager.default.createDirectory(
-                at: directory,
-                withIntermediateDirectories: true
-            )
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try data.write(to: fileURL, options: .atomic)
             return true
         } catch {
             return false
         }
-    }
-
-    nonisolated static func defaultBundledKernelURL() -> URL? {
-        let relativePath = bundledKernelSubdirectory + "/vmlinux.container"
-
-        if let resourceURL = Bundle.main.resourceURL?
-            .appendingPathComponent(relativePath),
-           FileManager.default.fileExists(atPath: resourceURL.path) {
-            return resourceURL
-        }
-
-        let directBuildURL = Bundle.main.bundleURL.appendingPathComponent(relativePath)
-        if FileManager.default.fileExists(atPath: directBuildURL.path) {
-            return directBuildURL
-        }
-
-        return nil
     }
 }

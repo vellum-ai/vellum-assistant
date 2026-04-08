@@ -25,6 +25,7 @@ final class LockfileAssistantAppleContainerTests: XCTestCase {
         let result = AppleContainersLauncher.writeLockfileEntry(
             assistantId: "ac-test",
             hatchedAt: "2025-06-01T00:00:00Z",
+            signingKey: "key1",
             lockfilePath: lockfilePath
         )
         XCTAssertTrue(result)
@@ -35,7 +36,10 @@ final class LockfileAssistantAppleContainerTests: XCTestCase {
         XCTAssertEqual(assistants.count, 1)
         XCTAssertEqual(assistants[0]["assistantId"] as? String, "ac-test")
         XCTAssertEqual(assistants[0]["cloud"] as? String, "apple-container")
+        XCTAssertEqual(assistants[0]["runtimeBackend"] as? String, "apple-containers")
         XCTAssertEqual(assistants[0]["hatchedAt"] as? String, "2025-06-01T00:00:00Z")
+        let resources = assistants[0]["resources"] as? [String: Any]
+        XCTAssertEqual(resources?["signingKey"] as? String, "key1")
     }
 
     func testInsertsIntoEmptyLockfile() {
@@ -46,6 +50,7 @@ final class LockfileAssistantAppleContainerTests: XCTestCase {
         let result = AppleContainersLauncher.writeLockfileEntry(
             assistantId: "ac-new",
             hatchedAt: "2025-07-01T00:00:00Z",
+            signingKey: "key2",
             lockfilePath: lockfilePath
         )
         XCTAssertTrue(result)
@@ -59,34 +64,29 @@ final class LockfileAssistantAppleContainerTests: XCTestCase {
 
     // MARK: - writeLockfileEntry: update existing entry
 
-    func testUpdatesCloudOnExistingEntry() {
-        // Pre-populate with a local entry that has the same ID.
-        let existing: [String: Any] = [
-            "assistants": [
-                [
-                    "assistantId": "ac-test",
-                    "cloud": "local",
-                    "hatchedAt": "2025-01-01T00:00:00Z",
-                ] as [String: Any],
-            ]
-        ]
-        let data = try! JSONSerialization.data(withJSONObject: existing)
-        try! data.write(to: URL(fileURLWithPath: lockfilePath))
-
-        let result = AppleContainersLauncher.writeLockfileEntry(
+    func testUpdatesExistingEntry() {
+        AppleContainersLauncher.writeLockfileEntry(
             assistantId: "ac-test",
-            hatchedAt: "2025-06-01T00:00:00Z",
+            hatchedAt: "2025-01-01T00:00:00Z",
+            signingKey: "old-key",
             lockfilePath: lockfilePath
         )
-        XCTAssertTrue(result)
+
+        AppleContainersLauncher.writeLockfileEntry(
+            assistantId: "ac-test",
+            hatchedAt: "2025-06-01T00:00:00Z",
+            signingKey: "new-key",
+            lockfilePath: lockfilePath
+        )
 
         let readData = try! Data(contentsOf: URL(fileURLWithPath: lockfilePath))
         let json = try! JSONSerialization.jsonObject(with: readData) as! [String: Any]
         let assistants = json["assistants"] as! [[String: Any]]
         XCTAssertEqual(assistants.count, 1)
         XCTAssertEqual(assistants[0]["cloud"] as? String, "apple-container")
-        // Original hatchedAt should be preserved.
-        XCTAssertEqual(assistants[0]["hatchedAt"] as? String, "2025-01-01T00:00:00Z")
+        XCTAssertEqual(assistants[0]["hatchedAt"] as? String, "2025-06-01T00:00:00Z")
+        let resources = assistants[0]["resources"] as? [String: Any]
+        XCTAssertEqual(resources?["signingKey"] as? String, "new-key")
     }
 
     // MARK: - writeLockfileEntry: preserves other entries
@@ -107,6 +107,7 @@ final class LockfileAssistantAppleContainerTests: XCTestCase {
         AppleContainersLauncher.writeLockfileEntry(
             assistantId: "ac-id",
             hatchedAt: "2025-06-01T00:00:00Z",
+            signingKey: "key3",
             lockfilePath: lockfilePath
         )
 
@@ -129,40 +130,13 @@ final class LockfileAssistantAppleContainerTests: XCTestCase {
         AppleContainersLauncher.writeLockfileEntry(
             assistantId: "ac-test",
             hatchedAt: "2025-06-01T00:00:00Z",
+            signingKey: "key4",
             lockfilePath: lockfilePath
         )
 
         let readData = try! Data(contentsOf: URL(fileURLWithPath: lockfilePath))
         let json = try! JSONSerialization.jsonObject(with: readData) as! [String: Any]
         XCTAssertEqual(json["version"] as? Int, 1)
-    }
-
-    // MARK: - writeLockfileEntry: no-op when unchanged
-
-    func testNoOpWhenEntryAlreadyCorrect() {
-        AppleContainersLauncher.writeLockfileEntry(
-            assistantId: "ac-test",
-            hatchedAt: "2025-06-01T00:00:00Z",
-            lockfilePath: lockfilePath
-        )
-
-        // Get file modification time.
-        let attrs1 = try! FileManager.default.attributesOfItem(atPath: lockfilePath)
-        let date1 = attrs1[.modificationDate] as! Date
-
-        // Small sleep to ensure a different modification time if the file were rewritten.
-        Thread.sleep(forTimeInterval: 0.05)
-
-        let result = AppleContainersLauncher.writeLockfileEntry(
-            assistantId: "ac-test",
-            hatchedAt: "2025-07-01T00:00:00Z",
-            lockfilePath: lockfilePath
-        )
-        XCTAssertTrue(result)
-
-        let attrs2 = try! FileManager.default.attributesOfItem(atPath: lockfilePath)
-        let date2 = attrs2[.modificationDate] as! Date
-        XCTAssertEqual(date1, date2, "File should not be rewritten when entry is unchanged")
     }
 
     // MARK: - isAppleContainer property
