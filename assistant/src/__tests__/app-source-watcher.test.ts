@@ -21,23 +21,25 @@ const testDirNameMap = new Map<string, string>([["my-app", "app-id-1"]]);
 
 let capturedWatchCallback: ((eventType: string, filename: string | null) => void) | null = null;
 const mockWatcher = { close: mock(() => {}) };
+const mockExistsSync = mock((p: string): boolean => p === TEST_APPS_DIR);
+const mockWatch = mock(
+  (
+    _path: string,
+    _opts: Record<string, unknown>,
+    callback: (eventType: string, filename: string | null) => void,
+  ) => {
+    capturedWatchCallback = callback;
+    return mockWatcher;
+  },
+);
 
 mock.module("node:fs", () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const actualFs = require("node:fs");
   return {
     ...actualFs,
-    existsSync: mock((p: string) => p === TEST_APPS_DIR),
-    watch: mock(
-      (
-        _path: string,
-        _opts: Record<string, unknown>,
-        callback: (eventType: string, filename: string | null) => void,
-      ) => {
-        capturedWatchCallback = callback;
-        return mockWatcher;
-      },
-    ),
+    existsSync: mockExistsSync,
+    watch: mockWatch,
   };
 });
 
@@ -67,6 +69,8 @@ describe("AppSourceWatcher", () => {
     onChangeSpy = mock(() => {});
     capturedWatchCallback = null;
     mockWatcher.close.mockClear();
+    // Reset existsSync to default behavior for each test
+    mockExistsSync.mockImplementation((p: string) => p === TEST_APPS_DIR);
   });
 
   afterEach(() => {
@@ -155,5 +159,27 @@ describe("AppSourceWatcher", () => {
     watcher.stop();
 
     expect(mockWatcher.close).toHaveBeenCalledTimes(1);
+  });
+
+  test("ensureStarted() initializes watcher after apps directory is created", () => {
+    // Simulate apps dir not existing at start time
+    mockExistsSync.mockImplementation((_p: string) => false);
+
+    watcher.start(onChangeSpy);
+    expect(capturedWatchCallback).toBeNull(); // watcher didn't start
+
+    // Simulate apps dir now existing (e.g. after app_create)
+    mockExistsSync.mockImplementation((p: string) => p === TEST_APPS_DIR);
+
+    watcher.ensureStarted();
+    expect(capturedWatchCallback).not.toBeNull(); // watcher started
+  });
+
+  test("ensureStarted() is a no-op when watcher is already running", () => {
+    watcher.start(onChangeSpy);
+    const callCountAfterStart = mockWatch.mock.calls.length;
+
+    watcher.ensureStarted();
+    expect(mockWatch.mock.calls.length).toBe(callCountAfterStart); // no extra watch call
   });
 });

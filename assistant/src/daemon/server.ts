@@ -66,7 +66,7 @@ import {
   getWorkspacePromptPath,
 } from "../util/platform.js";
 import { registerDaemonCallbacks } from "../work-items/work-item-runner.js";
-import { AppSourceWatcher } from "./app-source-watcher.js";
+import { AppSourceWatcher, setEnsureAppSourceWatcher } from "./app-source-watcher.js";
 import { ConfigWatcher } from "./config-watcher.js";
 import {
   Conversation,
@@ -392,6 +392,7 @@ export class DaemonServer {
     getSubagentManager().broadcastToAllClients = (msg) => this.broadcast(msg);
     getSubagentManager().resolveParentConversation = (id) => this.conversations.get(id);
     setBroadcastToAllClients((msg) => this.broadcast(msg));
+    setEnsureAppSourceWatcher(() => this.appSourceWatcher.ensureStarted());
     this.evictor.onEvict = (conversationId: string) => {
       getSubagentManager().abortAllForParent(conversationId);
     };

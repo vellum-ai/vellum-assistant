@@ -15,6 +15,7 @@ import { deliverVerificationSlack } from "../runtime/verification-outbound-actio
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
+import { ensureAppSourceWatcher } from "./app-source-watcher.js";
 import { refreshSurfacesForApp } from "./conversation-surfaces.js";
 import type { ToolSetupContext } from "./conversation-tool-setup.js";
 import { isDoordashCommand, updateDoordashProgress } from "./doordash-steps.js";
@@ -109,6 +110,11 @@ registerHook(
         description?: string;
       };
       if (parsed.id) {
+        // The apps directory may have just been created — ensure the
+        // filesystem watcher is running so subsequent file edits
+        // trigger live reload.
+        ensureAppSourceWatcher();
+
         handleAppChange(ctx, parsed.id, broadcastToAllClients);
 
         // Fire-and-forget: generate an app icon in the background.
