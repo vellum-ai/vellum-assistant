@@ -567,6 +567,14 @@ describe("conversation host access persistence", () => {
 describe("conversation host access migration", () => {
   function bootstrapPreHostAccessConversations(raw: Database): void {
     raw.exec(/*sql*/ `
+      CREATE TABLE memory_checkpoints (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+
+    raw.exec(/*sql*/ `
       CREATE TABLE conversations (
         id TEXT PRIMARY KEY,
         title TEXT,
@@ -637,6 +645,13 @@ describe("conversation host access migration", () => {
       title: "Existing conversation",
       host_access: 0,
     });
+
+    const checkpoint = raw
+      .query(
+        `SELECT value FROM memory_checkpoints WHERE key = 'migration_conversation_host_access_v1'`,
+      )
+      .get() as { value: string } | null;
+    expect(checkpoint?.value).toBe("1");
   });
 
   test("re-running the migration preserves existing host access values", () => {
@@ -677,8 +692,14 @@ describe("conversation host access migration", () => {
     const row = raw
       .query(`SELECT host_access FROM conversations WHERE id = 'conv-rerun'`)
       .get() as { host_access: number } | null;
+    const checkpoint = raw
+      .query(
+        `SELECT value FROM memory_checkpoints WHERE key = 'migration_conversation_host_access_v1'`,
+      )
+      .get() as { value: string } | null;
 
     expect(row).toEqual({ host_access: 1 });
+    expect(checkpoint?.value).toBe("1");
   });
 });
 
