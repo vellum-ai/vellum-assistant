@@ -32,13 +32,11 @@ import {
   handleVoiceWebhook,
 } from "../calls/twilio-routes.js";
 import { parseChannelId } from "../channels/types.js";
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   getGatewayInternalBaseUrl,
   hasUngatedHttpAuthDisabled,
   isHttpAuthDisabled,
 } from "../config/env.js";
-import { getConfig } from "../config/loader.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { PairingStore } from "../daemon/pairing-store.js";
 import {
@@ -831,17 +829,6 @@ export class RuntimeHttpServer {
     // parses the downstream edge token's `actorPrincipalId` and forwards
     // it as an explicit `guardianId` query parameter (and/or header) so
     // we can register the connection under the real guardian.
-    //
-    // Rollout gate: the fail-closed behavior for service-token upgrades
-    // with no guardian context is gated behind the
-    // `browser-relay-require-guardian` assistant feature flag, which
-    // defaults to DISABLED. Self-hosted deployments still mint
-    // `sub=svc:browser-relay:self` tokens from
-    // `/v1/browser-relay/token` today, and the Chrome extension uses
-    // those as its bearer; until the gateway cutover lands (PR3 of the
-    // browser-use remediation plan) those connections must be allowed
-    // through with just a warning, otherwise every default self-hosted
-    // flow would enter a reconnect loop.
     let guardianId: string | undefined;
     if (!isHttpAuthDisabled()) {
       const wsUrl = new URL(req.url);
@@ -870,49 +857,19 @@ export class RuntimeHttpServer {
         if (fallbackGuardianId) {
           guardianId = fallbackGuardianId;
         } else {
-          // No guardian context on a service-token upgrade. The strict
-          // fail-closed behavior is gated behind
-          // `browser-relay-require-guardian`. When the flag is enabled,
-          // we reject the upgrade outright — silently registering a
-          // connection with no guardianId would leave the extension
-          // hanging because host_browser_request frames would be routed
-          // nowhere. When the flag is disabled (default), we preserve
-          // the legacy behavior of allowing the upgrade to proceed with
-          // an unscoped connection and emit a warning, so existing
-          // self-hosted Chrome extensions that still bear
-          // `/v1/browser-relay/token` tokens keep working until PR3
-          // cuts the gateway over to guardian-bound tokens.
-          const requireGuardian = isAssistantFeatureFlagEnabled(
-            "browser-relay-require-guardian",
-            getConfig(),
-          );
-          if (requireGuardian) {
-            log.warn(
-              {
-                principalType: subResult.ok
-                  ? subResult.principalType
-                  : "unknown",
-                sub: jwtResult.claims.sub,
-              },
-              "Browser relay upgrade rejected: service-token path with no guardian context",
-            );
-            return httpError(
-              "UNAUTHORIZED",
-              "Browser relay upgrade requires guardian context",
-              401,
-            );
-          }
+          // No guardian context on a service-token upgrade. We log a
+          // warning so operators still see a signal but allow the
+          // upgrade to proceed with `guardianId = undefined`. The
+          // registry skips the scoped registration in that case, and
+          // host_browser_request frames will log a warning downstream
+          // if routing fails.
           log.warn(
             {
               principalType: subResult.ok ? subResult.principalType : "unknown",
               sub: jwtResult.claims.sub,
-              flag: "browser-relay-require-guardian",
             },
-            "Browser relay upgrade allowed without guardian context (legacy path; enable browser-relay-require-guardian to fail closed)",
+            "Browser relay upgrade allowed without guardian context (service-token path)",
           );
-          // Leave guardianId undefined — matches pre-PR1 behavior so the
-          // registry skips the scoped registration. host_browser_request
-          // frames will still log a warning downstream if routing fails.
         }
       }
     }
