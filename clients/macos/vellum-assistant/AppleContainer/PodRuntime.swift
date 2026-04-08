@@ -63,6 +63,7 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
         )
 
         var rootfsMounts: [VellumServiceName: Containerization.Mount] = [:]
+        var imageConfigs: [VellumServiceName: ContainerizationOCI.ImageConfig?] = [:]
         let rootfsDir = config.instanceDir.appendingPathComponent(".rootfs", isDirectory: true)
         try FileManager.default.createDirectory(at: rootfsDir, withIntermediateDirectories: true)
 
@@ -74,6 +75,7 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
             let image = try await pullImage(
                 reference: ref, store: imageStore, progress: progress
             )
+            imageConfigs[service] = try await image.config(for: .current).config
             await progress("Unpacking \(service.rawValue) rootfs...")
             let rootfsPath = rootfsDir.appendingPathComponent("\(service.rawValue).ext4")
             rootfsMounts[service] = try await createRootFilesystem(
@@ -108,6 +110,25 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
         // 5. Register containers.
         let (logStream, logWriter) = Self.makeLogPipe()
 
+        // Helper: initialize process from OCI image config, then overlay our env vars.
+        func applyProcess(
+            _ c: inout LinuxPod.ContainerConfiguration,
+            service: VellumServiceName,
+            extraEnv: [String: String]
+        ) {
+            if let imgConfig = imageConfigs[service] ?? nil {
+                c.process = LinuxProcessConfiguration(from: imgConfig)
+            }
+            // Append our env vars on top of whatever the image provides.
+            for (key, value) in extraEnv {
+                c.process.environmentVariables.append("\(key)=\(value)")
+            }
+            // Ensure PATH is set.
+            if !c.process.environmentVariables.contains(where: { $0.hasPrefix("PATH=") }) {
+                c.process.environmentVariables.append("PATH=\(LinuxProcessConfiguration.defaultPath)")
+            }
+        }
+
         // Assistant
         let assistantEnv = VellumContainerEnv.assistant(
             instanceName: config.instanceName,
@@ -117,8 +138,8 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
         try await pod.addContainer(
             containerID(.assistant), rootfs: rootfsMounts[.assistant]!
         ) { c in
+            applyProcess(&c, service: .assistant, extraEnv: assistantEnv)
             c.mounts = sharedMounts + LinuxContainer.defaultMounts()
-            c.process.environmentVariables = Self.buildEnv(assistantEnv)
             c.process.stdout = logWriter
             c.process.stderr = logWriter
         }
@@ -132,10 +153,10 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
         try await pod.addContainer(
             containerID(.gateway), rootfs: rootfsMounts[.gateway]!
         ) { c in
+            applyProcess(&c, service: .gateway, extraEnv: gatewayEnv)
             c.mounts = sharedMounts + [
                 .share(source: gatewaySecurityDir.path, destination: VellumMountPaths.gatewaySecurityDir),
             ] + LinuxContainer.defaultMounts()
-            c.process.environmentVariables = Self.buildEnv(gatewayEnv)
         }
 
         // Credential Executor — workspace mounted read-only to match Docker topology.
@@ -145,12 +166,12 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
         try await pod.addContainer(
             containerID(.credentialExecutor), rootfs: rootfsMounts[.credentialExecutor]!
         ) { c in
+            applyProcess(&c, service: .credentialExecutor, extraEnv: cesEnv)
             c.mounts = [
                 .share(source: workspaceDir.path, destination: VellumMountPaths.workspace, options: ["ro"]),
                 .share(source: cesBootstrapDir.path, destination: VellumMountPaths.cesBootstrap),
                 .share(source: cesSecurityDir.path, destination: VellumMountPaths.cesSecurityDir),
             ] + LinuxContainer.defaultMounts()
-            c.process.environmentVariables = Self.buildEnv(cesEnv)
         }
 
         // 6. Create and start.
