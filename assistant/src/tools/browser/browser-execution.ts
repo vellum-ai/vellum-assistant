@@ -24,6 +24,10 @@ import {
   stopBrowserScreencast,
 } from "./browser-screencast.js";
 import {
+  formatAxSnapshot,
+  transformAxTree,
+} from "./cdp-client/accessibility-snapshot.js";
+import {
   captureScreenshotJpeg,
   evaluateExpression,
   getCurrentUrl,
@@ -123,6 +127,73 @@ export function resolveSelector(
   }
 
   return { selector: rawSelector!, error: null };
+}
+
+/**
+ * Discriminated union returned by {@link resolveElement}. The
+ * `"backend"` variant is produced when an `element_id` from the most
+ * recent AX-tree snapshot is resolved to a CDP `backendNodeId`; the
+ * `"selector"` variant is produced when the caller passed a raw CSS
+ * `selector` that should be resolved via `DOM.querySelector` (or
+ * equivalent) at send-time by the individual tool.
+ *
+ * Consumed by CDP-migrated interaction tools (click, hover, type, …)
+ * that talk to CDP directly rather than going through Playwright's
+ * selector engine. Legacy tools that still drive a Playwright `Page`
+ * continue to call {@link resolveSelector} and receive a plain string
+ * selector — the two helpers coexist during the Phase 3 migration.
+ */
+export type ResolvedElement =
+  | { kind: "backend"; backendNodeId: number; eid: string }
+  | { kind: "selector"; selector: string };
+
+/**
+ * Resolve an element reference (either `element_id` from a prior
+ * snapshot or a raw `selector`) for CDP-native tools. Behaves like
+ * {@link resolveSelector} in its input validation but returns a
+ * {@link ResolvedElement} instead of a string so the caller can
+ * branch on whether a backendNodeId was recovered from the snapshot
+ * map. Returns `{ resolved: null, error: "Error: …" }` on invalid
+ * input or when an `element_id` is provided but the snapshot map is
+ * empty/stale.
+ */
+export function resolveElement(
+  conversationId: string,
+  input: Record<string, unknown>,
+): { resolved: ResolvedElement | null; error: string | null } {
+  const elementId =
+    typeof input.element_id === "string" ? input.element_id : null;
+  const rawSelector =
+    typeof input.selector === "string" ? input.selector : null;
+
+  if (!elementId && !rawSelector) {
+    return {
+      resolved: null,
+      error: "Error: Either element_id or selector is required.",
+    };
+  }
+
+  if (elementId) {
+    const backendNodeId = browserManager.resolveSnapshotBackendNodeId(
+      conversationId,
+      elementId,
+    );
+    if (backendNodeId !== null) {
+      return {
+        resolved: { kind: "backend", backendNodeId, eid: elementId },
+        error: null,
+      };
+    }
+    return {
+      resolved: null,
+      error: `Error: element_id "${elementId}" not found. Run browser_snapshot first to get current element IDs.`,
+    };
+  }
+
+  return {
+    resolved: { kind: "selector", selector: rawSelector! },
+    error: null,
+  };
 }
 
 // ── browser_navigate ─────────────────────────────────────────────────
@@ -509,79 +580,101 @@ export async function executeBrowserSnapshot(
   _input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  const cdp = getCdpClient(context);
   try {
-    const page = await browserManager.getOrCreateSessionPage(
-      context.conversationId,
+    const currentUrl = await getCurrentUrl(cdp, context.signal);
+    const title = await getPageTitle(cdp, context.signal);
+
+    // Pull the full accessibility tree via CDP and fold it into typed
+    // interactive elements + an `eid → backendNodeId` map. This replaces
+    // the legacy `document.querySelectorAll` + `data-vellum-eid` JS that
+    // used to drive the snapshot, and lets downstream CDP-migrated tools
+    // (click, hover, type, …) jump straight to DOM commands without
+    // another round-trip through Playwright's selector engine.
+    await cdp.send("Accessibility.enable", {}, context.signal);
+    const rawTree = await cdp.send(
+      "Accessibility.getFullAXTree",
+      {},
+      context.signal,
     );
-    const currentUrl = page.url();
-    const title = await page.title();
+    const { elements, selectorMap: backendNodeMap } = transformAxTree(rawTree, {
+      maxElements: MAX_SNAPSHOT_ELEMENTS,
+    });
 
-    const elements = (await page.evaluate(`
-      (() => {
-        const SELECTOR = ${JSON.stringify(INTERACTIVE_SELECTOR)};
-        const MAX = ${MAX_SNAPSHOT_ELEMENTS};
-        // Clear stale eid attributes from previous snapshots
-        document.querySelectorAll('[data-vellum-eid]').forEach(el => el.removeAttribute('data-vellum-eid'));
-        const els = Array.from(document.querySelectorAll(SELECTOR));
-        const visible = els.filter(el => {
-          const rect = el.getBoundingClientRect();
-          return rect.width > 0 && rect.height > 0;
-        });
-        return visible.slice(0, MAX).map((el, i) => {
-          const eid = 'e' + (i + 1);
-          el.setAttribute('data-vellum-eid', eid);
-          const tag = el.tagName.toLowerCase();
-          const attrs = {};
-          for (const attr of ['type', 'name', 'placeholder', 'href', 'value', 'role', 'aria-label', 'id']) {
-            if (el.hasAttribute(attr)) attrs[attr] = el.getAttribute(attr);
+    browserManager.storeSnapshotBackendNodeMap(
+      context.conversationId,
+      backendNodeMap,
+    );
+
+    // Bridge: tag every surfaced element with `data-vellum-eid` via
+    // `DOM.pushNodesByBackendIdsToFrontend` + `DOM.setAttributeValue`
+    // so the legacy string selector map keeps working for unmigrated
+    // interaction tools (click/type/hover/etc.) during the Phase 3
+    // migration window. This block is removed in PR 12 once every
+    // interaction tool resolves eids against the backendNodeId map
+    // directly. The cost is ~one CDP call per interactive element per
+    // snapshot — measurable but bounded to the migration window.
+    const stringSelectorMap = new Map<string, string>();
+    if (backendNodeMap.size > 0) {
+      const eidsInOrder = [...backendNodeMap.keys()];
+      const backendNodeIds = eidsInOrder.map((eid) => backendNodeMap.get(eid)!);
+      try {
+        const { nodeIds } = await cdp.send<{ nodeIds: number[] }>(
+          "DOM.pushNodesByBackendIdsToFrontend",
+          { backendNodeIds },
+          context.signal,
+        );
+        for (let i = 0; i < eidsInOrder.length; i += 1) {
+          const eid = eidsInOrder[i]!;
+          const nodeId = nodeIds?.[i];
+          if (!nodeId) continue;
+          try {
+            await cdp.send(
+              "DOM.setAttributeValue",
+              {
+                nodeId,
+                name: "data-vellum-eid",
+                value: eid,
+              },
+              context.signal,
+            );
+            stringSelectorMap.set(eid, `[data-vellum-eid="${eid}"]`);
+          } catch (tagErr) {
+            // Best-effort: a single element failing to be tagged should
+            // not invalidate the whole snapshot. Log and move on so the
+            // backendNodeId path for that element still works.
+            log.debug(
+              { err: tagErr, eid, nodeId },
+              "Failed to tag element with data-vellum-eid during legacy bridge",
+            );
           }
-          const text = (el.textContent || '').trim().slice(0, 80);
-          return { eid, tag, attrs, text };
-        });
-      })()
-    `)) as SnapshotElement[];
-
-    // Build and store selector map
-    const selectorMap = new Map<string, string>();
-    for (const el of elements) {
-      selectorMap.set(el.eid, `[data-vellum-eid="${el.eid}"]`);
-    }
-    browserManager.storeSnapshotMap(context.conversationId, selectorMap);
-
-    // Format output
-    const lines: string[] = [
-      `URL: ${currentUrl}`,
-      `Title: ${title || "(none)"}`,
-      "",
-    ];
-
-    if (elements.length === 0) {
-      lines.push("(no interactive elements found)");
-    } else {
-      for (const el of elements) {
-        let desc = `<${el.tag}`;
-        for (const [key, val] of Object.entries(el.attrs)) {
-          desc += ` ${key}="${val}"`;
         }
-        desc += ">";
-        if (el.text) {
-          desc += ` ${el.text}`;
-        }
-        lines.push(`[${el.eid}] ${desc}`);
+      } catch (bridgeErr) {
+        // If the bridge itself blows up (e.g. pushNodesByBackendIdsToFrontend
+        // rejected), fall through with an empty legacy map. Unmigrated
+        // interaction tools will surface their own "element_id not
+        // found" error which points the agent at `browser_snapshot`.
+        log.warn(
+          { err: bridgeErr },
+          "Legacy snapshot selector bridge failed; unmigrated interaction tools may regress",
+        );
       }
-      lines.push("");
-      lines.push(
-        `${elements.length} interactive element${
-          elements.length === 1 ? "" : "s"
-        } found.`,
-      );
     }
+    browserManager.storeSnapshotMap(context.conversationId, stringSelectorMap);
 
-    return { content: lines.join("\n"), isError: false };
+    return {
+      content: formatAxSnapshot(
+        { elements, selectorMap: backendNodeMap },
+        { url: currentUrl, title },
+      ),
+      isError: false,
+    };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Snapshot failed");
     return { content: `Error: Snapshot failed: ${msg}`, isError: true };
+  } finally {
+    cdp.dispose();
   }
 }
 

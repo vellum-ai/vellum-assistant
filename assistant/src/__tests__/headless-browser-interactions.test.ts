@@ -68,7 +68,6 @@ import {
   executeBrowserPressKey,
   executeBrowserScroll,
   executeBrowserSelectOption,
-  executeBrowserSnapshot,
   executeBrowserType,
 } from "../tools/browser/browser-execution.js";
 import type { ToolContext } from "../tools/types.js";
@@ -287,72 +286,13 @@ describe("executeBrowserType", () => {
   });
 });
 
-// ── browser_snapshot ──────────────────────────────────────────────────
-
-describe("executeBrowserSnapshot", () => {
-  beforeEach(() => {
-    resetMockPage();
-    snapshotMaps.clear();
-  });
-
-  test("returns element list with eid format", async () => {
-    const sampleElements = [
-      { eid: "e1", tag: "a", attrs: { href: "/about" }, text: "About Us" },
-      { eid: "e2", tag: "button", attrs: { type: "submit" }, text: "Submit" },
-      {
-        eid: "e3",
-        tag: "input",
-        attrs: { type: "text", name: "email", placeholder: "Enter email" },
-        text: "",
-      },
-    ];
-    mockPage.evaluate = mock(async () => sampleElements);
-    const result = await executeBrowserSnapshot({}, ctx);
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("[e1]");
-    expect(result.content).toContain("[e2]");
-    expect(result.content).toContain("[e3]");
-    expect(result.content).toContain("<a");
-    expect(result.content).toContain("<button");
-    expect(result.content).toContain("<input");
-    expect(result.content).toContain("3 interactive elements found");
-  });
-
-  test("stores snapshot map for later element resolution", async () => {
-    const sampleElements = [
-      { eid: "e1", tag: "a", attrs: { href: "/" }, text: "Home" },
-    ];
-    mockPage.evaluate = mock(async () => sampleElements);
-    await executeBrowserSnapshot({}, ctx);
-    const map = snapshotMaps.get("test-conversation");
-    expect(map).toBeDefined();
-    expect(map!.get("e1")).toBe('[data-vellum-eid="e1"]');
-  });
-
-  test("reports no interactive elements when page is empty", async () => {
-    mockPage.evaluate = mock(async () => []);
-    const result = await executeBrowserSnapshot({}, ctx);
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("no interactive elements found");
-  });
-
-  test("includes page URL and title", async () => {
-    mockPage.evaluate = mock(async () => []);
-    const result = await executeBrowserSnapshot({}, ctx);
-    expect(result.content).toContain("URL: https://example.com/");
-    expect(result.content).toContain("Title: Test Page");
-  });
-
-  test("handles snapshot error from page", async () => {
-    mockPage.evaluate = mock(async () => {
-      throw new Error("Page crashed");
-    });
-    const result = await executeBrowserSnapshot({}, ctx);
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("Snapshot failed");
-    expect(result.content).toContain("Page crashed");
-  });
-});
+// NOTE: executeBrowserSnapshot tests live in
+// `headless-browser-snapshot.test.ts`. The snapshot tool now talks to
+// CDP via `getCdpClient` (no longer Playwright `page.evaluate`), so its
+// mocking surface is incompatible with the Playwright `mockPage`
+// scaffolding used here. The interactions file continues to drive the
+// still-Playwright-backed click/type/hover/etc. tools through the
+// `browserManager.snapshotMaps` bridge the snapshot tool writes.
 
 // browser_screenshot tests live in headless-browser-read-tools.test.ts
 // (alongside browser_extract / browser_wait_for) because it drives
@@ -684,17 +624,9 @@ describe("browser execution wrapper contract", () => {
     expect(result.isError).toBe(false);
   });
 
-  test("executeBrowserSnapshot matches wrapper contract", async () => {
-    mockPage.evaluate = mock(async () => [
-      { eid: "e1", tag: "button", attrs: {}, text: "Click me" },
-    ]);
-    mockPage.title = mock(async () => "Test");
-    mockPage.url = mock(() => "https://example.com");
-    const result = await executeBrowserSnapshot({}, ctx);
-    expect(result).toHaveProperty("content");
-    expect(result).toHaveProperty("isError");
-    expect(result.isError).toBe(false);
-  });
+  // executeBrowserSnapshot wrapper-contract check lives in
+  // `headless-browser-snapshot.test.ts` since the tool now talks to CDP
+  // and can't reuse this file's Playwright mock surface.
 
   // wrapper contract for executeBrowserExtract and
   // executeBrowserScreenshot lives in
