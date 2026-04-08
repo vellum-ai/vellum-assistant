@@ -26,11 +26,20 @@ public enum HealthCheckClient {
     }
 
     #if os(macOS)
-    /// Resolves the health check URL for a local assistant.
-    /// Returns `nil` when the gateway port cannot be determined from the lockfile.
+    /// Resolves the health check URL for a locally-running assistant.
+    ///
+    /// Prefers `gatewayPort` (bare-host local assistants) but falls back to
+    /// `runtimeUrl` (Docker, Apple Container) which already contains the
+    /// correct host and port (e.g. `http://localhost:7831`).
     static func localHealthCheckURL(for assistant: LockfileAssistant) -> URL? {
-        guard let port = assistant.gatewayPort else { return nil }
-        return URL(string: "http://127.0.0.1:\(port)/readyz")
+        if let port = assistant.gatewayPort {
+            return URL(string: "http://127.0.0.1:\(port)/readyz")
+        }
+        if let runtimeUrl = assistant.runtimeUrl, !runtimeUrl.isEmpty {
+            let base = runtimeUrl.hasSuffix("/") ? String(runtimeUrl.dropLast()) : runtimeUrl
+            return URL(string: "\(base)/readyz")
+        }
+        return nil
     }
 
     /// Check whether a specific assistant is reachable.
