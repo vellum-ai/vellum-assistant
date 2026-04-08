@@ -181,23 +181,17 @@ struct IntegrationsPanelContent: View {
     @ViewBuilder
     private var contentView: some View {
         if store.managedOAuthProvidersLoading && store.managedOAuthProviders.isEmpty {
-            VStack {
-                Spacer()
-                VLoadingIndicator()
-                Spacer()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VLoadingIndicator()
+                .frame(maxWidth: .infinity)
+                .containerRelativeFrame(.vertical) { height, _ in height * 0.7 }
         } else if filteredProviders.isEmpty {
-            VStack {
-                Spacer()
-                VEmptyState(
-                    title: emptyStateTitle,
-                    subtitle: emptyStateSubtitle,
-                    icon: VIcon.search.rawValue
-                )
-                Spacer()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VEmptyState(
+                title: emptyStateTitle,
+                subtitle: emptyStateSubtitle,
+                icon: VIcon.search.rawValue
+            )
+            .frame(maxWidth: .infinity)
+            .containerRelativeFrame(.vertical) { height, _ in height * 0.7 }
         } else {
             ScrollView {
                 LazyVStack(spacing: VSpacing.sm) {
