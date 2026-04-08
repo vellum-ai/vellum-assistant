@@ -126,7 +126,8 @@ struct MessageListView: View {
             .id(conversationId)
             .scrollContentBackground(.hidden)
             .scrollDisabled(messages.isEmpty && !isSending)
-            .frame(width: containerWidth > 0 ? min(containerWidth, VSpacing.chatColumnMaxWidth) : VSpacing.chatColumnMaxWidth)
+            .frame(maxWidth: VSpacing.chatColumnMaxWidth)
+            .frame(maxWidth: .infinity)
             // Apply only to .initialOffset — where the scroll view starts
             // when first displayed (including .id() recreation on switch).
             // Deliberately NOT using the all-roles overload (.sizeChanges)
