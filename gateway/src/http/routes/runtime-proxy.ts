@@ -44,16 +44,9 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
     let exchangeToken: string;
     if (config.runtimeProxyRequireAuth && req.method !== "OPTIONS") {
       const authHeader = req.headers.get("authorization");
-      const origin = req.headers.get("origin") ?? "<none>";
       if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
         log.warn(
-          {
-            method: req.method,
-            path: url.pathname,
-            origin,
-            hasAuth: !!authHeader,
-            authScheme: authHeader ? authHeader.split(" ")[0] : "<none>",
-          },
+          { method: req.method, path: url.pathname },
           "Runtime proxy auth rejected: missing or malformed Authorization header",
         );
         return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -62,13 +55,7 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
       const result = validateEdgeToken(edgeJwt);
       if (!result.ok) {
         log.warn(
-          {
-            method: req.method,
-            path: url.pathname,
-            origin,
-            reason: result.reason,
-            tokenLength: edgeJwt.length,
-          },
+          { method: req.method, path: url.pathname, reason: result.reason },
           "Runtime proxy auth rejected: edge token validation failed",
         );
         return Response.json({ error: "Unauthorized" }, { status: 401 });

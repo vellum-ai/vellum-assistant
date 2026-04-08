@@ -675,13 +675,7 @@ public enum GatewayHTTPClient {
     /// - Returns: A ``WebViewCredentials`` with the base URL and auth headers,
     ///   or `nil` if the connection cannot be resolved or is not authenticated.
     public static func resolveWebViewCredentials() -> WebViewCredentials? {
-        let connection: ConnectionInfo
-        do {
-            connection = try resolveConnection()
-        } catch {
-            log.warning("[vellum.fetch] resolveWebViewCredentials failed: resolveConnection threw \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
+        guard let connection = try? resolveConnection() else { return nil }
 
         var headers: [String: String] = [:]
         if let auth = connection.authHeader {
@@ -698,10 +692,6 @@ public enum GatewayHTTPClient {
         } else {
             pathPrefix = ""
         }
-
-        let headerKeys = headers.keys.sorted().joined(separator: ", ")
-        log.info("[vellum.fetch] resolveWebViewCredentials: baseURL=\(connection.baseURL, privacy: .public) isManaged=\(connection.isManaged, privacy: .public) hasAuthHeader=\(connection.authHeader != nil, privacy: .public) authField=\(connection.authHeader?.field ?? "none", privacy: .public) headerKeys=[\(headerKeys, privacy: .public)] pathPrefix=\(pathPrefix, privacy: .public)")
-
         return WebViewCredentials(baseURL: connection.baseURL, headers: headers, pathPrefix: pathPrefix)
     }
 

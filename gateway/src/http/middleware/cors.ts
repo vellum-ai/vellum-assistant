@@ -31,13 +31,7 @@ const ALLOWED_HEADERS =
 export function resolveWebviewOrigin(req: Request): string | null {
   const origin = req.headers.get("origin");
   if (!origin) return null;
-  if (!WEBVIEW_ORIGIN_RE.test(origin)) {
-    log.debug(
-      { origin, method: req.method, url: req.url },
-      "CORS origin rejected: does not match webview pattern",
-    );
-    return null;
-  }
+  if (!WEBVIEW_ORIGIN_RE.test(origin)) return null;
   return origin;
 }
 

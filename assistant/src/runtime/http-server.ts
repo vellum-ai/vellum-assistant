@@ -123,6 +123,7 @@ import {
   stopGuardianExpirySweep,
 } from "./routes/channel-routes.js";
 import { channelVerificationRouteDefinitions } from "./routes/channel-verification-routes.js";
+import { clientLogRouteDefinitions } from "./routes/client-log-routes.js";
 import {
   contactCatchAllRouteDefinitions,
   contactRouteDefinitions,
@@ -953,6 +954,7 @@ export class RuntimeHttpServer {
       ...debugRouteDefinitions(),
       ...usageRouteDefinitions(),
       ...telemetryRouteDefinitions(),
+      ...clientLogRouteDefinitions(),
       ...workspaceRouteDefinitions(),
       ...memoryItemRouteDefinitions(),
       ...conversationStarterRouteDefinitions(),
