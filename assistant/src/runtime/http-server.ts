@@ -322,6 +322,12 @@ export class RuntimeHttpServer {
     this.onProviderCredentialsChanged = options.onProviderCredentialsChanged;
     this.getHeartbeatService = options.getHeartbeatService;
     this.router = new HttpRouter(this.buildRouteTable());
+
+    // When constructed with full deps (e.g. in tests or the fallback path),
+    // mark as ready immediately so routes don't return 503.
+    if (this.processMessage) {
+      this._ready = true;
+    }
   }
 
   /** The port the server is actually listening on (resolved after start). */
