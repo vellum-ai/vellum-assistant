@@ -529,7 +529,7 @@ export async function platformImportBundleFromGcs(
       method: "POST",
       headers: await authHeaders(token, platformUrl),
       body: JSON.stringify({ bundle_key: bundleKey }),
-      signal: AbortSignal.timeout(300_000),
+      signal: AbortSignal.timeout(60_000),
     },
   );
 
@@ -542,4 +542,44 @@ export async function platformImportBundleFromGcs(
     unknown
   >;
   return { statusCode: response.status, body };
+}
+
+export async function platformPollImportStatus(
+  jobId: string,
+  token: string,
+  platformUrl?: string,
+): Promise<{
+  status: string;
+  result?: Record<string, unknown>;
+  error?: string;
+}> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const response = await fetch(
+    `${resolvedUrl}/v1/migrations/import/${jobId}/status/`,
+    {
+      headers: await authHeaders(token, platformUrl),
+    },
+  );
+
+  if (response.status === 404) {
+    throw new Error("Import job not found");
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `Import status check failed: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const body = (await response.json()) as {
+    status: string;
+    job_id?: string;
+    result?: Record<string, unknown>;
+    error?: string;
+  };
+  return {
+    status: body.status,
+    result: body.result,
+    error: body.error,
+  };
 }

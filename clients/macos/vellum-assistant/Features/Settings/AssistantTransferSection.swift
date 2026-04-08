@@ -392,6 +392,48 @@ struct AssistantTransferSection: View {
             throw TransferError.importFailed(message: "HTTP \(statusCode)")
         }
 
+        // Handle async import: 202 means the job was accepted and we need to poll
+        if statusCode == 202 {
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let jobId = json["job_id"] as? String else {
+                throw TransferError.importFailed(message: "Import accepted but no job ID returned")
+            }
+
+            let pollInterval: UInt64 = 5_000_000_000 // 5 seconds
+            let timeout: TimeInterval = 600 // 10 minutes
+            let start = Date()
+
+            while Date().timeIntervalSince(start) < timeout {
+                try await Task.sleep(nanoseconds: pollInterval)
+
+                let status: PlatformMigrationClient.ImportJobStatus
+                do {
+                    status = try await PlatformMigrationClient.pollImportStatus(jobId: jobId)
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch let error as PlatformMigrationClient.PlatformMigrationError {
+                    // Only retry on transient 5xx server errors
+                    // All other PlatformMigrationError cases (notAuthenticated, 4xx, etc.) are permanent
+                    if case .requestFailed(let statusCode, _) = error, (500..<600).contains(statusCode) {
+                        continue
+                    }
+                    // Permanent error — fail fast
+                    throw error
+                } catch {
+                    // Transient network errors — retry on next cycle
+                    continue
+                }
+
+                if status.status == "complete" {
+                    return
+                }
+                if status.status == "failed" {
+                    throw TransferError.importFailed(message: status.error ?? "Import job failed")
+                }
+            }
+            throw TransferError.importFailed(message: "Import timed out after 10 minutes")
+        }
+
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let success = json["success"] as? Bool, !success {
             let errorMsg = (json["error"] as? String) ?? "Import reported failure"
