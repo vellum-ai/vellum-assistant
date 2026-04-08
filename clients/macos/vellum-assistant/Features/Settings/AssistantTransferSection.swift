@@ -32,7 +32,7 @@ struct AssistantTransferSection: View {
                 .font(VFont.titleSmall)
                 .foregroundStyle(VColor.contentDefault)
 
-            if !assistant.isManaged && !assistant.isRemote {
+            if !assistant.isManaged && assistant.runsLocally {
                 localToManagedContent
             } else if assistant.isManaged {
                 managedToLocalContent
@@ -248,10 +248,10 @@ struct AssistantTransferSection: View {
 
             // Step 4 — Ensure local assistant exists and its daemon is running
             currentStep = "Preparing local assistant..."
-            var localAssistant = LockfileAssistant.loadAll().first(where: { !$0.isRemote && !$0.isManaged })
+            var localAssistant = LockfileAssistant.loadAll().first(where: { $0.runsLocally && !$0.isManaged })
             if localAssistant == nil {
                 try await AppDelegate.shared?.vellumCli.hatch()
-                localAssistant = LockfileAssistant.loadAll().first(where: { !$0.isRemote && !$0.isManaged })
+                localAssistant = LockfileAssistant.loadAll().first(where: { $0.runsLocally && !$0.isManaged })
             } else {
                 // Existing local assistant may be sleeping — wake it before health check
                 try await AppDelegate.shared?.vellumCli.wake(name: localAssistant!.assistantId)
