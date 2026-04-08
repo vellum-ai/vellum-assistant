@@ -1907,7 +1907,6 @@ describe("disconnectOAuthProvider", () => {
         defaultScopes: ["email"],
         scopePolicy: {},
         revokeUrl: "https://oauth2.googleapis.com/revoke",
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         revokeBodyTemplate: {
           token: "{access_token}",
           // expires_in is a number — must be coerced via String(value).
