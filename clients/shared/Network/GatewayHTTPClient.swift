@@ -676,6 +676,7 @@ public enum GatewayHTTPClient {
     ///   or `nil` if the connection cannot be resolved or is not authenticated.
     public static func resolveWebViewCredentials() -> WebViewCredentials? {
         guard let connection = try? resolveConnection() else { return nil }
+
         var headers: [String: String] = [:]
         if let auth = connection.authHeader {
             headers[auth.field] = auth.value

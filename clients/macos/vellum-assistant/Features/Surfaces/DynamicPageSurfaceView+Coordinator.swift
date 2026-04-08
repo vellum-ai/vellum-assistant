@@ -83,6 +83,7 @@ extension DynamicPageSurfaceView {
                 default:
                     log.info("[WebView] \(msg, privacy: .public)")
                 }
+
                 return
             }
 
