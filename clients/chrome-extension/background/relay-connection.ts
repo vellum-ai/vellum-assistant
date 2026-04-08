@@ -11,9 +11,8 @@
  *
  * The class only knows how to open the socket, forward incoming messages
  * to the caller, and reconnect after unexpected closes. It does NOT parse
- * relay messages — worker.ts owns the envelope dispatch (ExtensionCommand
- * + host_browser_request via the PR 9 dispatcher) via the `onMessage`
- * callback.
+ * relay messages — worker.ts owns the host_browser_request envelope
+ * dispatch via the `onMessage` callback.
  *
  * This module also exports {@link postHostBrowserResult}, the relay-aware
  * helper used by the host-browser dispatcher to ship CDP result envelopes
