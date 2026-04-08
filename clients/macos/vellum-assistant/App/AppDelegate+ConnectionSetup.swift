@@ -70,7 +70,7 @@ extension AppDelegate {
     /// Other remote assistants (cloud != "local") use HTTP+SSE via the gateway URL.
     /// Local assistants use HTTP+SSE via the assistant's runtime HTTP server.
     func configureDaemonTransport(for assistant: LockfileAssistant?) {
-        isCurrentAssistantRemote = assistant?.isRemote ?? false
+        isCurrentAssistantLocal = assistant?.runsLocally ?? true
         isCurrentAssistantManaged = assistant?.isManaged ?? false
         isCurrentAssistantDocker = assistant?.isDocker ?? false
 

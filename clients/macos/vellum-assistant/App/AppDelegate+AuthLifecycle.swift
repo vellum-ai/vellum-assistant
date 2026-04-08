@@ -233,7 +233,7 @@ extension AppDelegate {
             // Clear platform identity credentials from the running assistant (local assistants only).
             // Skip when the assistant was never set up (e.g. logout during onboarding) —
             // there are no credentials to clear and no assistant to stop.
-            if !isCurrentAssistantManaged && (!isCurrentAssistantRemote || isCurrentAssistantDocker) && hasSetupDaemon {
+            if !isCurrentAssistantManaged && isCurrentAssistantLocal && hasSetupDaemon {
                 let cleared = await LocalAssistantBootstrapService.clearAssistantCredentials()
                 if !cleared {
                     log.warning("Credential cleanup incomplete — stopping assistant to prevent stale managed credential state")
@@ -244,7 +244,7 @@ extension AppDelegate {
 
             // Clear locally-cached credentials for all local assistants
             let credStorage = FileCredentialStorage()
-            for assistant in LockfileAssistant.loadAll() where (!assistant.isRemote || assistant.isDocker) && !assistant.isManaged {
+            for assistant in LockfileAssistant.loadAll() where assistant.runsLocally && !assistant.isManaged {
                 let credentialAccount = LocalAssistantBootstrapService.credentialAccount(for: assistant.assistantId)
                 _ = credStorage.delete(account: credentialAccount)
             }
@@ -258,7 +258,7 @@ extension AppDelegate {
             // identity credentials. Assistant switches intentionally leave old processes
             // running for fast switching, but on full logout there's no reason to keep
             // them alive with potentially stale state.
-            for assistant in LockfileAssistant.loadAll() where (!assistant.isRemote || assistant.isDocker) && !assistant.isManaged {
+            for assistant in LockfileAssistant.loadAll() where assistant.runsLocally && !assistant.isManaged {
                 if assistant.assistantId != connectedAssistantId {
                     do {
                         try await vellumCli.sleep(name: assistant.assistantId)
@@ -352,8 +352,8 @@ extension AppDelegate {
     /// 10s, so that assistant switches (which clear then re-bootstrap actor
     /// credentials) don't race with this method.
     func ensureLocalAssistantApiKey() {
-        guard !isCurrentAssistantManaged, (!isCurrentAssistantRemote || isCurrentAssistantDocker) else {
-            log.debug("Skipping local assistant API key provisioning because current assistant is managed=\(self.isCurrentAssistantManaged, privacy: .public) remote=\(self.isCurrentAssistantRemote, privacy: .public)")
+        guard !isCurrentAssistantManaged, isCurrentAssistantLocal else {
+            log.debug("Skipping local assistant API key provisioning because current assistant is managed=\(self.isCurrentAssistantManaged, privacy: .public) local=\(!self.isCurrentAssistantLocal, privacy: .public)")
             return
         }
         guard authManager.isAuthenticated else {
@@ -700,8 +700,8 @@ extension AppDelegate {
         let remaining = LockfileAssistant.loadAll().filter { $0.assistantId != assistantName && $0.isCurrentEnvironment }
         if !remaining.isEmpty {
             // Try remote assistants first — they're always reachable
-            if let remote = remaining.first(where: { $0.isRemote }) {
-                performSwitchAssistant(to: remote)
+            if let cloudHosted = remaining.first(where: { !$0.runsLocally }) {
+                performSwitchAssistant(to: cloudHosted)
                 return true
             }
 
@@ -826,7 +826,7 @@ extension AppDelegate {
 
         Task {
             let allAssistants = LockfileAssistant.loadAll()
-            let localAssistants = allAssistants.filter { !$0.isRemote || $0.isDocker }
+            let localAssistants = allAssistants.filter { $0.runsLocally }
 
             // Disconnect SSE before retiring so the reconnect loop doesn't
             // hit a half-torn-down gateway and produce 502 errors.

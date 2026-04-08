@@ -172,9 +172,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Last time we surfaced the denied-notification permission toast.
     var lastNotificationPermissionToastAtMs: Double = 0
 
-    /// Whether the current assistant runs remotely (cloud != "local").
-    /// When true, local assistant hatching is skipped.
-    var isCurrentAssistantRemote = false
+    /// Whether the current assistant runs locally (local, Docker, or Apple Container).
+    /// When false, local assistant hatching and credential provisioning are skipped.
+    var isCurrentAssistantLocal = true
 
     /// Whether the current assistant is platform-managed (cloud == "vellum").
     /// When true, actor credential bootstrap is skipped since identity is
@@ -705,7 +705,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     // If the user is signed in with a local assistant, wait for
                     // credential provisioning to complete before sending the wake-up
                     // greeting, so the managed-proxy key is available for the LLM call.
-                    if authManager.isAuthenticated && (!isCurrentAssistantRemote || isCurrentAssistantDocker) {
+                    if authManager.isAuthenticated && isCurrentAssistantLocal {
                         await awaitLocalBootstrapCompleted(timeout: 30)
                     }
 
