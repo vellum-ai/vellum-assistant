@@ -22,6 +22,7 @@ import { getDb, resetDb } from "../../memory/db-connection.js";
 import { validateMigrationState } from "../../memory/migrations/validate-migration-state.js";
 import { clearCache as clearTrustCache } from "../../permissions/trust-store.js";
 import {
+  bulkSetSecureKeysAsync,
   getSecureKeyAsync,
   listSecureKeysAsync,
 } from "../../security/secure-keys.js";
@@ -38,7 +39,10 @@ import {
   analyzeImport,
   DefaultPathResolver,
 } from "../migrations/vbundle-import-analyzer.js";
-import { commitImport } from "../migrations/vbundle-importer.js";
+import {
+  commitImport,
+  extractCredentialsFromBundle,
+} from "../migrations/vbundle-importer.js";
 import { validateVBundle } from "../migrations/vbundle-validator.js";
 
 const log = getLogger("migration-routes");
@@ -459,6 +463,41 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
         },
         { status: 500 },
       );
+    }
+
+    // Import credentials from the bundle into CES (non-blocking — failures
+    // are logged as warnings but do not fail the overall import).
+    if (validation.entries) {
+      const bundleCredentials = extractCredentialsFromBundle(
+        validation.entries,
+      );
+      if (bundleCredentials.length > 0) {
+        try {
+          const credResults = await bulkSetSecureKeysAsync(bundleCredentials);
+          const failed = credResults.filter((r) => !r.ok);
+          if (failed.length > 0) {
+            log.warn(
+              { failed: failed.map((f) => f.account) },
+              "Some credentials failed to import",
+            );
+          }
+          log.info(
+            { total: bundleCredentials.length, failed: failed.length },
+            "Credential import complete",
+          );
+          const succeeded = bundleCredentials.length - failed.length;
+          if (failed.length > 0) {
+            result.report.warnings.push(
+              `Imported ${succeeded} credential(s), ${failed.length} failed`,
+            );
+          }
+        } catch (err) {
+          log.warn({ err }, "Credential import failed entirely");
+          result.report.warnings.push(
+            `Credential import failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
     }
 
     // Invalidate in-process caches so imported settings.json and trust.json take effect

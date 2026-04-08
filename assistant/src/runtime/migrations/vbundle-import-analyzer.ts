@@ -93,6 +93,11 @@ export class DefaultPathResolver implements PathResolver {
   ) {}
 
   resolve(archivePath: string): string | null {
+    // Skip credential entries — handled separately by the credential import step
+    if (archivePath.startsWith("credentials/")) {
+      return null;
+    }
+
     // New format: workspace/ prefix — maps directly into the workspace dir
     if (archivePath.startsWith("workspace/") && this.workspaceDir) {
       const relPath = archivePath.slice("workspace/".length);

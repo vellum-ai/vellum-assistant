@@ -381,6 +381,33 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
 }
 
 // ---------------------------------------------------------------------------
+// Credential extraction
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract credential entries from a validated vbundle tar entries map.
+ *
+ * Credentials are stored under the `credentials/` prefix in the archive,
+ * where the remainder of the path is the account name and the entry data
+ * is the credential value.
+ */
+export function extractCredentialsFromBundle(
+  entries: Map<string, VBundleTarEntry>,
+): Array<{ account: string; value: string }> {
+  const credentials: Array<{ account: string; value: string }> = [];
+  for (const [path, entry] of entries) {
+    if (path.startsWith("credentials/")) {
+      const account = path.slice("credentials/".length);
+      if (account) {
+        const value = new TextDecoder().decode(entry.data);
+        credentials.push({ account, value });
+      }
+    }
+  }
+  return credentials;
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
