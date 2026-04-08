@@ -124,5 +124,8 @@ let package = Package(
             dependencies: ["VellumAssistantShared"],
             path: "ios/Tests"
         )
-    ]
+    ],
+    // swift-tools-version 6.2 is required by the `containerization` dependency,
+    // but the codebase isn't yet migrated to Swift 6 strict concurrency.
+    swiftLanguageModes: [.v5]
 )
