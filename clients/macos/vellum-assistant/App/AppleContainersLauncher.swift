@@ -51,7 +51,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
 
     static let initImageVersion = "0.30.1"
     static let initImageReference = "ghcr.io/apple/containerization/vminit:\(initImageVersion)"
-    static let bundledKernelSubdirectory = "DeveloperVM"
+    nonisolated(unsafe) static let bundledKernelSubdirectory = "DeveloperVM"
     static let defaultFilesystemSizeInBytes: UInt64 = 2 * 1024 * 1024 * 1024
 
     /// OCI image for the assistant container. Will be replaced with the
