@@ -22,6 +22,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y \
     ca-certificates \
     iproute2 \
     procps \
+    python3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy bun binary from builder

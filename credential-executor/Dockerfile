@@ -32,6 +32,7 @@ WORKDIR /app/credential-executor
 
 RUN apt-get update && apt-get install -y \
     ca-certificates \
+    python3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy bun binary from builder
