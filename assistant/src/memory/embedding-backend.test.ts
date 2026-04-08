@@ -58,7 +58,7 @@ describe("embedding backend cache invalidation", () => {
     const poisonedInitPromise = Promise.reject(new Error("poisoned"));
     poisonedInitPromise.catch(() => {});
 
-    const backend = firstSelection.backend as {
+    const backend = firstSelection.backend as unknown as {
       delegate: unknown;
       initPromise: Promise<unknown> | null;
     };
