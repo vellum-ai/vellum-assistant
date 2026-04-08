@@ -191,9 +191,14 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
         }
 
         // 6. Create and start.
+        log.info("Creating pod VM...")
         try await pod.create()
+        log.info("Pod VM created. Starting containers...")
         for service in VellumServiceName.startOrder {
-            try await pod.startContainer(containerID(service))
+            let cid = containerID(service)
+            log.info("Starting container \(cid, privacy: .public)...")
+            try await pod.startContainer(cid)
+            log.info("Container \(cid, privacy: .public) started")
         }
 
         lock.withLock {
