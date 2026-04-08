@@ -388,10 +388,11 @@ async function handleServerMessage(raw: string): Promise<void> {
   }
 
   // Phase 2 PR 9: host_browser_* envelopes are dispatched via the CDP proxy
-  // only when the feature flag is on. With the flag off we return early and
-  // let the daemon's host-browser-proxy time out gracefully — the envelope
-  // is NOT forwarded to the legacy ExtensionCommand dispatch because its
-  // shape is incompatible.
+  // only when the feature flag is on. With the flag off we synthesize an
+  // immediate error result so the daemon side clears its pending interaction
+  // instantly instead of waiting for host-browser-proxy to time out. The
+  // envelope is NOT forwarded to the legacy ExtensionCommand dispatch because
+  // its shape is incompatible.
   if (
     parsed !== null &&
     typeof parsed === 'object' &&
@@ -400,7 +401,27 @@ async function handleServerMessage(raw: string): Promise<void> {
   ) {
     const envelopeType = (parsed as { type: string }).type;
     if (envelopeType === 'host_browser_request') {
-      if (!cdpProxyEnabled) return;
+      if (!cdpProxyEnabled) {
+        console.warn(
+          '[vellum-relay] host_browser_request received but cdpProxyEnabled=false; returning error',
+        );
+        const request = parsed as HostBrowserRequestEnvelope;
+        const errorResult: HostBrowserResultEnvelope = {
+          requestId: request.requestId,
+          content:
+            'Vellum CDP browser proxy is not enabled in this extension. Enable the "Host browser CDP proxy" toggle in the popup to use host_browser.',
+          isError: true,
+        };
+        try {
+          await dispatchHostBrowserResult(errorResult);
+        } catch (err) {
+          console.warn(
+            '[vellum-relay] Failed to dispatch cdpProxyEnabled=false error result',
+            err,
+          );
+        }
+        return;
+      }
       await hostBrowserDispatcher.handle(parsed as HostBrowserRequestEnvelope);
       return;
     }

@@ -44,12 +44,19 @@ export type PairServerContext = {
  * Hard-coded allowlist of chrome extension origins permitted to request a
  * capability token. Mirrors the placeholder id used by the native messaging
  * helper at `clients/chrome-extension-native-host/src/index.ts`
- * (`ALLOWED_EXTENSION_IDS`). Both lists must agree for the dev pair flow
- * to work end-to-end — update them together before release.
+ * (`ALLOWED_EXTENSION_IDS`) and the macOS installer at
+ * `clients/macos/vellum-assistant/App/AppDelegate+NativeMessaging.swift`
+ * (`devPlaceholderId`). All three must agree for the dev pair flow to work
+ * end-to-end — the
+ * `assistant/src/__tests__/extension-id-sync-guard.test.ts` sync guard
+ * will fail if any of the three drifts out of sync, so update them
+ * together before release.
  */
 export const ALLOWED_EXTENSION_ORIGINS: ReadonlySet<string> = new Set<string>([
   // Dev placeholder — replaced when the unpacked extension is loaded locally.
-  // TODO: production chrome extension id before release
+  // SYNC: update alongside the native host and macOS installer constants
+  // (see extension-id-sync-guard.test.ts). TODO: production chrome extension
+  // id before release.
   "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
 ]);
 

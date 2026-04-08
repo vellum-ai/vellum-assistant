@@ -117,22 +117,16 @@ precedence (highest first):
    named local instances spawned by `cli/src/lib/local.ts` which set
    `RUNTIME_HTTP_PORT` from `resources.daemonPort`).
 2. **`~/.vellum/runtime-port`** lockfile — a single integer written by
-   the assistant on startup. *Note: this lockfile is not yet written by
-   the assistant — see the TODO below.* Once it is, default installs
-   will not need any manifest-side configuration.
+   the assistant on startup via
+   `RuntimeHttpServer.writeRuntimePortFile()`. Default installs (and any
+   setup with a single running assistant) resolve their port through
+   this file without any manifest-side configuration.
 3. **`7821`** — the well-known default port.
 
 If a step fails (file missing, parse error, etc.), resolution falls
 through to the next step. The subsequent HTTP request will surface a
 clear connection error if the assistant isn't actually listening on the
 resolved port.
-
-> **TODO (follow-up):** Have the assistant write its active HTTP port
-> to `~/.vellum/runtime-port` on startup so the lockfile branch above
-> starts working without requiring `--assistant-port`. This was
-> intentionally left out of the scaffold PR (PR 7) to keep the change
-> surface small. Until then, multi-instance installs should rely on the
-> CLI flag via a wrapper script in the native messaging manifest.
 
 ## Building
 
