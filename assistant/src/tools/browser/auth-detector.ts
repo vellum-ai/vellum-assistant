@@ -1,4 +1,8 @@
-import type { Page } from "./browser-manager.js";
+import {
+  evaluateExpression,
+  getCurrentUrl,
+} from "./cdp-client/cdp-dom-helpers.js";
+import type { CdpClient } from "./cdp-client/types.js";
 
 export type AuthChallengeType = "login" | "2fa" | "oauth_consent" | "captcha";
 
@@ -106,7 +110,7 @@ interface DomDetectionResult {
  * DOM elements. Returns a serialisable result or null.
  *
  * The expression is a self-contained IIFE so it can be passed as a string
- * to `page.evaluate()`.
+ * to `Runtime.evaluate()` via {@link evaluateExpression}.
  */
 const DOM_DETECT_EXPRESSION = `(() => {
   const fields = [];
@@ -259,23 +263,38 @@ const CAPTCHA_DETECT_EXPRESSION = `(() => {
 /**
  * Detect whether the current page presents a CAPTCHA or Cloudflare
  * challenge that requires human interaction.
+ *
+ * Migrated to CDP: runs {@link CAPTCHA_DETECT_EXPRESSION} via
+ * `Runtime.evaluate` and reads the current URL via
+ * {@link getCurrentUrl}. Errors (including {@link CdpError}) are
+ * swallowed and reported as "no challenge" so the caller can treat
+ * this as best-effort detection.
  */
 export async function detectCaptchaChallenge(
-  page: Page,
+  cdp: CdpClient,
+  signal?: AbortSignal,
 ): Promise<AuthChallenge | null> {
   try {
-    const isCaptcha = (await page.evaluate(
+    const isCaptcha = await evaluateExpression<boolean>(
+      cdp,
       CAPTCHA_DETECT_EXPRESSION,
-    )) as boolean;
+      {},
+      signal,
+    );
     if (isCaptcha) {
+      const url = await getCurrentUrl(cdp, signal);
       return {
         type: "captcha",
         fields: [],
-        url: page.url(),
+        url,
       };
     }
     return null;
   } catch {
+    // Best-effort detection: swallow CdpError (aborted / disposed /
+    // transport failures) and any other runtime error so a failed
+    // probe is reported as "no challenge detected" instead of
+    // bubbling up through navigation.
     return null;
   }
 }
@@ -290,19 +309,29 @@ export async function detectCaptchaChallenge(
  *
  * Returns an {@link AuthChallenge} if a challenge is detected, or `null`
  * if the page does not appear to be an auth page.
+ *
+ * Migrated to CDP: runs {@link DOM_DETECT_EXPRESSION} via
+ * `Runtime.evaluate` and reads the current URL via
+ * {@link getCurrentUrl}. Errors (including {@link CdpError}) are
+ * swallowed and reported as "no challenge" so the caller can treat
+ * this as best-effort detection.
  */
 export async function detectAuthChallenge(
-  page: Page,
+  cdp: CdpClient,
+  signal?: AbortSignal,
 ): Promise<AuthChallenge | null> {
   try {
-    const currentUrl = page.url();
+    const currentUrl = await getCurrentUrl(cdp, signal);
     const service = identifyService(currentUrl);
     const urlIsAuth = isAuthUrl(currentUrl);
 
-    // DOM-based detection
-    const domResult = (await page.evaluate(
+    // DOM-based detection via Runtime.evaluate
+    const domResult = await evaluateExpression<DomDetectionResult | null>(
+      cdp,
       DOM_DETECT_EXPRESSION,
-    )) as DomDetectionResult | null;
+      {},
+      signal,
+    );
 
     if (domResult) {
       return {
@@ -326,7 +355,9 @@ export async function detectAuthChallenge(
 
     return null;
   } catch {
-    // If page.evaluate throws (e.g. page closed, navigation), treat as no challenge
+    // If Runtime.evaluate throws (e.g. page closed, navigation,
+    // aborted, disposed) — or any other CDP/transport failure — treat
+    // as no challenge. Matches the pre-CDP best-effort semantics.
     return null;
   }
 }
