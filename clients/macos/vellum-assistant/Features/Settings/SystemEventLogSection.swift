@@ -156,7 +156,7 @@ struct SystemEventLogSection: View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             HStack(spacing: VSpacing.sm) {
                 VTag(event.type.displayName, color: event.type.color)
-                VTag(event.eventStatus.displayName, color: event.eventStatus.color)
+                VBadge(label: event.eventStatus.displayName, tone: event.eventStatus.tone, emphasis: .subtle)
                 Spacer()
                 Text(event.formattedOccurredAt)
                     .font(VFont.labelDefault)
@@ -402,17 +402,20 @@ enum SystemEventType: String, Decodable {
         }
     }
 
-    /// Pastel tag color, picked to roughly match the platform UI's Tailwind palette.
+    /// Tag color for the type pill. Uses design system tokens (raw SwiftUI
+    /// `Color` literals are blocked by the design token guard). The palette is
+    /// narrower than the platform UI's Tailwind colors but still gives crash /
+    /// rollback / upgrade visual prominence.
     var color: Color {
         switch self {
-        case .lifecycle: return .purple
-        case .upgrade: return .blue
-        case .rollback: return .orange
-        case .crash: return .red
-        case .idleSleep: return .gray
-        case .wake: return .green
-        case .profiler: return .indigo
-        case .other: return .gray
+        case .lifecycle: return VColor.primaryBase
+        case .upgrade: return VColor.systemPositiveStrong
+        case .rollback: return VColor.systemMidStrong
+        case .crash: return VColor.systemNegativeStrong
+        case .idleSleep: return VColor.contentTertiary
+        case .wake: return VColor.systemPositiveStrong
+        case .profiler: return VColor.primaryBase
+        case .other: return VColor.contentTertiary
         }
     }
 }
@@ -435,13 +438,14 @@ enum SystemEventStatus: String, Decodable {
         }
     }
 
-    var color: Color {
+    /// Semantic tone for the status badge.
+    var tone: VBadge.Tone {
         switch self {
-        case .started: return .blue
-        case .succeeded: return VColor.systemPositiveStrong
-        case .failed: return VColor.systemNegativeStrong
-        case .inProgress: return .orange
-        case .other: return .gray
+        case .started: return .neutral
+        case .succeeded: return .positive
+        case .failed: return .danger
+        case .inProgress: return .warning
+        case .other: return .neutral
         }
     }
 }
