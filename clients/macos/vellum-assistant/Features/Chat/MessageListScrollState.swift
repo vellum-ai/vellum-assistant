@@ -428,6 +428,12 @@ final class MessageListScrollState {
     /// Timeout task for expansion stabilization — auto-ends after 200ms.
     @ObservationIgnored private var expansionTimeoutTask: Task<Void, Never>?
 
+    /// Generation counter for lifecycle-driven bottom pins that are deferred
+    /// onto the next main-queue turn. This keeps `onChange` handlers from
+    /// mutating `ScrollPosition` during the same SwiftUI update pass that
+    /// triggered them.
+    @ObservationIgnored private var deferredBottomPinGeneration: UInt64 = 0
+
     /// Tracks overlapping stabilization windows. Stabilization only ends
     /// when all active windows have completed, so concurrent reasons
     /// (e.g. resize during pagination) don't prematurely restore the mode.
@@ -588,6 +594,40 @@ final class MessageListScrollState {
             }
             self.endStabilization()
         }
+    }
+
+    /// Schedules a bottom-pin for the next main-queue turn, coalescing
+    /// repeated requests from the same render cycle into a single execution.
+    ///
+    /// This is primarily used by lifecycle `onChange` handlers that can fire
+    /// during a SwiftUI update pass (for example `isSending` and
+    /// `messages.count`). Deferring the actual `ScrollPosition` write avoids
+    /// tripping SwiftUI's "Modifying state during view update" runtime guard.
+    func scheduleDeferredBottomPin(
+        animated: Bool = false,
+        userInitiated: Bool = false,
+        forceFollowingBottom: Bool = false,
+        refreshRecoveryWindow: Bool = false
+    ) {
+        deferredBottomPinGeneration &+= 1
+        let generation = deferredBottomPinGeneration
+        DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.deferredBottomPinGeneration == generation else { return }
+                if forceFollowingBottom {
+                    self.transition(to: .followingBottom)
+                }
+                if refreshRecoveryWindow {
+                    self.bottomAnchorAppeared = false
+                    self.recoveryDeadline = Date().addingTimeInterval(2.0)
+                }
+                _ = self.requestPinToBottom(animated: animated, userInitiated: userInitiated)
+            }
+        }
+    }
+
+    func cancelDeferredBottomPin() {
+        deferredBottomPinGeneration &+= 1
     }
 
     // MARK: - Scroll Execution
@@ -810,6 +850,7 @@ final class MessageListScrollState {
     func reset(for newConversationId: UUID?) {
         cancelStabilizationTasks()
         stabilizationGeneration &+= 1
+        cancelDeferredBottomPin()
         paginationTask?.cancel()
         paginationTask = nil
         ScrollGeometryUpdateDispatcher.shared.cancel(for: self)
@@ -857,6 +898,7 @@ final class MessageListScrollState {
     func cancelAll() {
         cancelStabilizationTasks()
         stabilizationGeneration &+= 1
+        cancelDeferredBottomPin()
         uiSyncTask?.cancel()
         uiSyncTask = nil
         scrollRestoreTask?.cancel()

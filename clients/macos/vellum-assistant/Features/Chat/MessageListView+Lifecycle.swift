@@ -124,15 +124,16 @@ extension MessageListView {
             if isDaemonConfirmationResume && !scrollState.isFollowingBottom {
                 // Daemon resumed from confirmation while user was scrolled up.
             } else {
-                scrollState.transition(to: .followingBottom)
-                // Start a fresh recovery window: the animated scroll can
-                // overshoot into blank LazyVStack estimated space. Without
-                // this, isAtBottom is falsely true at the estimated bottom
-                // and persistent recovery doesn't fire — the viewport
-                // stays blank until the user scrolls manually.
-                scrollState.bottomAnchorAppeared = false
-                scrollState.recoveryDeadline = Date().addingTimeInterval(2.0)
-                scrollState.requestPinToBottom(animated: true)
+                // Defer the actual bottom-pin to the next main-queue turn.
+                // Both `isSending` and `messages.count` can change in the
+                // same SwiftUI update cycle after the user sends a message;
+                // issuing immediate `ScrollPosition` writes here can trip
+                // SwiftUI's "Modifying state during view update" guard.
+                scrollState.scheduleDeferredBottomPin(
+                    animated: true,
+                    forceFollowingBottom: true,
+                    refreshRecoveryWindow: true
+                )
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
                             "target=bottom reason=sendFollowingBottom")
             }
@@ -193,7 +194,7 @@ extension MessageListView {
             scrollState.lastMessageId = lastId
         }
         if anchorMessageId == nil {
-            scrollState.requestPinToBottom(animated: true)
+            scrollState.scheduleDeferredBottomPin(animated: true)
         }
         // --- Confirmation focus handoff ---
         #if os(macOS)

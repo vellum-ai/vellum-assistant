@@ -302,6 +302,56 @@ final class MessageListScrollStateTests: XCTestCase {
         }
     }
 
+    // MARK: - Deferred Bottom Pins
+
+    func testDeferredBottomPinExecutesOnNextRunLoop() async throws {
+        state.transition(to: .followingBottom)
+        let lastId = UUID()
+        state.lastMessageId = lastId
+
+        state.scheduleDeferredBottomPin(animated: true)
+
+        XCTAssertTrue(scrollToCalls.isEmpty,
+                      "Deferred pin should not mutate scroll position synchronously")
+
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        XCTAssertEqual(scrollToCalls.count, 1)
+        XCTAssertEqual(scrollToCalls.first?.id, AnyHashable(lastId))
+        XCTAssertEqual(scrollToCalls.first?.anchor, .bottom)
+    }
+
+    func testDeferredBottomPinCoalescesRepeatedRequests() async throws {
+        state.transition(to: .followingBottom)
+        let lastId = UUID()
+        state.lastMessageId = lastId
+
+        state.scheduleDeferredBottomPin(animated: true)
+        state.scheduleDeferredBottomPin(animated: true)
+        state.scheduleDeferredBottomPin(animated: true, forceFollowingBottom: true, refreshRecoveryWindow: true)
+
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        XCTAssertEqual(scrollToCalls.count, 1,
+                       "Repeated deferred pins from one update cycle should coalesce")
+        XCTAssertTrue(state.isFollowingBottom)
+        XCTAssertFalse(state.bottomAnchorAppeared)
+        XCTAssertNotNil(state.recoveryDeadline)
+    }
+
+    func testDeferredBottomPinCancelledByReset() async throws {
+        state.transition(to: .followingBottom)
+        state.lastMessageId = UUID()
+
+        state.scheduleDeferredBottomPin(animated: true)
+        state.reset(for: UUID())
+
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        XCTAssertTrue(scrollToCalls.isEmpty,
+                      "Reset should cancel any deferred bottom pin from the old conversation")
+    }
+
     // MARK: - Reset
 
     func testResetRestoresDefaults() {
