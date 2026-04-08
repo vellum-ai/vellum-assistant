@@ -90,7 +90,7 @@ type ProviderRow = {
   authorizeUrl: string;
   tokenExchangeUrl: string;
   refreshUrl: string | null;
-  tokenEndpointAuthMethod: string | null;
+  tokenEndpointAuthMethod: string;
   userinfoUrl: string | null;
   baseUrl: string | null;
   defaultScopes: string;
@@ -168,7 +168,7 @@ function makeProviderRow(
     authorizeUrl: "https://provider.example.com/authorize",
     tokenExchangeUrl: "https://provider.example.com/token",
     refreshUrl: null,
-    tokenEndpointAuthMethod: null,
+    tokenEndpointAuthMethod: "client_secret_post",
     userinfoUrl: null,
     baseUrl: null,
     defaultScopes: '["openid","email"]',

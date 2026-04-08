@@ -116,6 +116,7 @@ import {
   migrateOAuthProvidersRefreshUrl,
   migrateOAuthProvidersRevoke,
   migrateOAuthProvidersScopeSeparator,
+  migrateOAuthProvidersTokenAuthMethodDefault,
   migrateReminderRoutingIntent,
   migrateRemindersToSchedules,
   migrateRenameConversationTypeColumn,
@@ -358,6 +359,7 @@ export function initializeDb(): void {
     migrateOAuthProvidersScopeSeparator,
     migrateOAuthProvidersRefreshUrl,
     migrateOAuthProvidersRevoke,
+    migrateOAuthProvidersTokenAuthMethodDefault,
   ];
 
   // Run each migration step, catching and logging individual failures so one

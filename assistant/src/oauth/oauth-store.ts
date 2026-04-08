@@ -115,7 +115,12 @@ export function seedProviders(
     const authorizeUrl = p.authorizeUrl;
     const tokenExchangeUrl = p.tokenExchangeUrl;
     const refreshUrl = p.refreshUrl ?? null;
-    const tokenEndpointAuthMethod = p.tokenEndpointAuthMethod ?? null;
+    // Coerce undefined and empty string to the default. The schema declares
+    // this column as NOT NULL with default "client_secret_post"; passing null
+    // here would be a type error, and an empty string is never a valid OAuth
+    // token endpoint auth method.
+    const tokenEndpointAuthMethod =
+      p.tokenEndpointAuthMethod || "client_secret_post";
     const userinfoUrl = p.userinfoUrl ?? null;
     const pingUrl = p.pingUrl ?? null;
     const pingMethod = p.pingMethod ?? null;
@@ -319,7 +324,8 @@ export function registerProvider(params: {
     authorizeUrl: params.authorizeUrl,
     tokenExchangeUrl: params.tokenExchangeUrl,
     refreshUrl: params.refreshUrl ?? null,
-    tokenEndpointAuthMethod: params.tokenEndpointAuthMethod ?? null,
+    tokenEndpointAuthMethod:
+      params.tokenEndpointAuthMethod || "client_secret_post",
     userinfoUrl: params.userinfoUrl ?? null,
     baseUrl: params.baseUrl ?? null,
     defaultScopes: JSON.stringify(params.defaultScopes),
@@ -437,7 +443,8 @@ export function updateProvider(
     set.tokenExchangeUrl = params.tokenExchangeUrl;
   if (params.refreshUrl !== undefined) set.refreshUrl = params.refreshUrl;
   if (params.tokenEndpointAuthMethod !== undefined)
-    set.tokenEndpointAuthMethod = params.tokenEndpointAuthMethod;
+    set.tokenEndpointAuthMethod =
+      params.tokenEndpointAuthMethod || "client_secret_post";
   if (params.userinfoUrl !== undefined) set.userinfoUrl = params.userinfoUrl;
   if (params.pingUrl !== undefined) set.pingUrl = params.pingUrl;
   if (params.pingMethod !== undefined) set.pingMethod = params.pingMethod;

@@ -14,7 +14,7 @@ function makeRow(overrides: Partial<OAuthProviderRow> = {}): OAuthProviderRow {
     authorizeUrl: "https://auth.example.com/authorize",
     tokenExchangeUrl: "https://auth.example.com/token",
     refreshUrl: null,
-    tokenEndpointAuthMethod: null,
+    tokenEndpointAuthMethod: "client_secret_post",
     userinfoUrl: null,
     baseUrl: null,
     defaultScopes: "[]",

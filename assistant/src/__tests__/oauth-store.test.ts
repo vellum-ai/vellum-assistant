@@ -24,6 +24,8 @@ mock.module("../security/secure-keys.js", () => ({
 import { eq } from "drizzle-orm";
 
 import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import { getSqliteFrom } from "../memory/db-connection.js";
+import { migrateOAuthProvidersTokenAuthMethodDefault } from "../memory/migrations/216-oauth-providers-token-auth-method.js";
 import { oauthProviders } from "../memory/schema/oauth.js";
 import {
   createConnection,
@@ -522,6 +524,78 @@ describe("provider operations", () => {
       expect(outlook).toBeDefined();
       expect(outlook!.revokeUrl).toBeNull();
     });
+
+    test("applies client_secret_post default when tokenEndpointAuthMethod is omitted from seed", () => {
+      seedProviders([
+        {
+          provider: "no-auth-method-provider",
+          authorizeUrl: "https://example.com/authorize",
+          tokenExchangeUrl: "https://example.com/token",
+          defaultScopes: [],
+          scopePolicy: {},
+          // Note: tokenEndpointAuthMethod intentionally omitted
+        },
+      ]);
+      const row = getProvider("no-auth-method-provider");
+      expect(row).toBeDefined();
+      expect(row!.tokenEndpointAuthMethod).toBe("client_secret_post");
+    });
+
+    test("migration 216 backfills NULL token_endpoint_auth_method to client_secret_post", () => {
+      // Use raw SQLite to bypass Drizzle's NOT NULL enforcement and insert
+      // a legacy-shaped row with NULL token_endpoint_auth_method.
+      const db = getDb();
+      const raw = getSqliteFrom(db);
+      raw.exec(`
+        INSERT INTO oauth_providers (
+          provider_key, auth_url, token_url, token_endpoint_auth_method,
+          default_scopes, scope_policy, scope_separator, requires_client_secret,
+          created_at, updated_at
+        ) VALUES (
+          'legacy-null-provider',
+          'https://example.com/authorize',
+          'https://example.com/token',
+          NULL,
+          '[]',
+          '{}',
+          ' ',
+          1,
+          ${Date.now()},
+          ${Date.now()}
+        )
+      `);
+
+      // Run the migration directly
+      migrateOAuthProvidersTokenAuthMethodDefault(db);
+
+      // Verify the row was backfilled
+      const row = raw
+        .prepare(
+          `SELECT token_endpoint_auth_method FROM oauth_providers WHERE provider_key = 'legacy-null-provider'`,
+        )
+        .get() as { token_endpoint_auth_method: string };
+      expect(row.token_endpoint_auth_method).toBe("client_secret_post");
+    });
+
+    test("migration 216 is idempotent — running twice on backfilled rows is a no-op", () => {
+      seedProviders([
+        {
+          provider: "already-set-provider",
+          authorizeUrl: "https://example.com/authorize",
+          tokenExchangeUrl: "https://example.com/token",
+          tokenEndpointAuthMethod: "client_secret_basic",
+          defaultScopes: [],
+          scopePolicy: {},
+        },
+      ]);
+
+      const db = getDb();
+      migrateOAuthProvidersTokenAuthMethodDefault(db);
+      migrateOAuthProvidersTokenAuthMethodDefault(db);
+
+      const row = getProvider("already-set-provider");
+      expect(row!.tokenEndpointAuthMethod).toBe("client_secret_basic");
+    });
   });
 
   describe("getProvider", () => {
@@ -659,6 +733,33 @@ describe("provider operations", () => {
       expect(JSON.parse(fetched!.revokeBodyTemplate!)).toEqual({
         token: "{access_token}",
       });
+    });
+
+    test("applies client_secret_post default when tokenEndpointAuthMethod is omitted", () => {
+      const row = registerProvider({
+        provider: "custom-default-test",
+        authorizeUrl: "https://example.com/authorize",
+        tokenExchangeUrl: "https://example.com/token",
+        defaultScopes: [],
+        scopePolicy: {},
+        // Note: tokenEndpointAuthMethod intentionally omitted
+      });
+      expect(row.tokenEndpointAuthMethod).toBe("client_secret_post");
+
+      const fetched = getProvider("custom-default-test");
+      expect(fetched!.tokenEndpointAuthMethod).toBe("client_secret_post");
+    });
+
+    test("preserves explicit client_secret_basic when registering a provider", () => {
+      const row = registerProvider({
+        provider: "custom-basic-test",
+        authorizeUrl: "https://example.com/authorize",
+        tokenExchangeUrl: "https://example.com/token",
+        defaultScopes: [],
+        scopePolicy: {},
+        tokenEndpointAuthMethod: "client_secret_basic",
+      });
+      expect(row.tokenEndpointAuthMethod).toBe("client_secret_basic");
     });
   });
 
@@ -850,6 +951,32 @@ describe("provider operations", () => {
         token: "{access_token}",
       });
       expect(updated!.displayLabel).toBe("GitHub (updated)");
+    });
+
+    test("coerces empty string tokenEndpointAuthMethod to client_secret_post", () => {
+      seedProviders([
+        {
+          provider: "update-empty-test",
+          authorizeUrl: "https://example.com/authorize",
+          tokenExchangeUrl: "https://example.com/token",
+          tokenEndpointAuthMethod: "client_secret_basic",
+          defaultScopes: [],
+          scopePolicy: {},
+        },
+      ]);
+
+      expect(getProvider("update-empty-test")!.tokenEndpointAuthMethod).toBe(
+        "client_secret_basic",
+      );
+
+      const updated = updateProvider("update-empty-test", {
+        tokenEndpointAuthMethod: "",
+      });
+      expect(updated).toBeDefined();
+      expect(updated!.tokenEndpointAuthMethod).toBe("client_secret_post");
+
+      const row = getProvider("update-empty-test");
+      expect(row!.tokenEndpointAuthMethod).toBe("client_secret_post");
     });
   });
 
