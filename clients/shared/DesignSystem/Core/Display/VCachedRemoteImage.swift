@@ -1,3 +1,5 @@
+import CoreGraphics
+import ImageIO
 import SwiftUI
 
 /// Shared URL session with a disk-backed cache for small remote images
@@ -69,8 +71,19 @@ public struct VCachedRemoteImage<Content: View, Placeholder: View>: View {
         do {
             let (data, _) = try await VRemoteImageCache.session.data(from: url)
             guard !Task.isCancelled else { return }
-            if let img = PlatformImage(data: data) {
-                loadedImage = img
+            // Decode off the main thread via a CGImageSource on a background
+            // task — per clients/AGENTS.md: "Never decode or resize images
+            // synchronously on the main thread." CGImage is Sendable so it
+            // crosses the actor boundary cleanly, unlike NSImage/UIImage.
+            let cgImage: CGImage? = await Task.detached(priority: .userInitiated) {
+                guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+                    return nil
+                }
+                return CGImageSourceCreateImageAtIndex(source, 0, nil)
+            }.value
+            guard !Task.isCancelled else { return }
+            if let cgImage {
+                loadedImage = PlatformImage(fromCGImage: cgImage)
             }
         } catch {
             // Load failed — placeholder remains visible.
@@ -84,10 +97,22 @@ public typealias PlatformImage = NSImage
 extension Image {
     init(platformImage: PlatformImage) { self.init(nsImage: platformImage) }
 }
+extension NSImage {
+    /// Creates an `NSImage` from a decoded `CGImage`. Uses `.zero` to let the
+    /// image infer its size from the underlying `CGImage` pixel dimensions.
+    fileprivate convenience init(fromCGImage cgImage: CGImage) {
+        self.init(cgImage: cgImage, size: .zero)
+    }
+}
 #elseif canImport(UIKit)
 import UIKit
 public typealias PlatformImage = UIImage
 extension Image {
     init(platformImage: PlatformImage) { self.init(uiImage: platformImage) }
+}
+extension UIImage {
+    fileprivate convenience init(fromCGImage cgImage: CGImage) {
+        self.init(cgImage: cgImage)
+    }
 }
 #endif
