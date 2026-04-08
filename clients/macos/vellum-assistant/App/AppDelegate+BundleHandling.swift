@@ -31,20 +31,61 @@ extension AppDelegate {
         }
     }
 
-    /// Handle `vellum://send?message=...` deep links by buffering the message
-    /// in `DeepLinkManager` for the active `ChatViewModel` to consume,
-    /// then bringing the main window to front.
+    /// Handle `vellum://send?message=...[&assistant=<id>]` deep links by
+    /// buffering the message in `DeepLinkManager` for the active
+    /// `ChatViewModel` to consume, optionally switching to the requested
+    /// assistant first, then bringing the main window to front.
+    ///
+    /// Routing behavior is decided by `DeepLinkRouter.decide(...)`; this
+    /// method is the side-effect layer that applies the chosen decision.
     private func handleDeepLink(_ url: URL) {
-        guard url.host == "send" else { return }
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let messageItem = components.queryItems?.first(where: { $0.name == "message" }),
-              let message = messageItem.value, !message.isEmpty else { return }
+        let knownAssistantIds = Set(LockfileAssistant.loadAll().map(\.assistantId))
+        let multiAssistantEnabled = AssistantFeatureFlagResolver.isEnabled("multi-platform-assistant")
 
-        log.info("Received deep link send message (\(message.count) chars)")
-        DeepLinkManager.pendingMessage = message
+        let decision = DeepLinkRouter.decide(
+            url: url,
+            knownAssistantIds: knownAssistantIds,
+            multiAssistantEnabled: multiAssistantEnabled
+        )
 
-        // Bring the main window to front and consume the pending message
-        // in the active conversation's view model.
+        switch decision {
+        case .ignore:
+            return
+
+        case .routeToActive(let message):
+            log.info("Received deep link send message (\(message.count) chars)")
+            deliverDeepLinkToActiveAssistant(message: message)
+
+        case .routeToActiveAfterUnknownAssistant(let requestedAssistantId, let message):
+            log.warning("Deep link requested unknown assistant \(requestedAssistantId, privacy: .public); falling back to active assistant")
+            deliverDeepLinkToActiveAssistant(message: message)
+
+        case .switchLive(let assistantId, let message):
+            log.info("Deep link switching live to assistant \(assistantId, privacy: .public) (\(message.count) chars)")
+            DeepLinkManager.pendingMessage = message
+            guard let assistant = LockfileAssistant.loadByName(assistantId) else {
+                // Race: the assistant disappeared from the lockfile between
+                // the decision and now. Fall back to delivering to the active
+                // assistant rather than dropping the message.
+                log.warning("Assistant \(assistantId, privacy: .public) disappeared from lockfile before switch; delivering to active")
+                deliverDeepLinkToActiveAssistant(message: message, alreadyBuffered: true)
+                return
+            }
+            performSwitchAssistant(to: assistant)
+
+        case .switchActiveIdOnly(let assistantId, let message):
+            log.info("Deep link setting active assistant id to \(assistantId, privacy: .public) (flag off; live SSE switch waits for next launch)")
+            LockfileAssistant.setActiveAssistantId(assistantId)
+            deliverDeepLinkToActiveAssistant(message: message)
+        }
+    }
+
+    /// Buffer the message in `DeepLinkManager`, show the main window, and
+    /// ask the active conversation view model to consume it.
+    private func deliverDeepLinkToActiveAssistant(message: String, alreadyBuffered: Bool = false) {
+        if !alreadyBuffered {
+            DeepLinkManager.pendingMessage = message
+        }
         showMainWindow()
         mainWindow?.conversationManager.activeViewModel?.consumeDeepLinkIfNeeded()
     }
