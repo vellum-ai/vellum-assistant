@@ -36,7 +36,7 @@ export interface SubagentDetailResult {
 }
 
 const FORK_DIRECTIVE_RE =
-  /^⎯⎯⎯ FORK TASK ⎯⎯⎯\n.*?Complete this task directly and return only your findings:\n\n([\s\S]*?)\n⎯⎯⎯+$/;
+  /^⎯⎯⎯ FORK TASK ⎯⎯⎯\n[\s\S]*?Complete this task directly and return only your findings:\n\n([\s\S]*?)\n⎯⎯⎯+$/;
 
 function stripForkDirectiveFraming(text: string): string {
   const match = FORK_DIRECTIVE_RE.exec(text);
