@@ -101,7 +101,7 @@ struct TeleportSection: View {
 
     var body: some View {
         Group {
-            if assistant.isManaged || (assistant.isRemote && !assistant.isDocker) {
+            if assistant.isManaged || !assistant.runsLocally {
                 EmptyView()
             } else {
                 teleportContent
