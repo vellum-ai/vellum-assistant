@@ -17,7 +17,7 @@ struct MemoryItemRow: View {
     }
 
     var body: some View {
-        VCard(action: onSelect) {
+        Button(action: onSelect) {
             HStack(spacing: 0) {
                 // Accent bar
                 RoundedRectangle(cornerRadius: 2)
@@ -83,8 +83,14 @@ struct MemoryItemRow: View {
                 }
                 .padding(.leading, VSpacing.md)
             }
-            .background(memoryKind?.backgroundTint ?? Color.clear)
+            .padding(.vertical, VSpacing.xs)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .fill(isHovered ? VColor.surfaceBase : (memoryKind?.backgroundTint ?? Color.clear))
+            )
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .onHover { isHovered = $0 }
         .contextMenu {
             Button("Delete", role: .destructive, action: onDelete)
