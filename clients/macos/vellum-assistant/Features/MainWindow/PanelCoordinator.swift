@@ -27,7 +27,7 @@ extension MainWindowView {
         case .settings:
             SettingsPanel(onClose: { windowState.selection = nil }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) }, onEnableIntegration: {
                     conversationManager.openConversation(
-                        message: "Which integration would you like to enable?",
+                        message: "I'd like to enable an integration. What integrations are available for me to connect?",
                         forceNew: true
                     )
                     if let id = conversationManager.activeConversationId {
@@ -488,7 +488,7 @@ extension MainWindowView {
         case .settings:
             SettingsPanel(onClose: { windowState.dismissOverlay() }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) }, onEnableIntegration: {
                     conversationManager.openConversation(
-                        message: "Which integration would you like to enable?",
+                        message: "I'd like to enable an integration. What integrations are available for me to connect?",
                         forceNew: true
                     )
                     if let id = conversationManager.activeConversationId {
