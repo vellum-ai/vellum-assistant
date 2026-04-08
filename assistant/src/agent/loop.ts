@@ -103,7 +103,7 @@ export type AgentEvent =
     };
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
-  maxTokens: 32000,
+  maxTokens: 64000,
   effort: "high",
   minTurnIntervalMs: 150,
 };

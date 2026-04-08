@@ -87,7 +87,7 @@ describe("getSchemaAtPath", () => {
     expect(result).not.toBeNull();
     // maxTokens has a default, so it should be parseable
     const parsed = (result as z.ZodType).parse(undefined);
-    expect(parsed).toBe(32000);
+    expect(parsed).toBe(64000);
   });
 
   test("navigates nested paths (memory.segmentation → object schema)", () => {

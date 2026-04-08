@@ -245,7 +245,7 @@ export const AssistantConfigSchema = z
       .number({ error: "maxTokens must be a number" })
       .int("maxTokens must be an integer")
       .positive("maxTokens must be a positive integer")
-      .default(32000)
+      .default(64000)
       .describe("Maximum number of output tokens per LLM response"),
     effort: EffortSchema,
     speed: SpeedSchema,
