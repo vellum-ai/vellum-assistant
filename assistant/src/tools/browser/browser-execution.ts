@@ -55,33 +55,6 @@ export const NAVIGATE_TIMEOUT_MS = 15_000;
 
 export const ACTION_TIMEOUT_MS = 10_000;
 
-export const MAX_SNAPSHOT_ELEMENTS = 150;
-
-export const INTERACTIVE_SELECTOR = [
-  "a[href]",
-  "button",
-  "input",
-  "select",
-  "textarea",
-  '[role="button"]',
-  '[role="link"]',
-  '[role="checkbox"]',
-  '[role="radio"]',
-  '[role="tab"]',
-  '[role="menuitem"]',
-  '[role="option"]',
-  '[role="combobox"]',
-  '[role="listbox"]',
-  '[contenteditable="true"]',
-].join(", ");
-
-export type SnapshotElement = {
-  eid: string;
-  tag: string;
-  attrs: Record<string, string>;
-  text: string;
-};
-
 export const MAX_WAIT_MS = 30_000;
 
 export const MAX_EXTRACT_LENGTH = 50_000;
@@ -127,52 +100,16 @@ export const EXTRACT_LINKS_EXPRESSION = `
 
 // ── Shared element resolution ────────────────────────────────────────
 
-export function resolveSelector(
-  conversationId: string,
-  input: Record<string, unknown>,
-): { selector: string | null; error: string | null } {
-  const elementId =
-    typeof input.element_id === "string" ? input.element_id : null;
-  const rawSelector =
-    typeof input.selector === "string" ? input.selector : null;
-
-  if (!elementId && !rawSelector) {
-    return {
-      selector: null,
-      error: "Error: Either element_id or selector is required.",
-    };
-  }
-
-  if (elementId) {
-    const resolved = browserManager.resolveSnapshotSelector(
-      conversationId,
-      elementId,
-    );
-    if (!resolved) {
-      return {
-        selector: null,
-        error: `Error: element_id "${elementId}" not found. Run browser_snapshot first to get current element IDs.`,
-      };
-    }
-    return { selector: resolved, error: null };
-  }
-
-  return { selector: rawSelector!, error: null };
-}
-
 /**
  * Discriminated union returned by {@link resolveElement}. The
  * `"backend"` variant is produced when an `element_id` from the most
  * recent AX-tree snapshot is resolved to a CDP `backendNodeId`; the
  * `"selector"` variant is produced when the caller passed a raw CSS
- * `selector` that should be resolved via `DOM.querySelector` (or
- * equivalent) at send-time by the individual tool.
+ * `selector` that should be resolved via `DOM.querySelector` at
+ * send-time by the individual tool.
  *
- * Consumed by CDP-migrated interaction tools (click, hover, type, …)
- * that talk to CDP directly rather than going through Playwright's
- * selector engine. Legacy tools that still drive a Playwright `Page`
- * continue to call {@link resolveSelector} and receive a plain string
- * selector — the two helpers coexist during the Phase 3 migration.
+ * Consumed by CDP-native interaction tools (click, hover, type, …)
+ * that talk to CDP directly.
  */
 export type ResolvedElement =
   | { kind: "backend"; backendNodeId: number; eid: string }
@@ -180,12 +117,11 @@ export type ResolvedElement =
 
 /**
  * Resolve an element reference (either `element_id` from a prior
- * snapshot or a raw `selector`) for CDP-native tools. Behaves like
- * {@link resolveSelector} in its input validation but returns a
- * {@link ResolvedElement} instead of a string so the caller can
- * branch on whether a backendNodeId was recovered from the snapshot
- * map. Returns `{ resolved: null, error: "Error: …" }` on invalid
- * input or when an `element_id` is provided but the snapshot map is
+ * snapshot or a raw `selector`) for CDP-native tools. Returns a
+ * {@link ResolvedElement} discriminated union so callers can branch
+ * on whether a backendNodeId was recovered from the snapshot map.
+ * Returns `{ resolved: null, error: "Error: …" }` on invalid input
+ * or when an `element_id` is provided but the snapshot map is
  * empty/stale.
  */
 export function resolveElement(
@@ -443,9 +379,9 @@ export async function executeBrowserNavigate(
     }
 
     // Navigation changed the page content, so clear stale snapshot
-    // mappings regardless of backend. The snapshot map is shared
+    // mappings regardless of backend. The backendNodeId map is shared
     // per-conversation state that needs to be invalidated on any nav.
-    browserManager.clearSnapshotMap(context.conversationId);
+    browserManager.clearSnapshotBackendNodeMap(context.conversationId);
 
     // Auto-dismiss common blocker modals (regulatory notices, cookie
     // banners) that aren't exposed in the accessibility tree. Runs
@@ -646,81 +582,22 @@ export async function executeBrowserSnapshot(
     const title = await getPageTitle(cdp, context.signal);
 
     // Pull the full accessibility tree via CDP and fold it into typed
-    // interactive elements + an `eid → backendNodeId` map. This replaces
-    // the legacy `document.querySelectorAll` + `data-vellum-eid` JS that
-    // used to drive the snapshot, and lets downstream CDP-migrated tools
-    // (click, hover, type, …) jump straight to DOM commands without
-    // another round-trip through Playwright's selector engine.
+    // interactive elements + an `eid → backendNodeId` map. Interaction
+    // tools (click, hover, type, …) resolve element_id against this map
+    // and jump straight to CDP DOM commands without another round-trip
+    // through any selector engine.
     await cdp.send("Accessibility.enable", {}, context.signal);
     const rawTree = await cdp.send(
       "Accessibility.getFullAXTree",
       {},
       context.signal,
     );
-    const { elements, selectorMap: backendNodeMap } = transformAxTree(rawTree, {
-      maxElements: MAX_SNAPSHOT_ELEMENTS,
-    });
+    const { elements, selectorMap: backendNodeMap } = transformAxTree(rawTree);
 
     browserManager.storeSnapshotBackendNodeMap(
       context.conversationId,
       backendNodeMap,
     );
-
-    // Bridge: tag every surfaced element with `data-vellum-eid` via
-    // `DOM.pushNodesByBackendIdsToFrontend` + `DOM.setAttributeValue`
-    // so the legacy string selector map keeps working for unmigrated
-    // interaction tools (click/type/hover/etc.) during the Phase 3
-    // migration window. This block is removed in PR 12 once every
-    // interaction tool resolves eids against the backendNodeId map
-    // directly. The cost is ~one CDP call per interactive element per
-    // snapshot — measurable but bounded to the migration window.
-    const stringSelectorMap = new Map<string, string>();
-    if (backendNodeMap.size > 0) {
-      const eidsInOrder = [...backendNodeMap.keys()];
-      const backendNodeIds = eidsInOrder.map((eid) => backendNodeMap.get(eid)!);
-      try {
-        const { nodeIds } = await cdp.send<{ nodeIds: number[] }>(
-          "DOM.pushNodesByBackendIdsToFrontend",
-          { backendNodeIds },
-          context.signal,
-        );
-        for (let i = 0; i < eidsInOrder.length; i += 1) {
-          const eid = eidsInOrder[i]!;
-          const nodeId = nodeIds?.[i];
-          if (!nodeId) continue;
-          try {
-            await cdp.send(
-              "DOM.setAttributeValue",
-              {
-                nodeId,
-                name: "data-vellum-eid",
-                value: eid,
-              },
-              context.signal,
-            );
-            stringSelectorMap.set(eid, `[data-vellum-eid="${eid}"]`);
-          } catch (tagErr) {
-            // Best-effort: a single element failing to be tagged should
-            // not invalidate the whole snapshot. Log and move on so the
-            // backendNodeId path for that element still works.
-            log.debug(
-              { err: tagErr, eid, nodeId },
-              "Failed to tag element with data-vellum-eid during legacy bridge",
-            );
-          }
-        }
-      } catch (bridgeErr) {
-        // If the bridge itself blows up (e.g. pushNodesByBackendIdsToFrontend
-        // rejected), fall through with an empty legacy map. Unmigrated
-        // interaction tools will surface their own "element_id not
-        // found" error which points the agent at `browser_snapshot`.
-        log.warn(
-          { err: bridgeErr },
-          "Legacy snapshot selector bridge failed; unmigrated interaction tools may regress",
-        );
-      }
-    }
-    browserManager.storeSnapshotMap(context.conversationId, stringSelectorMap);
 
     return {
       content: formatAxSnapshot(
@@ -786,29 +663,46 @@ export async function executeBrowserClose(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  const cdp = getCdpClient(context);
   try {
-    const sender = getSender(context.conversationId);
-    if (sender) {
-      await stopBrowserScreencast(context.conversationId);
-    }
+    if (cdp.kind === "local") {
+      // Local/sacrificial-profile path: tear down the Playwright page,
+      // screencast, and associated CDP state for this conversation.
+      const sender = getSender(context.conversationId);
+      if (sender) {
+        await stopBrowserScreencast(context.conversationId);
+      }
 
-    if (input.close_all_pages === true) {
-      await stopAllScreencasts();
-      await browserManager.closeAllPages();
+      if (input.close_all_pages === true) {
+        await stopAllScreencasts();
+        await browserManager.closeAllPages();
+        return {
+          content: "All browser pages and context closed.",
+          isError: false,
+        };
+      }
+      await browserManager.closeSessionPage(context.conversationId);
       return {
-        content: "All browser pages and context closed.",
+        content: "Browser page closed for this conversation.",
         isError: false,
       };
     }
-    await browserManager.closeSessionPage(context.conversationId);
+
+    // Extension path: the user owns their Chrome tab — we must not
+    // close it. Only drop the cached snapshot state so stale eids
+    // from prior snapshots cannot be resolved by later tool calls.
+    browserManager.clearSnapshotBackendNodeMap(context.conversationId);
     return {
-      content: "Browser page closed for this conversation.",
+      content:
+        "Browser session cleared. (Your Chrome tab was not closed — close it yourself if desired.)",
       isError: false,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Close failed");
     return { content: `Error: Close failed: ${msg}`, isError: true };
+  } finally {
+    cdp.dispose();
   }
 }
 
@@ -1339,26 +1233,41 @@ export async function executeBrowserFillCredential(
     return { content: "Error: field is required.", isError: true };
   }
 
-  const { selector, error } = resolveSelector(context.conversationId, input);
+  const { resolved, error } = resolveElement(context.conversationId, input);
   if (error) return { content: error, isError: true };
 
   const pressEnter = input.press_enter === true;
+  const targetDescription =
+    resolved!.kind === "backend"
+      ? `element_id "${resolved!.eid}"`
+      : resolved!.selector;
 
+  const cdp = getCdpClient(context);
   try {
-    const page = await browserManager.getOrCreateSessionPage(
-      context.conversationId,
-    );
+    let backendNodeId: number;
+    if (resolved!.kind === "backend") {
+      backendNodeId = resolved!.backendNodeId;
+    } else {
+      backendNodeId = await querySelectorBackendNodeId(
+        cdp,
+        resolved!.selector,
+        context.signal,
+      );
+    }
 
-    // Extract domain from the current page for domain policy enforcement
+    // Extract the current page's hostname for broker domain policy
+    // enforcement. Failures here (pre-navigation, about:blank, malformed
+    // URL) fall through with pageDomain undefined; if the credential
+    // has a domain policy the broker will deny the fill.
     let pageDomain: string | undefined;
     try {
-      const pageUrl = page.url();
+      const pageUrl = await getCurrentUrl(cdp, context.signal);
       if (pageUrl && pageUrl !== "about:blank") {
         const parsed = new URL(pageUrl);
         pageDomain = parsed.hostname;
       }
     } catch {
-      // Invalid URL - pageDomain stays undefined, broker will deny if domain policy exists
+      // pageDomain stays undefined
     }
 
     const result = await credentialBroker.browserFill({
@@ -1367,7 +1276,11 @@ export async function executeBrowserFillCredential(
       toolName: "browser_fill_credential",
       domain: pageDomain,
       fill: async (value) => {
-        await page.fill(selector!, value);
+        // Focus the target immediately before inserting text so
+        // Input.insertText lands on the right element even if a
+        // prior tool call shifted focus.
+        await focusElement(cdp, backendNodeId, context.signal);
+        await dispatchInsertText(cdp, value, context.signal);
       },
     });
 
@@ -1397,7 +1310,10 @@ export async function executeBrowserFillCredential(
           isError: true,
         };
       }
-      log.error({ selector, reason }, "Fill credential failed");
+      log.error(
+        { target: targetDescription, reason },
+        "Fill credential failed",
+      );
       return {
         content: `Error: Fill credential failed: ${reason}`,
         isError: true,
@@ -1405,7 +1321,7 @@ export async function executeBrowserFillCredential(
     }
 
     if (pressEnter) {
-      await page.press(selector!, "Enter");
+      await dispatchKeyPress(cdp, "Enter", context.signal);
     }
 
     return {
@@ -1416,5 +1332,7 @@ export async function executeBrowserFillCredential(
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Fill credential failed");
     return { content: `Error: Fill credential failed: ${msg}`, isError: true };
+  } finally {
+    cdp.dispose();
   }
 }

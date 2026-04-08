@@ -74,17 +74,17 @@ let mockPage: {
 };
 
 let getOrCreateSessionPageMock: ReturnType<typeof mock>;
-let clearSnapshotMapMock: ReturnType<typeof mock>;
+let clearSnapshotBackendNodeMapMock: ReturnType<typeof mock>;
 let positionWindowSidebarMock: ReturnType<typeof mock>;
 
 mock.module("../tools/browser/browser-manager.js", () => {
   getOrCreateSessionPageMock = mock(async () => mockPage);
-  clearSnapshotMapMock = mock(() => {});
+  clearSnapshotBackendNodeMapMock = mock(() => {});
   positionWindowSidebarMock = mock(async () => {});
   return {
     browserManager: {
       getOrCreateSessionPage: getOrCreateSessionPageMock,
-      clearSnapshotMap: clearSnapshotMapMock,
+      clearSnapshotBackendNodeMap: clearSnapshotBackendNodeMapMock,
       supportsRouteInterception: true,
       isInteractive: () => false,
       positionWindowSidebar: positionWindowSidebarMock,
