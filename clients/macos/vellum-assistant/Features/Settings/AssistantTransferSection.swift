@@ -405,7 +405,16 @@ struct AssistantTransferSection: View {
 
             while Date().timeIntervalSince(start) < timeout {
                 try await Task.sleep(nanoseconds: pollInterval)
-                let status = try await PlatformMigrationClient.pollImportStatus(jobId: jobId)
+
+                let status: PlatformMigrationClient.ImportJobStatus
+                do {
+                    status = try await PlatformMigrationClient.pollImportStatus(jobId: jobId)
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    // Transient polling error — retry on next cycle
+                    continue
+                }
 
                 if status.status == "complete" {
                     return
