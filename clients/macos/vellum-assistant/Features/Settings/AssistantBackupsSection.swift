@@ -55,7 +55,7 @@ struct AssistantBackupsSection: View {
                 }
             }
 
-            if assistant.isManaged || (assistant.isRemote && !assistant.isDocker) {
+            if assistant.isManaged || !assistant.runsLocally {
                 managedBackupContent
             } else {
                 localBackupContent
@@ -78,7 +78,7 @@ struct AssistantBackupsSection: View {
         .vCard()
         .frame(maxWidth: .infinity, alignment: .leading)
         .task {
-            if assistant.isManaged || (assistant.isRemote && !assistant.isDocker) {
+            if assistant.isManaged || !assistant.runsLocally {
                 await loadManagedBackupsQuietly()
             }
         }
