@@ -242,7 +242,7 @@ struct IntegrationDetailModal: View {
 
     private var managedConnectionCard: some View {
         VCard {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
                 // Connection rows
                 if connections.isEmpty {
                     Text("No connected accounts")
@@ -399,7 +399,7 @@ struct IntegrationDetailModal: View {
 
     private func yourOwnAppCard(for app: YourOwnOAuthApp) -> some View {
         VCard {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
                 // Header: client ID, date, trash
                 HStack(alignment: .center, spacing: VSpacing.lg) {
                     Text(maskedClientId(app.client_id))
