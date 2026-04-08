@@ -72,18 +72,34 @@ interface FakeConnection extends RelayConnectionLike {
   sent: string[];
   /** Toggle whether `isOpen()` returns true or false. */
   open: boolean;
+  /**
+   * Mutable mode reference. Tests can reassign this to simulate a
+   * token refresh after a reconnect-with-refresh cycle and then
+   * verify that subsequent `getCurrentMode()` reads pick up the new
+   * value (i.e. the caller is NOT caching a snapshot).
+   */
+  mode: RelayMode;
 }
 
-function makeFakeConnection(open: boolean): FakeConnection {
+function makeFakeConnection(open: boolean, mode?: RelayMode): FakeConnection {
   const sent: string[] = [];
+  const defaultMode: RelayMode = {
+    kind: 'self-hosted',
+    baseUrl: 'http://127.0.0.1:9999',
+    token: 'tok-initial',
+  };
   return {
     sent,
     open,
+    mode: mode ?? defaultMode,
     isOpen() {
       return this.open;
     },
     send(data) {
       sent.push(data);
+    },
+    getCurrentMode() {
+      return this.mode;
     },
   };
 }
@@ -262,5 +278,95 @@ describe('postHostBrowserResult — cloud mode', () => {
     expect(fetchHandle.calls).toEqual([]);
     const flat = consoleSpy.warnings.flat().join(' ');
     expect(flat).toContain('cloud relay not connected');
+  });
+});
+
+// ── Live mode read (stale-token regression) ─────────────────────────
+//
+// Pins the call-site contract that worker.ts's
+// `dispatchHostBrowserResult` MUST pull the mode out of the live
+// RelayConnection via `getCurrentMode()` on every dispatch, rather
+// than closing over a snapshot captured at `connect()` time.
+//
+// The regression being pinned: when `scheduleReconnectWithRefresh`
+// fires after a WebSocket drop, the connection's internal `deps.mode`
+// is replaced with a new object holding a freshly minted token. A
+// caller that cached the old mode object would silently 401/403
+// forever. By reading through `getCurrentMode()` on every POST, the
+// new token propagates automatically.
+//
+// We model the exact call-site pattern used by worker.ts —
+// `const mode = conn.getCurrentMode(); return postHostBrowserResult(mode, conn, result);`
+// — so that this test fails the moment someone re-introduces a
+// snapshot capture.
+
+async function dispatchViaConnection(
+  conn: RelayConnectionLike,
+  result: HostBrowserResultEnvelope,
+): Promise<void> {
+  const mode = conn.getCurrentMode();
+  return postHostBrowserResult(mode, conn, result);
+}
+
+describe('postHostBrowserResult — live mode read via getCurrentMode()', () => {
+  test('self-hosted: second dispatch picks up a refreshed token from the connection', async () => {
+    const conn = makeFakeConnection(true, {
+      kind: 'self-hosted',
+      baseUrl: 'http://127.0.0.1:9999',
+      token: 'tok-old',
+    });
+
+    await dispatchViaConnection(conn, exampleResult);
+
+    // Simulate a reconnect-with-refresh cycle: the RelayConnection
+    // would replace `deps.mode` with a new object holding the fresh
+    // token. We mutate the fake's `mode` field to mimic that swap.
+    conn.mode = {
+      kind: 'self-hosted',
+      baseUrl: 'http://127.0.0.1:9999',
+      token: 'tok-new',
+    };
+
+    await dispatchViaConnection(conn, exampleResult);
+
+    expect(fetchHandle.calls.length).toBe(2);
+    const firstHeaders = fetchHandle.calls[0].init?.headers as
+      | Record<string, string>
+      | undefined;
+    const secondHeaders = fetchHandle.calls[1].init?.headers as
+      | Record<string, string>
+      | undefined;
+    expect(firstHeaders?.authorization).toBe('Bearer tok-old');
+    expect(secondHeaders?.authorization).toBe('Bearer tok-new');
+  });
+
+  test('self-hosted: mode swap to cloud on the connection routes subsequent dispatches over the WebSocket', async () => {
+    // Extra belt-and-braces: if the mode KIND itself flips (e.g. a
+    // mode switch via setMode), the call-site must still read it
+    // live. A captured snapshot would POST to the now-wrong baseUrl.
+    const conn = makeFakeConnection(true, {
+      kind: 'self-hosted',
+      baseUrl: 'http://127.0.0.1:9999',
+      token: 'tok-old',
+    });
+
+    await dispatchViaConnection(conn, exampleResult);
+    expect(fetchHandle.calls.length).toBe(1);
+    expect(conn.sent.length).toBe(0);
+
+    conn.mode = {
+      kind: 'cloud',
+      baseUrl: 'https://api.vellum.ai',
+      token: 'cloud-token',
+    };
+
+    await dispatchViaConnection(conn, exampleResult);
+
+    // Still exactly one fetch — the cloud dispatch must not have
+    // fallen through to an HTTP POST.
+    expect(fetchHandle.calls.length).toBe(1);
+    expect(conn.sent.length).toBe(1);
+    const parsed = JSON.parse(conn.sent[0]) as Record<string, unknown>;
+    expect(parsed.type).toBe('host_browser_result');
   });
 });

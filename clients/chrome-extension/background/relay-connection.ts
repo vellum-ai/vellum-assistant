@@ -86,6 +86,21 @@ export class RelayConnection {
     return this.deps.mode;
   }
 
+  /**
+   * Return the live connection mode. Callers must invoke this right
+   * before each use — after a reconnect-with-refresh cycle the
+   * underlying `deps.mode` is replaced with a brand new object holding
+   * the freshly minted token, and any caller that cached the result of
+   * a previous invocation would still be using the stale token. In
+   * particular, worker.ts's `dispatchHostBrowserResult` MUST pull the
+   * mode through this accessor per-POST so that result envelopes sent
+   * after a WebSocket drop authenticate with the new bearer token
+   * instead of silently 401/403ing.
+   */
+  getCurrentMode(): RelayMode {
+    return this.deps.mode;
+  }
+
   /** Is the underlying socket currently in the OPEN readyState? */
   isOpen(): boolean {
     return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
@@ -276,10 +291,16 @@ export class RelayConnection {
  * Minimal subset of {@link RelayConnection} that {@link postHostBrowserResult}
  * actually consumes. Used by tests to inject a fake without having to
  * stand up a real WebSocket.
+ *
+ * `getCurrentMode()` is intentionally part of the surface so callers
+ * like worker.ts's `dispatchHostBrowserResult` can read the LIVE mode
+ * (including any refreshed token) straight off the connection instead
+ * of relying on a module-level snapshot captured at connect time.
  */
 export interface RelayConnectionLike {
   isOpen(): boolean;
   send(data: string): void;
+  getCurrentMode(): RelayMode;
 }
 
 /**

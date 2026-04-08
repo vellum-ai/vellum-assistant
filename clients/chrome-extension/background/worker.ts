@@ -70,12 +70,6 @@ function isRelayModeKind(v: unknown): v is RelayModeKind {
 
 let relayMode: RelayModeKind = 'self-hosted';
 let relayConnection: RelayConnection | null = null;
-// Active RelayMode (mode kind + base URL + token) captured at connect
-// time. Tracked alongside `relayConnection` so the host-browser
-// dispatcher's `postResult` callback can route results back through the
-// correct transport (cloud WebSocket vs self-hosted HTTP) using the
-// same credentials the live socket was opened with.
-let activeRelayMode: RelayMode | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let shouldConnect = false;
 
@@ -110,29 +104,56 @@ async function resolveHostBrowserTarget(
 
 /**
  * Bridge the host-browser dispatcher to the relay-aware
- * {@link postHostBrowserResult} helper. Reads the live `activeRelayMode`
- * and `relayConnection` so a result envelope generated mid-session is
- * always shipped through the transport that's currently connected — not
- * a stale snapshot captured at module init.
+ * {@link postHostBrowserResult} helper.
  *
- * Falls back to a self-hosted POST against the bare bearer token + relay
- * port when no relay session has been established yet (e.g. the host
- * browser dispatcher fired before `connect()` ran). This preserves the
- * pre-Phase 2 behaviour for the legacy ExtensionCommand → daemon path.
+ * The happy path pulls the current mode straight off the live
+ * {@link RelayConnection} via `getCurrentMode()`. This is load-bearing:
+ * when `scheduleReconnectWithRefresh` fires after a WebSocket drop, it
+ * mints a fresh token and replaces `deps.mode` with a brand new object.
+ * Reading via the accessor on every dispatch guarantees the next result
+ * POST uses the freshly minted bearer token — a captured snapshot would
+ * silently 401/403 forever.
+ *
+ * When no relay connection exists yet (a legacy ExtensionCommand path
+ * firing before `connect()` ran, or a stale result arriving after
+ * `disconnect()`), we fall back per the configured relay mode:
+ *
+ *   - `self-hosted`: POST directly to the local daemon using live
+ *     creds resolved from storage, matching pre-Phase 2 behaviour.
+ *   - `cloud`: warn and drop the envelope. POSTing to localhost in
+ *     cloud mode would always fail, and we have no WebSocket to
+ *     round-trip through without an active connection.
  */
 async function dispatchHostBrowserResult(
   result: HostBrowserResultEnvelope,
 ): Promise<void> {
-  if (activeRelayMode) {
-    return postHostBrowserResult(activeRelayMode, relayConnection, result);
+  if (relayConnection) {
+    // Read the live mode from the active connection so that
+    // reconnect-with-refresh token updates propagate to result POSTs
+    // automatically.
+    const currentMode = relayConnection.getCurrentMode();
+    return postHostBrowserResult(currentMode, relayConnection, result);
   }
+
+  // Fallback path: no active connection (legacy ExtensionCommand path
+  // before `connect()` runs, or a stale result arriving after
+  // `disconnect()`).
+  if (relayMode === 'cloud') {
+    console.warn(
+      '[vellum-relay] host_browser_result dropped: cloud mode but relay not connected',
+    );
+    return;
+  }
+
+  // Self-hosted fallback: POST directly to the local daemon using live
+  // creds.
   const [token, port] = await Promise.all([getBearerToken(), getRelayPort()]);
-  const fallback: RelayMode = {
+  const fallbackMode: RelayMode = {
     kind: 'self-hosted',
     baseUrl: `http://127.0.0.1:${port}`,
     token,
   };
-  return postHostBrowserResult(fallback, null, result);
+  return postHostBrowserResult(fallbackMode, null, result);
 }
 
 const hostBrowserDispatcher: HostBrowserDispatcher = createHostBrowserDispatcher({
@@ -217,7 +238,12 @@ function createRelayConnection(mode: RelayMode): RelayConnection {
       startHeartbeat();
     },
     onMessage: (data) => {
-      handleServerMessage(data);
+      // Fire-and-forget dispatch — wrap with .catch so a future refactor
+      // can't leak an unhandled rejection into the service worker and
+      // tear down the relay socket unexpectedly.
+      void handleServerMessage(data).catch((err) => {
+        console.warn('[vellum-relay] handleServerMessage failed', err);
+      });
     },
     onClose: (code, reason) => {
       console.log(`[vellum-relay] Disconnected (code=${code}, reason=${reason || 'n/a'})`);
@@ -274,10 +300,6 @@ async function connect(): Promise<void> {
     relayConnection.close(1000, 'reconfigured');
   }
   relayConnection = createRelayConnection(mode);
-  // Stash the resolved mode so the host-browser dispatcher can route
-  // results back through the same transport (cloud WebSocket vs
-  // self-hosted HTTP) without re-resolving the token / base URL.
-  activeRelayMode = mode;
   relayConnection.start();
 }
 
@@ -287,7 +309,6 @@ function disconnect(): void {
     relayConnection.close(1000, 'User disconnected');
     relayConnection = null;
   }
-  activeRelayMode = null;
 }
 
 /**
