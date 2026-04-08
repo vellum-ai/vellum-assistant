@@ -38,9 +38,7 @@ struct ConversationTitleActionsControl: View {
                 #if os(macOS)
                 if presentation.showsActionsMenu {
                     if isMenuOpen {
-                        activePanel?.close()
-                        activePanel = nil
-                        isMenuOpen = false
+                        dismissMenu()
                     } else {
                         showMenu()
                     }
@@ -78,9 +76,21 @@ struct ConversationTitleActionsControl: View {
                 .accessibilityLabel("Open parent conversation")
             }
         }
+        #if os(macOS)
+        .onChange(of: presentation.localConversationId) { _, _ in
+            dismissMenu()
+        }
+        #endif
     }
 
     #if os(macOS)
+    private func dismissMenu() {
+        guard isMenuOpen else { return }
+        activePanel?.close()
+        activePanel = nil
+        isMenuOpen = false
+    }
+
     private func showMenu() {
         guard !isMenuOpen else { return }
         isMenuOpen = true

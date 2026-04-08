@@ -5,6 +5,7 @@ import VellumAssistantShared
 /// Keeps UI logic deterministic and testable.
 @MainActor
 struct ConversationHeaderPresentation {
+    let localConversationId: UUID?
     let displayTitle: String
     let isStarted: Bool
     let showsActionsMenu: Bool
@@ -24,6 +25,7 @@ struct ConversationHeaderPresentation {
 
     init(activeConversation: ConversationModel?, activeViewModel: ChatViewModel?, isConversationVisible: Bool) {
         guard isConversationVisible, let conversation = activeConversation else {
+            self.localConversationId = nil
             self.displayTitle = "New conversation"
             self.isStarted = false
             self.showsActionsMenu = false
@@ -39,6 +41,7 @@ struct ConversationHeaderPresentation {
             return
         }
 
+        self.localConversationId = conversation.id
         self.displayTitle = conversation.title
         self.isPinned = conversation.isPinned
         self.isPrivateConversation = conversation.kind == .private
