@@ -7,7 +7,7 @@
  */
 import { z } from "zod";
 
-import { getMessages } from "../../memory/conversation-crud.js";
+import { getMessages, type MessageRow } from "../../memory/conversation-crud.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
@@ -31,6 +31,7 @@ export interface SubagentDetailResult {
     content: string;
     toolName?: string;
     isError?: boolean;
+    messageId?: string;
   }>;
 }
 
@@ -40,7 +41,7 @@ export interface SubagentDetailResult {
  */
 export function parseSubagentMessages(
   subagentId: string,
-  messages: Array<{ role: string; content: string }>,
+  messages: MessageRow[],
 ): SubagentDetailResult {
   // Extract objective from the first user message
   let objective: string | undefined;
@@ -62,12 +63,7 @@ export function parseSubagentMessages(
   }
 
   // Extract events from both assistant and user messages.
-  const events: Array<{
-    type: string;
-    content: string;
-    toolName?: string;
-    isError?: boolean;
-  }> = [];
+  const events: SubagentDetailResult["events"] = [];
   const pendingTools = new Map<string, string>();
   for (const m of messages) {
     if (m.role !== "assistant" && m.role !== "user") continue;
@@ -86,7 +82,7 @@ export function parseSubagentMessages(
         block.type === "text" &&
         typeof block.text === "string"
       ) {
-        events.push({ type: "text", content: block.text });
+        events.push({ type: "text", content: block.text, messageId: m.id });
       } else if (block.type === "tool_use") {
         const name = typeof block.name === "string" ? block.name : "unknown";
         const input = isRecord(block.input)

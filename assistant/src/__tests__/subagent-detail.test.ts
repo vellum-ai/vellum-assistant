@@ -5,10 +5,20 @@
 
 import { describe, expect, test } from "bun:test";
 
+import type { MessageRow } from "../memory/conversation-crud.js";
 import { parseSubagentMessages } from "../runtime/routes/subagents-routes.js";
 
-function msg(role: string, content: unknown[]) {
-  return { role, content: JSON.stringify(content) };
+let msgCounter = 0;
+function msg(role: string, content: unknown[]): MessageRow {
+  msgCounter += 1;
+  return {
+    id: `msg-${msgCounter}`,
+    conversationId: "conv-1",
+    role,
+    content: JSON.stringify(content),
+    createdAt: Date.now(),
+    metadata: null,
+  };
 }
 
 describe("parseSubagentMessages", () => {
@@ -80,5 +90,17 @@ describe("parseSubagentMessages", () => {
 
     const result = parseSubagentMessages("sub-1", messages);
     expect(result.objective).toBe("Research vampire lore");
+  });
+
+  test("includes messageId on text events from assistant messages", () => {
+    const messages = [
+      msg("user", [{ type: "text", text: "Do something" }]),
+      msg("assistant", [{ type: "text", text: "Done." }]),
+    ];
+
+    const result = parseSubagentMessages("sub-1", messages);
+    const textEvent = result.events.find((e) => e.type === "text");
+    expect(textEvent).toBeDefined();
+    expect(textEvent!.messageId).toBe(messages[1].id);
   });
 });

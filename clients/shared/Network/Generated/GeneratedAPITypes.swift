@@ -4316,12 +4316,14 @@ public struct SubagentDetailResponseEvent: Codable, Sendable {
     public let content: String
     public let toolName: String?
     public let isError: Bool?
+    public let messageId: String?
 
-    public init(type: String, content: String, toolName: String? = nil, isError: Bool? = nil) {
+    public init(type: String, content: String, toolName: String? = nil, isError: Bool? = nil, messageId: String? = nil) {
         self.type = type
         self.content = content
         self.toolName = toolName
         self.isError = isError
+        self.messageId = messageId
     }
 }
 

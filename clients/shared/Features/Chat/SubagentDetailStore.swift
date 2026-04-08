@@ -26,13 +26,16 @@ public struct SubagentEventItem: Identifiable {
     public var resultContent: String?
     /// Whether the attached result is an error.
     public var resultIsError: Bool
+    /// Daemon message ID for assistant text events (used for LLM context inspection).
+    public var daemonMessageId: String?
 
-    public init(timestamp: Date, kind: Kind, content: String, resultContent: String? = nil, resultIsError: Bool = false) {
+    public init(timestamp: Date, kind: Kind, content: String, resultContent: String? = nil, resultIsError: Bool = false, daemonMessageId: String? = nil) {
         self.timestamp = timestamp
         self.kind = kind
         self.content = content
         self.resultContent = resultContent
         self.resultIsError = resultIsError
+        self.daemonMessageId = daemonMessageId
     }
 }
 
@@ -320,6 +323,18 @@ public final class SubagentDetailStore {
             trackMutation()
             #endif
 
+        case .messageComplete(let msg):
+            guard let messageId = msg.messageId else { break }
+            var events = currentEvents(for: subagentId)
+            // Walk backward to find the last text event and attach the daemon message ID.
+            for i in stride(from: events.count - 1, through: 0, by: -1) {
+                if case .text = events[i].kind, events[i].daemonMessageId == nil {
+                    events[i].daemonMessageId = messageId
+                    break
+                }
+            }
+            stageEvents(events, for: subagentId)
+
         case .usageUpdate(let update):
             // Skip late deltas after terminal status to avoid double-counting
             // (recordStatusChanged already wrote cumulative stats).
@@ -362,6 +377,14 @@ public final class SubagentDetailStore {
                     subagentId: subagentId,
                     event: .assistantTextDelta(AssistantTextDelta(type: "assistant_text_delta", text: event.content, conversationId: nil))
                 )
+                // Attach daemon message ID from the detail response if available.
+                if let messageId = event.messageId {
+                    var events = currentEvents(for: subagentId)
+                    if let lastIndex = events.indices.last, case .text = events[lastIndex].kind {
+                        events[lastIndex].daemonMessageId = messageId
+                        stageEvents(events, for: subagentId)
+                    }
+                }
             case "tool_use":
                 let input: [String: AnyCodable]
                 if let data = event.content.data(using: .utf8),

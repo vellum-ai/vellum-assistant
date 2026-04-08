@@ -400,6 +400,7 @@ extension MainWindowView {
                         subagentId: subagentId,
                         viewModel: viewModel,
                         detailStore: viewModel.subagentDetailStore,
+                        showInspectButton: assistantFeatureFlagStore.isEnabled("settings-developer-nav"),
                         onAbort: { Task { await SubagentClient().abort(subagentId: subagentId, conversationId: viewModel.conversationId) } },
                         onRequestDetail: {
                             if let conversationId = viewModel.activeSubagents.first(where: { $0.id == subagentId })?.conversationId {
@@ -408,6 +409,11 @@ extension MainWindowView {
                                         viewModel.subagentDetailStore.populateFromDetailResponse(response)
                                     }
                                 }
+                            }
+                        },
+                        onInspectMessage: { messageId in
+                            withAnimation(VAnimation.standard) {
+                                windowState.inspectorMessageId = messageId
                             }
                         },
                         onClose: { windowState.selectedSubagentId = nil }
@@ -617,8 +623,9 @@ extension MainWindowView {
 // MARK: - Wrapper Views
 
 /// Renders the chat interface with an optional message inspector overlay.
-/// Owns the inspector state and bootstrap-state reading; ChatView reads
-/// viewModel properties directly via @Bindable.
+/// Owns bootstrap-state reading; ChatView reads viewModel properties directly
+/// via @Bindable. Inspector state is shared via `MainWindowState.inspectorMessageId`
+/// so both the chat and the subagent panel can trigger it.
 struct ActiveChatViewWrapper: View {
     @Bindable var viewModel: ChatViewModel
     var windowState: MainWindowState
@@ -639,8 +646,6 @@ struct ActiveChatViewWrapper: View {
     var conversationId: UUID?
     @Binding var anchorMessageId: UUID?
     @Binding var highlightedMessageId: UUID?
-
-    @State private var inspectorMessageId: String? = nil
 
     /// Reads the persisted bootstrap state so the chat view can suppress
     /// the empty state during first-launch bootstrap.
@@ -691,7 +696,7 @@ struct ActiveChatViewWrapper: View {
                 anchorMessageId: $anchorMessageId,
                 highlightedMessageId: $highlightedMessageId,
                 conversationId: conversationId,
-                isInteractionEnabled: inspectorMessageId == nil,
+                isInteractionEnabled: windowState.inspectorMessageId == nil,
                 isReadonly: isReadonly,
                 isBootstrapping: isBootstrapping,
                 isBootstrapTimedOut: isBootstrapTimedOut,
@@ -707,9 +712,9 @@ struct ActiveChatViewWrapper: View {
                 watchSession: ambientAgent.activeWatchSession
             )
             .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
-            .disabled(inspectorMessageId != nil)
+            .disabled(windowState.inspectorMessageId != nil)
 
-            if let messageId = inspectorMessageId {
+            if let messageId = windowState.inspectorMessageId {
                 MessageInspectorView(
                     messageId: messageId,
                     onBack: dismissInspector
@@ -717,22 +722,22 @@ struct ActiveChatViewWrapper: View {
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
-        .animation(VAnimation.standard, value: inspectorMessageId)
+        .animation(VAnimation.standard, value: windowState.inspectorMessageId)
         .onChange(of: conversationId) { _, _ in
-            inspectorMessageId = nil
+            windowState.inspectorMessageId = nil
         }
     }
 
     private func presentInspector(for messageId: String?) {
         guard let messageId else { return }
         withAnimation(VAnimation.standard) {
-            inspectorMessageId = messageId
+            windowState.inspectorMessageId = messageId
         }
     }
 
     private func dismissInspector() {
         withAnimation(VAnimation.standard) {
-            inspectorMessageId = nil
+            windowState.inspectorMessageId = nil
         }
     }
 }

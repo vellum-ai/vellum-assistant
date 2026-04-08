@@ -30,6 +30,7 @@ export interface SubagentDetailResponse {
     content: string;
     toolName?: string;
     isError?: boolean;
+    messageId?: string;
   }>;
 }
 
