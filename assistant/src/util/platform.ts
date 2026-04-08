@@ -136,8 +136,8 @@ export function isTCPEnabled(): boolean {
 
 /**
  * Returns the hostname/address for the TCP listener.
- * Always binds to localhost only. iOS pairing now uses the gateway
- * relay, so LAN binding (0.0.0.0) is no longer needed.
+ * Always binds to localhost only. iOS pairing uses the gateway
+ * relay.
  */
 export function getTCPHost(): string {
   return "127.0.0.1";
