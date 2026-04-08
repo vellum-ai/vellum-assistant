@@ -1360,6 +1360,25 @@ if [ "$CMD" = "run" ]; then
     fi
     pkill -x "vellum-assistant" 2>/dev/null || true
     sleep 0.3
+
+    # Refresh /Applications/$BUNDLE_DISPLAY_NAME.app from the freshly-built
+    # dist/ bundle, if a copy already exists. Without this, `./build.sh run`
+    # only updates dist/ and a Finder/dock launch silently keeps using the
+    # last DMG-installed bundle — which can be many features stale and
+    # presents as missing menus, missing feature flags, and ghost data loss.
+    # We only refresh when /Applications already has a copy so this doesn't
+    # become an unsolicited installer for users who never installed via DMG.
+    INSTALLED_APP="/Applications/$BUNDLE_DISPLAY_NAME.app"
+    if [ -d "$INSTALLED_APP" ]; then
+        echo "Refreshing $INSTALLED_APP from dist/..."
+        rm -rf "$INSTALLED_APP"
+        if cp -R "$APP_DIR" "$INSTALLED_APP"; then
+            echo "Refreshed installed bundle."
+        else
+            echo "Warning: failed to refresh $INSTALLED_APP — Finder launches may use a stale bundle."
+        fi
+    fi
+
     # Launch via `open` so Launch Services registers the bundle —
     # this is required for macOS TCC to associate the app with its
     # bundle ID and show it in System Settings > Privacy & Security.
