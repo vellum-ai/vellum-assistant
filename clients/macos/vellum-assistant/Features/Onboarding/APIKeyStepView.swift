@@ -75,6 +75,12 @@ struct APIKeyStepView: View {
 
     @State private var showTitle = false
     @State private var showContent = false
+    @State private var showCharacters = false
+
+    private static let welcomeCharacters: NSImage? = {
+        guard let url = ResourceBundle.bundle.url(forResource: "welcome-characters", withExtension: "png") else { return nil }
+        return NSImage(contentsOf: url)
+    }()
 
     private var userHostedEnabled: Bool {
         MacOSClientFeatureFlagManager.shared.isEnabled("user-hosted-enabled")
@@ -133,6 +139,26 @@ struct APIKeyStepView: View {
             withAnimation(.easeOut(duration: 0.5).delay(0.3)) {
                 showContent = true
             }
+        }
+
+        Spacer()
+
+        if let characters = Self.welcomeCharacters {
+            Image(nsImage: characters)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .clipShape(UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: VRadius.window,
+                    bottomTrailingRadius: VRadius.window,
+                    topTrailingRadius: 0
+                ))
+                .opacity(showCharacters ? 1 : 0)
+                .offset(y: showCharacters ? 0 : 30)
+                .animation(.easeOut(duration: 0.6).delay(0.5), value: showCharacters)
+                .onAppear { showCharacters = true }
+                .accessibilityHidden(true)
         }
     }
 

@@ -10,7 +10,13 @@ struct APIKeyEntryStepView: View {
     @State private var isEditing = false
     @State private var showTitle = false
     @State private var showContent = false
+    @State private var showCharacters = false
     @FocusState private var keyFieldFocused: Bool
+
+    private static let welcomeCharacters: NSImage? = {
+        guard let url = ResourceBundle.bundle.url(forResource: "welcome-characters", withExtension: "png") else { return nil }
+        return NSImage(contentsOf: url)
+    }()
 
     // MARK: - Provider Catalog
 
@@ -105,18 +111,26 @@ struct APIKeyEntryStepView: View {
                     apiKeyField
                 }
 
-                VButton(label: "Continue", style: .primary, isFullWidth: true, isDisabled: providerRequiresKey && apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
-                    saveAndHatch()
-                }
-
                 if let apiKeyUrl = currentProviderEntry?.apiKeyUrl,
                    let url = URL(string: apiKeyUrl) {
-                    VButton(label: "Get an API key", style: .ghost) {
-                        NSWorkspace.shared.open(url)
+                    HStack(spacing: VSpacing.sm) {
+                        Text("Don't have it?")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentSecondary)
+                        Text("Get an API key here")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentDefault)
+                            .onTapGesture {
+                                NSWorkspace.shared.open(url)
+                            }
                     }
                 }
 
-                VButton(label: "Back", style: .ghost) {
+                VButton(label: "Start", style: .primary, isFullWidth: true, isDisabled: providerRequiresKey && apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                    saveAndHatch()
+                }
+
+                VButton(label: "Back", style: .outlined) {
                     goBack()
                 }
             }
@@ -154,6 +168,26 @@ struct APIKeyEntryStepView: View {
                 hasExistingKey = false
                 isEditing = false
             }
+        }
+
+        Spacer()
+
+        if let characters = Self.welcomeCharacters {
+            Image(nsImage: characters)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .clipShape(UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: VRadius.window,
+                    bottomTrailingRadius: VRadius.window,
+                    topTrailingRadius: 0
+                ))
+                .opacity(showCharacters ? 1 : 0)
+                .offset(y: showCharacters ? 0 : 30)
+                .animation(.easeOut(duration: 0.6).delay(0.5), value: showCharacters)
+                .onAppear { showCharacters = true }
+                .accessibilityHidden(true)
         }
     }
 
