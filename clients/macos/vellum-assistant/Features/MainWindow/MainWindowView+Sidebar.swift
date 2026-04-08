@@ -608,13 +608,16 @@ extension MainWindowView {
         HStack(spacing: VSpacing.sm) {
             VColor.surfaceActive
                 .frame(height: 1)
+                .accessibilityHidden(true)
             Text(label)
                 .font(VFont.labelSmall)
                 .foregroundStyle(VColor.contentTertiary)
                 .tracking(1.2)
                 .fixedSize()
+                .accessibilityAddTraits(.isHeader)
             VColor.surfaceActive
                 .frame(height: 1)
+                .accessibilityHidden(true)
         }
         .padding(.vertical, VSpacing.sm)
     }
