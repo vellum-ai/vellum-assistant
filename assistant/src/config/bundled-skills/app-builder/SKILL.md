@@ -318,127 +318,9 @@ window.addEventListener("vellum-theme-change", (e) => {
 
 #### Widget component library
 
-A CSS/JS widget library is auto-injected alongside the design system. Use these for standard UI patterns - skip them when custom HTML serves the user better.
+A CSS/JS widget library is auto-injected alongside the design system. Use `.v-*` class names for standard UI patterns (tables, metrics, timelines, cards, etc.) and `window.vellum.widgets.*` JS utilities for charts, data formatting, and interactive behaviors. **ALWAYS use `vellum.widgets.*` chart functions** instead of hand-coding SVG/CSS charts.
 
-**Layout widgets** (class names, infer HTML structure):
-
-| Widget                                                       | Purpose                                                        |
-| ------------------------------------------------------------ | -------------------------------------------------------------- |
-| `.v-metric-card` (`.v-metric-grid`)                          | Big number with emoji icon, label, trend                       |
-| `.v-data-table`                                              | Sortable table with sticky header, `th[data-sortable]`         |
-| `.v-tabs` / `.v-tab-bar` / `.v-tab-panel`                    | Tab navigation with keyboard support                           |
-| `.v-accordion` / `.v-accordion-item`                         | Collapsible sections                                           |
-| `.v-search-bar`                                              | Search input with clear button                                 |
-| `.v-empty-state`                                             | No-data placeholder with CTA                                   |
-| `.v-timeline` / `.v-timeline-entry`                          | Vertical timeline (`.active`/`.success`/`.error`)              |
-| `.v-action-list` / `.v-action-list-item`                     | Rows with per-item actions                                     |
-| `.v-card-grid`                                               | Responsive card grid                                           |
-| `.v-progress-bar` / `.v-progress-track` / `.v-progress-fill` | Horizontal progress                                            |
-| `.v-status-badge`                                            | Colored pill with dot (`.success`/`.error`/`.warning`/`.info`) |
-| `.v-stat-row` / `.v-stat`                                    | Horizontal label-value pairs                                   |
-| `.v-toast`                                                   | Notification banner - prefer `vellum.widgets.toast()`          |
-| `.v-avatar-row`                                              | Contact/team display                                           |
-| `.v-tag-group`                                               | Wrapping tag row                                               |
-
-**Domain-specific widgets** (class names, infer HTML structure):
-
-| Widget             | Purpose                |
-| ------------------ | ---------------------- |
-| `.v-weather-card`  | Temperature + forecast |
-| `.v-stock-ticker`  | Price display + chart  |
-| `.v-flight-card`   | Flight info with route |
-| `.v-billing-chart` | Usage/billing display  |
-| `.v-boarding-pass` | Pass-styled layout     |
-| `.v-itinerary`     | Day-by-day travel plan |
-| `.v-receipt`       | Receipt layout         |
-| `.v-invoice`       | Formal invoice         |
-
-**Content & landing page components** (class names, infer HTML structure):
-
-| Widget                                           | Purpose                                             |
-| ------------------------------------------------ | --------------------------------------------------- |
-| `.v-hero` / `.v-hero-badge` / `.v-hero-subtitle` | Hero banner with gradient, trust badge, accent word |
-| `.v-section-header` / `.v-section-label`         | Section intro with label                            |
-| `.v-feature-grid` / `.v-feature-card`            | Feature showcase with hover lift                    |
-| `.v-pullquote`                                   | Blockquote with gradient accent border              |
-| `.v-comparison`                                  | Before/after cards (`.before`/`.after`)             |
-| `.v-page`                                        | Centered container (max-width 600px)                |
-| `.v-gradient-text`                               | Accent-colored gradient text                        |
-| `.v-animate-in`                                  | Staggered fade-in for children                      |
-
-#### Widget JavaScript utilities
-
-Interactive utilities at `window.vellum.widgets.*`:
-
-**Charts** (always use these instead of hand-coding SVG/CSS charts):
-
-```javascript
-vellum.widgets.sparkline("container-id", [10, 25, 15, 30], {
-  width: 200,
-  height: 40,
-  color: "var(--v-success)",
-  strokeWidth: 2,
-  fill: true,
-});
-vellum.widgets.barChart(
-  "container-id",
-  [
-    { label: "Jan", value: 120 },
-    { label: "Feb", value: 180, color: "var(--v-success)" },
-  ],
-  {
-    width: 400,
-    height: 200,
-    showLabels: true,
-    showValues: true,
-    horizontal: false,
-  },
-);
-vellum.widgets.lineChart(
-  "container-id",
-  [
-    { label: "Mon", value: 42 },
-    { label: "Tue", value: 58 },
-  ],
-  { width: 400, height: 200, showDots: true, showGrid: true, gridLines: 4 },
-);
-vellum.widgets.progressRing("container-id", 75, {
-  size: 100,
-  strokeWidth: 8,
-  color: "var(--v-success)",
-  label: "75%",
-});
-```
-
-**Data Formatting:**
-
-```javascript
-vellum.widgets.formatCurrency(1234.56, "USD"); // "$1,234.56"
-vellum.widgets.formatDate("2025-01-15", "relative"); // "3d ago"
-vellum.widgets.formatDate("2025-01-15", "short"); // "1/15/25"
-vellum.widgets.formatNumber(1234567, { compact: true }); // "1.2M"
-```
-
-**Interactive Behaviors:**
-
-```javascript
-vellum.widgets.sortTable("table-id"); // Wire th[data-sortable] click-to-sort
-vellum.widgets.filterTable("table-id", "input-id"); // Live text search
-vellum.widgets.tabs("tabs-id"); // Tab switching + keyboard nav
-vellum.widgets.accordion("accordion-id", { allowMultiple: true });
-vellum.widgets.multiSelect("table-id"); // Checkboxes + select-all
-vellum.widgets.toast("Saved!", "success", 4000); // Auto-dismiss notification
-vellum.widgets.countdown("timer-el", "2025-12-31T00:00:00Z", {
-  onComplete: () => {},
-});
-```
-
-#### When to use widgets vs custom HTML
-
-- **Use widgets** for standard patterns - tables, metrics, timelines, notifications
-- **Use custom HTML** for novel or creative UIs - games, art tools, unique dashboards
-- **Mix freely** - widgets compose well together and with custom elements
-- **ALWAYS use `vellum.widgets.*` chart functions** instead of hand-coding SVG/CSS charts. They handle overflow clipping, bounds, scaling, and dark mode. Hand-coded charts break layouts.
+For the full widget reference (class names, JS APIs, chart functions, formatting utilities), see **[Widget Component Library](references/WIDGETS.md)**.
 
 #### Data bridge API (deprecated)
 
@@ -461,87 +343,9 @@ Important:
 
 #### Custom route handlers (user-defined routes)
 
-When the app needs server-side persistence, custom API logic, or workspace file access, use **user-defined routes**. Route handlers are TypeScript or JavaScript files that live in the workspace `routes/` directory and are served under the `/v1/x/` URL path.
+When the app needs server-side persistence, custom API logic, or workspace file access, use **user-defined routes**. Route handlers are TypeScript/JavaScript files in the workspace `routes/` directory, served under `/v1/x/`. Call them from the frontend via `window.vellum.fetch("/v1/x/...")`. **Never use raw `fetch()` for `/v1/x/` routes** — it will fail in the sandboxed origin.
 
-**Common use cases:** CRUD storage, file-based persistence, search/aggregation, external API proxying, webhook receivers.
-
-**Handler file convention:**
-
-Each handler file exports named functions for the HTTP methods it supports (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`). Handlers use the standard Web API `Request`/`Response` signature.
-
-```
-{workspaceDir}/routes/
-  items.ts               # Handles /v1/x/items
-  items/
-    [id].ts              # Not supported — use query params instead
-    index.ts             # Also handles /v1/x/items (index convention)
-```
-
-**Example handler — JSON file persistence:**
-
-```typescript
-// routes/items.ts
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { join } from "node:path";
-
-export const description = "Item CRUD — stores records as a JSON file";
-
-const DATA_DIR = join(process.env.VELLUM_WORKSPACE_DIR!, "data");
-const DATA_FILE = join(DATA_DIR, "items.json");
-
-function loadItems(): Array<Record<string, unknown>> {
-  mkdirSync(DATA_DIR, { recursive: true });
-  if (!existsSync(DATA_FILE)) return [];
-  return JSON.parse(readFileSync(DATA_FILE, "utf-8"));
-}
-
-function saveItems(items: Array<Record<string, unknown>>): void {
-  mkdirSync(DATA_DIR, { recursive: true });
-  writeFileSync(DATA_FILE, JSON.stringify(items, null, 2));
-}
-
-export function GET(): Response {
-  return Response.json(loadItems());
-}
-
-export async function POST(request: Request): Promise<Response> {
-  const body = await request.json();
-  const items = loadItems();
-  const item = { id: crypto.randomUUID(), ...body, createdAt: new Date().toISOString() };
-  items.push(item);
-  saveItems(items);
-  return Response.json(item, { status: 201 });
-}
-```
-
-**Calling routes from the app frontend:**
-
-Apps call custom routes via `window.vellum.fetch()` using the `/v1/x/` prefix. This authenticated wrapper automatically injects the gateway URL and auth headers so requests reach the assistant runtime. **Never use raw `fetch()` for `/v1/x/` routes** — it will fail because the app runs in a sandboxed origin.
-
-```typescript
-// In a TSX component or HTML script
-const res = await window.vellum.fetch("/v1/x/items");
-if (!res.ok) throw new Error(`HTTP ${res.status}`);
-const items = await res.json();
-
-// Create a new item
-const createRes = await window.vellum.fetch("/v1/x/items", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ name: "New item", status: "active" }),
-});
-if (!createRes.ok) throw new Error(`HTTP ${createRes.status}`);
-```
-
-**Key rules:**
-
-- Always create the route handler files via `file_write` before calling `app_refresh`
-- Export an optional `description` string for CLI discoverability (`assistant routes list`)
-- Handlers have full Node.js API access — `fs`, `path`, `crypto`, etc.
-- Handlers get a 30-second timeout per request
-- Files are hot-reloaded on change (mtime-based cache)
-- Use `.ts` (preferred) or `.js` extensions
-- Route resolution: `routes/foo.ts` → `/v1/x/foo`, `routes/bar/index.ts` → `/v1/x/bar`
+For handler conventions, examples, key rules, and frontend usage patterns, see **[Custom Route Handlers](references/CUSTOM_ROUTES.md)**.
 
 #### Client-side state management
 
@@ -673,51 +477,9 @@ Slides are a different domain from apps. Skip app-specific patterns (contextual 
 
 ## App Interaction Hooks
 
-When building apps, proactively wire `sendAction` hooks so the assistant stays aware of meaningful user interactions. Two patterns are available:
+Proactively wire `window.vellum.sendAction()` hooks so the assistant stays aware of meaningful user interactions. Two patterns: **reactive** hooks (trigger assistant response) and **silent** hooks (`state_update` — accumulate context without interrupting). Wire hooks during the initial build, don't wait for the user to ask.
 
-### Reactive hooks
-
-Reactive hooks trigger an assistant response. Use them for moments where the assistant's input adds value - selections that need explanation, completions worth celebrating, or submissions that benefit from feedback.
-
-```javascript
-// User selects a city on a map — assistant can provide insights
-window.vellum.sendAction('city_selected', { city: 'Tokyo' });
-
-// User submits a form — assistant can confirm and suggest next steps
-window.vellum.sendAction('form_submitted', { formId: 'signup', email: 'user@example.com' });
-
-// User completes a level — assistant can congratulate and hint at what's next
-window.vellum.sendAction('level_complete', { level: 5, score: 2400 });
-```
-
-### Silent hooks
-
-Silent hooks accumulate state without interrupting the user. The state is automatically included as context when the next reactive hook fires.
-
-```javascript
-// User navigates to a new tab — no response needed, but assistant should know
-window.vellum.sendAction('state_update', { currentView: 'forecast', city: 'Tokyo' });
-
-// Score changes during gameplay — track silently
-window.vellum.sendAction('state_update', { score: 1250, lives: 2 });
-
-// User applies a filter — context for future questions
-window.vellum.sendAction('state_update', { filter: 'last-30-days', sortBy: 'revenue' });
-```
-
-### When to use reactive vs silent
-
-Choose based on whether the assistant's response would genuinely help the user at that moment:
-
-| App type | Silent (state accumulation) | Reactive (triggers response) |
-|---|---|---|
-| **Dashboards** | Tab navigation, filter changes, date range selection | Anomaly detected, threshold breached, data export complete |
-| **Games** | Score updates, move tracking, timer ticks | Level complete, achievement unlocked, game over |
-| **Forms & wizards** | Field focus, partial input, step navigation | Form submitted, validation failed on submit |
-| **Trackers** | Incremental progress, status toggles, reordering | Milestone reached, streak achieved, all items complete |
-| **Data explorers** | Sorting, paging, column toggling | Row selected for detail, comparison initiated |
-
-Wire hooks during the initial build - don't wait for the user to ask. Apps that communicate state back to the assistant feel alive; apps that don't feel like static pages.
+For examples, reactive vs silent guidance, and per-app-type recommendations, see **[App Interaction Hooks](references/INTERACTION_HOOKS.md)**.
 
 ## Actionable UI
 
