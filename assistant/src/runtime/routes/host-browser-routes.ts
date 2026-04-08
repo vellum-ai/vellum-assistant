@@ -57,6 +57,17 @@ export async function handleHostBrowserResult(
   // Validation passed — consume the pending interaction.
   const interaction = pendingInteractions.resolve(requestId)!;
 
+  // CLI shim path: pending interactions registered by /v1/browser-cdp carry
+  // a directBrowserResolve callback and are not bound to a Conversation.
+  // Resolve them in place without touching the conversation object.
+  if (interaction.directBrowserResolve) {
+    interaction.directBrowserResolve({
+      content: content ?? "",
+      isError: isError ?? false,
+    });
+    return Response.json({ accepted: true });
+  }
+
   // The host_browser kind always has a conversation attached at register time
   // (HostBrowserProxy.request wires it through), so this guard exists so a
   // future refactor of pending-interactions can change the type without

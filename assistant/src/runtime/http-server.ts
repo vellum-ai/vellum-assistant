@@ -118,6 +118,7 @@ import { attachmentRouteDefinitions } from "./routes/attachment-routes.js";
 import { handleGetAudio } from "./routes/audio-routes.js";
 import { avatarRouteDefinitions } from "./routes/avatar-routes.js";
 import { brainGraphRouteDefinitions } from "./routes/brain-graph-routes.js";
+import { browserCdpRouteDefinitions } from "./routes/browser-cdp-routes.js";
 import { handleBrowserExtensionPair } from "./routes/browser-extension-pair-routes.js";
 import { btwRouteDefinitions } from "./routes/btw-routes.js";
 import { callRouteDefinitions } from "./routes/call-routes.js";
@@ -1347,6 +1348,7 @@ export class RuntimeHttpServer {
       ...approvalRouteDefinitions(),
       ...hostBashRouteDefinitions(),
       ...hostBrowserRouteDefinitions(),
+      ...browserCdpRouteDefinitions(),
       ...hostCuRouteDefinitions(),
       ...hostFileRouteDefinitions(),
       ...(this.getSkillContext
