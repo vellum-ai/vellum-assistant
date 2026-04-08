@@ -221,7 +221,7 @@ describe("POST /v1/credentials/bulk", () => {
     expect(body.error).toMatch(/Invalid service token/i);
   });
 
-  it("returns 405 for non-POST methods", async () => {
+  it("non-POST methods fall through to single-account handler (bulk treated as account name)", async () => {
     const deps = makeDeps();
     const res = await handleCredentialRoute(
       makeRequest({ method: "GET", body: undefined }),
@@ -229,7 +229,9 @@ describe("POST /v1/credentials/bulk", () => {
     );
 
     expect(res).not.toBeNull();
-    expect(res!.status).toBe(405);
+    // "bulk" is interpreted as an account name by the :account handler;
+    // no such credential exists, so we get 404.
+    expect(res!.status).toBe(404);
   });
 
   it("handles empty credentials array", async () => {

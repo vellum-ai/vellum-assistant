@@ -23,7 +23,7 @@ import { validateMigrationState } from "../../memory/migrations/validate-migrati
 import { clearCache as clearTrustCache } from "../../permissions/trust-store.js";
 import {
   bulkSetSecureKeysAsync,
-  getSecureKeyAsync,
+  getSecureKeyResultAsync,
   listSecureKeysAsync,
 } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
@@ -163,9 +163,14 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
       );
     } else {
       for (const account of credentialList.accounts) {
-        const value = await getSecureKeyAsync(account);
-        if (value != null) {
-          credentials.push({ account, value });
+        const result = await getSecureKeyResultAsync(account);
+        if (result.unreachable) {
+          log.warn(
+            { account },
+            "Credential store unreachable when reading credential — skipping",
+          );
+        } else if (result.value != null) {
+          credentials.push({ account, value: result.value });
         }
       }
     }
