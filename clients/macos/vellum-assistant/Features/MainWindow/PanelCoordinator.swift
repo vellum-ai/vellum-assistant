@@ -105,6 +105,14 @@ extension MainWindowView {
                         windowState.selection = nil
                     }
                 },
+                onImportMemory: { message in
+                    conversationManager.openConversation(message: message, forceNew: true)
+                    if let id = conversationManager.activeConversationId {
+                        windowState.selection = .conversation(id)
+                    } else {
+                        windowState.selection = nil
+                    }
+                },
                 connectionManager: connectionManager,
                 eventStreamClient: eventStreamClient,
                 store: settingsStore,
@@ -525,6 +533,13 @@ extension MainWindowView {
                         message: "I'd like to create a new custom skill. What info do you need from me?",
                         forceNew: true
                     )
+                    windowState.dismissOverlay()
+                    if let id = conversationManager.activeConversationId {
+                        windowState.selection = .conversation(id)
+                    }
+                },
+                onImportMemory: { message in
+                    conversationManager.openConversation(message: message, forceNew: true)
                     windowState.dismissOverlay()
                     if let id = conversationManager.activeConversationId {
                         windowState.selection = .conversation(id)
