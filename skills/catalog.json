@@ -70,7 +70,10 @@
       "metadata": {
         "emoji": "📝",
         "vellum": {
-          "display-name": "Document Writer"
+          "display-name": "Document Writer",
+          "includes": [
+            "document"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -463,7 +466,7 @@
     },
     {
       "id": "watch-together",
-      "name": "Watch Together",
+      "name": "watch-together",
       "description": "Watch TV shows and movies with the user in real time by processing screen captures into frames and audio analysis.",
       "metadata": {
         "vellum": {
