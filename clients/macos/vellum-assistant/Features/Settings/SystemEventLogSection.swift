@@ -11,7 +11,7 @@ import VellumAssistantShared
 struct SystemEventLogSection: View {
     let assistant: LockfileAssistant
 
-    private static let pageLimit = 50
+    private static let pageLimit = 10
 
     @State private var events: [AssistantSystemEvent] = []
     @State private var isLoading = false
