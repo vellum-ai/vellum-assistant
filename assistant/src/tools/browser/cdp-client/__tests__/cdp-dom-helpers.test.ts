@@ -831,14 +831,12 @@ describe("navigateAndWait", () => {
     // Should NOT have polled readyState (only the pre-nav
     // `document.location.href` read is allowed before the navigate
     // attempt).
-    const pollEvals = cdp.calls.filter(
-      (c) =>
-        c.method === "Runtime.evaluate" &&
-        typeof (c.params as { expression?: string })?.expression === "string" &&
-        ((c.params as { expression: string }).expression.includes(
-          "readyState",
-        ) as boolean),
-    );
+    const pollEvals = cdp.calls.filter((c) => {
+      if (c.method !== "Runtime.evaluate") return false;
+      const expr = (c.params as { expression?: string } | undefined)
+        ?.expression;
+      return typeof expr === "string" && expr.includes("readyState");
+    });
     expect(pollEvals).toHaveLength(0);
   });
 

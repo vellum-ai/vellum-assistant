@@ -135,6 +135,18 @@ function resetMockPage() {
  * Default CDP handler. Returns values in the CDP response shape
  * (`{ result: { value } }`) for `Runtime.evaluate` calls and resolves
  * with `{}` for other methods.
+ *
+ * navigateAndWait now reads the pre-nav URL, then polls readyState +
+ * href in a single combined evaluate. The default flow:
+ *
+ *   1. Pre-nav `document.location.href` → "about:blank" (the baseline
+ *      used by navigateAndWait's commit detection).
+ *   2. `Page.navigate`
+ *   3. Combined poll `({ readyState, href })` → `{ readyState:
+ *      "complete", href: "https://example.com/page" }`. Because the
+ *      href changed from the pre-nav value, commit detection fires
+ *      on the first poll.
+ *   4. `document.title` → "Example".
  */
 function defaultCdpHandler(
   method: string,
@@ -143,14 +155,28 @@ function defaultCdpHandler(
   if (method === "Page.navigate") return { frameId: "f1" };
   if (method === "Runtime.evaluate") {
     const expression = String(params?.["expression"] ?? "");
-    if (expression === "document.readyState") {
-      return { result: { value: "complete" } };
-    }
     if (expression === "document.location.href") {
-      return { result: { value: "https://example.com/page" } };
+      return { result: { value: "about:blank" } };
     }
     if (expression === "document.title") {
       return { result: { value: "Example" } };
+    }
+    // Combined readyState + href polling expression from
+    // navigateAndWait. The commit-detection logic requires a
+    // different href from the pre-nav baseline so we return the
+    // requested page URL here.
+    if (
+      expression.includes("readyState") &&
+      expression.includes("document.location.href")
+    ) {
+      return {
+        result: {
+          value: {
+            readyState: "complete",
+            href: "https://example.com/page",
+          },
+        },
+      };
     }
     // DOM_DETECT / CAPTCHA_DETECT / DISMISS_MODALS IIFEs fall through
     // to a generic "no challenge" result. The auth-detector IIFE
@@ -269,14 +295,16 @@ describe("executeBrowserNavigate", () => {
     expect(navigateCall).toBeDefined();
     expect(navigateCall!.params).toEqual({ url: "https://example.com/page" });
 
-    // document.readyState was polled, and document.title / href were read
+    // navigateAndWait polls readyState+href in a single combined
+    // evaluate and also reads `document.location.href` pre-nav; the
+    // caller separately reads `document.title` after the nav.
     const evaluateCalls = cdpSendCalls.filter(
       (c) => c.method === "Runtime.evaluate",
     );
     const expressions = evaluateCalls.map(
       (c) => (c.params as Record<string, unknown>)["expression"] as string,
     );
-    expect(expressions).toContain("document.readyState");
+    expect(expressions.some((e) => e.includes("readyState"))).toBe(true);
     expect(expressions).toContain("document.location.href");
     expect(expressions).toContain("document.title");
 
@@ -286,17 +314,31 @@ describe("executeBrowserNavigate", () => {
 
   test("notes redirect when final URL differs", async () => {
     parseUrlResult = new URL("https://example.com/old");
+    // Pre-nav URL is about:blank so commit detection fires on the
+    // first poll. The combined poll returns a different href than
+    // the requested URL — that's what triggers the "redirected" note.
     cdpSendHandler = (method, params) => {
+      if (method === "Page.navigate") return { frameId: "f1" };
       if (method === "Runtime.evaluate") {
         const expression = String(params?.["expression"] ?? "");
-        if (expression === "document.readyState") {
-          return { result: { value: "complete" } };
-        }
         if (expression === "document.location.href") {
-          return { result: { value: "https://example.com/new" } };
+          return { result: { value: "about:blank" } };
         }
         if (expression === "document.title") {
           return { result: { value: "New" } };
+        }
+        if (
+          expression.includes("readyState") &&
+          expression.includes("document.location.href")
+        ) {
+          return {
+            result: {
+              value: {
+                readyState: "complete",
+                href: "https://example.com/new",
+              },
+            },
+          };
         }
         return { result: { value: null } };
       }
@@ -316,20 +358,33 @@ describe("executeBrowserNavigate", () => {
   test("reports a timeout note when document.readyState never completes", async () => {
     parseUrlResult = new URL("https://example.com/slow");
     cdpSendHandler = (method, params) => {
+      if (method === "Page.navigate") return { frameId: "f1" };
       if (method === "Runtime.evaluate") {
         const expression = String(params?.["expression"] ?? "");
-        if (expression === "document.readyState") {
-          // Always stuck in "loading" — forces navigateAndWait to
-          // exhaust its timeout budget.
-          return { result: { value: "loading" } };
-        }
         if (expression === "document.location.href") {
-          // After timeout, the final URL read returns the navigated
-          // URL — this prevents the "page never moved" re-throw.
-          return { result: { value: "https://example.com/slow" } };
+          // Pre-nav URL read. Returning the same URL as the target
+          // would trigger the same-URL reload fallback; using
+          // about:blank keeps the cross-URL commit-detection path
+          // active so the polling loop actually exercises readyState.
+          return { result: { value: "about:blank" } };
         }
         if (expression === "document.title") {
           return { result: { value: "Loading" } };
+        }
+        if (
+          expression.includes("readyState") &&
+          expression.includes("document.location.href")
+        ) {
+          // Stuck in "loading" — forces navigateAndWait to exhaust
+          // its timeout budget (or get aborted by the test's signal).
+          return {
+            result: {
+              value: {
+                readyState: "loading",
+                href: "https://example.com/slow",
+              },
+            },
+          };
         }
         return { result: { value: null } };
       }
@@ -428,13 +483,18 @@ describe("executeBrowserNavigate", () => {
     expect(cdpDisposed).toBe(true);
 
     // Should NOT have polled readyState — navigate failed before the
-    // wait loop ran.
-    const readyStateCalls = cdpSendCalls.filter(
-      (c) =>
-        c.method === "Runtime.evaluate" &&
-        (c.params as { expression?: string } | undefined)?.expression ===
-          "document.readyState",
-    );
+    // wait loop ran. navigateAndWait combines readyState + href into a
+    // single evaluate, so we look for any expression containing both.
+    const readyStateCalls = cdpSendCalls.filter((c) => {
+      if (c.method !== "Runtime.evaluate") return false;
+      const expr = (c.params as { expression?: string } | undefined)
+        ?.expression;
+      return (
+        typeof expr === "string" &&
+        expr.includes("readyState") &&
+        expr.includes("document.location.href")
+      );
+    });
     expect(readyStateCalls).toHaveLength(0);
   });
 
