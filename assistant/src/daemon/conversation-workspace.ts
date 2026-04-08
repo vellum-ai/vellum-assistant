@@ -14,10 +14,11 @@ export interface WorkspaceConversationContext {
   workspaceTopLevelContext: string | null;
   workspaceTopLevelDirty: boolean;
   /**
-   * Client-reported host home directory, populated from macOS transport
-   * metadata. Used to render the `<workspace>` block correctly for
-   * platform-managed daemons where `os.homedir()` would return the
-   * container's home instead of the user's actual Mac.
+   * Client-reported host home directory, populated from host-proxy
+   * transport metadata (see `supportsHostProxy` / `HostProxyInterfaceId`).
+   * Used to render the `<workspace>` block correctly for platform-managed
+   * daemons where `os.homedir()` would return the container's home instead
+   * of the user's actual client-side home.
    */
   hostHomeDir?: string;
   /** Client-reported host username. See `hostHomeDir`. */
