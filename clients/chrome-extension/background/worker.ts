@@ -12,15 +12,14 @@
  * same envelope vocabulary — the choice is strictly about where the
  * socket points and which token is presented on the handshake.
  *
- * Once connected, the worker dispatches incoming server messages:
+ * Once connected, the worker routes incoming server messages:
  *   - `host_browser_request` / `host_browser_cancel` envelopes are
- *     routed to the CDP proxy dispatcher (Phase 2 PR 9, gated behind
- *     the `vellum.cdpProxyEnabled` feature flag).
- *   - Every other payload is treated as a legacy `ExtensionCommand`
- *     and dispatched to the existing browser-API handlers.
+ *     dispatched to the CDP proxy dispatcher, which drives a
+ *     `chrome.debugger` session and POSTs a result envelope back to
+ *     the daemon's `/v1/host-browser-result` endpoint.
+ *   - Every other payload is logged and discarded.
  */
 
-import type { ExtensionCommand, ExtensionResponse, ExtensionHeartbeat } from '../../../assistant/src/browser-extension-relay/protocol.js';
 import {
   signInCloud,
   getStoredToken as getStoredCloudToken,
@@ -52,11 +51,8 @@ const CLOUD_GATEWAY_BASE_URL = 'https://api.vellum.ai';
 const CLOUD_OAUTH_CLIENT_ID = 'vellum-chrome-extension';
 
 const DEFAULT_RELAY_PORT = 7830;
-const HEARTBEAT_INTERVAL_MS = 30_000;
 
-const EXTENSION_VERSION = chrome.runtime.getManifest().version;
-
-// ── Mode selection (Phase 2 PR 14) ─────────────────────────────────
+// ── Mode selection ─────────────────────────────────────────────────
 //
 // Existing installs have no `vellum.relayMode` key and must keep using
 // the local daemon transport. New installs can flip to cloud via the
@@ -70,28 +66,22 @@ function isRelayModeKind(v: unknown): v is RelayModeKind {
 
 let relayMode: RelayModeKind = 'self-hosted';
 let relayConnection: RelayConnection | null = null;
-let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let shouldConnect = false;
 
-// ── Host browser dispatcher (Phase 2 PR 9) ──────────────────────────
+// ── Host browser dispatcher ────────────────────────────────────────
 //
-// Feature-flagged behind `vellum.cdpProxyEnabled` in chrome.storage.local.
-// When the flag is off (default), incoming `host_browser_request` /
-// `host_browser_cancel` envelopes are ignored here and the legacy
-// ExtensionCommand handlers below service all browser tool calls exactly
-// as before. Phase 3 will flip the default and delete the legacy path.
-const CDP_PROXY_ENABLED_KEY = 'vellum.cdpProxyEnabled';
-
-let cdpProxyEnabled = false;
+// `host_browser_request` / `host_browser_cancel` envelopes arriving on
+// the relay WebSocket are routed into the CDP proxy dispatcher, which
+// drives a chrome.debugger session and POSTs a result envelope back to
+// the daemon's `/v1/host-browser-result` endpoint.
 
 async function resolveHostBrowserTarget(
   cdpSessionId: string | undefined,
 ): Promise<{ tabId?: number; targetId?: string }> {
   // When the daemon side has an explicit session id (e.g. a flat child
   // session returned from a prior Target.attachToTarget) we route the
-  // command by targetId. Otherwise we fall back to the most recently
-  // active tab in the focused window — matching the implicit target
-  // selection the legacy ExtensionCommand handlers used.
+  // command by targetId. Otherwise fall back to the most recently
+  // active tab in the focused window.
   if (cdpSessionId) {
     return { targetId: cdpSessionId };
   }
@@ -114,12 +104,11 @@ async function resolveHostBrowserTarget(
  * POST uses the freshly minted bearer token — a captured snapshot would
  * silently 401/403 forever.
  *
- * When no relay connection exists yet (a legacy ExtensionCommand path
- * firing before `connect()` ran, or a stale result arriving after
- * `disconnect()`), we fall back per the configured relay mode:
+ * When no relay connection exists yet (e.g. a stale result arriving
+ * after `disconnect()`), we fall back per the configured relay mode:
  *
  *   - `self-hosted`: POST directly to the local daemon using live
- *     creds resolved from storage, matching pre-Phase 2 behaviour.
+ *     creds resolved from storage.
  *   - `cloud`: warn and drop the envelope. POSTing to localhost in
  *     cloud mode would always fail, and we have no WebSocket to
  *     round-trip through without an active connection.
@@ -135,9 +124,8 @@ async function dispatchHostBrowserResult(
     return postHostBrowserResult(currentMode, relayConnection, result);
   }
 
-  // Fallback path: no active connection (legacy ExtensionCommand path
-  // before `connect()` runs, or a stale result arriving after
-  // `disconnect()`).
+  // Fallback path: no active connection (e.g. a stale result arriving
+  // after `disconnect()`).
   if (relayMode === 'cloud') {
     console.warn(
       '[vellum-relay] host_browser_result dropped: cloud mode but relay not connected',
@@ -235,7 +223,6 @@ function createRelayConnection(mode: RelayMode): RelayConnection {
     mode,
     onOpen: () => {
       console.log(`[vellum-relay] Connected (${mode.kind})`);
-      startHeartbeat();
     },
     onMessage: (data) => {
       // Fire-and-forget dispatch — wrap with .catch so a future refactor
@@ -247,7 +234,6 @@ function createRelayConnection(mode: RelayMode): RelayConnection {
     },
     onClose: (code, reason) => {
       console.log(`[vellum-relay] Disconnected (code=${code}, reason=${reason || 'n/a'})`);
-      stopHeartbeat();
     },
     onReconnect: async () => {
       // Self-hosted: attempt to mint a fresh gateway token. Cloud: no-op
@@ -315,7 +301,6 @@ async function connect(): Promise<void> {
 }
 
 function disconnect(): void {
-  stopHeartbeat();
   if (relayConnection) {
     relayConnection.close(1000, 'User disconnected');
     relayConnection = null;
@@ -349,34 +334,7 @@ async function applyModeChange(newKind: RelayModeKind): Promise<void> {
   }
 }
 
-function startHeartbeat(): void {
-  stopHeartbeat();
-  heartbeatTimer = setInterval(async () => {
-    if (!relayConnection || !relayConnection.isOpen()) return;
-    const tabs = await chrome.tabs.query({});
-    const heartbeat: ExtensionHeartbeat = {
-      type: 'heartbeat',
-      extensionVersion: EXTENSION_VERSION,
-      connectedTabs: tabs.length,
-    };
-    relayConnection.send(JSON.stringify(heartbeat));
-  }, HEARTBEAT_INTERVAL_MS);
-}
-
-function stopHeartbeat(): void {
-  if (heartbeatTimer !== null) {
-    clearInterval(heartbeatTimer);
-    heartbeatTimer = null;
-  }
-}
-
-function sendResponse(response: ExtensionResponse): void {
-  if (relayConnection && relayConnection.isOpen()) {
-    relayConnection.send(JSON.stringify(response));
-  }
-}
-
-// ── Command dispatch ────────────────────────────────────────────────
+// ── Server message dispatch ─────────────────────────────────────────
 
 async function handleServerMessage(raw: string): Promise<void> {
   let parsed: unknown;
@@ -387,12 +345,6 @@ async function handleServerMessage(raw: string): Promise<void> {
     return;
   }
 
-  // Phase 2 PR 9: host_browser_* envelopes are dispatched via the CDP proxy
-  // only when the feature flag is on. With the flag off we synthesize an
-  // immediate error result so the daemon side clears its pending interaction
-  // instantly instead of waiting for host-browser-proxy to time out. The
-  // envelope is NOT forwarded to the legacy ExtensionCommand dispatch because
-  // its shape is incompatible.
   if (
     parsed !== null &&
     typeof parsed === 'object' &&
@@ -401,210 +353,16 @@ async function handleServerMessage(raw: string): Promise<void> {
   ) {
     const envelopeType = (parsed as { type: string }).type;
     if (envelopeType === 'host_browser_request') {
-      if (!cdpProxyEnabled) {
-        console.warn(
-          '[vellum-relay] host_browser_request received but cdpProxyEnabled=false; returning error',
-        );
-        const request = parsed as HostBrowserRequestEnvelope;
-        const errorResult: HostBrowserResultEnvelope = {
-          requestId: request.requestId,
-          content:
-            'Vellum CDP browser proxy is not enabled in this extension. Enable the "Host browser CDP proxy" toggle in the popup to use host_browser.',
-          isError: true,
-        };
-        try {
-          await dispatchHostBrowserResult(errorResult);
-        } catch (err) {
-          console.warn(
-            '[vellum-relay] Failed to dispatch cdpProxyEnabled=false error result',
-            err,
-          );
-        }
-        return;
-      }
       await hostBrowserDispatcher.handle(parsed as HostBrowserRequestEnvelope);
       return;
     }
     if (envelopeType === 'host_browser_cancel') {
-      if (cdpProxyEnabled) {
-        hostBrowserDispatcher.cancel(parsed as HostBrowserCancelEnvelope);
-      }
+      hostBrowserDispatcher.cancel(parsed as HostBrowserCancelEnvelope);
       return;
     }
   }
 
-  const cmd = parsed as ExtensionCommand;
-  try {
-    const result = await dispatch(cmd);
-    sendResponse({ id: cmd.id, success: true, ...result });
-  } catch (err) {
-    sendResponse({
-      id: cmd.id,
-      success: false,
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
-}
-
-interface DispatchResult {
-  result?: unknown;
-  tabId?: number;
-}
-
-async function dispatch(cmd: ExtensionCommand): Promise<DispatchResult> {
-  switch (cmd.action) {
-    case 'evaluate':
-      return await handleEvaluate(cmd);
-    case 'navigate':
-      return await handleNavigate(cmd);
-    case 'find_tab':
-      return await handleFindTab(cmd);
-    case 'new_tab':
-      return await handleNewTab(cmd);
-    case 'get_cookies':
-      return await handleGetCookies(cmd);
-    case 'set_cookie':
-      return await handleSetCookie(cmd);
-    case 'screenshot':
-      return await handleScreenshot(cmd);
-    default:
-      throw new Error(`Unknown action: ${(cmd as { action: string }).action}`);
-  }
-}
-
-// ── Action handlers ─────────────────────────────────────────────────
-
-async function handleEvaluate(cmd: ExtensionCommand): Promise<DispatchResult> {
-  if (cmd.tabId === undefined) throw new Error('evaluate requires tabId');
-  if (!cmd.code) throw new Error('evaluate requires code');
-
-  const code = cmd.code;
-
-  // Use chrome.debugger API (CDP Runtime.evaluate) for ALL evaluations.
-  //
-  // Why not chrome.scripting.executeScript?
-  //   1. MAIN world + eval/new Function is blocked by CSP on Instagram, Facebook,
-  //      TikTok, and many other sites.
-  //   2. MAIN world results don't serialize back through executeScript reliably
-  //      (returns null even when the script succeeds).
-  //   3. ISOLATED world can't access page JS globals or cookie-authenticated fetch().
-  //
-  // The debugger API operates at the browser engine level, bypassing ALL CSP
-  // restrictions while having full access to the page context (DOM, fetch,
-  // cookies, JS globals). It's the only approach that works universally.
-  //
-  // Trade-off: Chrome shows a yellow "debugging this tab" infobar while
-  // attached. We minimize this by attaching and detaching for each command.
-
-  // Attach debugger to the tab
-  try {
-    await chrome.debugger.attach({ tabId: cmd.tabId }, '1.3');
-  } catch (e) {
-    // Already attached is fine
-    if (!(e instanceof Error && e.message.includes('Already attached'))) {
-      throw new Error(`Could not attach debugger: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  }
-
-  try {
-    // Wrap code in an IIFE so "return" statements work — but only if the code
-    // isn't already a self-executing expression (e.g. "(async function(){...})()"
-    // or "(function(){...})()"). Double-wrapping breaks the return value.
-    const trimmed = code.trim();
-    const isIIFE = /^\((?:async\s+)?function\s*\(/.test(trimmed) && trimmed.endsWith(')');
-    const wrapped = isIIFE ? trimmed : `(function(){ ${code} })()`;
-    const evalResult = await chrome.debugger.sendCommand(
-      { tabId: cmd.tabId },
-      'Runtime.evaluate',
-      {
-        expression: wrapped,
-        returnByValue: true,
-        awaitPromise: true,
-        userGesture: true,
-      },
-    ) as { result?: { value?: unknown; type?: string; description?: string }; exceptionDetails?: { text?: string; exception?: { description?: string } } };
-
-    if (evalResult.exceptionDetails) {
-      const errMsg = evalResult.exceptionDetails.exception?.description
-        ?? evalResult.exceptionDetails.text
-        ?? 'Unknown eval error';
-      throw new Error(errMsg);
-    }
-
-    return { result: evalResult.result?.value ?? null, tabId: cmd.tabId };
-  } finally {
-    // Detach debugger — minimizes the yellow infobar visibility
-    try {
-      await chrome.debugger.detach({ tabId: cmd.tabId });
-    } catch {
-      // Best effort
-    }
-  }
-}
-
-async function handleNavigate(cmd: ExtensionCommand): Promise<DispatchResult> {
-  if (!cmd.url) throw new Error('navigate requires url');
-  const tabId = cmd.tabId;
-
-  if (tabId !== undefined) {
-    await chrome.tabs.update(tabId, { url: cmd.url });
-    return { tabId };
-  }
-
-  // Navigate the active tab in the focused window
-  const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  if (!activeTab?.id) throw new Error('No active tab found');
-  await chrome.tabs.update(activeTab.id, { url: cmd.url });
-  return { tabId: activeTab.id };
-}
-
-async function handleFindTab(cmd: ExtensionCommand): Promise<DispatchResult> {
-  if (!cmd.url) throw new Error('find_tab requires url');
-
-  // Try URL match first
-  const tabs = await chrome.tabs.query({ url: cmd.url });
-  if (tabs.length > 0 && tabs[0].id !== undefined) {
-    return { tabId: tabs[0].id };
-  }
-
-  // Fallback: substring match on tab URL
-  const allTabs = await chrome.tabs.query({});
-  const match = allTabs.find((t) => t.url?.includes(cmd.url!));
-  if (match?.id !== undefined) {
-    return { tabId: match.id };
-  }
-
-  return { tabId: undefined };
-}
-
-async function handleNewTab(cmd: ExtensionCommand): Promise<DispatchResult> {
-  const tab = await chrome.tabs.create({ url: cmd.url });
-  return { tabId: tab.id };
-}
-
-async function handleGetCookies(cmd: ExtensionCommand): Promise<DispatchResult> {
-  if (!cmd.domain) throw new Error('get_cookies requires domain');
-  const cookies = await chrome.cookies.getAll({ domain: cmd.domain });
-  return { result: cookies };
-}
-
-async function handleSetCookie(cmd: ExtensionCommand): Promise<DispatchResult> {
-  if (!cmd.cookie) throw new Error('set_cookie requires cookie');
-  const { url, name, value, domain, path, secure, httpOnly, expirationDate } = cmd.cookie;
-  await chrome.cookies.set({ url, name, value, domain, path, secure, httpOnly, expirationDate });
-  return {};
-}
-
-async function handleScreenshot(cmd: ExtensionCommand): Promise<DispatchResult> {
-  let windowId: number | undefined;
-  if (cmd.tabId !== undefined) {
-    const tab = await chrome.tabs.get(cmd.tabId);
-    windowId = tab.windowId;
-  }
-  const dataUrl = await chrome.tabs.captureVisibleTab(windowId ?? chrome.windows.WINDOW_ID_CURRENT, {
-    format: 'png',
-  });
-  return { result: dataUrl };
+  console.warn('[vellum-relay] Unknown message type:', parsed);
 }
 
 // ── Extension message listener (from popup) ─────────────────────────
@@ -658,11 +416,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     // can't tear down the awaited promise before the token is persisted.
     // chrome.runtime.connectNative also requires the "nativeMessaging"
     // permission, which is declared in manifest.json.
-    //
-    // IMPORTANT: use `sendResponseFn` (the chrome.runtime.onMessage
-    // callback) — NOT the module-level `sendResponse` helper, which
-    // forwards to the WebSocket relay and would leave the popup's
-    // requestLocalPair() promise hanging forever.
     bootstrapLocalToken()
       .then((stored: StoredLocalToken) => sendResponseFn({ ok: true, token: stored }))
       .catch((err) => sendResponseFn({ ok: false, error: err instanceof Error ? err.message : String(err) }));
@@ -699,27 +452,10 @@ async function bootstrap(): Promise<void> {
 
 bootstrap();
 
-// Load the CDP proxy feature flag at startup. Missing / non-boolean values
-// are treated as false so existing deployments exhibit no behavior change.
-chrome.storage.local.get(CDP_PROXY_ENABLED_KEY).then((result) => {
-  const value = result[CDP_PROXY_ENABLED_KEY];
-  cdpProxyEnabled = value === true;
-  if (cdpProxyEnabled) {
-    console.log('[vellum-relay] CDP proxy enabled (beta)');
-  }
-});
-
-// Keep feature flag + relay mode live-updatable from the popup without
-// requiring the service worker to restart.
+// Keep relay mode live-updatable from the popup without requiring the
+// service worker to restart.
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== 'local') return;
-  if (CDP_PROXY_ENABLED_KEY in changes) {
-    const newValue = changes[CDP_PROXY_ENABLED_KEY]?.newValue;
-    cdpProxyEnabled = newValue === true;
-    console.log(
-      `[vellum-relay] CDP proxy feature flag updated: ${cdpProxyEnabled}`,
-    );
-  }
   if (RELAY_MODE_KEY in changes) {
     const newValue = changes[RELAY_MODE_KEY]?.newValue;
     if (isRelayModeKind(newValue)) {

@@ -34,11 +34,9 @@ const btnCloudSignIn = document.getElementById('btn-cloud-signin') as HTMLButton
 const cloudStatus = document.getElementById('cloud-status') as HTMLParagraphElement;
 const btnPairLocal = document.getElementById('btn-pair-local') as HTMLButtonElement;
 const localStatus = document.getElementById('local-status') as HTMLParagraphElement;
-const cdpProxyToggle = document.getElementById('cdp-proxy-toggle') as HTMLInputElement;
 const modeSelfHosted = document.getElementById('mode-self-hosted') as HTMLInputElement;
 const modeCloud = document.getElementById('mode-cloud') as HTMLInputElement;
 
-const CDP_PROXY_ENABLED_KEY = 'vellum.cdpProxyEnabled';
 const RELAY_MODE_KEY = 'vellum.relayMode';
 type RelayModeKind = 'self-hosted' | 'cloud';
 
@@ -324,21 +322,6 @@ btnCloudSignIn.addEventListener('click', async () => {
 });
 
 refreshCloudStatus();
-
-// ── CDP proxy beta toggle (Phase 2 PR 9) ──────────────────────────
-//
-// Persists `vellum.cdpProxyEnabled` in chrome.storage.local. The service
-// worker reads this flag at startup and listens for changes via
-// chrome.storage.onChanged, so no reconnect is needed — flipping the
-// checkbox takes effect on the next incoming host_browser_request frame.
-
-chrome.storage.local.get(CDP_PROXY_ENABLED_KEY).then((result) => {
-  cdpProxyToggle.checked = result[CDP_PROXY_ENABLED_KEY] === true;
-});
-
-cdpProxyToggle.addEventListener('change', async () => {
-  await chrome.storage.local.set({ [CDP_PROXY_ENABLED_KEY]: cdpProxyToggle.checked });
-});
 
 // ── Relay mode switcher (Phase 2 PR 14) ────────────────────────────
 //
