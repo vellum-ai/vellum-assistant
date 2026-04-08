@@ -177,11 +177,13 @@ Examples:
     "after",
     `
 Callback routes tell the platform gateway how to forward inbound provider
-webhooks to the correct platform-managed assistant instance. Each route maps a
-callback path and type to a stable external URL that external services
-(Telegram, Twilio, OAuth providers) should use.
+webhooks to the correct assistant instance. Each route maps a callback path
+and type to a stable external URL that external services (Telegram, Twilio,
+email, OAuth providers) should use.
 
 Examples:
+  $ assistant platform callback-routes list
+  $ assistant platform callback-routes list --json
   $ assistant platform callback-routes register --path webhooks/telegram --type telegram --json
   $ assistant platform callback-routes register --path webhooks/twilio/voice --type twilio_voice --json`,
   );
@@ -252,6 +254,89 @@ Examples:
 
         if (!shouldOutputJson(cmd)) {
           log.info(`Callback route registered: ${callbackUrl}`);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        writeOutput(cmd, { ok: false, error: message });
+        process.exitCode = 1;
+      }
+    });
+
+  // ---------------------------------------------------------------------------
+  // callback-routes list
+  // ---------------------------------------------------------------------------
+
+  callbackRoutes
+    .command("list")
+    .description("List registered callback routes for this assistant")
+    .addHelpText(
+      "after",
+      `
+Lists all callback routes registered with the platform for this assistant.
+Shows the route type, callback URL, and path for each registered webhook.
+
+Requires platform credentials (run 'assistant platform connect' first or
+ensure IS_PLATFORM, VELLUM_PLATFORM_URL, and PLATFORM_ASSISTANT_ID are set).
+
+Examples:
+  $ assistant platform callback-routes list
+  $ assistant platform callback-routes list --json`,
+    )
+    .action(async (_opts: Record<string, unknown>, cmd: Command) => {
+      try {
+        const context = await resolvePlatformCallbackRegistrationContext();
+        if (!context.platformBaseUrl || !context.authHeader) {
+          writeOutput(cmd, {
+            ok: false,
+            error:
+              "Platform credentials not available — run 'assistant platform connect' or set VELLUM_PLATFORM_URL",
+          });
+          process.exitCode = 1;
+          return;
+        }
+
+        const url = `${context.platformBaseUrl}/v1/internal/gateway/callback-routes/`;
+        const response = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: context.authHeader,
+            Accept: "application/json",
+          },
+          signal: AbortSignal.timeout(10_000),
+        });
+
+        if (!response.ok) {
+          const detail = await response.text().catch(() => "");
+          writeOutput(cmd, {
+            ok: false,
+            error: `Failed to list callback routes (HTTP ${response.status}): ${detail}`,
+          });
+          process.exitCode = 1;
+          return;
+        }
+
+        const routes = (await response.json()) as Array<{
+          id: string;
+          assistant_id: string;
+          type: string;
+          callback_path: string;
+          callback_url: string;
+        }>;
+
+        if (shouldOutputJson(cmd)) {
+          writeOutput(cmd, { ok: true, routes });
+        } else {
+          if (routes.length === 0) {
+            log.info("No callback routes registered.");
+          } else {
+            log.info(`${routes.length} callback route(s) registered:\n`);
+            for (const route of routes) {
+              log.info(`  Type: ${route.type}`);
+              log.info(`  URL:  ${route.callback_url}`);
+              log.info(`  Path: ${route.callback_path}`);
+              log.info("");
+            }
+          }
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
