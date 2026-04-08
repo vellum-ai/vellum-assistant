@@ -5,7 +5,7 @@ import Foundation
 import os
 
 private let developerVMLog = Logger(
-    subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
+    subsystem: Bundle.appBundleIdentifier,
     category: "DeveloperHelloWorldVM"
 )
 
