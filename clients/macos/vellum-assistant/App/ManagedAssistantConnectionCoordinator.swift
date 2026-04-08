@@ -146,7 +146,10 @@ final class ManagedAssistantConnectionCoordinator {
             throw ManagedAssistantConnectionCoordinatorError.multiAssistantNotEnabled
         }
 
-        guard let lockfileAssistant = LockfileAssistant.loadByName(assistantId) else {
+        guard let lockfileAssistant = LockfileAssistant.loadByName(
+            assistantId,
+            lockfilePath: lockfilePath
+        ) else {
             throw ManagedAssistantConnectionCoordinatorError.assistantNotFound(assistantId)
         }
 

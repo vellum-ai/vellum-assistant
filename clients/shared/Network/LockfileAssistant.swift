@@ -156,8 +156,25 @@ public struct LockfileAssistant {
     }
 
     /// Returns all assistant entries from the lockfile, sorted newest first.
-    public static func loadAll() -> [LockfileAssistant] {
-        guard let json = LockfilePaths.read(),
+    ///
+    /// - Parameter lockfilePath: Optional explicit lockfile path. When `nil`
+    ///   reads the primary path via `LockfilePaths.read()` (which includes
+    ///   legacy-path migration). Tests and the connection coordinator pass
+    ///   an explicit path to stay consistent with the same file the writes
+    ///   target.
+    public static func loadAll(lockfilePath: String? = nil) -> [LockfileAssistant] {
+        let json: [String: Any]?
+        if let lockfilePath {
+            if let data = try? Data(contentsOf: URL(fileURLWithPath: lockfilePath)),
+               let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                json = parsed
+            } else {
+                json = nil
+            }
+        } else {
+            json = LockfilePaths.read()
+        }
+        guard let json,
               let assistants = json["assistants"] as? [[String: Any]] else {
             return []
         }
@@ -226,8 +243,15 @@ public struct LockfileAssistant {
     }
 
     /// Find an assistant by its ID in the lockfile.
-    public static func loadByName(_ name: String) -> LockfileAssistant? {
-        loadAll().first { $0.assistantId == name }
+    ///
+    /// - Parameter lockfilePath: Optional explicit lockfile path. When `nil`
+    ///   reads the primary path. Pass the same path the corresponding write
+    ///   used so reads and writes stay in sync.
+    public static func loadByName(
+        _ name: String,
+        lockfilePath: String? = nil
+    ) -> LockfileAssistant? {
+        loadAll(lockfilePath: lockfilePath).first { $0.assistantId == name }
     }
 
     /// Resolve the instance directory for the currently connected assistant.
