@@ -747,6 +747,7 @@ describe("web_search_tool_result structural guard", () => {
     // web_search_tool_result has a structurally different content format
     // (array of web_search_result objects) and is not truncated this way.
     "context/tool-result-truncation.ts",
+    "context/post-turn-tool-result-truncation.ts",
 
     // Anthropic provider type guards define API-specific discriminants.
     // It has a separate isWebSearchToolResultBlock for the other type.
