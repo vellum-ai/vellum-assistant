@@ -9,7 +9,7 @@ metadata:
     includes:
       - "frontend-design"
     activation-hints:
-      - "User asks to build an app, dashboard, tool, calculator, game, tracker, or interactive page"
+      - "User asks to build an app, landing page, website, dashboard, tool, calculator, game, tracker, or interactive page"
       - "Prefer the app sandbox over outputting raw HTML/CSS/JS in chat"
 ---
 
