@@ -794,33 +794,11 @@ enum LogExporter {
     /// API is unavailable or the subsystem has no entries.
     private nonisolated static func collectUnifiedLog(to destination: URL, cutoffDate: Date? = nil) {
         do {
-            let store = try OSLogStore(scope: .currentProcessIdentifier)
-            let logCutoff = cutoffDate ?? Date().addingTimeInterval(-86400)
-            let position = store.position(date: logCutoff)
-            let subsystem = Bundle.appBundleIdentifier
-
-            let entries = try store.getEntries(
-                at: position,
-                matching: NSPredicate(format: "subsystem == %@", subsystem)
+            let logCutoff = cutoffDate ?? Date().addingTimeInterval(-UnifiedLogReader.defaultLookback)
+            let lines = try UnifiedLogReader.readFormattedRecentLines(
+                since: logCutoff,
+                maximumEntryCount: Int.max
             )
-
-            var lines: [String] = []
-
-            for entry in entries {
-                guard let logEntry = entry as? OSLogEntryLog else { continue }
-                let ts = logEntry.date.iso8601WithFractionalSecondsString
-                let level: String
-                switch logEntry.level {
-                case .debug: level = "DEBUG"
-                case .info: level = "INFO"
-                case .notice: level = "NOTICE"
-                case .error: level = "ERROR"
-                case .fault: level = "FAULT"
-                default: level = "OTHER"
-                }
-                lines.append("[\(ts)] [\(level)] [\(logEntry.category)] \(logEntry.composedMessage)")
-            }
-
             guard !lines.isEmpty else { return }
             let content = lines.joined(separator: "\n")
             try content.write(to: destination, atomically: true, encoding: .utf8)

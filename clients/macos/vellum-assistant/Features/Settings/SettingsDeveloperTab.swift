@@ -127,6 +127,14 @@ struct SettingsDeveloperTab: View {
 
             // Feature Flags
             featureFlagSection
+            // System Event Log (managed assistants only — sourced from the
+            // platform's AssistantSystemEvent table). `.id(...)` forces a
+            // fresh fetch when the user switches assistants in this tab.
+            if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
+               assistant.isManaged {
+                SystemEventLogSection(assistant: assistant)
+                    .id(assistant.assistantId)
+            }
             // Environment Variables
             environmentVariablesSection
             // Hello World VM
