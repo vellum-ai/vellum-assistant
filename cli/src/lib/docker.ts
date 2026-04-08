@@ -644,6 +644,9 @@ export function serviceDockerRunArgs(opts: {
       ...(opts.bootstrapSecret
         ? ["-e", `GUARDIAN_BOOTSTRAP_SECRET=${opts.bootstrapSecret}`]
         : []),
+      ...(process.env.VELLUM_PLATFORM_URL
+        ? ["-e", `VELLUM_PLATFORM_URL=${process.env.VELLUM_PLATFORM_URL}`]
+        : []),
       imageTags.gateway,
     ],
     "credential-executor": () => [
