@@ -563,7 +563,9 @@ export async function runAgentLoopImpl(
         collapseRawResponses(compacted.summaryRawResponses),
       );
       shouldInjectWorkspace = true;
-      compactedThisTurn = true;
+      if (compacted.compactedPersistedMessages > 0) {
+        compactedThisTurn = true;
+      }
     }
 
     const state = createEventHandlerState();
