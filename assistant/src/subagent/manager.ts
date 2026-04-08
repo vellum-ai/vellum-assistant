@@ -212,6 +212,7 @@ export class SubagentManager {
       config: { ...config, id: subagentId },
       status: "pending",
       conversationId: conversationRecord.id,
+      isFork: config.fork ?? false,
       createdAt: now,
       usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     };

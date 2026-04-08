@@ -86,6 +86,7 @@ function injectSubagent(
     },
     status,
     conversationId: `conv-${subagentId}`,
+    isFork: false,
     createdAt: Date.now(),
     usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     ...overrides,

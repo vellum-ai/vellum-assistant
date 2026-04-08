@@ -7,6 +7,7 @@
  */
 
 import type { UsageStats } from "../daemon/message-protocol.js";
+import type { Message } from "../providers/types.js";
 
 // ── Status ──────────────────────────────────────────────────────────────
 
@@ -43,6 +44,22 @@ export interface SubagentConfig {
   sendResultToUser?: boolean;
   /** Optional role for the subagent. Defaults handled by consumers. */
   role?: SubagentRole;
+  /**
+   * When true, the sub-agent inherits the parent's full context instead of
+   * receiving only the objective + context fields.
+   */
+  fork?: boolean;
+  /**
+   * The parent conversation's in-memory message history at fork time.
+   * Only set when `fork: true`.
+   */
+  parentMessages?: Message[];
+  /**
+   * The parent's current resolved system prompt. Only set when `fork: true`.
+   * Distinct from `systemPromptOverride` which replaces the subagent-built prompt;
+   * for forks, this IS the system prompt (no subagent preamble is built).
+   */
+  parentSystemPrompt?: string;
 }
 
 // ── State (runtime) ─────────────────────────────────────────────────────
@@ -52,6 +69,8 @@ export interface SubagentState {
   status: SubagentStatus;
   /** The subagent's own conversationId (different from parentConversationId). */
   conversationId: string;
+  /** Whether this sub-agent is a fork (inherits parent context). Defaults to `false`. */
+  isFork: boolean;
   /** Error message if status is 'failed'. */
   error?: string;
   /** Timestamps (epoch ms). */
