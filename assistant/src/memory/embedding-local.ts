@@ -1,4 +1,10 @@
-import { existsSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
@@ -214,6 +220,12 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   ): Promise<void> {
     const embeddingModelsDir = getEmbeddingModelsDir();
     const modelCacheDir = `${embeddingModelsDir}/model-cache`;
+
+    // Singleton guard: an orphaned embed worker from a previous daemon
+    // (e.g. one that crashed without cleanup) may still be running and
+    // holding the workspace's PID file. Detect and reclaim it before
+    // spawning so we never leave duplicate workers eating CPU/memory.
+    this.reclaimStaleWorker();
 
     log.info(
       { bunPath, workerPath, model: this.model },
@@ -443,6 +455,104 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     } catch {
       // Best-effort
     }
+  }
+
+  /** Read the PID from the on-disk PID file, or null if missing/invalid. */
+  private readPidFile(): number | null {
+    const path = this.getPidFilePath();
+    if (!existsSync(path)) return null;
+    try {
+      const pid = parseInt(readFileSync(path, "utf-8").trim(), 10);
+      return Number.isFinite(pid) && pid > 0 ? pid : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Verify a PID looks like one of our embed workers before sending signals
+   * to it — defends against PID-reuse killing an unrelated process if the
+   * original worker exited and the OS recycled the PID.
+   *
+   * The generated worker script sets `process.title = 'embed-worker'` and is
+   * always invoked via the `embed-worker.mjs` path under
+   * `~/.vellum/workspace/embedding-models/`, so either marker is conclusive.
+   */
+  private isLikelyEmbedWorker(pid: number): boolean {
+    try {
+      const result = Bun.spawnSync({
+        cmd: ["ps", "-p", String(pid), "-o", "command="],
+        stdout: "pipe",
+        stderr: "ignore",
+      });
+      if (result.exitCode !== 0) return false;
+      const cmd = new TextDecoder().decode(result.stdout).trim();
+      if (!cmd) return false;
+      return cmd.includes("embed-worker");
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * If a previous embed worker is still running for this workspace (orphaned
+   * by a crashed daemon, for example), terminate it before spawning a new one
+   * so we never end up with duplicate workers competing for the same workspace.
+   *
+   * Stale PID files (process no longer exists) are silently cleaned up.
+   * PIDs that have been recycled to unrelated processes are left untouched.
+   */
+  private reclaimStaleWorker(): void {
+    const pid = this.readPidFile();
+    if (pid == null) return;
+
+    // Never signal ourselves — should not happen since the worker is a child
+    // process, but guard against logic bugs that would deadlock the daemon.
+    if (pid === process.pid) {
+      this.removePidFile();
+      return;
+    }
+
+    let isAlive = false;
+    try {
+      // Signal 0 just probes for liveness without delivering a signal.
+      process.kill(pid, 0);
+      isAlive = true;
+    } catch {
+      // ESRCH — no such process. PID file is stale.
+    }
+
+    if (!isAlive) {
+      log.info(
+        { pid, model: this.model },
+        "Removing stale embed worker PID file (process no longer exists)",
+      );
+      this.removePidFile();
+      return;
+    }
+
+    if (!this.isLikelyEmbedWorker(pid)) {
+      // PID points to something that isn't ours (likely PID reuse after a
+      // prior worker exited). Don't kill an unrelated process — just drop
+      // the stale file and let the new worker take over the slot.
+      log.warn(
+        { pid, model: this.model },
+        "PID file points to a non-embed-worker process; clearing without killing",
+      );
+      this.removePidFile();
+      return;
+    }
+
+    log.warn(
+      { pid, model: this.model },
+      "Found orphaned embed worker from a previous daemon, terminating it",
+    );
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      // Race: it exited between the liveness check and the kill — fine.
+    }
+    this.removePidFile();
   }
 
   private disposeIfIdle(): void {
