@@ -9,6 +9,24 @@ import AppKit
 
 private let composerLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "Composer")
 
+@MainActor
+private final class ComposerMenuRefreshScheduler {
+    private var generation = 0
+
+    func schedule(_ action: @escaping @MainActor () -> Void) {
+        generation += 1
+        let currentGeneration = generation
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.generation == currentGeneration else { return }
+            action()
+        }
+    }
+
+    func cancel() {
+        generation += 1
+    }
+}
+
 struct ComposerView: View {
     private let composerMaxHeight: CGFloat = 300
     private let composerActionButtonSize: CGFloat = 32
@@ -84,6 +102,7 @@ struct ComposerView: View {
     @State var emojiFilter = ""
     @State var emojiSelectedIndex = 0
     @State var textReplacer = TextReplacementProxy()
+    @State private var menuRefreshScheduler = ComposerMenuRefreshScheduler()
     /// Snapshot of inputText captured when dictation starts, used to restore on cancel.
     @State private var preDictationText: String = ""
     /// Live amplitude from VoiceInputManager, bypassing ChatViewModel's 100ms coalescing.
@@ -100,6 +119,18 @@ struct ComposerView: View {
         }
         if inputText.isEmpty { return suggestion }
         return nil
+    }
+
+    private func scheduleComposerMenuRefresh() {
+        menuRefreshScheduler.schedule {
+            if inputText.isEmpty {
+                showSlashMenu = false
+                showEmojiMenu = false
+            } else {
+                updateSlashState()
+                updateEmojiState()
+            }
+        }
     }
 
     var body: some View {
@@ -141,8 +172,6 @@ struct ComposerView: View {
         }
         #endif
         .fixedSize(horizontal: false, vertical: true)
-        .animation(VAnimation.fast, value: showSlashMenu)
-        .animation(VAnimation.fast, value: showEmojiMenu)
         .padding(.horizontal, VSpacing.lg)
         .padding(.top, VSpacing.sm)
         .frame(maxWidth: VSpacing.chatColumnMaxWidth)
@@ -177,6 +206,7 @@ struct ComposerView: View {
             if enabled, !hasPendingConfirmation {
                 composerFocus = true
             } else if !enabled {
+                menuRefreshScheduler.cancel()
                 composerFocus = false
                 showSlashMenu = false
                 showEmojiMenu = false
@@ -331,16 +361,11 @@ struct ComposerView: View {
             composerFocus = true
         }
         .onChange(of: inputText) {
-            if inputText.isEmpty {
-                withAnimation(VAnimation.fast) { showSlashMenu = false; showEmojiMenu = false }
-            } else {
-                updateSlashState()
-                updateEmojiState()
-            }
+            scheduleComposerMenuRefresh()
         }
         .onChange(of: cursorPosition) {
             if !inputText.isEmpty {
-                updateEmojiState()
+                scheduleComposerMenuRefresh()
             }
         }
     }

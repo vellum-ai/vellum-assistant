@@ -92,21 +92,21 @@ extension ComposerView {
             let filter = String(text.dropFirst())
             let filtered = filteredSlashCommands(filter)
             if !filtered.isEmpty {
-                withAnimation(VAnimation.fast) { showSlashMenu = true }
+                showSlashMenu = true
                 if slashFilter != filter {
                     slashSelectedIndex = 0
                 }
                 slashFilter = filter
             } else {
-                withAnimation(VAnimation.fast) { showSlashMenu = false }
+                showSlashMenu = false
             }
         } else {
-            withAnimation(VAnimation.fast) { showSlashMenu = false }
+            showSlashMenu = false
         }
     }
 
     func selectSlashCommand(_ command: SlashCommand) {
-        withAnimation(VAnimation.fast) { showSlashMenu = false }
+        showSlashMenu = false
         slashSelectedIndex = 0
         inputText = Self.slashCommandInputTextForSelection(command)
         if command.shouldAutoSendOnSelect {
@@ -132,9 +132,9 @@ extension ComposerView {
                     suppressSlashReopen = true
                 }
                 inputText = newText
-                withAnimation(VAnimation.fast) { showSlashMenu = false }
+                showSlashMenu = false
             case .dismiss:
-                withAnimation(VAnimation.fast) { showSlashMenu = false }
+                showSlashMenu = false
                 inputText = ""
             }
         }
