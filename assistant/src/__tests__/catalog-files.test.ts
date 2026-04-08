@@ -221,6 +221,19 @@ describe("sanitizeRelativePath", () => {
     expect(sanitizeRelativePath("C:\\Windows")).toBeNull();
   });
 
+  test("rejects paths that become absolute after ./ stripping", () => {
+    // The leading `./` strip loop used to leave `/etc/passwd` behind, which
+    // posix.normalize then passed through as an absolute path. The
+    // post-normalization absolute-path check should reject each of these.
+    expect(sanitizeRelativePath(".//etc/passwd")).toBeNull();
+    expect(sanitizeRelativePath("./././/etc/passwd")).toBeNull();
+    // The backslash normalizes to `/`, so `.\\/etc/passwd` becomes
+    // `.//etc/passwd` before the strip loop, then `/etc/passwd`.
+    expect(sanitizeRelativePath(".\\/etc/passwd")).toBeNull();
+    // Windows-drive bypass via the same mechanism.
+    expect(sanitizeRelativePath(".//C:/Windows/system32")).toBeNull();
+  });
+
   test("rejects paths containing null bytes", () => {
     expect(sanitizeRelativePath("SKILL.md\0.png")).toBeNull();
     expect(sanitizeRelativePath("\0")).toBeNull();

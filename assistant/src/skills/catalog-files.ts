@@ -129,6 +129,13 @@ export function sanitizeRelativePath(rawPath: string): string | null {
   if (normalized.startsWith("../")) return null;
   // posix.normalize can still return "." for purely no-op paths.
   if (normalized === ".") return null;
+  // Reject if normalization produced an absolute or Windows-drive path.
+  // Covers bypasses like `.//etc/passwd` where the leading `./` strip loop
+  // leaves `/etc/passwd`, which `posix.normalize` then passes through as an
+  // absolute path. The pre-normalization absolute-path check above only
+  // catches inputs that were absolute to begin with.
+  if (normalized.startsWith("/")) return null;
+  if (/^[a-zA-Z]:[/\\]/.test(normalized)) return null;
 
   return normalized;
 }
