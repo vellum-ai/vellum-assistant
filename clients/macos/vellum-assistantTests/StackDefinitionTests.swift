@@ -61,7 +61,7 @@ final class StackDefinitionTests: XCTestCase {
     // MARK: - Environment
 
     func testAssistantEnvRequiredKeys() {
-        let env = VellumContainerEnv.assistant(instanceName: "test", signingKey: nil, cesServiceToken: nil)
+        let env = VellumContainerEnv.assistant(instanceName: "test", signingKey: nil, cesServiceToken: nil, platformURL: nil)
         XCTAssertEqual(env["IS_CONTAINERIZED"], "true")
         XCTAssertEqual(env["VELLUM_ASSISTANT_NAME"], "test")
         XCTAssertEqual(env["VELLUM_CLOUD"], "apple-container")
@@ -72,19 +72,22 @@ final class StackDefinitionTests: XCTestCase {
     }
 
     func testAssistantEnvOptionalKeys() {
-        let env = VellumContainerEnv.assistant(instanceName: "x", signingKey: "key123", cesServiceToken: "tok456")
+        let env = VellumContainerEnv.assistant(instanceName: "x", signingKey: "key123", cesServiceToken: "tok456", platformURL: "https://custom.vellum.ai")
         XCTAssertEqual(env["ACTOR_TOKEN_SIGNING_KEY"], "key123")
         XCTAssertEqual(env["CES_SERVICE_TOKEN"], "tok456")
+        XCTAssertEqual(env["VELLUM_PLATFORM_URL"], "https://custom.vellum.ai")
     }
 
     func testAssistantEnvOmitsNilOptionals() {
-        let env = VellumContainerEnv.assistant(instanceName: "x", signingKey: nil, cesServiceToken: nil)
+        let env = VellumContainerEnv.assistant(instanceName: "x", signingKey: nil, cesServiceToken: nil, platformURL: nil)
         XCTAssertNil(env["ACTOR_TOKEN_SIGNING_KEY"])
         XCTAssertNil(env["CES_SERVICE_TOKEN"])
+        XCTAssertNil(env["VELLUM_PLATFORM_URL"])
     }
 
     func testGatewayEnvRequiredKeys() {
-        let env = VellumContainerEnv.gateway(signingKey: nil, bootstrapSecret: nil, cesServiceToken: nil)
+        let env = VellumContainerEnv.gateway(signingKey: nil, bootstrapSecret: nil, cesServiceToken: nil, platformURL: nil)
+        XCTAssertEqual(env["IS_CONTAINERIZED"], "true")
         XCTAssertEqual(env["GATEWAY_PORT"], "7830")
         XCTAssertEqual(env["ASSISTANT_HOST"], "localhost")
         XCTAssertEqual(env["RUNTIME_HTTP_PORT"], "3001")
@@ -93,10 +96,11 @@ final class StackDefinitionTests: XCTestCase {
     }
 
     func testGatewayEnvOptionalKeys() {
-        let env = VellumContainerEnv.gateway(signingKey: "sk", bootstrapSecret: "bs", cesServiceToken: "ct")
+        let env = VellumContainerEnv.gateway(signingKey: "sk", bootstrapSecret: "bs", cesServiceToken: "ct", platformURL: "https://custom.vellum.ai")
         XCTAssertEqual(env["ACTOR_TOKEN_SIGNING_KEY"], "sk")
         XCTAssertEqual(env["GUARDIAN_BOOTSTRAP_SECRET"], "bs")
         XCTAssertEqual(env["CES_SERVICE_TOKEN"], "ct")
+        XCTAssertEqual(env["VELLUM_PLATFORM_URL"], "https://custom.vellum.ai")
     }
 
     func testCredentialExecutorEnvRequiredKeys() {

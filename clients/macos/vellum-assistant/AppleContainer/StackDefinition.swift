@@ -75,7 +75,8 @@ enum VellumContainerEnv {
     static func assistant(
         instanceName: String,
         signingKey: String?,
-        cesServiceToken: String?
+        cesServiceToken: String?,
+        platformURL: String?
     ) -> [String: String] {
         var env: [String: String] = [
             "IS_CONTAINERIZED": "true",
@@ -92,15 +93,20 @@ enum VellumContainerEnv {
         if let cesServiceToken {
             env["CES_SERVICE_TOKEN"] = cesServiceToken
         }
+        if let platformURL {
+            env["VELLUM_PLATFORM_URL"] = platformURL
+        }
         return env
     }
 
     static func gateway(
         signingKey: String?,
         bootstrapSecret: String?,
-        cesServiceToken: String?
+        cesServiceToken: String?,
+        platformURL: String?
     ) -> [String: String] {
         var env: [String: String] = [
+            "IS_CONTAINERIZED": "true",
             "VELLUM_WORKSPACE_DIR": VellumMountPaths.workspace,
             "GATEWAY_SECURITY_DIR": VellumMountPaths.gatewaySecurityDir,
             "GATEWAY_PORT": String(VellumContainerPorts.gatewayHTTP),
@@ -117,6 +123,9 @@ enum VellumContainerEnv {
         }
         if let cesServiceToken {
             env["CES_SERVICE_TOKEN"] = cesServiceToken
+        }
+        if let platformURL {
+            env["VELLUM_PLATFORM_URL"] = platformURL
         }
         return env
     }
