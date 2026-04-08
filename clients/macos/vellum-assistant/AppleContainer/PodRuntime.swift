@@ -25,7 +25,9 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
         var bootstrapSecret: String?
         var cesServiceToken: String?
         /// Size of the ext4 rootfs block device per service container.
-        var rootfsSizeInBytes: UInt64 = 2 * 1024 * 1024 * 1024 // 2 GiB
+        /// Minimum size for ext4 rootfs block devices. The formatter auto-grows
+        /// to fit the actual image content; this just sets the initial allocation.
+        var rootfsSizeInBytes: UInt64 = 256 * 1024 // 256 KiB
     }
 
     private let kernelStore: KataKernelStore
