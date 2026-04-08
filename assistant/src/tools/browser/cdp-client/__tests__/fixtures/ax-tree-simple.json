@@ -1,0 +1,69 @@
+{
+  "nodes": [
+    {
+      "nodeId": "1",
+      "role": { "type": "internalRole", "value": "RootWebArea" },
+      "name": { "type": "computedString", "value": "Example" },
+      "ignored": false,
+      "backendDOMNodeId": 100,
+      "childIds": ["2", "3", "4", "5", "6"]
+    },
+    {
+      "nodeId": "2",
+      "role": { "type": "role", "value": "button" },
+      "name": { "type": "computedString", "value": "  Submit Form  " },
+      "properties": [
+        { "name": "disabled", "value": { "type": "boolean", "value": false } },
+        { "name": "focusable", "value": { "type": "boolean", "value": true } }
+      ],
+      "backendDOMNodeId": 101,
+      "ignored": false,
+      "childIds": []
+    },
+    {
+      "nodeId": "3",
+      "role": { "type": "role", "value": "link" },
+      "name": { "type": "computedString", "value": "About Us" },
+      "properties": [
+        {
+          "name": "url",
+          "value": { "type": "string", "value": "https://example.com/about" }
+        }
+      ],
+      "backendDOMNodeId": 102,
+      "ignored": false,
+      "childIds": []
+    },
+    {
+      "nodeId": "4",
+      "role": { "type": "role", "value": "textbox" },
+      "name": { "type": "computedString", "value": "Email address" },
+      "value": { "type": "string", "value": "user@example.com" },
+      "properties": [
+        {
+          "name": "placeholder",
+          "value": { "type": "string", "value": "you@example.com" }
+        },
+        { "name": "required", "value": { "type": "boolean", "value": true } }
+      ],
+      "backendDOMNodeId": 103,
+      "ignored": false,
+      "childIds": []
+    },
+    {
+      "nodeId": "5",
+      "role": { "type": "role", "value": "button" },
+      "name": { "type": "computedString", "value": "Hidden Action" },
+      "backendDOMNodeId": 104,
+      "ignored": true,
+      "childIds": []
+    },
+    {
+      "nodeId": "6",
+      "role": { "type": "role", "value": "button" },
+      "name": { "type": "computedString", "value": "Orphan Button" },
+      "ignored": false,
+      "childIds": []
+    }
+  ]
+}
