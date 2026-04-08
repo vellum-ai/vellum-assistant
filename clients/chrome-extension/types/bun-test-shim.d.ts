@@ -7,12 +7,27 @@
  */
 
 declare module 'bun:test' {
-  type TestFn = () => void | Promise<void>;
+  type TestCallback = () => void | Promise<void>;
+  type TestFn = (name: string, fn?: TestCallback) => void;
 
-  export function describe(name: string, fn: () => void): void;
-  export function test(name: string, fn: TestFn): void;
-  export function beforeEach(fn: TestFn): void;
-  export function afterEach(fn: TestFn): void;
+  interface TestApi extends TestFn {
+    todo: TestFn;
+    skip: TestFn;
+    only: TestFn;
+  }
+
+  interface DescribeApi {
+    (name: string, fn: () => void): void;
+    skip(name: string, fn: () => void): void;
+    only(name: string, fn: () => void): void;
+  }
+
+  export const test: TestApi;
+  export const describe: DescribeApi;
+  export function beforeEach(fn: TestCallback): void;
+  export function afterEach(fn: TestCallback): void;
+  export function beforeAll(fn: TestCallback): void;
+  export function afterAll(fn: TestCallback): void;
 
   interface Matchers<R> {
     toBe(expected: unknown): R;
