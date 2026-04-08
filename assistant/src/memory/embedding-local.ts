@@ -481,8 +481,13 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
    */
   private isOurEmbedWorker(pid: number, workerPath: string): boolean {
     try {
+      // `-ww` disables column-width truncation. Without it, macOS `ps` clips
+      // the command field to the terminal width, which can cut off the
+      // workerPath argument and cause this check to spuriously return false
+      // for genuine orphans. Same flag is used by daemon-control.ts:123 for
+      // exactly this reason.
       const result = Bun.spawnSync({
-        cmd: ["ps", "-p", String(pid), "-o", "command="],
+        cmd: ["ps", "-ww", "-p", String(pid), "-o", "command="],
         stdout: "pipe",
         stderr: "ignore",
       });
