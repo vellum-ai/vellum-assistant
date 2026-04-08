@@ -224,7 +224,7 @@ jobs:
           done
 
       - name: Cache Kata kernel
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: clients/macos/.container-cache/kata-3.17.0-arm64/vmlinux.container
           key: kata-kernel-3.17.0-arm64
