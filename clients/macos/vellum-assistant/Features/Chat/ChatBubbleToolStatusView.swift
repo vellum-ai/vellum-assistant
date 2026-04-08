@@ -52,18 +52,21 @@ extension ChatBubble {
                 activeConfirmationRequestId: activeConfirmationRequestId,
                 progressUIState: $progressUIState
             )
-            .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+            // ⚠️ Do NOT replace HStack+Spacer with .frame(maxWidth:, alignment:) here.
+            // FlexFrame alignment queries recurse through all children — see AGENTS.md.
 
             // Inline image previews from completed tool calls (e.g. image generation)
             inlineToolCallImages(from: message.toolCalls)
         } else if !effectiveConfirmations.isEmpty, !inlineToolProgressRenderedInContent {
             // No tool display needed — only show permission chips.
+            // ⚠️ Do NOT replace HStack+Spacer with .frame(maxWidth:, alignment:) here.
+            // FlexFrame alignment queries recurse through all children — see AGENTS.md.
             HStack(alignment: .center, spacing: VSpacing.sm) {
                 ForEach(Array(effectiveConfirmations.enumerated()), id: \.offset) { _, confirmation in
                     compactPermissionChip(confirmation)
                 }
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, VSpacing.xxs)
         }
     }

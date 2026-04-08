@@ -354,14 +354,18 @@ struct MarkdownTableView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Header row
             HStack(spacing: 0) {
+                // ⚠️ Do NOT replace HStack+Spacer with .frame(maxWidth:, alignment:) here.
+                // FlexFrame alignment queries recurse through all children — see AGENTS.md.
                 ForEach(Array(headers.enumerated()), id: \.offset) { _, header in
-                    Text(header)
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.sm)
+                    HStack(spacing: 0) {
+                        Text(header)
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentSecondary)
+                            .textSelection(.enabled)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.sm)
                 }
             }
 
@@ -371,10 +375,12 @@ struct MarkdownTableView: View {
             ForEach(Array(rows.enumerated()), id: \.offset) { rowIdx, row in
                 HStack(spacing: 0) {
                     ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
-                        inlineMarkdownCell(cell)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, VSpacing.sm)
-                            .padding(.vertical, VSpacing.sm)
+                        HStack(spacing: 0) {
+                            inlineMarkdownCell(cell)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, VSpacing.sm)
                     }
                 }
                 if rowIdx < rows.count - 1 {
@@ -388,7 +394,9 @@ struct MarkdownTableView: View {
             RoundedRectangle(cornerRadius: VRadius.md)
                 .stroke(VColor.borderBase, lineWidth: 0.5)
         )
-        .frame(maxWidth: maxWidth, alignment: .leading)
+        // ⚠️ Do NOT replace .frame(width:) with .frame(maxWidth:, alignment:) here.
+        // FlexFrame alignment queries recurse through all children — see AGENTS.md.
+        .frame(width: maxWidth.isFinite ? maxWidth : nil, alignment: .leading)
     }
 
     private func inlineMarkdownCell(_ text: String) -> some View {

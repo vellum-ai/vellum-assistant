@@ -326,25 +326,28 @@ extension ChatBubble {
                 return result
             }()
 
-            AssistantProgressView(
-                toolCalls: groupedToolCalls,
-                isStreaming: isLatestGroup ? message.isStreaming : false,
-                hasText: hasTrailingText,
-                isProcessing: isLatestGroup && isProcessingAfterTools,
-                processingStatusText: isLatestGroup && isProcessingAfterTools ? processingStatusText : nil,
-                streamingCodePreview: isLatestGroup ? message.streamingCodePreview : nil,
-                streamingCodeToolName: isLatestGroup ? message.streamingCodeToolName : nil,
-                decidedConfirmations: groupConfirmations,
-                onRehydrate: onRehydrate,
-                onConfirmationAllow: onConfirmationAllow,
-                onConfirmationDeny: onConfirmationDeny,
-                onAlwaysAllow: onAlwaysAllow,
-                onTemporaryAllow: onTemporaryAllow,
-                activeConfirmationRequestId: activeConfirmationRequestId,
-                progressUIState: $progressUIState
-            )
-            .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
-
+            // ⚠️ Do NOT replace HStack+Spacer with .frame(maxWidth:, alignment:) here.
+            // FlexFrame alignment queries recurse through all children — see AGENTS.md.
+            HStack(spacing: 0) {
+                AssistantProgressView(
+                    toolCalls: groupedToolCalls,
+                    isStreaming: isLatestGroup ? message.isStreaming : false,
+                    hasText: hasTrailingText,
+                    isProcessing: isLatestGroup && isProcessingAfterTools,
+                    processingStatusText: isLatestGroup && isProcessingAfterTools ? processingStatusText : nil,
+                    streamingCodePreview: isLatestGroup ? message.streamingCodePreview : nil,
+                    streamingCodeToolName: isLatestGroup ? message.streamingCodeToolName : nil,
+                    decidedConfirmations: groupConfirmations,
+                    onRehydrate: onRehydrate,
+                    onConfirmationAllow: onConfirmationAllow,
+                    onConfirmationDeny: onConfirmationDeny,
+                    onAlwaysAllow: onAlwaysAllow,
+                    onTemporaryAllow: onTemporaryAllow,
+                    activeConfirmationRequestId: activeConfirmationRequestId,
+                    progressUIState: $progressUIState
+                )
+                Spacer(minLength: 0)
+            }
         }
     }
 

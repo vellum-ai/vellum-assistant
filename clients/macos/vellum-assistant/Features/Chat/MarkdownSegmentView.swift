@@ -904,12 +904,16 @@ private extension AttributedString {
 // MARK: - Optional Max Width
 
 private extension View {
-    /// Applies `.frame(maxWidth:alignment:)` only when a width is provided.
+    /// Applies a definite-width frame only when a width is provided.
     /// When `nil`, no frame is applied — the view shrink-wraps to its content.
+    ///
+    /// ⚠️ Uses `.frame(width:alignment:)` which compiles to `_FrameLayout` — safe
+    /// inside LazyVStack cells. Do NOT change to `.frame(maxWidth:alignment:)` which
+    /// compiles to `_FlexFrameLayout` and triggers recursive alignment queries — see AGENTS.md.
     @ViewBuilder
     func optionalMaxWidth(_ width: CGFloat?) -> some View {
         if let width {
-            self.frame(maxWidth: width, alignment: .leading)
+            self.frame(width: width, alignment: .leading)
         } else {
             self
         }

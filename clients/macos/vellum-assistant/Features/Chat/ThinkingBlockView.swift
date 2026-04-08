@@ -37,6 +37,9 @@ struct ThinkingBlockView: View {
                 Divider()
                     .padding(.horizontal, VSpacing.sm)
 
+                // ⚠️ Do NOT add .frame(maxWidth:, alignment:) here.
+                // FlexFrame alignment queries recurse through all children — see AGENTS.md.
+                // The parent VStack(alignment: .leading) already provides leading alignment.
                 MarkdownSegmentView(
                     segments: cachedSegments,
                     isStreaming: isStreaming,
@@ -49,7 +52,6 @@ struct ThinkingBlockView: View {
                     codeTextColor: VColor.contentDefault,
                     codeBackgroundColor: VColor.surfaceBase
                 )
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.sm)
                 .transition(.opacity)
             }

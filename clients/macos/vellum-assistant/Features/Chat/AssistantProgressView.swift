@@ -399,7 +399,6 @@ struct AssistantProgressView: View {
         .buttonStyle(.plain)
         .environment(\.isEnabled, true)
         .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -882,9 +881,13 @@ private struct StepDetailRow: View {
         isError: Bool = false
     ) -> some View {
         ZStack(alignment: .topTrailing) {
-            outputTextView(text: text, attributedText: attributedText, isError: isError)
+            // ⚠️ Do NOT replace HStack+Spacer with .frame(maxWidth:, alignment:) here.
+            // FlexFrame alignment queries recurse through all children — see AGENTS.md.
+            HStack(spacing: 0) {
+                outputTextView(text: text, attributedText: attributedText, isError: isError)
+                Spacer(minLength: 0)
+            }
             .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.sm + VSpacing.xl))
-            .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.sm)
                     .fill(VColor.surfaceOverlay.opacity(0.6))
@@ -923,17 +926,23 @@ private struct StepDetailRow: View {
         attributedText: AttributedString?,
         isError: Bool = false
     ) -> some View {
+        // ⚠️ Do NOT replace HStack+Spacer with .frame(maxWidth:, alignment:) here.
+        // FlexFrame alignment queries recurse through all children — see AGENTS.md.
         if let attrText = attributedText {
-            Text(attrText)
-                .font(VFont.bodySmallDefault)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 0) {
+                Text(attrText)
+                    .font(VFont.bodySmallDefault)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
         } else if let plainText = text {
-            Text(plainText)
-                .font(VFont.bodySmallDefault)
-                .foregroundStyle(isError ? VColor.systemNegativeStrong : VColor.contentSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 0) {
+                Text(plainText)
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(isError ? VColor.systemNegativeStrong : VColor.contentSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
         }
     }
 
