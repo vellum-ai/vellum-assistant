@@ -93,20 +93,6 @@ export class McpOAuthProvider implements OAuthClientProvider {
     this.serverUrl = serverUrl;
     this.interactive = interactive;
     this.callbackTransport = callbackTransport;
-
-    // In non-interactive (daemon) mode, set a placeholder redirect URL so the
-    // MCP SDK's authInternal() recognises this as an authorization_code flow
-    // rather than a client_credentials / non-interactive flow.  Without this
-    // the SDK checks `!provider.redirectUrl` → true → calls fetchToken()
-    // directly, which throws because neither prepareTokenRequest() nor
-    // authorizationCode are available.
-    //
-    // The placeholder is never navigated to — redirectToAuthorization() returns
-    // early in non-interactive mode.  startCallbackServer() overwrites it with
-    // the real loopback / gateway URL when the interactive CLI flow runs.
-    if (!interactive) {
-      this._redirectUrl = "http://127.0.0.1/oauth/callback/pending";
-    }
   }
 
   // --- redirectUrl ---

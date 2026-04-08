@@ -118,22 +118,19 @@ describe("McpClient auth error detection", () => {
 });
 
 describe("McpOAuthProvider redirectUrl", () => {
-  test("non-interactive provider sets placeholder redirectUrl so SDK uses auth_code flow", () => {
-    const provider = new McpOAuthProvider(
+  test("redirectUrl is undefined until startCallbackServer() is called", () => {
+    const nonInteractive = new McpOAuthProvider(
       "test-server",
       "https://example.com/mcp",
       /* interactive */ false,
     );
-    // Must be truthy so SDK's `!provider.redirectUrl` is false
-    expect(provider.redirectUrl).toBeTruthy();
-  });
+    expect(nonInteractive.redirectUrl).toBeUndefined();
 
-  test("interactive provider leaves redirectUrl undefined until startCallbackServer()", () => {
-    const provider = new McpOAuthProvider(
+    const interactive = new McpOAuthProvider(
       "test-server",
       "https://example.com/mcp",
       /* interactive */ true,
     );
-    expect(provider.redirectUrl).toBeUndefined();
+    expect(interactive.redirectUrl).toBeUndefined();
   });
 });
