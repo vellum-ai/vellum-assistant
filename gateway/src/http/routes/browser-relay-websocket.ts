@@ -2,6 +2,7 @@ import {
   validateEdgeToken,
   mintServiceToken,
 } from "../../auth/token-exchange.js";
+import { parseSub } from "../../auth/subject.js";
 import type { GatewayConfig } from "../../config.js";
 import { getLogger } from "../../logger.js";
 import { isLoopbackAddress } from "../../util/is-loopback-address.js";
@@ -68,9 +69,27 @@ export function isLoopbackPeer(
   return isLoopbackAddress(peer.address);
 }
 
+/**
+ * Resolved auth context carried into the upstream WS open handler.
+ *
+ * `guardianId` is populated whenever the downstream edge token carries an
+ * actor principal (i.e. the sub is `actor:<assistantId>:<actorPrincipalId>`).
+ * Service tokens — which intentionally do not carry a guardian — will have
+ * `guardianId === undefined` and are expected to be rejected at upstream
+ * upgrade time unless an alternate guardian-plumbing path is wired up.
+ */
+export interface BrowserRelayAuthContext {
+  guardianId?: string;
+  /** True when auth was checked and succeeded. */
+  authenticated: boolean;
+  /** True when runtime proxy auth is globally disabled (dev bypass). */
+  authBypassed: boolean;
+}
+
 export type BrowserRelaySocketData = {
   wsType: "browser-relay";
   config: GatewayConfig;
+  auth: BrowserRelayAuthContext;
   upstream?: WebSocket;
   pendingMessages?: (string | ArrayBuffer | Uint8Array)[];
 };
@@ -98,13 +117,14 @@ export function createBrowserRelayWebsocketHandler(config: GatewayConfig) {
       );
     }
 
-    const authResponse = checkBrowserRelayAuth(req, url, config);
-    if (authResponse) return authResponse;
+    const authResult = checkBrowserRelayAuth(req, url, config);
+    if (!authResult.ok) return authResult.response;
 
     const upgraded = server.upgrade(req, {
       data: {
         wsType: "browser-relay",
         config,
+        auth: authResult.context,
       },
     });
 
@@ -117,16 +137,32 @@ export function createBrowserRelayWebsocketHandler(config: GatewayConfig) {
   };
 }
 
-function checkBrowserRelayAuth(
+type AuthCheckResult =
+  | { ok: true; context: BrowserRelayAuthContext }
+  | { ok: false; response: Response };
+
+/**
+ * Parse the downstream edge token and return a structured auth context.
+ *
+ * The gateway accepts the token via `Authorization: Bearer <jwt>` or a
+ * `?token=` query parameter (browser WebSocket upgrades cannot set custom
+ * headers, so the query param is the primary mechanism for the Chrome
+ * extension). When the token carries an actor principal in its sub claim,
+ * we propagate the `actorPrincipalId` forward as the guardian identity so
+ * the runtime can register the connection under the correct guardian.
+ */
+export function checkBrowserRelayAuth(
   req: Request,
   url: URL,
   config: GatewayConfig,
-): Response | null {
-  if (!config.runtimeProxyRequireAuth) return null;
+): AuthCheckResult {
+  if (!config.runtimeProxyRequireAuth) {
+    return {
+      ok: true,
+      context: { authenticated: false, authBypassed: true },
+    };
+  }
 
-  // Accept JWT via Authorization header or query parameter (browser WebSocket
-  // upgrades cannot set custom headers, so the token query param is the
-  // primary mechanism for the Chrome extension).
   const authHeader = req.headers.get("authorization");
   const queryToken = url.searchParams.get("token");
   const rawToken = authHeader
@@ -137,7 +173,10 @@ function checkBrowserRelayAuth(
 
   if (!rawToken) {
     log.warn("Browser relay WS: no token provided");
-    return new Response("Unauthorized", { status: 401 });
+    return {
+      ok: false,
+      response: new Response("Unauthorized", { status: 401 }),
+    };
   }
 
   const result = validateEdgeToken(rawToken);
@@ -146,10 +185,33 @@ function checkBrowserRelayAuth(
       { reason: result.reason },
       "Browser relay WS: authentication failed",
     );
-    return new Response("Unauthorized", { status: 401 });
+    return {
+      ok: false,
+      response: new Response("Unauthorized", { status: 401 }),
+    };
   }
 
-  return null;
+  const parsed = parseSub(result.claims.sub);
+  let guardianId: string | undefined;
+  if (
+    parsed.ok &&
+    parsed.principalType === "actor" &&
+    parsed.actorPrincipalId
+  ) {
+    guardianId = parsed.actorPrincipalId;
+  } else if (!parsed.ok) {
+    // Not fatal — service tokens (svc:*:*) and unknown subs still reach
+    // the runtime, where they are rejected if no guardian is available.
+    log.debug(
+      { reason: parsed.reason, sub: result.claims.sub },
+      "Browser relay WS: edge token sub did not yield actor principal",
+    );
+  }
+
+  return {
+    ok: true,
+    context: { authenticated: true, authBypassed: false, guardianId },
+  };
 }
 
 /**
@@ -158,19 +220,24 @@ function checkBrowserRelayAuth(
 export function getBrowserRelayWebsocketHandlers() {
   return {
     open(ws: import("bun").ServerWebSocket<BrowserRelaySocketData>) {
-      const { config } = ws.data;
+      const { config, auth } = ws.data;
 
       // Initialize message buffer for frames arriving before upstream connects
       ws.data.pendingMessages = [];
 
       const runtimeBase = config.assistantRuntimeBaseUrl.replace(/^http/, "ws");
       const upstreamToken = mintServiceToken();
-      const query = `?token=${encodeURIComponent(upstreamToken)}`;
-      const upstreamUrl = `${runtimeBase}/v1/browser-relay${query}`;
-      const logSafeUpstreamUrl = `${runtimeBase}/v1/browser-relay?token=<redacted>`;
+      const query = new URLSearchParams({ token: upstreamToken });
+      if (auth.guardianId) {
+        query.set("guardianId", auth.guardianId);
+      }
+      const upstreamUrl = `${runtimeBase}/v1/browser-relay?${query.toString()}`;
+      const logSafeUpstreamUrl =
+        `${runtimeBase}/v1/browser-relay?token=<redacted>` +
+        (auth.guardianId ? `&guardianId=${auth.guardianId}` : "");
 
       log.info(
-        { upstreamUrl: logSafeUpstreamUrl },
+        { upstreamUrl: logSafeUpstreamUrl, guardianId: auth.guardianId },
         "Opening upstream browser relay WS to runtime",
       );
 

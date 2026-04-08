@@ -767,15 +767,12 @@ export class RuntimeHttpServer {
     //
     // Gateway path: when the WebSocket upgrade is proxied through the
     // gateway, the upstream token minted by `mintServiceToken()` has
-    // `sub=svc:gateway:self` with no actor principal id. In that case
-    // we fall back to an explicit `x-guardian-id` header / query param
-    // so the runtime can still register the connection under the real
-    // guardian. TODO(gateway-plumbing): the gateway's
-    // `browser-relay-websocket.ts` does not yet forward this header —
-    // once it does (resolving the actor from the downstream edge token
-    // at upgrade time), the service-token branch below will start
-    // picking up the guardianId. Until then, cloud-path registration
-    // silently no-ops, which is a known limitation tracked for Phase 3.
+    // `sub=svc:gateway:self` with no actor principal id. The gateway
+    // parses the downstream edge token's `actorPrincipalId` and forwards
+    // it as an explicit `guardianId` query parameter (and/or header) so
+    // we can register the connection under the real guardian. If the
+    // service-token path has no guardian context we fail closed rather
+    // than silently registering nothing.
     let guardianId: string | undefined;
     if (!isHttpAuthDisabled()) {
       const wsUrl = new URL(req.url);
@@ -792,16 +789,34 @@ export class RuntimeHttpServer {
         // Direct actor principal — this is the loopback / desktop path.
         guardianId = subResult.actorPrincipalId;
       } else {
-        // Service-token path (gateway-forwarded). Look for an explicit
-        // guardian id plumbed by the gateway as a header or query
-        // param. Header takes precedence because headers are easier
-        // for the gateway to forward without rewriting the URL.
+        // Service-token path (gateway-forwarded). The gateway must plumb
+        // the resolved actor principal as an explicit `x-guardian-id`
+        // header or `guardianId` query param. Header takes precedence
+        // because headers are easier for the gateway to forward without
+        // rewriting the URL.
         const headerGuardianId = req.headers.get("x-guardian-id")?.trim() ?? "";
         const queryGuardianId =
           wsUrl.searchParams.get("guardianId")?.trim() ?? "";
         const fallbackGuardianId = headerGuardianId || queryGuardianId;
         if (fallbackGuardianId) {
           guardianId = fallbackGuardianId;
+        } else {
+          // Fail closed: a service-token upgrade with no guardian
+          // context would silently register no connection, which leaves
+          // the extension hanging and results in host_browser_request
+          // frames being routed nowhere.
+          log.warn(
+            {
+              principalType: subResult.ok ? subResult.principalType : "unknown",
+              sub: jwtResult.claims.sub,
+            },
+            "Browser relay upgrade rejected: service-token path with no guardian context",
+          );
+          return httpError(
+            "UNAUTHORIZED",
+            "Browser relay upgrade requires guardian context",
+            401,
+          );
         }
       }
     }
