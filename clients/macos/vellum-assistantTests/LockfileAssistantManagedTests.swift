@@ -252,9 +252,9 @@ final class LockfileAssistantManagedTests: XCTestCase {
         XCTAssertTrue(assistant.isManaged, "isManaged should be case-insensitive")
     }
 
-    // MARK: - isRemote property
+    // MARK: - runsLocally property
 
-    func testIsRemoteReturnsFalseForLocal() {
+    func testRunsLocallyReturnsTrueForLocal() {
         let assistant = LockfileAssistant(
             assistantId: "test-id",
             runtimeUrl: nil,
@@ -269,10 +269,10 @@ final class LockfileAssistantManagedTests: XCTestCase {
             gatewayPort: nil,
             instanceDir: nil
         )
-        XCTAssertFalse(assistant.isRemote)
+        XCTAssertTrue(assistant.runsLocally)
     }
 
-    func testIsRemoteReturnsTrueForVellum() {
+    func testRunsLocallyReturnsFalseForVellum() {
         let assistant = LockfileAssistant(
             assistantId: "test-id",
             runtimeUrl: "https://platform.vellum.ai",
@@ -287,10 +287,10 @@ final class LockfileAssistantManagedTests: XCTestCase {
             gatewayPort: nil,
             instanceDir: nil
         )
-        XCTAssertTrue(assistant.isRemote)
+        XCTAssertFalse(assistant.runsLocally)
     }
 
-    func testIsRemoteReturnsTrueForGcp() {
+    func testRunsLocallyReturnsFalseForGcp() {
         let assistant = LockfileAssistant(
             assistantId: "test-id",
             runtimeUrl: nil,
@@ -305,7 +305,7 @@ final class LockfileAssistantManagedTests: XCTestCase {
             gatewayPort: nil,
             instanceDir: nil
         )
-        XCTAssertTrue(assistant.isRemote)
+        XCTAssertFalse(assistant.runsLocally)
     }
 
     // MARK: - home property for vellum cloud

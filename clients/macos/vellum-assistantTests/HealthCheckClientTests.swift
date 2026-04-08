@@ -176,7 +176,7 @@ final class HealthCheckClientTests: XCTestCase {
 
     // MARK: - Branching guard tests
 
-    func testLocalAssistantIsNotRemote() {
+    func testLocalAssistantRunsLocally() {
         let assistant = LockfileAssistant(
             assistantId: "test-id",
             runtimeUrl: nil,
@@ -192,10 +192,10 @@ final class HealthCheckClientTests: XCTestCase {
             gatewayPort: nil,
             instanceDir: nil
         )
-        XCTAssertFalse(assistant.isRemote)
+        XCTAssertTrue(assistant.runsLocally)
     }
 
-    func testManagedAssistantIsRemote() {
+    func testManagedAssistantDoesNotRunLocally() {
         let assistant = LockfileAssistant(
             assistantId: "test-id",
             runtimeUrl: "https://platform.vellum.ai",
@@ -211,10 +211,10 @@ final class HealthCheckClientTests: XCTestCase {
             gatewayPort: nil,
             instanceDir: nil
         )
-        XCTAssertTrue(assistant.isRemote)
+        XCTAssertFalse(assistant.runsLocally)
     }
 
-    func testGcpAssistantIsRemote() {
+    func testGcpAssistantDoesNotRunLocally() {
         let assistant = LockfileAssistant(
             assistantId: "test-id",
             runtimeUrl: nil,
@@ -230,6 +230,6 @@ final class HealthCheckClientTests: XCTestCase {
             gatewayPort: nil,
             instanceDir: nil
         )
-        XCTAssertTrue(assistant.isRemote)
+        XCTAssertFalse(assistant.runsLocally)
     }
 }

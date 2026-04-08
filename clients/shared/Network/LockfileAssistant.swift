@@ -100,9 +100,11 @@ public struct LockfileAssistant {
         self.previousContainerInfo = previousContainerInfo
     }
 
-    /// Whether this assistant is running remotely (not on the local machine).
-    public var isRemote: Bool {
-        cloud.lowercased() != "local"
+    /// Whether this assistant runs on the local machine.
+    /// True for bare-host local, Docker, and Apple Container assistants.
+    public var runsLocally: Bool {
+        let c = cloud.lowercased()
+        return c == "local" || c == "docker" || c == "apple-container"
     }
 
     /// Whether this is a platform-managed assistant.
