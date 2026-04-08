@@ -116,6 +116,11 @@ public struct EmptyData: Codable, Sendable {}
 public struct PlatformOrganization: Codable, Sendable {
     public let id: String
     public let name: String?
+
+    public init(id: String, name: String? = nil) {
+        self.id = id
+        self.name = name
+    }
 }
 
 public struct PaginatedOrganizationsResponse: Codable, Sendable {
@@ -171,6 +176,19 @@ public struct PlatformAssistant: Codable, Sendable {
         self.created_at = created_at
         self.status = status
         self.recovery_mode = recovery_mode
+    }
+}
+
+/// Response wrapper for the paginated `GET /v1/assistants/` endpoint.
+///
+/// Only `results` is decoded — the platform caps each org at 5 managed
+/// assistants, which always fits in a single page, so `count`/`next` are
+/// unused. If that cap is ever raised, add the fields and walk `next` here.
+public struct PaginatedPlatformAssistantsResponse: Codable, Sendable {
+    public let results: [PlatformAssistant]
+
+    public init(results: [PlatformAssistant]) {
+        self.results = results
     }
 }
 

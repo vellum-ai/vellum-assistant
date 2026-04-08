@@ -6,7 +6,8 @@ protocol ManagedAssistantBootstrapProviding {
     func ensureManagedAssistant(
         name: String?,
         description: String?,
-        anthropicApiKey: String?
+        anthropicApiKey: String?,
+        multiAssistantEnabled: Bool
     ) async throws -> ManagedBootstrapOutcome
 }
 
@@ -36,6 +37,7 @@ final class ManagedAssistantConnectionCoordinator {
     private let updateAssistantTag: (String?) -> Void
     private let lockfilePath: String?
     private let dateProvider: () -> Date
+    private let multiAssistantEnabledProvider: () -> Bool
 
     init(
         bootstrapService: ManagedAssistantBootstrapProviding,
@@ -45,7 +47,14 @@ final class ManagedAssistantConnectionCoordinator {
             SentryDeviceInfo.updateAssistantTag(assistantId)
         },
         lockfilePath: String? = nil,
-        dateProvider: @escaping () -> Date = Date.init
+        dateProvider: @escaping () -> Date = Date.init,
+        multiAssistantEnabledProvider: @escaping () -> Bool = {
+            // Read the feature flag via the static resolver (same underlying
+            // source `AssistantFeatureFlagStore.isEnabled` reads from) without
+            // allocating a new store + NotificationCenter subscriber on every
+            // `activateManagedAssistant()` call.
+            AssistantFeatureFlagResolver.isEnabled("multi-platform-assistant")
+        }
     ) {
         self.bootstrapService = bootstrapService
         self.userDefaults = userDefaults
@@ -53,6 +62,7 @@ final class ManagedAssistantConnectionCoordinator {
         self.updateAssistantTag = updateAssistantTag
         self.lockfilePath = lockfilePath
         self.dateProvider = dateProvider
+        self.multiAssistantEnabledProvider = multiAssistantEnabledProvider
     }
 
     convenience init(
@@ -77,7 +87,8 @@ final class ManagedAssistantConnectionCoordinator {
         let outcome = try await bootstrapService.ensureManagedAssistant(
             name: nil,
             description: nil,
-            anthropicApiKey: nil
+            anthropicApiKey: nil,
+            multiAssistantEnabled: multiAssistantEnabledProvider()
         )
         return try persistManagedAssistant(
             outcome.assistant,
