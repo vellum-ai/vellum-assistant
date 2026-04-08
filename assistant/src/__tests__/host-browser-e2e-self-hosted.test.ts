@@ -2,37 +2,23 @@
  * End-to-end smoke test for the self-hosted native-messaging capability
  * bootstrap path.
  *
- * This test exercises the full PR 7 / PR 11 / PR 13 flow at the subprocess
- * boundary:
+ * This test exercises the full flow at the subprocess boundary:
  *
  *   1. A minimal Bun HTTP server mounts the real
- *      `handleBrowserExtensionPair` route from PR 11.
- *   2. The compiled native helper binary (PR 7,
- *      `clients/chrome-extension-native-host/dist/index.js`) is spawned as
+ *      `handleBrowserExtensionPair` route from the assistant runtime.
+ *   2. The compiled native helper binary
+ *      (`clients/chrome-extension-native-host/dist/index.js`) is spawned as
  *      a child process and pointed at that server via the `--assistant-port`
  *      CLI flag.
  *   3. The test writes a Chrome-native-messaging-framed
  *      `{ type: "request_token" }` to the helper's stdin.
  *   4. The helper POSTs `/v1/browser-extension-pair` on the test server,
- *      gets back a capability token, and echoes it to stdout as a
- *      `token_response` frame.
+ *      gets back a capability token + guardianId, and echoes them to stdout
+ *      as a `token_response` frame.
  *   5. The test asserts the returned token verifies via
- *      `verifyHostBrowserCapability` — i.e. a fresh install could pair the
- *      chrome extension via the native helper end-to-end without any
+ *      `verifyHostBrowserCapability` — i.e. a fresh install can pair the
+ *      Chrome extension via the native helper end-to-end without any
  *      shortcuts.
- *
- * We deliberately do **not** exercise the `/v1/browser-relay` WebSocket
- * round-trip here, because the browser-relay upgrade handler currently
- * only accepts guardian-bound JWTs (via `verifyToken`) rather than
- * capability tokens minted by `mintHostBrowserCapability`. Extending the
- * WebSocket auth path to accept capability tokens is tracked for Phase 3 —
- * see the `test.skip` stub at the bottom of this file.
- *
- * We also do not import from PR 15's mock-chrome-extension fixture
- * (`assistant/src/__tests__/fixtures/mock-chrome-extension.ts`), which may
- * not exist yet depending on merge order. The self-hosted pair flow only
- * needs a subprocess + a mini HTTP server, so the test is fully
- * self-contained.
  *
  * The test **skips gracefully** if the native helper hasn't been built
  * (`clients/chrome-extension-native-host/dist/index.js` missing). Run
@@ -257,9 +243,9 @@ describe("host-browser E2E — self-hosted native messaging path", () => {
   });
 
   if (!HELPER_EXISTS) {
-    test.skip(`native helper binary not built — ${SKIP_REASON}`, () => {
-      /* intentionally empty — see skip reason */
-    });
+    // Native helper hasn't been built; emit a warning so the gap is
+    // visible in test output without registering a placeholder test.
+    console.warn(`[host-browser-e2e] ${SKIP_REASON}`);
   } else {
     test("pair flow: request_token -> token_response -> verifiable capability token", async () => {
       // Narrow for TS — pairServer is always set in this branch thanks to
@@ -304,16 +290,14 @@ describe("host-browser E2E — self-hosted native messaging path", () => {
       expect(frame.expiresAt).toBe(iso);
     });
 
-    // TODO(phase-3): extend `/v1/browser-relay` upgrade handler
-    // (`assistant/src/runtime/http-server.ts::handleBrowserRelayUpgrade`)
-    // to also accept capability tokens minted by
-    // `mintHostBrowserCapability`, not just JWTs validated via
-    // `verifyToken`. Once it does, un-skip this test and assert a
-    // `Browser.getVersion` round-trip through the relay. For now the
-    // pair flow + in-process verification above is the scope of PR 16.
-    test.skip("TODO(phase-3): WebSocket round-trip via /v1/browser-relay?token=<cap>", () => {
-      /* See TODO above. */
-    });
+    // Phase 3 will extend `/v1/browser-relay` to accept capability tokens
+    // minted by `mintHostBrowserCapability`. Once the upgrade handler honors
+    // those tokens, this test should round-trip Browser.getVersion through
+    // the relay and assert the result frame.
+    test.todo(
+      "Phase 3: WebSocket round-trip via /v1/browser-relay?token=<cap>",
+      () => {},
+    );
   }
 
   // -------------------------------------------------------------------------
