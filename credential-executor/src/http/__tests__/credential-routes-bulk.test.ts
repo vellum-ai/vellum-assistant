@@ -32,7 +32,7 @@ function makeDeps(
     delete: async (account: string) => {
       if (!store.has(account)) return "not-found";
       store.delete(account);
-      return "ok";
+      return "deleted";
     },
     list: async () => [...store.keys()],
     ...overrides,
