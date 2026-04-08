@@ -336,9 +336,6 @@ public final class SubagentDetailStore {
             stageEvents(events, for: subagentId)
 
         case .usageUpdate(let update):
-            // Skip late deltas after terminal status to avoid double-counting
-            // (recordStatusChanged already wrote cumulative stats).
-            guard !terminalSubagentIds.contains(subagentId) else { break }
             let current = stagedUsage[subagentId] ?? subagentStates[subagentId]?.usageStats ?? SubagentUsageStats()
             stagedUsage[subagentId] = SubagentUsageStats(
                 inputTokens: update.totalInputTokens,
