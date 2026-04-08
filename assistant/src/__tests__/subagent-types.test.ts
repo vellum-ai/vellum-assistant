@@ -68,6 +68,7 @@ describe("SubagentState type shape", () => {
       },
       status: "pending" as SubagentStatus,
       conversationId: "conv-id",
+      isFork: false,
       createdAt: Date.now(),
       usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     };
