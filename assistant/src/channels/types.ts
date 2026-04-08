@@ -103,11 +103,24 @@ export type HostProxyCapability =
   | "host_browser";
 
 /**
+ * Interfaces that support the full desktop host-proxy set (all four
+ * `HostProxyCapability` values). This is the capability-level identity used
+ * by the discriminated transport metadata union and by the
+ * `supportsHostProxy(id)` type predicate.
+ *
+ * Extend this literal type AND the `supportsHostProxy` implementation
+ * below in lock-step when adding a new host-capable client (e.g. a native
+ * Linux or Windows desktop).
+ */
+export type HostProxyInterfaceId = "macos";
+
+/**
  * Whether the interface supports a host proxy capability.
  *
  * The no-arg form `supportsHostProxy(id)` asks "does this interface support
  * the full desktop host proxy set?" — it returns `true` only for macOS, which
- * supports all four capabilities. It returns `false` for
+ * supports all four capabilities, and is the type predicate that narrows
+ * `InterfaceId` to `HostProxyInterfaceId`. It returns `false` for
  * chrome-extension because chrome-extension only supports `host_browser`,
  * and the no-arg form is the gate that legacy desktop-only call sites use
  * (e.g. preactivating computer-use, restoring all four proxies in the drain
@@ -115,6 +128,11 @@ export type HostProxyCapability =
  * decide whether to keep `hostBrowserProxy` available for chrome-extension —
  * should pass the capability explicitly: `supportsHostProxy(id, "host_browser")`.
  */
+export function supportsHostProxy(id: InterfaceId): id is HostProxyInterfaceId;
+export function supportsHostProxy(
+  id: InterfaceId,
+  capability: HostProxyCapability,
+): boolean;
 export function supportsHostProxy(
   id: InterfaceId,
   capability?: HostProxyCapability,

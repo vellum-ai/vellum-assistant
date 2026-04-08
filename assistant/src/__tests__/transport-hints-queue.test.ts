@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import type {
-  MacosTransportMetadata,
-  NonMacosTransportMetadata,
+  HostProxyTransportMetadata,
+  NonHostProxyTransportMetadata,
 } from "../daemon/message-types/conversations.js";
 import { buildTransportHints } from "../daemon/transport-hints.js";
 
@@ -11,8 +11,8 @@ import { buildTransportHints } from "../daemon/transport-hints.js";
 // ---------------------------------------------------------------------------
 
 describe("buildTransportHints", () => {
-  test("returns empty array for macOS transport without client hints", () => {
-    const transport: MacosTransportMetadata = {
+  test("returns empty array for host-proxy transport without client hints", () => {
+    const transport: HostProxyTransportMetadata = {
       channelId: "vellum",
       interfaceId: "macos",
       hostHomeDir: "/Users/alice",
@@ -24,8 +24,8 @@ describe("buildTransportHints", () => {
     expect(hints).toHaveLength(0);
   });
 
-  test("returns empty array for non-macOS transport without client hints", () => {
-    const transport: NonMacosTransportMetadata = {
+  test("returns empty array for non-host-proxy transport without client hints", () => {
+    const transport: NonHostProxyTransportMetadata = {
       channelId: "vellum",
       interfaceId: "ios",
     };
@@ -36,7 +36,7 @@ describe("buildTransportHints", () => {
   });
 
   test("forwards client-provided hints", () => {
-    const transport: MacosTransportMetadata = {
+    const transport: HostProxyTransportMetadata = {
       channelId: "vellum",
       interfaceId: "macos",
       hostHomeDir: "/Users/bob",
@@ -50,7 +50,7 @@ describe("buildTransportHints", () => {
   });
 
   test("returns empty array when no hints field present", () => {
-    const transport: MacosTransportMetadata = {
+    const transport: HostProxyTransportMetadata = {
       channelId: "vellum",
       interfaceId: "macos",
     };

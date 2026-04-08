@@ -1,6 +1,10 @@
 // Conversation lifecycle, auth, model config, and history types.
 
-import type { ChannelId, InterfaceId } from "../../channels/types.js";
+import type {
+  ChannelId,
+  HostProxyInterfaceId,
+  InterfaceId,
+} from "../../channels/types.js";
 import type { ConversationType } from "./shared.js";
 import type { UserMessageAttachment } from "./shared.js";
 
@@ -26,26 +30,46 @@ interface BaseTransportMetadata {
   chatType?: string;
 }
 
-/** Transport metadata for macOS desktop clients, including host environment fields. */
-export interface MacosTransportMetadata extends BaseTransportMetadata {
-  /** Interface identifier for macOS transport. */
-  interfaceId: "macos";
-  /** Home directory of the host macOS user. */
+/**
+ * Transport metadata for interfaces that support the full desktop host-proxy
+ * set (see `HostProxyInterfaceId` / `supportsHostProxy`). Carries the host
+ * environment fields the client reports so the `<workspace>` block renders
+ * the user's actual machine rather than a containerized daemon's own OS.
+ *
+ * Today this variant is populated only by the macOS client, but the shape
+ * is capability-keyed (not interface-name-keyed) so future host-capable
+ * clients (e.g. a native Linux or Windows desktop) get the same treatment
+ * automatically when added to `HostProxyInterfaceId`.
+ */
+export interface HostProxyTransportMetadata extends BaseTransportMetadata {
+  /** Interface identifier — restricted to interfaces that support host proxies. */
+  interfaceId: HostProxyInterfaceId;
+  /** Home directory of the user on the host machine (e.g. `NSHomeDirectory()`). */
   hostHomeDir?: string;
-  /** Username of the host macOS user. */
+  /** Username of the user on the host machine (e.g. `NSUserName()`). */
   hostUsername?: string;
 }
 
-/** Transport metadata for non-macOS transports. */
-export interface NonMacosTransportMetadata extends BaseTransportMetadata {
+/**
+ * Transport metadata for interfaces that do NOT support host-proxy tools
+ * (iOS, CLI, channel ingress, chrome-extension, etc.). No host environment
+ * because the assistant has no local filesystem to address on the client.
+ */
+export interface NonHostProxyTransportMetadata extends BaseTransportMetadata {
   /** Interface identifier for this transport (e.g. "ios", "cli"). */
-  interfaceId?: Exclude<InterfaceId, "macos">;
+  interfaceId?: Exclude<InterfaceId, HostProxyInterfaceId>;
 }
 
-/** Lightweight conversation transport metadata for channel identity and natural-language guidance. */
+/**
+ * Discriminated union of transport metadata variants, keyed on whether the
+ * interface supports host-proxy tools (`supportsHostProxy`). The daemon uses
+ * that same predicate at runtime to decide whether to populate / read host
+ * environment fields on the conversation, so the type system and the runtime
+ * gate stay in lock-step as new host-capable interfaces are added.
+ */
 export type ConversationTransportMetadata =
-  | MacosTransportMetadata
-  | NonMacosTransportMetadata;
+  | HostProxyTransportMetadata
+  | NonHostProxyTransportMetadata;
 
 export interface ConversationCreateRequest {
   type: "conversation_create";

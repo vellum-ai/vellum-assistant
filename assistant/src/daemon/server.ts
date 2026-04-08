@@ -387,29 +387,13 @@ export class DaemonServer {
       "Transport metadata received",
     );
     conversation.setTransportHints(buildTransportHints(transport));
-    // Client-reported host env flows into the `<workspace>` block so
-    // platform-managed (containerized) daemons show the user's actual
-    // Mac paths instead of the container's `os.homedir()`. Non-macOS
-    // transports (iOS, CLI, channels) carry no host env, so we clear
-    // any previously-stored macOS values — otherwise a conversation
-    // reused across interfaces would keep rendering stale macOS paths.
-    // Invalidate the cached workspace block when the values change so
-    // the next render picks them up.
-    const prevHomeDir = conversation.hostHomeDir;
-    const prevUsername = conversation.hostUsername;
-    if (transport.interfaceId === "macos") {
-      conversation.hostHomeDir = transport.hostHomeDir;
-      conversation.hostUsername = transport.hostUsername;
-    } else {
-      conversation.hostHomeDir = undefined;
-      conversation.hostUsername = undefined;
-    }
-    if (
-      prevHomeDir !== conversation.hostHomeDir ||
-      prevUsername !== conversation.hostUsername
-    ) {
-      conversation.workspaceTopLevelDirty = true;
-    }
+    // Route client-reported host env through the capability-gated setter on
+    // Conversation so both the create/reuse path here and the queue-drain
+    // path in conversation-process share one implementation. The method
+    // gates on `supportsHostProxy` (not a specific interface name), so any
+    // new host-capable client added to `HostProxyInterfaceId` will flow its
+    // host env through automatically.
+    conversation.applyHostEnvFromTransport(transport);
   }
 
   constructor() {

@@ -338,6 +338,130 @@ describe("Conversation workspace cache state", () => {
     expect(block!).not.toContain("Host username: alice");
   });
 
+  // -------------------------------------------------------------------------
+  // applyHostEnvFromTransport — capability-gated setter
+  // -------------------------------------------------------------------------
+
+  test("applyHostEnvFromTransport populates fields for host-proxy transports", () => {
+    conversation.applyHostEnvFromTransport({
+      channelId: "vellum",
+      interfaceId: "macos",
+      hostHomeDir: "/Users/alice",
+      hostUsername: "alice",
+    });
+
+    expect(conversation.hostHomeDir).toBe("/Users/alice");
+    expect(conversation.hostUsername).toBe("alice");
+    expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
+
+    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    const block = conversation.getWorkspaceTopLevelContext();
+    expect(block!).toContain("Host home directory: /Users/alice");
+    expect(block!).toContain("Host username: alice");
+  });
+
+  test("applyHostEnvFromTransport clears fields for non-host-proxy transports", () => {
+    // Seed with a host-proxy turn.
+    conversation.applyHostEnvFromTransport({
+      channelId: "vellum",
+      interfaceId: "macos",
+      hostHomeDir: "/Users/alice",
+      hostUsername: "alice",
+    });
+    expect(conversation.hostHomeDir).toBe("/Users/alice");
+
+    // Apply a non-host-proxy transport — should clear the stored values so
+    // the next render doesn't leak them from a cross-interface reuse.
+    conversation.applyHostEnvFromTransport({
+      channelId: "vellum",
+      interfaceId: "ios",
+    });
+
+    expect(conversation.hostHomeDir).toBeUndefined();
+    expect(conversation.hostUsername).toBeUndefined();
+    expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
+  });
+
+  test("applyHostEnvFromTransport clears fields for chrome-extension (browser-only)", () => {
+    // chrome-extension supports only host_browser — the no-arg supportsHostProxy
+    // returns false for it, so the gate treats it as a non-host-proxy transport
+    // for the purposes of host env (no local filesystem to address).
+    conversation.applyHostEnvFromTransport({
+      channelId: "vellum",
+      interfaceId: "macos",
+      hostHomeDir: "/Users/alice",
+      hostUsername: "alice",
+    });
+
+    conversation.applyHostEnvFromTransport({
+      channelId: "vellum",
+      interfaceId: "chrome-extension",
+    });
+
+    expect(conversation.hostHomeDir).toBeUndefined();
+    expect(conversation.hostUsername).toBeUndefined();
+  });
+
+  test("applyHostEnvFromTransport handles transport with no interfaceId", () => {
+    // Seed and then apply a transport without an interfaceId (legacy/channel
+    // paths may omit it). The gate should clear any stored host env.
+    conversation.applyHostEnvFromTransport({
+      channelId: "vellum",
+      interfaceId: "macos",
+      hostHomeDir: "/Users/alice",
+      hostUsername: "alice",
+    });
+
+    conversation.applyHostEnvFromTransport({
+      channelId: "vellum",
+    });
+
+    expect(conversation.hostHomeDir).toBeUndefined();
+    expect(conversation.hostUsername).toBeUndefined();
+  });
+
+  test("applyHostEnvFromTransport does not mark dirty when values are unchanged", () => {
+    conversation.applyHostEnvFromTransport({
+      channelId: "vellum",
+      interfaceId: "macos",
+      hostHomeDir: "/Users/alice",
+      hostUsername: "alice",
+    });
+    // Render once so the dirty flag clears.
+    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
+
+    // Re-apply the same values — dirty flag should remain false so we don't
+    // thrash the cached workspace block on every message.
+    conversation.applyHostEnvFromTransport({
+      channelId: "vellum",
+      interfaceId: "macos",
+      hostHomeDir: "/Users/alice",
+      hostUsername: "alice",
+    });
+    expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
+  });
+
+  test("applyHostEnvFromTransport marks dirty when macOS values change", () => {
+    conversation.applyHostEnvFromTransport({
+      channelId: "vellum",
+      interfaceId: "macos",
+      hostHomeDir: "/Users/alice",
+      hostUsername: "alice",
+    });
+    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
+
+    // New values — should mark dirty so the next render picks them up.
+    conversation.applyHostEnvFromTransport({
+      channelId: "vellum",
+      interfaceId: "macos",
+      hostHomeDir: "/Users/bob",
+      hostUsername: "bob",
+    });
+    expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
+  });
+
   test("workspace hints follow the resolved legacy directory when canonical is absent", () => {
     const workspaceRoot = mkdtempSync(
       join(tmpdir(), "conversation-workspace-cache-state-"),
