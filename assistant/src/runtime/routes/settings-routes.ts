@@ -12,16 +12,11 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import {
   getPlatformBaseUrl,
   setIngressPublicBaseUrl,
 } from "../../config/env.js";
-import {
-  getConfig,
-  loadRawConfig,
-  saveRawConfig,
-} from "../../config/loader.js";
+import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import {
   computeGatewayTarget,
@@ -41,12 +36,6 @@ import {
   generateAllowlistOptions,
   generateScopeOptions,
 } from "../../permissions/checker.js";
-import {
-  getMode,
-  onModeChanged,
-  setAskBeforeActing,
-  setHostAccess,
-} from "../../permissions/permission-mode-store.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { parseToolManifestFile } from "../../skills/tool-manifest.js";
 import {
@@ -71,24 +60,6 @@ import type { RouteDefinition } from "../http-router.js";
 import { resolveWorkspacePath } from "./workspace-utils.js";
 
 const log = getLogger("settings-routes");
-
-// ---------------------------------------------------------------------------
-// Permission mode SSE broadcast
-// ---------------------------------------------------------------------------
-
-onModeChanged((mode) => {
-  assistantEventHub
-    .publish(
-      buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
-        type: "permission_mode_update",
-        askBeforeActing: mode.askBeforeActing,
-        hostAccess: mode.hostAccess,
-      }),
-    )
-    .catch((err) => {
-      log.warn({ err }, "Failed to publish permission_mode_update event");
-    });
-});
 
 // ---------------------------------------------------------------------------
 // Voice config
@@ -923,69 +894,6 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
           log.error({ err }, "Failed to update ingress config via HTTP");
           return httpError("INTERNAL_ERROR", message, 500);
         }
-      },
-    },
-
-    // Permission mode (GET always available; PUT gated on feature flag)
-    {
-      endpoint: "permission-mode",
-      method: "GET",
-      policyKey: "permission-mode:GET",
-      summary: "Get permission mode",
-      description:
-        "Return the current two-axis permission mode (askBeforeActing, hostAccess).",
-      tags: ["settings"],
-      responseBody: z.object({
-        askBeforeActing: z.boolean(),
-        hostAccess: z.boolean(),
-      }),
-      handler: () => {
-        const mode = getMode();
-        return Response.json({
-          askBeforeActing: mode.askBeforeActing,
-          hostAccess: mode.hostAccess,
-        });
-      },
-    },
-    {
-      endpoint: "permission-mode",
-      method: "PUT",
-      policyKey: "permission-mode",
-      summary: "Update permission mode",
-      description:
-        "Update the two-axis permission mode. Requires the permission-controls-v2 feature flag.",
-      tags: ["settings"],
-      requestBody: z.object({
-        askBeforeActing: z.boolean().optional(),
-        hostAccess: z.boolean().optional(),
-      }),
-      responseBody: z.object({
-        askBeforeActing: z.boolean(),
-        hostAccess: z.boolean(),
-      }),
-      handler: async ({ req }) => {
-        const config = getConfig();
-        if (!isAssistantFeatureFlagEnabled("permission-controls-v2", config)) {
-          return httpError("NOT_FOUND", "Not found", 404);
-        }
-
-        const body = (await req.json()) as {
-          askBeforeActing?: boolean;
-          hostAccess?: boolean;
-        };
-
-        if (typeof body.askBeforeActing === "boolean") {
-          setAskBeforeActing(body.askBeforeActing);
-        }
-        if (typeof body.hostAccess === "boolean") {
-          setHostAccess(body.hostAccess);
-        }
-
-        const mode = getMode();
-        return Response.json({
-          askBeforeActing: mode.askBeforeActing,
-          hostAccess: mode.hostAccess,
-        });
       },
     },
   ];

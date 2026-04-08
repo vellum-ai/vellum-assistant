@@ -4,6 +4,8 @@
  * POST   /v1/conversations                 — create a new conversation
  * POST   /v1/conversations/switch         — switch to an existing conversation
  * POST   /v1/conversations/fork           — fork an existing conversation
+ * GET    /v1/conversations/:id/host-access — read host access for one conversation
+ * PATCH  /v1/conversations/:id/host-access — update host access for one conversation
  * PATCH  /v1/conversations/:id/name       — rename a conversation
  * DELETE /v1/conversations                 — clear all conversations
  * POST   /v1/conversations/:id/wipe       — wipe conversation and revert memory
@@ -21,7 +23,9 @@ import {
   countConversationsByScheduleJobId,
   deleteConversation,
   getConversation,
+  getConversationHostAccess,
   PRIVATE_CONVERSATION_FORK_ERROR,
+  updateConversationHostAccess,
   wipeConversation,
 } from "../../memory/conversation-crud.js";
 import { updateConversationTitle } from "../../memory/conversation-crud.js";
@@ -34,6 +38,9 @@ import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
+import { buildAssistantEvent } from "../assistant-event.js";
+import { assistantEventHub } from "../assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
@@ -52,6 +59,7 @@ export interface ConversationManagementDeps {
     conversationId: string;
     title: string;
     conversationType: string;
+    hostAccess: boolean;
   } | null>;
   renameConversation: (conversationId: string, name: string) => boolean;
   clearAllConversations: () => number;
@@ -218,6 +226,7 @@ export function conversationManagementRouteDefinitions(
         conversationId: z.string(),
         title: z.string(),
         conversationType: z.string(),
+        hostAccess: z.boolean(),
       }),
       handler: async ({ req }) => {
         const body = (await req.json()) as {
@@ -246,6 +255,101 @@ export function conversationManagementRouteDefinitions(
           title: result.title,
           conversationType:
             result.conversationType === "private" ? "private" : "standard",
+          hostAccess: result.hostAccess,
+        });
+      },
+    },
+    {
+      endpoint: "conversations/:id/host-access",
+      method: "GET",
+      policyKey: "conversations/host-access:GET",
+      summary: "Get conversation host access",
+      description: "Return whether the conversation can use host tools.",
+      tags: ["conversations"],
+      responseBody: z.object({
+        conversationId: z.string(),
+        hostAccess: z.boolean(),
+      }),
+      handler: ({ params }) => {
+        const resolvedId = resolveConversationId(params.id) ?? params.id;
+        const conversation = getConversation(resolvedId);
+        if (!conversation) {
+          return httpError(
+            "NOT_FOUND",
+            `Conversation ${params.id} not found`,
+            404,
+          );
+        }
+        return Response.json({
+          conversationId: conversation.id,
+          hostAccess: getConversationHostAccess(conversation.id),
+        });
+      },
+    },
+    {
+      endpoint: "conversations/:id/host-access",
+      method: "PATCH",
+      policyKey: "conversations/host-access",
+      summary: "Update conversation host access",
+      description: "Enable or disable host access for a conversation.",
+      tags: ["conversations"],
+      requestBody: z.object({
+        hostAccess: z.boolean(),
+      }),
+      responseBody: z.object({
+        conversationId: z.string(),
+        hostAccess: z.boolean(),
+      }),
+      handler: async ({ req, params }) => {
+        const rawBody = (await req.json()) as unknown;
+        if (
+          rawBody == null ||
+          typeof rawBody !== "object" ||
+          Array.isArray(rawBody)
+        ) {
+          return httpError("BAD_REQUEST", "Invalid request body", 400);
+        }
+        const body = rawBody as { hostAccess?: unknown };
+        if (typeof body.hostAccess !== "boolean") {
+          return httpError("BAD_REQUEST", "Missing hostAccess boolean", 400);
+        }
+
+        const resolvedId = resolveConversationId(params.id) ?? params.id;
+        const conversation = getConversation(resolvedId);
+        if (!conversation) {
+          return httpError(
+            "NOT_FOUND",
+            `Conversation ${params.id} not found`,
+            404,
+          );
+        }
+
+        const nextHostAccess = body.hostAccess;
+        if (conversation.hostAccess !== (nextHostAccess ? 1 : 0)) {
+          updateConversationHostAccess(resolvedId, nextHostAccess);
+          assistantEventHub
+            .publish(
+              buildAssistantEvent(
+                DAEMON_INTERNAL_ASSISTANT_ID,
+                {
+                  type: "conversation_host_access_updated",
+                  conversationId: resolvedId,
+                  hostAccess: nextHostAccess,
+                },
+                resolvedId,
+              ),
+            )
+            .catch((err) => {
+              log.warn(
+                { err, conversationId: resolvedId },
+                "Failed to publish conversation_host_access_updated event",
+              );
+            });
+        }
+
+        return Response.json({
+          conversationId: resolvedId,
+          hostAccess: nextHostAccess,
         });
       },
     },

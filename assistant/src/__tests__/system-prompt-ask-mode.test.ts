@@ -1,16 +1,15 @@
-/**
- * Tests for the "Action Confirmation Mode" system prompt injection.
- *
- * Verifies:
- *   - Prompt includes the section when `permission-controls-v2` flag is enabled
- *     AND `askBeforeActing` is `true`.
- *   - Prompt excludes the section when the flag is disabled.
- *   - Prompt excludes the section when `askBeforeActing` is `false`.
- */
-import { mkdirSync } from "node:fs";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
-// Mock platform to use a temp directory
 const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 const noopLogger: Record<string, unknown> = new Proxy(
@@ -65,75 +64,32 @@ mock.module("../prompts/user-reference.js", () => ({
   resolveUserPronouns: () => null,
 }));
 
-// ---------------------------------------------------------------------------
-// Controllable mocks for feature flags and permission mode
-// ---------------------------------------------------------------------------
-
-let flagEnabled = false;
-let askBeforeActing = true;
-
-mock.module("../config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: (key: string) => {
-    if (key === "permission-controls-v2") return flagEnabled;
-    return true;
-  },
-  _setOverridesForTesting: () => {},
-  clearFeatureFlagOverridesCache: () => {},
-  getAssistantFeatureFlagDefaults: () => ({}),
-}));
-
-mock.module("../permissions/permission-mode-store.js", () => ({
-  getMode: () => ({ askBeforeActing, hostAccess: false }),
-  initPermissionModeStore: () => {},
-  setAskBeforeActing: () => {},
-  setHostAccess: () => {},
-  onModeChanged: () => () => {},
-  resetForTesting: () => {},
-}));
-
-// Import after mocks
 const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
 
-const ACTION_CONFIRMATION_HEADING = "## Action Confirmation Mode";
+const SOUL_PATH = join(TEST_DIR, "SOUL.md");
 
-describe("Action Confirmation Mode system prompt injection", () => {
+afterAll(() => {
+  mock.restore();
+});
+
+describe("system prompt no longer injects ask-before-acting mode", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
-    flagEnabled = false;
-    askBeforeActing = true;
+    writeFileSync(SOUL_PATH, "# Soul\n\nSOUL guidance survives.");
   });
 
   afterEach(() => {
-    flagEnabled = false;
-    askBeforeActing = true;
+    try {
+      rmSync(SOUL_PATH, { force: true });
+    } catch {
+      /* noop */
+    }
   });
 
-  test("includes section when flag enabled and askBeforeActing is true", () => {
-    flagEnabled = true;
-    askBeforeActing = true;
-    const result = buildSystemPrompt();
-    expect(result).toContain(ACTION_CONFIRMATION_HEADING);
-    expect(result).toContain('"Ask before acting" mode');
-  });
+  test("includes SOUL.md and does not inject action confirmation copy", () => {
+    const prompt = buildSystemPrompt();
 
-  test("excludes section when flag is disabled", () => {
-    flagEnabled = false;
-    askBeforeActing = true;
-    const result = buildSystemPrompt();
-    expect(result).not.toContain(ACTION_CONFIRMATION_HEADING);
-  });
-
-  test("excludes section when askBeforeActing is false", () => {
-    flagEnabled = true;
-    askBeforeActing = false;
-    const result = buildSystemPrompt();
-    expect(result).not.toContain(ACTION_CONFIRMATION_HEADING);
-  });
-
-  test("excludes section when both flag disabled and askBeforeActing false", () => {
-    flagEnabled = false;
-    askBeforeActing = false;
-    const result = buildSystemPrompt();
-    expect(result).not.toContain(ACTION_CONFIRMATION_HEADING);
+    expect(prompt).toContain("SOUL guidance survives.");
+    expect(prompt).not.toContain("Action Confirmation Mode");
   });
 });

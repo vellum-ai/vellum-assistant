@@ -1,13 +1,13 @@
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import { getHookManager } from "../hooks/manager.js";
+import { getConversationHostAccess } from "../memory/conversation-crud.js";
 import {
   check,
   classifyRisk,
   generateAllowlistOptions,
   generateScopeOptions,
 } from "../permissions/checker.js";
-import { getMode } from "../permissions/permission-mode-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { addRule } from "../permissions/trust-store.js";
 import { RiskLevel } from "../permissions/types.js";
@@ -87,8 +87,7 @@ export class PermissionChecker {
 
       if (!needsFreshApproval && !needsSideEffectPrompt) {
         if (isHostTool(name)) {
-          const mode = getMode();
-          if (mode.hostAccess) {
+          if (getConversationHostAccess(context.conversationId)) {
             return {
               allowed: true,
               decision: "allow",

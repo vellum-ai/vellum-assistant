@@ -8,7 +8,6 @@ import { hostFileReadTool } from "./host-filesystem/read.js";
 import { hostFileWriteTool } from "./host-filesystem/write.js";
 import { hostShellTool } from "./host-terminal/host-shell.js";
 import { registerSystemTools } from "./system/register.js";
-import { setPermissionModeTool } from "./system/set-permission-mode.js";
 import type { Tool } from "./types.js";
 import { allUiSurfaceTools } from "./ui-surface/definitions.js";
 import { registerUiSurfaceTools } from "./ui-surface/registry.js";
@@ -285,7 +284,6 @@ export async function initializeTools(): Promise<void> {
       ...allComputerUseTools.map((t: Tool) => t.name),
       ...allUiSurfaceTools.map((t: Tool) => t.name),
       ...coreAppProxyTools.map((t: Tool) => t.name),
-      setPermissionModeTool.name,
     ]);
 
     coreToolsSnapshot = new Map<string, Tool>();

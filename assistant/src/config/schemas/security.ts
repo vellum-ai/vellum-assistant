@@ -79,12 +79,6 @@ export const PermissionsConfigSchema = z
       .describe(
         "Permission mode — 'strict' requires explicit approval for all operations, 'workspace' allows operations within the workspace",
       ),
-    askBeforeActing: z
-      .boolean({
-        error: "permissions.askBeforeActing must be a boolean",
-      })
-      .default(true)
-      .describe("Whether the assistant should check in before taking actions"),
     hostAccess: z
       .boolean({
         error: "permissions.hostAccess must be a boolean",

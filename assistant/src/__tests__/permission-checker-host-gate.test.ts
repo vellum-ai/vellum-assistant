@@ -14,11 +14,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
-import {
-  initPermissionModeStore,
-  resetForTesting as resetPermissionModeStore,
-  setHostAccess,
-} from "../permissions/permission-mode-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { RiskLevel } from "../permissions/types.js";
 import { PermissionChecker } from "../tools/permission-checker.js";
@@ -45,6 +40,12 @@ mock.module("../hooks/manager.js", () => ({
   getHookManager: () => ({
     trigger: async () => {},
   }),
+}));
+
+let hostAccessEnabled = false;
+
+mock.module("../memory/conversation-crud.js", () => ({
+  getConversationHostAccess: () => hostAccessEnabled,
 }));
 
 // ---------------------------------------------------------------------------
@@ -96,13 +97,12 @@ const executionTarget: ExecutionTarget = "host";
 
 beforeEach(() => {
   _setOverridesForTesting({});
-  resetPermissionModeStore();
-  initPermissionModeStore();
+  hostAccessEnabled = false;
 });
 
 afterEach(() => {
   _setOverridesForTesting({});
-  resetPermissionModeStore();
+  hostAccessEnabled = false;
 });
 
 // ---------------------------------------------------------------------------
@@ -125,7 +125,7 @@ describe("permission-checker host-access gate (v2)", () => {
 
     describe("host tools with hostAccess=false", () => {
       beforeEach(() => {
-        setHostAccess(false);
+        hostAccessEnabled = false;
       });
 
       for (const toolName of HOST_TOOL_NAMES) {
@@ -185,7 +185,7 @@ describe("permission-checker host-access gate (v2)", () => {
 
     describe("host tools with hostAccess=true", () => {
       beforeEach(() => {
-        setHostAccess(true);
+        hostAccessEnabled = true;
       });
 
       for (const toolName of HOST_TOOL_NAMES) {
@@ -217,7 +217,7 @@ describe("permission-checker host-access gate (v2)", () => {
         "web_search",
       ]) {
         test(`${toolName} is auto-allowed regardless of hostAccess`, async () => {
-          setHostAccess(false);
+          hostAccessEnabled = false;
           const checker = new PermissionChecker(makePrompter());
           const result = await checker.checkPermission(
             toolName,
@@ -239,7 +239,7 @@ describe("permission-checker host-access gate (v2)", () => {
 
     describe("requireFreshApproval bypasses v2 auto-allow", () => {
       beforeEach(() => {
-        setHostAccess(true);
+        hostAccessEnabled = true;
       });
 
       test("host tool with requireFreshApproval falls through to prompter", async () => {
@@ -295,7 +295,7 @@ describe("permission-checker host-access gate (v2)", () => {
 
     describe("non-interactive guardian session with hostAccess=false", () => {
       beforeEach(() => {
-        setHostAccess(false);
+        hostAccessEnabled = false;
       });
 
       test("host tool is NOT auto-approved (denies instead of guardian_auto_approve)", async () => {
@@ -329,7 +329,7 @@ describe("permission-checker host-access gate (v2)", () => {
 
     describe("forcePromptSideEffects bypasses v2 auto-allow for side-effect tools", () => {
       beforeEach(() => {
-        setHostAccess(true);
+        hostAccessEnabled = true;
       });
 
       test("host side-effect tool with forcePromptSideEffects falls through to prompter", async () => {

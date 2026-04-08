@@ -133,6 +133,8 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "conversations/analyze", scopes: ["chat.write"] },
   { endpoint: "conversations/switch", scopes: ["chat.write"] },
   { endpoint: "conversations/name", scopes: ["chat.write"] },
+  { endpoint: "conversations/host-access:GET", scopes: ["chat.read"] },
+  { endpoint: "conversations/host-access", scopes: ["chat.write"] },
   { endpoint: "conversations/cancel", scopes: ["chat.write"] },
   { endpoint: "conversations/undo", scopes: ["chat.write"] },
   { endpoint: "conversations/regenerate", scopes: ["chat.write"] },
@@ -478,10 +480,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Tools
   { endpoint: "tools", scopes: ["settings.read"] },
   { endpoint: "tools/simulate-permission", scopes: ["settings.read"] },
-
-  // Permission mode
-  { endpoint: "permission-mode:GET", scopes: ["settings.read"] },
-  { endpoint: "permission-mode", scopes: ["settings.write"] },
 
   // Browser CDP shim — backs the `assistant browser chrome relay` CLI used
   // by the in-tree Amazon and Influencer skills.
