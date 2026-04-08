@@ -27,6 +27,7 @@ struct SettingsGeneralTab: View {
     @State private var dockerOperationTimedOut = false
     @State private var dockerOperationTimeoutTask: Task<Void, Never>?
     @State private var healthzLoaded = false
+    @State private var isRefreshingHealthz = false
 
     /// Publisher for reactive observation of connectionManager's isUpdateInProgress.
     /// Falls back to a single `false` emission when connectionManager is nil.
@@ -172,6 +173,8 @@ struct SettingsGeneralTab: View {
 
     private func fetchHealthz() async {
         guard !selectedAssistantId.isEmpty else { return }
+        isRefreshingHealthz = true
+        defer { isRefreshingHealthz = false }
         do {
             let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
                 path: "assistants/{assistantId}/healthz",
@@ -192,7 +195,24 @@ struct SettingsGeneralTab: View {
     private var systemResourcesSection: some View {
         SettingsCard(
             title: "System Resources",
-            subtitle: "Current resource usage on your platform-managed assistant"
+            subtitle: "Current resource usage on your platform-managed assistant",
+            accessory: {
+                if isRefreshingHealthz {
+                    ProgressView()
+                        .controlSize(.small)
+                        .progressViewStyle(.circular)
+                } else {
+                    VButton(
+                        label: "Refresh resource metrics",
+                        iconOnly: VIcon.refreshCw.rawValue,
+                        style: .ghost,
+                        size: .compact,
+                        tooltip: "Refresh"
+                    ) {
+                        Task { await fetchHealthz() }
+                    }
+                }
+            }
         ) {
             if let healthz {
                 if let disk = healthz.disk {
