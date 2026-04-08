@@ -67,6 +67,10 @@ class LazyLocalEmbeddingBackend implements EmbeddingBackend {
     }
   }
 
+  dispose(): void {
+    this.delegate?.dispose?.();
+  }
+
   private async getDelegate(): Promise<EmbeddingBackend> {
     if (this.delegate) return this.delegate;
     if (!this.initPromise) {
@@ -176,9 +180,24 @@ function putInVectorCache(
 
 /** Clear cached embedding backends and the in-memory vector cache. */
 export function clearEmbeddingBackendCache(): void {
+  for (const backend of new Set(backendCache.values())) {
+    try {
+      backend.dispose?.();
+    } catch (err) {
+      log.warn(
+        { err, provider: backend.provider, model: backend.model },
+        "Failed to dispose embedding backend during cache clear",
+      );
+    }
+  }
   backendCache.clear();
   vectorCache.clear();
   vectorCacheBytes = 0;
+  localBackendBroken = false;
+}
+
+/** Reset the sticky local-backend failure flag without evicting live backends. */
+export function resetLocalEmbeddingFailureState(): void {
   localBackendBroken = false;
 }
 
@@ -243,6 +262,7 @@ export interface EmbeddingBackend {
     inputs: EmbeddingInput[],
     options?: EmbeddingRequestOptions,
   ): Promise<number[][]>;
+  dispose?(): void;
 }
 
 export interface EmbeddingBackendSelection {

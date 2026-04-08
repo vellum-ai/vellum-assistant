@@ -790,9 +790,7 @@ export async function runDaemon(): Promise<void> {
                       },
                     }
                   : {}),
-                ...(options.taskRunId
-                  ? { taskRunId: options.taskRunId }
-                  : {}),
+                ...(options.taskRunId ? { taskRunId: options.taskRunId } : {}),
               }
             : undefined,
         );
@@ -1240,10 +1238,11 @@ export async function runDaemon(): Promise<void> {
         if (!runtimeManager.isReady()) {
           log.info("Downloading embedding runtime in background...");
           await runtimeManager.ensureInstalled();
-          // Reset the localBackendBroken flag so auto mode retries local embeddings
-          const { clearEmbeddingBackendCache } =
+          // Reset the sticky local-backend failure flag so auto mode retries
+          // local embeddings without evicting a worker that may already be live.
+          const { resetLocalEmbeddingFailureState } =
             await import("../memory/embedding-backend.js");
-          clearEmbeddingBackendCache();
+          resetLocalEmbeddingFailureState();
           log.info("Embedding runtime download complete");
         }
       } catch (err) {
