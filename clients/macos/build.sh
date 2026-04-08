@@ -1361,6 +1361,33 @@ if [ "$CMD" = "run" ]; then
     pkill -x "vellum-assistant" 2>/dev/null || true
     sleep 0.3
 
+    # The kill block above only terminates the same-display-name instance,
+    # so a Vellum bundle built under a *different* `BUNDLE_DISPLAY_NAME`
+    # would survive and race against the freshly-launched one — same
+    # bundle ID, same lockfile, same identity cache, separate in-memory
+    # state. We use `ps -o comm=` rather than `pgrep -f` so the match
+    # runs against the executable path only, never against shell argv
+    # (which would false-positive when build.sh is invoked via `bash -c`
+    # with the script body inlined). The pattern is heuristic: only
+    # catches display names starting with "Vellum".
+    other_vellum=$(ps -ax -o pid=,comm= | awk -v skip="MacOS/$BUNDLE_DISPLAY_NAME$" '
+        /\.app\/Contents\/MacOS\/Vellum/ && $0 !~ skip
+    ' || true)
+    if [ -n "$other_vellum" ]; then
+        echo ""
+        echo "ERROR: Another Vellum-bundled process is already running:"
+        echo "$other_vellum" | sed 's/^/  /'
+        echo ""
+        echo "It shares the same bundle ID, lockfile, identity cache, and"
+        echo "UserDefaults as the bundle you're about to launch, and will race"
+        echo "against it on every write. Refusing to launch a duplicate."
+        echo ""
+        echo "Kill the existing process(es) and re-run:"
+        echo "$other_vellum" | awk '{print "  kill " $1}'
+        echo ""
+        exit 1
+    fi
+
     # Refresh /Applications/$BUNDLE_DISPLAY_NAME.app from the freshly-built
     # dist/ bundle, if a copy already exists. Without this, `./build.sh run`
     # only updates dist/ and a Finder/dock launch silently keeps using the
