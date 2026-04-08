@@ -214,23 +214,7 @@ struct IntegrationDetailModal: View {
                     }
                 }
             } else {
-                managedConnectionsList
-
-                // Connect account button inside a card
-                VCard {
-                    if isConnecting {
-                        HStack(spacing: VSpacing.sm) {
-                            VBusyIndicator(size: 8, color: VColor.contentTertiary)
-                            Text("Waiting for authorization...")
-                                .font(VFont.bodyMediumDefault)
-                                .foregroundStyle(VColor.contentTertiary)
-                        }
-                    } else {
-                        VButton(label: "Connect account", leftIcon: "lucide-external-link", style: .outlined) {
-                            store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
-                        }
-                    }
-                }
+                managedConnectionCard
             }
 
             if let error = store.managedError(for: providerKey) {
@@ -256,33 +240,50 @@ struct IntegrationDetailModal: View {
     }
 
 
-    private var managedConnectionsList: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
-            ForEach(connections, id: \.id) { entry in
-                managedConnectionRow(for: entry)
-            }
-        }
-    }
-
-    private func managedConnectionRow(for entry: OAuthConnectionEntry) -> some View {
+    private var managedConnectionCard: some View {
         VCard {
-            HStack(alignment: .center, spacing: VSpacing.lg) {
-                VIconView(.circleUser, size: 14)
-                    .foregroundStyle(VColor.contentSecondary)
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                // Connection rows
+                if connections.isEmpty {
+                    Text("No connected accounts")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                } else {
+                    ForEach(connections, id: \.id) { entry in
+                        HStack(alignment: .center, spacing: VSpacing.lg) {
+                            VIconView(.circleUser, size: 14)
+                                .foregroundStyle(VColor.contentSecondary)
 
-                Text(entry.account_label ?? "\(displayName) Account")
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentDefault)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                            Text(entry.account_label ?? "\(displayName) Account")
+                                .font(VFont.bodyMediumDefault)
+                                .foregroundStyle(VColor.contentDefault)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
 
-                Spacer()
+                            Spacer()
 
-                VButton(label: "", iconOnly: VIcon.trash.rawValue, style: .dangerOutline, size: .compact) {
-                    connectionToDisconnect = entry
-                    showDisconnectAlert = true
+                            VButton(label: "", iconOnly: VIcon.trash.rawValue, style: .dangerOutline, size: .compact) {
+                                connectionToDisconnect = entry
+                                showDisconnectAlert = true
+                            }
+                            .accessibilityLabel("Disconnect Account")
+                        }
+                    }
                 }
-                .accessibilityLabel("Disconnect Account")
+
+                // Connect account button
+                if isConnecting {
+                    HStack(spacing: VSpacing.sm) {
+                        VBusyIndicator(size: 8, color: VColor.contentTertiary)
+                        Text("Waiting for authorization...")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
+                } else {
+                    VButton(label: "Connect account", leftIcon: "lucide-external-link", style: .outlined) {
+                        store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
+                    }
+                }
             }
         }
     }
