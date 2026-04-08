@@ -106,6 +106,8 @@ import {
 } from "./http/router.js";
 import { SleepWakeDetector } from "./sleep-wake-detector.js";
 import { callTelegramApi } from "./telegram/api.js";
+import { fetchImpl } from "./fetch.js";
+import { isNewCommand, handleNewCommand } from "./webhook-pipeline.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 import { registerEmailCallbackRoute } from "./email/register-callback.js";
 
@@ -1300,6 +1302,31 @@ async function main() {
           threadTs !== messageTs &&
           !isEdit &&
           !isCallback;
+
+        // Handle /new command — reset conversation before it reaches the runtime
+        if (isNewCommand(normalized.event.message.content)) {
+          handleNewCommand(
+            config,
+            "slack",
+            normalized.event.message.conversationExternalId,
+            async (text) => {
+              await fetchImpl("https://slack.com/api/chat.postMessage", {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${botToken}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  channel,
+                  text,
+                  ...(threadTs ? { thread_ts: threadTs } : {}),
+                }),
+              });
+            },
+            log,
+          );
+          return;
+        }
 
         const forward = async (threadContextHint?: string) => {
           try {
