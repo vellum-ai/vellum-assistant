@@ -155,16 +155,161 @@ export async function dispatchInsertText(
 }
 
 /**
- * Press a single key (keyDown + keyUp). Key names follow CDP
- * conventions ("Enter", "Tab", "ArrowDown", "a").
+ * Per-key descriptor used by {@link dispatchKeyPress}. Mirrors the
+ * fields CDP's `Input.dispatchKeyEvent` accepts. `text` is set only
+ * for printable keys (so we know to also dispatch a `char` event).
+ */
+interface KeyDescriptor {
+  key: string;
+  code: string;
+  windowsVirtualKeyCode: number;
+  text?: string;
+}
+
+/**
+ * Subset of the US keyboard layout used to populate
+ * `Input.dispatchKeyEvent` params. Without these fields, sites that
+ * read `event.keyCode` (e.g. `event.keyCode === 13` for Enter) or
+ * `event.code` see zeros and the press is silently ignored.
+ *
+ * Single-character keys (a-z, A-Z, 0-9) are resolved dynamically by
+ * {@link resolveKeyDescriptor} to keep the static map small.
+ */
+const KEY_DESCRIPTORS: Record<string, KeyDescriptor> = {
+  Enter: {
+    key: "Enter",
+    code: "Enter",
+    windowsVirtualKeyCode: 13,
+    text: "\r",
+  },
+  Tab: { key: "Tab", code: "Tab", windowsVirtualKeyCode: 9, text: "\t" },
+  Escape: { key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 },
+  Backspace: {
+    key: "Backspace",
+    code: "Backspace",
+    windowsVirtualKeyCode: 8,
+  },
+  Delete: { key: "Delete", code: "Delete", windowsVirtualKeyCode: 46 },
+  ArrowUp: { key: "ArrowUp", code: "ArrowUp", windowsVirtualKeyCode: 38 },
+  ArrowDown: {
+    key: "ArrowDown",
+    code: "ArrowDown",
+    windowsVirtualKeyCode: 40,
+  },
+  ArrowLeft: {
+    key: "ArrowLeft",
+    code: "ArrowLeft",
+    windowsVirtualKeyCode: 37,
+  },
+  ArrowRight: {
+    key: "ArrowRight",
+    code: "ArrowRight",
+    windowsVirtualKeyCode: 39,
+  },
+};
+
+/**
+ * Resolve a key name into a {@link KeyDescriptor}. Single-character
+ * keys (a-z, A-Z, 0-9) are computed on demand: `code` is `KeyA`/
+ * `Digit0`/etc., `windowsVirtualKeyCode` is the uppercase ASCII code,
+ * and `text` is the literal character. Returns `null` for unknown
+ * multi-character keys so callers can fall back to a minimal event.
+ */
+function resolveKeyDescriptor(key: string): KeyDescriptor | null {
+  const fromMap = KEY_DESCRIPTORS[key];
+  if (fromMap) return fromMap;
+  if (key.length !== 1) return null;
+  const charCode = key.charCodeAt(0);
+  // a-z / A-Z
+  if (
+    (charCode >= 65 && charCode <= 90) ||
+    (charCode >= 97 && charCode <= 122)
+  ) {
+    const upper = key.toUpperCase();
+    return {
+      key,
+      code: `Key${upper}`,
+      windowsVirtualKeyCode: upper.charCodeAt(0),
+      text: key,
+    };
+  }
+  // 0-9
+  if (charCode >= 48 && charCode <= 57) {
+    return {
+      key,
+      code: `Digit${key}`,
+      windowsVirtualKeyCode: charCode,
+      text: key,
+    };
+  }
+  // Other printable ASCII (space, punctuation): still emit text + the
+  // raw char code so sites that check `event.key` and `event.charCode`
+  // see something sensible.
+  if (charCode >= 32 && charCode <= 126) {
+    return {
+      key,
+      code: "",
+      windowsVirtualKeyCode: charCode,
+      text: key,
+    };
+  }
+  return null;
+}
+
+/**
+ * Press a single key (keyDown + optional `char` + keyUp). Resolves
+ * the key name to a {@link KeyDescriptor} so CDP receives the right
+ * `code` / `windowsVirtualKeyCode` / `text` fields — required by
+ * sites that check `event.keyCode` (e.g. Enter-to-submit) or
+ * `event.code`. For printable keys we also dispatch a `char` event
+ * between keyDown and keyUp so the character is actually inserted
+ * into focused inputs.
  */
 export async function dispatchKeyPress(
   cdp: CdpClient,
   key: string,
   signal?: AbortSignal,
 ): Promise<void> {
-  await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key }, signal);
-  await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key }, signal);
+  const desc = resolveKeyDescriptor(key);
+  if (!desc) {
+    // Unknown multi-character key (e.g. F-keys we have not mapped).
+    // Fall back to the minimal payload so callers still see a
+    // keyDown/keyUp pair, and warn so we can extend the map.
+
+    console.warn(
+      `dispatchKeyPress: no descriptor for key "${key}", sending minimal event`,
+    );
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key }, signal);
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key }, signal);
+    return;
+  }
+
+  const baseParams: Record<string, unknown> = {
+    key: desc.key,
+    code: desc.code,
+    windowsVirtualKeyCode: desc.windowsVirtualKeyCode,
+  };
+  if (desc.text !== undefined) {
+    baseParams.text = desc.text;
+  }
+
+  await cdp.send(
+    "Input.dispatchKeyEvent",
+    { ...baseParams, type: "keyDown" },
+    signal,
+  );
+  if (desc.text !== undefined) {
+    await cdp.send(
+      "Input.dispatchKeyEvent",
+      { ...baseParams, type: "char" },
+      signal,
+    );
+  }
+  await cdp.send(
+    "Input.dispatchKeyEvent",
+    { ...baseParams, type: "keyUp" },
+    signal,
+  );
 }
 
 /** Dispatch a wheel scroll delta at the given viewport point. */
@@ -305,9 +450,29 @@ export async function navigateAndWait(
   signal?: AbortSignal,
 ): Promise<{ finalUrl: string; timedOut: boolean }> {
   const timeoutMs = opts.timeoutMs ?? 15_000;
-  await cdp.send("Page.navigate", { url }, signal);
+  // CDP's `Page.navigate` does NOT throw on transport-layer errors
+  // (DNS failure, connection refused, etc.). Instead it resolves with
+  // `{ frameId, errorText? }` and we have to surface the failure
+  // ourselves. Otherwise we silently start polling readyState on the
+  // OLD page (which is "complete") and report success with the stale
+  // URL.
+  const navResp = await cdp.send<{ frameId?: string; errorText?: string }>(
+    "Page.navigate",
+    { url },
+    signal,
+  );
+  if (navResp?.errorText) {
+    throw new CdpError("cdp_error", navResp.errorText, {
+      cdpMethod: "Page.navigate",
+      cdpParams: { url },
+    });
+  }
   const startedAt = Date.now();
-  let timedOut = false;
+  // Track exit reason explicitly so the post-loop classification does
+  // not race against `Date.now()` after a successful break (the final
+  // readyState read could otherwise push us across the timeout
+  // boundary and falsely flip `timedOut` back to true).
+  let completed = false;
   while (Date.now() - startedAt < timeoutMs) {
     if (signal?.aborted) {
       throw new CdpError("aborted", "Navigation aborted");
@@ -318,10 +483,13 @@ export async function navigateAndWait(
       {},
       signal,
     );
-    if (state === "interactive" || state === "complete") break;
+    if (state === "interactive" || state === "complete") {
+      completed = true;
+      break;
+    }
     await new Promise((r) => setTimeout(r, 100));
   }
-  if (Date.now() - startedAt >= timeoutMs) timedOut = true;
+  const timedOut = !completed;
   const finalUrl = await getCurrentUrl(cdp, signal);
   return { finalUrl, timedOut };
 }

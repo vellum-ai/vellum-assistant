@@ -279,21 +279,116 @@ describe("dispatchInsertText", () => {
 // ── dispatchKeyPress ──────────────────────────────────────────────────
 
 describe("dispatchKeyPress", () => {
-  test("emits keyDown + keyUp with the requested key", async () => {
+  test("Enter sends keyDown + char + keyUp with windowsVirtualKeyCode 13", async () => {
     const cdp = fakeCdp(() => ({}));
 
     await dispatchKeyPress(cdp, "Enter");
 
-    expect(cdp.calls).toEqual([
-      {
-        method: "Input.dispatchKeyEvent",
-        params: { type: "keyDown", key: "Enter" },
-      },
-      {
-        method: "Input.dispatchKeyEvent",
-        params: { type: "keyUp", key: "Enter" },
-      },
-    ]);
+    // Enter is text-producing (\r) so we get keyDown + char + keyUp.
+    expect(cdp.calls).toHaveLength(3);
+    for (const call of cdp.calls) {
+      expect(call.method).toBe("Input.dispatchKeyEvent");
+      const params = call.params as Record<string, unknown>;
+      expect(params.key).toBe("Enter");
+      expect(params.code).toBe("Enter");
+      expect(params.windowsVirtualKeyCode).toBe(13);
+      expect(params.text).toBe("\r");
+    }
+    expect((cdp.calls[0]!.params as Record<string, unknown>).type).toBe(
+      "keyDown",
+    );
+    expect((cdp.calls[1]!.params as Record<string, unknown>).type).toBe("char");
+    expect((cdp.calls[2]!.params as Record<string, unknown>).type).toBe(
+      "keyUp",
+    );
+  });
+
+  test("'a' sends keyCode 65, code KeyA, and a char event", async () => {
+    const cdp = fakeCdp(() => ({}));
+
+    await dispatchKeyPress(cdp, "a");
+
+    expect(cdp.calls).toHaveLength(3);
+    for (const call of cdp.calls) {
+      const params = call.params as Record<string, unknown>;
+      expect(params.key).toBe("a");
+      expect(params.code).toBe("KeyA");
+      expect(params.windowsVirtualKeyCode).toBe(65);
+      expect(params.text).toBe("a");
+    }
+    expect((cdp.calls[1]!.params as Record<string, unknown>).type).toBe("char");
+  });
+
+  test("ArrowDown sends keyCode 40 and NO char event", async () => {
+    const cdp = fakeCdp(() => ({}));
+
+    await dispatchKeyPress(cdp, "ArrowDown");
+
+    // ArrowDown is non-printing → no char event (just keyDown + keyUp).
+    expect(cdp.calls).toHaveLength(2);
+    for (const call of cdp.calls) {
+      const params = call.params as Record<string, unknown>;
+      expect(params.key).toBe("ArrowDown");
+      expect(params.code).toBe("ArrowDown");
+      expect(params.windowsVirtualKeyCode).toBe(40);
+      expect(params.text).toBeUndefined();
+    }
+    expect((cdp.calls[0]!.params as Record<string, unknown>).type).toBe(
+      "keyDown",
+    );
+    expect((cdp.calls[1]!.params as Record<string, unknown>).type).toBe(
+      "keyUp",
+    );
+  });
+
+  test("digit '7' sends keyCode 55 and code Digit7", async () => {
+    const cdp = fakeCdp(() => ({}));
+
+    await dispatchKeyPress(cdp, "7");
+
+    expect(cdp.calls).toHaveLength(3);
+    const params = cdp.calls[0]!.params as Record<string, unknown>;
+    expect(params.key).toBe("7");
+    expect(params.code).toBe("Digit7");
+    expect(params.windowsVirtualKeyCode).toBe(55);
+    expect(params.text).toBe("7");
+  });
+
+  test("Tab sends keyCode 9 and text '\\t'", async () => {
+    const cdp = fakeCdp(() => ({}));
+
+    await dispatchKeyPress(cdp, "Tab");
+
+    expect(cdp.calls).toHaveLength(3);
+    const params = cdp.calls[0]!.params as Record<string, unknown>;
+    expect(params.windowsVirtualKeyCode).toBe(9);
+    expect(params.text).toBe("\t");
+  });
+
+  test("Escape sends keyCode 27 and NO char event", async () => {
+    const cdp = fakeCdp(() => ({}));
+
+    await dispatchKeyPress(cdp, "Escape");
+
+    expect(cdp.calls).toHaveLength(2);
+    const params = cdp.calls[0]!.params as Record<string, unknown>;
+    expect(params.windowsVirtualKeyCode).toBe(27);
+    expect(params.text).toBeUndefined();
+  });
+
+  test("unknown multi-character key falls back to minimal payload", async () => {
+    const cdp = fakeCdp(() => ({}));
+    // Suppress the console.warn for the duration of the call.
+    const originalWarn = console.warn;
+    console.warn = () => {};
+    try {
+      await dispatchKeyPress(cdp, "F19");
+    } finally {
+      console.warn = originalWarn;
+    }
+    expect(cdp.calls).toHaveLength(2);
+    expect(cdp.calls[0]!.params).toEqual({ type: "keyDown", key: "F19" });
+    expect(cdp.calls[1]!.params).toEqual({ type: "keyUp", key: "F19" });
   });
 
   test("propagates errors from the client", async () => {
@@ -595,6 +690,33 @@ describe("navigateAndWait", () => {
       name: "CdpError",
       code: "aborted",
     });
+  });
+
+  test("throws CdpError when Page.navigate returns errorText", async () => {
+    // CDP signals DNS / connection errors via `errorText` rather than
+    // throwing — navigateAndWait must surface this instead of polling
+    // the OLD page's readyState (which is "complete") and reporting
+    // success with the stale URL.
+    const cdp = fakeCdp((method) => {
+      if (method === "Page.navigate")
+        return { frameId: "f1", errorText: "net::ERR_CONNECTION_REFUSED" };
+      throw new Error(`unexpected: ${method}`);
+    });
+
+    await expect(
+      navigateAndWait(cdp, "https://nope.invalid", { timeoutMs: 5_000 }),
+    ).rejects.toMatchObject({
+      name: "CdpError",
+      code: "cdp_error",
+      message: "net::ERR_CONNECTION_REFUSED",
+      cdpMethod: "Page.navigate",
+      cdpParams: { url: "https://nope.invalid" },
+    });
+
+    // Should NOT have polled readyState or read final URL after the
+    // navigate failed.
+    const evals = cdp.calls.filter((c) => c.method === "Runtime.evaluate");
+    expect(evals).toHaveLength(0);
   });
 });
 

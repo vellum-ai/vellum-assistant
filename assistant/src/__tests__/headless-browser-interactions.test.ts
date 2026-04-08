@@ -166,6 +166,13 @@ function defaultCdpHandler(
       return { object: { objectId: "obj-1" } };
     case "Runtime.evaluate":
       return { result: { value: { w: 800, h: 600 } } };
+    case "Runtime.callFunctionOn":
+      // executeBrowserSelectOption invokes a function that returns
+      // a `matched` boolean — default to true so wrapper-contract
+      // tests don't need to know the inner select-option matching
+      // shape. Tests that exercise the no-match path override the
+      // handler explicitly.
+      return { result: { value: true } };
     default:
       return {};
   }
@@ -457,7 +464,7 @@ describe("executeBrowserType", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain("pressed Enter");
     const methods = sendCalls.map((c) => c.method);
-    // Input.insertText must come before the Enter keyDown/keyUp.
+    // Input.insertText must come before the Enter keyDown/char/keyUp.
     const insertIdx = methods.indexOf("Input.insertText");
     const keyDownIdx = methods.findIndex(
       (m, i) =>
@@ -466,11 +473,15 @@ describe("executeBrowserType", () => {
     );
     expect(insertIdx).toBeGreaterThanOrEqual(0);
     expect(keyDownIdx).toBeGreaterThan(insertIdx);
+    // Enter is text-producing → keyDown + char + keyUp.
     const keyEvents = sendCalls.filter(
       (c) => c.method === "Input.dispatchKeyEvent",
     );
-    expect(keyEvents).toHaveLength(2);
+    expect(keyEvents).toHaveLength(3);
     expect((keyEvents[0]!.params as { key: string }).key).toBe("Enter");
+    expect((keyEvents[0]!.params as { type: string }).type).toBe("keyDown");
+    expect((keyEvents[1]!.params as { type: string }).type).toBe("char");
+    expect((keyEvents[2]!.params as { type: string }).type).toBe("keyUp");
   });
 
   test("errors when text is missing", async () => {
@@ -568,16 +579,22 @@ describe("executeBrowserPressKey", () => {
     const result = await executeBrowserPressKey({ key: "Enter" }, ctx);
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Pressed "Enter"');
-    // No target => no DOM.focus, no selector resolution, just keyDown + keyUp.
+    // No target => no DOM.focus, no selector resolution. Enter is a
+    // text-producing key (text "\r") so dispatchKeyPress emits
+    // keyDown + char + keyUp.
     const methods = sendCalls.map((c) => c.method);
     expect(methods).toEqual([
       "Input.dispatchKeyEvent",
       "Input.dispatchKeyEvent",
+      "Input.dispatchKeyEvent",
     ]);
-    const keyDown = sendCalls[0]!.params as { type: string; key: string };
-    const keyUp = sendCalls[1]!.params as { type: string; key: string };
+    const keyDown = sendCalls[0]!.params as Record<string, unknown>;
+    const charEvt = sendCalls[1]!.params as Record<string, unknown>;
+    const keyUp = sendCalls[2]!.params as Record<string, unknown>;
     expect(keyDown.type).toBe("keyDown");
     expect(keyDown.key).toBe("Enter");
+    expect(keyDown.windowsVirtualKeyCode).toBe(13);
+    expect(charEvt.type).toBe("char");
     expect(keyUp.type).toBe("keyUp");
     expect(keyUp.key).toBe("Enter");
   });
@@ -591,10 +608,12 @@ describe("executeBrowserPressKey", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Pressed "Tab" on element');
     expect(result.content).toContain('element_id "e5"');
-    // Backend-resolved path: focus → dispatchKeyEvent × 2
+    // Backend-resolved path: focus → dispatchKeyEvent × 3 (Tab is
+    // text-producing so we also dispatch a char event).
     const methods = sendCalls.map((c) => c.method);
     expect(methods).toEqual([
       "DOM.focus",
+      "Input.dispatchKeyEvent",
       "Input.dispatchKeyEvent",
       "Input.dispatchKeyEvent",
     ]);
@@ -609,7 +628,7 @@ describe("executeBrowserPressKey", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Pressed "Escape" on element');
     // Selector path: DOM.getDocument → DOM.querySelector → DOM.describeNode
-    // → DOM.focus → dispatchKeyEvent × 2
+    // → DOM.focus → dispatchKeyEvent × 2 (Escape has no text, so no char event).
     const methods = sendCalls.map((c) => c.method);
     expect(methods).toEqual([
       "DOM.getDocument",
@@ -760,12 +779,38 @@ describe("executeBrowserScroll", () => {
 
 // ── browser_select_option ────────────────────────────────────────────
 
+/**
+ * Default handler tuned for select-option tests. The Runtime.callFunctionOn
+ * call now returns whether an option matched; tests assert on this
+ * via `result.value`.
+ */
+function selectOptionHandler(
+  matched = true,
+): (method: string, params?: Record<string, unknown>) => unknown {
+  return (method, _params) => {
+    switch (method) {
+      case "DOM.getDocument":
+        return { root: { nodeId: 1 } };
+      case "DOM.querySelector":
+        return { nodeId: 42 };
+      case "DOM.describeNode":
+        return { node: { backendNodeId: 100 } };
+      case "DOM.resolveNode":
+        return { object: { objectId: "obj-1" } };
+      case "Runtime.callFunctionOn":
+        return { result: { value: matched } };
+      default:
+        return {};
+    }
+  };
+}
+
 describe("executeBrowserSelectOption", () => {
   beforeEach(() => {
     resetMockPage();
     resetCdpMock();
     snapshotBackendNodeMaps.clear();
-    sendHandler = defaultCdpHandler;
+    sendHandler = selectOptionHandler();
   });
 
   test("selects by value via element_id", async () => {
@@ -786,6 +831,7 @@ describe("executeBrowserSelectOption", () => {
     const callFn = sendCalls[1]!.params as {
       objectId: string;
       arguments: Array<{ value: unknown }>;
+      returnByValue?: boolean;
     };
     expect(callFn.objectId).toBe("obj-1");
     expect(callFn.arguments).toEqual([
@@ -793,6 +839,9 @@ describe("executeBrowserSelectOption", () => {
       { value: null },
       { value: null },
     ]);
+    // returnByValue must be true so the matched boolean comes back
+    // primitive instead of as a RemoteObject reference.
+    expect(callFn.returnByValue).toBe(true);
   });
 
   test("selects by label", async () => {
@@ -835,6 +884,32 @@ describe("executeBrowserSelectOption", () => {
       { value: null },
       { value: 2 },
     ]);
+  });
+
+  test("returns error when no option matches", async () => {
+    sendHandler = selectOptionHandler(false);
+    const result = await executeBrowserSelectOption(
+      { selector: "#state", value: "nope" },
+      ctx,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Select option failed");
+    expect(result.content).toContain("no option matched");
+    expect(result.content).toContain('value="nope"');
+  });
+
+  test("dispatches input + change events via the function declaration", async () => {
+    await executeBrowserSelectOption({ selector: "#state", value: "ca" }, ctx);
+    const callFn = sendCalls.find((c) => c.method === "Runtime.callFunctionOn")!
+      .params as { functionDeclaration: string };
+    // The function body must dispatch BOTH input and change events
+    // (HTML spec order: input fires before change for <select>).
+    expect(callFn.functionDeclaration).toContain('new Event("input"');
+    expect(callFn.functionDeclaration).toContain('new Event("change"');
+    const inputIdx = callFn.functionDeclaration.indexOf('new Event("input"');
+    const changeIdx = callFn.functionDeclaration.indexOf('new Event("change"');
+    expect(inputIdx).toBeGreaterThanOrEqual(0);
+    expect(changeIdx).toBeGreaterThan(inputIdx);
   });
 
   test("errors when no option specifier provided", async () => {
