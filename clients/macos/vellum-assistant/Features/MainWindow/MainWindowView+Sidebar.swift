@@ -91,6 +91,25 @@ extension MainWindowView {
         } message: {
             Text("Enter a new name for this conversation")
         }
+        .alert("Rename Group", isPresented: Binding(
+            get: { sidebar.renamingGroupId != nil },
+            set: { if !$0 { sidebar.renamingGroupId = nil } }
+        )) {
+            TextField("Name", text: Binding(
+                get: { sidebar.renamingGroupName },
+                set: { sidebar.renamingGroupName = $0 }
+            ))
+            Button("Cancel", role: .cancel) { sidebar.renamingGroupId = nil }
+            Button("Save") {
+                if let groupId = sidebar.renamingGroupId {
+                    let newName = sidebar.renamingGroupName
+                    Task<Void, Never> { await conversationManager.renameGroup(groupId, name: newName) }
+                }
+                sidebar.renamingGroupId = nil
+            }
+        } message: {
+            Text("Enter a new name for this group")
+        }
         .onAppear {
             conversationManager.customGroupsEnabled = assistantFeatureFlagStore.isEnabled("conversation-groups-ui")
         }
@@ -141,21 +160,9 @@ extension MainWindowView {
             maxCollapsed: isPinned ? .max : 5,
             isDropTarget: sidebar.dropTargetSectionId == group.id,
             countMode: countMode,
-            isRenaming: sidebar.renamingGroupId == group.id,
-            renamingName: Binding(
-                get: { sidebar.renamingGroupName },
-                set: { sidebar.renamingGroupName = $0 }
-            ),
             onRename: group.isSystemGroup ? nil : { name in
                 sidebar.renamingGroupId = group.id
                 sidebar.renamingGroupName = name
-            },
-            onCommitRename: { newName in
-                sidebar.renamingGroupId = nil
-                Task<Void, Never> { await conversationManager.renameGroup(group.id, name: newName) }
-            },
-            onCancelRename: {
-                sidebar.renamingGroupId = nil
             },
             onDelete: group.isSystemGroup ? nil : {
                 if conversations.isEmpty {
