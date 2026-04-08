@@ -115,7 +115,7 @@ struct ConversationTitleActionsControl: View {
         // is centered beneath the title. VMenuPanel.clampedOrigin will
         // clamp to screen edges if this overflows.
         let centeredScreenPoint = CGPoint(
-            x: screenPoint.x - Self.menuWidth / 2 + VMenuPanel.shadowInset,
+            x: screenPoint.x - Self.menuWidth / 2,
             y: screenPoint.y
         )
 

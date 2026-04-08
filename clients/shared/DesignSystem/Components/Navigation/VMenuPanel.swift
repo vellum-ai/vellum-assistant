@@ -18,7 +18,7 @@ public class VMenuPanel: NSPanel {
 
     /// Extra padding added around the VMenu content so its shadow can render
     /// without being clipped by the hosting view's bounds.
-    public static let shadowInset: CGFloat = 14
+    static let shadowInset: CGFloat = 14
 
     /// Show SwiftUI content in a floating panel at the given screen point.
     ///
