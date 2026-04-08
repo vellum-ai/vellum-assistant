@@ -225,7 +225,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     // (e.g. one that crashed without cleanup) may still be running and
     // holding the workspace's PID file. Detect and reclaim it before
     // spawning so we never leave duplicate workers eating CPU/memory.
-    this.reclaimStaleWorker();
+    this.reclaimStaleWorker(workerPath);
 
     log.info(
       { bunPath, workerPath, model: this.model },
@@ -470,15 +470,16 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   }
 
   /**
-   * Verify a PID looks like one of our embed workers before sending signals
-   * to it — defends against PID-reuse killing an unrelated process if the
+   * Verify a PID belongs to this workspace's embed worker before sending
+   * signals — defends against PID reuse killing an unrelated process if the
    * original worker exited and the OS recycled the PID.
    *
-   * The generated worker script sets `process.title = 'embed-worker'` and is
-   * always invoked via the `embed-worker.mjs` path under
-   * `~/.vellum/workspace/embedding-models/`, so either marker is conclusive.
+   * Matching `embed-worker` alone would also match a sibling assistant
+   * instance's worker (different VELLUM_WORKSPACE_DIR), so we match against
+   * the absolute worker script path, which lives under THIS workspace's
+   * embedding-models directory and is therefore unique per instance.
    */
-  private isLikelyEmbedWorker(pid: number): boolean {
+  private isOurEmbedWorker(pid: number, workerPath: string): boolean {
     try {
       const result = Bun.spawnSync({
         cmd: ["ps", "-p", String(pid), "-o", "command="],
@@ -488,7 +489,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       if (result.exitCode !== 0) return false;
       const cmd = new TextDecoder().decode(result.stdout).trim();
       if (!cmd) return false;
-      return cmd.includes("embed-worker");
+      return cmd.includes(workerPath);
     } catch {
       return false;
     }
@@ -500,9 +501,10 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
    * so we never end up with duplicate workers competing for the same workspace.
    *
    * Stale PID files (process no longer exists) are silently cleaned up.
-   * PIDs that have been recycled to unrelated processes are left untouched.
+   * PIDs that have been recycled to unrelated processes — including embed
+   * workers belonging to *other* assistant instances — are left untouched.
    */
-  private reclaimStaleWorker(): void {
+  private reclaimStaleWorker(workerPath: string): void {
     const pid = this.readPidFile();
     if (pid == null) return;
 
@@ -531,13 +533,14 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       return;
     }
 
-    if (!this.isLikelyEmbedWorker(pid)) {
-      // PID points to something that isn't ours (likely PID reuse after a
-      // prior worker exited). Don't kill an unrelated process — just drop
-      // the stale file and let the new worker take over the slot.
+    if (!this.isOurEmbedWorker(pid, workerPath)) {
+      // PID points to something that isn't this workspace's embed worker —
+      // either an unrelated process (PID reuse after the original worker
+      // exited) or another assistant instance's worker. Either way, don't
+      // signal it; just drop the stale file so the new worker can claim it.
       log.warn(
         { pid, model: this.model },
-        "PID file points to a non-embed-worker process; clearing without killing",
+        "PID file points to a process that is not this workspace's embed worker; clearing without killing",
       );
       this.removePidFile();
       return;
