@@ -23,6 +23,7 @@ set -euo pipefail
 #   BUILD_VERSION     Override CFBundleVersion (default: 1)
 #   SIGN_IDENTITY     Override code signing identity
 #   VELLUM_PLATFORM_URL  Override managed sign-in platform URL for app launches
+#   VELLUM_DOCS_BASE_URL Override docs base URL for in-app docs links (e.g. staging)
 #   SKIP_BUN_REBUILD    Set to 1 to skip Bun binary staleness checks (use pre-built binaries as-is)
 #   SENTRY_DSN_MACOS     Sentry DSN for the macOS app project (omit to disable)
 #   SENTRY_DSN_ASSISTANT Sentry DSN for the assistant/daemon project (omit to disable)
@@ -789,6 +790,22 @@ if [ -n "${VELLUM_PLATFORM_URL:-}" ]; then
     _LSE_ENTRIES+="
         <key>VELLUM_PLATFORM_URL</key>
         <string>$PLATFORM_URL_OVERRIDE</string>"
+fi
+if [ -n "${VELLUM_DOCS_BASE_URL:-}" ]; then
+    DOCS_BASE_URL_OVERRIDE="${VELLUM_DOCS_BASE_URL%/}"
+    # XML-escape ampersand/lt/gt before embedding into Info.plist so a
+    # malformed override (e.g. one containing `&` in a URL path) cannot
+    # corrupt the entire plist and prevent the app from launching.
+    # Note: the sibling VELLUM_PLATFORM_URL / SENTRY_DSN_* blocks below
+    # have the same unescaped pattern; that's a pre-existing concern that
+    # should be addressed in a separate cleanup PR.
+    DOCS_BASE_URL_OVERRIDE="${DOCS_BASE_URL_OVERRIDE//&/&amp;}"
+    DOCS_BASE_URL_OVERRIDE="${DOCS_BASE_URL_OVERRIDE//</&lt;}"
+    DOCS_BASE_URL_OVERRIDE="${DOCS_BASE_URL_OVERRIDE//>/&gt;}"
+    echo "Embedding app docs base URL override: $DOCS_BASE_URL_OVERRIDE"
+    _LSE_ENTRIES+="
+        <key>VELLUM_DOCS_BASE_URL</key>
+        <string>$DOCS_BASE_URL_OVERRIDE</string>"
 fi
 if [ "$CONFIG" = "debug" ]; then
     echo "Embedding VELLUM_FLAG_PLATFORM_HOSTED_ENABLED for debug build"

@@ -135,10 +135,13 @@ struct ImproveExperienceStepView: View {
     }
 
     private var tosAttributedString: AttributedString {
-        // swiftlint:disable:next force_try
-        var str = try! AttributedString(
-            markdown: "I agree to the [Terms of Service](https://www.vellum.ai/docs/vellum-terms-of-use) and [Privacy Policy](https://www.vellum.ai/docs/privacy-policy)"
-        )
+        let markdown = "I agree to the [Terms of Service](\(AppURLs.termsOfUseDocs.absoluteString)) and [Privacy Policy](\(AppURLs.privacyPolicyDocs.absoluteString))"
+        // Use `try?` with a plain-text fallback so a markdown parse failure
+        // (e.g. unexpected interpolated content from VELLUM_DOCS_BASE_URL) degrades
+        // gracefully instead of crashing the onboarding flow.
+        guard var str = try? AttributedString(markdown: markdown) else {
+            return AttributedString("I agree to the Terms of Service and Privacy Policy")
+        }
         for run in str.runs where run.link != nil {
             str[run.range].underlineStyle = .single
         }
