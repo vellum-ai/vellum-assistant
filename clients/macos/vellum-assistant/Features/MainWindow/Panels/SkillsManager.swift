@@ -124,7 +124,7 @@ final class SkillsManager {
         var map: [String: SkillCategory] = [:]
         map.reserveCapacity(skills.count)
         for skill in skills {
-            map[skill.id] = inferCategory(skill)
+            map[skill.id] = categoryMap[skill.id] ?? inferCategory(skill)
         }
         categoryMap = map
     }

@@ -301,12 +301,15 @@ struct IdentityPanel: View {
             let response = await SkillsClient().fetchSkillsList(includeCatalog: false)
             if let response {
                 let enabled = response.skills.filter { $0.status == "enabled" }
+                let map = await Task.detached {
+                    var m: [String: SkillCategory] = [:]
+                    m.reserveCapacity(enabled.count)
+                    for skill in enabled {
+                        m[skill.id] = inferCategory(skill)
+                    }
+                    return m
+                }.value
                 skills = enabled
-                var map: [String: SkillCategory] = [:]
-                map.reserveCapacity(enabled.count)
-                for skill in enabled {
-                    map[skill.id] = inferCategory(skill)
-                }
                 skillCategoryLookup = map
             }
         }
