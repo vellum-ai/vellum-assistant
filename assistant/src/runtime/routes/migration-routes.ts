@@ -467,6 +467,15 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
 
     // Import credentials from the bundle into CES (non-blocking — failures
     // are logged as warnings but do not fail the overall import).
+    let credentialsImported:
+      | {
+          total: number;
+          succeeded: number;
+          failed: number;
+          failedAccounts: string[];
+        }
+      | undefined;
+
     if (validation.entries) {
       const bundleCredentials = extractCredentialsFromBundle(
         validation.entries,
@@ -474,21 +483,27 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
       if (bundleCredentials.length > 0) {
         try {
           const credResults = await bulkSetSecureKeysAsync(bundleCredentials);
-          const failed = credResults.filter((r) => !r.ok);
-          if (failed.length > 0) {
+          const failedResults = credResults.filter((r) => !r.ok);
+          if (failedResults.length > 0) {
             log.warn(
-              { failed: failed.map((f) => f.account) },
+              { failed: failedResults.map((f) => f.account) },
               "Some credentials failed to import",
             );
           }
           log.info(
-            { total: bundleCredentials.length, failed: failed.length },
+            { total: bundleCredentials.length, failed: failedResults.length },
             "Credential import complete",
           );
-          const succeeded = bundleCredentials.length - failed.length;
-          if (failed.length > 0) {
+          const succeeded = bundleCredentials.length - failedResults.length;
+          credentialsImported = {
+            total: bundleCredentials.length,
+            succeeded,
+            failed: failedResults.length,
+            failedAccounts: failedResults.map((f) => f.account),
+          };
+          if (failedResults.length > 0) {
             result.report.warnings.push(
-              `Imported ${succeeded} credential(s), ${failed.length} failed`,
+              `Imported ${succeeded} credential(s), ${failedResults.length} failed`,
             );
           }
         } catch (err) {
@@ -519,7 +534,10 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
       // Don't fail the import if validation itself errors
     }
 
-    return Response.json(result.report);
+    return Response.json({
+      ...result.report,
+      ...(credentialsImported ? { credentialsImported } : {}),
+    });
   } catch (err) {
     log.error({ err }, "Unexpected error during import commit");
     return httpError(
