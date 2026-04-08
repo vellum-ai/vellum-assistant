@@ -165,6 +165,9 @@ struct MessageListContentView: View, Equatable {
     // MARK: - Body
 
     var body: some View {
+        // WARNING: Items in this LazyVStack must NOT use .transition(.move(edge:)) —
+        // it triggers full-content measurement via motionVectors and causes
+        // multi-minute hangs. Use .transition(.opacity) only. See AGENTS.md.
         LazyVStack(alignment: .leading, spacing: VSpacing.md) {
             if isLoadingMoreMessages {
                 HStack {
