@@ -194,6 +194,10 @@ jobs:
           git checkout -b "$BRANCH"
 
           # Bump all package.json files
+          # NOTE: All service + client versions must stay in sync — Apple Containers
+          # assumes the assistant runtime, gateway, and credential executor versions
+          # match the macOS app version.
+          # If we relax this assumption, adjust the container image logic accordingly.
           for pkg in assistant cli credential-executor gateway meta; do
             jq --arg v "$VERSION" '.version = $v' $pkg/package.json > tmp && mv tmp $pkg/package.json
           done
