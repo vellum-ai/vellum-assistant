@@ -200,6 +200,7 @@ struct AssistantProgressView: View {
         }
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .animation(VAnimation.fast, value: isExpanded)
         .onChange(of: toolCalls) { _, newToolCalls in
             handleToolCallsChange(newToolCalls)
         }
