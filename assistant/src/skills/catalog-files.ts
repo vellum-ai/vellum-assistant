@@ -19,7 +19,14 @@
  * skill's files never installs it or touches the install flow.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
 import { basename, join, posix, sep } from "node:path";
 
 import { getPlatformBaseUrl } from "../config/env.js";
@@ -302,11 +309,40 @@ export async function readCatalogSkillFileContent(
   if (source.kind === "dir") {
     const abs = join(source.dirPath, sanitized);
     // Defense in depth: make absolutely sure the resolved absolute path is
-    // still inside the skill root, even after `join` normalization.
+    // still inside the skill root, even after `join` normalization. This is
+    // a cheap lexical short-circuit that runs before any fs stat calls.
     if (!(abs === source.dirPath || abs.startsWith(source.dirPath + sep))) {
       return null;
     }
     if (!existsSync(abs)) return null;
+
+    // Reject symlinks at the target path directly: we do NOT want to follow
+    // a symlinked file inside a catalog skill dir out of the skill root.
+    let lstat;
+    try {
+      lstat = lstatSync(abs);
+    } catch {
+      return null;
+    }
+    if (lstat.isSymbolicLink()) return null;
+    if (!lstat.isFile()) return null;
+
+    // Also resolve any intermediate symlinks in the parent path via
+    // realpath and verify the result is still contained within the skill
+    // root's own realpath. This catches symlinked parent directories that
+    // the lexical check above can't see through.
+    let realAbs: string;
+    let realRoot: string;
+    try {
+      realAbs = realpathSync(abs);
+      realRoot = realpathSync(source.dirPath);
+    } catch {
+      return null;
+    }
+    if (!(realAbs === realRoot || realAbs.startsWith(realRoot + sep))) {
+      return null;
+    }
+
     let stat;
     try {
       stat = statSync(abs);

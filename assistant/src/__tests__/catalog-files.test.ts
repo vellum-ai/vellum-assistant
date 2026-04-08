@@ -15,7 +15,13 @@
  *   - catalog-miss short-circuit (no fetch call when id unknown)
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -447,6 +453,71 @@ describe("readCatalogSkillFileContent (dev mode)", () => {
     installFetchForbidden();
     expect(await readCatalogSkillFileContent("unknown", "SKILL.md")).toBeNull();
     expect(fetchCalls.length).toBe(0);
+  });
+
+  test("rejects symlinked files that point outside the skill root", async () => {
+    // Create a temp skill root AND a separate external directory.
+    const root = makeTempSkillsDir();
+    const externalRoot = mkdtempSync(join(tmpdir(), "catalog-files-ext-"));
+    tempDirs.push(externalRoot);
+
+    // Write an "external secret" file completely outside the skill tree.
+    const externalSecret = join(externalRoot, "secret.txt");
+    writeFileSync(externalSecret, "EXTERNAL_SECRET");
+
+    // Create the skill directory itself with a legitimate file.
+    const skillDir = writeSkill(root, "my-skill", { "SKILL.md": "ok" });
+
+    // Create a symlink INSIDE the skill dir pointing at the external file.
+    const linkPath = join(skillDir, "link-to-secret.md");
+    symlinkSync(externalSecret, linkPath);
+
+    mockRepoSkillsDir = root;
+    mockCatalog = [skill("my-skill")];
+    installFetchForbidden();
+
+    const entry = await readCatalogSkillFileContent(
+      "my-skill",
+      "link-to-secret.md",
+    );
+    expect(entry).toBeNull();
+
+    // And the legitimate file is still readable, so the check didn't
+    // collateral-damage normal requests.
+    const ok = await readCatalogSkillFileContent("my-skill", "SKILL.md");
+    expect(ok).not.toBeNull();
+    expect(ok!.content).toBe("ok");
+  });
+
+  test("rejects files accessed through a symlinked parent directory", async () => {
+    const root = makeTempSkillsDir();
+    const externalRoot = mkdtempSync(join(tmpdir(), "catalog-files-ext-"));
+    tempDirs.push(externalRoot);
+
+    // External directory with a real file inside it.
+    const externalDir = join(externalRoot, "external-dir");
+    mkdirSync(externalDir, { recursive: true });
+    writeFileSync(join(externalDir, "payload.txt"), "EXTERNAL_PAYLOAD");
+
+    // Legitimate skill dir with a normal file.
+    const skillDir = writeSkill(root, "my-skill", { "SKILL.md": "ok" });
+
+    // Inside the skill dir, create a symlinked subdirectory that points at
+    // the external directory. Then try to request
+    // `escape/payload.txt` — lexically this is inside the skill root, but
+    // the physical file lives outside.
+    const escapeLink = join(skillDir, "escape");
+    symlinkSync(externalDir, escapeLink);
+
+    mockRepoSkillsDir = root;
+    mockCatalog = [skill("my-skill")];
+    installFetchForbidden();
+
+    const entry = await readCatalogSkillFileContent(
+      "my-skill",
+      "escape/payload.txt",
+    );
+    expect(entry).toBeNull();
   });
 });
 
