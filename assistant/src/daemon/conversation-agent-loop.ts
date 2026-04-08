@@ -24,7 +24,7 @@ import type {
 } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
-import { postTurnTruncateToolResults, derefToolResultReReads } from "../context/post-turn-tool-result-truncation.js";
+import { derefToolResultReReads,postTurnTruncateToolResults } from "../context/post-turn-tool-result-truncation.js";
 import { estimatePromptTokens } from "../context/token-estimator.js";
 import type { ContextWindowManager } from "../context/window-manager.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";

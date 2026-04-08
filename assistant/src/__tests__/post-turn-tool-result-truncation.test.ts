@@ -3,18 +3,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import type { ContentBlock, Message } from "../providers/types.js";
 import {
-  THRESHOLD_CHARS,
-  TARGET_CHARS,
-  TOOL_RESULT_DIR,
-  TRUNCATION_MARKER,
-  REREAD_STUB,
   buildTruncatedContent,
+  derefToolResultReReads,
   getToolResultFilePath,
   postTurnTruncateToolResults,
-  derefToolResultReReads,
+  REREAD_STUB,
+  TARGET_CHARS,
+  THRESHOLD_CHARS,
+  TOOL_RESULT_DIR,
+  TRUNCATION_MARKER,
 } from "../context/post-turn-tool-result-truncation.js";
+import type { ContentBlock, Message } from "../providers/types.js";
 
 function makeToolResult(
   content: string,
