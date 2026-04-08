@@ -376,9 +376,98 @@ describe("dispatchKeyPress", () => {
     expect(params.text).toBeUndefined();
   });
 
+  test("'Space' (Playwright convention) sends code 'Space' and keyCode 32", async () => {
+    // Playwright callers pass "Space" as the key name, but
+    // `event.key` is actually " ". Verify both invariants.
+    const cdp = fakeCdp(() => ({}));
+
+    await dispatchKeyPress(cdp, "Space");
+
+    expect(cdp.calls).toHaveLength(3);
+    for (const call of cdp.calls) {
+      const params = call.params as Record<string, unknown>;
+      expect(params.key).toBe(" ");
+      expect(params.code).toBe("Space");
+      expect(params.windowsVirtualKeyCode).toBe(32);
+      expect(params.text).toBe(" ");
+    }
+    expect((cdp.calls[1]!.params as Record<string, unknown>).type).toBe("char");
+  });
+
+  test("literal ' ' also maps to code 'Space'", async () => {
+    // Passing a literal space character should produce the same
+    // event shape as "Space" — not fall through to the generic
+    // printable-ASCII path which emits `code: ""`.
+    const cdp = fakeCdp(() => ({}));
+
+    await dispatchKeyPress(cdp, " ");
+
+    const params = cdp.calls[0]!.params as Record<string, unknown>;
+    expect(params.code).toBe("Space");
+    expect(params.windowsVirtualKeyCode).toBe(32);
+    expect(params.text).toBe(" ");
+  });
+
+  test("Home/End/PageUp/PageDown send the right keyCodes (no char event)", async () => {
+    const cases: Array<[string, number]> = [
+      ["Home", 36],
+      ["End", 35],
+      ["PageUp", 33],
+      ["PageDown", 34],
+    ];
+    for (const [key, expectedKeyCode] of cases) {
+      const cdp = fakeCdp(() => ({}));
+      await dispatchKeyPress(cdp, key);
+      // Navigation keys are non-printing → keyDown + keyUp only.
+      expect(cdp.calls).toHaveLength(2);
+      const params = cdp.calls[0]!.params as Record<string, unknown>;
+      expect(params.key).toBe(key);
+      expect(params.code).toBe(key);
+      expect(params.windowsVirtualKeyCode).toBe(expectedKeyCode);
+      expect(params.text).toBeUndefined();
+    }
+  });
+
+  test("Insert sends keyCode 45 and no char event", async () => {
+    const cdp = fakeCdp(() => ({}));
+    await dispatchKeyPress(cdp, "Insert");
+    expect(cdp.calls).toHaveLength(2);
+    const params = cdp.calls[0]!.params as Record<string, unknown>;
+    expect(params.windowsVirtualKeyCode).toBe(45);
+    expect(params.text).toBeUndefined();
+  });
+
+  test("F1-F12 send the right Windows virtual keyCodes", async () => {
+    const cases: Array<[string, number]> = [
+      ["F1", 112],
+      ["F2", 113],
+      ["F3", 114],
+      ["F4", 115],
+      ["F5", 116],
+      ["F6", 117],
+      ["F7", 118],
+      ["F8", 119],
+      ["F9", 120],
+      ["F10", 121],
+      ["F11", 122],
+      ["F12", 123],
+    ];
+    for (const [key, expectedKeyCode] of cases) {
+      const cdp = fakeCdp(() => ({}));
+      await dispatchKeyPress(cdp, key);
+      expect(cdp.calls).toHaveLength(2);
+      const params = cdp.calls[0]!.params as Record<string, unknown>;
+      expect(params.key).toBe(key);
+      expect(params.code).toBe(key);
+      expect(params.windowsVirtualKeyCode).toBe(expectedKeyCode);
+      expect(params.text).toBeUndefined();
+    }
+  });
+
   test("unknown multi-character key falls back to minimal payload", async () => {
     const cdp = fakeCdp(() => ({}));
-    // Suppress the console.warn for the duration of the call.
+    // Suppress the console.warn for the duration of the call. F19
+    // is not in the static map and cannot be derived dynamically.
     const originalWarn = console.warn;
     console.warn = () => {};
     try {
@@ -595,21 +684,61 @@ describe("captureScreenshotJpeg", () => {
 
 // ── navigateAndWait ───────────────────────────────────────────────────
 
-describe("navigateAndWait", () => {
-  test("calls Page.navigate and returns finalUrl once readyState is complete", async () => {
-    const cdp = fakeCdp((method, params) => {
-      if (method === "Page.navigate") return {};
-      if (method === "Runtime.evaluate") {
-        const expr = (params as { expression: string }).expression;
-        if (expr === "document.readyState")
-          return { result: { value: "complete" } };
-        if (expr === "document.location.href")
-          return { result: { value: "https://example.com/final" } };
+/**
+ * Build a programmable fake for `navigateAndWait` tests. Handles the
+ * standard shape: pre-nav `document.location.href` read, then
+ * `Page.navigate`, then any number of combined `readyState + href`
+ * poll evaluations.
+ *
+ * The `poll` handler is invoked once per combined readyState/href
+ * evaluate and must return `{ readyState, href }` (to continue the
+ * poll) or throw (to simulate a transient CDP error).
+ */
+function fakeNavCdp(opts: {
+  urlBeforeNav?: string;
+  navResponse?: { frameId?: string; errorText?: string };
+  poll: (
+    callIndex: number,
+  ) => { readyState: string; href: string } | { throwError: CdpError };
+  onNavigate?: () => void;
+}) {
+  let pollCalls = 0;
+  return fakeCdp((method, params) => {
+    if (method === "Page.navigate") {
+      opts.onNavigate?.();
+      return opts.navResponse ?? {};
+    }
+    if (method === "Runtime.evaluate") {
+      const expr = (params as { expression: string }).expression;
+      if (expr === "document.location.href") {
+        return { result: { value: opts.urlBeforeNav ?? "about:blank" } };
       }
-      throw new Error(`unexpected: ${method}`);
+      if (expr === "document.title") {
+        return { result: { value: "" } };
+      }
+      if (expr.includes("readyState") && expr.includes("href")) {
+        const res = opts.poll(pollCalls++);
+        if ("throwError" in res) throw res.throwError;
+        return { result: { value: res } };
+      }
+    }
+    throw new Error(
+      `unexpected: ${method} ${JSON.stringify((params as Record<string, unknown>)?.expression ?? params)}`,
+    );
+  });
+}
+
+describe("navigateAndWait", () => {
+  test("calls Page.navigate and returns finalUrl once readyState is complete and URL has committed", async () => {
+    const cdp = fakeNavCdp({
+      urlBeforeNav: "https://example.com/start",
+      poll: () => ({
+        readyState: "complete",
+        href: "https://example.com/final",
+      }),
     });
 
-    const result = await navigateAndWait(cdp, "https://example.com/start", {
+    const result = await navigateAndWait(cdp, "https://example.com/target", {
       timeoutMs: 5_000,
     });
 
@@ -621,62 +750,45 @@ describe("navigateAndWait", () => {
     const navigateCalls = cdp.calls.filter((c) => c.method === "Page.navigate");
     expect(navigateCalls).toHaveLength(1);
     expect(navigateCalls[0]!.params).toEqual({
-      url: "https://example.com/start",
+      url: "https://example.com/target",
     });
   });
 
   test("resolves when readyState becomes interactive (not just complete)", async () => {
-    const cdp = fakeCdp((method, params) => {
-      if (method === "Page.navigate") return {};
-      if (method === "Runtime.evaluate") {
-        const expr = (params as { expression: string }).expression;
-        if (expr === "document.readyState")
-          return { result: { value: "interactive" } };
-        if (expr === "document.location.href")
-          return { result: { value: "https://x" } };
-      }
-      throw new Error(`unexpected: ${method}`);
+    const cdp = fakeNavCdp({
+      urlBeforeNav: "https://prev",
+      poll: () => ({ readyState: "interactive", href: "https://x" }),
     });
 
     const result = await navigateAndWait(cdp, "https://x", {
       timeoutMs: 5_000,
     });
     expect(result.timedOut).toBe(false);
+    expect(result.finalUrl).toBe("https://x");
   });
 
   test("returns timedOut: true when readyState never becomes ready", async () => {
-    const cdp = fakeCdp((method, params) => {
-      if (method === "Page.navigate") return {};
-      if (method === "Runtime.evaluate") {
-        const expr = (params as { expression: string }).expression;
-        if (expr === "document.readyState")
-          return { result: { value: "loading" } };
-        if (expr === "document.location.href")
-          return { result: { value: "https://slow" } };
-      }
-      throw new Error(`unexpected: ${method}`);
+    const cdp = fakeNavCdp({
+      urlBeforeNav: "about:blank",
+      poll: () => ({ readyState: "loading", href: "https://slow" }),
     });
 
     // Use a tiny timeout so the test finishes quickly.
     const result = await navigateAndWait(cdp, "https://slow", {
       timeoutMs: 50,
     });
-    expect(result).toEqual({
-      finalUrl: "https://slow",
-      timedOut: true,
-    });
+    expect(result.timedOut).toBe(true);
+    // finalUrl should come from the in-loop observations (the last
+    // href we successfully saw), not a post-loop fresh read.
+    expect(result.finalUrl).toBe("https://slow");
   });
 
   test("throws CdpError with code 'aborted' when signal fires", async () => {
     const controller = new AbortController();
-    const cdp = fakeCdp((method) => {
-      if (method === "Page.navigate") {
-        controller.abort();
-        return {};
-      }
-      if (method === "Runtime.evaluate")
-        return { result: { value: "loading" } };
-      throw new Error(`unexpected: ${method}`);
+    const cdp = fakeNavCdp({
+      urlBeforeNav: "about:blank",
+      onNavigate: () => controller.abort(),
+      poll: () => ({ readyState: "loading", href: "https://x" }),
     });
 
     await expect(
@@ -697,10 +809,13 @@ describe("navigateAndWait", () => {
     // throwing — navigateAndWait must surface this instead of polling
     // the OLD page's readyState (which is "complete") and reporting
     // success with the stale URL.
-    const cdp = fakeCdp((method) => {
-      if (method === "Page.navigate")
-        return { frameId: "f1", errorText: "net::ERR_CONNECTION_REFUSED" };
-      throw new Error(`unexpected: ${method}`);
+    const cdp = fakeNavCdp({
+      urlBeforeNav: "about:blank",
+      navResponse: {
+        frameId: "f1",
+        errorText: "net::ERR_CONNECTION_REFUSED",
+      },
+      poll: () => ({ readyState: "complete", href: "should not be read" }),
     });
 
     await expect(
@@ -713,10 +828,196 @@ describe("navigateAndWait", () => {
       cdpParams: { url: "https://nope.invalid" },
     });
 
-    // Should NOT have polled readyState or read final URL after the
-    // navigate failed.
-    const evals = cdp.calls.filter((c) => c.method === "Runtime.evaluate");
-    expect(evals).toHaveLength(0);
+    // Should NOT have polled readyState (only the pre-nav
+    // `document.location.href` read is allowed before the navigate
+    // attempt).
+    const pollEvals = cdp.calls.filter(
+      (c) =>
+        c.method === "Runtime.evaluate" &&
+        typeof (c.params as { expression?: string })?.expression === "string" &&
+        ((c.params as { expression: string }).expression.includes(
+          "readyState",
+        ) as boolean),
+    );
+    expect(pollEvals).toHaveLength(0);
+  });
+
+  test("waits for URL to commit before accepting readyState=complete (same-origin race)", async () => {
+    // Reproduces the bug where a same-origin navigation resolves
+    // `Page.navigate` but the polling loop sees the OLD page's
+    // "complete" readyState and the OLD URL for the first few polls
+    // before the new document commits.
+    //
+    // First 3 polls: old page's "complete" + old URL.
+    // Fourth poll: new document fully committed.
+    const cdp = fakeNavCdp({
+      urlBeforeNav: "https://example.com/page1",
+      poll: (callIndex) => {
+        if (callIndex < 3) {
+          return {
+            readyState: "complete",
+            href: "https://example.com/page1",
+          };
+        }
+        return { readyState: "complete", href: "https://example.com/page2" };
+      },
+    });
+
+    const result = await navigateAndWait(cdp, "https://example.com/page2", {
+      timeoutMs: 5_000,
+    });
+
+    expect(result).toEqual({
+      finalUrl: "https://example.com/page2",
+      timedOut: false,
+    });
+
+    // The loop must have polled at least 4 times — proof that it
+    // did not break on the first "complete" observation against the
+    // old URL.
+    const pollEvals = cdp.calls.filter(
+      (c) =>
+        c.method === "Runtime.evaluate" &&
+        typeof (c.params as { expression?: string })?.expression === "string" &&
+        (c.params as { expression: string }).expression.includes("readyState"),
+    );
+    expect(pollEvals.length).toBeGreaterThanOrEqual(4);
+  });
+
+  test("retries on transient CdpError during context transition", async () => {
+    // After `Page.navigate`, `Runtime.evaluate` can fail transiently
+    // while the old execution context is torn down and before the
+    // new one is created. navigateAndWait must catch that error and
+    // keep polling.
+    const cdp = fakeNavCdp({
+      urlBeforeNav: "https://prev",
+      poll: (callIndex) => {
+        if (callIndex === 0) {
+          return {
+            throwError: new CdpError(
+              "cdp_error",
+              "Execution context was destroyed.",
+            ),
+          };
+        }
+        if (callIndex === 1) {
+          return {
+            throwError: new CdpError(
+              "cdp_error",
+              "Cannot find context with specified id",
+            ),
+          };
+        }
+        return { readyState: "complete", href: "https://new" };
+      },
+    });
+
+    const result = await navigateAndWait(cdp, "https://new", {
+      timeoutMs: 5_000,
+    });
+    expect(result).toEqual({
+      finalUrl: "https://new",
+      timedOut: false,
+    });
+  });
+
+  test("same-URL reload falls back to readyState-only polling", async () => {
+    // When the target URL matches the pre-nav URL (e.g. a reload),
+    // there's no URL-change signal to wait for. The commit check
+    // must fall back to readyState-only so reloads don't loop
+    // forever.
+    const cdp = fakeNavCdp({
+      urlBeforeNav: "https://example.com/same",
+      poll: () => ({
+        readyState: "complete",
+        href: "https://example.com/same",
+      }),
+    });
+
+    const result = await navigateAndWait(cdp, "https://example.com/same", {
+      timeoutMs: 5_000,
+    });
+
+    expect(result).toEqual({
+      finalUrl: "https://example.com/same",
+      timedOut: false,
+    });
+  });
+
+  test("falls back to readyState-only when pre-nav URL read fails", async () => {
+    // If we can't read the pre-nav URL (e.g. fresh about:blank with
+    // no Runtime context), commit detection has no baseline and must
+    // fall back to readyState-only.
+    let sawPreNavRead = false;
+    const cdp = fakeCdp((method, params) => {
+      if (method === "Page.navigate") return {};
+      if (method === "Runtime.evaluate") {
+        const expr = (params as { expression: string }).expression;
+        if (expr === "document.location.href" && !sawPreNavRead) {
+          sawPreNavRead = true;
+          throw new CdpError("cdp_error", "no context");
+        }
+        if (expr.includes("readyState") && expr.includes("href")) {
+          return {
+            result: { value: { readyState: "complete", href: "https://x" } },
+          };
+        }
+      }
+      throw new Error(
+        `unexpected: ${method} ${JSON.stringify((params as Record<string, unknown>)?.expression ?? params)}`,
+      );
+    });
+
+    const result = await navigateAndWait(cdp, "https://x", {
+      timeoutMs: 5_000,
+    });
+
+    expect(result).toEqual({
+      finalUrl: "https://x",
+      timedOut: false,
+    });
+  });
+
+  test("reports last observed href on timeout instead of racing a post-loop read", async () => {
+    // If polling never reaches readyState-ready + committed, the
+    // final URL should come from the last in-loop observation (so
+    // the caller doesn't race the commit window again via a
+    // post-loop `getCurrentUrl`).
+    const observedHrefs: string[] = [];
+    const cdp = fakeNavCdp({
+      urlBeforeNav: "https://pre",
+      poll: (callIndex) => {
+        // Keep returning "loading" but advance the URL so we can
+        // verify the fallback uses the last observation.
+        const href = `https://loading/${callIndex}`;
+        observedHrefs.push(href);
+        return { readyState: "loading", href };
+      },
+    });
+
+    const result = await navigateAndWait(cdp, "https://target", {
+      timeoutMs: 50,
+    });
+    expect(result.timedOut).toBe(true);
+    // finalUrl should match the last href we returned from the poll
+    // handler (not the pre-nav URL, and not a separately-read value).
+    expect(observedHrefs.length).toBeGreaterThan(0);
+    expect(result.finalUrl).toBe(observedHrefs[observedHrefs.length - 1]!);
+  });
+
+  test("re-throws non-CdpError exceptions from the polling evaluate", async () => {
+    // Only CdpErrors are retry-worthy; unexpected JS errors should
+    // propagate so they're not swallowed.
+    const cdp = fakeNavCdp({
+      urlBeforeNav: "https://pre",
+      poll: () => {
+        throw new Error("unexpected programmer error");
+      },
+    });
+
+    await expect(
+      navigateAndWait(cdp, "https://target", { timeoutMs: 5_000 }),
+    ).rejects.toThrow("unexpected programmer error");
   });
 });
 

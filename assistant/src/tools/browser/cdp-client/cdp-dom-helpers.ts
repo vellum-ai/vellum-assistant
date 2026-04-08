@@ -190,6 +190,7 @@ const KEY_DESCRIPTORS: Record<string, KeyDescriptor> = {
     windowsVirtualKeyCode: 8,
   },
   Delete: { key: "Delete", code: "Delete", windowsVirtualKeyCode: 46 },
+  Insert: { key: "Insert", code: "Insert", windowsVirtualKeyCode: 45 },
   ArrowUp: { key: "ArrowUp", code: "ArrowUp", windowsVirtualKeyCode: 38 },
   ArrowDown: {
     key: "ArrowDown",
@@ -206,6 +207,36 @@ const KEY_DESCRIPTORS: Record<string, KeyDescriptor> = {
     code: "ArrowRight",
     windowsVirtualKeyCode: 39,
   },
+  // Navigation keys. Sites commonly check `event.keyCode` for these
+  // (PageDown = 34 to scroll a page, Home = 36 to jump to top, etc.)
+  // so omitting `code`/`windowsVirtualKeyCode` makes the press a
+  // silent no-op on those handlers.
+  Home: { key: "Home", code: "Home", windowsVirtualKeyCode: 36 },
+  End: { key: "End", code: "End", windowsVirtualKeyCode: 35 },
+  PageUp: { key: "PageUp", code: "PageUp", windowsVirtualKeyCode: 33 },
+  PageDown: { key: "PageDown", code: "PageDown", windowsVirtualKeyCode: 34 },
+  // Space is special: Playwright callers use "Space" as the key name
+  // but `event.key` is actually " ". Accept both spellings so either
+  // calling convention works, and always emit `code: "Space"` +
+  // `windowsVirtualKeyCode: 32` so Space-to-activate / Space-to-scroll
+  // handlers fire correctly.
+  Space: { key: " ", code: "Space", windowsVirtualKeyCode: 32, text: " " },
+  " ": { key: " ", code: "Space", windowsVirtualKeyCode: 32, text: " " },
+  // Function keys (F1-F12). Virtual key codes 112-123 per the Windows
+  // input API. `resolveKeyDescriptor` cannot derive these dynamically
+  // because they are multi-character names with no 1:1 char mapping.
+  F1: { key: "F1", code: "F1", windowsVirtualKeyCode: 112 },
+  F2: { key: "F2", code: "F2", windowsVirtualKeyCode: 113 },
+  F3: { key: "F3", code: "F3", windowsVirtualKeyCode: 114 },
+  F4: { key: "F4", code: "F4", windowsVirtualKeyCode: 115 },
+  F5: { key: "F5", code: "F5", windowsVirtualKeyCode: 116 },
+  F6: { key: "F6", code: "F6", windowsVirtualKeyCode: 117 },
+  F7: { key: "F7", code: "F7", windowsVirtualKeyCode: 118 },
+  F8: { key: "F8", code: "F8", windowsVirtualKeyCode: 119 },
+  F9: { key: "F9", code: "F9", windowsVirtualKeyCode: 120 },
+  F10: { key: "F10", code: "F10", windowsVirtualKeyCode: 121 },
+  F11: { key: "F11", code: "F11", windowsVirtualKeyCode: 122 },
+  F12: { key: "F12", code: "F12", windowsVirtualKeyCode: 123 },
 };
 
 /**
@@ -429,19 +460,32 @@ export async function captureScreenshotJpeg(
 // ── Navigation / waiting ──────────────────────────────────────────────
 
 /**
- * Navigate to `url` and wait until `document.readyState` reaches
+ * Navigate to `url` and wait until the new document has committed
+ * (the URL has changed from the pre-navigation URL, or it's a
+ * same-URL reload) AND `document.readyState` has reached
  * `interactive` or `complete`, or the timeout elapses.
  *
  * CDP's `Page.navigate` resolves as soon as the request is sent, not
  * when the page has loaded. Subscribing to lifecycle events would
  * require a long-lived event channel that the extension-backed
- * CdpClient cannot currently provide, so this helper polls
- * `document.readyState` via {@link evaluateExpression} — which works
- * uniformly across both Playwright-backed and extension-backed
- * clients.
+ * CdpClient cannot currently provide, so this helper polls both
+ * `document.readyState` and `document.location.href` via
+ * {@link evaluateExpression} — which works uniformly across both
+ * Playwright-backed and extension-backed clients.
  *
- * Returns `{ finalUrl, timedOut }`. `finalUrl` is read after the wait
- * completes and may differ from `url` if the page redirected.
+ * The commit-detection step is the interesting part: on same-origin
+ * navigations or cached responses, the browser can return
+ * `readyState === "complete"` from the OLD execution context for a
+ * brief window after `Page.navigate` resolves but before the new
+ * document has been installed. Reading only `readyState` would
+ * accept that stale state and report success against the old URL.
+ * Combining the two observations in a single evaluate and requiring
+ * an observed URL change closes that race.
+ *
+ * Returns `{ finalUrl, timedOut }`. `finalUrl` is the last `href`
+ * observed inside the polling loop (so it reflects the new document
+ * even on commit races) and may differ from `url` if the page
+ * redirected.
  */
 export async function navigateAndWait(
   cdp: CdpClient,
@@ -450,6 +494,20 @@ export async function navigateAndWait(
   signal?: AbortSignal,
 ): Promise<{ finalUrl: string; timedOut: boolean }> {
   const timeoutMs = opts.timeoutMs ?? 15_000;
+
+  // Capture the pre-navigation URL so the polling loop can detect
+  // when the new document has committed. If the pre-read fails (rare
+  // — e.g. a fresh about:blank that hasn't initialized a Runtime
+  // context yet), we fall back to readyState-only polling because we
+  // have no baseline to compare against.
+  let urlBeforeNav = "";
+  try {
+    urlBeforeNav = await getCurrentUrl(cdp, signal);
+  } catch {
+    // Non-fatal: urlBeforeNav stays empty and commit detection becomes
+    // a no-op (see `committed` below).
+  }
+
   // CDP's `Page.navigate` does NOT throw on transport-layer errors
   // (DNS failure, connection refused, etc.). Instead it resolves with
   // `{ frameId, errorText? }` and we have to surface the failure
@@ -467,30 +525,91 @@ export async function navigateAndWait(
       cdpParams: { url },
     });
   }
+
+  // Same-URL reloads (including `about:blank` → `about:blank`) can't
+  // be detected via URL change. Fall back to readyState-only polling
+  // in that case, matching the pre-commit-detection behavior.
+  const sameUrlReload = urlBeforeNav !== "" && url === urlBeforeNav;
+
   const startedAt = Date.now();
   // Track exit reason explicitly so the post-loop classification does
-  // not race against `Date.now()` after a successful break (the final
-  // readyState read could otherwise push us across the timeout
-  // boundary and falsely flip `timedOut` back to true).
+  // not race against `Date.now()` (the final read could otherwise
+  // push us across the timeout boundary and falsely flip `timedOut`
+  // back to true).
   let completed = false;
+  // Track the last href we successfully observed from inside the
+  // loop. We prefer this to a post-loop `getCurrentUrl` call because
+  // the latter races the very same commit window that motivates the
+  // in-loop commit check.
+  let lastKnownHref = urlBeforeNav;
+
   while (Date.now() - startedAt < timeoutMs) {
     if (signal?.aborted) {
       throw new CdpError("aborted", "Navigation aborted");
     }
-    const state = await evaluateExpression<string>(
-      cdp,
-      "document.readyState",
-      {},
-      signal,
-    );
-    if (state === "interactive" || state === "complete") {
-      completed = true;
-      break;
+
+    // Query `readyState` and `location.href` in a single evaluate so
+    // the two observations come from the same execution context and
+    // cannot straddle a commit boundary.
+    try {
+      const snapshot = await evaluateExpression<{
+        readyState: string;
+        href: string;
+      }>(
+        cdp,
+        "({ readyState: document.readyState, href: document.location.href })",
+        {},
+        signal,
+      );
+      if (snapshot && typeof snapshot.href === "string") {
+        lastKnownHref = snapshot.href;
+      }
+      const readyStateOk =
+        snapshot?.readyState === "interactive" ||
+        snapshot?.readyState === "complete";
+      // On cross-URL navigations, require BOTH a ready readyState
+      // AND an observed URL change so we don't accept the OLD
+      // page's "complete" state before the new document has
+      // committed. Same-URL reloads and missing pre-nav URLs fall
+      // back to readyState-only because there's nothing to compare.
+      const committed =
+        sameUrlReload ||
+        urlBeforeNav === "" ||
+        (typeof snapshot?.href === "string" && snapshot.href !== urlBeforeNav);
+      if (readyStateOk && committed) {
+        completed = true;
+        break;
+      }
+    } catch (err) {
+      // `Runtime.evaluate` can fail transiently while the old
+      // execution context is being torn down and the new one has
+      // not yet been created ("Execution context was destroyed" /
+      // "Cannot find context with specified id"). Treat CDP errors
+      // as retry-worthy; the timeout bound below guarantees we
+      // don't loop forever. Abort errors are re-thrown so the
+      // caller's AbortSignal is still honoured promptly.
+      if (err instanceof CdpError && err.code === "aborted") throw err;
+      if (!(err instanceof CdpError)) throw err;
     }
+
     await new Promise((r) => setTimeout(r, 100));
   }
+
   const timedOut = !completed;
-  const finalUrl = await getCurrentUrl(cdp, signal);
+
+  // Prefer the last href observed inside the loop. If the loop never
+  // produced a successful observation (e.g. all evaluates failed to
+  // transient context errors), fall back to `getCurrentUrl` as a
+  // best-effort read.
+  let finalUrl = lastKnownHref;
+  if (finalUrl === "") {
+    try {
+      finalUrl = await getCurrentUrl(cdp, signal);
+    } catch {
+      // Nothing more to do — surface empty string and let the caller
+      // decide how to render it.
+    }
+  }
   return { finalUrl, timedOut };
 }
 
