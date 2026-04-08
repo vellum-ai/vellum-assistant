@@ -97,4 +97,21 @@ describe("McpClient auth error detection", () => {
     await client.connect(httpTransport);
     expect(client.isConnected).toBe(false);
   });
+
+  test("treats SDK fetchToken 'authorizationCode is required' error as auth error", async () => {
+    const client = new McpClient("test-server");
+
+    (client as any).createTransport = () => ({});
+    (client as any).client = {
+      connect: () => {
+        throw new Error(
+          "Either provider.prepareTokenRequest() or authorizationCode is required",
+        );
+      },
+      close: async () => {},
+    };
+
+    await client.connect(httpTransport);
+    expect(client.isConnected).toBe(false);
+  });
 });
