@@ -333,8 +333,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // alive.  performRestart() writes a transient sentinel file that
         // the new instance checks here; if the file exists we are the
         // replacement process and should proceed normally.
-        let restartSentinel = URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent(".vellum/restart-in-progress")
+        let restartSentinel = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("vellum-restart-in-progress")
         let isRestart: Bool = {
             guard let data = try? Data(contentsOf: restartSentinel),
                   let stamp = String(data: data, encoding: .utf8),

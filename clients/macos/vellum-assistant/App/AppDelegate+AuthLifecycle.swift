@@ -161,9 +161,10 @@ extension AppDelegate {
         // The sentinel contains the current Unix timestamp; the new instance
         // honours it only if it is less than 30 seconds old, so a stale file
         // left by a crash does not permanently disable the guard.
-        let sentinelDir = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".vellum")
-        try? FileManager.default.createDirectory(at: sentinelDir, withIntermediateDirectories: true)
-        let sentinelPath = sentinelDir.appendingPathComponent("restart-in-progress")
+        // Uses NSTemporaryDirectory() (per Apple guidelines for transient IPC
+        // files) instead of ~/.vellum to avoid workspace disk assumptions.
+        let sentinelPath = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("vellum-restart-in-progress")
         let timestamp = "\(Date().timeIntervalSince1970)"
         try? timestamp.write(to: sentinelPath, atomically: true, encoding: .utf8)
 
