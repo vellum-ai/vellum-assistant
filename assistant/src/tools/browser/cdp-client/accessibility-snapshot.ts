@@ -46,20 +46,16 @@ export interface AxSnapshotResult {
 
 // ── Constants ─────────────────────────────────────────────────────────
 
-/**
- * Default maximum number of interactive elements returned in a snapshot.
- * Mirrors the legacy `MAX_SNAPSHOT_ELEMENTS` constant in
- * `browser-execution.ts` so parity is preserved during the migration.
- */
+/** Default maximum number of interactive elements returned in a snapshot. */
 export const DEFAULT_MAX_ELEMENTS = 150;
 
 /**
- * AX roles we consider "interactive" and surface to the LLM. Derived
- * from the legacy `INTERACTIVE_SELECTOR` list in `browser-execution.ts`
- * plus standard ARIA interactive roles. A node whose role is in this set
- * is always kept (subject to ignored/backendNodeId filters). Nodes with
- * a `focusable: true` property are also kept regardless of role so that
- * contenteditable widgets and custom controls surface.
+ * AX roles we consider "interactive" and surface to the LLM. Includes
+ * common form controls, links, buttons, and standard ARIA interactive
+ * roles. A node whose role is in this set is always kept (subject to
+ * ignored/backendNodeId filters). Nodes with a `focusable: true`
+ * property are also kept regardless of role so that contenteditable
+ * widgets and custom controls surface.
  */
 const INTERACTIVE_ROLES: ReadonlySet<string> = new Set([
   "button",

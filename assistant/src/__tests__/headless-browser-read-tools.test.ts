@@ -76,23 +76,12 @@ let mockPage: {
   };
 };
 
-let snapshotMaps: Map<string, Map<string, string>>;
-
 mock.module("../tools/browser/browser-manager.js", () => {
-  snapshotMaps = new Map();
   return {
     browserManager: {
       getOrCreateSessionPage: async () => mockPage,
       closeSessionPage: async () => {},
       closeAllPages: async () => {},
-      storeSnapshotMap: (conversationId: string, map: Map<string, string>) => {
-        snapshotMaps.set(conversationId, map);
-      },
-      resolveSnapshotSelector: (conversationId: string, elementId: string) => {
-        const map = snapshotMaps.get(conversationId);
-        if (!map) return null;
-        return map.get(elementId) ?? null;
-      },
     },
   };
 });

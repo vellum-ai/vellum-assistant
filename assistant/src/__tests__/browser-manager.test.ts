@@ -165,13 +165,15 @@ describe("BrowserManager", () => {
       // Should not throw
     });
 
-    test("clears snapshot map for the session", async () => {
+    test("clears snapshot backendNodeId map for the session", async () => {
       await browserManager.getOrCreateSessionPage("s1");
-      browserManager.storeSnapshotMap("s1", new Map([["e1", "#btn"]]));
-      expect(browserManager.resolveSnapshotSelector("s1", "e1")).toBe("#btn");
+      browserManager.storeSnapshotBackendNodeMap("s1", new Map([["e1", 42]]));
+      expect(browserManager.resolveSnapshotBackendNodeId("s1", "e1")).toBe(42);
 
       await browserManager.closeSessionPage("s1");
-      expect(browserManager.resolveSnapshotSelector("s1", "e1")).toBeNull();
+      expect(
+        browserManager.resolveSnapshotBackendNodeId("s1", "e1"),
+      ).toBeNull();
     });
   });
 
@@ -195,52 +197,63 @@ describe("BrowserManager", () => {
       // Should not throw
     });
 
-    test("clears all snapshot maps", async () => {
+    test("clears all snapshot backendNodeId maps", async () => {
       await browserManager.getOrCreateSessionPage("s1");
       await browserManager.getOrCreateSessionPage("s2");
-      browserManager.storeSnapshotMap("s1", new Map([["e1", "#a"]]));
-      browserManager.storeSnapshotMap("s2", new Map([["e2", "#b"]]));
+      browserManager.storeSnapshotBackendNodeMap("s1", new Map([["e1", 11]]));
+      browserManager.storeSnapshotBackendNodeMap("s2", new Map([["e2", 22]]));
 
       await browserManager.closeAllPages();
 
-      expect(browserManager.resolveSnapshotSelector("s1", "e1")).toBeNull();
-      expect(browserManager.resolveSnapshotSelector("s2", "e2")).toBeNull();
+      expect(
+        browserManager.resolveSnapshotBackendNodeId("s1", "e1"),
+      ).toBeNull();
+      expect(
+        browserManager.resolveSnapshotBackendNodeId("s2", "e2"),
+      ).toBeNull();
     });
   });
 
-  // ── snapshot map ─────────────────────────────────────────────
+  // ── snapshot backendNodeId map ───────────────────────────────
 
-  describe("snapshot map", () => {
-    test("stores and resolves element selectors", () => {
+  describe("snapshot backendNodeId map", () => {
+    test("stores and resolves element backendNodeIds", () => {
       const map = new Map([
-        ["e1", "#submit-btn"],
-        ["e2", 'input[name="email"]'],
+        ["e1", 101],
+        ["e2", 202],
       ]);
-      browserManager.storeSnapshotMap("s1", map);
+      browserManager.storeSnapshotBackendNodeMap("s1", map);
 
-      expect(browserManager.resolveSnapshotSelector("s1", "e1")).toBe(
-        "#submit-btn",
-      );
-      expect(browserManager.resolveSnapshotSelector("s1", "e2")).toBe(
-        'input[name="email"]',
-      );
+      expect(browserManager.resolveSnapshotBackendNodeId("s1", "e1")).toBe(101);
+      expect(browserManager.resolveSnapshotBackendNodeId("s1", "e2")).toBe(202);
     });
 
     test("returns null for unknown element id", () => {
-      browserManager.storeSnapshotMap("s1", new Map([["e1", "#btn"]]));
-      expect(browserManager.resolveSnapshotSelector("s1", "e999")).toBeNull();
+      browserManager.storeSnapshotBackendNodeMap("s1", new Map([["e1", 42]]));
+      expect(
+        browserManager.resolveSnapshotBackendNodeId("s1", "e999"),
+      ).toBeNull();
     });
 
     test("returns null for unknown session", () => {
       expect(
-        browserManager.resolveSnapshotSelector("unknown", "e1"),
+        browserManager.resolveSnapshotBackendNodeId("unknown", "e1"),
       ).toBeNull();
     });
 
     test("overwrites previous snapshot map for same session", () => {
-      browserManager.storeSnapshotMap("s1", new Map([["e1", "#old"]]));
-      browserManager.storeSnapshotMap("s1", new Map([["e1", "#new"]]));
-      expect(browserManager.resolveSnapshotSelector("s1", "e1")).toBe("#new");
+      browserManager.storeSnapshotBackendNodeMap("s1", new Map([["e1", 1]]));
+      browserManager.storeSnapshotBackendNodeMap("s1", new Map([["e1", 999]]));
+      expect(browserManager.resolveSnapshotBackendNodeId("s1", "e1")).toBe(999);
+    });
+
+    test("clearSnapshotBackendNodeMap drops the map for a session", () => {
+      browserManager.storeSnapshotBackendNodeMap("s1", new Map([["e1", 42]]));
+      expect(browserManager.resolveSnapshotBackendNodeId("s1", "e1")).toBe(42);
+      browserManager.clearSnapshotBackendNodeMap("s1");
+      expect(
+        browserManager.resolveSnapshotBackendNodeId("s1", "e1"),
+      ).toBeNull();
     });
   });
 });

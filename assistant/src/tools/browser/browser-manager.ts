@@ -203,14 +203,11 @@ class BrowserManager {
   private pages = new Map<string, Page>();
   private rawPages = new Map<string, unknown>();
   private cdpSessions = new Map<string, CDPSession>();
-  private snapshotMaps = new Map<string, Map<string, string>>();
   /**
    * CDP backendNodeId lookup per conversation, populated by the
    * AX-tree-based `executeBrowserSnapshot`. Click/type/hover/etc. tools
    * resolve an element_id against this map and talk to CDP with the
-   * resulting backendNodeId. Lives alongside {@link snapshotMaps} during
-   * the Phase 3 migration window; the legacy string-selector map is
-   * removed in PR 12 once every interaction tool reads from this map.
+   * resulting backendNodeId.
    */
   private snapshotBackendNodeMaps = new Map<string, Map<string, number>>();
   private browserCdpSession: CDPSession | null = null;
@@ -367,7 +364,6 @@ class BrowserManager {
           this.rawPages.clear();
           this.cdpSessions.clear();
 
-          this.snapshotMaps.clear();
           this.snapshotBackendNodeMaps.clear();
           this.downloads.clear();
           for (const pending of this.pendingDownloads.values()) {
@@ -394,7 +390,6 @@ class BrowserManager {
     }
 
     // Clear stale snapshot mappings and CDP state when replacing a closed page
-    this.snapshotMaps.delete(conversationId);
     this.snapshotBackendNodeMaps.delete(conversationId);
     await this.stopScreencast(conversationId);
 
@@ -448,7 +443,6 @@ class BrowserManager {
     }
     this.pages.delete(conversationId);
     this.rawPages.delete(conversationId);
-    this.snapshotMaps.delete(conversationId);
     this.snapshotBackendNodeMaps.delete(conversationId);
     this.downloads.delete(conversationId);
     // Reject any pending download waiters
@@ -482,7 +476,6 @@ class BrowserManager {
     }
     this.pages.clear();
     this.rawPages.clear();
-    this.snapshotMaps.clear();
     this.snapshotBackendNodeMaps.clear();
     this.downloads.clear();
     for (const pending of this.pendingDownloads.values()) {
@@ -539,30 +532,6 @@ class BrowserManager {
     }
   }
 
-  storeSnapshotMap(conversationId: string, map: Map<string, string>): void {
-    this.snapshotMaps.set(conversationId, map);
-  }
-
-  /**
-   * Clear any cached snapshot lookups for the given conversation. Drops
-   * BOTH the legacy string-selector map and the newer backendNodeId map
-   * so that stale element IDs from a previous page can never resolve
-   * after a navigation or page close.
-   */
-  clearSnapshotMap(conversationId: string): void {
-    this.snapshotMaps.delete(conversationId);
-    this.snapshotBackendNodeMaps.delete(conversationId);
-  }
-
-  resolveSnapshotSelector(
-    conversationId: string,
-    elementId: string,
-  ): string | null {
-    const map = this.snapshotMaps.get(conversationId);
-    if (!map) return null;
-    return map.get(elementId) ?? null;
-  }
-
   /**
    * Store the backendNodeId lookup produced by the AX-tree-based
    * `executeBrowserSnapshot`. Callers overwrite any prior map for the
@@ -576,9 +545,9 @@ class BrowserManager {
   }
 
   /**
-   * Drop the backendNodeId lookup for a conversation without touching
-   * the legacy string-selector map. Prefer {@link clearSnapshotMap}
-   * when you want to invalidate everything at once.
+   * Drop the backendNodeId lookup for a conversation so stale element
+   * IDs from a previous snapshot cannot resolve after a navigation or
+   * page close.
    */
   clearSnapshotBackendNodeMap(conversationId: string): void {
     this.snapshotBackendNodeMaps.delete(conversationId);

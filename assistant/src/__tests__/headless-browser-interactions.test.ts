@@ -69,30 +69,20 @@ let mockPage: {
   };
 };
 
-let snapshotStringMaps: Map<string, Map<string, string>>;
 let snapshotBackendNodeMaps: Map<string, Map<string, number>>;
 
 mock.module("../tools/browser/browser-manager.js", () => {
-  snapshotStringMaps = new Map();
   snapshotBackendNodeMaps = new Map();
   return {
     browserManager: {
       getOrCreateSessionPage: async () => mockPage,
       closeSessionPage: async () => {},
       closeAllPages: async () => {},
-      storeSnapshotMap: (conversationId: string, map: Map<string, string>) => {
-        snapshotStringMaps.set(conversationId, map);
-      },
       storeSnapshotBackendNodeMap: (
         conversationId: string,
         map: Map<string, number>,
       ) => {
         snapshotBackendNodeMaps.set(conversationId, map);
-      },
-      resolveSnapshotSelector: (conversationId: string, elementId: string) => {
-        const map = snapshotStringMaps.get(conversationId);
-        if (!map) return null;
-        return map.get(elementId) ?? null;
       },
       resolveSnapshotBackendNodeId: (
         conversationId: string,
@@ -101,6 +91,9 @@ mock.module("../tools/browser/browser-manager.js", () => {
         const map = snapshotBackendNodeMaps.get(conversationId);
         if (!map) return null;
         return map.get(elementId) ?? null;
+      },
+      clearSnapshotBackendNodeMap: (conversationId: string) => {
+        snapshotBackendNodeMaps.delete(conversationId);
       },
     },
   };
@@ -227,7 +220,6 @@ describe("executeBrowserClick (CDP)", () => {
   beforeEach(() => {
     resetMockPage();
     resetCdpMock();
-    snapshotStringMaps.clear();
     snapshotBackendNodeMaps.clear();
   });
 
@@ -394,7 +386,6 @@ describe("executeBrowserType", () => {
   beforeEach(() => {
     resetMockPage();
     resetCdpMock();
-    snapshotStringMaps.clear();
     snapshotBackendNodeMaps.clear();
     sendHandler = defaultCdpHandler;
   });
@@ -569,7 +560,6 @@ describe("executeBrowserPressKey", () => {
   beforeEach(() => {
     resetMockPage();
     resetCdpMock();
-    snapshotStringMaps.clear();
     snapshotBackendNodeMaps.clear();
     sendHandler = defaultCdpHandler;
   });
@@ -774,7 +764,6 @@ describe("executeBrowserSelectOption", () => {
   beforeEach(() => {
     resetMockPage();
     resetCdpMock();
-    snapshotStringMaps.clear();
     snapshotBackendNodeMaps.clear();
     sendHandler = defaultCdpHandler;
   });
@@ -887,7 +876,6 @@ describe("executeBrowserHover (CDP)", () => {
   beforeEach(() => {
     resetMockPage();
     resetCdpMock();
-    snapshotStringMaps.clear();
     snapshotBackendNodeMaps.clear();
   });
 
@@ -989,7 +977,6 @@ describe("browser execution wrapper contract", () => {
     resetMockPage();
     resetCdpMock();
     sendHandler = defaultCdpHandler;
-    snapshotStringMaps.clear();
     snapshotBackendNodeMaps.clear();
   });
 
