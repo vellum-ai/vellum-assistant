@@ -50,7 +50,15 @@ mock.module("../tools/registry.js", () => ({
 // ---------------------------------------------------------------------------
 
 let mockRefreshOAuth2Token: ReturnType<
-  typeof mock<() => Promise<{ accessToken: string; expiresIn: number }>>
+  typeof mock<
+    (
+      tokenExchangeUrl: string,
+      clientId: string,
+      refreshToken: string,
+      clientSecret?: string,
+      tokenEndpointAuthMethod?: string,
+    ) => Promise<{ accessToken: string; expiresIn: number }>
+  >
 >;
 
 mock.module("../security/oauth2.js", () => {
@@ -93,6 +101,7 @@ const mockProviders = new Map<
   {
     key: string;
     tokenExchangeUrl: string;
+    refreshUrl?: string | null;
     tokenEndpointAuthMethod?: string;
   }
 >();
@@ -1325,6 +1334,7 @@ describe("withValidToken refresh deduplication", () => {
     mockProviders.set(service, {
       key: service,
       tokenExchangeUrl: "https://oauth.example.com/token",
+      refreshUrl: null,
     });
     mockApps.set(appId, {
       id: appId,
@@ -1526,5 +1536,134 @@ describe("withValidToken refresh deduplication", () => {
 
     // Only one actual refresh attempt
     expect(mockRefreshOAuth2Token).toHaveBeenCalledTimes(1);
+  });
+
+  // -----------------------------------------------------------------------
+  // refreshUrl resolution — provider.refreshUrl with fallback to tokenExchangeUrl
+  // -----------------------------------------------------------------------
+  describe("refreshUrl resolution", () => {
+    test("uses provider.refreshUrl when set", async () => {
+      await setupService("google");
+      mockProviders.get("google")!.refreshUrl =
+        "https://refresh.example.com/token";
+
+      mockRefreshOAuth2Token.mockImplementation(() =>
+        Promise.resolve({
+          accessToken: "new-token-from-refresh-url",
+          expiresIn: 3600,
+        }),
+      );
+
+      const err401 = Object.assign(new Error("Unauthorized"), { status: 401 });
+
+      const callback = async (token: string) => {
+        if (token === "old-access-token") throw err401;
+        return `result-with-${token}`;
+      };
+
+      const result = await withValidToken("google", callback);
+
+      expect(result).toBe("result-with-new-token-from-refresh-url");
+      expect(mockRefreshOAuth2Token).toHaveBeenCalledTimes(1);
+      // Assert the refresh endpoint passed in is provider.refreshUrl, not
+      // the tokenExchangeUrl fallback.
+      expect(mockRefreshOAuth2Token.mock.calls[0]?.[0]).toBe(
+        "https://refresh.example.com/token",
+      );
+    });
+
+    test("falls back to provider.tokenExchangeUrl when refreshUrl is null", async () => {
+      // setupService sets refreshUrl: null by default — this exercises the
+      // fallback path explicitly.
+      await setupService("google");
+      expect(mockProviders.get("google")!.refreshUrl).toBeNull();
+
+      mockRefreshOAuth2Token.mockImplementation(() =>
+        Promise.resolve({
+          accessToken: "new-token-from-token-exchange-url",
+          expiresIn: 3600,
+        }),
+      );
+
+      const err401 = Object.assign(new Error("Unauthorized"), { status: 401 });
+
+      const callback = async (token: string) => {
+        if (token === "old-access-token") throw err401;
+        return `result-with-${token}`;
+      };
+
+      const result = await withValidToken("google", callback);
+
+      expect(result).toBe("result-with-new-token-from-token-exchange-url");
+      expect(mockRefreshOAuth2Token).toHaveBeenCalledTimes(1);
+      // Assert the refresh endpoint falls back to tokenExchangeUrl.
+      expect(mockRefreshOAuth2Token.mock.calls[0]?.[0]).toBe(
+        "https://oauth.example.com/token",
+      );
+    });
+
+    test("falls back to provider.tokenExchangeUrl when refreshUrl is undefined", async () => {
+      await setupService("google");
+      // Delete the refreshUrl field entirely so the property is `undefined`
+      // rather than `null`. Both representations of "not set" must produce
+      // the fallback behavior.
+      delete mockProviders.get("google")!.refreshUrl;
+      expect(mockProviders.get("google")!.refreshUrl).toBeUndefined();
+
+      mockRefreshOAuth2Token.mockImplementation(() =>
+        Promise.resolve({
+          accessToken: "new-token-from-token-exchange-url",
+          expiresIn: 3600,
+        }),
+      );
+
+      const err401 = Object.assign(new Error("Unauthorized"), { status: 401 });
+
+      const callback = async (token: string) => {
+        if (token === "old-access-token") throw err401;
+        return `result-with-${token}`;
+      };
+
+      const result = await withValidToken("google", callback);
+
+      expect(result).toBe("result-with-new-token-from-token-exchange-url");
+      expect(mockRefreshOAuth2Token).toHaveBeenCalledTimes(1);
+      // Assert the refresh endpoint falls back to tokenExchangeUrl.
+      expect(mockRefreshOAuth2Token.mock.calls[0]?.[0]).toBe(
+        "https://oauth.example.com/token",
+      );
+    });
+
+    test("falls back to provider.tokenExchangeUrl when refreshUrl is empty string", async () => {
+      // Platform's Python `oauth_app.refresh_url or oauth_app.token_exchange_url`
+      // treats an empty string as unset. We use `||` (not `??`) so empty
+      // strings follow the same fallback path and never resolve to an empty
+      // endpoint.
+      await setupService("google");
+      mockProviders.get("google")!.refreshUrl = "";
+
+      mockRefreshOAuth2Token.mockImplementation(() =>
+        Promise.resolve({
+          accessToken: "new-token-from-token-exchange-url",
+          expiresIn: 3600,
+        }),
+      );
+
+      const err401 = Object.assign(new Error("Unauthorized"), { status: 401 });
+
+      const callback = async (token: string) => {
+        if (token === "old-access-token") throw err401;
+        return `result-with-${token}`;
+      };
+
+      const result = await withValidToken("google", callback);
+
+      expect(result).toBe("result-with-new-token-from-token-exchange-url");
+      expect(mockRefreshOAuth2Token).toHaveBeenCalledTimes(1);
+      // Assert the refresh endpoint falls back to tokenExchangeUrl — NOT "".
+      expect(mockRefreshOAuth2Token.mock.calls[0]?.[0]).toBe(
+        "https://oauth.example.com/token",
+      );
+    });
   });
 });
