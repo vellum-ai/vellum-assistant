@@ -566,4 +566,116 @@ final class MessageListScrollStateTests: XCTestCase {
         state.reset(for: UUID())
         XCTAssertEqual(state.scrollPhase, .idle)
     }
+
+    // MARK: - Coordinator-Backed Behavior
+
+    /// Verifies that manual expansion detaches from follow-bottom via
+    /// both the coordinator policy and the scrollState runtime executor.
+    func testCoordinatorManualExpansionDetachesFollowingBottom() async throws {
+        let coordinator = ScrollCoordinator()
+
+        // Start following bottom via sending.
+        _ = coordinator.handle(.sendingChanged(isSending: true))
+        XCTAssertTrue(coordinator.isFollowingBottom)
+
+        state.transition(to: .followingBottom)
+        state.recoveryDeadline = Date().addingTimeInterval(2.0)
+
+        // Simulate the coordinator path (what the view layer does).
+        let intents = coordinator.handle(.manualExpansion)
+
+        // Coordinator should detach and stabilize.
+        XCTAssertTrue(coordinator.isSuppressed,
+                      "Coordinator should enter stabilization on manual expansion")
+        XCTAssertFalse(coordinator.isFollowingBottom,
+                       "Coordinator should detach from following-bottom")
+        XCTAssertTrue(intents.contains(.cancelRecoveryWindow),
+                      "Coordinator should cancel recovery window")
+        XCTAssertTrue(intents.contains(.showScrollToLatest),
+                      "Coordinator should signal CTA should appear")
+
+        // Simulate executor-side sync (what the view layer also does).
+        state.handleManualExpansionInteraction()
+        XCTAssertFalse(state.isFollowingBottom,
+                       "ScrollState executor should also detach from following-bottom")
+    }
+
+    /// Verifies that scrolling up while streaming detaches and stays
+    /// detached until an explicit reattach event (scroll to idle at bottom).
+    func testCoordinatorScrollUpDuringStreamingStaysDetached() {
+        let coordinator = ScrollCoordinator()
+
+        // Start streaming (following bottom).
+        _ = coordinator.handle(.sendingChanged(isSending: true))
+        XCTAssertTrue(coordinator.isFollowingBottom)
+
+        // User scrolls up — detach.
+        _ = coordinator.handle(.manualBrowseIntent)
+        XCTAssertEqual(coordinator.mode, .freeBrowsing)
+
+        // New messages arrive while scrolled up.
+        let messageIntents = coordinator.handle(.messageCountChanged)
+        XCTAssertTrue(messageIntents.isEmpty,
+                      "Should NOT auto-pin when free-browsing during streaming")
+        XCTAssertEqual(coordinator.mode, .freeBrowsing,
+                       "Should stay in free-browsing despite new messages")
+
+        // User scrolls back to bottom and scroll settles.
+        coordinator.updateBottomState(distanceFromBottom: 5)
+        XCTAssertTrue(coordinator.isAtBottom)
+        _ = coordinator.handle(.scrollPhaseChanged(phase: .interacting))
+        _ = coordinator.handle(.scrollPhaseChanged(phase: .idle))
+        XCTAssertTrue(coordinator.isFollowingBottom,
+                      "Should reattach when user scrolls back to bottom and scroll settles")
+    }
+
+    /// Verifies that anchor/search jumps remain valid while free browsing
+    /// and don't accidentally reattach to the bottom.
+    func testCoordinatorAnchorJumpDuringFreeBrowsing() {
+        let coordinator = ScrollCoordinator()
+
+        // Detach into free browsing.
+        _ = coordinator.handle(.manualBrowseIntent)
+        XCTAssertEqual(coordinator.mode, .freeBrowsing)
+
+        // Request an anchor jump (deep-link or search).
+        let anchorId = ScrollCoordinator.AnchorID(UUID())
+        let requestIntents = coordinator.handle(.anchorRequested(id: anchorId))
+
+        // Should transition to programmatic scroll.
+        if case .programmaticScroll = coordinator.mode {
+            // correct
+        } else {
+            XCTFail("Expected programmaticScroll mode after anchor request in free-browsing")
+        }
+        XCTAssertTrue(requestIntents.contains(.cancelRecoveryWindow))
+
+        // Anchor resolves.
+        let resolveIntents = coordinator.handle(.anchorResolved(id: anchorId))
+        XCTAssertTrue(resolveIntents.contains(.scrollToMessage(id: anchorId, anchor: .center)),
+                      "Anchor resolution should produce scroll-to-message intent")
+        XCTAssertNil(coordinator.pendingAnchor,
+                     "Pending anchor should be cleared after resolution")
+    }
+
+    /// Verifies that the coordinator and scrollState both reset on
+    /// conversation switch.
+    func testCoordinatorResetOnConversationSwitch() {
+        let coordinator = ScrollCoordinator()
+
+        // Put coordinator in non-initial state.
+        _ = coordinator.handle(.sendingChanged(isSending: true))
+        _ = coordinator.handle(.manualBrowseIntent)
+        coordinator.updateBottomState(distanceFromBottom: 100)
+        XCTAssertEqual(coordinator.mode, .freeBrowsing)
+        XCTAssertFalse(coordinator.isAtBottom)
+
+        // Reset (what handleConversationSwitched does).
+        coordinator.reset()
+
+        XCTAssertEqual(coordinator.mode, .initialLoad)
+        XCTAssertEqual(coordinator.phase, .idle)
+        XCTAssertFalse(coordinator.isAtBottom)
+        XCTAssertFalse(coordinator.hasBeenInteracted)
+    }
 }

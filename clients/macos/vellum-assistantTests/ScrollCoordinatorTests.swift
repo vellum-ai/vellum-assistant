@@ -409,9 +409,12 @@ final class ScrollCoordinatorTests: XCTestCase {
     // MARK: - Stabilization
 
     func testOverlappingStabilizationWaitsForAllWindows() {
-        coordinator.handle(.sendingChanged(isSending: true))
+        // Use free-browsing + resize to enter stabilization (following-bottom
+        // mode does NOT stabilize on resize — it re-pins directly).
+        coordinator.handle(.manualBrowseIntent)
+        XCTAssertEqual(coordinator.mode, .freeBrowsing)
 
-        // Window 1: resize.
+        // Window 1: resize from free-browsing.
         coordinator.handle(.containerWidthChanged)
         XCTAssertTrue(coordinator.isSuppressed)
 
@@ -431,20 +434,41 @@ final class ScrollCoordinatorTests: XCTestCase {
     }
 
     func testStabilizationPreservesFollowingBottom() {
+        // Use sendingChanged to enter followingBottom, then manual expansion
+        // to trigger stabilization. Resize in followingBottom mode does NOT
+        // stabilize — it re-pins directly to bottom.
         coordinator.handle(.sendingChanged(isSending: true))
         XCTAssertTrue(coordinator.isFollowingBottom)
 
-        coordinator.handle(.containerWidthChanged)
+        // Manual expansion detaches to freeBrowsing and then stabilizes.
+        coordinator.handle(.manualExpansion)
         XCTAssertTrue(coordinator.isSuppressed)
-        XCTAssertTrue(coordinator.isFollowingBottom,
-                      "isFollowingBottom should reflect pre-stabilization mode")
+        // After expansion, the pre-stabilization mode is freeBrowsing
+        // (expansion detaches first), not followingBottom.
+        XCTAssertFalse(coordinator.isFollowingBottom,
+                       "Manual expansion detaches from following-bottom before stabilizing")
 
         coordinator.endStabilization()
+        XCTAssertEqual(coordinator.mode, .freeBrowsing,
+                       "Should restore freeBrowsing after expansion stabilization")
+    }
+
+    func testResizeInFollowingBottomRepinsDirectly() {
+        coordinator.handle(.sendingChanged(isSending: true))
         XCTAssertTrue(coordinator.isFollowingBottom)
+
+        let intents = coordinator.handle(.containerWidthChanged)
+
+        // Resize in following mode does NOT stabilize — it re-pins directly.
+        XCTAssertFalse(coordinator.isSuppressed,
+                       "Resize in following-bottom should not stabilize")
+        XCTAssertTrue(intents.contains(.startRecoveryWindow))
+        XCTAssertTrue(intents.contains(.scrollToBottom(animated: false)))
     }
 
     func testStabilizationSuppressesPinRequests() {
-        coordinator.handle(.sendingChanged(isSending: true))
+        // Enter stabilization via free-browsing + resize.
+        coordinator.handle(.manualBrowseIntent)
         coordinator.handle(.containerWidthChanged)
         XCTAssertTrue(coordinator.isSuppressed)
 
