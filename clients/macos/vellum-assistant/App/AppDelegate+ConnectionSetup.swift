@@ -67,10 +67,9 @@ extension AppDelegate {
 
     /// Configure the connection transport based on the lockfile assistant.
     /// Managed assistants (cloud == "vellum") use platform proxy with session token auth.
-    /// Other remote assistants (cloud != "local") use HTTP+SSE via the gateway URL.
-    /// Local assistants use HTTP+SSE via the assistant's runtime HTTP server.
+    /// All other assistants use HTTP+SSE via the assistant's runtime HTTP server.
     func configureDaemonTransport(for assistant: LockfileAssistant?) {
-        isCurrentAssistantRemote = assistant?.isRemote ?? false
+        isCurrentAssistantRemote = !(assistant?.runsLocally ?? true)
         isCurrentAssistantManaged = assistant?.isManaged ?? false
         isCurrentAssistantDocker = assistant?.isDocker ?? false
 
@@ -81,17 +80,14 @@ extension AppDelegate {
             return
         }
 
-        guard let assistant, assistant.isRemote else {
-            // Local assistant or no assistant.
-            let conversationKey = assistant?.assistantId ?? UUID().uuidString
-            services.reconfigureConnection(conversationKey: conversationKey)
-            log.info("Configured local assistant")
-            return
+        // Local or no assistant — reconfigure with assistant ID or a fresh key.
+        let conversationKey = assistant?.assistantId ?? UUID().uuidString
+        services.reconfigureConnection(conversationKey: conversationKey)
+        if let assistant {
+            log.info("Configured assistant \(assistant.assistantId, privacy: .public) (cloud=\(assistant.cloud, privacy: .public))")
+        } else {
+            log.info("Configured with no assistant")
         }
-
-        // Remote assistant.
-        services.reconfigureConnection(conversationKey: assistant.assistantId)
-        log.info("Configured remote assistant \(assistant.assistantId, privacy: .public)")
     }
 
     // MARK: - Managed Reconnection
