@@ -616,23 +616,23 @@ final class VoiceInputManager {
     // MARK: - Recording
 
     private func beginRecording() {
-        log.info("beginRecording() called — origin=\(String(describing: activeOrigin)) mode=\(String(describing: currentMode)) isRecording=\(isRecording)")
+        log.info("beginRecording() called — origin=\(String(describing: self.activeOrigin)) mode=\(String(describing: self.currentMode)) isRecording=\(self.isRecording)")
 
         // Recreate speech recognizer if transiently unavailable (e.g. after
         // sleep/wake, heavy use, or audio route changes).
         if speechRecognizer?.isAvailable != true {
-            log.warning("Speech recognizer unavailable (nil=\(speechRecognizer == nil)) — recreating")
+            log.warning("Speech recognizer unavailable (nil=\(self.speechRecognizer == nil)) — recreating")
             speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
         }
         guard let speechRecognizer = speechRecognizer, speechRecognizer.isAvailable else {
-            log.error("Speech recognizer not available after recreation attempt (nil=\(speechRecognizer == nil), available=\(speechRecognizer?.isAvailable ?? false))")
+            log.error("Speech recognizer not available after recreation attempt (nil=\(self.speechRecognizer == nil), available=\(self.speechRecognizer?.isAvailable ?? false))")
             currentDictationContext = nil
             return
         }
 
         // Don't start if a previous recognition task is still processing
         if recognitionTask != nil {
-            log.warning("Previous recognition task still active (state=\(String(describing: recognitionTask?.state))), skipping")
+            log.warning("Previous recognition task still active (state=\(String(describing: self.recognitionTask?.state))), skipping")
             currentDictationContext = nil
             return
         }
