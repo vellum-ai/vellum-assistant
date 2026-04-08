@@ -10,7 +10,6 @@ mock.module("../util/logger.js", () => ({
 }));
 
 let mockPage: {
-  click: ReturnType<typeof mock>;
   fill: ReturnType<typeof mock>;
   press: ReturnType<typeof mock>;
   evaluate: ReturnType<typeof mock>;
@@ -18,17 +17,47 @@ let mockPage: {
   url: ReturnType<typeof mock>;
   goto: ReturnType<typeof mock>;
   selectOption: ReturnType<typeof mock>;
-  hover: ReturnType<typeof mock>;
   close: () => Promise<void>;
   isClosed: () => boolean;
   keyboard: { press: ReturnType<typeof mock> };
   mouse: { wheel: ReturnType<typeof mock>; move: ReturnType<typeof mock> };
+  // CDP routing surface. LocalCdpClient lazily calls
+  // `page.context().newCDPSession()` on the first `send`, which lets
+  // the real factory + LocalCdpClient run against our in-memory
+  // handler without having to mock `factory.js` or `local-cdp-client.js`
+  // (both of which would bleed into other test files via bun's shared
+  // mock registry).
+  context: () => {
+    newCDPSession: () => Promise<{
+      send: (
+        method: string,
+        params?: Record<string, unknown>,
+      ) => Promise<unknown>;
+      detach: () => Promise<void>;
+    }>;
+  };
 };
 
+/**
+ * Shared fake CDP session state. Tests that exercise the CDP-migrated
+ * tools (click, hover) install a custom `cdpSend` implementation in
+ * their setup, then assert against `cdpCalls` and `detachCalls` after
+ * the tool runs.
+ */
+type CdpCall = { method: string; params: Record<string, unknown> };
+let cdpCalls: CdpCall[] = [];
+let cdpSend: (
+  method: string,
+  params?: Record<string, unknown>,
+) => Promise<unknown>;
+let detachCalls: number;
+
 let snapshotMaps: Map<string, Map<string, string>>;
+let snapshotBackendNodeMaps: Map<string, Map<string, number>>;
 
 mock.module("../tools/browser/browser-manager.js", () => {
   snapshotMaps = new Map();
+  snapshotBackendNodeMaps = new Map();
   return {
     browserManager: {
       getOrCreateSessionPage: async () => mockPage,
@@ -39,6 +68,20 @@ mock.module("../tools/browser/browser-manager.js", () => {
       },
       resolveSnapshotSelector: (conversationId: string, elementId: string) => {
         const map = snapshotMaps.get(conversationId);
+        if (!map) return null;
+        return map.get(elementId) ?? null;
+      },
+      storeSnapshotBackendNodeMap: (
+        conversationId: string,
+        map: Map<string, number>,
+      ) => {
+        snapshotBackendNodeMaps.set(conversationId, map);
+      },
+      resolveSnapshotBackendNodeId: (
+        conversationId: string,
+        elementId: string,
+      ) => {
+        const map = snapshotBackendNodeMaps.get(conversationId);
         if (!map) return null;
         return map.get(elementId) ?? null;
       },
@@ -79,8 +122,16 @@ const ctx: ToolContext = {
 };
 
 function resetMockPage() {
+  const fakeSession = {
+    send: async (method: string, params?: Record<string, unknown>) => {
+      cdpCalls.push({ method, params: params ?? {} });
+      return cdpSend(method, params);
+    },
+    detach: async () => {
+      detachCalls += 1;
+    },
+  };
   mockPage = {
-    click: mock(async () => {}),
     fill: mock(async () => {}),
     press: mock(async () => {}),
     evaluate: mock(async () => ""),
@@ -91,56 +142,186 @@ function resetMockPage() {
       url: () => "https://example.com/",
     })),
     selectOption: mock(async () => []),
-    hover: mock(async () => {}),
     close: async () => {},
     isClosed: () => false,
     keyboard: { press: mock(async () => {}) },
     mouse: { wheel: mock(async () => {}), move: mock(async () => {}) },
+    context: () => ({
+      newCDPSession: async () => fakeSession,
+    }),
+  };
+}
+
+function resetCdpState() {
+  cdpCalls = [];
+  detachCalls = 0;
+  cdpSend = async () => ({});
+}
+
+/**
+ * Install a default CDP `send` handler that returns canned success
+ * responses for the methods click + hover touch
+ * (`DOM.getDocument`, `DOM.querySelector`, `DOM.describeNode`,
+ * `DOM.scrollIntoViewIfNeeded`, `DOM.getBoxModel`,
+ * `Input.dispatchMouseEvent`). Tests can override `throwFrom` to make
+ * one method reject, or override `backendNodeId` to control what
+ * `querySelectorBackendNodeId` resolves to.
+ */
+function installClickHoverCdpSend(
+  overrides: Partial<{
+    backendNodeId: number;
+    throwFrom: string;
+  }> = {},
+) {
+  const backendNodeId = overrides.backendNodeId ?? 1234;
+  const throwFrom = overrides.throwFrom;
+
+  cdpSend = async (method, _params) => {
+    if (throwFrom === method) {
+      throw new Error("cdp boom");
+    }
+    switch (method) {
+      case "DOM.getDocument":
+        return { root: { nodeId: 1 } };
+      case "DOM.querySelector":
+        return { nodeId: 2 };
+      case "DOM.describeNode":
+        return { node: { backendNodeId } };
+      case "DOM.scrollIntoViewIfNeeded":
+        return {};
+      case "DOM.getBoxModel":
+        // Flat 8-number quad: (10,20) (30,20) (30,40) (10,40)
+        // → center (20, 30).
+        return { model: { content: [10, 20, 30, 20, 30, 40, 10, 40] } };
+      case "Input.dispatchMouseEvent":
+        return {};
+      default:
+        return {};
+    }
   };
 }
 
 // ── browser_click ────────────────────────────────────────────────────
 
-describe("executeBrowserClick", () => {
+describe("executeBrowserClick (CDP)", () => {
   beforeEach(() => {
+    resetCdpState();
     resetMockPage();
     snapshotMaps.clear();
+    snapshotBackendNodeMaps.clear();
   });
 
-  test("clicks by element_id via snapshot map", async () => {
-    snapshotMaps.set(
-      "test-conversation",
-      new Map([["e1", '[data-vellum-eid="e1"]']]),
-    );
-    const result = await executeBrowserClick({ element_id: "e1" }, ctx);
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("Clicked element");
-    expect(mockPage.click).toHaveBeenCalledWith('[data-vellum-eid="e1"]', {
-      timeout: 10000,
-    });
-  });
-
-  test("clicks by raw selector", async () => {
+  test("clicks by selector: runs full DOM → Input.dispatchMouseEvent chain", async () => {
+    installClickHoverCdpSend({ backendNodeId: 5555 });
     const result = await executeBrowserClick({ selector: "#submit-btn" }, ctx);
+
     expect(result.isError).toBe(false);
-    expect(mockPage.click).toHaveBeenCalledWith("#submit-btn", {
-      timeout: 10000,
+    expect(result.content).toContain("Clicked element: #submit-btn");
+
+    // Expected CDP call sequence for the selector path:
+    const methods = cdpCalls.map((c) => c.method);
+    expect(methods).toEqual([
+      "DOM.getDocument",
+      "DOM.querySelector",
+      "DOM.describeNode",
+      "DOM.scrollIntoViewIfNeeded",
+      "DOM.getBoxModel",
+      "Input.dispatchMouseEvent",
+      "Input.dispatchMouseEvent",
+      "Input.dispatchMouseEvent",
+    ]);
+
+    // Arguments threaded through correctly.
+    const qsCall = cdpCalls.find((c) => c.method === "DOM.querySelector")!;
+    expect(qsCall.params).toMatchObject({ nodeId: 1, selector: "#submit-btn" });
+    const scrollCall = cdpCalls.find(
+      (c) => c.method === "DOM.scrollIntoViewIfNeeded",
+    )!;
+    expect(scrollCall.params).toMatchObject({ backendNodeId: 5555 });
+    const boxCall = cdpCalls.find((c) => c.method === "DOM.getBoxModel")!;
+    expect(boxCall.params).toMatchObject({ backendNodeId: 5555 });
+
+    // All three mouse events land on the quad midpoint (20, 30).
+    const mouseCalls = cdpCalls.filter(
+      (c) => c.method === "Input.dispatchMouseEvent",
+    );
+    expect(mouseCalls).toHaveLength(3);
+    expect(mouseCalls[0]!.params).toMatchObject({
+      type: "mouseMoved",
+      x: 20,
+      y: 30,
+      button: "left",
+      clickCount: 1,
     });
+    expect(mouseCalls[1]!.params).toMatchObject({
+      type: "mousePressed",
+      x: 20,
+      y: 30,
+      button: "left",
+      clickCount: 1,
+    });
+    expect(mouseCalls[2]!.params).toMatchObject({
+      type: "mouseReleased",
+      x: 20,
+      y: 30,
+      button: "left",
+      clickCount: 1,
+    });
+
+    // CdpClient disposed in finally → session.detach called.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(detachCalls).toBe(1);
   });
 
-  test("prefers element_id over selector", async () => {
-    snapshotMaps.set(
-      "test-conversation",
-      new Map([["e1", '[data-vellum-eid="e1"]']]),
-    );
+  test("clicks by element_id (backend path): skips DOM.querySelector", async () => {
+    snapshotBackendNodeMaps.set("test-conversation", new Map([["e1", 42]]));
+    installClickHoverCdpSend();
+
+    const result = await executeBrowserClick({ element_id: "e1" }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Clicked element: eid=e1");
+
+    const methods = cdpCalls.map((c) => c.method);
+    // Backend path jumps straight to scrollIntoViewIfNeeded — no
+    // DOM.getDocument / querySelector / describeNode round-trip.
+    expect(methods).not.toContain("DOM.getDocument");
+    expect(methods).not.toContain("DOM.querySelector");
+    expect(methods).not.toContain("DOM.describeNode");
+    expect(methods).toEqual([
+      "DOM.scrollIntoViewIfNeeded",
+      "DOM.getBoxModel",
+      "Input.dispatchMouseEvent",
+      "Input.dispatchMouseEvent",
+      "Input.dispatchMouseEvent",
+    ]);
+
+    // Backend node id threaded directly from the snapshot map.
+    const scrollCall = cdpCalls.find(
+      (c) => c.method === "DOM.scrollIntoViewIfNeeded",
+    )!;
+    expect(scrollCall.params).toMatchObject({ backendNodeId: 42 });
+    const boxCall = cdpCalls.find((c) => c.method === "DOM.getBoxModel")!;
+    expect(boxCall.params).toMatchObject({ backendNodeId: 42 });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(detachCalls).toBe(1);
+  });
+
+  test("prefers element_id over selector when both provided", async () => {
+    snapshotBackendNodeMaps.set("test-conversation", new Map([["e1", 77]]));
+    installClickHoverCdpSend();
+
     const result = await executeBrowserClick(
-      { element_id: "e1", selector: "#other" },
+      { element_id: "e1", selector: "#ignored" },
       ctx,
     );
     expect(result.isError).toBe(false);
-    expect(mockPage.click).toHaveBeenCalledWith('[data-vellum-eid="e1"]', {
-      timeout: 10000,
-    });
+    expect(result.content).toContain("eid=e1");
+
+    // DOM.querySelector must NOT have been called (selector ignored).
+    const methods = cdpCalls.map((c) => c.method);
+    expect(methods).not.toContain("DOM.querySelector");
   });
 
   test("errors when neither element_id nor selector provided", async () => {
@@ -149,29 +330,41 @@ describe("executeBrowserClick", () => {
     expect(result.content).toContain(
       "Either element_id or selector is required",
     );
+    // No CDP session should have been opened at all.
+    expect(cdpCalls).toHaveLength(0);
+    expect(detachCalls).toBe(0);
   });
 
   test("errors when element_id not found in snapshot map", async () => {
+    installClickHoverCdpSend();
     const result = await executeBrowserClick({ element_id: "e99" }, ctx);
     expect(result.isError).toBe(true);
     expect(result.content).toContain('element_id "e99" not found');
     expect(result.content).toContain("browser_snapshot");
+    // Resolution failed before acquiring a CdpClient.
+    expect(cdpCalls).toHaveLength(0);
   });
 
-  test("errors when snapshot map is missing for session", async () => {
+  test("errors when snapshot backend-node map is missing for session", async () => {
+    installClickHoverCdpSend();
     const result = await executeBrowserClick({ element_id: "e1" }, ctx);
     expect(result.isError).toBe(true);
     expect(result.content).toContain("not found");
+    expect(cdpCalls).toHaveLength(0);
   });
 
-  test("handles click error from page", async () => {
-    mockPage.click = mock(async () => {
-      throw new Error("Element not visible");
-    });
-    const result = await executeBrowserClick({ selector: "#hidden" }, ctx);
+  test("returns error + still disposes CdpClient when cdp.send throws", async () => {
+    installClickHoverCdpSend({ throwFrom: "Input.dispatchMouseEvent" });
+
+    const result = await executeBrowserClick({ selector: "#submit-btn" }, ctx);
+
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Click failed");
-    expect(result.content).toContain("Element not visible");
+    expect(result.content).toContain("cdp boom");
+
+    // finally { cdp.dispose() } must still fire → detach called.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(detachCalls).toBe(1);
   });
 });
 
@@ -532,34 +725,70 @@ describe("executeBrowserSelectOption", () => {
 
 // ── browser_hover ────────────────────────────────────────────────────
 
-describe("executeBrowserHover", () => {
+describe("executeBrowserHover (CDP)", () => {
   beforeEach(() => {
+    resetCdpState();
     resetMockPage();
     snapshotMaps.clear();
+    snapshotBackendNodeMaps.clear();
   });
 
-  test("hovers by element_id via snapshot map", async () => {
-    snapshotMaps.set(
-      "test-conversation",
-      new Map([["e2", '[data-vellum-eid="e2"]']]),
-    );
-    const result = await executeBrowserHover({ element_id: "e2" }, ctx);
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("Hovered element");
-    expect(mockPage.hover).toHaveBeenCalledWith('[data-vellum-eid="e2"]', {
-      timeout: 10000,
-    });
-  });
-
-  test("hovers by raw selector", async () => {
+  test("hovers by selector: emits a single mouseMoved event", async () => {
+    installClickHoverCdpSend({ backendNodeId: 9000 });
     const result = await executeBrowserHover(
       { selector: ".menu-trigger" },
       ctx,
     );
     expect(result.isError).toBe(false);
-    expect(mockPage.hover).toHaveBeenCalledWith(".menu-trigger", {
-      timeout: 10000,
+    expect(result.content).toContain("Hovered element: .menu-trigger");
+
+    const methods = cdpCalls.map((c) => c.method);
+    expect(methods).toEqual([
+      "DOM.getDocument",
+      "DOM.querySelector",
+      "DOM.describeNode",
+      "DOM.scrollIntoViewIfNeeded",
+      "DOM.getBoxModel",
+      "Input.dispatchMouseEvent",
+    ]);
+
+    // Exactly ONE mouseMoved event (no press/release) → hover semantics.
+    const mouseCalls = cdpCalls.filter(
+      (c) => c.method === "Input.dispatchMouseEvent",
+    );
+    expect(mouseCalls).toHaveLength(1);
+    expect(mouseCalls[0]!.params).toMatchObject({
+      type: "mouseMoved",
+      x: 20,
+      y: 30,
+      button: "none",
     });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(detachCalls).toBe(1);
+  });
+
+  test("hovers by element_id (backend path): skips DOM.querySelector", async () => {
+    snapshotBackendNodeMaps.set("test-conversation", new Map([["e2", 12]]));
+    installClickHoverCdpSend();
+
+    const result = await executeBrowserHover({ element_id: "e2" }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Hovered element: eid=e2");
+
+    const methods = cdpCalls.map((c) => c.method);
+    expect(methods).not.toContain("DOM.querySelector");
+    expect(methods).toEqual([
+      "DOM.scrollIntoViewIfNeeded",
+      "DOM.getBoxModel",
+      "Input.dispatchMouseEvent",
+    ]);
+
+    const scrollCall = cdpCalls.find(
+      (c) => c.method === "DOM.scrollIntoViewIfNeeded",
+    )!;
+    expect(scrollCall.params).toMatchObject({ backendNodeId: 12 });
   });
 
   test("errors when neither element_id nor selector provided", async () => {
@@ -568,22 +797,28 @@ describe("executeBrowserHover", () => {
     expect(result.content).toContain(
       "Either element_id or selector is required",
     );
+    expect(cdpCalls).toHaveLength(0);
   });
 
   test("errors when element_id not found in snapshot map", async () => {
+    installClickHoverCdpSend();
     const result = await executeBrowserHover({ element_id: "e99" }, ctx);
     expect(result.isError).toBe(true);
     expect(result.content).toContain('element_id "e99" not found');
+    expect(cdpCalls).toHaveLength(0);
   });
 
-  test("handles hover error from page", async () => {
-    mockPage.hover = mock(async () => {
-      throw new Error("Element detached");
-    });
+  test("returns error + still disposes CdpClient when cdp.send throws", async () => {
+    installClickHoverCdpSend({ throwFrom: "DOM.getBoxModel" });
+
     const result = await executeBrowserHover({ selector: "#gone" }, ctx);
+
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Hover failed");
-    expect(result.content).toContain("Element detached");
+    expect(result.content).toContain("cdp boom");
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(detachCalls).toBe(1);
   });
 });
 
@@ -593,15 +828,15 @@ describe("executeBrowserHover", () => {
 
 describe("browser execution wrapper contract", () => {
   beforeEach(() => {
+    resetCdpState();
     resetMockPage();
     snapshotMaps.clear();
+    snapshotBackendNodeMaps.clear();
   });
 
   test("executeBrowserClick matches wrapper contract (input, context) → result", async () => {
-    snapshotMaps.set(
-      "test-conversation",
-      new Map([["e1", '[data-vellum-eid="e1"]']]),
-    );
+    installClickHoverCdpSend();
+    snapshotBackendNodeMaps.set("test-conversation", new Map([["e1", 1]]));
     const result = await executeBrowserClick({ element_id: "e1" }, ctx);
     expect(result).toHaveProperty("content");
     expect(result).toHaveProperty("isError");
@@ -669,10 +904,8 @@ describe("browser execution wrapper contract", () => {
   });
 
   test("executeBrowserHover matches wrapper contract", async () => {
-    snapshotMaps.set(
-      "test-conversation",
-      new Map([["e2", '[data-vellum-eid="e2"]']]),
-    );
+    installClickHoverCdpSend();
+    snapshotBackendNodeMaps.set("test-conversation", new Map([["e2", 2]]));
     const result = await executeBrowserHover({ element_id: "e2" }, ctx);
     expect(result).toHaveProperty("content");
     expect(result).toHaveProperty("isError");
