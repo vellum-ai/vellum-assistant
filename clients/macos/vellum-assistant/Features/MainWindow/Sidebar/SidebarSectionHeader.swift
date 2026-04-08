@@ -111,7 +111,7 @@ struct SidebarSectionHeader: View {
             }
         }
         .onTapGesture {
-            onToggleExpand()
+            withAnimation(VAnimation.fast) { onToggleExpand() }
         }
         .pointerCursor(onHover: { hovering in
             isHeaderHovered = hovering
