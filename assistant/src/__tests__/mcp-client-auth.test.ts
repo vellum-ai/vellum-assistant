@@ -68,7 +68,7 @@ describe("McpClient auth error detection", () => {
     expect(client.isConnected).toBe(false);
   });
 
-  test("rethrows non-auth StreamableHTTPError for HTTP transports", async () => {
+  test("swallows non-auth StreamableHTTPError (connect never throws)", async () => {
     const client = new McpClient("test-server");
 
     (client as any).createTransport = () => ({});
@@ -79,9 +79,9 @@ describe("McpClient auth error detection", () => {
       close: async () => {},
     };
 
-    await expect(client.connect(httpTransport)).rejects.toThrow(
-      "Internal Server Error",
-    );
+    // Non-auth errors are logged but never propagated — daemon keeps running
+    await client.connect(httpTransport);
+    expect(client.isConnected).toBe(false);
   });
 
   test("treats error message containing 'unauthorized' as auth error", async () => {
