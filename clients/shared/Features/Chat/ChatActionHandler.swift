@@ -214,7 +214,8 @@ final class ChatActionHandler {
             if let index = vm.activeSubagents.firstIndex(where: { $0.id == msg.subagentId }) {
                 vm.activeSubagents[index].status = SubagentStatus(wire: msg.status)
                 vm.activeSubagents[index].error = msg.error
-                vm.subagentDetailStore.recordStatusChanged(subagentId: msg.subagentId, usage: msg.usage)
+                let status = SubagentStatus(wire: msg.status)
+                vm.subagentDetailStore.recordStatusChanged(subagentId: msg.subagentId, status: status, usage: msg.usage)
             }
 
         case .subagentEvent(let msg):
