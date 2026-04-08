@@ -326,12 +326,12 @@ public final class SettingsStore: ObservableObject {
     /// In-memory cache of `connectedOrganizationId`.
     private var cachedOrgId: String?
 
-    /// Whether the connected assistant is remote (not running locally).
-    /// When true, local workspace config writes are skipped to avoid creating
+    /// Whether the connected assistant runs locally (local, Docker, or Apple Container).
+    /// When false, local workspace config writes are skipped to avoid creating
     /// a `.vellum/` directory that doesn't belong to any local assistant.
     /// Cached to avoid synchronous lockfile I/O on every access; refreshed
     /// asynchronously during init and when the connected assistant changes.
-    private var isCurrentAssistantRemote: Bool = false
+    private var isCurrentAssistantLocal: Bool = true
 
     /// Guards against stale `get` responses overwriting an optimistic
     /// toggle. Set when `setIngressEnabled` fires; cleared once a matching
@@ -539,7 +539,7 @@ public final class SettingsStore: ObservableObject {
             .store(in: &cancellables)
 
         // Re-resolve lockfile-derived state whenever the connected assistant changes
-        // so that isCurrentAssistantRemote and localGatewayTarget stay in sync.
+        // so that isCurrentAssistantLocal and localGatewayTarget stay in sync.
         NotificationCenter.default.publisher(for: LockfileAssistant.activeAssistantDidChange)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
@@ -674,7 +674,7 @@ public final class SettingsStore: ObservableObject {
 
     private struct LockfileState {
         let gatewayUrl: String
-        let isRemote: Bool
+        let isLocal: Bool
     }
 
     /// Reads lockfile-derived state off the main thread. The result is applied
@@ -685,13 +685,13 @@ public final class SettingsStore: ObservableObject {
         let assistant = assistantId.flatMap { LockfileAssistant.loadByName($0) }
         return LockfileState(
             gatewayUrl: gatewayUrl,
-            isRemote: assistant?.isRemote ?? false
+            isLocal: assistant?.runsLocally ?? true
         )
     }
 
     private func applyLockfileState(_ state: LockfileState) {
         localGatewayTarget = state.gatewayUrl
-        isCurrentAssistantRemote = state.isRemote
+        isCurrentAssistantLocal = state.isLocal
     }
 
     /// In-flight lockfile refresh task. Cancelled when a new refresh is
@@ -2950,7 +2950,7 @@ public final class SettingsStore: ObservableObject {
         // address which is not reachable from the client. For local assistants,
         // use the daemon's authoritative value since it reflects the daemon's
         // actual runtime environment.
-        if !isCurrentAssistantRemote {
+        if isCurrentAssistantLocal {
             self.localGatewayTarget = response.localGatewayTarget
         }
         if response.success {
@@ -3302,7 +3302,7 @@ public final class SettingsStore: ObservableObject {
 
         // Persist enabledSince when it was defaulted so subsequent loads
         // produce a deterministic timestamp.
-        if mediaSettings.didDefaultEnabledSince && !isCurrentAssistantRemote {
+        if mediaSettings.didDefaultEnabledSince && isCurrentAssistantLocal {
             persistMediaEmbedState()
         }
     }
