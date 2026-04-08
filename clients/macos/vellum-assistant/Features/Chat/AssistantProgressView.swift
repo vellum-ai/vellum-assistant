@@ -803,7 +803,6 @@ private struct StepDetailRow: View {
     /// Human-friendly label for skill_execute rows (e.g. "Using my frontend design skill").
     var skillLabel: String?
     var onRehydrate: (() -> Void)?
-    @State private var isHovered = false
     /// Cached colored AttributedString for the tool call result — computed once
     /// on first expand / result change to avoid rebuilding on every render.
     @State private var cachedColoredResult: AttributedString?
@@ -920,12 +919,7 @@ private struct StepDetailRow: View {
             .buttonStyle(.plain)
             .environment(\.isEnabled, true)
             .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.xs))
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(isHovered && hasDetails ? VColor.borderBase.opacity(0.5) : .clear)
-            )
             .padding(EdgeInsets(top: 0, leading: VSpacing.sm, bottom: 0, trailing: VSpacing.xs))
-            .onHover { isHovered = $0 }
 
             // Expanded detail section (completed only)
             if isDetailExpanded {
