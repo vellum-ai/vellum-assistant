@@ -722,9 +722,16 @@ export async function executeBrowserClick(
     if (resolved!.kind === "backend") {
       backendNodeId = resolved!.backendNodeId;
     } else {
-      backendNodeId = await querySelectorBackendNodeId(
+      // Wait until the selector matches a visible element. Mirrors
+      // Playwright's `page.click(selector, { timeout })` semantics
+      // and lets click work on async-hydrated pages where the
+      // target may not yet exist when the tool is invoked.
+      // cdpWaitForSelector returns the backendNodeId so we don't
+      // need a separate querySelectorBackendNodeId round-trip.
+      backendNodeId = await cdpWaitForSelector(
         cdp,
         resolved!.selector,
+        ACTION_TIMEOUT_MS,
         context.signal,
       );
     }
@@ -1124,9 +1131,13 @@ export async function executeBrowserHover(
     if (resolved!.kind === "backend") {
       backendNodeId = resolved!.backendNodeId;
     } else {
-      backendNodeId = await querySelectorBackendNodeId(
+      // Wait until the selector matches a visible element. See the
+      // matching note in executeBrowserClick — async-hydrated pages
+      // need this to behave like Playwright's hover-with-timeout.
+      backendNodeId = await cdpWaitForSelector(
         cdp,
         resolved!.selector,
+        ACTION_TIMEOUT_MS,
         context.signal,
       );
     }
@@ -1195,7 +1206,14 @@ export async function executeBrowserWaitFor(
   const cdp = getCdpClient(context);
   try {
     if (selector) {
-      await cdpWaitForSelector(cdp, selector, timeout, context.signal);
+      // browser_wait_for selector mode is "did this node appear at
+      // all" — preserve the existing semantics by polling for DOM
+      // attachment, not full visibility. Tools that need
+      // visible-state polling (click/hover) get it via the default
+      // state in cdpWaitForSelector.
+      await cdpWaitForSelector(cdp, selector, timeout, context.signal, {
+        state: "attached",
+      });
       return {
         content: `Element matching "${selector}" appeared.`,
         isError: false,

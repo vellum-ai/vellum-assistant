@@ -495,28 +495,51 @@ export async function navigateAndWait(
 }
 
 /**
- * Poll until a selector matches a non-null element, then return its
- * `backendNodeId`. Throws {@link CdpError} on timeout or abort.
+ * Poll until a selector matches an element in the requested state,
+ * then return its `backendNodeId`. Throws {@link CdpError} on timeout
+ * or abort.
+ *
+ * `state` controls the readiness check:
+ * - `"visible"` (default): the element must be in the DOM AND have a
+ *   non-zero bounding box AND not be `display:none` /
+ *   `visibility:hidden`. This matches Playwright's
+ *   `page.waitForSelector` default and is the right semantics for
+ *   click/hover targets that may be hydrated asynchronously.
+ * - `"attached"`: the element only needs to exist in the DOM. Useful
+ *   for `browser_wait_for` selector mode where the caller just wants
+ *   to know "did this node appear at all" regardless of layout.
  */
 export async function waitForSelector(
   cdp: CdpClient,
   selector: string,
   timeoutMs: number,
   signal?: AbortSignal,
+  opts: { state?: "attached" | "visible" } = {},
 ): Promise<number> {
+  const state = opts.state ?? "visible";
   const startedAt = Date.now();
   const escapedSel = JSON.stringify(selector);
+  const expression =
+    state === "visible"
+      ? `(() => {
+          const el = document.querySelector(${escapedSel});
+          if (!el) return false;
+          const r = el.getBoundingClientRect();
+          const cs = getComputedStyle(el);
+          return r.width > 0 && r.height > 0 && cs.display !== "none" && cs.visibility !== "hidden";
+        })()`
+      : `document.querySelector(${escapedSel}) !== null`;
   while (Date.now() - startedAt < timeoutMs) {
     if (signal?.aborted) {
       throw new CdpError("aborted", "waitForSelector aborted");
     }
-    const exists = await evaluateExpression<boolean>(
+    const ready = await evaluateExpression<boolean>(
       cdp,
-      `document.querySelector(${escapedSel}) !== null`,
+      expression,
       {},
       signal,
     );
-    if (exists) {
+    if (ready) {
       return await querySelectorBackendNodeId(cdp, selector, signal);
     }
     await new Promise((r) => setTimeout(r, 100));
