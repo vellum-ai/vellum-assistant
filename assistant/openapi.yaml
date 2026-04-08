@@ -1741,7 +1741,7 @@ paths:
     post:
       operationId: clientlog_post
       summary: Forward client log message
-      description: Accept a log entry from the native client and write it to the daemon logger.
+      description: Accept a log entry from the native client and write it to the assistant logger.
       tags:
         - telemetry
       responses:

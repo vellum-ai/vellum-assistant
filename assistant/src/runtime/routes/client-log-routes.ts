@@ -1,9 +1,9 @@
 /**
- * Route handler for forwarding client-side log messages to the daemon logger.
+ * Route handler for forwarding client-side log messages to the assistant logger.
  *
  * POST /v1/client-log — accept a log entry from the native client (e.g. Swift
- * Coordinator forwarding WebView console messages) and write it to the daemon's
- * pino logger so it appears in the log export.
+ * Coordinator forwarding WebView console messages) and write it to the
+ * assistant's pino logger so it appears in the log export.
  */
 
 import { z } from "zod";
@@ -28,6 +28,14 @@ export async function handleClientLog(req: Request): Promise<Response> {
   const message = body.message;
   if (!message || typeof message !== "string") {
     return httpError("BAD_REQUEST", "message is required", 400);
+  }
+  const MAX_MESSAGE_LENGTH = 10_000;
+  if (message.length > MAX_MESSAGE_LENGTH) {
+    return httpError(
+      "BAD_REQUEST",
+      `message exceeds max length of ${MAX_MESSAGE_LENGTH} characters`,
+      400,
+    );
   }
   if (!VALID_LEVELS.has(level)) {
     return httpError(
@@ -66,7 +74,7 @@ export function clientLogRouteDefinitions(): RouteDefinition[] {
       method: "POST",
       summary: "Forward client log message",
       description:
-        "Accept a log entry from the native client and write it to the daemon logger.",
+        "Accept a log entry from the native client and write it to the assistant logger.",
       tags: ["telemetry"],
       requestBody: z.object({
         level: z
