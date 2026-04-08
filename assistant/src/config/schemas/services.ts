@@ -61,6 +61,11 @@ export const LinearOAuthServiceSchema = BaseServiceSchema.extend({
 });
 export type LinearOAuthService = z.infer<typeof LinearOAuthServiceSchema>;
 
+export const GitHubOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+export type GitHubOAuthService = z.infer<typeof GitHubOAuthServiceSchema>;
+
 export const ServicesSchema = z.object({
   inference: InferenceServiceSchema.default(InferenceServiceSchema.parse({})),
   "image-generation": ImageGenerationServiceSchema.default(
@@ -77,6 +82,9 @@ export const ServicesSchema = z.object({
   ),
   "linear-oauth": LinearOAuthServiceSchema.default(
     LinearOAuthServiceSchema.parse({}),
+  ),
+  "github-oauth": GitHubOAuthServiceSchema.default(
+    GitHubOAuthServiceSchema.parse({}),
   ),
 });
 export type Services = z.infer<typeof ServicesSchema>;
