@@ -58,6 +58,15 @@ final class AppleContainersLauncher: AssistantManagementClient {
     /// production assistant image once the container build pipeline ships.
     static let assistantImageReference = "docker.io/library/ubuntu:24.04"
 
+    // MARK: - Running State
+
+    /// Retains the running container so ARC does not tear it down when hatch() returns.
+    private(set) var runningContainer: LinuxContainer?
+    /// Retains the VM manager backing the running container.
+    private(set) var vmManager: VZVirtualMachineManager?
+    /// Name of the currently-running assistant, if any.
+    private(set) var runningAssistantName: String?
+
     // MARK: - Testable Hooks
 
     /// Locates the bundled Linux kernel. Override in tests.
@@ -74,13 +83,11 @@ final class AppleContainersLauncher: AssistantManagementClient {
 
     func hatch(name: String?, configValues: [String: String]) async throws {
         let availability = Self.checkAvailability()
-        guard case .available = availability else {
-            if case .unavailable(let reason) = availability {
-                log.error("Apple Containers not available: \(String(describing: reason), privacy: .public)")
-                throw LauncherError.unavailable(reason)
-            }
-            return
+        if case .unavailable(let reason) = availability {
+            log.error("Apple Containers not available: \(String(describing: reason), privacy: .public)")
+            throw LauncherError.unavailable(reason)
         }
+        guard case .available = availability else { return }
 
         guard let kernelURL = Self.locateBundledKernel() else {
             log.error("Bundled Linux kernel not found")
@@ -147,6 +154,11 @@ final class AppleContainersLauncher: AssistantManagementClient {
             log.info("Starting container '\(containerId, privacy: .public)'...")
             try await container.create()
             try await container.start()
+
+            // Retain the container and VM manager so ARC doesn't tear them down.
+            self.runningContainer = container
+            self.vmManager = manager
+            self.runningAssistantName = assistantName
             log.info("Apple container '\(assistantName, privacy: .public)' is running")
 
             let hatchedAt = ISO8601DateFormatter().string(from: Date())
