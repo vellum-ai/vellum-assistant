@@ -1750,18 +1750,22 @@ export async function runAgentLoopImpl(
     // Post-turn tool result truncation: save large results to disk and
     // replace in-context content with a prefix/suffix stub + file pointer.
     if (isAssistantFeatureFlagEnabled("tool-result-truncation", config)) {
-      const conv = getConversation(ctx.conversationId);
-      if (conv) {
-        const convDir = getResolvedConversationDirPath(ctx.conversationId, conv.createdAt);
-        const { messages: derefMessages, dereferencedCount } = derefToolResultReReads(restoredHistory);
-        const { messages: truncatedMessages, truncatedCount } = postTurnTruncateToolResults(derefMessages, { conversationDir: convDir });
-        if (truncatedCount > 0 || dereferencedCount > 0) {
-          rlog.info(
-            { truncatedCount, dereferencedCount },
-            "Post-turn tool result truncation applied",
-          );
+      try {
+        const conv = getConversation(ctx.conversationId);
+        if (conv) {
+          const convDir = getResolvedConversationDirPath(ctx.conversationId, conv.createdAt);
+          const { messages: derefMessages, dereferencedCount } = derefToolResultReReads(restoredHistory);
+          const { messages: truncatedMessages, truncatedCount } = postTurnTruncateToolResults(derefMessages, { conversationDir: convDir });
+          if (truncatedCount > 0 || dereferencedCount > 0) {
+            rlog.info(
+              { truncatedCount, dereferencedCount },
+              "Post-turn tool result truncation applied",
+            );
+          }
+          restoredHistory = truncatedMessages;
         }
-        restoredHistory = truncatedMessages;
+      } catch (err) {
+        rlog.warn({ err }, "Post-turn tool result truncation failed (non-fatal)");
       }
     }
 
