@@ -8,12 +8,22 @@
 
 declare module 'bun:test' {
   type TestCallback = () => void | Promise<void>;
-  type TestFn = (name: string, fn?: TestCallback) => void;
 
-  interface TestApi extends TestFn {
-    todo: TestFn;
-    skip: TestFn;
-    only: TestFn;
+  /** Runnable test: body is required. Applies to test(), test.skip(), test.only(). */
+  type RunnableTestFn = (name: string, fn: TestCallback) => void;
+
+  /** Permissive variant for test.todo — a body is optional because
+   * a todo can declare intent to write a test in the future. */
+  type TodoTestFn = (name: string, fn?: TestCallback) => void;
+
+  interface TestApi extends RunnableTestFn {
+    /** Mark a test as a TODO — reports as 'todo' rather than 'passed'.
+     * Use for planned tests that haven't been written yet. */
+    todo: TodoTestFn;
+    /** Skip a test temporarily. Use sparingly; prefer removing or fixing. */
+    skip: RunnableTestFn;
+    /** Run only this test. Do not commit .only() calls. */
+    only: RunnableTestFn;
   }
 
   interface DescribeApi {
