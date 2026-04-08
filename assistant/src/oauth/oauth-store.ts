@@ -349,6 +349,7 @@ export function registerProvider(params: {
     description: params.description ?? null,
     dashboardUrl: params.dashboardUrl ?? null,
     clientIdPlaceholder: params.clientIdPlaceholder ?? null,
+    logoUrl: null,
     requiresClientSecret: params.requiresClientSecret ?? 1,
     loopbackPort: params.loopbackPort ?? null,
     injectionTemplates: params.injectionTemplates

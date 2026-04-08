@@ -32,6 +32,7 @@ function makeRow(overrides: Partial<OAuthProviderRow> = {}): OAuthProviderRow {
     description: null,
     dashboardUrl: null,
     clientIdPlaceholder: null,
+    logoUrl: null,
     requiresClientSecret: 1,
     loopbackPort: null,
     injectionTemplates: null,

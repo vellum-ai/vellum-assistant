@@ -51,6 +51,7 @@ function makeProviderRow(
     description: null,
     dashboardUrl: null,
     clientIdPlaceholder: null,
+    logoUrl: null,
     requiresClientSecret: 1,
     loopbackPort: null,
     injectionTemplates: null,
