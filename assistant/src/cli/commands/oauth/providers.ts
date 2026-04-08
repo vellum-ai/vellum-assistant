@@ -724,7 +724,13 @@ Examples:
             params.pingHeaders = JSON.parse(opts.pingHeaders);
           if (opts.pingBody !== undefined)
             params.pingBody = JSON.parse(opts.pingBody);
-          if (opts.revokeUrl !== undefined) params.revokeUrl = opts.revokeUrl;
+          if (opts.revokeUrl !== undefined) {
+            // Empty string means "clear" — normalize to null so the stored
+            // value matches the "disabled" semantics documented in the help
+            // text. `updateProvider`'s Partial type accepts `string | null`
+            // for this field so drizzle writes `null` to clear the column.
+            params.revokeUrl = opts.revokeUrl === "" ? null : opts.revokeUrl;
+          }
           if (opts.revokeBodyTemplate !== undefined)
             params.revokeBodyTemplate = JSON.parse(opts.revokeBodyTemplate);
           if (opts.displayName !== undefined)

@@ -1776,6 +1776,45 @@ describe("assistant oauth providers --revoke-url and --revoke-body-template", ()
     ).toBeNull();
   });
 
+  test("providers update --revoke-url with empty string clears the stored URL to null", async () => {
+    // Seed an existing custom provider that already has a non-null revokeUrl.
+    await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-clear-revoke-url",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--revoke-url",
+      "https://revoke.example.com",
+      "--json",
+    ]);
+    expect(mockProviderStore.get("custom-clear-revoke-url")?.revokeUrl).toBe(
+      "https://revoke.example.com",
+    );
+
+    // Pass an empty string to --revoke-url — the help text promises this
+    // clears the field, so the stored value should end up as null (not "").
+    const { exitCode, stdout } = await runCli([
+      "providers",
+      "update",
+      "custom-clear-revoke-url",
+      "--revoke-url",
+      "",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    expect(
+      mockProviderStore.get("custom-clear-revoke-url")?.revokeUrl,
+    ).toBeNull();
+
+    // The serialized --json output should also reflect null, not "".
+    const parsed = JSON.parse(stdout);
+    expect(parsed.revokeUrl).toBeNull();
+  });
+
   test("providers update --revoke-body-template updates only the template (JSON round-trip)", async () => {
     await runCli([
       "providers",

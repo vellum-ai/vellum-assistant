@@ -223,6 +223,16 @@ describe("serializeProvider", () => {
     expect(result.revokeBodyTemplate).toBeNull();
   });
 
+  test("normalizes empty string revokeUrl to null on the serialized output", () => {
+    // Legacy rows or rows that reached the store via an empty-string update
+    // may persist `revokeUrl: ""`. The serializer should normalize this to
+    // null so wire consumers (CLI --json, HTTP API) see a consistent
+    // "disabled" signal.
+    const row = makeRow({ revokeUrl: "" });
+    const result = serializeProvider(row)!;
+    expect(result.revokeUrl).toBeNull();
+  });
+
   test("preserves all keys in a complex revokeBodyTemplate", () => {
     const template = {
       token: "{access_token}",
