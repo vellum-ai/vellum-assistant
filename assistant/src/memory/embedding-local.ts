@@ -83,6 +83,8 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     }
   >();
   private stdoutReaderActive = false;
+  private activeEmbeds = 0;
+  private disposeRequested = false;
 
   private readonly initGuard = new PromiseGuard<void>();
 
@@ -94,6 +96,9 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     inputs: EmbeddingInput[],
     options?: EmbeddingRequestOptions,
   ): Promise<number[][]> {
+    if (this.disposeRequested) {
+      throw new Error("Local embedding backend is shutting down");
+    }
     if (inputs.length === 0) return [];
 
     const texts = inputs.map((i) => {
@@ -106,24 +111,30 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     if (options?.signal?.aborted)
       throw new DOMException("Aborted", "AbortError");
 
-    await this.ensureInitialized();
+    this.activeEmbeds++;
+    try {
+      await this.ensureInitialized();
 
-    const results: number[][] = [];
-    const batchSize = 32;
-    for (let i = 0; i < texts.length; i += batchSize) {
-      if (options?.signal?.aborted)
-        throw new DOMException("Aborted", "AbortError");
-      const batch = texts.slice(i, i + batchSize);
-      const response = await this.sendRequest(batch);
-      if (response.error) {
-        throw new Error(`Embedding worker error: ${response.error}`);
+      const results: number[][] = [];
+      const batchSize = 32;
+      for (let i = 0; i < texts.length; i += batchSize) {
+        if (options?.signal?.aborted)
+          throw new DOMException("Aborted", "AbortError");
+        const batch = texts.slice(i, i + batchSize);
+        const response = await this.sendRequest(batch);
+        if (response.error) {
+          throw new Error(`Embedding worker error: ${response.error}`);
+        }
+        if (!response.vectors) {
+          throw new Error("Embedding worker returned no vectors");
+        }
+        results.push(...response.vectors);
       }
-      if (!response.vectors) {
-        throw new Error("Embedding worker returned no vectors");
-      }
-      results.push(...response.vectors);
+      return results;
+    } finally {
+      this.activeEmbeds--;
+      this.disposeIfIdle();
     }
-    return results;
   }
 
   private sendRequest(texts: string[]): Promise<WorkerResponse> {
@@ -146,6 +157,11 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   private async ensureInitialized(): Promise<void> {
     if (this.workerProc) return;
     await this.initGuard.run(() => this.initialize());
+  }
+
+  dispose(): void {
+    this.disposeRequested = true;
+    this.disposeIfIdle();
   }
 
   private async initialize(): Promise<void> {
@@ -255,6 +271,8 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       { pid: proc.pid, model: this.model },
       "Embedding worker process started",
     );
+
+    this.disposeIfIdle();
   }
 
   private drainStderr(stderr: ReadableStream<Uint8Array>): void {
@@ -355,6 +373,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
         if (pending) {
           this.pendingRequests.delete(msg.id);
           pending.resolve(msg);
+          this.disposeIfIdle();
         }
       }
     }
@@ -423,6 +442,28 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       unlinkSync(this.getPidFilePath());
     } catch {
       // Best-effort
+    }
+  }
+
+  private disposeIfIdle(): void {
+    if (!this.disposeRequested) return;
+    if (this.activeEmbeds > 0) return;
+    if (this.pendingRequests.size > 0) return;
+    if (this.readyResolve || this.readyReject) return;
+
+    const proc = this.workerProc;
+    this.workerProc = null;
+    this.stdoutReaderActive = false;
+    this.stdoutBuffer = "";
+    this.initGuard.reset();
+    this.removePidFile();
+
+    if (!proc) return;
+
+    try {
+      proc.kill();
+    } catch {
+      // Worker may already be exiting
     }
   }
 }
