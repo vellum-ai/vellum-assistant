@@ -19,10 +19,10 @@ final class LockfileAssistantAppleContainerTests: XCTestCase {
         super.tearDown()
     }
 
-    // MARK: - ensureAppleContainerEntry: insert when absent
+    // MARK: - writeLockfileEntry: insert when absent
 
     func testInsertsWhenLockfileDoesNotExist() {
-        let result = LockfileAssistant.ensureAppleContainerEntry(
+        let result = AppleContainersLauncher.writeLockfileEntry(
             assistantId: "ac-test",
             hatchedAt: "2025-06-01T00:00:00Z",
             lockfilePath: lockfilePath
@@ -43,7 +43,7 @@ final class LockfileAssistantAppleContainerTests: XCTestCase {
         let data = try! JSONSerialization.data(withJSONObject: empty)
         try! data.write(to: URL(fileURLWithPath: lockfilePath))
 
-        let result = LockfileAssistant.ensureAppleContainerEntry(
+        let result = AppleContainersLauncher.writeLockfileEntry(
             assistantId: "ac-new",
             hatchedAt: "2025-07-01T00:00:00Z",
             lockfilePath: lockfilePath
@@ -57,7 +57,7 @@ final class LockfileAssistantAppleContainerTests: XCTestCase {
         XCTAssertEqual(assistants[0]["assistantId"] as? String, "ac-new")
     }
 
-    // MARK: - ensureAppleContainerEntry: update existing entry
+    // MARK: - writeLockfileEntry: update existing entry
 
     func testUpdatesCloudOnExistingEntry() {
         // Pre-populate with a local entry that has the same ID.
@@ -73,7 +73,7 @@ final class LockfileAssistantAppleContainerTests: XCTestCase {
         let data = try! JSONSerialization.data(withJSONObject: existing)
         try! data.write(to: URL(fileURLWithPath: lockfilePath))
 
-        let result = LockfileAssistant.ensureAppleContainerEntry(
+        let result = AppleContainersLauncher.writeLockfileEntry(
             assistantId: "ac-test",
             hatchedAt: "2025-06-01T00:00:00Z",
             lockfilePath: lockfilePath
@@ -89,7 +89,7 @@ final class LockfileAssistantAppleContainerTests: XCTestCase {
         XCTAssertEqual(assistants[0]["hatchedAt"] as? String, "2025-01-01T00:00:00Z")
     }
 
-    // MARK: - ensureAppleContainerEntry: preserves other entries
+    // MARK: - writeLockfileEntry: preserves other entries
 
     func testPreservesOtherAssistantEntries() {
         let existing: [String: Any] = [
@@ -104,7 +104,7 @@ final class LockfileAssistantAppleContainerTests: XCTestCase {
         let data = try! JSONSerialization.data(withJSONObject: existing)
         try! data.write(to: URL(fileURLWithPath: lockfilePath))
 
-        LockfileAssistant.ensureAppleContainerEntry(
+        AppleContainersLauncher.writeLockfileEntry(
             assistantId: "ac-id",
             hatchedAt: "2025-06-01T00:00:00Z",
             lockfilePath: lockfilePath
@@ -126,7 +126,7 @@ final class LockfileAssistantAppleContainerTests: XCTestCase {
         let data = try! JSONSerialization.data(withJSONObject: existing)
         try! data.write(to: URL(fileURLWithPath: lockfilePath))
 
-        LockfileAssistant.ensureAppleContainerEntry(
+        AppleContainersLauncher.writeLockfileEntry(
             assistantId: "ac-test",
             hatchedAt: "2025-06-01T00:00:00Z",
             lockfilePath: lockfilePath
@@ -137,10 +137,10 @@ final class LockfileAssistantAppleContainerTests: XCTestCase {
         XCTAssertEqual(json["version"] as? Int, 1)
     }
 
-    // MARK: - ensureAppleContainerEntry: no-op when unchanged
+    // MARK: - writeLockfileEntry: no-op when unchanged
 
     func testNoOpWhenEntryAlreadyCorrect() {
-        LockfileAssistant.ensureAppleContainerEntry(
+        AppleContainersLauncher.writeLockfileEntry(
             assistantId: "ac-test",
             hatchedAt: "2025-06-01T00:00:00Z",
             lockfilePath: lockfilePath
@@ -153,7 +153,7 @@ final class LockfileAssistantAppleContainerTests: XCTestCase {
         // Small sleep to ensure a different modification time if the file were rewritten.
         Thread.sleep(forTimeInterval: 0.05)
 
-        let result = LockfileAssistant.ensureAppleContainerEntry(
+        let result = AppleContainersLauncher.writeLockfileEntry(
             assistantId: "ac-test",
             hatchedAt: "2025-07-01T00:00:00Z",
             lockfilePath: lockfilePath

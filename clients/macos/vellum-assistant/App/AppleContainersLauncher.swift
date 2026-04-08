@@ -162,10 +162,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
             log.info("Apple container '\(assistantName, privacy: .public)' is running")
 
             let hatchedAt = ISO8601DateFormatter().string(from: Date())
-            LockfileAssistant.ensureAppleContainerEntry(
-                assistantId: assistantName,
-                hatchedAt: hatchedAt
-            )
+            Self.writeLockfileEntry(assistantId: assistantName, hatchedAt: hatchedAt)
             LockfileAssistant.setActiveAssistantId(assistantName)
             log.info("Lockfile entry written for '\(assistantName, privacy: .public)'")
         } catch let error as LauncherError {
@@ -243,6 +240,76 @@ final class AppleContainersLauncher: AssistantManagementClient {
             .appendingPathComponent("vellum-assistant", isDirectory: true)
             .appendingPathComponent("apple-containers", isDirectory: true)
             .appendingPathComponent(assistantName, isDirectory: true)
+    }
+
+    // MARK: - Lockfile
+
+    /// Writes or updates a lockfile entry for this apple-container assistant.
+    /// Kept here (not in the shared `LockfileAssistant`) because apple-container
+    /// logic is macOS-only and should not bleed into the shared/iOS/CLI target.
+    @discardableResult
+    static func writeLockfileEntry(
+        assistantId: String,
+        hatchedAt: String,
+        lockfilePath: String? = nil
+    ) -> Bool {
+        let path = lockfilePath ?? LockfilePaths.primaryPath
+        let fileURL = URL(fileURLWithPath: path)
+
+        var lockfile: [String: Any]
+        if let data = try? Data(contentsOf: fileURL),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            lockfile = json
+        } else {
+            lockfile = [:]
+        }
+
+        var assistants = lockfile["assistants"] as? [[String: Any]] ?? []
+
+        if let existingIndex = assistants.firstIndex(where: { ($0["assistantId"] as? String) == assistantId }) {
+            var existingEntry = assistants[existingIndex]
+            var didUpdate = false
+
+            if (existingEntry["cloud"] as? String) != "apple-container" {
+                existingEntry["cloud"] = "apple-container"
+                didUpdate = true
+            }
+
+            let existingHatchedAt = (existingEntry["hatchedAt"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if existingHatchedAt?.isEmpty != false {
+                existingEntry["hatchedAt"] = hatchedAt
+                didUpdate = true
+            }
+
+            if !didUpdate { return true }
+            assistants[existingIndex] = existingEntry
+        } else {
+            let newEntry: [String: Any] = [
+                "assistantId": assistantId,
+                "cloud": "apple-container",
+                "hatchedAt": hatchedAt,
+            ]
+            assistants.append(newEntry)
+        }
+
+        lockfile["assistants"] = assistants
+
+        do {
+            let data = try JSONSerialization.data(
+                withJSONObject: lockfile,
+                options: [.prettyPrinted, .sortedKeys]
+            )
+            let directory = fileURL.deletingLastPathComponent()
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+            try data.write(to: fileURL, options: .atomic)
+            return true
+        } catch {
+            return false
+        }
     }
 
     static func defaultBundledKernelURL() -> URL? {
