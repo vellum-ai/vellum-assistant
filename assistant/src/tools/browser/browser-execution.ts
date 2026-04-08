@@ -29,10 +29,15 @@ import {
 } from "./cdp-client/accessibility-snapshot.js";
 import {
   captureScreenshotJpeg,
+  dispatchClickAt,
+  dispatchHoverAt,
   evaluateExpression,
+  getCenterPoint,
   getCurrentUrl,
   getPageTitle,
   navigateAndWait,
+  querySelectorBackendNodeId,
+  scrollIntoViewIfNeeded,
   waitForSelector as cdpWaitForSelector,
   waitForText as cdpWaitForText,
 } from "./cdp-client/cdp-dom-helpers.js";
@@ -809,22 +814,35 @@ export async function executeBrowserClick(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const { selector, error } = resolveSelector(context.conversationId, input);
+  const { resolved, error } = resolveElement(context.conversationId, input);
   if (error) return { content: error, isError: true };
 
-  const timeout =
-    typeof input.timeout === "number" ? input.timeout : ACTION_TIMEOUT_MS;
-
+  const cdp = getCdpClient(context);
   try {
-    const page = await browserManager.getOrCreateSessionPage(
-      context.conversationId,
-    );
-    await page.click(selector!, { timeout });
-    return { content: `Clicked element: ${selector}`, isError: false };
+    let backendNodeId: number;
+    if (resolved!.kind === "backend") {
+      backendNodeId = resolved!.backendNodeId;
+    } else {
+      backendNodeId = await querySelectorBackendNodeId(
+        cdp,
+        resolved!.selector,
+        context.signal,
+      );
+    }
+    await scrollIntoViewIfNeeded(cdp, backendNodeId, context.signal);
+    const point = await getCenterPoint(cdp, backendNodeId, context.signal);
+    await dispatchClickAt(cdp, point, context.signal);
+    const desc =
+      resolved!.kind === "backend"
+        ? `eid=${resolved!.eid}`
+        : resolved!.selector;
+    return { content: `Clicked element: ${desc}`, isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err, selector }, "Click failed");
+    log.error({ err }, "Click failed");
     return { content: `Error: Click failed: ${msg}`, isError: true };
+  } finally {
+    cdp.dispose();
   }
 }
 
@@ -1034,20 +1052,35 @@ export async function executeBrowserHover(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const { selector, error } = resolveSelector(context.conversationId, input);
+  const { resolved, error } = resolveElement(context.conversationId, input);
   if (error) return { content: error, isError: true };
 
+  const cdp = getCdpClient(context);
   try {
-    const page = await browserManager.getOrCreateSessionPage(
-      context.conversationId,
-    );
-    await page.hover(selector!, { timeout: ACTION_TIMEOUT_MS });
-
-    return { content: `Hovered element: ${selector}`, isError: false };
+    let backendNodeId: number;
+    if (resolved!.kind === "backend") {
+      backendNodeId = resolved!.backendNodeId;
+    } else {
+      backendNodeId = await querySelectorBackendNodeId(
+        cdp,
+        resolved!.selector,
+        context.signal,
+      );
+    }
+    await scrollIntoViewIfNeeded(cdp, backendNodeId, context.signal);
+    const point = await getCenterPoint(cdp, backendNodeId, context.signal);
+    await dispatchHoverAt(cdp, point, context.signal);
+    const desc =
+      resolved!.kind === "backend"
+        ? `eid=${resolved!.eid}`
+        : resolved!.selector;
+    return { content: `Hovered element: ${desc}`, isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err, selector }, "Hover failed");
+    log.error({ err }, "Hover failed");
     return { content: `Error: Hover failed: ${msg}`, isError: true };
+  } finally {
+    cdp.dispose();
   }
 }
 
