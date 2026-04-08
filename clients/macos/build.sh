@@ -151,6 +151,7 @@ RESOURCES_DIR="$CONTENTS/Resources"
 FRAMEWORKS_DIR="$CONTENTS/Frameworks"
 KATA_KERNEL_VERSION="3.17.0"
 KATA_KERNEL_ARCHIVE_URL="${KATA_KERNEL_ARCHIVE_URL:-https://github.com/kata-containers/kata-containers/releases/download/$KATA_KERNEL_VERSION/kata-static-$KATA_KERNEL_VERSION-arm64.tar.xz}"
+KATA_KERNEL_ARCHIVE_SHA256="647c7612e6edf789d5e14698c48c99d8bac15ad139ffaa1c8bb7d229f748d181"
 KATA_KERNEL_CACHE_DIR="${KATA_KERNEL_CACHE_DIR:-$SCRIPT_DIR/.container-cache/kata-$KATA_KERNEL_VERSION-arm64}"
 KATA_KERNEL_ARCHIVE_PATH="$KATA_KERNEL_CACHE_DIR/kata.tar.xz"
 KATA_KERNEL_PATH="$KATA_KERNEL_CACHE_DIR/vmlinux.container"
@@ -367,6 +368,17 @@ bundle_kata_kernel() {
         curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 30 \
             --output "$KATA_KERNEL_ARCHIVE_PATH.tmp" "$KATA_KERNEL_ARCHIVE_URL"
         mv "$KATA_KERNEL_ARCHIVE_PATH.tmp" "$KATA_KERNEL_ARCHIVE_PATH"
+    fi
+
+    echo "Verifying Kata kernel archive checksum..."
+    local actual_sha256
+    actual_sha256=$(shasum -a 256 "$KATA_KERNEL_ARCHIVE_PATH" | awk '{print $1}')
+    if [ "$actual_sha256" != "$KATA_KERNEL_ARCHIVE_SHA256" ]; then
+        echo "ERROR: SHA-256 mismatch for Kata kernel archive" >&2
+        echo "  Expected: $KATA_KERNEL_ARCHIVE_SHA256" >&2
+        echo "  Actual:   $actual_sha256" >&2
+        rm -f "$KATA_KERNEL_ARCHIVE_PATH"
+        exit 1
     fi
 
     if [ ! -f "$KATA_KERNEL_PATH" ]; then
