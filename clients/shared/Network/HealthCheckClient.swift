@@ -5,9 +5,10 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Healt
 
 /// Checks assistant reachability.
 ///
-/// Local assistants are checked by hitting their own gateway's `/readyz` endpoint
-/// directly (unauthenticated). Remote/managed assistants route through
-/// `GatewayHTTPClient` which handles URL resolution, authentication, and 401 retry.
+/// Locally-running assistants (local, Docker, Apple Container) are checked by
+/// hitting their own gateway's `/readyz` endpoint directly (unauthenticated).
+/// Cloud-hosted/managed assistants route through `GatewayHTTPClient` which
+/// handles URL resolution, authentication, and 401 retry.
 public enum HealthCheckClient {
 
     /// Check whether the currently connected assistant is reachable.
@@ -34,16 +35,17 @@ public enum HealthCheckClient {
 
     /// Check whether a specific assistant is reachable.
     ///
-    /// Local assistants are checked by hitting their own gateway's `/readyz` endpoint
-    /// directly (unauthenticated). Remote/managed assistants route through
-    /// `GatewayHTTPClient` with full 401 retry and credential refresh behavior.
+    /// Locally-running assistants (local, Docker, Apple Container) are checked by
+    /// hitting their own gateway's `/readyz` endpoint directly (unauthenticated).
+    /// Cloud-hosted/managed assistants route through `GatewayHTTPClient` with full
+    /// 401 retry and credential refresh behavior.
     public static func isReachable(for assistant: LockfileAssistant, timeout: TimeInterval = 3) async -> Bool {
         return await isReachable(for: assistant, timeout: timeout, session: .shared)
     }
 
     /// Internal entry point — accepts a `URLSession` for test injection.
     static func isReachable(for assistant: LockfileAssistant, timeout: TimeInterval = 3, session: URLSession) async -> Bool {
-        if assistant.isRemote {
+        if !assistant.runsLocally {
             do {
                 let response = try await GatewayHTTPClient.get(
                     path: "health",

@@ -138,6 +138,13 @@ public struct LockfileAssistant {
         cloud.lowercased() == "apple-container"
     }
 
+    /// Whether this assistant runs on the local machine.
+    /// True for bare-host local, Docker, and Apple Container assistants.
+    public var runsLocally: Bool {
+        let c = cloud.lowercased()
+        return c == "local" || c == "docker" || c == "apple-container"
+    }
+
     /// The resolved workspace directory for this assistant, accounting for both
     /// the canonical `instanceDir` (post-migration) and legacy `baseDataDir`.
     public var workspaceDir: String? {
