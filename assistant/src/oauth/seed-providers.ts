@@ -5,7 +5,7 @@ import { seedProviders } from "./oauth-store.js";
  *
  * These values are upserted into the `oauth_providers` SQLite table on
  * every startup. Only Vellum implementation fields (authorizeUrl, tokenExchangeUrl,
- * tokenEndpointAuthMethod, userinfoUrl, authorizeParams,
+ * refreshUrl, tokenEndpointAuthMethod, userinfoUrl, authorizeParams,
  * pingUrl, pingMethod, pingHeaders, pingBody, managedServiceConfigKey,
  * loopbackPort, injectionTemplates, appType, setupNotes,
  * identityUrl, identityMethod, identityHeaders, identityBody,
@@ -23,6 +23,7 @@ const PROVIDER_SEED_DATA: Record<
     provider: string;
     authorizeUrl: string;
     tokenExchangeUrl: string;
+    refreshUrl?: string;
     tokenEndpointAuthMethod?: string;
     userinfoUrl?: string;
     pingUrl?: string;

@@ -32,6 +32,7 @@ function makeProviderRow(
     provider,
     authorizeUrl: "https://example.com/auth",
     tokenExchangeUrl: "https://example.com/token",
+    refreshUrl: null,
     tokenEndpointAuthMethod: null,
     userinfoUrl: null,
     baseUrl: null,
