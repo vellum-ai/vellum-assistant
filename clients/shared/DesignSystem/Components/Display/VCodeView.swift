@@ -449,6 +449,30 @@ struct VCodeTextView: NSViewRepresentable {
             if !matchRanges.isEmpty, currentIndex < matchRanges.count {
                 let currentRange = NSRange(matchRanges[currentIndex], in: storage.string)
                 textView.scrollRangeToVisible(currentRange)
+
+                // scrollRangeToVisible only scrolls the immediate enclosing
+                // NSScrollView (VCodeHorizontalScrollView for horizontal).
+                // When vertical scrolling is handled by an ancestor scroll
+                // view (allowsVerticalScrolling = false), also scroll that
+                // ancestor to make the match visible.
+                if let layoutManager = textView.layoutManager,
+                   let textContainer = textView.textContainer,
+                   let innerScrollView = textView.enclosingScrollView,
+                   let outerScrollView = innerScrollView.enclosingScrollView,
+                   let outerDocView = outerScrollView.documentView {
+                    let glyphRange = layoutManager.glyphRange(
+                        forCharacterRange: currentRange,
+                        actualCharacterRange: nil
+                    )
+                    var matchRect = layoutManager.boundingRect(
+                        forGlyphRange: glyphRange,
+                        in: textContainer
+                    )
+                    let origin = textView.textContainerOrigin
+                    matchRect = matchRect.offsetBy(dx: origin.x, dy: origin.y)
+                    let converted = textView.convert(matchRect, to: outerDocView)
+                    outerDocView.scrollToVisible(converted)
+                }
             }
         }
     }
