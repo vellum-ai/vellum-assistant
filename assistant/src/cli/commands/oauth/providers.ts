@@ -24,6 +24,38 @@ const log = getCliLogger("cli");
 const LOOPBACK_CALLBACK_PATH = "/oauth/callback";
 
 /**
+ * Resolve a logo URL from CLI flags, enforcing mutual exclusion between
+ * --logo-url and --logo-simpleicons-slug. Returns:
+ *   - `undefined` when neither flag is set (caller should leave the field unchanged)
+ *   - `null` when `--logo-url ""` is passed (clear the stored value)
+ *   - a non-empty string URL otherwise
+ * Throws when both flags are set simultaneously.
+ */
+function resolveLogoUrlFromFlags(opts: {
+  logoUrl?: string;
+  logoSimpleiconsSlug?: string;
+}): string | null | undefined {
+  if (opts.logoUrl !== undefined && opts.logoSimpleiconsSlug !== undefined) {
+    throw new Error(
+      "--logo-url and --logo-simpleicons-slug are mutually exclusive. Provide at most one.",
+    );
+  }
+  if (opts.logoSimpleiconsSlug !== undefined) {
+    const slug = opts.logoSimpleiconsSlug.trim();
+    if (!slug) {
+      throw new Error("--logo-simpleicons-slug cannot be empty.");
+    }
+    return `https://cdn.simpleicons.org/${encodeURIComponent(slug)}`;
+  }
+  if (opts.logoUrl !== undefined) {
+    // Empty string clears the stored value (matches --revoke-url semantics
+    // documented in the `update` command help text).
+    return opts.logoUrl === "" ? null : opts.logoUrl;
+  }
+  return undefined;
+}
+
+/**
  * Resolve the redirect URI for a provider based on its loopback port.
  *
  * Resolves the loopback redirect URI for display purposes. Gateway
@@ -272,6 +304,14 @@ Examples:
       "URL to the provider's developer console / dashboard",
     )
     .option(
+      "--logo-url <url>",
+      "URL to the provider's logo image (SVG or PNG). Mutually exclusive with --logo-simpleicons-slug.",
+    )
+    .option(
+      "--logo-simpleicons-slug <slug>",
+      'Simple Icons slug (e.g. "notion", "linear"). Resolves to https://cdn.simpleicons.org/<slug>. Mutually exclusive with --logo-url.',
+    )
+    .option(
       "--client-id-placeholder <text>",
       "Placeholder text shown in the client ID input field",
     )
@@ -380,7 +420,12 @@ Examples:
       --auth-url https://example.com/oauth/authorize \\
       --token-url https://example.com/oauth/token \\
       --revoke-url https://example.com/oauth/revoke \\
-      --revoke-body-template '{"token":"{access_token}","client_id":"{client_id}"}'`,
+      --revoke-body-template '{"token":"{access_token}","client_id":"{client_id}"}'
+  $ assistant oauth providers register \\
+      --provider-key notion-custom \\
+      --auth-url https://api.notion.com/v1/oauth/authorize \\
+      --token-url https://api.notion.com/v1/oauth/token \\
+      --logo-simpleicons-slug notion`,
     )
     .action(
       (
@@ -403,6 +448,8 @@ Examples:
           displayName?: string;
           description?: string;
           dashboardUrl?: string;
+          logoUrl?: string;
+          logoSimpleiconsSlug?: string;
           clientIdPlaceholder?: string;
           clientSecret: boolean;
           loopbackPort?: string;
@@ -420,6 +467,13 @@ Examples:
         cmd: Command,
       ) => {
         try {
+          const resolvedLogoUrl = resolveLogoUrlFromFlags(opts);
+          if (resolvedLogoUrl === null) {
+            throw new Error(
+              "Cannot clear logo_url with empty --logo-url during registration. Omit the flag instead.",
+            );
+          }
+
           const row = registerProvider({
             provider: opts.providerKey,
             authorizeUrl: opts.authUrl,
@@ -444,6 +498,7 @@ Examples:
             displayLabel: opts.displayName,
             description: opts.description,
             dashboardUrl: opts.dashboardUrl,
+            logoUrl: resolvedLogoUrl,
             clientIdPlaceholder: opts.clientIdPlaceholder,
             requiresClientSecret: opts.clientSecret ? 1 : 0,
             loopbackPort: opts.loopbackPort
@@ -550,6 +605,14 @@ Examples:
       "URL to the provider's developer console / dashboard",
     )
     .option(
+      "--logo-url <url>",
+      "URL to the provider's logo image (SVG or PNG). Mutually exclusive with --logo-simpleicons-slug.",
+    )
+    .option(
+      "--logo-simpleicons-slug <slug>",
+      'Simple Icons slug (e.g. "notion", "linear"). Resolves to https://cdn.simpleicons.org/<slug>. Mutually exclusive with --logo-url.',
+    )
+    .option(
       "--client-id-placeholder <text>",
       "Placeholder text shown in the client ID input field",
     )
@@ -630,7 +693,9 @@ Examples:
       --injection-templates '[{"hostPattern":"api.example.com","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]'
   $ assistant oauth providers update custom-api \\
       --revoke-url https://api.example.com/oauth/revoke \\
-      --revoke-body-template '{"token":"{access_token}"}'`,
+      --revoke-body-template '{"token":"{access_token}"}'
+  $ assistant oauth providers update custom-api --logo-simpleicons-slug notion
+  $ assistant oauth providers update custom-api --logo-url ""`,
     )
     .action(
       (
@@ -653,6 +718,8 @@ Examples:
           displayName?: string;
           description?: string;
           dashboardUrl?: string;
+          logoUrl?: string;
+          logoSimpleiconsSlug?: string;
           clientIdPlaceholder?: string;
           clientSecret: boolean;
           loopbackPort?: string;
@@ -748,6 +815,11 @@ Examples:
             params.dashboardUrl = opts.dashboardUrl;
           if (opts.clientIdPlaceholder !== undefined)
             params.clientIdPlaceholder = opts.clientIdPlaceholder;
+
+          const resolvedLogoUrl = resolveLogoUrlFromFlags(opts);
+          if (resolvedLogoUrl !== undefined) {
+            params.logoUrl = resolvedLogoUrl;
+          }
 
           // Handle the negated --no-client-* flag: Commander defaults
           // opts.clientSecret to true; the negated form sets it to false.
