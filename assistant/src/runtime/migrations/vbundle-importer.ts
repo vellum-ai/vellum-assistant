@@ -399,10 +399,12 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
  */
 export function extractCredentialsFromBundle(
   entries: Map<string, VBundleTarEntry>,
+  manifest: ManifestType,
 ): Array<{ account: string; value: string }> {
+  const manifestPaths = new Set(manifest.files.map((f) => f.path));
   const credentials: Array<{ account: string; value: string }> = [];
   for (const [path, entry] of entries) {
-    if (path.startsWith("credentials/")) {
+    if (path.startsWith("credentials/") && manifestPaths.has(path)) {
       const account = path.slice("credentials/".length);
       if (account) {
         const value = new TextDecoder().decode(entry.data);
