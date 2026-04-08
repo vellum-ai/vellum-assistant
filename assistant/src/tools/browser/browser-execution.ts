@@ -31,7 +31,11 @@ import {
   captureScreenshotJpeg,
   dispatchClickAt,
   dispatchHoverAt,
+  dispatchInsertText,
+  dispatchKeyPress,
+  dispatchWheelScroll,
   evaluateExpression,
+  focusElement,
   getCenterPoint,
   getCurrentUrl,
   getPageTitle,
@@ -852,7 +856,7 @@ export async function executeBrowserType(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const { selector, error } = resolveSelector(context.conversationId, input);
+  const { resolved, error } = resolveElement(context.conversationId, input);
   if (error) return { content: error, isError: true };
 
   const text = typeof input.text === "string" ? input.text : "";
@@ -863,40 +867,73 @@ export async function executeBrowserType(
   const clearFirst = input.clear_first !== false; // default true
   const pressEnter = input.press_enter === true;
 
-  try {
-    const page = await browserManager.getOrCreateSessionPage(
-      context.conversationId,
-    );
+  const targetDescription =
+    resolved!.kind === "backend"
+      ? `element_id "${resolved!.eid}"`
+      : resolved!.selector;
 
-    const fillTimeout =
-      typeof input.timeout === "number" ? input.timeout : ACTION_TIMEOUT_MS;
+  const cdp = getCdpClient(context);
+  try {
+    let backendNodeId: number;
+    if (resolved!.kind === "backend") {
+      backendNodeId = resolved!.backendNodeId;
+    } else {
+      backendNodeId = await querySelectorBackendNodeId(
+        cdp,
+        resolved!.selector,
+        context.signal,
+      );
+    }
+
+    await focusElement(cdp, backendNodeId, context.signal);
 
     if (clearFirst) {
-      await page.fill(selector!, text, { timeout: fillTimeout });
-    } else {
-      // Read existing content before appending. Use .value for form inputs,
-      // with fallback to .innerText for contenteditable elements (preserves
-      // visual line breaks from <br> and block elements, unlike textContent).
-      const currentValue = (await page.evaluate(
-        `(() => { const el = document.querySelector(${JSON.stringify(
-          selector!,
-        )}); if (!el) return ''; if (typeof el.value === 'string') return el.value; return el.innerText ?? ''; })()`,
-      )) as string;
-      await page.fill(selector!, currentValue + text, { timeout: fillTimeout });
+      // Resolve the node to a Runtime.RemoteObject so we can invoke a
+      // function on the element itself via Runtime.callFunctionOn. This
+      // is more reliable than a keyboard select-all + delete sequence
+      // across input, textarea, and contenteditable targets.
+      const { object } = await cdp.send<{ object: { objectId: string } }>(
+        "DOM.resolveNode",
+        { backendNodeId },
+        context.signal,
+      );
+      await cdp.send(
+        "Runtime.callFunctionOn",
+        {
+          objectId: object.objectId,
+          functionDeclaration: `function() {
+            if (typeof this.value === "string") {
+              this.value = "";
+            } else if (this.isContentEditable) {
+              this.textContent = "";
+            }
+            this.dispatchEvent(new Event("input", { bubbles: true }));
+          }`,
+          arguments: [],
+        },
+        context.signal,
+      );
+      // Re-focus after clearing — some sites move focus when the
+      // value property is reassigned programmatically.
+      await focusElement(cdp, backendNodeId, context.signal);
     }
+
+    await dispatchInsertText(cdp, text, context.signal);
 
     if (pressEnter) {
-      await page.press(selector!, "Enter");
+      await dispatchKeyPress(cdp, "Enter", context.signal);
     }
 
-    const lines = [`Typed into element: ${selector}`];
+    const lines = [`Typed into element: ${targetDescription}`];
     if (clearFirst) lines.push("(cleared existing content first)");
     if (pressEnter) lines.push("(pressed Enter after typing)");
     return { content: lines.join("\n"), isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err, selector }, "Type failed");
+    log.error({ err, target: targetDescription }, "Type failed");
     return { content: `Error: Type failed: ${msg}`, isError: true };
+  } finally {
+    cdp.dispose();
   }
 }
 
@@ -911,39 +948,56 @@ export async function executeBrowserPressKey(
     return { content: "Error: key is required.", isError: true };
   }
 
+  const elementId =
+    typeof input.element_id === "string" ? input.element_id : null;
+  const rawSelector =
+    typeof input.selector === "string" ? input.selector : null;
+  const hasTarget = elementId !== null || rawSelector !== null;
+
+  let targetDescription: string | null = null;
+  let resolved: ResolvedElement | null = null;
+  if (hasTarget) {
+    const res = resolveElement(context.conversationId, input);
+    if (res.error) {
+      return { content: res.error, isError: true };
+    }
+    resolved = res.resolved;
+    targetDescription =
+      resolved!.kind === "backend"
+        ? `element_id "${resolved!.eid}"`
+        : resolved!.selector;
+  }
+
+  const cdp = getCdpClient(context);
   try {
-    const page = await browserManager.getOrCreateSessionPage(
-      context.conversationId,
-    );
-
-    // If element_id or selector is provided, press key on that element
-    const elementId =
-      typeof input.element_id === "string" ? input.element_id : null;
-    const rawSelector =
-      typeof input.selector === "string" ? input.selector : null;
-
-    if (elementId || rawSelector) {
-      const { selector, error } = resolveSelector(
-        context.conversationId,
-        input,
-      );
-      if (error) {
-        return { content: error, isError: true };
+    if (resolved) {
+      let backendNodeId: number;
+      if (resolved.kind === "backend") {
+        backendNodeId = resolved.backendNodeId;
+      } else {
+        backendNodeId = await querySelectorBackendNodeId(
+          cdp,
+          resolved.selector,
+          context.signal,
+        );
       }
-      await page.press(selector!, key);
+      await focusElement(cdp, backendNodeId, context.signal);
+      await dispatchKeyPress(cdp, key, context.signal);
       return {
-        content: `Pressed "${key}" on element: ${selector}`,
+        content: `Pressed "${key}" on element: ${targetDescription}`,
         isError: false,
       };
     }
 
-    // No target -> press key on the page (focused element)
-    await page.keyboard.press(key);
+    // No target -> press key on the currently focused element
+    await dispatchKeyPress(cdp, key, context.signal);
     return { content: `Pressed "${key}"`, isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, key }, "Press key failed");
     return { content: `Error: Press key failed: ${msg}`, isError: true };
+  } finally {
+    cdp.dispose();
   }
 }
 
@@ -965,35 +1019,49 @@ export async function executeBrowserScroll(
   const amount =
     typeof input.amount === "number" ? Math.abs(input.amount) : 500;
 
+  let deltaX = 0;
+  let deltaY = 0;
+  switch (direction) {
+    case "up":
+      deltaY = -amount;
+      break;
+    case "down":
+      deltaY = amount;
+      break;
+    case "left":
+      deltaX = -amount;
+      break;
+    case "right":
+      deltaX = amount;
+      break;
+  }
+
+  const cdp = getCdpClient(context);
   try {
-    const page = await browserManager.getOrCreateSessionPage(
-      context.conversationId,
+    // Fetch viewport dimensions so we can dispatch the wheel event at
+    // the viewport center — scrolling from (0, 0) misses sticky
+    // headers and overflow containers on many sites.
+    const { w, h } = await evaluateExpression<{ w: number; h: number }>(
+      cdp,
+      "({ w: window.innerWidth, h: window.innerHeight })",
+      {},
+      context.signal,
     );
 
-    let deltaX = 0;
-    let deltaY = 0;
-    switch (direction) {
-      case "up":
-        deltaY = -amount;
-        break;
-      case "down":
-        deltaY = amount;
-        break;
-      case "left":
-        deltaX = -amount;
-        break;
-      case "right":
-        deltaX = amount;
-        break;
-    }
-
-    await page.mouse.wheel(deltaX, deltaY);
+    await dispatchWheelScroll(
+      cdp,
+      { x: w / 2, y: h / 2 },
+      { deltaX, deltaY },
+      context.signal,
+    );
 
     return { content: `Scrolled ${direction} by ${amount}px`, isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, direction }, "Scroll failed");
     return { content: `Error: Scroll failed: ${msg}`, isError: true };
+  } finally {
+    cdp.dispose();
   }
 }
 
@@ -1003,7 +1071,7 @@ export async function executeBrowserSelectOption(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const { selector, error } = resolveSelector(context.conversationId, input);
+  const { resolved, error } = resolveElement(context.conversationId, input);
   if (error) return { content: error, isError: true };
 
   const value = typeof input.value === "string" ? input.value : undefined;
@@ -1017,17 +1085,60 @@ export async function executeBrowserSelectOption(
     };
   }
 
+  const targetDescription =
+    resolved!.kind === "backend"
+      ? `element_id "${resolved!.eid}"`
+      : resolved!.selector;
+
+  const cdp = getCdpClient(context);
   try {
-    const page = await browserManager.getOrCreateSessionPage(
-      context.conversationId,
+    let backendNodeId: number;
+    if (resolved!.kind === "backend") {
+      backendNodeId = resolved!.backendNodeId;
+    } else {
+      backendNodeId = await querySelectorBackendNodeId(
+        cdp,
+        resolved!.selector,
+        context.signal,
+      );
+    }
+
+    // CDP does not expose a native "set select value" command, so we
+    // resolve the node to a Runtime.RemoteObject and invoke a function
+    // on it that applies value/label/index and dispatches a bubbling
+    // `change` event.
+    const { object } = await cdp.send<{ object: { objectId: string } }>(
+      "DOM.resolveNode",
+      { backendNodeId },
+      context.signal,
     );
-
-    const option: Record<string, string | number> = {};
-    if (value !== undefined) option.value = value;
-    else if (label !== undefined) option.label = label;
-    else if (index !== undefined) option.index = index;
-
-    await page.selectOption(selector!, option);
+    await cdp.send(
+      "Runtime.callFunctionOn",
+      {
+        objectId: object.objectId,
+        functionDeclaration: `function(value, label, index) {
+          if (value !== null && value !== undefined) {
+            this.value = value;
+          } else if (label !== null && label !== undefined) {
+            for (const opt of this.options) {
+              if (opt.label === label) {
+                this.value = opt.value;
+                break;
+              }
+            }
+          } else if (index !== null && index !== undefined) {
+            this.selectedIndex = index;
+          }
+          this.dispatchEvent(new Event("change", { bubbles: true }));
+        }`,
+        arguments: [
+          { value: value ?? null },
+          { value: label ?? null },
+          { value: index ?? null },
+        ],
+      },
+      context.signal,
+    );
 
     const desc =
       value !== undefined
@@ -1036,13 +1147,15 @@ export async function executeBrowserSelectOption(
           ? `label="${label}"`
           : `index=${index}`;
     return {
-      content: `Selected option (${desc}) on element: ${selector}`,
+      content: `Selected option (${desc}) on element: ${targetDescription}`,
       isError: false,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err, selector }, "Select option failed");
+    log.error({ err, target: targetDescription }, "Select option failed");
     return { content: `Error: Select option failed: ${msg}`, isError: true };
+  } finally {
+    cdp.dispose();
   }
 }
 

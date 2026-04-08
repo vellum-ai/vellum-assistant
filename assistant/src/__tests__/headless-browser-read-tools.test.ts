@@ -54,14 +54,10 @@ const fakeCdpSession = {
 };
 
 // The mock page is served by `browserManager.getOrCreateSessionPage`
-// and is consumed by two different code paths in this file:
-//   • executeBrowserPressKey uses it as a Playwright Page (click,
-//     press, keyboard.press, etc.).
-//   • executeBrowserScreenshot / Extract / WaitFor use it only
-//     indirectly: LocalCdpClient calls `page.context().newCDPSession(
-//     page)` to obtain a CDP session and then dispatches raw CDP
-//     methods against it. The page's `context().newCDPSession` is
-//     wired to return `fakeCdpSession` above.
+// and is consumed indirectly: LocalCdpClient calls
+// `page.context().newCDPSession(page)` to obtain a CDP session and
+// then dispatches raw CDP methods against it. The page's
+// `context().newCDPSession` is wired to return `fakeCdpSession` above.
 let mockPage: {
   click: ReturnType<typeof mock>;
   fill: ReturnType<typeof mock>;
@@ -111,7 +107,6 @@ mock.module("../tools/network/url-safety.js", () => ({
 
 import {
   executeBrowserExtract,
-  executeBrowserPressKey,
   executeBrowserScreenshot,
   executeBrowserWaitFor,
   EXTRACT_LINKS_EXPRESSION,
@@ -152,71 +147,9 @@ function resetMockPage() {
   };
 }
 
-// ── browser_press_key ────────────────────────────────────────────────
-
-describe("executeBrowserPressKey", () => {
-  beforeEach(() => {
-    resetMockPage();
-    snapshotMaps.clear();
-  });
-
-  test("presses key on focused element (no target)", async () => {
-    const result = await executeBrowserPressKey({ key: "Enter" }, ctx);
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain('Pressed "Enter"');
-    expect(mockPage.keyboard.press).toHaveBeenCalledWith("Enter");
-  });
-
-  test("presses key on targeted element via element_id", async () => {
-    snapshotMaps.set(
-      "test-conversation",
-      new Map([["e1", '[data-vellum-eid="e1"]']]),
-    );
-    const result = await executeBrowserPressKey(
-      { key: "Tab", element_id: "e1" },
-      ctx,
-    );
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain('Pressed "Tab" on element');
-    expect(mockPage.press).toHaveBeenCalledWith(
-      '[data-vellum-eid="e1"]',
-      "Tab",
-    );
-  });
-
-  test("presses key on targeted element via selector", async () => {
-    const result = await executeBrowserPressKey(
-      { key: "Escape", selector: "#modal" },
-      ctx,
-    );
-    expect(result.isError).toBe(false);
-    expect(mockPage.press).toHaveBeenCalledWith("#modal", "Escape");
-  });
-
-  test("errors when key is missing", async () => {
-    const result = await executeBrowserPressKey({}, ctx);
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("key is required");
-  });
-
-  test("errors when element_id not found", async () => {
-    const result = await executeBrowserPressKey(
-      { key: "Enter", element_id: "e99" },
-      ctx,
-    );
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain('element_id "e99" not found');
-  });
-
-  test("handles press error", async () => {
-    mockPage.keyboard.press = mock(async () => {
-      throw new Error("key not recognized");
-    });
-    const result = await executeBrowserPressKey({ key: "InvalidKey" }, ctx);
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("Press key failed");
-  });
-});
+// executeBrowserPressKey tests live in
+// `headless-browser-interactions.test.ts` alongside the other
+// CDP-migrated interaction tools.
 
 // ── browser_screenshot ───────────────────────────────────────────────
 
