@@ -80,7 +80,7 @@ struct SettingsGeneralTab: View {
             }
             if MacOSClientFeatureFlagManager.shared.isEnabled("teleport"),
                let assistant = currentAssistant,
-               !assistant.isManaged && (!assistant.isRemote || assistant.isDocker) {
+               !assistant.isManaged && assistant.runsLocally {
                 TeleportSection(assistant: assistant, onClose: onClose)
             }
             if MacOSClientFeatureFlagManager.shared.isEnabled("mobile-pairing") {
