@@ -87,18 +87,21 @@ enum AssistantSwitcherMenu {
         return items
     }
 
-    /// Resolve a user-facing title for a menu row. The active assistant
-    /// prefers `IdentityInfo.current?.name` (the same source the status
-    /// tooltip uses) so users see "Luna" rather than a raw UUID. Non-active
-    /// assistants fall back to their id — LockfileAssistant doesn't carry a
-    /// display name yet, so there's nothing better we can show without a
-    /// per-assistant IDENTITY.md read. Both paths go through
-    /// `AssistantDisplayName.resolve` so the bootstrap sentinel is masked.
+    /// Resolve a user-facing title for a menu row. Preference order:
+    ///   1. For the active assistant: the live `IdentityInfo.current?.name`
+    ///      (the same source the status tooltip uses) — always freshest.
+    ///   2. `AssistantNameCache` — populated as a side effect of every
+    ///      identity fetch, so it covers any assistant the user has visited
+    ///      at least once on this machine.
+    ///   3. The raw `assistantId` UUID as a final fallback.
+    /// All candidates flow through `AssistantDisplayName.resolve` so the
+    /// bootstrap sentinel is masked.
     private static func displayTitle(for assistant: LockfileAssistant, isActive: Bool) -> String {
+        let cached = AssistantNameCache.name(for: assistant.assistantId)
         if isActive {
-            return AssistantDisplayName.resolve(IdentityInfo.current?.name, assistant.assistantId)
+            return AssistantDisplayName.resolve(IdentityInfo.current?.name, cached, assistant.assistantId)
         }
-        return AssistantDisplayName.resolve(assistant.assistantId)
+        return AssistantDisplayName.resolve(cached, assistant.assistantId)
     }
 
     /// Display a modal prompt for a new assistant name. Returns `nil` when

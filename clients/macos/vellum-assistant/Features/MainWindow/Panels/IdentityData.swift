@@ -150,12 +150,24 @@ struct IdentityInfo {
     static func refreshCache() async -> IdentityInfo? {
         let info = await loadAsync()
         cached = info
+        recordNameForActiveAssistant(info)
         return info
     }
 
     /// Seeds the cache via the gateway API.
     @MainActor static func warmCache() async {
-        cached = await loadAsync()
+        let info = await loadAsync()
+        cached = info
+        recordNameForActiveAssistant(info)
+    }
+
+    /// Side effect: persist the name for the currently active assistant into
+    /// `AssistantNameCache` so the menu-bar switcher can render real names
+    /// for non-active rows. The active id is read from the lockfile rather
+    /// than passed in so this hook is invisible to call sites.
+    @MainActor private static func recordNameForActiveAssistant(_ info: IdentityInfo?) {
+        guard let info, let activeId = LockfileAssistant.loadActiveAssistantId() else { return }
+        AssistantNameCache.record(name: info.name, for: activeId)
     }
 
     /// Load identity from the gateway API (assistant-side IDENTITY.md parsing).
