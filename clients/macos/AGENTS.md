@@ -295,6 +295,9 @@ The macOS app pairs with iOS devices via QR code with Mac-side approval. The Con
 - **Bearer Token:** Managed via JWT authentication. The pairing hero shows a "Generate Token" button when missing and a "Regenerate Token" link when present.
 
 ---
+## Build Flags
+
+- `clients/macos/build.sh` bundles the Kata 3.17.0 ARM64 kernel into `Vellum.app/Contents/Resources/DeveloperVM/` and caches the downloaded archive under `clients/macos/.container-cache/`.
 
 ## Keyboard Shortcuts
 

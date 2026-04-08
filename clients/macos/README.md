@@ -132,6 +132,7 @@ The build script uses incremental compilation and caching:
 - Running `./build.sh` again without code changes takes ~1-2s (skips binary copying, still updates Info.plist/assets/codesigning)
 - Small code changes rebuild in ~4 seconds
 - Use `./build.sh clean` if you encounter build issues, need to force a complete rebuild, or after removing resources/frameworks (incremental builds don't detect deletions)
+- The first app build downloads and caches the Kata 3.17.0 ARM64 kernel in `clients/macos/.container-cache/`, then bundles it into `Vellum.app/Contents/Resources/DeveloperVM/`
 
 ### First-Time Setup: Code Signing (Optional but Recommended)
 

@@ -78,7 +78,7 @@ clients/
 - Computer-use features (accessibility, screen capture, input injection)
 - macOS-specific integrations (menu bar, hotkeys, voice input)
 
-**Dependencies**: VellumAssistantShared, Sentry, Sparkle
+**Dependencies**: VellumAssistantShared, Apple Containerization, Sentry, Sparkle
 **Frameworks**: AppKit, ApplicationServices, AuthenticationServices, AVKit, CoreGraphics, Network, ScreenCaptureKit, Security, Speech, SpriteKit, Vision
 
 **⚠️ iOS apps should NOT depend on this target** - it links macOS-only frameworks.
@@ -106,8 +106,9 @@ cd clients/macos
 
 The build script:
 1. Runs `swift build` from `clients/macos/` (SPM finds `../Package.swift` automatically)
-2. Packages binary into `dist/Vellum.app` bundle
-3. Codesigns with ad-hoc signature (or release identity)
+2. Downloads and caches the Kata 3.17.0 ARM64 kernel into `clients/macos/.container-cache/` on the first app build, then bundles it into `dist/Vellum.app/Contents/Resources/DeveloperVM/`
+3. Packages binary into `dist/Vellum.app` bundle
+4. Codesigns with ad-hoc signature (or release identity)
 
 ### iOS App
 
