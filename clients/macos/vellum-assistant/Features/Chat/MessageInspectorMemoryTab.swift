@@ -347,10 +347,11 @@ struct MessageInspectorMemoryTab: View {
                     text: .constant(model.queryContext ?? ""),
                     language: .plain,
                     isEditable: false,
-                    isActivelyEditing: .constant(false)
+                    isActivelyEditing: .constant(false),
+                    allowsVerticalScrolling: false
                 )
                 .frame(maxWidth: .infinity)
-                .frame(minHeight: 80, maxHeight: 300)
+                .frame(minHeight: 80)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             }
         }
@@ -377,10 +378,11 @@ struct MessageInspectorMemoryTab: View {
                     text: .constant(model.injectedText ?? ""),
                     language: .plain,
                     isEditable: false,
-                    isActivelyEditing: .constant(false)
+                    isActivelyEditing: .constant(false),
+                    allowsVerticalScrolling: false
                 )
                 .frame(maxWidth: .infinity)
-                .frame(minHeight: 120, maxHeight: 400)
+                .frame(minHeight: 120)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             }
         }
