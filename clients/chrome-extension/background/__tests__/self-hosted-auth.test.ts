@@ -217,6 +217,83 @@ describe('bootstrapLocalToken', () => {
     expect(result.expiresAt).toBe(expiresAt);
   });
 
+  test('persists assistantPort when the helper frame includes it', async () => {
+    // PR 3 of the browser-use remediation plan added `assistantPort`
+    // to the native-messaging `token_response` frame so the worker
+    // can open the relay socket against the runtime port the helper
+    // actually used (instead of the hard-coded DEFAULT_RELAY_PORT).
+    // This test exercises that round-trip end-to-end.
+    const expiresAtIso = new Date(Date.now() + 60_000).toISOString();
+
+    fakeRuntime.onConnect = (port) => {
+      queueMicrotask(() => {
+        port.emitMessage({
+          type: 'token_response',
+          token: 'cap-token',
+          expiresAt: expiresAtIso,
+          guardianId: 'g-port',
+          assistantPort: 7821,
+        });
+      });
+    };
+
+    const result = await bootstrapLocalToken();
+    expect(result.assistantPort).toBe(7821);
+    expect(result.guardianId).toBe('g-port');
+
+    // And the stored value must round-trip through getStoredLocalToken.
+    const loaded = await getStoredLocalToken();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.assistantPort).toBe(7821);
+  });
+
+  test('omits assistantPort when the helper frame is missing it', async () => {
+    // Older native helpers pre-dating PR 3 don't emit the
+    // assistantPort field. Those frames must still produce a valid
+    // StoredLocalToken — the worker will fall back to the stored
+    // `relayPort` / default value when assistantPort is undefined.
+    const expiresAtIso = new Date(Date.now() + 60_000).toISOString();
+
+    fakeRuntime.onConnect = (port) => {
+      queueMicrotask(() => {
+        port.emitMessage({
+          type: 'token_response',
+          token: 'legacy-cap-token',
+          expiresAt: expiresAtIso,
+          guardianId: 'g-legacy',
+        });
+      });
+    };
+
+    const result = await bootstrapLocalToken();
+    expect(result.assistantPort).toBeUndefined();
+    expect(result.guardianId).toBe('g-legacy');
+  });
+
+  test('drops malformed assistantPort from the helper frame', async () => {
+    // Belt-and-braces: if a future native helper ships a value we
+    // can't parse (e.g. a string or an out-of-range port), we must
+    // still accept the token and drop the malformed port rather than
+    // rejecting the whole frame.
+    const expiresAtIso = new Date(Date.now() + 60_000).toISOString();
+
+    fakeRuntime.onConnect = (port) => {
+      queueMicrotask(() => {
+        port.emitMessage({
+          type: 'token_response',
+          token: 'malformed-port-token',
+          expiresAt: expiresAtIso,
+          guardianId: 'g-malformed',
+          // 99999 is out of the valid port range
+          assistantPort: 99999,
+        });
+      });
+    };
+
+    const result = await bootstrapLocalToken();
+    expect(result.assistantPort).toBeUndefined();
+  });
+
   test('malformed token_response rejects and does not persist', async () => {
     fakeRuntime.onConnect = (port) => {
       queueMicrotask(() => {
@@ -418,6 +495,32 @@ describe('getStoredLocalToken', () => {
       expiresAt: Date.now() + 60_000,
     };
     expect(await getStoredLocalToken()).toBeNull();
+  });
+
+  test('returns the stored token including assistantPort when present', async () => {
+    const token: StoredLocalToken = {
+      token: 'with-port',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-port',
+      assistantPort: 7821,
+    };
+    fakeStorage.data[STORAGE_KEY] = token;
+    const loaded = await getStoredLocalToken();
+    expect(loaded?.assistantPort).toBe(7821);
+  });
+
+  test('strips a malformed assistantPort rather than rejecting the token', async () => {
+    fakeStorage.data[STORAGE_KEY] = {
+      token: 'bad-port',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-bad',
+      assistantPort: -1,
+    };
+    const loaded = await getStoredLocalToken();
+    // Token still loads, but the bogus port was dropped.
+    expect(loaded).not.toBeNull();
+    expect(loaded?.token).toBe('bad-port');
+    expect(loaded?.assistantPort).toBeUndefined();
   });
 });
 

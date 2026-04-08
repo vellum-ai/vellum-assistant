@@ -28,6 +28,7 @@ import {
 } from './cloud-auth.js';
 import {
   bootstrapLocalToken,
+  getStoredLocalToken,
   type StoredLocalToken,
 } from './self-hosted-auth.js';
 import {
@@ -134,7 +135,19 @@ async function dispatchHostBrowserResult(
   }
 
   // Self-hosted fallback: POST directly to the local daemon using live
-  // creds.
+  // creds. Prefer the capability token from the native-messaging pair
+  // flow (PR 3 cutover); fall back to the legacy bearer token for
+  // compatibility.
+  const local = await getStoredLocalToken();
+  if (local) {
+    const fallbackPort = local.assistantPort ?? (await getRelayPort());
+    const fallbackMode: RelayMode = {
+      kind: 'self-hosted',
+      baseUrl: `http://127.0.0.1:${fallbackPort}`,
+      token: local.token,
+    };
+    return postHostBrowserResult(fallbackMode, null, result);
+  }
   const [token, port] = await Promise.all([getBearerToken(), getRelayPort()]);
   const fallbackMode: RelayMode = {
     kind: 'self-hosted',
@@ -204,13 +217,35 @@ async function buildRelayModeConfig(kind: RelayModeKind): Promise<RelayMode> {
       token: stored?.token ?? null,
     };
   }
-  // Self-hosted: re-use the existing local-token flow. The plan explicitly
-  // defers the switch to PR 13's getStoredLocalToken() to a follow-up.
-  const [token, port] = await Promise.all([getBearerToken(), getRelayPort()]);
+
+  // Self-hosted: prefer the capability token the native-messaging pair
+  // flow persisted (see self-hosted-auth.ts and PR 3 of the
+  // browser-remediation plan). The stored token already carries the
+  // assistant runtime port the helper used when it pair-bootstrapped,
+  // so we target the runtime directly without going through the
+  // legacy gateway `/v1/browser-relay/token` fallback.
+  //
+  // Compatibility branch: if there is no stored capability token yet
+  // (e.g. a chrome profile that hasn't re-paired after the cutover)
+  // we fall back to the legacy `bearerToken` / `relayPort` storage
+  // keys so existing installs keep working until the user re-pairs.
+  const local = await getStoredLocalToken();
+  if (local) {
+    const port = local.assistantPort ?? (await getRelayPort());
+    return {
+      kind: 'self-hosted',
+      baseUrl: `http://127.0.0.1:${port}`,
+      token: local.token,
+    };
+  }
+  const [legacyToken, port] = await Promise.all([
+    getBearerToken(),
+    getRelayPort(),
+  ]);
   return {
     kind: 'self-hosted',
     baseUrl: `http://127.0.0.1:${port}`,
-    token,
+    token: legacyToken,
   };
 }
 
@@ -236,10 +271,19 @@ function createRelayConnection(mode: RelayMode): RelayConnection {
       console.log(`[vellum-relay] Disconnected (code=${code}, reason=${reason || 'n/a'})`);
     },
     onReconnect: async () => {
-      // Self-hosted: attempt to mint a fresh gateway token. Cloud: no-op
-      // for now — the cloud token is stored independently via OAuth and
-      // we'd rather surface the failure to the user than silently loop.
+      // Self-hosted refresh order:
+      //  1. Re-read the stored capability token from
+      //     `self-hosted-auth.ts`. The token may have been rotated by
+      //     a re-pair in another tab, or it may simply still be valid
+      //     and the drop was a transient server bounce.
+      //  2. Fall back to the legacy gateway `/v1/browser-relay/token`
+      //     refresh for installs that haven't migrated yet.
+      // Cloud: no-op for now — the cloud token is stored
+      // independently via OAuth and we'd rather surface the failure to
+      // the user than silently loop.
       if (mode.kind === 'self-hosted') {
+        const local = await getStoredLocalToken();
+        if (local?.token) return local.token;
         const ok = await refreshToken();
         if (ok) {
           const refreshed = await getBearerToken();
@@ -433,7 +477,14 @@ async function bootstrap(): Promise<void> {
   if (autoConnect !== true) return;
   shouldConnect = true;
   if (relayMode === 'self-hosted') {
-    await refreshToken();
+    // Only mint a fresh gateway JWT if the capability-token path isn't
+    // usable yet. The capability token is the default post-cutover —
+    // the legacy refresh is only needed for installs that haven't been
+    // re-paired since the PR 3 transport change.
+    const local = await getStoredLocalToken();
+    if (!local) {
+      await refreshToken();
+    }
   }
   try {
     await connect();

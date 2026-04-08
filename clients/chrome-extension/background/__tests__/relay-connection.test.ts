@@ -226,6 +226,36 @@ describe('RelayConnection', () => {
 
       expect(instances[0].url).toBe('ws://127.0.0.1:7830/v1/browser-relay');
     });
+
+    test('self-hosted mode carries a capability token opaquely on the URL', () => {
+      // PR 3 of the browser-use remediation plan switches the
+      // self-hosted transport to present the capability token minted
+      // by the native-messaging pair flow as the WebSocket handshake
+      // bearer, in place of the gateway-minted JWT. The
+      // RelayConnection is transport-agnostic — it only has to
+      // URL-encode and forward whatever token string it receives.
+      // This test pins that invariant so a future refactor can't
+      // accidentally reintroduce JWT-specific parsing.
+      const cbs = makeCallbacks();
+      const conn = makeConn(
+        {
+          kind: 'self-hosted',
+          baseUrl: 'http://127.0.0.1:7821',
+          // Shaped like a real capability token: base64url payload +
+          // `.` + base64url signature.
+          token: 'eyJjYXAiOiJob3N0X2Jyb3dzZXJfY29tbWFuZCJ9.c29tZS1zaWc',
+        },
+        cbs,
+      );
+
+      conn.start();
+
+      expect(instances[0].url).toBe(
+        'ws://127.0.0.1:7821/v1/browser-relay?token=eyJjYXAiOiJob3N0X2Jyb3dzZXJfY29tbWFuZCJ9.c29tZS1zaWc',
+      );
+
+      conn.close();
+    });
   });
 
   describe('onMessage', () => {

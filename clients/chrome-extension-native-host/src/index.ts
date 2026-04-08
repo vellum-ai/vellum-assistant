@@ -67,6 +67,15 @@ interface TokenResponse {
   token: string;
   expiresAt: string;
   guardianId: string;
+  /**
+   * Assistant runtime HTTP port the helper used to reach
+   * `/v1/browser-extension-pair`. Echoed in the native-messaging
+   * `token_response` frame so the extension can persist it and
+   * point its self-hosted relay WebSocket at the same port without
+   * relying on the well-known default. See PR3 of the
+   * browser-use-main-remediation-plan.
+   */
+  assistantPort: number;
 }
 
 /**
@@ -276,7 +285,7 @@ async function requestToken(
   if (typeof guardianId !== "string" || guardianId.length === 0) {
     throw new Error("pair endpoint response missing guardianId");
   }
-  return { token, expiresAt, guardianId };
+  return { token, expiresAt, guardianId, assistantPort: port };
 }
 
 async function main(): Promise<void> {
@@ -348,12 +357,16 @@ async function main(): Promise<void> {
         }
 
         try {
-          const { token, expiresAt, guardianId } = await requestToken(
-            extensionOrigin!,
-            process.argv,
-          );
+          const { token, expiresAt, guardianId, assistantPort } =
+            await requestToken(extensionOrigin!, process.argv);
           await writeFrameAndExitAsync(
-            { type: "token_response", token, expiresAt, guardianId },
+            {
+              type: "token_response",
+              token,
+              expiresAt,
+              guardianId,
+              assistantPort,
+            },
             0,
           );
         } catch (err) {

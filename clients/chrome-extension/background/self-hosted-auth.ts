@@ -28,6 +28,14 @@ export interface StoredLocalToken {
   token: string;
   expiresAt: number; // ms since epoch
   guardianId: string;
+  /**
+   * Assistant runtime HTTP port echoed by the native messaging helper.
+   * When present the chrome extension uses this as the base URL for the
+   * self-hosted relay WebSocket instead of the hard-coded
+   * `DEFAULT_RELAY_PORT`. Optional for forward/back-compat with older
+   * native helpers that predate PR 3 of the browser-remediation plan.
+   */
+  assistantPort?: number;
 }
 
 const STORAGE_KEY = 'vellum.localCapabilityToken';
@@ -56,6 +64,20 @@ export async function getStoredLocalToken(): Promise<StoredLocalToken | null> {
     return null;
   }
   if (token.expiresAt <= Date.now()) return null;
+  // Strip an invalid `assistantPort` (e.g. left over from a future
+  // schema we don't know how to parse) rather than rejecting the whole
+  // token — the token itself is still usable, we just fall back to the
+  // default relay port.
+  if (
+    token.assistantPort !== undefined &&
+    (typeof token.assistantPort !== 'number' ||
+      !Number.isFinite(token.assistantPort) ||
+      token.assistantPort <= 0 ||
+      token.assistantPort > 65535)
+  ) {
+    const { assistantPort: _ignored, ...rest } = token;
+    return rest;
+  }
   return token;
 }
 
@@ -150,6 +172,7 @@ export async function bootstrapLocalToken(
         token?: unknown;
         expiresAt?: unknown;
         guardianId?: unknown;
+        assistantPort?: unknown;
         message?: unknown;
       };
 
@@ -165,10 +188,26 @@ export async function bootstrapLocalToken(
           );
           return;
         }
+        // Forward/back-compat: accept missing or malformed
+        // assistantPort. Older native helpers (pre-PR 3 of the
+        // browser-remediation plan) don't emit this field, in which
+        // case the worker falls back to the configured/default
+        // relay port.
+        let assistantPort: number | undefined;
+        const rawPort = frame.assistantPort;
+        if (
+          typeof rawPort === 'number' &&
+          Number.isFinite(rawPort) &&
+          rawPort > 0 &&
+          rawPort <= 65535
+        ) {
+          assistantPort = rawPort;
+        }
         const stored: StoredLocalToken = {
           token: frame.token,
           expiresAt,
           guardianId: frame.guardianId,
+          ...(assistantPort !== undefined ? { assistantPort } : {}),
         };
 
         // Mark settled + tear down the port SYNCHRONOUSLY so a racing

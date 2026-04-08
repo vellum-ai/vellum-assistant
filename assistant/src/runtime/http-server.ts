@@ -80,6 +80,7 @@ import {
   mintUiPageToken,
   verifyToken,
 } from "./auth/token-service.js";
+import { verifyHostBrowserCapability } from "./capability-tokens.js";
 import { sweepFailedEvents } from "./channel-retry-sweep.js";
 import { getChromeExtensionRegistry } from "./chrome-extension-registry.js";
 import { httpError } from "./http-errors.js";
@@ -817,11 +818,25 @@ export class RuntimeHttpServer {
       );
     }
 
-    // When auth is enabled we parse the JWT sub to extract the actor
-    // principal ID, which we use as the guardianId key for the
-    // ChromeExtensionRegistry. When auth is disabled (dev bypass),
-    // guardianId remains undefined and the registration is skipped —
-    // host_browser_request routing requires an authenticated guardian.
+    // When auth is enabled we accept two different kinds of token on the
+    // `/v1/browser-relay` handshake:
+    //
+    //   1. **Capability token** — a signed `host_browser_command`
+    //      capability minted by `mintHostBrowserCapability()` and handed
+    //      to the chrome extension by the native-messaging pair flow
+    //      (`/v1/browser-extension-pair`). This is the preferred,
+    //      self-hosted default: the extension never has to touch a
+    //      gateway JWT.
+    //   2. **JWT** (audience `vellum-daemon`) — the legacy path used by
+    //      the gateway-proxied cloud flow and by any compatibility
+    //      callers that still hold a daemon-bound JWT. In that case we
+    //      parse the JWT `sub` to extract the actor principal id and
+    //      fall back to the explicit `x-guardian-id` / `guardianId`
+    //      query param for service-token paths (see below).
+    //
+    // When auth is disabled (dev bypass), guardianId remains undefined
+    // and the registration is skipped — host_browser_request routing
+    // requires an authenticated guardian.
     //
     // Gateway path: when the WebSocket upgrade is proxied through the
     // gateway, the upstream token minted by `mintServiceToken()` has
@@ -836,40 +851,57 @@ export class RuntimeHttpServer {
       if (!token) {
         return httpError("UNAUTHORIZED", "Unauthorized", 401);
       }
-      const jwtResult = verifyToken(token, "vellum-daemon");
-      if (!jwtResult.ok) {
-        return httpError("UNAUTHORIZED", "Unauthorized", 401);
-      }
-      const subResult = parseSub(jwtResult.claims.sub);
-      if (subResult.ok && subResult.actorPrincipalId) {
-        // Direct actor principal — this is the loopback / desktop path.
-        guardianId = subResult.actorPrincipalId;
+      // 1) Capability-token path (self-hosted default). The chrome
+      //    extension presents the token it received from the native
+      //    messaging pair flow. We derive `guardianId` from the
+      //    capability claims directly — the claims are HMAC-signed by
+      //    the same daemon so there is no cross-tenant risk.
+      const capabilityClaims = verifyHostBrowserCapability(token);
+      if (capabilityClaims) {
+        guardianId = capabilityClaims.guardianId;
       } else {
-        // Service-token path (gateway-forwarded). The gateway must plumb
-        // the resolved actor principal as an explicit `x-guardian-id`
-        // header or `guardianId` query param. Header takes precedence
-        // because headers are easier for the gateway to forward without
-        // rewriting the URL.
-        const headerGuardianId = req.headers.get("x-guardian-id")?.trim() ?? "";
-        const queryGuardianId =
-          wsUrl.searchParams.get("guardianId")?.trim() ?? "";
-        const fallbackGuardianId = headerGuardianId || queryGuardianId;
-        if (fallbackGuardianId) {
-          guardianId = fallbackGuardianId;
+        // 2) JWT compatibility path (gateway / legacy). Fall back to the
+        //    existing verifyToken+parseSub flow so cloud callers and any
+        //    old self-hosted clients still holding a daemon JWT
+        //    continue to work during the cutover.
+        const jwtResult = verifyToken(token, "vellum-daemon");
+        if (!jwtResult.ok) {
+          return httpError("UNAUTHORIZED", "Unauthorized", 401);
+        }
+        const subResult = parseSub(jwtResult.claims.sub);
+        if (subResult.ok && subResult.actorPrincipalId) {
+          // Direct actor principal — this is the loopback / desktop path.
+          guardianId = subResult.actorPrincipalId;
         } else {
-          // No guardian context on a service-token upgrade. We log a
-          // warning so operators still see a signal but allow the
-          // upgrade to proceed with `guardianId = undefined`. The
-          // registry skips the scoped registration in that case, and
-          // host_browser_request frames will log a warning downstream
-          // if routing fails.
-          log.warn(
-            {
-              principalType: subResult.ok ? subResult.principalType : "unknown",
-              sub: jwtResult.claims.sub,
-            },
-            "Browser relay upgrade allowed without guardian context (service-token path)",
-          );
+          // Service-token path (gateway-forwarded). The gateway must plumb
+          // the resolved actor principal as an explicit `x-guardian-id`
+          // header or `guardianId` query param. Header takes precedence
+          // because headers are easier for the gateway to forward without
+          // rewriting the URL.
+          const headerGuardianId =
+            req.headers.get("x-guardian-id")?.trim() ?? "";
+          const queryGuardianId =
+            wsUrl.searchParams.get("guardianId")?.trim() ?? "";
+          const fallbackGuardianId = headerGuardianId || queryGuardianId;
+          if (fallbackGuardianId) {
+            guardianId = fallbackGuardianId;
+          } else {
+            // No guardian context on a service-token upgrade. We log a
+            // warning so operators still see a signal but allow the
+            // upgrade to proceed with `guardianId = undefined`. The
+            // registry skips the scoped registration in that case, and
+            // host_browser_request frames will log a warning downstream
+            // if routing fails.
+            log.warn(
+              {
+                principalType: subResult.ok
+                  ? subResult.principalType
+                  : "unknown",
+                sub: jwtResult.claims.sub,
+              },
+              "Browser relay upgrade allowed without guardian context (service-token path)",
+            );
+          }
         }
       }
     }

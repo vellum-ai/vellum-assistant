@@ -306,15 +306,6 @@ describe("host-browser E2E — self-hosted native messaging path", () => {
       const iso = new Date(claims!.expiresAt).toISOString();
       expect(frame.expiresAt).toBe(iso);
     });
-
-    // Phase 3 will extend `/v1/browser-relay` to accept capability tokens
-    // minted by `mintHostBrowserCapability`. Once the upgrade handler honors
-    // those tokens, this test should round-trip Browser.getVersion through
-    // the relay and assert the result frame.
-    test.todo(
-      "Phase 3: WebSocket round-trip via /v1/browser-relay?token=<cap>",
-      () => {},
-    );
   }
 
   // -------------------------------------------------------------------------

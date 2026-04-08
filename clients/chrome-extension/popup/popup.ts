@@ -1,16 +1,21 @@
 /**
  * Popup UI for the Vellum browser-relay extension.
  *
- * Auto-fetches a bearer token from the local gateway on Connect.
- * Falls back to manual token entry if the gateway is unreachable.
+ * Self-hosted pairing is governed by the "Pair local assistant" button,
+ * which spawns the native messaging helper and persists a capability
+ * token (see self-hosted-auth.ts). Connect then reads that stored
+ * capability token directly — it does NOT fall back to the legacy
+ * `/v1/browser-relay/token` gateway endpoint. If the user hasn't
+ * paired yet we surface an inline error pointing them at the Pair
+ * button instead of silently auto-fetching a JWT.
  *
  * Also exposes a "Sign in with Vellum (cloud)" button. The actual OAuth
  * flow runs in the background service worker (see worker.ts) — the popup
  * only sends a message asking the worker to start it. This avoids the
  * MV3 popup teardown race where closing the popup mid-auth would kill
  * the awaited launchWebAuthFlow promise before the token was persisted.
- * Cloud sign-in and self-hosted token entry coexist — they represent
- * the two possible relay transports.
+ * Cloud sign-in and self-hosted Pair coexist — they represent the two
+ * possible relay transports.
  */
 
 import { getStoredToken, type StoredCloudToken } from '../background/cloud-auth.js';
@@ -96,18 +101,6 @@ function getPort(): number {
   return DEFAULT_RELAY_PORT;
 }
 
-async function fetchTokenFromGateway(port: number): Promise<string> {
-  const resp = await fetch(`http://127.0.0.1:${port}/v1/browser-relay/token`);
-  if (!resp.ok) {
-    throw new Error(`Gateway returned ${resp.status}`);
-  }
-  const data = await resp.json();
-  if (typeof data.token !== 'string') {
-    throw new Error('Invalid token response');
-  }
-  return data.token;
-}
-
 btnConnect.addEventListener('click', async () => {
   const port = getPort();
   const storageUpdate: Record<string, unknown> = { autoConnect: true };
@@ -134,22 +127,41 @@ btnConnect.addEventListener('click', async () => {
         : 'self-hosted';
 
   // Only honour the manual token input when the user has explicitly revealed
-  // it.  When manual mode is hidden and we're in self-hosted mode, auto-fetch
-  // a fresh token from the gateway so we never silently reuse an expired JWT
-  // that was pre-loaded from storage.
+  // it. When manual mode is hidden and we're in self-hosted mode, we now
+  // rely on the native-messaging Pair flow (PR 3 of the browser-remediation
+  // plan): the stored capability token is what authenticates the relay
+  // WebSocket, not a gateway-minted JWT. If the user hasn't paired yet we
+  // refuse to auto-fetch from the gateway and instead surface an error
+  // pointing them at the Pair button.
+  //
+  // Legacy compatibility: if a `bearerToken` was already written to storage
+  // by a pre-PR 3 install, we still honour it (the worker's fallback branch
+  // in buildRelayModeConfig will pick it up) so existing installs keep
+  // working until they re-pair.
   let token = manualMode ? tokenInput.value.trim() : '';
 
   if (!token && relayMode === 'self-hosted') {
-    try {
-      btnConnect.disabled = true;
-      statusText.textContent = 'Fetching token…';
-      token = await fetchTokenFromGateway(port);
-    } catch (err) {
-      btnConnect.disabled = false;
-      showError(`Could not auto-fetch token: ${err instanceof Error ? err.message : String(err)}`);
-      statusText.textContent = 'Not connected';
-      return;
+    const pairedToken = await getStoredLocalToken();
+    if (!pairedToken) {
+      // No capability token yet. Check for a legacy bearer token — that
+      // path is honoured by the service worker's buildRelayModeConfig
+      // fallback, so we let the worker take the connect attempt and
+      // surface its MissingTokenError if there's nothing usable.
+      const legacy = await chrome.storage.local.get('bearerToken');
+      if (typeof legacy.bearerToken !== 'string' || !legacy.bearerToken) {
+        showError(
+          'Self-hosted relay is not paired yet — click "Pair local assistant" below before connecting.',
+        );
+        return;
+      }
+      // Fall through: the worker will read the legacy bearer token and
+      // connect to the compatibility branch.
     }
+    // When we have a paired capability token we deliberately do NOT
+    // write anything to the legacy `bearerToken` storage key — the
+    // worker's buildRelayModeConfig reads the capability token
+    // directly and persisting a stale bearer token here would just
+    // leave orphaned state around after a future clearLocalToken.
   }
 
   // In cloud mode with no manual token we proceed with no bearerToken —
