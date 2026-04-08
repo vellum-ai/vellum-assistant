@@ -74,6 +74,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var popOutLocalMonitor: Any?
     public let services = AppServices()
     let vellumCli = VellumCli()
+    let appleContainersLauncher = AppleContainersLauncher()
     public let updateManager = UpdateManager()
     let debugStateWriter = DebugStateWriter()
     private let telemetryClient: any TelemetryClientProtocol = TelemetryClient()
