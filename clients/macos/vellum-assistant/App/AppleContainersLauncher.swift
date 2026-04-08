@@ -83,11 +83,16 @@ final class AppleContainersLauncher: AssistantManagementClient {
         )
 
         let platformURL: String
-        #if DEBUG
-        platformURL = "https://dev-platform.vellum.ai"
-        #else
-        platformURL = "https://platform.vellum.ai"
-        #endif
+        if let envOverride = ProcessInfo.processInfo.environment["VELLUM_PLATFORM_URL"],
+           !envOverride.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            platformURL = envOverride.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            #if DEBUG
+            platformURL = "https://dev-platform.vellum.ai"
+            #else
+            platformURL = "https://platform.vellum.ai"
+            #endif
+        }
 
         let config = AppleContainersPodRuntime.Configuration(
             instanceName: assistantName,
