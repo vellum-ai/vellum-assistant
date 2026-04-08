@@ -61,7 +61,7 @@ public final class GatewayConnectionManager: ObservableObject {
               let assistant = LockfileAssistant.loadByName(id) else {
             return false
         }
-        return (!assistant.isRemote || assistant.isDocker) && !assistant.isManaged
+        return assistant.runsLocally && !assistant.isManaged
         #else
         return false
         #endif
