@@ -145,10 +145,14 @@ public final class ManagedAssistantBootstrapService {
                 activeAssistantIdStore.clearActiveAssistantId()
                 if multiAssistantEnabled {
                     do {
+                        // Assumes the platform returns assistants newest-first.
+                        // With the 5-assistant-per-org cap, a wrong order would
+                        // at worst reuse a slightly-older-but-still-valid
+                        // assistant instead of the newest — acceptable.
                         let existing = try await authService.listAssistants(organizationId: organizationId)
-                        if let mostRecent = Self.mostRecent(existing) {
-                            log.info("multi-assistant flag on: reusing most recent assistant \(mostRecent.id, privacy: .public) from list")
-                            return .reusedExisting(mostRecent)
+                        if let first = existing.first {
+                            log.info("multi-assistant flag on: reusing first assistant \(first.id, privacy: .public) from list")
+                            return .reusedExisting(first)
                         }
                         log.info("multi-assistant flag on: list returned empty, falling through to hatch (first-run UX)")
                     } catch let error as PlatformAPIError {
@@ -268,20 +272,6 @@ public final class ManagedAssistantBootstrapService {
             }
         } catch let error as PlatformAPIError {
             throw mapPlatformError(error)
-        }
-    }
-
-    /// Pick the most recently created assistant from a list. Assistants without a
-    /// `created_at` timestamp sort to the end so any dated entry is preferred.
-    static func mostRecent(_ assistants: [PlatformAssistant]) -> PlatformAssistant? {
-        guard !assistants.isEmpty else { return nil }
-        return assistants.max { lhs, rhs in
-            switch (lhs.created_at, rhs.created_at) {
-            case let (l?, r?): return l < r
-            case (nil, _?):    return true
-            case (_?, nil):    return false
-            case (nil, nil):   return false
-            }
         }
     }
 

@@ -60,18 +60,19 @@ final class ManagedAssistantBootstrapServiceTests: XCTestCase {
         }
     }
 
-    // MARK: - Flag on + 404 + non-empty list: reuse most recent, do not hatch
+    // MARK: - Flag on + 404 + non-empty list: reuse first from list, do not hatch
 
-    func testFlagOn_404_nonEmptyList_returnsMostRecentWithoutHatching() async throws {
+    func testFlagOn_404_nonEmptyList_returnsFirstWithoutHatching() async throws {
+        // The bootstrap trusts the platform to return newest-first, so it
+        // just takes `results.first`. Non-empty list → reuse, no hatch.
         let idStore = MockActiveAssistantIdStore(storedId: "stale-id")
-        let older = PlatformAssistant(id: "older", created_at: "2024-01-01T00:00:00Z")
-        let newer = PlatformAssistant(id: "newer", created_at: "2025-06-15T12:00:00Z")
-        let undated = PlatformAssistant(id: "undated", created_at: nil)
+        let first = PlatformAssistant(id: "newest", name: "Newest")
+        let second = PlatformAssistant(id: "older", name: "Older")
 
         let auth = MockBootstrapAuthService(
             organizations: [PlatformOrganization(id: "org-test", name: "Org")],
             getAssistantResult: .notFound,
-            listAssistantsResult: [older, undated, newer]
+            listAssistantsResult: [first, second]
         )
         let service = ManagedAssistantBootstrapService(
             authService: auth,
@@ -85,7 +86,7 @@ final class ManagedAssistantBootstrapServiceTests: XCTestCase {
         XCTAssertEqual(auth.listAssistantsCallCount, 1)
         XCTAssertEqual(auth.hatchCallCount, 0, "Flag on + non-empty list must not hatch")
         if case .reusedExisting(let a) = outcome {
-            XCTAssertEqual(a.id, "newer", "Should return the most-recently-created assistant")
+            XCTAssertEqual(a.id, "newest", "Should return the first assistant from the list")
         } else {
             XCTFail("Expected reusedExisting, got \(outcome)")
         }
