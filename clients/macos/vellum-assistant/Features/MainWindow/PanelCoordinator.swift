@@ -723,6 +723,9 @@ struct ActiveChatViewWrapper: View {
             }
         }
         .animation(VAnimation.standard, value: windowState.inspectorMessageId)
+        .onDisappear {
+            windowState.inspectorMessageId = nil
+        }
         .onChange(of: conversationId) { _, _ in
             windowState.inspectorMessageId = nil
         }
