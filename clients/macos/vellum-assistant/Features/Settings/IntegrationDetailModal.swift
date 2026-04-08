@@ -249,7 +249,10 @@ struct IntegrationDetailModal: View {
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentTertiary)
                 } else {
-                    ForEach(connections, id: \.id) { entry in
+                    ForEach(Array(connections.enumerated()), id: \.element.id) { index, entry in
+                        if index > 0 {
+                            Divider()
+                        }
                         HStack(alignment: .center, spacing: VSpacing.lg) {
                             VIconView(.circleUser, size: 14)
                                 .foregroundStyle(VColor.contentSecondary)
@@ -270,6 +273,8 @@ struct IntegrationDetailModal: View {
                         }
                     }
                 }
+
+                Divider()
 
                 // Connect account button
                 if isConnecting {
@@ -423,10 +428,15 @@ struct IntegrationDetailModal: View {
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentTertiary)
                 } else {
-                    ForEach(appConnections) { conn in
+                    ForEach(Array(appConnections.enumerated()), id: \.element.id) { index, conn in
+                        if index > 0 {
+                            Divider()
+                        }
                         yourOwnConnectionRow(for: conn, appId: app.id)
                     }
                 }
+
+                Divider()
 
                 // Connect button
                 if store.yourOwnOAuthConnectingAppId == app.id {
