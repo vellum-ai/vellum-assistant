@@ -116,13 +116,32 @@ btnConnect.addEventListener('click', async () => {
 
   errorText.style.display = 'none';
 
+  // Read the current relay mode so we know whether to auto-fetch a local
+  // daemon token. In cloud mode the worker uses the stored cloud token
+  // (vellum.cloudAuthToken) directly, so the popup must NOT try to hit
+  // localhost — a cloud-only user may not have a local assistant running.
+  //
+  // We prefer the radio button's checked state as a tiebreaker: if the
+  // user just toggled the radio, the async chrome.storage.local.set from
+  // handleModeChange() may not have landed yet. The DOM is the source of
+  // truth for the user's current intent.
+  const modeStorage = await chrome.storage.local.get(RELAY_MODE_KEY);
+  const storedMode = modeStorage[RELAY_MODE_KEY];
+  const relayMode: RelayModeKind = modeCloud.checked
+    ? 'cloud'
+    : modeSelfHosted.checked
+      ? 'self-hosted'
+      : storedMode === 'cloud'
+        ? 'cloud'
+        : 'self-hosted';
+
   // Only honour the manual token input when the user has explicitly revealed
-  // it.  When manual mode is hidden, always auto-fetch a fresh token from the
-  // gateway so we never silently reuse an expired JWT that was pre-loaded from
-  // storage.
+  // it.  When manual mode is hidden and we're in self-hosted mode, auto-fetch
+  // a fresh token from the gateway so we never silently reuse an expired JWT
+  // that was pre-loaded from storage.
   let token = manualMode ? tokenInput.value.trim() : '';
 
-  if (!token) {
+  if (!token && relayMode === 'self-hosted') {
     try {
       btnConnect.disabled = true;
       statusText.textContent = 'Fetching token…';
@@ -134,6 +153,10 @@ btnConnect.addEventListener('click', async () => {
       return;
     }
   }
+
+  // In cloud mode with no manual token we proceed with no bearerToken —
+  // the worker reads vellum.cloudAuthToken from chrome.storage when it
+  // builds the relay mode config in buildRelayModeConfig().
 
   if (token) storageUpdate.bearerToken = token;
   if (portInput.value.trim()) {
