@@ -125,7 +125,7 @@ struct MessageListContentView: View, Equatable {
         }
         .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
         .id("thinking-indicator")
-        .transition(.opacity.combined(with: .move(edge: .bottom)))
+        .transition(.opacity)
     }
 
     @ViewBuilder
@@ -136,7 +136,7 @@ struct MessageListContentView: View, Equatable {
         )
         .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
         .id("compacting-indicator")
-        .transition(.opacity.combined(with: .move(edge: .bottom)))
+        .transition(.opacity)
     }
 
     @ViewBuilder
@@ -247,7 +247,7 @@ struct MessageListContentView: View, Equatable {
                 )
                     .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
                     .id("subagent-\(subagent.id)")
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    .transition(.opacity)
             }
 
             if state.shouldShowThinkingIndicator && state.anchoredThinkingIndex == nil {
@@ -264,7 +264,7 @@ struct MessageListContentView: View, Equatable {
                 }
                 .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
                 .id("streaming-without-text-indicator")
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                .transition(.opacity)
             } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
                 compactingIndicatorRow()
             }
