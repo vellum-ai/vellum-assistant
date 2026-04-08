@@ -25,10 +25,6 @@ struct MainWindowView: View {
     @State var sidebar = SidebarInteractionState()
     @AppStorage("isAppChatOpen") var isAppChatOpen: Bool = false
     @State private var jitPermissionManager = JITPermissionManager()
-    @State var showConversationActionsDrawer = false
-    /// Frame of the conversation title button in the coordinate space of coreLayoutView,
-    /// used to position the actions drawer directly below it.
-    @State var conversationTitleFrame: CGRect = .zero
     /// Window size tracked via onGeometryChange, used for zoom scaling
     /// and panel width calculations without a synchronous GeometryReader.
     @State private var windowSize: CGSize = CGSize(width: 800, height: 600)
@@ -235,12 +231,6 @@ struct MainWindowView: View {
         )
     }
 
-    func dismissConversationDrawer() {
-        withAnimation(VAnimation.fast) {
-            showConversationActionsDrawer = false
-        }
-    }
-
     func startRenameActiveConversation() {
         guard let id = conversationManager.activeConversationId,
               let conversation = conversationManager.activeConversation else { return }
@@ -281,10 +271,6 @@ struct MainWindowView: View {
                 // but not on draft promotion (nil → UUID) which happens on first send.
                 if let oldId, oldId != newId, voiceModeManager.state != .off {
                     voiceModeManager.deactivate()
-                }
-                // Dismiss conversation actions drawer on conversation switch
-                if showConversationActionsDrawer {
-                    showConversationActionsDrawer = false
                 }
             }
             .onChange(of: windowState.selection) { oldSelection, newSelection in
@@ -506,40 +492,34 @@ struct MainWindowView: View {
                     sidebarExpandedWidth: sidebarExpandedWidth,
                     sidebarCollapsedWidth: sidebarCollapsedWidth,
                     isSettingsOpen: isSettingsOpen,
-                    showDrawer: $showConversationActionsDrawer,
-                    conversationTitleFrame: $conversationTitleFrame,
-                    onCopy: { copyActiveConversationToClipboard(); dismissConversationDrawer() },
+                    onCopy: { copyActiveConversationToClipboard() },
                     onForkConversation: {
-                        Task {
-                            await conversationManager.forkActiveConversation()
-                            await MainActor.run {
-                                dismissConversationDrawer()
-                            }
-                        }
+                        Task { await conversationManager.forkActiveConversation() }
                     },
                     onPin: {
                         guard let id = conversationManager.activeConversationId else { return }
                         conversationManager.pinConversation(id: id)
-                        dismissConversationDrawer()
                     },
                     onUnpin: {
                         guard let id = conversationManager.activeConversationId else { return }
                         conversationManager.unpinConversation(id: id)
-                        dismissConversationDrawer()
                     },
                     onArchive: {
                         guard let id = conversationManager.activeConversationId else { return }
                         conversationManager.archiveConversation(id: id)
-                        dismissConversationDrawer()
                     },
-                    onRename: { startRenameActiveConversation(); dismissConversationDrawer() },
+                    onRename: { startRenameActiveConversation() },
                     onOpenForkParent: { openForkParentConversation() },
                     onAnalyzeConversation: {
-                        Task {
-                            await conversationManager.analyzeActiveConversation()
-                            await MainActor.run { dismissConversationDrawer() }
-                        }
-                    }
+                        Task { await conversationManager.analyzeActiveConversation() }
+                    },
+                    onOpenInNewWindow: conversationManager.activeConversation?.conversationId != nil ? {
+                        guard let id = conversationManager.activeConversationId else { return }
+                        AppDelegate.shared?.threadWindowManager?.openThread(
+                            conversationLocalId: id,
+                            conversationManager: conversationManager
+                        )
+                    } : nil
                 )
             }
         }
@@ -658,8 +638,6 @@ struct MainWindowView: View {
     private func coreLayoutContent(windowSize: CGSize) -> some View {
         coreLayoutBase(windowSize: windowSize)
             .overlay { preferencesDismissLayer }
-            .overlay { conversationActionsDismissLayer }
-            .overlay(alignment: .topLeading) { conversationActionsDrawerLayer }
             .overlay(alignment: .bottomLeading) { preferencesDrawerLayer }
             .sheet(isPresented: $showEarnCreditsModal) {
                 EarnCreditsModal()
@@ -885,8 +863,6 @@ private struct ConversationTitleOverlay: View {
     let sidebarExpandedWidth: CGFloat
     let sidebarCollapsedWidth: CGFloat
     let isSettingsOpen: Bool
-    @Binding var showDrawer: Bool
-    @Binding var conversationTitleFrame: CGRect
     let onCopy: () -> Void
     let onForkConversation: () -> Void
     let onPin: () -> Void
@@ -895,6 +871,7 @@ private struct ConversationTitleOverlay: View {
     let onRename: () -> Void
     let onOpenForkParent: () -> Void
     let onAnalyzeConversation: () -> Void
+    var onOpenInNewWindow: (() -> Void)? = nil
 
     private var presentation: ConversationHeaderPresentation {
         ConversationHeaderPresentation(
@@ -915,13 +892,8 @@ private struct ConversationTitleOverlay: View {
             onRename: onRename,
             onOpenForkParent: onOpenForkParent,
             onAnalyzeConversation: onAnalyzeConversation,
-            showDrawer: $showDrawer
+            onOpenInNewWindow: onOpenInNewWindow
         )
-        .onGeometryChange(for: CGRect.self) { proxy in
-            proxy.frame(in: .named("coreLayout"))
-        } action: { newFrame in
-            conversationTitleFrame = newFrame
-        }
         .padding(.horizontal, 120)
         .offset(x: isSettingsOpen ? 0 : ((sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth) + 16) / 2)
         .animation(VAnimation.panel, value: sidebarExpanded)

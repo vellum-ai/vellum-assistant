@@ -19,65 +19,6 @@ extension MainWindowView {
     }
 
     @ViewBuilder
-    var conversationActionsDismissLayer: some View {
-        if showConversationActionsDrawer {
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture { dismissConversationDrawer() }
-        }
-    }
-
-    @ViewBuilder
-    var conversationActionsDrawerLayer: some View {
-        if showConversationActionsDrawer {
-            ConversationActionsDrawer(
-                presentation: conversationHeaderPresentation,
-                onCopy: { copyActiveConversationToClipboard(); dismissConversationDrawer() },
-                onForkConversation: {
-                    Task {
-                        await conversationManager.forkActiveConversation()
-                        await MainActor.run {
-                            dismissConversationDrawer()
-                        }
-                    }
-                },
-                onPin: {
-                    guard let id = conversationManager.activeConversationId else { return }
-                    conversationManager.pinConversation(id: id)
-                    dismissConversationDrawer()
-                },
-                onUnpin: {
-                    guard let id = conversationManager.activeConversationId else { return }
-                    conversationManager.unpinConversation(id: id)
-                    dismissConversationDrawer()
-                },
-                onArchive: {
-                    guard let id = conversationManager.activeConversationId else { return }
-                    conversationManager.archiveConversation(id: id)
-                    dismissConversationDrawer()
-                },
-                onRename: { startRenameActiveConversation(); dismissConversationDrawer() },
-                onAnalyzeConversation: {
-                    Task {
-                        await conversationManager.analyzeActiveConversation()
-                        await MainActor.run { dismissConversationDrawer() }
-                    }
-                },
-                onOpenInNewWindow: conversationManager.activeConversation?.conversationId != nil ? {
-                    guard let id = conversationManager.activeConversationId else { return }
-                    AppDelegate.shared?.threadWindowManager?.openThread(
-                        conversationLocalId: id,
-                        conversationManager: conversationManager
-                    )
-                    dismissConversationDrawer()
-                } : nil
-            )
-            .offset(x: conversationTitleFrame.minX, y: conversationTitleFrame.maxY)
-            .zIndex(10)
-        }
-    }
-
-    @ViewBuilder
     var preferencesDrawerLayer: some View {
         if sidebar.showPreferencesDrawer {
             let drawerWidth = sidebarExpandedWidth - VSpacing.sm * 2

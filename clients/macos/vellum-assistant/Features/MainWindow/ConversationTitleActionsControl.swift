@@ -1,8 +1,11 @@
 import SwiftUI
 import VellumAssistantShared
+#if os(macOS)
+import AppKit
+#endif
 
 /// Top-left conversation header above the chat: shows conversation title + chevron.
-/// Tapping opens a drawer-style popover with conversation actions.
+/// Tapping opens a VMenuPanel centered below the title with conversation actions.
 struct ConversationTitleActionsControl: View {
     let presentation: ConversationHeaderPresentation
     let onCopy: () -> Void
@@ -13,7 +16,16 @@ struct ConversationTitleActionsControl: View {
     let onRename: () -> Void
     let onOpenForkParent: () -> Void
     let onAnalyzeConversation: () -> Void
-    @Binding var showDrawer: Bool
+    var onOpenInNewWindow: (() -> Void)? = nil
+
+    #if os(macOS)
+    @State private var isMenuOpen = false
+    @State private var activePanel: VMenuPanel?
+    @State private var triggerFrame: CGRect = .zero
+
+    /// Fixed width for the conversation actions menu (220–260pt range).
+    static let menuWidth: CGFloat = 240
+    #endif
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -23,13 +35,32 @@ struct ConversationTitleActionsControl: View {
                 style: .ghost,
                 tintColor: VColor.contentDefault
             ) {
+                #if os(macOS)
                 if presentation.showsActionsMenu {
-                    showDrawer.toggle()
+                    if isMenuOpen {
+                        activePanel?.close()
+                        activePanel = nil
+                        isMenuOpen = false
+                    } else {
+                        showMenu()
+                    }
                 }
+                #endif
             }
             .lineLimit(1)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, VSpacing.xl)
+            #if os(macOS)
+            .overlay {
+                GeometryReader { geo in
+                    Color.clear
+                        .onAppear { triggerFrame = geo.frame(in: .global) }
+                        .onChange(of: geo.frame(in: .global)) { _, newFrame in
+                            triggerFrame = newFrame
+                        }
+                }
+            }
+            #endif
 
             if let parentTitle = presentation.forkParentTitle, presentation.showsForkParentLink {
                 Button(action: onOpenForkParent) {
@@ -48,10 +79,76 @@ struct ConversationTitleActionsControl: View {
             }
         }
     }
+
+    #if os(macOS)
+    private func showMenu() {
+        guard !isMenuOpen else { return }
+        isMenuOpen = true
+
+        guard let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) else {
+            isMenuOpen = false
+            return
+        }
+
+        // Convert the trigger button's bottom-center to screen coordinates.
+        // SwiftUI's global coordinate space has y increasing downward;
+        // AppKit's screen coordinates have y increasing upward.
+        let triggerBottomCenter = CGPoint(
+            x: triggerFrame.midX,
+            y: triggerFrame.maxY
+        )
+        let screenPoint = window.convertPoint(toScreen: NSPoint(
+            x: triggerBottomCenter.x,
+            y: window.frame.height - triggerBottomCenter.y
+        ))
+
+        // Offset the screen point left by half the menu width so the menu
+        // is centered beneath the title. VMenuPanel.clampedOrigin will
+        // clamp to screen edges if this overflows.
+        let centeredScreenPoint = CGPoint(
+            x: screenPoint.x - Self.menuWidth / 2 + VMenuPanel.shadowInset,
+            y: screenPoint.y
+        )
+
+        // Compute trigger rect in screen coordinates so VMenuPanel's
+        // click-outside handler can ignore clicks on the trigger button.
+        let triggerScreenOrigin = window.convertPoint(toScreen: NSPoint(
+            x: triggerFrame.minX,
+            y: window.frame.height - triggerFrame.maxY
+        ))
+        let triggerScreenRect = CGRect(
+            origin: triggerScreenOrigin,
+            size: CGSize(width: triggerFrame.width, height: triggerFrame.height)
+        )
+
+        let appearance = window.effectiveAppearance
+        activePanel = VMenuPanel.show(
+            at: centeredScreenPoint,
+            sourceWindow: window,
+            sourceAppearance: appearance,
+            excludeRect: triggerScreenRect
+        ) {
+            ConversationActionsMenuContent(
+                presentation: presentation,
+                onCopy: onCopy,
+                onForkConversation: onForkConversation,
+                onPin: onPin,
+                onUnpin: onUnpin,
+                onArchive: onArchive,
+                onRename: onRename,
+                onAnalyzeConversation: onAnalyzeConversation,
+                onOpenInNewWindow: onOpenInNewWindow
+            )
+        } onDismiss: {
+            isMenuOpen = false
+            activePanel = nil
+        }
+    }
+    #endif
 }
 
-/// Drawer-style popover for conversation actions, matching the preferences drawer pattern.
-struct ConversationActionsDrawer: View {
+/// Menu content for the conversation actions dropdown.
+struct ConversationActionsMenuContent: View {
     let presentation: ConversationHeaderPresentation
     let onCopy: () -> Void
     let onForkConversation: () -> Void
@@ -63,7 +160,7 @@ struct ConversationActionsDrawer: View {
     var onOpenInNewWindow: (() -> Void)? = nil
 
     var body: some View {
-        VMenu(width: 200) {
+        VMenu(width: ConversationTitleActionsControl.menuWidth) {
             if presentation.canCopy {
                 VMenuItem(icon: VIcon.copy.rawValue, label: "Copy full conversation", action: onCopy)
             }
@@ -96,6 +193,5 @@ struct ConversationActionsDrawer: View {
                 VMenuItem(icon: VIcon.archive.rawValue, label: "Archive", action: onArchive)
             }
         }
-        .transition(.identity)
     }
 }
