@@ -186,6 +186,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "multi-platform-assistant",
+      "scope": "macos",
+      "key": "multi-platform-assistant",
+      "label": "Multi-Platform Assistant Switcher",
+      "description": "Enable the menu-bar assistant switcher for managing multiple platform-hosted assistants (new/switch/retire)",
+      "defaultEnabled": false
+    },
+    {
       "id": "quick-input",
       "scope": "macos",
       "key": "quick-input",

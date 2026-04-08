@@ -86,6 +86,13 @@ final class AssistantSwitcherViewModel {
     /// then refreshes local state synchronously so the UI updates within one
     /// event loop tick rather than waiting for `activeAssistantDidChange`.
     func select(assistantId: String) async throws {
+        // No-op when the target is already the active assistant. Without
+        // this guard, clicking the already-checked row would drive the
+        // coordinator's teardown/bring-up path and disconnect SSE for no
+        // reason, interrupting any in-flight work.
+        if assistantId == selectedAssistantId {
+            return
+        }
         try await switchHandler(assistantId)
         refresh()
     }

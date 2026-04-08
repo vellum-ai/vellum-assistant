@@ -74,6 +74,23 @@ final class AssistantSwitcherViewModelTests: XCTestCase {
                        "refresh() should run after select and pick up the new active id")
     }
 
+    func testSelectIsNoOpWhenAlreadyActive() async throws {
+        let managedA = makeAssistant(id: "managed-a", runtimeUrl: "https://platform.example.com")
+        let spy = SwitcherSpy()
+        let vm = AssistantSwitcherViewModel(
+            switchHandler: spy.switchHandler,
+            createHandler: spy.createHandler,
+            retireHandler: spy.retireHandler,
+            lockfileLoader: { [managedA] },
+            activeIdLoader: { "managed-a" }
+        )
+
+        try await vm.select(assistantId: "managed-a")
+
+        XCTAssertTrue(spy.switchCalls.isEmpty,
+                      "Selecting the already-active assistant must not drive the switch handler")
+    }
+
     // MARK: - Active change notification
 
     func testActiveAssistantDidChangeTriggersRefresh() {
