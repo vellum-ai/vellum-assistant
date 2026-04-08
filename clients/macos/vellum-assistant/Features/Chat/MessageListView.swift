@@ -128,14 +128,8 @@ struct MessageListView: View {
             .defaultScrollAnchor(.bottom, for: .initialOffset)
             .scrollPosition($scrollPosition)
             .environment(\.suppressAutoScroll, { [self] in
-                scrollState.endStabilization()
-                if scrollState.isFollowingBottom {
-                    os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=expansionPinning")
-                    scrollState.requestPinToBottom()
-                } else {
-                    os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=offBottomExpansion")
-                    scrollState.beginStabilization(.expansion)
-                }
+                os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=manualExpansionDetach")
+                scrollState.handleManualExpansionInteraction()
             })
             .onScrollPhaseChange { oldPhase, newPhase in
                 scrollState.scrollPhase = newPhase
