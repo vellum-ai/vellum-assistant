@@ -99,10 +99,11 @@ public final class SubagentDetailStore {
     /// Staged usage stat updates accumulate here between flushes.
     @ObservationIgnored
     private var stagedUsage: [String: SubagentUsageStats] = [:]
-    /// Subagent IDs that have received a terminal status (completed/failed/aborted).
-    /// Late `.usageUpdate` deltas are skipped for these to prevent double-counting.
+    /// Subagent IDs where `recordStatusChanged` has written cumulative usage stats.
+    /// Late `.usageUpdate` deltas are skipped for these to prevent double-counting
+    /// (usageUpdate uses additive estimatedCost while recordStatusChanged writes cumulative).
     @ObservationIgnored
-    private var terminalSubagentIds: Set<String> = []
+    private var terminalUsageReceivedIds: Set<String> = []
     /// The coalescing flush task; non-nil while a flush is scheduled.
     @ObservationIgnored
     private var flushTask: Task<Void, Never>?
@@ -238,8 +239,8 @@ public final class SubagentDetailStore {
 
     /// Record a status change with optional usage stats.
     public func recordStatusChanged(subagentId: String, status: SubagentStatus, usage: UsageStats?) {
-        if status.isTerminal {
-            terminalSubagentIds.insert(subagentId)
+        if let usage, status.isTerminal {
+            terminalUsageReceivedIds.insert(subagentId)
         }
         if let usage {
             stagedUsage[subagentId] = SubagentUsageStats(
@@ -336,6 +337,9 @@ public final class SubagentDetailStore {
             stageEvents(events, for: subagentId)
 
         case .usageUpdate(let update):
+            // Skip late deltas after recordStatusChanged has written cumulative stats
+            // to avoid double-counting estimatedCost (which uses additive accumulation).
+            guard !terminalUsageReceivedIds.contains(subagentId) else { break }
             let current = stagedUsage[subagentId] ?? subagentStates[subagentId]?.usageStats ?? SubagentUsageStats()
             stagedUsage[subagentId] = SubagentUsageStats(
                 inputTokens: update.totalInputTokens,
