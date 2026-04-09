@@ -1,15 +1,13 @@
 /**
- * Platform callback route registration for platform-managed deployments.
+ * Platform callback route registration.
  *
- * When the assistant daemon runs as a platform-managed instance (IS_PLATFORM=true)
- * with a configured VELLUM_PLATFORM_URL and PLATFORM_ASSISTANT_ID, external
- * service callbacks (Twilio webhooks, OAuth redirects, Telegram webhooks, etc.)
- * must route through the platform's gateway proxy instead of hitting the
- * assistant directly.
+ * Both platform-managed (IS_PLATFORM=true) and self-hosted assistants can
+ * register callback routes with the platform so inbound provider webhooks
+ * (Telegram, Twilio, email, OAuth) are forwarded correctly.
  *
- * This module registers callback routes with the platform's internal
- * gateway endpoint so the platform knows how to forward inbound provider
- * webhooks to the correct platform-managed assistant instance.
+ * Platform-managed assistants pick up context from environment variables.
+ * Self-hosted assistants use stored credentials (from `assistant platform
+ * connect` or the ensure-registration bootstrap).
  *
  * The platform endpoint is:
  *   POST {VELLUM_PLATFORM_URL}/v1/internal/gateway/callback-routes/register/
@@ -41,17 +39,18 @@ export interface PlatformCallbackRegistrationContext {
 }
 
 /**
- * Whether the daemon should register callback routes with the platform.
+ * Whether the **runtime** should automatically register callback routes.
  * True when IS_PLATFORM, VELLUM_PLATFORM_URL, and PLATFORM_ASSISTANT_ID
- * are all set. Intentionally does **not** require the managed proxy API key
- * so that callback-only flows (OAuth transport, Telegram/Twilio callback
- * registration) work during partial bootstrap before the key is injected.
+ * are all set — i.e. this is a platform-managed deployment.
+ *
+ * This is intentionally stricter than `context.enabled` (which also covers
+ * self-hosted assistants with stored credentials). Runtime auto-registration
+ * only applies to managed deployments; self-hosted assistants register
+ * explicitly via the CLI or gateway startup hooks.
  */
 export function shouldUsePlatformCallbacks(): boolean {
   return (
-    getIsPlatform() &&
-    !!getPlatformBaseUrl() &&
-    !!getPlatformAssistantId()
+    getIsPlatform() && !!getPlatformBaseUrl() && !!getPlatformAssistantId()
   );
 }
 
@@ -86,8 +85,10 @@ export async function resolvePlatformCallbackRegistrationContext(): Promise<Plat
     hasInternalApiKey: internalApiKey.length > 0,
     hasAssistantApiKey: assistantApiKey.length > 0,
     authHeader,
+    // Enabled when we have enough context to register callback routes.
+    // Does NOT require IS_PLATFORM — self-hosted assistants with stored
+    // credentials can also register routes.
     enabled:
-      platform &&
       platformBaseUrl.length > 0 &&
       assistantId.length > 0 &&
       authHeader !== null,

@@ -69,6 +69,25 @@ describe("platform callback registration", () => {
     expect(context.authHeader).toBe("Api-Key ast-managed-key");
   });
 
+  test("self-hosted assistant with stored credentials is enabled without IS_PLATFORM", async () => {
+    mockIsPlatform = false;
+    mockSecureKeys[credentialKey("vellum", "platform_base_url")] =
+      "https://platform.example.com";
+    mockSecureKeys[credentialKey("vellum", "platform_assistant_id")] =
+      "22222222-3333-4444-8555-666666666666";
+    mockSecureKeys[credentialKey("vellum", "assistant_api_key")] =
+      "ast-self-hosted-key";
+
+    const context = await resolvePlatformCallbackRegistrationContext();
+
+    expect(context.enabled).toBe(true);
+    expect(context.isPlatform).toBe(false);
+    expect(context.platformBaseUrl).toBe("https://platform.example.com");
+    expect(context.assistantId).toBe("22222222-3333-4444-8555-666666666666");
+    expect(context.hasAssistantApiKey).toBe(true);
+    expect(context.authHeader).toBe("Api-Key ast-self-hosted-key");
+  });
+
   test("registerCallbackRoute falls back to assistant API key auth", async () => {
     mockSecureKeys[credentialKey("vellum", "platform_base_url")] =
       "https://platform.example.com";
