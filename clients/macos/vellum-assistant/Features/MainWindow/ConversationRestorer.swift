@@ -385,12 +385,9 @@ final class ConversationRestorer {
         // isLoadingMoreMessages is true, the response is for a "Load more" request.
         let isPaginationLoad = viewModel.isHistoryLoaded && viewModel.isLoadingMoreMessages
 
-        // populateFromHistory is async because it dispatches CPU-intensive
-        // reconstruction (thumbnail generation, JSON estimation) to a background
-        // thread.  The entry was already atomically consumed by removeValue above,
-        // preventing duplicate handleHistoryResponse calls.  loadHistoryIfNeeded
-        // has its own guard (pendingHistoryByConversationId[id] == nil) that
-        // prevents duplicate fetches while a request is in flight.
+        // populateFromHistory is async — it dispatches CPU-intensive
+        // reconstruction (thumbnail generation, JSON estimation) off the
+        // main thread via Task.detached.
         Task {
             await viewModel.populateFromHistory(
                 response.messages,

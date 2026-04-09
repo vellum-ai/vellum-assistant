@@ -313,13 +313,14 @@ enum HistoryReconstructionService {
     /// - Parameters:
     ///   - includeThumbnails: When `true` (the default), CPU-intensive
     ///     thumbnail generation (base64 decode + ImageIO resize) is performed
-    ///     inline.  Pass `false` to create lightweight attachment structs
-    ///     synchronously — callers can generate thumbnails later on a background
-    ///     thread and replace the structs via their stable `id`.
-    ///   - stableIds: Pre-generated IDs to use instead of `attachment.id`.
-    ///     When non-nil, `stableIds[i]` is used for `attachments[i]`.  This
-    ///     ensures Phase 1 (no thumbnails) and Phase 2 (with thumbnails) use
-    ///     the same IDs even when `attachment.id` is nil.
+    ///     inline.  Pass `false` to create lightweight structs without
+    ///     thumbnails — callers can generate thumbnails later on a background
+    ///     thread and replace the structs by matching on their `id`.
+    ///   - stableIds: Pre-generated IDs keyed by index.  When non-nil,
+    ///     `stableIds[i]` overrides `attachment.id` for `attachments[i]`.
+    ///     Use this when the same attachments are mapped twice (e.g. once
+    ///     without thumbnails, once with) to guarantee identical IDs even
+    ///     when `attachment.id` is nil.
     nonisolated static func mapMessageAttachmentsStatic(
         _ attachments: [UserMessageAttachment],
         includeThumbnails: Bool = true,

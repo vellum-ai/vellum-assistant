@@ -444,11 +444,8 @@ final class ChatActionHandler {
             vm.refinementTextBuffer = ""
             vm.refinementReceivedSurfaceUpdate = false
         }
-        // Capture the assistant message ID before clearing turn state so that
-        // attachment ingestion targets the correct message even after
-        // currentAssistantMessageId is nilled out below.  Attachments are
-        // appended synchronously; only thumbnail generation runs in a
-        // background Task inside ingestAssistantAttachments.
+        // Capture the assistant message ID before turn state is cleared below
+        // so attachment ingestion targets the correct message.
         let capturedAssistantMessageId = vm.currentAssistantMessageId
         if !wasRefinement {
             vm.ingestAssistantAttachments(complete.attachments, targetMessageId: capturedAssistantMessageId, daemonMessageId: complete.messageId)
@@ -758,10 +755,8 @@ final class ChatActionHandler {
         // before we clear the ID and hand off to the next queued turn.
         vm.flushStreamingBuffer()
         vm.flushPartialOutputBuffer()
-        // Capture the assistant message ID before clearing turn state so that
-        // attachment ingestion targets the correct message.  Attachments are
-        // appended synchronously; only thumbnail generation runs in a
-        // background Task inside ingestAssistantAttachments.
+        // Capture the assistant message ID before turn state is cleared below
+        // so attachment ingestion targets the correct message.
         let capturedAssistantMessageId = vm.currentAssistantMessageId
         vm.ingestAssistantAttachments(handoff.attachments, targetMessageId: capturedAssistantMessageId, daemonMessageId: handoff.messageId)
         // Keep isSending = true — daemon is handing off to next queued message

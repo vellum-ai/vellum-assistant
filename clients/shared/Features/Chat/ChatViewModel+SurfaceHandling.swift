@@ -221,15 +221,17 @@ extension ChatViewModel {
 
     // MARK: - Attachment Helpers
 
-    /// Ingest attachments from a completion/handoff event into the given (or current) assistant message.
+    /// Ingest attachments from a completion/handoff event into the specified assistant message.
     ///
-    /// Attachments are appended **synchronously** (preserving the contract that
-    /// callers see them on the message immediately after this call returns).
-    /// The CPU-intensive thumbnail generation runs in a background Task and
-    /// replaces the lightweight attachment structs when complete.
+    /// Lightweight attachment structs (no thumbnails) are appended synchronously
+    /// so callers see them on the message immediately.  Thumbnail generation
+    /// runs in a background `Task.detached` and replaces the structs in-place.
     ///
-    /// `targetMessageId` is the assistant message that should receive the attachments.
-    /// Callers capture `currentAssistantMessageId` **before** clearing turn state.
+    /// - Parameters:
+    ///   - attachments: Attachment DTOs from the daemon event.
+    ///   - targetMessageId: The assistant message to receive the attachments.
+    ///     Pass `nil` to create a standalone attachment message.
+    ///   - daemonMessageId: Daemon-side message ID for fork/inspect/TTS support.
     func ingestAssistantAttachments(
         _ attachments: [UserMessageAttachment]?,
         targetMessageId: UUID?,
@@ -237,10 +239,10 @@ extension ChatViewModel {
     ) {
         guard let attachments, !attachments.isEmpty else { return }
 
-        // Pre-generate stable IDs so Phase 1 and Phase 2 use the same values.
-        // UserMessageAttachment.id is optional — when nil, each independent call
-        // to mapMessageAttachmentsStatic would generate a different UUID, causing
-        // the Phase 2 replacement loop to silently fail to match.
+        // Pre-generate stable IDs for both phases.  UserMessageAttachment.id
+        // is optional — without this, each call to mapMessageAttachmentsStatic
+        // would generate a different UUID for nil IDs, and the Phase 2
+        // replacement loop would fail to match.
         let stableIds = attachments.map { $0.id ?? UUID().uuidString }
 
         // Phase 1: create attachments synchronously WITHOUT thumbnails.
@@ -267,9 +269,8 @@ extension ChatViewModel {
         // array replaced by a concurrent populateFromHistory), silently drop the
         // attachments rather than creating an orphan message.
 
-        // Phase 2: generate thumbnails on a background thread and replace the
-        // lightweight attachment structs with full versions that include thumbnails.
-        // Uses the same stableIds so the ID-based replacement loop matches correctly.
+        // Phase 2: generate thumbnails on a background thread and swap in
+        // full attachment structs (with thumbnails) by matching on stable IDs.
         guard let msgId = resolvedMessageId else { return }
         Task { [weak self] in
             let fullAttachments = await Task.detached(priority: .userInitiated) {

@@ -1997,10 +1997,9 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         os_signpost(.begin, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "messages=%d isPagination=%d", historyMessages.count, isPaginationLoad ? 1 : 0)
 
         // For non-pagination loads, set isLoadingHistory and discard in-flight
-        // streaming state BEFORE the await suspension point.  This ensures the
-        // isLoadingHistory guard in handleAssistantTextDelta is effective during
-        // the entire background reconstruction window, preventing SSE event
-        // interleaving that the previous synchronous code path never had.
+        // streaming state before the await suspension point so that the
+        // isLoadingHistory guard in handleAssistantTextDelta is effective
+        // during the entire background reconstruction window.
         if !isPaginationLoad {
             self.isLoadingHistory = true
             discardStreamingBuffer()
@@ -2010,13 +2009,12 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             currentAssistantHasText = false
         }
 
-        // Reconstruct messages on a background thread via Task.detached.
-        // The heavy work (JSON size estimation, tool input formatting, surface
-        // mapping, image decoding/thumbnail generation) is isolated in a pure
-        // nonisolated static function that accesses no @MainActor state.
-        // Task.detached is required because a plain Task {} would inherit the
-        // @MainActor executor, defeating the purpose of offloading CPU work.
-        // See: https://developer.apple.com/documentation/swift/task/detached(priority:operation:)-3lvix
+        // Dispatch reconstruction to a background thread.  The heavy work
+        // (JSON estimation, tool input formatting, surface mapping, image
+        // decoding/thumbnail generation) is in a nonisolated static function
+        // with no @MainActor state.  Task.detached is required — a plain
+        // Task {} inherits the @MainActor executor from this class.
+        // https://developer.apple.com/documentation/swift/task/detached(priority:operation:)-3lvix
         let convId = self.conversationId
         let result = await Task.detached(priority: .userInitiated) {
             HistoryReconstructionService.reconstructMessages(from: historyMessages, conversationId: convId)
@@ -2062,7 +2060,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         }
 
         // isLoadingHistory and streaming state were already set/discarded
-        // before the await suspension point above.
+        // above, before the background reconstruction await.
 
         if needsReconnectCatchUp {
             // Reconnect catch-up: the SSE stream dropped while a run was
