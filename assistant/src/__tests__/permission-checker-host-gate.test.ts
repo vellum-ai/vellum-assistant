@@ -42,10 +42,11 @@ mock.module("../hooks/manager.js", () => ({
   }),
 }));
 
-let hostAccessEnabled = false;
+const hostAccessByConversation = new Map<string, boolean>();
 
 mock.module("../memory/conversation-crud.js", () => ({
-  getConversationHostAccess: () => hostAccessEnabled,
+  getConversationHostAccess: (conversationId: string) =>
+    hostAccessByConversation.get(conversationId) ?? false,
 }));
 
 // ---------------------------------------------------------------------------
@@ -97,12 +98,12 @@ const executionTarget: ExecutionTarget = "host";
 
 beforeEach(() => {
   _setOverridesForTesting({});
-  hostAccessEnabled = false;
+  hostAccessByConversation.clear();
 });
 
 afterEach(() => {
   _setOverridesForTesting({});
-  hostAccessEnabled = false;
+  hostAccessByConversation.clear();
 });
 
 // ---------------------------------------------------------------------------
@@ -125,7 +126,7 @@ describe("permission-checker host-access gate (v2)", () => {
 
     describe("host tools with hostAccess=false", () => {
       beforeEach(() => {
-        hostAccessEnabled = false;
+        hostAccessByConversation.set("test-conv", false);
       });
 
       for (const toolName of HOST_TOOL_NAMES) {
@@ -151,6 +152,12 @@ describe("permission-checker host-access gate (v2)", () => {
 
           // The prompter should have been called (interactive dialog)
           expect(promptSpy).toHaveBeenCalled();
+          const call = promptSpy.mock.calls[0] as unknown as unknown[];
+          expect(call[3]).toEqual([]);
+          expect(call[4]).toEqual([]);
+          expect(call[8]).toBe(false);
+          expect(call[10]).toBeUndefined();
+          expect(call[12]).toBe(true);
           // Since the mock prompter returns "allow", the result should be allowed
           expect(result.allowed).toBe(true);
           expect(result.decision).toBe("allow");
@@ -185,7 +192,7 @@ describe("permission-checker host-access gate (v2)", () => {
 
     describe("host tools with hostAccess=true", () => {
       beforeEach(() => {
-        hostAccessEnabled = true;
+        hostAccessByConversation.set("test-conv", true);
       });
 
       for (const toolName of HOST_TOOL_NAMES) {
@@ -217,7 +224,7 @@ describe("permission-checker host-access gate (v2)", () => {
         "web_search",
       ]) {
         test(`${toolName} is auto-allowed regardless of hostAccess`, async () => {
-          hostAccessEnabled = false;
+          hostAccessByConversation.set("test-conv", false);
           const checker = new PermissionChecker(makePrompter());
           const result = await checker.checkPermission(
             toolName,
@@ -239,7 +246,7 @@ describe("permission-checker host-access gate (v2)", () => {
 
     describe("requireFreshApproval bypasses v2 auto-allow", () => {
       beforeEach(() => {
-        hostAccessEnabled = true;
+        hostAccessByConversation.set("test-conv", true);
       });
 
       test("host tool with requireFreshApproval falls through to prompter", async () => {
@@ -295,7 +302,7 @@ describe("permission-checker host-access gate (v2)", () => {
 
     describe("non-interactive guardian session with hostAccess=false", () => {
       beforeEach(() => {
-        hostAccessEnabled = false;
+        hostAccessByConversation.set("test-conv", false);
       });
 
       test("host tool is NOT auto-approved (denies instead of guardian_auto_approve)", async () => {
@@ -329,7 +336,7 @@ describe("permission-checker host-access gate (v2)", () => {
 
     describe("forcePromptSideEffects bypasses v2 auto-allow for side-effect tools", () => {
       beforeEach(() => {
-        hostAccessEnabled = true;
+        hostAccessByConversation.set("test-conv", true);
       });
 
       test("host side-effect tool with forcePromptSideEffects falls through to prompter", async () => {
@@ -400,6 +407,47 @@ describe("permission-checker host-access gate (v2)", () => {
         expect(result.allowed).toBe(true);
         expect(result.decision).toBe("allow");
       });
+    });
+
+    test("host access is evaluated per conversation", async () => {
+      hostAccessByConversation.set("allow-conv", true);
+      hostAccessByConversation.set("deny-conv", false);
+
+      const promptSpy = mock(() =>
+        Promise.resolve({ decision: "deny" as const }),
+      );
+      const checker = new PermissionChecker({
+        prompt: promptSpy,
+      } as unknown as PermissionPrompter);
+
+      const allowed = await checker.checkPermission(
+        "host_bash",
+        {},
+        makeTool("host_bash"),
+        makeContext({ conversationId: "allow-conv" }),
+        executionTarget,
+        noopEmit,
+        noopSanitize,
+        Date.now(),
+        noopDiff,
+      );
+      const denied = await checker.checkPermission(
+        "host_bash",
+        {},
+        makeTool("host_bash"),
+        makeContext({ conversationId: "deny-conv" }),
+        executionTarget,
+        noopEmit,
+        noopSanitize,
+        Date.now(),
+        noopDiff,
+      );
+
+      expect(allowed.allowed).toBe(true);
+      expect(allowed.decision).toBe("allow");
+      expect(denied.allowed).toBe(false);
+      expect(denied.decision).toBe("deny");
+      expect(promptSpy).toHaveBeenCalledTimes(1);
     });
   });
 

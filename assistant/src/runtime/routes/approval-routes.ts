@@ -13,6 +13,10 @@ import { z } from "zod";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { addRule } from "../../permissions/trust-store.js";
 import type { UserDecision } from "../../permissions/types.js";
+import {
+  isConversationHostAccessDecision,
+  isConversationHostAccessEnablePrompt,
+} from "../../permissions/v2-consent-policy.js";
 import { getTool } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
 import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
@@ -79,6 +83,18 @@ export async function handleConfirm(
       "NOT_FOUND",
       "No pending interaction found for this requestId",
       404,
+    );
+  }
+
+  if (
+    peeked.confirmationDetails &&
+    isConversationHostAccessEnablePrompt(peeked.confirmationDetails) &&
+    !isConversationHostAccessDecision(decision as UserDecision)
+  ) {
+    return httpError(
+      "FORBIDDEN",
+      "Conversation host-access prompts only accept allow or deny",
+      403,
     );
   }
 

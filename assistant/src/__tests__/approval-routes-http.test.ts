@@ -68,6 +68,7 @@ mock.module("../permissions/trust-store.js", () => ({
 }));
 
 import { getDb, initializeDb } from "../memory/db.js";
+import { CONVERSATION_HOST_ACCESS_PROMPT } from "../permissions/v2-consent-policy.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
@@ -370,6 +371,49 @@ describe("standalone approval endpoints — HTTP layer", () => {
       });
 
       expect(res.status).toBe(400);
+
+      await stopServer();
+    });
+
+    test("rejects temporal approval decisions for conversation host-access prompts", async () => {
+      let confirmedDecision: string | undefined;
+
+      const session = makeIdleSession({
+        onConfirmation: (_reqId, dec) => {
+          confirmedDecision = dec;
+        },
+      });
+
+      await startServer(() => session);
+
+      pendingInteractions.register("req-host-access", {
+        conversation: session,
+        conversationId: "conv-1",
+        kind: "confirmation",
+        confirmationDetails: {
+          toolName: "host_bash",
+          input: { command: "ls" },
+          riskLevel: "medium",
+          ...CONVERSATION_HOST_ACCESS_PROMPT,
+        },
+      });
+
+      const res = await fetch(url("confirm"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+        body: JSON.stringify({
+          requestId: "req-host-access",
+          decision: "allow_10m",
+        }),
+      });
+      const body = (await res.json()) as { error?: { message?: string } };
+
+      expect(res.status).toBe(403);
+      expect(body.error?.message).toContain(
+        "Conversation host-access prompts only accept allow or deny",
+      );
+      expect(confirmedDecision).toBeUndefined();
+      expect(pendingInteractions.get("req-host-access")).toBeDefined();
 
       await stopServer();
     });
