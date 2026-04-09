@@ -521,17 +521,25 @@ describe("PATCH /v1/config/privacy handler — llmRequestLogRetentionMs", () => 
 });
 
 describe("PATCH /v1/config/privacy handler — existing behavior (regression guard)", () => {
-  test("PATCH with only collectUsageData still works", async () => {
+  test("PATCH with only collectUsageData still works and response includes default llmRequestLogRetentionMs", async () => {
     const handler = createPrivacyConfigPatchHandler();
     const res = await handler(makePatch({ collectUsageData: true }));
 
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.collectUsageData).toBe(true);
-    expect(body.llmRequestLogRetentionMs).toBeUndefined();
+    // Gap B fix: the PATCH response shape is unified with GET — the
+    // `llmRequestLogRetentionMs` field is ALWAYS included, sourced from the
+    // post-write config with a fallback to the daemon schema default. The
+    // pre-existing config.json in this test has no retention value, so the
+    // response should return the daemon default (1 day in ms).
+    expect(body.llmRequestLogRetentionMs).toBe(DEFAULT_RETENTION_MS);
 
     const config = readConfig();
     expect(config.collectUsageData).toBe(true);
+    // We did NOT pass llmRequestLogRetentionMs in the PATCH body, so no
+    // memory.cleanup entry should have been written.
+    expect(config.memory).toBeUndefined();
   });
 
   test("PATCH with only sendDiagnostics still works", async () => {
@@ -550,9 +558,47 @@ describe("PATCH /v1/config/privacy handler — existing behavior (regression gua
     );
 
     expect(res.status).toBe(200);
+    const body = await res.json();
+    // Gap B: PATCH response always includes llmRequestLogRetentionMs.
+    expect(body.llmRequestLogRetentionMs).toBe(DEFAULT_RETENTION_MS);
+
     const config = readConfig();
     expect(config.collectUsageData).toBe(false);
     expect(config.sendDiagnostics).toBe(true);
+  });
+
+  test("PATCH with only booleans echoes pre-existing llmRequestLogRetentionMs from config.json", async () => {
+    // Pre-seed a config that already has a non-default retention value.
+    const preExistingRetention = 3 * 24 * 60 * 60 * 1000; // 3 days
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        collectUsageData: true,
+        sendDiagnostics: true,
+        memory: {
+          cleanup: {
+            llmRequestLogRetentionMs: preExistingRetention,
+          },
+        },
+      }),
+    );
+
+    const handler = createPrivacyConfigPatchHandler();
+    const res = await handler(makePatch({ collectUsageData: false }));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.collectUsageData).toBe(false);
+    expect(body.sendDiagnostics).toBe(true);
+    // Gap B: the response echoes the post-write retention value, even when
+    // the PATCH body did not touch it.
+    expect(body.llmRequestLogRetentionMs).toBe(preExistingRetention);
+
+    // Config on disk must not lose the pre-existing retention value.
+    const config = readConfig();
+    const cleanup = (config.memory as Record<string, unknown>)
+      .cleanup as Record<string, unknown>;
+    expect(cleanup.llmRequestLogRetentionMs).toBe(preExistingRetention);
   });
 
   test("PATCH with empty body still returns 400", async () => {

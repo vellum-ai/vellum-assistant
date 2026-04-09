@@ -20,6 +20,41 @@ const DEFAULT_LLM_REQUEST_LOG_RETENTION_MS = 1 * 24 * 60 * 60 * 1000;
 // The daemon treats 0 as "never prune".
 const MAX_LLM_REQUEST_LOG_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
 
+/**
+ * Safely read a nested numeric field from a plain-object config tree, falling
+ * back to `defaultValue` if any intermediate key is missing, not an object, or
+ * the leaf value is not a non-negative integer. Shared by the GET and PATCH
+ * handlers so both endpoints produce the same response shape for
+ * `llmRequestLogRetentionMs`.
+ *
+ * A value of 0 is valid (it means "never prune") and is returned verbatim.
+ */
+function parseNestedNumber(
+  config: Record<string, unknown>,
+  path: readonly string[],
+  defaultValue: number,
+): number {
+  let current: unknown = config;
+  for (const key of path) {
+    if (
+      current === null ||
+      typeof current !== "object" ||
+      Array.isArray(current)
+    ) {
+      return defaultValue;
+    }
+    current = (current as Record<string, unknown>)[key];
+  }
+  if (
+    typeof current === "number" &&
+    Number.isInteger(current) &&
+    current >= 0
+  ) {
+    return current;
+  }
+  return defaultValue;
+}
+
 export function createPrivacyConfigPatchHandler() {
   return async (req: Request): Promise<Response> => {
     let body: unknown;
@@ -149,18 +184,18 @@ export function createPrivacyConfigPatchHandler() {
           }
           writeConfigFileAtomic(config);
 
-          const responseData: Record<string, unknown> = {
+          // Always include llmRequestLogRetentionMs in the response so GET
+          // and PATCH share the same shape. Source it from the post-write
+          // config via the same fallback logic as the GET handler.
+          const responseData = {
             collectUsageData: config.collectUsageData,
             sendDiagnostics: config.sendDiagnostics,
+            llmRequestLogRetentionMs: parseNestedNumber(
+              config,
+              ["memory", "cleanup", "llmRequestLogRetentionMs"],
+              DEFAULT_LLM_REQUEST_LOG_RETENTION_MS,
+            ),
           };
-          if (hasLlmRequestLogRetentionMs) {
-            const memory = config.memory as Record<string, unknown> | undefined;
-            const cleanup = memory?.cleanup as
-              | Record<string, unknown>
-              | undefined;
-            responseData.llmRequestLogRetentionMs =
-              cleanup?.llmRequestLogRetentionMs;
-          }
           log.info(responseData, "Privacy config updated");
           resolve(Response.json(responseData));
         } catch (err) {
@@ -207,24 +242,12 @@ export function createPrivacyConfigGetHandler() {
         : DEFAULT_SEND_DIAGNOSTICS;
 
     // Extract nested memory.cleanup.llmRequestLogRetentionMs safely.
-    const memory = (config as { memory?: unknown }).memory;
-    const cleanup =
-      memory && typeof memory === "object" && !Array.isArray(memory)
-        ? (memory as { cleanup?: unknown }).cleanup
-        : undefined;
-    const rawRetention =
-      cleanup && typeof cleanup === "object" && !Array.isArray(cleanup)
-        ? (cleanup as { llmRequestLogRetentionMs?: unknown })
-            .llmRequestLogRetentionMs
-        : undefined;
-    // Must be a non-negative integer. A value of 0 is valid (means
-    // "never prune") and should be returned verbatim.
-    const llmRequestLogRetentionMs =
-      typeof rawRetention === "number" &&
-      Number.isInteger(rawRetention) &&
-      rawRetention >= 0
-        ? rawRetention
-        : DEFAULT_LLM_REQUEST_LOG_RETENTION_MS;
+    // A value of 0 is valid (means "never prune") and is returned verbatim.
+    const llmRequestLogRetentionMs = parseNestedNumber(
+      config,
+      ["memory", "cleanup", "llmRequestLogRetentionMs"],
+      DEFAULT_LLM_REQUEST_LOG_RETENTION_MS,
+    );
 
     return Response.json({
       collectUsageData,
