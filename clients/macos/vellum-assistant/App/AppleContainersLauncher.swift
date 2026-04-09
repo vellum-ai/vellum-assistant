@@ -288,7 +288,12 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 json["deviceId"] = deviceId
                 json["leasedAt"] = ISO8601DateFormatter().string(from: Date())
 
-                saveGuardianTokenFile(assistantId: assistantId, tokenData: json)
+                do {
+                    try saveGuardianTokenFile(assistantId: assistantId, tokenData: json)
+                } catch {
+                    log.error("Guardian token leased but failed to save: \(error.localizedDescription, privacy: .public)")
+                    return false
+                }
                 log.info("Guardian token leased and saved for '\(assistantId, privacy: .public)'")
                 return true
             } catch {
@@ -306,10 +311,13 @@ final class AppleContainersLauncher: AssistantManagementClient {
     /// Saves guardian token JSON to
     /// `$XDG_CONFIG_HOME/vellum/assistants/<id>/guardian-token.json`,
     /// matching the CLI's `saveGuardianToken()` path convention.
+    ///
+    /// Throws if the file cannot be written — the caller must treat this
+    /// as a fatal error because the bootstrap secret was already consumed.
     private static func saveGuardianTokenFile(
         assistantId: String,
         tokenData: [String: Any]
-    ) {
+    ) throws {
         let configHome: String
         if let xdg = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]?
             .trimmingCharacters(in: .whitespacesAndNewlines), !xdg.isEmpty {
@@ -320,21 +328,16 @@ final class AppleContainersLauncher: AssistantManagementClient {
         let dir = "\(configHome)/vellum/assistants/\(assistantId)"
         let path = "\(dir)/guardian-token.json"
 
-        do {
-            try FileManager.default.createDirectory(
-                atPath: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]
-            )
-            let data = try JSONSerialization.data(
-                withJSONObject: tokenData, options: [.prettyPrinted, .sortedKeys]
-            )
-            try data.write(to: URL(fileURLWithPath: path), options: .atomic)
-            // Restrict file permissions to owner-only read/write.
-            try FileManager.default.setAttributes(
-                [.posixPermissions: 0o600], ofItemAtPath: path
-            )
-        } catch {
-            log.error("Failed to save guardian token to \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
-        }
+        try FileManager.default.createDirectory(
+            atPath: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]
+        )
+        let data = try JSONSerialization.data(
+            withJSONObject: tokenData, options: [.prettyPrinted, .sortedKeys]
+        )
+        try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600], ofItemAtPath: path
+        )
     }
 
     // MARK: - Paths
