@@ -586,7 +586,6 @@ struct MainWindowView: View {
 
     private var coreLayoutDecoratedView: some View {
         coreLayoutGeometryView
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .frame(minWidth: 800, minHeight: 600)
             .onGeometryChange(for: CGSize.self) { proxy in
                 proxy.size
@@ -635,9 +634,6 @@ struct MainWindowView: View {
     @ViewBuilder
     private func coreLayoutContent(windowSize: CGSize) -> some View {
         coreLayoutBase(windowSize: windowSize)
-            // Keep the zoomed canvas pinned to the top-left so width changes
-            // do not recenter the layout and clip the sidebar off-screen.
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .overlay { preferencesDismissLayer }
             .overlay(alignment: .bottomLeading) { preferencesDrawerLayer }
             .sheet(isPresented: $showEarnCreditsModal) {
