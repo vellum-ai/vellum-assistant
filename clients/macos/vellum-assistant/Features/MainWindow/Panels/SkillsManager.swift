@@ -139,6 +139,27 @@ final class SkillsManager {
                     // lands — see `installSkill(slug:)` for the watchdog that
                     // clears the spinner defensively if the refresh wedges.
                 }
+
+                // Independent skills-list-driven clear: `SkillsStore.installSkill`
+                // expires `installResult` after 3 seconds, so on a slow-network
+                // install where `fetchSkills(force:)` lands after the expiry
+                // the branch above will not fire — `installResult` is already
+                // nil by the time the refreshed list arrives. Clear the
+                // spinner here based solely on the skills list: if the
+                // currently-installing id is now a non-catalog entry, the
+                // install has confirmed and the spinner must come down.
+                // `installingSkillId` is only set by `installSkill(slug:)`
+                // for a catalog skill, so any transition away from "catalog"
+                // for that id is a legitimate success signal. Idempotent
+                // with the branch above: the `if let` guard short-circuits
+                // when the first branch has already cleared the id.
+                if let installingId = self.installingSkillId,
+                   self.skillsStore.skills
+                    .first(where: { $0.id == installingId })?.kind != "catalog" {
+                    self.installingSkillId = nil
+                    self.installWatchdogTask?.cancel()
+                    self.installWatchdogTask = nil
+                }
                 self.recomputeFilteredData()
             }
             .store(in: &cancellables)
