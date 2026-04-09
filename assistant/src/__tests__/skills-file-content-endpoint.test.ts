@@ -449,3 +449,119 @@ describe("getSkillFileContent — skill not found", () => {
     expect(result.error).toBe("Skill not found");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Hidden / SKIP_DIRS path rejection
+// ---------------------------------------------------------------------------
+//
+// Codex P1: the file-content endpoint previously read any path the caller
+// named, including dotfiles (`.env`) and files inside skipped dirs
+// (`node_modules`, `.git/`) — even though the file-listing endpoint hides
+// those entries. This created a data-exposure path and broke parity with
+// the visible file list. The daemon handler should now reject such paths
+// with a 400 "Invalid path" BEFORE any disk read or network round-trip,
+// regardless of whether the skill is installed locally or only available
+// via the catalog.
+
+describe("getSkillFileContent — hidden / SKIP_DIRS rejection", () => {
+  test("rejects dotfile reads from an installed skill with 400 Invalid path", async () => {
+    // Set up an installed skill where a real `.env` file exists on disk.
+    // Without the hidden-segment rejection, the handler would happily
+    // read its content because sanitizeRelativePath accepts `.env`.
+    const skillDir = makeTempSkillDir("leaky-skill");
+    writeFile(skillDir, "SKILL.md", "# ok\n");
+    writeFile(skillDir, ".env", "SECRET=abc\n");
+    mockResolvedSkills = [installedSkill("leaky-skill", skillDir)];
+    installFetchForbidden();
+
+    const result = await getSkillFileContent("leaky-skill", ".env", dummyCtx);
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) return;
+    expect(result.status).toBe(400);
+    expect(result.error).toBe("Invalid path");
+  });
+
+  test("rejects dotfile reads for an uninstalled catalog skill before any catalog read", async () => {
+    // Same dotfile attack, but the skill id is NOT installed — only
+    // present in the Vellum catalog. The rejection must run in the daemon
+    // handler BEFORE the catalog fallback, so no disk walk or platform
+    // fetch should happen. We use dev-mode with a real `.env` on disk
+    // under the fake repo skills dir to prove that even though the
+    // catalog path WOULD succeed without the check, the daemon
+    // short-circuits.
+    const repoSkillsDir = mkdtempSync(
+      join(tmpdir(), "skill-file-content-hidden-repo-"),
+    );
+    tempDirs.push(repoSkillsDir);
+    const catalogSkillDir = join(repoSkillsDir, "catalog-leaky");
+    mkdirSync(catalogSkillDir, { recursive: true });
+    writeFileSync(join(catalogSkillDir, "SKILL.md"), "# ok\n");
+    writeFileSync(join(catalogSkillDir, ".env"), "SECRET=xyz\n");
+
+    mockRepoSkillsDir = repoSkillsDir;
+    mockResolvedSkills = []; // not installed
+    mockCatalog = [catalogSkill("catalog-leaky")];
+    installFetchForbidden();
+
+    const result = await getSkillFileContent("catalog-leaky", ".env", dummyCtx);
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) return;
+    expect(result.status).toBe(400);
+    expect(result.error).toBe("Invalid path");
+  });
+
+  test("rejects paths whose parent directory is a dotfile segment", async () => {
+    // `.git/config` and `docs/.hidden/file.md` both contain hidden
+    // segments even though the leaf isn't a dotfile.
+    const skillDir = makeTempSkillDir("my-skill");
+    writeFile(skillDir, "SKILL.md", "# ok\n");
+    mockResolvedSkills = [installedSkill("my-skill", skillDir)];
+    installFetchForbidden();
+
+    for (const bad of [".git/config", "docs/.hidden/file.md"]) {
+      const result = await getSkillFileContent("my-skill", bad, dummyCtx);
+      expect("error" in result).toBe(true);
+      if (!("error" in result)) continue;
+      expect(result.status).toBe(400);
+      expect(result.error).toBe("Invalid path");
+    }
+  });
+
+  test("rejects paths inside SKIP_DIRS segments with 400 Invalid path", async () => {
+    const skillDir = makeTempSkillDir("my-skill");
+    writeFile(skillDir, "SKILL.md", "# ok\n");
+    mockResolvedSkills = [installedSkill("my-skill", skillDir)];
+    installFetchForbidden();
+
+    for (const bad of [
+      "node_modules/foo/index.js",
+      "__pycache__/cached.pyc",
+      "nested/node_modules/mod/index.js",
+    ]) {
+      const result = await getSkillFileContent("my-skill", bad, dummyCtx);
+      expect("error" in result).toBe(true);
+      if (!("error" in result)) continue;
+      expect(result.status).toBe(400);
+      expect(result.error).toBe("Invalid path");
+    }
+  });
+
+  test("regular SKILL.md still reads successfully (sanity)", async () => {
+    // Guards against collateral damage from the hidden/SKIP_DIRS filter:
+    // a normal, non-hidden path must continue to work unchanged.
+    const skillDir = makeTempSkillDir("healthy-skill");
+    writeFile(skillDir, "SKILL.md", "# hello\n");
+    mockResolvedSkills = [installedSkill("healthy-skill", skillDir)];
+    installFetchForbidden();
+
+    const result = await getSkillFileContent(
+      "healthy-skill",
+      "SKILL.md",
+      dummyCtx,
+    );
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    expect(result.content).toBe("# hello\n");
+    expect(result.name).toBe("SKILL.md");
+  });
+});

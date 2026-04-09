@@ -268,13 +268,32 @@ async function fetchPlatformJson<T>(
 // ─── Dev-mode directory walker ───────────────────────────────────────────────
 
 // Directory names that are always skipped when walking a catalog skill dir in
-// dev mode. Kept in sync with `SKIP_DIRS` in
-// `src/daemon/handlers/skills.ts` (which performs the same filter for
-// installed skills). Duplicated here rather than imported to avoid a
-// circular dependency: `daemon/handlers/skills.ts` already imports the
-// `SkillFileEntry` type from this module. If you add or remove an entry,
-// update the other copy as well.
-const SKIP_DIRS = new Set(["node_modules", "__pycache__", ".git"]);
+// dev mode. Also used by `daemon/handlers/skills.ts` — both for the
+// installed-skill walker and for the single-file content endpoint's
+// hidden/skipped path rejection. Exported so the daemon handler can
+// import this single source of truth and stay in sync.
+export const SKIP_DIRS = new Set(["node_modules", "__pycache__", ".git"]);
+
+/**
+ * Returns true if the given sanitized posix path contains any segment that
+ * is hidden (starts with `.`) or present in `SKIP_DIRS`. Used to reject
+ * file-content reads for paths the listing APIs intentionally hide, so
+ * callers cannot fetch `.env`, `.git/config`, `node_modules/...`, etc. via
+ * the content endpoint even though the listing never surfaces them.
+ *
+ * The input MUST already be a normalized posix path (i.e. the return value
+ * of `sanitizeRelativePath`). This helper does not re-normalize — it splits
+ * on `/` and inspects each segment directly.
+ */
+export function hasHiddenOrSkippedSegment(sanitized: string): boolean {
+  const segments = sanitized.split("/");
+  for (const segment of segments) {
+    if (segment.length === 0) continue;
+    if (segment.startsWith(".")) return true;
+    if (SKIP_DIRS.has(segment)) return true;
+  }
+  return false;
+}
 
 function walkSkillDir(dir: string, rootDir: string): SkillFileEntry[] {
   const out: SkillFileEntry[] = [];
@@ -380,6 +399,12 @@ export async function readCatalogSkillFileContent(
 ): Promise<SkillFileEntry | null> {
   const sanitized = sanitizeRelativePath(relativePath);
   if (!sanitized) return null;
+
+  // Defense in depth: reject any path that references a hidden or
+  // SKIP_DIRS segment. The daemon handler performs the same check before
+  // calling us, but we repeat it here so direct callers of this module
+  // short-circuit without a network round trip and without touching disk.
+  if (hasHiddenOrSkippedSegment(sanitized)) return null;
 
   const source = await resolveCatalogSource(skillId);
   if (!source) return null;

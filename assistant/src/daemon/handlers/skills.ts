@@ -34,9 +34,11 @@ import {
 import { isTextMimeType as isTextMime } from "../../runtime/routes/workspace-utils.js";
 import { getCatalog } from "../../skills/catalog-cache.js";
 import {
+  hasHiddenOrSkippedSegment,
   readCatalogSkillFileContent,
   sanitizeRelativePath,
   type SkillFileEntry,
+  SKIP_DIRS,
 } from "../../skills/catalog-files.js";
 import {
   installSkillLocally,
@@ -507,8 +509,6 @@ export async function getSkill(
 // the other skill handler exports.
 export type { SkillFileEntry } from "../../skills/catalog-files.js";
 
-const SKIP_DIRS = new Set(["node_modules", "__pycache__", ".git"]);
-
 /**
  * Returns true if `filePath` is a symlink whose resolved real path escapes
  * `rootDir`. Symlinks that stay within `rootDir` are allowed; only those that
@@ -591,6 +591,18 @@ export async function getSkillFileContent(
 ): Promise<SkillFileContentResponse | { error: string; status: number }> {
   const sanitized = sanitizeRelativePath(relativePath);
   if (!sanitized) {
+    return { error: "Invalid path", status: 400 };
+  }
+
+  // Reject any sanitized path that references a hidden segment (dotfiles
+  // like `.env`, dot-dirs like `.git`) or a SKIP_DIRS segment (e.g.
+  // `node_modules`, `__pycache__`). Both file-listing endpoints (installed
+  // and catalog) intentionally omit these entries, so allowing the content
+  // endpoint to read them would create a data-exposure path and break
+  // parity with the visible file list. This check runs BEFORE both the
+  // installed-skill disk read and the catalog fallback so the rejection
+  // is uniform regardless of source.
+  if (hasHiddenOrSkippedSegment(sanitized)) {
     return { error: "Invalid path", status: 400 };
   }
 

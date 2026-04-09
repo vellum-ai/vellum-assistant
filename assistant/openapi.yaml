@@ -6801,7 +6801,7 @@ paths:
             type: string
         - name: path
           in: query
-          required: false
+          required: true
           schema:
             type: string
           description: Relative path of the file within the skill directory

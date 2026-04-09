@@ -166,6 +166,7 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
         {
           name: "path",
           schema: { type: "string" },
+          required: true,
           description: "Relative path of the file within the skill directory",
         },
       ],
