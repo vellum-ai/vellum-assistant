@@ -4,10 +4,8 @@
  * Self-hosted pairing is governed by the "Pair local assistant" button,
  * which spawns the native messaging helper and persists a capability
  * token (see self-hosted-auth.ts). Connect then reads that stored
- * capability token directly — it does NOT fall back to the legacy
- * `/v1/browser-relay/token` gateway endpoint. If the user hasn't
- * paired yet we surface an inline error pointing them at the Pair
- * button instead of silently auto-fetching a JWT.
+ * capability token directly. If the user hasn't paired yet we surface
+ * an inline error pointing them at the Pair button.
  *
  * Also exposes a "Sign in with Vellum (cloud)" button. The actual OAuth
  * flow runs in the background service worker (see worker.ts) — the popup
@@ -26,15 +24,12 @@ import {
 
 const DEFAULT_RELAY_PORT = 7830;
 
-const tokenInput = document.getElementById('token-input') as HTMLInputElement;
 const portInput = document.getElementById('port-input') as HTMLInputElement;
 const btnConnect = document.getElementById('btn-connect') as HTMLButtonElement;
 const btnDisconnect = document.getElementById('btn-disconnect') as HTMLButtonElement;
 const statusDot = document.getElementById('status-dot') as HTMLDivElement;
 const statusText = document.getElementById('status-text') as HTMLParagraphElement;
 const errorText = document.getElementById('error-text') as HTMLParagraphElement;
-const manualToggle = document.getElementById('manual-toggle') as HTMLButtonElement;
-const tokenGroup = document.getElementById('token-group') as HTMLDivElement;
 const btnCloudSignIn = document.getElementById('btn-cloud-signin') as HTMLButtonElement;
 const cloudStatus = document.getElementById('cloud-status') as HTMLParagraphElement;
 const btnPairLocal = document.getElementById('btn-pair-local') as HTMLButtonElement;
@@ -45,14 +40,11 @@ const modeCloud = document.getElementById('mode-cloud') as HTMLInputElement;
 const RELAY_MODE_KEY = 'vellum.relayMode';
 type RelayModeKind = 'self-hosted' | 'cloud';
 
-let manualMode = false;
-
 function setConnected(connected: boolean): void {
   statusDot.className = `status-dot ${connected ? 'connected' : 'disconnected'}`;
   statusText.textContent = connected ? 'Connected to relay server' : 'Not connected';
   btnConnect.disabled = connected;
   btnDisconnect.disabled = !connected;
-  tokenInput.disabled = connected;
   portInput.disabled = connected;
   if (connected) {
     errorText.style.display = 'none';
@@ -62,48 +54,20 @@ function setConnected(connected: boolean): void {
 /**
  * Render an inline error message without touching any other UI.
  *
- * Use this for errors that are not actionable by the self-hosted
- * manual-token-entry workflow — e.g. cloud OAuth failures, refresh
- * exceptions, or generic service-worker messages. It's specifically
- * the variant {@link refreshCloudStatus} uses so a cloud auth error
- * does not accidentally reveal the self-hosted token input.
+ * Use this for generic popup errors — e.g. cloud OAuth failures,
+ * refresh exceptions, or generic service-worker messages.
  */
 function showErrorText(msg: string): void {
   errorText.textContent = msg;
   errorText.style.display = 'block';
 }
 
-/**
- * Render an inline error message AND reveal the self-hosted manual
- * token entry section. Use this for errors where the user's next
- * action is to paste a bearer token into the manual-entry box —
- * e.g. a failed auto-fetch or a missing paired local assistant.
- *
- * Do NOT use this for cloud auth errors: the manual token entry
- * section is a self-hosted-only workflow, and revealing it for a
- * cloud error would point the user at the wrong remediation.
- */
 function showError(msg: string): void {
   showErrorText(msg);
-  // Reveal manual token entry on auto-fetch failure
-  if (!manualMode) {
-    manualMode = true;
-    tokenGroup.classList.add('visible');
-    manualToggle.textContent = 'Hide manual token entry';
-  }
 }
 
-manualToggle.addEventListener('click', () => {
-  manualMode = !manualMode;
-  tokenGroup.classList.toggle('visible', manualMode);
-  manualToggle.textContent = manualMode ? 'Hide manual token entry' : 'Manual token entry';
-});
-
-// Load saved token and port on open
-chrome.storage.local.get(['bearerToken', 'relayPort']).then((result) => {
-  if (typeof result.bearerToken === 'string' && result.bearerToken) {
-    tokenInput.value = result.bearerToken;
-  }
+// Load saved relay port on open.
+chrome.storage.local.get(['relayPort']).then((result) => {
   if (result.relayPort !== undefined) {
     portInput.value = String(result.relayPort);
   }
@@ -130,8 +94,8 @@ btnConnect.addEventListener('click', async () => {
 
   errorText.style.display = 'none';
 
-  // Read the current relay mode so we know whether to auto-fetch a local
-  // daemon token. In cloud mode the worker uses the stored cloud token
+  // Read the current relay mode so we know whether self-hosted pairing
+  // is required. In cloud mode the worker uses the stored cloud token
   // (vellum.cloudAuthToken) directly, so the popup must NOT try to hit
   // localhost — a cloud-only user may not have a local assistant running.
   //
@@ -149,49 +113,18 @@ btnConnect.addEventListener('click', async () => {
         ? 'cloud'
         : 'self-hosted';
 
-  // Only honour the manual token input when the user has explicitly revealed
-  // it. When manual mode is hidden and we're in self-hosted mode, we now
-  // rely on the native-messaging Pair flow (PR 3 of the browser-remediation
-  // plan): the stored capability token is what authenticates the relay
-  // WebSocket, not a gateway-minted JWT. If the user hasn't paired yet we
-  // refuse to auto-fetch from the gateway and instead surface an error
-  // pointing them at the Pair button.
-  //
-  // Legacy compatibility: if a `bearerToken` was already written to storage
-  // by a pre-PR 3 install, we still honour it (the worker's fallback branch
-  // in buildRelayModeConfig will pick it up) so existing installs keep
-  // working until they re-pair.
-  let token = manualMode ? tokenInput.value.trim() : '';
-
-  if (!token && relayMode === 'self-hosted') {
+  // Self-hosted now requires native-messaging pairing. There is no
+  // gateway JWT fallback path.
+  if (relayMode === 'self-hosted') {
     const pairedToken = await getStoredLocalToken();
     if (!pairedToken) {
-      // No capability token yet. Check for a legacy bearer token — that
-      // path is honoured by the service worker's buildRelayModeConfig
-      // fallback, so we let the worker take the connect attempt and
-      // surface its MissingTokenError if there's nothing usable.
-      const legacy = await chrome.storage.local.get('bearerToken');
-      if (typeof legacy.bearerToken !== 'string' || !legacy.bearerToken) {
-        showError(
-          'Self-hosted relay is not paired yet — click "Pair local assistant" below before connecting.',
-        );
-        return;
-      }
-      // Fall through: the worker will read the legacy bearer token and
-      // connect to the compatibility branch.
+      showError(
+        'Self-hosted relay is not paired yet — click "Pair local assistant" below before connecting.',
+      );
+      return;
     }
-    // When we have a paired capability token we deliberately do NOT
-    // write anything to the legacy `bearerToken` storage key — the
-    // worker's buildRelayModeConfig reads the capability token
-    // directly and persisting a stale bearer token here would just
-    // leave orphaned state around after a future clearLocalToken.
   }
 
-  // In cloud mode with no manual token we proceed with no bearerToken —
-  // the worker reads vellum.cloudAuthToken from chrome.storage when it
-  // builds the relay mode config in buildRelayModeConfig().
-
-  if (token) storageUpdate.bearerToken = token;
   if (portInput.value.trim()) {
     storageUpdate.relayPort = port;
   } else {
@@ -231,9 +164,8 @@ btnDisconnect.addEventListener('click', () => {
 // which POSTs the extension's origin to the assistant's
 // `/v1/browser-extension-pair` endpoint and returns a capability token.
 // The token is persisted in chrome.storage.local under
-// `vellum.localCapabilityToken`. It is NOT yet used on any WebSocket —
-// PR 14 will read it when opening the relay connection in self-hosted
-// mode.
+// `vellum.localCapabilityToken` and is used directly by the
+// self-hosted relay WebSocket connection.
 
 function setLocalStatus(text: string, state: 'neutral' | 'paired' | 'error'): void {
   localStatus.textContent = text;
@@ -302,10 +234,8 @@ refreshLocalStatus();
 
 // ── Cloud sign-in (new in Phase 2 PR 8) ────────────────────────────
 //
-// This is a skeleton: the token is persisted but not yet used on any
-// WebSocket. A later PR will plumb it through the relay connection so
-// cloud-hosted users can connect to the Vellum gateway without running
-// a local daemon.
+// The token is persisted and consumed by the background worker when
+// opening cloud relay WebSocket connections.
 
 function setCloudStatus(text: string, signedIn: boolean): void {
   cloudStatus.textContent = text;
@@ -325,11 +255,8 @@ async function refreshCloudStatus(): Promise<void> {
     // cloud token refresh fails (see cloudReconnectHook in worker.ts)
     // and clears it on a successful connect.
     //
-    // Use showErrorText (NOT showError) here: the self-hosted manual
-    // token entry section is irrelevant to a cloud auth error, and
-    // revealing it would point the user at the wrong remediation.
-    // The error message itself already instructs the user to sign
-    // in with Vellum (cloud) again, which is all they need.
+    // Use showErrorText directly: the message already instructs the
+    // user to sign in with Vellum (cloud) again, which is all they need.
     const authErrResult = await chrome.storage.local.get('vellum.relayAuthError');
     const authErr = authErrResult['vellum.relayAuthError'];
     if (
@@ -383,10 +310,10 @@ refreshCloudStatus();
 
 // ── Relay mode switcher (Phase 2 PR 14) ────────────────────────────
 //
-// Flips `vellum.relayMode` in chrome.storage.local between "self-hosted"
-// (default, back-compat) and "cloud". The service worker listens for
-// storage changes via chrome.storage.onChanged and closes the current
-// socket + reopens a new one against the selected transport.
+// Flips `vellum.relayMode` in chrome.storage.local between
+// "self-hosted" (default) and "cloud". The service worker listens
+// for storage changes via chrome.storage.onChanged and closes the
+// current socket + reopens a new one against the selected transport.
 
 function isRelayModeKind(v: unknown): v is RelayModeKind {
   return v === 'self-hosted' || v === 'cloud';

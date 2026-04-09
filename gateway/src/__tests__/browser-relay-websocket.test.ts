@@ -27,8 +27,8 @@ function mintEdgeToken(actorPrincipalId: string = "test-user"): string {
 
 /**
  * Mint a service-style browser-relay edge token (svc:browser-relay:self).
- * This mirrors `mintBrowserRelayToken()` — the token is valid for the
- * gateway audience but carries no actor principal in its sub claim.
+ * This token is valid for the gateway audience but carries no actor
+ * principal in its sub claim.
  */
 function mintServiceEdgeToken(): string {
   return mintToken({
@@ -275,7 +275,7 @@ describe("getBrowserRelayWebsocketHandlers", () => {
       config: makeConfig({
         assistantRuntimeBaseUrl: "http://runtime.internal:7821",
       }),
-      auth: { authenticated: true, authBypassed: false },
+      auth: { authenticated: false, authBypassed: true },
     });
 
     handlers.open(ws as never);
@@ -320,7 +320,7 @@ describe("getBrowserRelayWebsocketHandlers", () => {
     expect(parsed.searchParams.get("guardianId")).toBe(TEST_ACTOR_PRINCIPAL);
   });
 
-  test("open omits guardianId query param when auth context has none (service-token path)", () => {
+  test("open omits guardianId query param when auth context has none (auth-bypass context)", () => {
     const ws = createFakeDownstreamWs({
       wsType: "browser-relay",
       config: makeConfig({
@@ -334,9 +334,8 @@ describe("getBrowserRelayWebsocketHandlers", () => {
     const MockWS = globalThis.WebSocket as unknown as ReturnType<typeof mock>;
     const calledUrl = (MockWS.mock.calls[0] as unknown[])[0] as string;
     const parsed = new URL(calledUrl);
-    // When the edge token has no actor principal, the gateway
-    // propagates nothing for guardianId and the runtime accepts the
-    // upgrade with `guardianId = undefined`.
+    // Auth-bypass contexts may omit guardianId; open() should not
+    // synthesize one.
     expect(parsed.searchParams.has("guardianId")).toBe(false);
   });
 
@@ -368,7 +367,7 @@ describe("getBrowserRelayWebsocketHandlers", () => {
   });
 
   test("open forwards clientInstanceId even without a guardianId", () => {
-    // Auth-bypass / service-token paths can still carry a
+    // Auth-bypass paths can still carry a
     // clientInstanceId lifted from the downstream handshake. The
     // gateway must propagate it so the runtime's multi-instance
     // registry keys the connection correctly.
@@ -378,8 +377,8 @@ describe("getBrowserRelayWebsocketHandlers", () => {
         assistantRuntimeBaseUrl: "http://runtime.internal:7821",
       }),
       auth: {
-        authenticated: true,
-        authBypassed: false,
+        authenticated: false,
+        authBypassed: true,
         clientInstanceId: "install-XYZ-789",
       },
     });
@@ -438,10 +437,7 @@ describe("checkBrowserRelayAuth", () => {
     expect(result.context.guardianId).toBe(TEST_ACTOR_PRINCIPAL);
   });
 
-  test("returns ok with undefined guardianId for service-style edge tokens", () => {
-    // Reflects the `mintBrowserRelayToken()` path where the edge token
-    // sub is `svc:browser-relay:self`. The gateway accepts the token but
-    // cannot resolve an actor principal to propagate upstream.
+  test("rejects service-style edge tokens with no actor principal", () => {
     const token = mintServiceEdgeToken();
     const config = makeConfig({});
     const req = new Request(
@@ -452,10 +448,9 @@ describe("checkBrowserRelayAuth", () => {
 
     const result = checkBrowserRelayAuth(req, url, config);
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("expected ok");
-    expect(result.context.authenticated).toBe(true);
-    expect(result.context.guardianId).toBeUndefined();
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected error");
+    expect(result.response.status).toBe(401);
   });
 
   test("returns error response when token is missing and auth is required", () => {
@@ -642,7 +637,7 @@ describe("createBrowserRelayWebsocketHandler guardian propagation", () => {
     });
   });
 
-  test("upgrades with undefined guardianId for service-style edge tokens", () => {
+  test("rejects service-style edge tokens before upgrade", () => {
     const token = mintServiceEdgeToken();
     const config = makeConfig({});
     const handler = createBrowserRelayWebsocketHandler(config);
@@ -651,40 +646,26 @@ describe("createBrowserRelayWebsocketHandler guardian propagation", () => {
       { headers: { upgrade: "websocket" } },
     );
 
-    let capturedData: unknown = null;
     const fakeServer = {
       requestIP: mock(() => ({
         address: "127.0.0.1",
         family: "IPv4",
         port: 54000,
       })),
-      upgrade: mock((_req: Request, opts?: { data?: unknown }) => {
-        capturedData = opts?.data;
-        return true;
-      }),
+      upgrade: mock(() => true),
     } as unknown as import("bun").Server<any>;
 
     const res = handler(req, fakeServer);
 
-    expect(res).toBeUndefined();
-    expect(fakeServer.upgrade).toHaveBeenCalledTimes(1);
-    // The gateway still upgrades the connection, but propagates no
-    // guardianId. The runtime allows the upgrade to proceed with an
-    // unscoped connection when no fallback guardian context is
-    // available.
-    expect(capturedData).toMatchObject({
-      wsType: "browser-relay",
-      auth: { authenticated: true, authBypassed: false },
-    });
-    expect(
-      (capturedData as { auth: { guardianId?: string } }).auth.guardianId,
-    ).toBeUndefined();
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(401);
+    expect(fakeServer.upgrade).not.toHaveBeenCalled();
   });
 });
 
 describe("isLoopbackPeer", () => {
   test("uses x-forwarded-for first hop when trustProxy is enabled", () => {
-    const req = new Request("http://localhost:7830/v1/browser-relay/token", {
+    const req = new Request("http://localhost:7830/v1/browser-relay", {
       headers: { "x-forwarded-for": "203.0.113.5, 127.0.0.1" },
     });
 
@@ -700,7 +681,7 @@ describe("isLoopbackPeer", () => {
   });
 
   test("falls back to peer IP when trustProxy is disabled", () => {
-    const req = new Request("http://localhost:7830/v1/browser-relay/token", {
+    const req = new Request("http://localhost:7830/v1/browser-relay", {
       headers: { "x-forwarded-for": "203.0.113.5, 127.0.0.1" },
     });
 

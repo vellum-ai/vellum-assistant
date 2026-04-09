@@ -70,43 +70,6 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/browser-relay/token": {
-        get: {
-          summary: "Browser relay bearer token",
-          description:
-            "Returns a short-lived JWT that the Chrome extension can use to authenticate its WebSocket connection to `/v1/browser-relay`. Only accessible from localhost (private network peers).",
-          operationId: "getBrowserRelayToken",
-          responses: {
-            "200": {
-              description: "Token minted successfully",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      token: {
-                        type: "string",
-                        description:
-                          "JWT bearer token for browser relay WebSocket authentication",
-                      },
-                    },
-                    required: ["token"],
-                  },
-                },
-              },
-            },
-            "403": {
-              description:
-                "Forbidden — only accessible from localhost / private network",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-          },
-        },
-      },
       "/v1/health": {
         get: {
           summary: "Runtime health (via gateway)",

@@ -161,8 +161,9 @@ type AuthCheckResult =
  * The gateway accepts the token via `Authorization: Bearer <jwt>` or a
  * `?token=` query parameter (browser WebSocket upgrades cannot set custom
  * headers, so the query param is the primary mechanism for the Chrome
- * extension). When the token carries an actor principal in its sub claim,
- * we propagate the `actorPrincipalId` forward as the guardian identity so
+ * extension). Tokens must carry an actor principal in `sub`; service
+ * subjects (`svc:*:*`) are rejected on this route. The extracted
+ * `actorPrincipalId` is propagated forward as the guardian identity so
  * the runtime can register the connection under the correct guardian.
  */
 export function checkBrowserRelayAuth(
@@ -218,20 +219,25 @@ export function checkBrowserRelayAuth(
   }
 
   const parsed = parseSub(result.claims.sub);
-  let guardianId: string | undefined;
   if (
-    parsed.ok &&
-    parsed.principalType === "actor" &&
-    parsed.actorPrincipalId
+    !parsed.ok ||
+    parsed.principalType !== "actor" ||
+    !parsed.actorPrincipalId
   ) {
-    guardianId = parsed.actorPrincipalId;
-  } else if (!parsed.ok) {
-    // Not fatal — service tokens (svc:*:*) and unknown subs still reach
-    // the runtime, where they are rejected if no guardian is available.
-    log.debug(
-      { reason: parsed.reason, sub: result.claims.sub },
-      "Browser relay WS: edge token sub did not yield actor principal",
+    // Fail closed: browser-relay sockets must be guardian-scoped.
+    // Service tokens (`svc:*:*`) do not carry an actor principal and are
+    // therefore rejected on this path.
+    log.warn(
+      {
+        reason: parsed.ok ? "missing_actor_principal" : parsed.reason,
+        sub: result.claims.sub,
+      },
+      "Browser relay WS: denied token without actor principal",
     );
+    return {
+      ok: false,
+      response: new Response("Unauthorized", { status: 401 }),
+    };
   }
 
   return {
@@ -239,7 +245,7 @@ export function checkBrowserRelayAuth(
     context: {
       authenticated: true,
       authBypassed: false,
-      guardianId,
+      guardianId: parsed.actorPrincipalId,
       clientInstanceId,
     },
   };
