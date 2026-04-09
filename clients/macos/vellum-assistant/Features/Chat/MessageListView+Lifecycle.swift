@@ -306,19 +306,20 @@ extension MessageListView {
         //
         // Seed lastMessageId so executeScrollToBottom can target it.
         scrollState.lastMessageId = paginatedVisibleMessages.last?.id
-        // Clear any stale scroll position from the previous conversation.
-        // Do NOT set an explicit ScrollPosition(id:anchor:) here — for long
-        // conversations the cumulative height-estimate error across hundreds of
-        // unmaterialized LazyVStack items places the viewport in blank space.
-        // Instead, let .defaultScrollAnchor(.bottom, for: .initialOffset) handle
-        // initial positioning: it anchors content from the bottom up, materializing
-        // the last items first with correct heights. restoreScrollToBottom() (100ms
-        // fallback) then fine-tunes with an ID-based scroll once nearby items are
-        // materialized and heights are accurate.
-        // https://developer.apple.com/documentation/swiftui/view/defaultscrollanchor(_:for:)
+        // Position at the content bottom for the new conversation.
+        // Use edge-based positioning — NOT ID-based ScrollPosition(id:anchor:).
+        // Edge-based scroll tells SwiftUI "go to the end" as a single value,
+        // while ID-based requires computing the cumulative estimated height of
+        // all preceding items. For conversations with variable-height messages,
+        // cumulative estimation errors across unmaterialized LazyVStack items
+        // can place the viewport in blank space.
+        // restoreScrollToBottom() (100ms fallback) fine-tunes via the recovery
+        // loop, which alternates between edge-based and ID-based strategies to
+        // break ScrollPosition value deduplication.
+        // https://developer.apple.com/documentation/swiftui/scrollposition/init(edge:)
         scrollState.scrollRestoreTask?.cancel()
         if anchorMessageId == nil {
-            scrollPosition = ScrollPosition()
+            scrollPosition = ScrollPosition(edge: .bottom)
         }
         restoreScrollToBottom()
     }
