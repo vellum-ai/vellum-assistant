@@ -101,7 +101,6 @@ struct ChatView: View {
     @State private var currentMatchIndex = 0
     @State private var showSkeleton = false
     @State private var skeletonDebounceTask: Task<Void, Never>? = nil
-    @State private var containerWidth: CGFloat = 0
 
     private var isEmptyState: Bool {
         viewModel.paginatedVisibleMessages.isEmpty && viewModel.isHistoryLoaded
@@ -122,31 +121,25 @@ struct ChatView: View {
         #if DEBUG
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "ChatView.body")
         #endif
-        ZStack {
-            // Color.clear always fills the proposed size, so measuring it
-            // gives the true available width from the parent — unlike the
-            // ZStack whose intrinsic size is driven by its children. This
-            // breaks the circular dependency where fixed-width frames inside
-            // mainContentStack would inflate the ZStack beyond the parent's
-            // proposal (e.g. 808pt default in a 300pt dock).
-            Color.clear
-                .onGeometryChange(for: CGFloat.self) { proxy in
-                    proxy.size.width
-                } action: { newWidth in
-                    containerWidth = newWidth
-                }
+        // GeometryReader reliably reports the parent's proposed width,
+        // even during interactive drag resizing of the dock. Using
+        // onGeometryChange on a ZStack or Color.clear can miss updates
+        // when the ZStack's intrinsic size is inflated by fixed-width
+        // children (808pt fallback) or when rapid drag updates are batched.
+        GeometryReader { proxy in
+            ZStack {
+                mainContentStack(containerWidth: proxy.size.width)
+                    .background(alignment: .bottom) {
+                        chatBackground
+                    }
+                    .background(VColor.surfaceBase)
+                    .overlay(alignment: .bottom) {
+                        btwOverlay
+                    }
+                    .animation(VAnimation.fast, value: viewModel.btwResponse != nil)
 
-            mainContentStack(containerWidth: containerWidth)
-                .background(alignment: .bottom) {
-                    chatBackground
-                }
-                .background(VColor.surfaceBase)
-                .overlay(alignment: .bottom) {
-                    btwOverlay
-                }
-                .animation(VAnimation.fast, value: viewModel.btwResponse != nil)
-
-            dropTargetOverlay
+                dropTargetOverlay
+            }
         }
         .environment(\.dropActions, currentDropActions)
         .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
