@@ -273,13 +273,15 @@ public final class GatewayConnectionManager: ObservableObject {
         autoWakeTask?.cancel()
         autoWakeTask = nil
         #endif
+        #if os(macOS)
+        cachedAssistant = nil
+        #endif
         disconnect()
         isAuthenticated = false
         refreshTask?.cancel()
         refreshTask = nil
         #if os(macOS)
         lastAutoWakeAttempt = nil
-        cachedAssistant = nil
         #endif
 
         // Reset published state
@@ -829,7 +831,15 @@ public final class GatewayConnectionManager: ObservableObject {
     /// Synchronously refreshes the cached assistant snapshot from the lockfile.
     /// Called during connect and when `activeAssistantDidChange` fires.
     private func refreshCachedAssistant() {
-        guard let id = LockfileAssistant.loadActiveAssistantId() else {
+        let id: String?
+        if let activeId = LockfileAssistant.loadActiveAssistantId(), !activeId.isEmpty {
+            id = activeId
+        } else if let legacyId = UserDefaults.standard.string(forKey: "connectedAssistantId"), !legacyId.isEmpty {
+            id = legacyId
+        } else {
+            id = nil
+        }
+        guard let id else {
             cachedAssistant = nil
             return
         }
