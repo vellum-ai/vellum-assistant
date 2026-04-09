@@ -81,8 +81,10 @@ extension MessageListView {
                         scrollState.anchorSetTime = nil
                         scrollState.anchorTimeoutTask = nil
                         scrollState.transition(to: .followingBottom)
-                        _ = withAnimation(VAnimation.fast) {
-                            scrollState.requestPinToBottom(animated: true, userInitiated: true)
+                        Task { @MainActor in
+                            withAnimation(VAnimation.fast) {
+                                scrollState.requestPinToBottom(animated: true, userInitiated: true)
+                            }
                         }
                     }
             }
@@ -181,8 +183,10 @@ extension MessageListView {
             executeCoordinatorIntents(resolveIntents)
             // Keep scrollState in sync as runtime executor.
             scrollState.transition(to: .programmaticScroll(reason: .deepLinkAnchor(id: id)))
-            withAnimation {
-                scrollState.scrollTo?(id, .center)
+            Task { @MainActor in
+                withAnimation {
+                    scrollState.scrollTo?(id, .center)
+                }
             }
             flashHighlight(messageId: id)
             anchorMessageId = nil
@@ -349,8 +353,10 @@ extension MessageListView {
             // Notify coordinator that the anchor resolved.
             let resolveIntents = scrollCoordinator.handle(.anchorResolved(id: anchorId))
             executeCoordinatorIntents(resolveIntents)
-            withAnimation {
-                scrollState.scrollTo?(id, .center)
+            Task { @MainActor in
+                withAnimation {
+                    scrollState.scrollTo?(id, .center)
+                }
             }
             flashHighlight(messageId: id)
             anchorMessageId = nil
@@ -368,8 +374,10 @@ extension MessageListView {
                 anchorMessageId = nil
                 scrollState.anchorSetTime = nil
                 scrollState.anchorTimeoutTask = nil
-                _ = withAnimation(VAnimation.fast) {
-                    scrollState.requestPinToBottom(animated: true, userInitiated: true)
+                Task { @MainActor in
+                    withAnimation(VAnimation.fast) {
+                        scrollState.requestPinToBottom(animated: true, userInitiated: true)
+                    }
                 }
             }
         }
