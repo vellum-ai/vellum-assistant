@@ -94,7 +94,7 @@ public final class GatewayConnectionManager: ObservableObject {
 
     func setUpdateInProgress(_ value: Bool) {
         let wasInProgress = isUpdateInProgress
-        isUpdateInProgress = value
+        if value != wasInProgress { isUpdateInProgress = value }
         if value && !wasInProgress {
             outcomeEmittedForCurrentCycle = false
             if healthCheckTask != nil {
@@ -312,8 +312,6 @@ public final class GatewayConnectionManager: ObservableObject {
                     }
                     #endif
                     handleDaemonVersionChanged(newVersion)
-                } else if let newVersion = decoded.version {
-                    assistantVersion = newVersion
                 }
             }
 
@@ -427,7 +425,7 @@ public final class GatewayConnectionManager: ObservableObject {
     private func handleServerMessage(_ message: ServerMessage) {
         if case .assistantStatus(let status) = message {
             if let version = status.version {
-                assistantVersion = version
+                if version != assistantVersion { assistantVersion = version }
                 checkVersionCompatibility(assistantVersion: version)
                 if self.isUpdateInProgress && !self.outcomeEmittedForCurrentCycle {
                     if let target = self.updateTargetVersion, self.versionsMatch(version, target) {
@@ -448,7 +446,7 @@ public final class GatewayConnectionManager: ObservableObject {
             }
             if let newFingerprint = status.keyFingerprint {
                 let oldFingerprint = keyFingerprint
-                keyFingerprint = newFingerprint
+                if newFingerprint != oldFingerprint { keyFingerprint = newFingerprint }
 
                 if let oldFingerprint, oldFingerprint != newFingerprint {
                     log.info("Assistant key fingerprint changed (\(oldFingerprint, privacy: .public) → \(newFingerprint, privacy: .public)) — invalidating credentials")
@@ -733,7 +731,7 @@ public final class GatewayConnectionManager: ObservableObject {
     private func setConnected(_ connected: Bool) {
         guard isConnected != connected else { return }
         isConnected = connected
-        isConnecting = false
+        if isConnecting { isConnecting = false }
         if connected {
             NotificationCenter.default.post(name: .daemonDidReconnect, object: self)
             #if os(macOS)
