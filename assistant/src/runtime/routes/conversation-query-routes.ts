@@ -61,6 +61,26 @@ const validEmbeddingProviderSet = new Set<string>(
   VALID_MEMORY_EMBEDDING_PROVIDERS,
 );
 
+// ---------------------------------------------------------------------------
+// Module-level ModelSetContext registry
+// ---------------------------------------------------------------------------
+
+let _modelSetContextProvider: (() => ModelSetContext) | null = null;
+
+/**
+ * Register the factory that provides ModelSetContext at request time.
+ * Called once by lifecycle.ts after DaemonServer is created.
+ */
+export function registerModelSetContextProvider(
+  provider: () => ModelSetContext,
+): void {
+  _modelSetContextProvider = provider;
+}
+
+function getModelSetContext(): ModelSetContext | undefined {
+  return _modelSetContextProvider?.();
+}
+
 type LlmContextNormalizationResult = ReturnType<
   typeof normalizeLlmContextPayloads
 >;
@@ -122,8 +142,6 @@ function applyStoredProviderToLlmContextResult(
 // ---------------------------------------------------------------------------
 
 export interface ConversationQueryRouteDeps {
-  /** Lazy factory for model set context (config reload suppression, conversation eviction). */
-  getModelSetContext?: () => ModelSetContext;
   /** Lookup an active conversation by ID for queued message deletion. */
   findConversationForQueue?: (
     id: string,
@@ -164,7 +182,8 @@ export function conversationQueryRouteDefinitions(
         provider: z.string().describe("Optional provider override").optional(),
       }),
       handler: async ({ req }) => {
-        if (!deps.getModelSetContext) {
+        const ctx = getModelSetContext();
+        if (!ctx) {
           return httpError("INTERNAL_ERROR", "Model set not available", 500);
         }
         const body = (await req.json()) as {
@@ -190,11 +209,7 @@ export function conversationQueryRouteDefinitions(
           );
         }
         try {
-          const info = await setModel(
-            body.modelId,
-            deps.getModelSetContext(),
-            body.provider,
-          );
+          const info = await setModel(body.modelId, ctx, body.provider);
           return Response.json(info);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
@@ -217,7 +232,8 @@ export function conversationQueryRouteDefinitions(
         modelId: z.string(),
       }),
       handler: async ({ req }) => {
-        if (!deps.getModelSetContext) {
+        const ctx = getModelSetContext();
+        if (!ctx) {
           return httpError(
             "INTERNAL_ERROR",
             "Image gen model set not available",
@@ -233,7 +249,7 @@ export function conversationQueryRouteDefinitions(
           );
         }
         try {
-          setImageGenModel(body.modelId, deps.getModelSetContext());
+          setImageGenModel(body.modelId, ctx);
           return Response.json({ ok: true });
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
@@ -272,7 +288,8 @@ export function conversationQueryRouteDefinitions(
         model: z.string().optional(),
       }),
       handler: async ({ req }) => {
-        if (!deps.getModelSetContext) {
+        const ctx = getModelSetContext();
+        if (!ctx) {
           return httpError(
             "INTERNAL_ERROR",
             "Embedding config not available",
@@ -305,11 +322,7 @@ export function conversationQueryRouteDefinitions(
           );
         }
         try {
-          const info = await setEmbeddingConfig(
-            body.provider,
-            body.model,
-            deps.getModelSetContext(),
-          );
+          const info = await setEmbeddingConfig(body.provider, body.model, ctx);
           return Response.json(info);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);

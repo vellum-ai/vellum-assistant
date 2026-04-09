@@ -82,6 +82,7 @@ import {
 } from "../runtime/capability-tokens.js";
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
+import { registerModelSetContextProvider } from "../runtime/routes/conversation-query-routes.js";
 import { startScheduler } from "../schedule/scheduler.js";
 import {
   onCesClientChanged,
@@ -639,6 +640,10 @@ export async function runDaemon(): Promise<void> {
     await server.start();
     log.info("Daemon startup: DaemonServer started");
 
+    // Register the ModelSetContext provider so HTTP routes can resolve it
+    // at request time without threading it through RuntimeHttpServerOptions.
+    registerModelSetContextProvider(() => server.getHandlerContext());
+
     // Mutable refs for Qdrant and memory worker so background init can assign
     // them and the shutdown handler always sees the latest value.
     const bgRefs: {
@@ -955,7 +960,6 @@ export async function runDaemon(): Promise<void> {
       findConversationBySurfaceId: (surfaceId) =>
         server.findConversationBySurfaceId(surfaceId),
       getSkillContext: () => server.getSkillContext(),
-      getModelSetContext: () => server.getHandlerContext(),
       conversationManagementDeps: {
         switchConversation: (conversationId) =>
           switchConversation(conversationId, server.getHandlerContext()),

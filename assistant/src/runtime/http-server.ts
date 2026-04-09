@@ -305,7 +305,6 @@ export class RuntimeHttpServer {
   private findConversationBySurfaceId?: RuntimeHttpServerOptions["findConversationBySurfaceId"];
   private getSkillContext?: RuntimeHttpServerOptions["getSkillContext"];
   private conversationManagementDeps?: RuntimeHttpServerOptions["conversationManagementDeps"];
-  private getModelSetContext?: RuntimeHttpServerOptions["getModelSetContext"];
   private getWatchDeps?: RuntimeHttpServerOptions["getWatchDeps"];
   private getRecordingDeps?: RuntimeHttpServerOptions["getRecordingDeps"];
   private getCesClient?: RuntimeHttpServerOptions["getCesClient"];
@@ -329,7 +328,6 @@ export class RuntimeHttpServer {
     this.findConversationBySurfaceId = options.findConversationBySurfaceId;
     this.getSkillContext = options.getSkillContext;
     this.conversationManagementDeps = options.conversationManagementDeps;
-    this.getModelSetContext = options.getModelSetContext;
     this.getWatchDeps = options.getWatchDeps;
     this.getRecordingDeps = options.getRecordingDeps;
     this.getCesClient = options.getCesClient;
@@ -1362,7 +1360,6 @@ export class RuntimeHttpServer {
       ...acpRouteDefinitions(),
       ...subagentRouteDefinitions(),
       ...conversationQueryRouteDefinitions({
-        getModelSetContext: this.getModelSetContext,
         findConversationForQueue: this.findConversation
           ? (id) => {
               const s = this.findConversation!(id);
