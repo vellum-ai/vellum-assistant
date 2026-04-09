@@ -266,22 +266,21 @@ struct ChatBubble: View, Equatable {
     func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         let isPlainAssistant = !isUser && !message.isError
         if message.isError {
-            // Error: chrome padding + full-width inner expansion frame.
+            // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+            // .containerRelativeFrame resolves against the ScrollView for full-width error background.
             content()
                 .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.lg,
                                     bottom: VSpacing.md, trailing: VSpacing.lg))
-                .frame(maxWidth: .infinity)
+                .containerRelativeFrame(.horizontal)
                 .background {
                     bubbleChromeBackground
                 }
-                .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
         } else if isPlainAssistant {
             // Plain assistant: no chrome padding, no inner frame.
             content()
                 .background {
                     bubbleChromeBackground
                 }
-                .frame(maxWidth: bubbleMaxWidth, alignment: .leading)
         } else {
             // User messages (non-error): chrome padding, no inner frame.
             content()
@@ -290,7 +289,6 @@ struct ChatBubble: View, Equatable {
                 .background {
                     bubbleChromeBackground
                 }
-                .frame(maxWidth: bubbleMaxWidth, alignment: .trailing)
         }
     }
 
@@ -341,12 +339,15 @@ struct ChatBubble: View, Equatable {
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "chatBubbleBody",
                             "id=%{public}s streaming=%d", message.id.uuidString, message.isStreaming ? 1 : 0)
         #endif
-        // Outer VStack ensures a single resolved subview for the parent
-        // LazyVStack, avoiding duplicate .id(message.id) from MessageCellView
-        // that caused incorrect width proposals at narrow window sizes (LUM-688).
-        // The avatar sits outside the inner .compositingGroup() scope so
-        // CAShapeLayer animations (breathing, blink, twitch) are unaffected.
-        VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
+        // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+        HStack(spacing: 0) {
+            if isUser { Spacer(minLength: 0) }
+            // Outer VStack ensures a single resolved subview for the parent
+            // LazyVStack, avoiding duplicate .id(message.id) from MessageCellView
+            // that caused incorrect width proposals at narrow window sizes (LUM-688).
+            // The avatar sits outside the inner .compositingGroup() scope so
+            // CAShapeLayer animations (breathing, blink, twitch) are unaffected.
+            VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
             // --- Message content (composited) ---
             VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
                 if !isUser && cachedHasInterleavedContent {
@@ -425,8 +426,9 @@ struct ChatBubble: View, Equatable {
             if isLatestAssistantMessage && !isUser && !hideInlineAvatar {
                 inlineAvatar
             }
+            }
+            if !isUser { Spacer(minLength: 0) }
         }
-        .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
         .contentShape(Rectangle())
         .onChange(of: message.contentOrder) { _, _ in recomputeInterleavedContentCache() }
         .onChange(of: message.textSegments) { _, _ in recomputeInterleavedContentCache() }

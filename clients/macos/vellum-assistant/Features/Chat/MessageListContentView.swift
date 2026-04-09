@@ -107,7 +107,6 @@ struct MessageListContentView: View, Equatable {
             }
             Spacer()
         }
-        .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
         .id("thinking-indicator")
         .transition(.opacity)
     }
@@ -118,7 +117,6 @@ struct MessageListContentView: View, Equatable {
             label: "Compacting context\u{2026}",
             showIcon: false
         )
-        .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
         .id("compacting-indicator")
         .transition(.opacity)
     }
@@ -225,13 +223,16 @@ struct MessageListContentView: View, Equatable {
             }
 
             ForEach(state.orphanSubagents) { subagent in
-                SubagentEventsReader(
-                    store: subagentDetailStore,
-                    subagent: subagent,
-                    onAbort: { onAbortSubagent?(subagent.id) },
-                    onTap: { onSubagentTap?(subagent.id) }
-                )
-                    .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+                // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+                HStack(spacing: 0) {
+                    SubagentEventsReader(
+                        store: subagentDetailStore,
+                        subagent: subagent,
+                        onAbort: { onAbortSubagent?(subagent.id) },
+                        onTap: { onSubagentTap?(subagent.id) }
+                    )
+                    Spacer(minLength: 0)
+                }
                     .id("subagent-\(subagent.id)")
                     .transition(.opacity)
             }
@@ -248,7 +249,6 @@ struct MessageListContentView: View, Equatable {
                     TypingIndicatorView()
                     Spacer()
                 }
-                .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
                 .id("streaming-without-text-indicator")
                 .transition(.opacity)
             } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {

@@ -111,12 +111,17 @@ struct MessageListView: View {
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "MessageListView.body")
         #endif
             ScrollView {
-                scrollViewContent
-                    .background(
-                        MessageListScrollObserver { newState in
-                            enqueueScrollGeometryUpdate(newState)
-                        }
-                    )
+                // AlignmentBarrierLayout stops explicitAlignment queries from
+                // cascading into the LazyVStack — see AGENTS.md and
+                // AlignmentBarrierLayout.swift for details.
+                AlignmentBarrierLayout {
+                    scrollViewContent
+                }
+                .background(
+                    MessageListScrollObserver { newState in
+                        enqueueScrollGeometryUpdate(newState)
+                    }
+                )
             }
             .id(conversationId)
             .scrollContentBackground(.hidden)
