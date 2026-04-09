@@ -15,6 +15,13 @@ import AppKit
 /// image at once.
 ///
 /// Tapping the image opens the URL in the user's default browser.
+private struct ImageHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 public struct InlineImageEmbedView: View {
     public let url: URL
 
@@ -25,6 +32,8 @@ public struct InlineImageEmbedView: View {
     /// Flipped to `true` by `onAppear`; prevents eager network fetches
     /// for images that are off-screen in long chat histories.
     @State private var isVisible = false
+    /// Tracks intrinsic image height for capping without `_FlexFrameLayout`.
+    @State private var imageIntrinsicHeight: CGFloat = 0
 
     public var body: some View {
         Group {
@@ -48,7 +57,14 @@ public struct InlineImageEmbedView: View {
                 placeholderSkeleton
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: 300)
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(key: ImageHeightKey.self, value: geo.size.height)
+            }
+        )
+        .onPreferenceChange(ImageHeightKey.self) { imageIntrinsicHeight = $0 }
+        .frame(height: imageIntrinsicHeight > 300 ? 300 : nil)
+        .clipped()
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .onAppear { isVisible = true }
         .onTapGesture {
@@ -65,7 +81,6 @@ public struct InlineImageEmbedView: View {
     private var placeholderSkeleton: some View {
         RoundedRectangle(cornerRadius: 8)
             .fill(VColor.surfaceOverlay)
-            .frame(maxWidth: .infinity)
             .frame(height: 120)
     }
 }

@@ -190,7 +190,6 @@ public struct ToolConfirmationBubble: View {
             }
         }
         .padding(VSpacing.sm)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: VRadius.sm)
                 .fill(VColor.primaryBase.opacity(0.08))
@@ -257,7 +256,6 @@ public struct ToolConfirmationBubble: View {
             .clipped()
         }
         .padding(VSpacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
                 .fill(VColor.surfaceOverlay)
@@ -319,12 +317,10 @@ public struct ToolConfirmationBubble: View {
             Text(content)
                 .font(VFont.bodySmallDefault)
                 .foregroundStyle(VColor.contentSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         }
         .adaptiveScrollFrame(for: content, maxHeight: maxHeight, lineThreshold: Int(maxHeight / 16))
         .padding(VSpacing.sm)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: VRadius.sm)
                 .fill(VColor.surfaceOverlay)
@@ -374,7 +370,6 @@ public struct ToolConfirmationBubble: View {
                     } else {
                         VDiffView(computedDiff, maxHeight: 260)
                             .padding(VSpacing.sm)
-                            .frame(maxWidth: .infinity, alignment: .leading)
                             .background(
                                 RoundedRectangle(cornerRadius: VRadius.sm)
                                     .fill(VColor.surfaceOverlay)

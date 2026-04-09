@@ -42,7 +42,6 @@ private struct CodeBlockView: View {
                 .font(VFont.bodyMediumDefault)
                 .foregroundStyle(VColor.contentDefault)
                 .padding(VSpacing.sm)
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         }
         .background(VColor.surfaceActive)
@@ -240,7 +239,6 @@ public struct MarkdownRenderer: View {
                 blockView(for: block)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -250,14 +248,12 @@ public struct MarkdownRenderer: View {
             Text(inlineMarkdown(text))
                 .font(level == 1 ? VFont.titleSmall : level == 2 ? VFont.bodyLargeEmphasised : VFont.bodyMediumEmphasised)
                 .foregroundStyle(VColor.contentDefault)
-                .frame(maxWidth: .infinity, alignment: .leading)
 
         case .paragraph(let text):
             Text(inlineMarkdown(text))
                 .font(VFont.bodyMediumLighter)
                 .foregroundStyle(VColor.contentDefault)
                 .tint(VColor.primaryBase)
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
 
         case .codeBlock(let lang, let code):
@@ -275,7 +271,6 @@ public struct MarkdownRenderer: View {
                             .font(VFont.bodyMediumLighter)
                             .foregroundStyle(VColor.contentDefault)
                             .tint(VColor.primaryBase)
-                            .frame(maxWidth: .infinity, alignment: .leading)
                             .textSelection(.enabled)
                     }
                 }
@@ -284,7 +279,6 @@ public struct MarkdownRenderer: View {
         case .horizontalRule:
             Rectangle()
                 .fill(VColor.borderBase)
-                .frame(maxWidth: .infinity)
                 .frame(height: 1)
         }
     }
