@@ -65,6 +65,7 @@ struct ComposerView: View {
     var contextWindowFillRatio: Double? = nil
     var contextWindowTokens: Int? = nil
     var contextWindowMaxTokens: Int? = nil
+    var conversationHostAccessControl: ConversationHostAccessControlConfiguration? = nil
 
     @Environment(\.cmdEnterToSend) private var cmdEnterToSend
     #if os(macOS)
@@ -406,8 +407,26 @@ struct ComposerView: View {
                     iconSize: composerActionButtonSize,
                     action: { onAttach() }
                 )
-
                 .vTooltip("Attach file")
+            }
+
+            if let hostAccess = conversationHostAccessControl {
+                Button(action: hostAccess.onToggle) {
+                    VIconView(hostAccess.isEnabled ? .terminal : .lock, size: 14)
+                        .foregroundStyle(
+                            hostAccess.isEnabled
+                                ? VColor.systemPositiveStrong
+                                : VColor.contentSecondary
+                        )
+                        .frame(width: composerActionButtonSize, height: composerActionButtonSize)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!hostAccess.canToggle || hostAccess.isUpdating)
+                .vTooltip(hostAccess.errorMessage ?? "Computer access — \(hostAccess.subtitle)")
+                .accessibilityLabel("Computer access")
+                .accessibilityValue(hostAccess.isEnabled ? "Enabled" : "Disabled")
+                .animation(.easeInOut(duration: 0.15), value: hostAccess.isEnabled)
             }
 
             VContextWindowIndicator(

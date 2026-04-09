@@ -131,10 +131,6 @@ struct ChatEmptyStateView: View {
 
     private var composerSection: some View {
         VStack(spacing: VSpacing.sm) {
-            if let conversationHostAccessControl {
-                ConversationHostAccessControl(configuration: conversationHostAccessControl)
-            }
-
             ComposerView(
                 inputText: $inputText,
                 isSending: isSending,
@@ -155,7 +151,8 @@ struct ChatEmptyStateView: View {
                 onDictateToggle: onDictateToggle,
                 onVoiceModeToggle: onVoiceModeToggle,
                 placeholderText: fallbackPlaceholder,
-                conversationId: conversationId
+                conversationId: conversationId,
+                conversationHostAccessControl: conversationHostAccessControl
             )
         }
         .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
@@ -384,10 +381,6 @@ struct ChatTemporaryChatEmptyStateView: View {
                 .padding(.bottom, VSpacing.xxl)
 
             VStack(spacing: VSpacing.sm) {
-                if let conversationHostAccessControl {
-                    ConversationHostAccessControl(configuration: conversationHostAccessControl)
-                }
-
                 ComposerView(
                     inputText: $inputText,
                     isSending: isSending,
@@ -408,7 +401,8 @@ struct ChatTemporaryChatEmptyStateView: View {
                     onDictateToggle: onDictateToggle,
                     onVoiceModeToggle: onVoiceModeToggle,
                     placeholderText: "Ask anything...",
-                    conversationId: conversationId
+                    conversationId: conversationId,
+                    conversationHostAccessControl: conversationHostAccessControl
                 )
             }
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth)

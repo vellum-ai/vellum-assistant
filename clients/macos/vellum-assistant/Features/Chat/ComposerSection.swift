@@ -42,12 +42,6 @@ struct ComposerSection: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
-            if let conversationHostAccessControl {
-                ConversationHostAccessControl(configuration: conversationHostAccessControl)
-                    .padding(.bottom, VSpacing.sm)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-
             ComposerView(
                 inputText: $inputText,
                 isSending: isSending,
@@ -76,7 +70,8 @@ struct ComposerSection: View {
                 isInteractionEnabled: isInteractionEnabled,
                 contextWindowFillRatio: contextWindowFillRatio,
                 contextWindowTokens: contextWindowTokens,
-                contextWindowMaxTokens: contextWindowMaxTokens
+                contextWindowMaxTokens: contextWindowMaxTokens,
+                conversationHostAccessControl: conversationHostAccessControl
             )
         }
         .background(
