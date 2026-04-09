@@ -4,14 +4,19 @@
  * Covers:
  *   - Installed skill, valid path → returns file content (text + binary).
  *   - Installed skill, traversal path → 400 "Invalid path".
- *   - Installed skill, missing path query handled upstream (route-level).
- *   - Uninstalled catalog skill, dev mode → content from repo path.
- *   - Uninstalled catalog skill, platform mode → content proxied from the
- *     platform file-content endpoint with snake_case → camelCase mapping.
+ *   - Installed skill, missing file → 404 "File not found".
+ *   - Installed skill with missing on-disk directory → 404 "Skill directory
+ *     missing" without consulting the catalog fallback.
+ *   - Uninstalled catalog skill → delegates to `readCatalogSkillFileContent`
+ *     and returns its payload; null result → 404.
  *   - Skill not found anywhere → 404.
+ *   - Hidden / SKIP_DIRS path segments → rejected with 400 before touching
+ *     either the installed-skill disk read or the catalog fallback.
  *
  * The test exercises the daemon handler directly — route wiring is a thin
- * pass-through to this function.
+ * pass-through to this function. The catalog-files module is mocked so the
+ * handler's wiring is exercised in isolation; the helper's own dev-mode /
+ * platform-mode behavior is covered in `catalog-files.test.ts`.
  */
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -20,6 +25,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SkillSummary } from "../config/skills.js";
+import type { SkillFileEntry } from "../skills/catalog-files.js";
 import type { CatalogSkill } from "../skills/catalog-install.js";
 
 // ---------------------------------------------------------------------------
@@ -51,7 +57,18 @@ let mockResolvedSkills: Array<{
   state: "enabled" | "disabled";
 }> = [];
 let mockCatalog: CatalogSkill[] = [];
-let mockRepoSkillsDir: string | undefined = undefined;
+// Ordered log of `readCatalogSkillFileContent` invocations so individual
+// tests can assert that the catalog-fallback helper was (or was not)
+// consulted. Mirrors the `catalogFilesCalls` array pattern used in
+// `skills-files-catalog-fallback.test.ts` for `readCatalogSkillFiles`.
+const catalogFileContentCalls: Array<{ skillId: string; path: string }> = [];
+// Per-test override for the catalog fallback helper. When set, the
+// `catalog-files.js` mock's `readCatalogSkillFileContent` delegates to
+// this function, letting tests return canned payloads without touching
+// disk or the network.
+let mockCatalogFileContentResponder:
+  | ((skillId: string, path: string) => Promise<SkillFileEntry | null>)
+  | null = null;
 
 mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => mockResolvedSkills.map((r) => r.summary),
@@ -77,10 +94,76 @@ mock.module("../skills/catalog-cache.js", () => ({
   getCatalog: async () => mockCatalog,
 }));
 
+// The `catalog-files.js` mock replaces `readCatalogSkillFileContent` with
+// a spy wrapper that logs invocations and delegates to a per-test
+// responder. Other exports (`sanitizeRelativePath`,
+// `hasHiddenOrSkippedSegment`, `SKIP_DIRS`, `readCatalogSkillFiles`) are
+// re-implemented inline from the production module so the handler's
+// path-validation code still runs against equivalent logic without
+// recursing back through the mocked module.
+//
+// The spy gives the new "installed skill directory missing" regression
+// test a way to assert that the catalog fallback helper is NOT consulted
+// when `findSkillById` resolves a ghost install — mirroring the
+// `catalogFilesCalls.length === 0` assertion in
+// `skills-files-catalog-fallback.test.ts`.
+const INLINE_SKIP_DIRS = new Set(["node_modules", "__pycache__", ".git"]);
+
+function inlineSanitizeRelativePath(rawPath: string): string | null {
+  if (typeof rawPath !== "string" || rawPath.length === 0) return null;
+  if (rawPath.includes("\0")) return null;
+  if (rawPath.startsWith("/")) return null;
+  if (/^[a-zA-Z]:[/\\]/.test(rawPath)) return null;
+  let candidate = rawPath.replace(/\\/g, "/");
+  while (candidate.startsWith("./")) {
+    candidate = candidate.slice(2);
+  }
+  if (candidate.length === 0) return null;
+  // posix.normalize without the node import: collapse segments manually.
+  const segments: string[] = [];
+  for (const seg of candidate.split("/")) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") {
+      if (segments.length === 0) return null;
+      segments.pop();
+      continue;
+    }
+    segments.push(seg);
+  }
+  if (segments.length === 0) return null;
+  const normalized = segments.join("/");
+  if (normalized.startsWith("/")) return null;
+  if (/^[a-zA-Z]:[/\\]/.test(normalized)) return null;
+  return normalized;
+}
+
+function inlineHasHiddenOrSkippedSegment(sanitized: string): boolean {
+  for (const segment of sanitized.split("/")) {
+    if (segment.length === 0) continue;
+    if (segment.startsWith(".")) return true;
+    if (INLINE_SKIP_DIRS.has(segment)) return true;
+  }
+  return false;
+}
+
+mock.module("../skills/catalog-files.js", () => ({
+  SKIP_DIRS: INLINE_SKIP_DIRS,
+  sanitizeRelativePath: inlineSanitizeRelativePath,
+  hasHiddenOrSkippedSegment: inlineHasHiddenOrSkippedSegment,
+  readCatalogSkillFiles: async () => null,
+  readCatalogSkillFileContent: async (skillId: string, path: string) => {
+    catalogFileContentCalls.push({ skillId, path });
+    if (mockCatalogFileContentResponder) {
+      return mockCatalogFileContentResponder(skillId, path);
+    }
+    return null;
+  },
+}));
+
 mock.module("../skills/catalog-install.js", () => ({
   installSkillLocally: async () => {},
   upsertSkillsIndex: () => {},
-  getRepoSkillsDir: () => mockRepoSkillsDir,
+  getRepoSkillsDir: () => undefined,
 }));
 
 mock.module("../skills/catalog-search.js", () => ({
@@ -176,32 +259,9 @@ const dummyCtx = {
 
 type FetchFn = typeof globalThis.fetch;
 
-interface FetchCall {
-  url: string;
-  init?: RequestInit;
-}
-
 let originalFetch: FetchFn;
-let fetchCalls: FetchCall[] = [];
-
-function installFetchMock(
-  handler: (url: string, init?: RequestInit) => Response | Promise<Response>,
-): void {
-  fetchCalls = [];
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url =
-      typeof input === "string"
-        ? input
-        : input instanceof URL
-          ? input.toString()
-          : input.url;
-    fetchCalls.push({ url, init });
-    return handler(url, init);
-  }) as unknown as FetchFn;
-}
 
 function installFetchForbidden(): void {
-  fetchCalls = [];
   globalThis.fetch = (async () => {
     throw new Error("fetch should not have been called");
   }) as unknown as FetchFn;
@@ -248,11 +308,11 @@ function catalogSkill(id: string): CatalogSkill {
 
 beforeEach(() => {
   originalFetch = globalThis.fetch;
-  fetchCalls = [];
   mockResolvedSkills = [];
   mockCatalog = [];
-  mockRepoSkillsDir = undefined;
   mockPlatformBaseUrl = "https://platform.test";
+  catalogFileContentCalls.length = 0;
+  mockCatalogFileContentResponder = null;
 });
 
 afterEach(() => {
@@ -352,55 +412,31 @@ describe("getSkillFileContent — installed skill", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Catalog fallback — dev mode (uninstalled)
+// Catalog fallback — helper invocation
 // ---------------------------------------------------------------------------
+//
+// The daemon handler delegates to `readCatalogSkillFileContent` for any
+// skill id that is not resolved locally but is present in the platform
+// catalog. The helper's own dev-mode / platform-mode behavior is covered
+// in detail in `catalog-files.test.ts`; these tests assert the handler
+// wiring: the helper is invoked with the sanitized path, and the
+// helper's result is returned on the response shape.
 
-describe("getSkillFileContent — uninstalled catalog skill (dev mode)", () => {
-  test("reads content from the repo skills dir without hitting the platform", async () => {
-    // Skill is NOT in the installed catalog, but IS in the platform catalog
-    // and exists on disk under the repo skills dir.
-    const repoSkillsDir = mkdtempSync(
-      join(tmpdir(), "skill-file-content-repo-"),
-    );
-    tempDirs.push(repoSkillsDir);
-    const skillDir = join(repoSkillsDir, "dev-skill");
-    mkdirSync(skillDir, { recursive: true });
-    writeFileSync(join(skillDir, "SKILL.md"), "# dev skill\n");
-
-    mockRepoSkillsDir = repoSkillsDir;
-    mockResolvedSkills = []; // not installed
-    mockCatalog = [catalogSkill("dev-skill")];
+describe("getSkillFileContent — uninstalled catalog skill", () => {
+  test("delegates to readCatalogSkillFileContent and returns the helper payload", async () => {
+    // Skill is NOT in the installed catalog, but IS in the platform catalog.
+    mockResolvedSkills = [];
+    mockCatalog = [catalogSkill("remote-skill")];
     installFetchForbidden();
 
-    const result = await getSkillFileContent("dev-skill", "SKILL.md", dummyCtx);
-    expect("error" in result).toBe(false);
-    if ("error" in result) return;
-    expect(result.path).toBe("SKILL.md");
-    expect(result.name).toBe("SKILL.md");
-    expect(result.content).toBe("# dev skill\n");
-    expect(result.isBinary).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Catalog fallback — platform mode (uninstalled, no repo checkout)
-// ---------------------------------------------------------------------------
-
-describe("getSkillFileContent — uninstalled catalog skill (platform mode)", () => {
-  test("proxies content from the platform preview endpoint and maps snake_case → camelCase", async () => {
-    mockResolvedSkills = []; // not installed
-    mockCatalog = [catalogSkill("remote-skill")];
-    mockRepoSkillsDir = undefined;
-    installFetchMock(() =>
-      Response.json({
-        path: "SKILL.md",
-        name: "SKILL.md",
-        size: 14,
-        mime_type: "text/markdown",
-        is_binary: false,
-        content: "# hello world\n",
-      }),
-    );
+    mockCatalogFileContentResponder = async (_skillId, path) => ({
+      path,
+      name: "SKILL.md",
+      size: 14,
+      mimeType: "text/markdown",
+      isBinary: false,
+      content: "# hello world\n",
+    });
 
     const result = await getSkillFileContent(
       "remote-skill",
@@ -416,14 +452,32 @@ describe("getSkillFileContent — uninstalled catalog skill (platform mode)", ()
     expect(result.isBinary).toBe(false);
     expect(result.content).toBe("# hello world\n");
 
-    // Verify the platform endpoint was actually called.
-    expect(fetchCalls.length).toBe(1);
-    expect(
-      fetchCalls[0]!.url.startsWith(
-        "https://platform.test/v1/skills/remote-skill/files/content/",
-      ),
-    ).toBe(true);
-    expect(fetchCalls[0]!.url).toContain("path=SKILL.md");
+    expect(catalogFileContentCalls).toEqual([
+      { skillId: "remote-skill", path: "SKILL.md" },
+    ]);
+  });
+
+  test("returns 404 when readCatalogSkillFileContent resolves to null", async () => {
+    // Catalog helper returns null for a missing or unreadable file —
+    // daemon handler translates that to 404 "File not found".
+    mockResolvedSkills = [];
+    mockCatalog = [catalogSkill("remote-skill")];
+    installFetchForbidden();
+
+    mockCatalogFileContentResponder = async () => null;
+
+    const result = await getSkillFileContent(
+      "remote-skill",
+      "missing.md",
+      dummyCtx,
+    );
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) return;
+    expect(result.status).toBe(404);
+    expect(result.error).toBe("File not found");
+    expect(catalogFileContentCalls).toEqual([
+      { skillId: "remote-skill", path: "missing.md" },
+    ]);
   });
 });
 
@@ -446,6 +500,59 @@ describe("getSkillFileContent — skill not found", () => {
     if (!("error" in result)) return;
     expect(result.status).toBe(404);
     expect(result.error).toBe("Skill not found");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Installed skill with missing directory (ghost install)
+// ---------------------------------------------------------------------------
+//
+// When `findSkillById` resolves a skill as installed but the on-disk
+// directory has disappeared (corrupted install, mid-delete race,
+// external unmount), the handler must return a distinct 404 "Skill
+// directory missing" instead of falling through to the catalog path.
+// Falling through would flip the content response to a catalog payload
+// even though `listSkillsWithCatalog` still classifies the same id as
+// `kind: "installed"`, breaking the `isInstalled` contract between the
+// listing and content responses. Mirrors the same fix on
+// `getSkillFiles` verified by
+// `skills-files-catalog-fallback.test.ts`.
+
+describe("getSkillFileContent — installed skill with missing directory", () => {
+  test("returns 404 without consulting the catalog when the installed dir is gone", async () => {
+    mockResolvedSkills = [
+      installedSkill(
+        "ghost-installed",
+        "/tmp/definitely-does-not-exist-" + Date.now(),
+      ),
+    ];
+    // Even if the same id is present in the catalog, the handler must NOT
+    // fall through. Prime both the catalog and a responder that would
+    // return a successful payload to prove the short-circuit is active.
+    mockCatalog = [catalogSkill("ghost-installed")];
+    mockCatalogFileContentResponder = async () => ({
+      path: "SKILL.md",
+      name: "SKILL.md",
+      size: 10,
+      mimeType: "text/markdown",
+      isBinary: false,
+      content: "# from catalog\n",
+    });
+    installFetchForbidden();
+
+    const result = await getSkillFileContent(
+      "ghost-installed",
+      "SKILL.md",
+      dummyCtx,
+    );
+
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) return;
+    expect(result.status).toBe(404);
+    expect(result.error).toContain("ghost-installed");
+    expect(result.error).toContain("directory missing");
+    // Catalog fallback must not have been consulted.
+    expect(catalogFileContentCalls).toEqual([]);
   });
 });
 
@@ -481,30 +588,29 @@ describe("getSkillFileContent — hidden / SKIP_DIRS rejection", () => {
   test("rejects dotfile reads for an uninstalled catalog skill before any catalog read", async () => {
     // Same dotfile attack, but the skill id is NOT installed — only
     // present in the Vellum catalog. The rejection must run in the daemon
-    // handler BEFORE the catalog fallback, so no disk walk or platform
-    // fetch should happen. We use dev-mode with a real `.env` on disk
-    // under the fake repo skills dir to prove that even though the
-    // catalog path WOULD succeed without the check, the daemon
-    // short-circuits.
-    const repoSkillsDir = mkdtempSync(
-      join(tmpdir(), "skill-file-content-hidden-repo-"),
-    );
-    tempDirs.push(repoSkillsDir);
-    const catalogSkillDir = join(repoSkillsDir, "catalog-leaky");
-    mkdirSync(catalogSkillDir, { recursive: true });
-    writeFileSync(join(catalogSkillDir, "SKILL.md"), "# ok\n");
-    writeFileSync(join(catalogSkillDir, ".env"), "SECRET=xyz\n");
-
-    mockRepoSkillsDir = repoSkillsDir;
+    // handler BEFORE the catalog fallback, so the catalog helper should
+    // never be consulted. We prime the responder with content that WOULD
+    // succeed to prove that even though the fallback path would return a
+    // payload, the daemon short-circuits first.
     mockResolvedSkills = []; // not installed
     mockCatalog = [catalogSkill("catalog-leaky")];
     installFetchForbidden();
+    mockCatalogFileContentResponder = async () => ({
+      path: ".env",
+      name: ".env",
+      size: 12,
+      mimeType: "text/plain",
+      isBinary: false,
+      content: "SECRET=xyz\n",
+    });
 
     const result = await getSkillFileContent("catalog-leaky", ".env", dummyCtx);
     expect("error" in result).toBe(true);
     if (!("error" in result)) return;
     expect(result.status).toBe(400);
     expect(result.error).toBe("Invalid path");
+    // The hidden-segment check must run before the catalog helper.
+    expect(catalogFileContentCalls).toEqual([]);
   });
 
   test("rejects paths whose parent directory is a dotfile segment", async () => {

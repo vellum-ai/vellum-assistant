@@ -619,7 +619,18 @@ export async function getSkillFileContent(
   }
 
   const found = findSkillById(skillId);
-  if (found && existsSync(found.summary.directoryPath)) {
+  if (found) {
+    if (!existsSync(found.summary.directoryPath)) {
+      // Resolver lists the skill as installed but the directory is missing
+      // on disk (corrupted install, mid-delete race, external unmount, etc.).
+      // Return a distinct 404 instead of falling through to the catalog path
+      // so the content response stays consistent with `listSkillsWithCatalog`
+      // and `getSkillFiles`, which classify the same id as `kind: "installed"`.
+      return {
+        error: `Skill directory missing for "${skillId}"`,
+        status: 404,
+      };
+    }
     const dir = found.summary.directoryPath;
     const abs = join(dir, sanitized);
 
@@ -690,9 +701,9 @@ export async function getSkillFileContent(
     };
   }
 
-  // Catalog fallback: skill is not installed locally (or its directory is
-  // missing on disk). Try the catalog preview helper, which handles both
-  // dev-mode repo checkouts and the platform preview API.
+  // Catalog fallback: skill is not installed locally. Try the catalog
+  // preview helper, which handles both dev-mode repo checkouts and the
+  // platform preview API.
   let catalog: Awaited<ReturnType<typeof getCatalog>> = [];
   try {
     catalog = await getCatalog();
