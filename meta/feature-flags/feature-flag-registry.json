@@ -304,6 +304,14 @@
       "label": "Post-Turn Tool Result Truncation",
       "description": "Truncate large tool results after each assistant turn, persisting full content to disk for on-demand re-reads",
       "defaultEnabled": false
+    },
+    {
+      "id": "managed-gemini-embeddings-enabled",
+      "scope": "assistant",
+      "key": "managed-gemini-embeddings-enabled",
+      "label": "Managed Gemini Embeddings Enabled",
+      "description": "Route embedding requests through the platform runtime proxy using Vellum-managed Gemini credentials when available",
+      "defaultEnabled": false
     }
   ]
 }
