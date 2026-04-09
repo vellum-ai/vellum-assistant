@@ -24,6 +24,7 @@ import {
   findByInviteCodeHash,
   findByInviteCodeHashAnyChannel,
 } from "../../../memory/invite-store.js";
+import { extractThreadTsFromCallbackUrl } from "../../../memory/slack-thread-store.js";
 import { MESSAGE_PREVIEW_MAX_LENGTH } from "../../../notifications/copy-composer.js";
 import { resolveGuardianName } from "../../../prompts/user-reference.js";
 import { getLogger } from "../../../util/logger.js";
@@ -46,6 +47,13 @@ import {
 import { getInviteRedemptionReply } from "../../invite-redemption-templates.js";
 
 const log = getLogger("runtime-http");
+const recentSlackAclDenyNotifications = new Map<
+  string,
+  ReturnType<typeof setTimeout>
+>();
+const inFlightSlackAclDenyNotifications = new Set<string>();
+
+export const SLACK_ACL_DENY_DEDUP_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Resolve the guardian's display name for use in requester-facing messages.
@@ -81,6 +89,77 @@ function resolveGuardianLabel(
 
   // No anchored guardian found — use generic fallback.
   return resolveGuardianName(undefined);
+}
+
+export function clearSlackAclDenyNotificationCache(): void {
+  for (const timer of recentSlackAclDenyNotifications.values()) {
+    clearTimeout(timer);
+  }
+  recentSlackAclDenyNotifications.clear();
+  inFlightSlackAclDenyNotifications.clear();
+}
+
+function reserveSlackAclDenyNotification(params: {
+  sourceChannel: ChannelId;
+  replyCallbackUrl: string | undefined;
+  canonicalAssistantId: string;
+  conversationExternalId: string;
+  requesterUserId: string | undefined;
+}): { shouldDeliver: boolean; dedupeKey?: string } {
+  const {
+    sourceChannel,
+    replyCallbackUrl,
+    canonicalAssistantId,
+    conversationExternalId,
+    requesterUserId,
+  } = params;
+
+  if (
+    sourceChannel !== "slack" ||
+    !replyCallbackUrl ||
+    !requesterUserId?.trim()
+  ) {
+    return { shouldDeliver: true };
+  }
+
+  const threadTs = extractThreadTsFromCallbackUrl(replyCallbackUrl);
+  if (!threadTs) {
+    return { shouldDeliver: true };
+  }
+
+  const dedupeKey = `slack-acl-deny:${canonicalAssistantId}:${conversationExternalId}:${threadTs}:${requesterUserId}`;
+  if (
+    recentSlackAclDenyNotifications.has(dedupeKey) ||
+    inFlightSlackAclDenyNotifications.has(dedupeKey)
+  ) {
+    return { shouldDeliver: false };
+  }
+
+  inFlightSlackAclDenyNotifications.add(dedupeKey);
+  return { shouldDeliver: true, dedupeKey };
+}
+
+function releaseSlackAclDenyNotification(dedupeKey: string | undefined): void {
+  if (!dedupeKey) return;
+  inFlightSlackAclDenyNotifications.delete(dedupeKey);
+}
+
+function markSlackAclDenyNotificationDelivered(
+  dedupeKey: string | undefined,
+): void {
+  if (!dedupeKey) return;
+
+  inFlightSlackAclDenyNotifications.delete(dedupeKey);
+  const existingTimer = recentSlackAclDenyNotifications.get(dedupeKey);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+
+  const timer = setTimeout(() => {
+    recentSlackAclDenyNotifications.delete(dedupeKey);
+  }, SLACK_ACL_DENY_DEDUP_TTL_MS);
+  (timer as { unref?: () => void }).unref?.();
+  recentSlackAclDenyNotifications.set(dedupeKey, timer);
 }
 
 // ---------------------------------------------------------------------------
@@ -451,29 +530,44 @@ export async function enforceIngressAcl(
           ? `Hmm looks like you don't have access to talk to me. I'll let ${resolveGuardianLabel(sourceChannel, canonicalAssistantId)} know you tried talking to me and get back to you.`
           : "Sorry, you haven't been approved to message this assistant.";
         let replyDelivered = false;
+        let replySuppressed = false;
         if (replyCallbackUrl) {
           const replyPayload: Parameters<typeof deliverChannelReply>[1] = {
             chatId: conversationExternalId,
             text: replyText,
             assistantId,
           };
+          const requesterUserId = canonicalSenderId ?? rawSenderId;
+          const slackAclReply = reserveSlackAclDenyNotification({
+            sourceChannel,
+            replyCallbackUrl,
+            canonicalAssistantId,
+            conversationExternalId,
+            requesterUserId,
+          });
           // On Slack, send as ephemeral so only the requester sees the rejection
-          if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
+          if (sourceChannel === "slack" && requesterUserId) {
             replyPayload.ephemeral = true;
-            replyPayload.user = (canonicalSenderId ?? rawSenderId)!;
+            replyPayload.user = requesterUserId;
           }
-          try {
-            await deliverChannelReply(
-              replyCallbackUrl,
-              replyPayload,
-              mintBearerToken(),
-            );
-            replyDelivered = true;
-          } catch (err) {
-            log.error(
-              { err, conversationExternalId },
-              "Failed to deliver ACL rejection reply",
-            );
+          if (!slackAclReply.shouldDeliver) {
+            replySuppressed = true;
+          } else {
+            try {
+              await deliverChannelReply(
+                replyCallbackUrl,
+                replyPayload,
+                mintBearerToken(),
+              );
+              replyDelivered = true;
+              markSlackAclDenyNotificationDelivered(slackAclReply.dedupeKey);
+            } catch (err) {
+              releaseSlackAclDenyNotification(slackAclReply.dedupeKey);
+              log.error(
+                { err, conversationExternalId },
+                "Failed to deliver ACL rejection reply",
+              );
+            }
           }
         }
 
@@ -485,7 +579,7 @@ export async function enforceIngressAcl(
             reason: "not_a_member",
             // Include reply text so the gateway can deliver directly when
             // callback delivery failed (e.g. signing-key mismatch → 401).
-            ...(!replyDelivered && { replyText }),
+            ...(!replyDelivered && !replySuppressed && { replyText }),
           }),
           guardianVerifyCode,
         };
@@ -723,6 +817,7 @@ export async function enforceIngressAcl(
             ? `Hmm looks like you don't have access to talk to me. I'll let ${resolveGuardianLabel(sourceChannel, canonicalAssistantId)} know you tried talking to me and get back to you.`
             : "Sorry, you haven't been approved to message this assistant.";
           let inactiveReplyDelivered = false;
+          let inactiveReplySuppressed = false;
           if (replyCallbackUrl) {
             const inactiveReplyPayload: Parameters<
               typeof deliverChannelReply
@@ -731,26 +826,37 @@ export async function enforceIngressAcl(
               text: inactiveReplyText,
               assistantId,
             };
+            const requesterUserId = canonicalSenderId ?? rawSenderId;
+            const slackAclReply = reserveSlackAclDenyNotification({
+              sourceChannel,
+              replyCallbackUrl,
+              canonicalAssistantId,
+              conversationExternalId,
+              requesterUserId,
+            });
             // On Slack, send as ephemeral so only the requester sees the rejection
-            if (
-              sourceChannel === "slack" &&
-              (canonicalSenderId ?? rawSenderId)
-            ) {
+            if (sourceChannel === "slack" && requesterUserId) {
               inactiveReplyPayload.ephemeral = true;
-              inactiveReplyPayload.user = (canonicalSenderId ?? rawSenderId)!;
+              inactiveReplyPayload.user = requesterUserId;
             }
-            try {
-              await deliverChannelReply(
-                replyCallbackUrl,
-                inactiveReplyPayload,
-                mintBearerToken(),
-              );
-              inactiveReplyDelivered = true;
-            } catch (err) {
-              log.error(
-                { err, conversationExternalId },
-                "Failed to deliver ACL rejection reply",
-              );
+            if (!slackAclReply.shouldDeliver) {
+              inactiveReplySuppressed = true;
+            } else {
+              try {
+                await deliverChannelReply(
+                  replyCallbackUrl,
+                  inactiveReplyPayload,
+                  mintBearerToken(),
+                );
+                inactiveReplyDelivered = true;
+                markSlackAclDenyNotificationDelivered(slackAclReply.dedupeKey);
+              } catch (err) {
+                releaseSlackAclDenyNotification(slackAclReply.dedupeKey);
+                log.error(
+                  { err, conversationExternalId },
+                  "Failed to deliver ACL rejection reply",
+                );
+              }
             }
           }
           return {
@@ -759,7 +865,8 @@ export async function enforceIngressAcl(
               accepted: true,
               denied: true,
               reason: `member_${channelStatusToMemberStatus(resolvedMember.channel.status)}`,
-              ...(!inactiveReplyDelivered && { replyText: inactiveReplyText }),
+              ...(!inactiveReplyDelivered &&
+                !inactiveReplySuppressed && { replyText: inactiveReplyText }),
             }),
             guardianVerifyCode,
           };

@@ -59,6 +59,7 @@ import { createGuardianBinding } from "../contacts/contacts-write.js";
 import { getDb, initializeDb } from "../memory/db.js";
 import { findActiveSession } from "../runtime/channel-verification-service.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
+import { clearSlackAclDenyNotificationCache } from "../runtime/routes/inbound-stages/acl-enforcement.js";
 
 initializeDb();
 
@@ -82,6 +83,7 @@ function resetState(): void {
   db.run("DELETE FROM contacts");
   emitSignalCalls.length = 0;
   deliverReplyCalls.length = 0;
+  clearSlackAclDenyNotificationCache();
 }
 
 function buildSlackInboundRequest(
@@ -198,6 +200,91 @@ describe("Slack inbound trusted contact verification", () => {
     expect(json2.reason).toBe("not_a_member");
 
     // No DM was sent at all
+  });
+
+  test("threaded Slack ACL reply is only shown once per thread after the verification challenge already exists", async () => {
+    const threadReplyCallbackUrl =
+      "http://localhost:7830/deliver/slack?channel=C0123CHANNEL&threadTs=1700000000.000100";
+
+    const req1 = buildSlackInboundRequest({
+      replyCallbackUrl: threadReplyCallbackUrl,
+    });
+    const resp1 = await handleChannelInbound(
+      req1,
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+    const json1 = (await resp1.json()) as Record<string, unknown>;
+    expect(json1.reason).toBe("verification_challenge_sent");
+
+    const req2 = buildSlackInboundRequest({
+      replyCallbackUrl: threadReplyCallbackUrl,
+      externalMessageId: `msg-${Date.now()}-second`,
+    });
+    const resp2 = await handleChannelInbound(
+      req2,
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+    const json2 = (await resp2.json()) as Record<string, unknown>;
+    expect(json2.reason).toBe("not_a_member");
+
+    const req3 = buildSlackInboundRequest({
+      replyCallbackUrl: threadReplyCallbackUrl,
+      externalMessageId: `msg-${Date.now()}-third`,
+    });
+    const resp3 = await handleChannelInbound(
+      req3,
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+    const json3 = (await resp3.json()) as Record<string, unknown>;
+    expect(json3.reason).toBe("not_a_member");
+
+    expect(deliverReplyCalls).toHaveLength(2);
+    expect(deliverReplyCalls[1].url).toBe(threadReplyCallbackUrl);
+    expect(deliverReplyCalls[1].payload.ephemeral).toBe(true);
+    expect(deliverReplyCalls[1].payload.user).toBe("U0123UNKNOWN");
+    expect(
+      (deliverReplyCalls[1].payload.text as string).includes(
+        "don't have access to talk to me",
+      ),
+    ).toBe(true);
+  });
+
+  test("threaded Slack ACL reply is shown again in a different thread", async () => {
+    const firstThreadCallbackUrl =
+      "http://localhost:7830/deliver/slack?channel=C0123CHANNEL&threadTs=1700000000.000100";
+    const secondThreadCallbackUrl =
+      "http://localhost:7830/deliver/slack?channel=C0123CHANNEL&threadTs=1700000000.000200";
+
+    const req1 = buildSlackInboundRequest({
+      replyCallbackUrl: firstThreadCallbackUrl,
+    });
+    await handleChannelInbound(req1, undefined, TEST_BEARER_TOKEN);
+
+    const req2 = buildSlackInboundRequest({
+      replyCallbackUrl: firstThreadCallbackUrl,
+      externalMessageId: `msg-${Date.now()}-second`,
+    });
+    await handleChannelInbound(req2, undefined, TEST_BEARER_TOKEN);
+
+    const req3 = buildSlackInboundRequest({
+      replyCallbackUrl: secondThreadCallbackUrl,
+      externalMessageId: `msg-${Date.now()}-third`,
+    });
+    const resp3 = await handleChannelInbound(
+      req3,
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+    const json3 = (await resp3.json()) as Record<string, unknown>;
+
+    expect(json3.reason).toBe("not_a_member");
+    expect(deliverReplyCalls).toHaveLength(3);
+    expect(deliverReplyCalls[2].url).toBe(secondThreadCallbackUrl);
+    expect(deliverReplyCalls[2].payload.ephemeral).toBe(true);
+    expect(deliverReplyCalls[2].payload.user).toBe("U0123UNKNOWN");
   });
 
   test("different Slack user is not suppressed by existing session for another user", async () => {
