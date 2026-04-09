@@ -673,9 +673,7 @@ final class ConversationManager: ConversationRestorerDelegate {
 
         if let conversationId = listStore.conversations[index].conversationId {
             selectionStore.chatViewModels[id]?.stopGenerating()
-            var archived = listStore.archivedConversationIds
-            archived.insert(conversationId)
-            listStore.archivedConversationIds = archived
+            listStore.markArchived(conversationId)
             selectionStore.removeChatViewModel(for: id)
         } else if selectionStore.chatViewModels[id]?.messages.contains(where: { $0.role == .user }) != true
                     && selectionStore.chatViewModels[id]?.isBootstrapping != true {
@@ -722,9 +720,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         listStore.conversations = draft
 
         if !newlyArchivedServerIds.isEmpty {
-            var archived = listStore.archivedConversationIds
-            archived.formUnion(newlyArchivedServerIds)
-            listStore.archivedConversationIds = archived
+            listStore.markArchived(newlyArchivedServerIds)
         }
 
         for id in ids {
@@ -771,9 +767,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         listStore.conversations[index].isArchived = false
         selectionStore.getOrCreateViewModel(for: id)
         if let conversationId = listStore.conversations[index].conversationId {
-            var archived = listStore.archivedConversationIds
-            archived.remove(conversationId)
-            listStore.archivedConversationIds = archived
+            listStore.unmarkArchived(conversationId)
         }
         log.info("Unarchived conversation \(id)")
     }
@@ -857,9 +851,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         guard conversation.conversationType != "private" else { return false }
 
         if listStore.isConversationArchived(conversation.id) {
-            var archived = listStore.archivedConversationIds
-            archived.remove(conversation.id)
-            listStore.archivedConversationIds = archived
+            listStore.unmarkArchived(conversation.id)
         }
 
         guard let localConversationId = upsertConversation(from: conversation, isArchived: false) else {
@@ -898,9 +890,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         }
 
         if listStore.isConversationArchived(conversation.id) {
-            var archived = listStore.archivedConversationIds
-            archived.remove(conversation.id)
-            listStore.archivedConversationIds = archived
+            listStore.unmarkArchived(conversation.id)
         }
 
         guard let localConversationId = upsertConversation(from: conversation, isArchived: false) else {
@@ -1020,9 +1010,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         listStore.conversations = updated
 
         if !newlyArchivedServerIds.isEmpty {
-            var archived = listStore.archivedConversationIds
-            archived.formUnion(newlyArchivedServerIds)
-            listStore.archivedConversationIds = archived
+            listStore.markArchived(newlyArchivedServerIds)
         }
 
         for id in idsToArchive {
@@ -1244,9 +1232,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         guard item.conversationType != "private" else { return nil }
 
         if !isArchived && listStore.isConversationArchived(item.id) {
-            var archived = listStore.archivedConversationIds
-            archived.remove(item.id)
-            listStore.archivedConversationIds = archived
+            listStore.unmarkArchived(item.id)
         }
 
         if let existingIdx = listStore.conversations.firstIndex(where: { $0.conversationId == item.id }) {
@@ -1304,12 +1290,8 @@ final class ConversationManager: ConversationRestorerDelegate {
         if let override = listStore.pendingAttentionOverrides.removeValue(forKey: syntheticId) {
             listStore.pendingAttentionOverrides[serverId] = override
         }
-        if listStore.archivedConversationIds.contains(syntheticId) {
-            var archived = listStore.archivedConversationIds
-            archived.remove(syntheticId)
-            archived.insert(serverId)
-            listStore.archivedConversationIds = archived
-        }
+        // Preserves the original archive timestamp across the synthetic → server id swap.
+        listStore.replaceArchivedKey(from: syntheticId, to: serverId)
         if let idx = listStore.pendingSeenConversationIds.firstIndex(of: syntheticId) {
             listStore.pendingSeenConversationIds[idx] = serverId
         }
@@ -1350,9 +1332,7 @@ final class ConversationManager: ConversationRestorerDelegate {
 
         // Persist archive state now that we have a server ID.
         if listStore.conversations[index].isArchived {
-            var archived = listStore.archivedConversationIds
-            archived.insert(conversationId)
-            listStore.archivedConversationIds = archived
+            listStore.markArchived(conversationId)
             // The conversation was archived while waiting for a server ID.
             // Now that backfill is complete, release the ViewModel we were
             // keeping alive solely for the correlation ID callback.
