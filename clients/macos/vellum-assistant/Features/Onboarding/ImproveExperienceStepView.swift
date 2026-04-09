@@ -37,9 +37,10 @@ struct ImproveExperienceStepView: View {
             .foregroundStyle(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
+            .padding(.horizontal, VSpacing.xxl)
             .padding(.bottom, VSpacing.xxl)
 
-        VStack(spacing: VSpacing.md) {
+        VStack(spacing: 0) {
             VStack(spacing: VSpacing.sm) {
                 // Usage analytics toggle
                 VToggle(
@@ -95,7 +96,9 @@ struct ImproveExperienceStepView: View {
                     tosConsentText
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
+            VStack(spacing: VSpacing.sm) {
                 VButton(label: "Start", style: .primary, isFullWidth: true, isDisabled: !tosAccepted) {
                     saveAndContinue()
                 }
@@ -104,6 +107,7 @@ struct ImproveExperienceStepView: View {
                     goBack()
                 }
             }
+            .padding(.top, VSpacing.xxl)
         }
         .padding(.horizontal, VSpacing.xxl)
         .opacity(showContent ? 1 : 0)
