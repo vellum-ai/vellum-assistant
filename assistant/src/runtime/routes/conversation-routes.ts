@@ -431,7 +431,7 @@ export function handleListMessages(
   // Merge consecutive assistant messages here at query time so
   // renderHistoryContent produces the same contentOrder shape as streaming
   // (consecutive tool refs grouped together).
-  const consolidatedMessages =
+  const { messages: consolidatedMessages, mergedIdMap } =
     mergeConsecutiveAssistantMessages(mergedMessages);
 
   // Parse content blocks and extract text + tool calls
@@ -560,7 +560,13 @@ export function handleListMessages(
       // blobs for non-image attachments (documents, audio). Then
       // selectively fetch full data only for images so the client can
       // generate thumbnails for inline display on history restore.
-      const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
+      // Also query attachments for any messages that were merged into
+      // this one (consecutive assistant merge), so their attachments
+      // aren't lost before DB compaction relinks them.
+      const idsToQuery = [m.id, ...(mergedIdMap.get(m.id) ?? [])];
+      const linked = idsToQuery.flatMap((id) =>
+        attachmentsStore.getAttachmentMetadataForMessage(id),
+      );
       if (linked.length > 0) {
         msgAttachments = linked.map((a) => {
           if (a.mimeType.startsWith("image/")) {
@@ -830,19 +836,30 @@ function mergeToolResultsIntoAssistantMessages(
  * message when the surviving message has no metadata of its own for that
  * field.
  */
-function mergeConsecutiveAssistantMessages(
-  messages: MessageRow[],
-): MessageRow[] {
+function mergeConsecutiveAssistantMessages(messages: MessageRow[]): {
+  messages: MessageRow[];
+  /** Maps each surviving message ID → all original message IDs merged into it. */
+  mergedIdMap: Map<string, string[]>;
+} {
   const result: MessageRow[] = [];
   // Tracks parsed content for messages we're actively merging into.
   // Key = index in `result`, value = parsed content blocks array.
   const pendingMerges = new Map<number, unknown[]>();
+  // Tracks all original message IDs that were merged into each target.
+  // Key = index in `result`, value = array of merged-away message IDs.
+  const mergedIds = new Map<number, string[]>();
 
   for (const msg of messages) {
     if (msg.role === "assistant") {
       const lastIdx = result.length - 1;
       if (lastIdx >= 0 && result[lastIdx].role === "assistant") {
         // Consecutive assistant message — merge into the previous one.
+        let ids = mergedIds.get(lastIdx);
+        if (!ids) {
+          ids = [];
+          mergedIds.set(lastIdx, ids);
+        }
+        ids.push(msg.id);
         let targetContent = pendingMerges.get(lastIdx);
         if (!targetContent) {
           // First merge for this target — parse its existing content.
@@ -859,6 +876,8 @@ function mergeConsecutiveAssistantMessages(
           const parsed = JSON.parse(msg.content);
           if (Array.isArray(parsed)) {
             targetContent.push(...parsed);
+          } else {
+            targetContent.push(parsed);
           }
         } catch {
           // Unparseable content — skip silently.
@@ -900,7 +919,13 @@ function mergeConsecutiveAssistantMessages(
     result[idx] = { ...result[idx], content: JSON.stringify(content) };
   }
 
-  return result;
+  // Build the merged ID map keyed by surviving message ID.
+  const mergedIdMap = new Map<string, string[]>();
+  for (const [idx, ids] of mergedIds) {
+    mergedIdMap.set(result[idx].id, ids);
+  }
+
+  return { messages: result, mergedIdMap };
 }
 
 /**
