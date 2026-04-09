@@ -237,9 +237,15 @@ extension ChatViewModel {
     ) {
         guard let attachments, !attachments.isEmpty else { return }
 
+        // Pre-generate stable IDs so Phase 1 and Phase 2 use the same values.
+        // UserMessageAttachment.id is optional — when nil, each independent call
+        // to mapMessageAttachmentsStatic would generate a different UUID, causing
+        // the Phase 2 replacement loop to silently fail to match.
+        let stableIds = attachments.map { $0.id ?? UUID().uuidString }
+
         // Phase 1: create attachments synchronously WITHOUT thumbnails.
         let lightAttachments = HistoryReconstructionService.mapMessageAttachmentsStatic(
-            attachments, includeThumbnails: false
+            attachments, includeThumbnails: false, stableIds: stableIds
         )
         guard !lightAttachments.isEmpty else { return }
 
@@ -263,10 +269,11 @@ extension ChatViewModel {
 
         // Phase 2: generate thumbnails on a background thread and replace the
         // lightweight attachment structs with full versions that include thumbnails.
+        // Uses the same stableIds so the ID-based replacement loop matches correctly.
         guard let msgId = resolvedMessageId else { return }
         Task { [weak self] in
             let fullAttachments = await Task.detached(priority: .userInitiated) {
-                HistoryReconstructionService.mapMessageAttachmentsStatic(attachments)
+                HistoryReconstructionService.mapMessageAttachmentsStatic(attachments, stableIds: stableIds)
             }.value
             guard let self, let idx = self.messages.firstIndex(where: { $0.id == msgId }) else { return }
             for full in fullAttachments {

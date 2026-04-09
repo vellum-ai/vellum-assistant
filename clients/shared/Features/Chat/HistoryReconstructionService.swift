@@ -308,20 +308,25 @@ enum HistoryReconstructionService {
 
     // MARK: - Attachment mapping
 
-    /// Map attachment DTOs to ChatAttachment values, generating thumbnails for images.
     /// Map attachment DTOs to `ChatAttachment` values.
     ///
-    /// - Parameter includeThumbnails: When `true` (the default), CPU-intensive
-    ///   thumbnail generation (base64 decode + ImageIO resize) is performed
-    ///   inline.  Pass `false` to create lightweight attachment structs
-    ///   synchronously — callers can generate thumbnails later on a background
-    ///   thread and replace the structs via their stable `id`.
+    /// - Parameters:
+    ///   - includeThumbnails: When `true` (the default), CPU-intensive
+    ///     thumbnail generation (base64 decode + ImageIO resize) is performed
+    ///     inline.  Pass `false` to create lightweight attachment structs
+    ///     synchronously — callers can generate thumbnails later on a background
+    ///     thread and replace the structs via their stable `id`.
+    ///   - stableIds: Pre-generated IDs to use instead of `attachment.id`.
+    ///     When non-nil, `stableIds[i]` is used for `attachments[i]`.  This
+    ///     ensures Phase 1 (no thumbnails) and Phase 2 (with thumbnails) use
+    ///     the same IDs even when `attachment.id` is nil.
     nonisolated static func mapMessageAttachmentsStatic(
         _ attachments: [UserMessageAttachment],
-        includeThumbnails: Bool = true
+        includeThumbnails: Bool = true,
+        stableIds: [String]? = nil
     ) -> [ChatAttachment] {
-        attachments.compactMap { attachment in
-            let id = attachment.id ?? UUID().uuidString
+        attachments.enumerated().compactMap { index, attachment in
+            let id = stableIds?[index] ?? attachment.id ?? UUID().uuidString
             let base64 = attachment.data
             let dataLength = base64.count
             let sizeBytes: Int? = attachment.sizeBytes.flatMap { Int(exactly: $0) }
