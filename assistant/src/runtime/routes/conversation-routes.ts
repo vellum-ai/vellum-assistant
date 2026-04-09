@@ -818,7 +818,11 @@ function parseContentBlocks(content: string): unknown[] {
   try {
     const parsed = JSON.parse(content);
     return Array.isArray(parsed) ? parsed : [parsed];
-  } catch {
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to parse content blocks during assistant message merge",
+    );
     return [];
   }
 }
@@ -835,8 +839,11 @@ function appendContentBlocks(target: unknown[], donorContent: string): void {
     } else {
       target.push(parsed);
     }
-  } catch {
-    // Unparseable content — skip silently.
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to parse donor content blocks during assistant message merge",
+    );
   }
 }
 
@@ -857,8 +864,11 @@ function promoteMetadata(survivor: MessageRow, donor: MessageRow): MessageRow {
         survivorMeta.subagentNotification = donorMeta.subagentNotification;
         return { ...survivor, metadata: JSON.stringify(survivorMeta) };
       }
-    } catch {
-      // Malformed metadata — skip promotion.
+    } catch (err) {
+      log.warn(
+        { err },
+        "Failed to parse metadata during assistant message merge",
+      );
     }
   } else if (donor.metadata && !survivor.metadata) {
     return { ...survivor, metadata: donor.metadata };
