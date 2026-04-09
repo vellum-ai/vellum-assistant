@@ -179,6 +179,18 @@ struct MessageListView: View {
             .onDisappear {
                 scrollCoordinator.reset()
                 scrollState.cancelAll()
+                // Clear the stale scroll position so the next ScrollView
+                // (created by .id(conversationId) recreation) reads an
+                // empty binding during initial layout. Without this,
+                // the new ScrollView inherits the previous conversation's
+                // ScrollPosition value — if that value is ScrollPosition
+                // (edge: .bottom), writing the same value in
+                // handleConversationSwitched() is silently deduped,
+                // leaving the viewport at the stale estimated position.
+                // An empty ScrollPosition() lets .defaultScrollAnchor
+                // (.bottom, for: .initialOffset) handle initial layout
+                // (bottom-up materialization with correct heights).
+                scrollPosition = ScrollPosition()
                 resizeScrollTask?.cancel()
                 resizeScrollTask = nil
                 highlightedMessageId = nil
