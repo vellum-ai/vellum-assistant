@@ -123,6 +123,24 @@ struct ChatView: View {
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "ChatView.body")
         #endif
         ZStack {
+            // Invisible sizer that fills the parent's proposed width.
+            // A ZStack proposes its received proposal to each child, so
+            // Color.clear (greedy) reports the *container* width (e.g. the
+            // dock frame) regardless of the content's inflated size. This
+            // breaks the self-reinforcing loop where content renders at the
+            // 808pt chatColumnMaxWidth fallback, the ZStack expands to fit,
+            // and onGeometryChange on the ZStack locks containerWidth to
+            // that inflated value — causing permanent clipping in narrow
+            // containers like the app-editing chat dock.
+            Color.clear
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.width
+                } action: { newWidth in
+                    containerWidth = newWidth
+                }
+
             mainContentStack(containerWidth: containerWidth)
                 .background(alignment: .bottom) {
                     chatBackground
@@ -134,19 +152,6 @@ struct ChatView: View {
                 .animation(VAnimation.fast, value: viewModel.btwResponse != nil)
 
             dropTargetOverlay
-        }
-        // Accept the parent's proposed width so onGeometryChange reports
-        // the actual container size (e.g. the dock frame width) rather than
-        // the content's inflated size. Without this, the ZStack expands to
-        // fit its children (e.g. 808pt chatColumnMaxWidth), onGeometryChange
-        // reports that wider value, and containerWidth locks into a
-        // self-reinforcing loop that causes clipping in narrow containers
-        // like the app-editing chat dock.
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onGeometryChange(for: CGFloat.self) { proxy in
-            proxy.size.width
-        } action: { newWidth in
-            containerWidth = newWidth
         }
         .environment(\.dropActions, currentDropActions)
         .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
