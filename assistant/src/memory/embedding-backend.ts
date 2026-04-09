@@ -719,11 +719,18 @@ async function selectFallbackBackends(
               ),
             );
           } else {
-            const cached = getCached(
-              "gemini",
-              config.memory.embeddings.geminiModel,
-              geminiCacheExtras(config),
-            );
+            // Check managed cache variant first, then non-managed, so a warm
+            // managed backend survives transient proxy-context blips.
+            const cached =
+              getCached("gemini", config.memory.embeddings.geminiModel, [
+                ...geminiCacheExtras(config),
+                "managed",
+              ]) ??
+              getCached(
+                "gemini",
+                config.memory.embeddings.geminiModel,
+                geminiCacheExtras(config),
+              );
             if (cached) backends.push(cached);
           }
         } else {
