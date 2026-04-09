@@ -12,10 +12,14 @@ private let composerLog = Logger(subsystem: Bundle.appBundleIdentifier, category
 struct ComposerView: View, Equatable {
     static func == (lhs: ComposerView, rhs: ComposerView) -> Bool {
         // VoiceModeManager is ObservableObject, not @Observable, so SwiftUI
-        // cannot track its internal state changes. When active, always
+        // cannot track its internal state changes via the struct == check.
+        // When voice mode is actively in use (state != .off), always
         // re-evaluate so voice-mode transitions (listening → speaking, etc.)
-        // are never stale.
-        if lhs.voiceModeManager != nil || rhs.voiceModeManager != nil {
+        // are never stale. When voice mode is off (the common text-entry
+        // case), we fall through to the normal property comparison.
+        let lhsVoiceActive = lhs.voiceModeManager.map { $0.state != .off } ?? false
+        let rhsVoiceActive = rhs.voiceModeManager.map { $0.state != .off } ?? false
+        if lhsVoiceActive || rhsVoiceActive {
             return false
         }
 

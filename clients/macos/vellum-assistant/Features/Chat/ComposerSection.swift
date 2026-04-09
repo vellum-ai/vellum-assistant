@@ -4,9 +4,14 @@ import VellumAssistantShared
 struct ComposerSection: View, Equatable {
     static func == (lhs: ComposerSection, rhs: ComposerSection) -> Bool {
         // VoiceModeManager is ObservableObject, not @Observable, so SwiftUI
-        // cannot track its internal state changes. When active, always
-        // re-evaluate so voice-mode transitions are never stale.
-        if lhs.voiceModeManager != nil || rhs.voiceModeManager != nil {
+        // cannot track its internal state changes via the struct == check.
+        // When voice mode is actively in use (state != .off), always
+        // re-evaluate so voice-mode transitions are never stale. When voice
+        // mode is off (the common text-entry case), we fall through to the
+        // normal property comparison.
+        let lhsVoiceActive = lhs.voiceModeManager.map { $0.state != .off } ?? false
+        let rhsVoiceActive = rhs.voiceModeManager.map { $0.state != .off } ?? false
+        if lhsVoiceActive || rhsVoiceActive {
             return false
         }
 
