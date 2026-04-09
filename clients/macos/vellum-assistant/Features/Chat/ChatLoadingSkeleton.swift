@@ -26,17 +26,15 @@ struct ChatLoadingSkeleton: View {
             assistantMessage
             Spacer(minLength: 0)
         }
-        // When containerWidth is provided, .frame(width:) creates
-        // _FrameLayout — no alignment queries. When containerWidth is 0
-        // (callers that don't thread it), fall back to flexible maxWidth
-        // so the skeleton adapts to narrow parent proposals.
-        .frame(
-            width: containerWidth > 0
-                ? min(containerWidth, VSpacing.chatColumnMaxWidth) : nil,
-            maxWidth: containerWidth > 0
-                ? nil : VSpacing.chatColumnMaxWidth,
-            alignment: .leading
-        )
+        // Active conversation path: .frame(width:) creates _FrameLayout —
+        // no alignment queries. Callers without containerWidth keep
+        // flexible maxWidth so the skeleton adapts to narrow proposals.
+        .frame(width: containerWidth > 0
+            ? min(containerWidth, VSpacing.chatColumnMaxWidth) : nil,
+            alignment: .leading)
+        .frame(maxWidth: containerWidth > 0
+            ? nil : VSpacing.chatColumnMaxWidth,
+            alignment: .leading)
     }
 
     // MARK: - User Message

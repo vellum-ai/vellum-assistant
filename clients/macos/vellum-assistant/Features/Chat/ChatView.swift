@@ -222,11 +222,9 @@ struct ChatView: View {
             if showSkeleton {
                 ChatLoadingSkeleton(containerWidth: containerWidth)
                     .padding(VSpacing.lg)
-                    .frame(
-                        width: containerWidth > 0 ? containerWidth : nil,
-                        maxHeight: .infinity,
-                        alignment: .top
-                    )
+                    .frame(width: containerWidth > 0 ? containerWidth : nil,
+                           alignment: .top)
+                    .frame(maxHeight: .infinity, alignment: .top)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Loading chat history")
             } else if isEmptyState && isBootstrapping {

@@ -135,20 +135,14 @@ struct ComposerView: View {
         .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, VSpacing.lg)
         .padding(.top, VSpacing.sm)
-        // When containerWidth is provided (active conversation path),
-        // .frame(width:) creates _FrameLayout — no alignment queries.
-        // The old .frame(maxWidth:).frame(maxWidth: .infinity) created
-        // _FlexFrameLayout which cascaded explicitAlignment through the
-        // sibling LazyVStack in the parent VStack.
-        // When containerWidth is 0 (empty-state callers that don't pass
-        // it), fall back to flexible maxWidth so external .frame(maxWidth:)
-        // constraints (e.g. chatBubbleMaxWidth) can still shrink the view.
-        .frame(
-            width: containerWidth > 0
-                ? min(containerWidth, VSpacing.chatColumnMaxWidth) : nil,
-            maxWidth: containerWidth > 0
-                ? nil : VSpacing.chatColumnMaxWidth
-        )
+        // Active conversation path: .frame(width:) creates _FrameLayout —
+        // no alignment queries. Empty-state callers that don't pass
+        // containerWidth keep flexible maxWidth so external constraints
+        // (e.g. chatBubbleMaxWidth) can still shrink the view.
+        .frame(width: containerWidth > 0
+            ? min(containerWidth, VSpacing.chatColumnMaxWidth) : nil)
+        .frame(maxWidth: containerWidth > 0
+            ? nil : VSpacing.chatColumnMaxWidth)
         .disabled(!isInteractionEnabled)
         .animation(VAnimation.fast, value: isComposerFocused)
         .task {
