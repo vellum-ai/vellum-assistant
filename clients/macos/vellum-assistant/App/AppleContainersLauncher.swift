@@ -83,12 +83,10 @@ final class AppleContainersLauncher: AssistantManagementClient {
             uniqueKeysWithValues: imageRefs.map { ($0.key, $0.value.fullReference) }
         )
 
-        let vellumEnvironment = ProcessInfo.processInfo.environment["VELLUM_ENVIRONMENT"] ?? "production"
-
         // In local builds, build images from local source instead of
         // pulling from Docker Hub. The images are loaded into the shared
         // ImageStore so PodRuntime finds them in cache via store.get().
-        if vellumEnvironment == "local" {
+        if VellumEnvironment.current == .local {
             await self.buildLocalImagesIfAvailable(
                 kernelStore: kernelStore,
                 imageRefs: imageRefs,
@@ -96,13 +94,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
             )
         }
 
-        let platformURL: String
-        switch vellumEnvironment {
-        case "production", "staging":
-            platformURL = "https://platform.vellum.ai"
-        default:
-            platformURL = "https://dev-platform.vellum.ai"
-        }
+        let platformURL = VellumEnvironment.current.platformURL
 
         let config = AppleContainersPodRuntime.Configuration(
             instanceName: assistantName,
@@ -155,7 +147,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
 
     /// Attempts to build service images from local source code using Docker.
     /// Falls back silently to Docker Hub pull (via PodRuntime) if any step fails.
-    /// Only called when `VELLUM_ENVIRONMENT=local`.
+    /// Only called when `VellumEnvironment.current == .local`.
     private func buildLocalImagesIfAvailable(
         kernelStore: KataKernelStore,
         imageRefs: [VellumServiceName: VellumImageReference],
