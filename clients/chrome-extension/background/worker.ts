@@ -361,6 +361,42 @@ async function buildRelayModeConfig(kind: RelayModeKind): Promise<RelayMode> {
   };
 }
 
+// WebSocket close code 1006 ("abnormal closure") is what browsers
+// report when a WebSocket connection drops without a clean close
+// frame. Both the gateway and the runtime reject invalid/expired
+// actor tokens with an HTTP 401 BEFORE the WebSocket upgrade, which
+// browsers surface to JS as 1006 — not 4001/4002/4003. So a cloud
+// client with a rotated/expired token sees 1006, not an entry in
+// CLOUD_AUTH_FAILURE_CLOSE_CODES. We can't unconditionally treat 1006
+// as an auth failure, though: it also fires for transient network
+// blips (cable unplugged, Chrome sleep/wake, flaky coffee-shop Wi-Fi).
+//
+// The heuristic below is:
+//   1. On the first 1006 close we haven't successfully recovered
+//      from, try a token refresh — if the token was the problem a
+//      fresh one will let the next connect succeed and the counter
+//      will reset.
+//   2. After CLOUD_REFRESH_ATTEMPT_CAP consecutive failed refresh
+//      attempts we stop reconnecting and abort with an actionable
+//      sign-in prompt instead of silently hammering the gateway.
+//   3. The counter resets to zero every time a socket successfully
+//      opens (see the `onOpen` wiring in `createRelayConnection`).
+const WS_CLOSE_CODE_ABNORMAL = 1006;
+const CLOUD_REFRESH_ATTEMPT_CAP = 3;
+
+/**
+ * Count of consecutive refresh attempts made from
+ * {@link cloudReconnectHook} since the last successful WebSocket open.
+ * Reset to 0 on every `onOpen` callback so a short-lived successful
+ * connection effectively re-arms the 1006 recovery path. Exported via
+ * {@link resetCloudRefreshAttempts} for the worker's own wiring.
+ */
+let cloudRefreshAttempts = 0;
+
+function resetCloudRefreshAttempts(): void {
+  cloudRefreshAttempts = 0;
+}
+
 /**
  * Reconnect hook for cloud mode. Called by {@link RelayConnection} when
  * the WebSocket closes unexpectedly — responsible for deciding whether
@@ -374,6 +410,9 @@ async function buildRelayModeConfig(kind: RelayModeKind): Promise<RelayMode> {
  *   - The close code matches a known auth-failure code emitted by the
  *     gateway's browser-relay handshake (see
  *     `CLOUD_AUTH_FAILURE_CLOSE_CODES`).
+ *   - The close code is 1006 AND we haven't already exhausted the
+ *     1006 refresh budget. See the docstring on
+ *     {@link WS_CLOSE_CODE_ABNORMAL} for the rationale.
  *
  * On successful refresh the new token is persisted to storage by
  * `refreshCloudToken` and returned via `{ kind: 'refreshed' }` so the
@@ -387,7 +426,18 @@ async function cloudReconnectHook(
 ): Promise<RelayReconnectDecision> {
   const stored = await getStoredCloudTokenRaw();
   const authFailure = CLOUD_AUTH_FAILURE_CLOSE_CODES.has(ctx.code);
-  const needsRefresh = authFailure || isCloudTokenStale(stored);
+  const abnormal = ctx.code === WS_CLOSE_CODE_ABNORMAL;
+  // For 1006 we only assume "this is an auth problem" while we
+  // haven't burned through the refresh budget. A mid-session cable
+  // pull will also produce 1006 and we don't want to abort the
+  // reconnect loop on the very first network blip — the attempt
+  // counter resets every time a socket successfully re-opens (see
+  // resetCloudRefreshAttempts in the onOpen hook), so a transient
+  // network outage just racks up attempts we never actually use.
+  const abnormalNeedsRefresh =
+    abnormal && cloudRefreshAttempts < CLOUD_REFRESH_ATTEMPT_CAP;
+  const needsRefresh =
+    authFailure || abnormalNeedsRefresh || isCloudTokenStale(stored);
 
   if (!needsRefresh && stored?.token) {
     // Transient network blip with a still-valid token. Keep the
@@ -395,6 +445,21 @@ async function cloudReconnectHook(
     return { kind: 'keep' };
   }
 
+  // If we've already burned the 1006 refresh budget without a
+  // successful reconnect, stop hammering the gateway and prompt the
+  // user to sign in again. We intentionally check this BEFORE calling
+  // refreshCloudToken so an in-flight reconnect that just flipped us
+  // into the abort branch doesn't rack up a gratuitous refresh.
+  if (abnormal && cloudRefreshAttempts >= CLOUD_REFRESH_ATTEMPT_CAP) {
+    return {
+      kind: 'abort',
+      error:
+        `Cloud relay kept closing with abnormal closure (code 1006) after ${CLOUD_REFRESH_ATTEMPT_CAP} ` +
+        'token refresh attempts. Please sign in with Vellum (cloud) again from the extension popup to reconnect.',
+    };
+  }
+
+  cloudRefreshAttempts += 1;
   const refreshed = await refreshCloudToken({
     gatewayBaseUrl: CLOUD_GATEWAY_BASE_URL,
     clientId: CLOUD_OAUTH_CLIENT_ID,
@@ -407,11 +472,13 @@ async function cloudReconnectHook(
   // Non-interactive refresh is impossible — user must sign in again.
   const reason = authFailure
     ? 'Cloud relay closed with an auth-failure code'
-    : 'Stored cloud token has expired';
+    : abnormal
+      ? 'Cloud relay closed abnormally (code 1006) and token refresh failed'
+      : 'Stored cloud token has expired';
   return {
     kind: 'abort',
     error:
-      `${reason}. Sign in with Vellum (cloud) again from the extension popup to reconnect.`,
+      `${reason}. Please sign in with Vellum (cloud) again from the extension popup to reconnect.`,
   };
 }
 
@@ -431,6 +498,11 @@ function createRelayConnection(
       // A successful connect means any persisted auth-error is stale
       // — clear it so the popup stops showing the sign-in prompt.
       void clearRelayAuthError();
+      // Re-arm the 1006 recovery path. A short-lived successful
+      // connection counts as "we recovered" even if the socket drops
+      // seconds later; the next 1006 should try a fresh refresh
+      // instead of inheriting the previous chain's attempt count.
+      resetCloudRefreshAttempts();
     },
     onMessage: (data) => {
       // Fire-and-forget dispatch — wrap with .catch so a future refactor

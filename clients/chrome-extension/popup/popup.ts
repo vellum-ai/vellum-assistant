@@ -59,9 +59,32 @@ function setConnected(connected: boolean): void {
   }
 }
 
-function showError(msg: string): void {
+/**
+ * Render an inline error message without touching any other UI.
+ *
+ * Use this for errors that are not actionable by the self-hosted
+ * manual-token-entry workflow — e.g. cloud OAuth failures, refresh
+ * exceptions, or generic service-worker messages. It's specifically
+ * the variant {@link refreshCloudStatus} uses so a cloud auth error
+ * does not accidentally reveal the self-hosted token input.
+ */
+function showErrorText(msg: string): void {
   errorText.textContent = msg;
   errorText.style.display = 'block';
+}
+
+/**
+ * Render an inline error message AND reveal the self-hosted manual
+ * token entry section. Use this for errors where the user's next
+ * action is to paste a bearer token into the manual-entry box —
+ * e.g. a failed auto-fetch or a missing paired local assistant.
+ *
+ * Do NOT use this for cloud auth errors: the manual token entry
+ * section is a self-hosted-only workflow, and revealing it for a
+ * cloud error would point the user at the wrong remediation.
+ */
+function showError(msg: string): void {
+  showErrorText(msg);
   // Reveal manual token entry on auto-fetch failure
   if (!manualMode) {
     manualMode = true;
@@ -301,6 +324,12 @@ async function refreshCloudStatus(): Promise<void> {
     // reconnect. The worker writes `vellum.relayAuthError` when the
     // cloud token refresh fails (see cloudReconnectHook in worker.ts)
     // and clears it on a successful connect.
+    //
+    // Use showErrorText (NOT showError) here: the self-hosted manual
+    // token entry section is irrelevant to a cloud auth error, and
+    // revealing it would point the user at the wrong remediation.
+    // The error message itself already instructs the user to sign
+    // in with Vellum (cloud) again, which is all they need.
     const authErrResult = await chrome.storage.local.get('vellum.relayAuthError');
     const authErr = authErrResult['vellum.relayAuthError'];
     if (
@@ -308,7 +337,7 @@ async function refreshCloudStatus(): Promise<void> {
       typeof authErr === 'object' &&
       typeof (authErr as { message?: unknown }).message === 'string'
     ) {
-      showError((authErr as { message: string }).message);
+      showErrorText((authErr as { message: string }).message);
     }
   } catch (err) {
     setCloudStatus(`Error: ${err instanceof Error ? err.message : String(err)}`, false);

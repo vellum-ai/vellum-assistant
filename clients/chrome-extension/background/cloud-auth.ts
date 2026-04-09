@@ -35,18 +35,38 @@ export interface StoredCloudToken {
 export const CLOUD_TOKEN_STALE_WINDOW_MS = 60_000;
 
 /**
- * WebSocket close codes the gateway uses to signal that the handshake was
- * rejected for an auth reason — an expired JWT, a revoked guardian, or a
- * rotated signing key. The relay reconnect path treats these specially and
- * forces a token refresh before the next connect attempt.
+ * WebSocket close codes that the relay reconnect path treats as a
+ * strong signal the server rejected the handshake for an auth reason —
+ * an expired JWT, a revoked guardian, or a rotated signing key. When
+ * any of these fire, the cloudReconnectHook forces a token refresh
+ * before the next connect attempt.
  *
+ * IMPORTANT: the set deliberately does NOT include `1006` because 1006
+ * ("abnormal closure") also fires on transient network blips and can't
+ * be disambiguated from an auth failure by code alone. The gateway
+ * (see `gateway/src/http/routes/browser-relay-websocket.ts`) and the
+ * runtime reject invalid actor tokens with an HTTP 401 BEFORE the
+ * WebSocket upgrade, which browsers surface as close code 1006 (never
+ * 4001/4002/4003). The cloudReconnectHook in worker.ts applies an
+ * attempt-counter heuristic to handle that case separately: it forces
+ * a refresh on the first 1006 after connect, and aborts with a
+ * sign-in prompt after a small number of failed refreshes. See that
+ * hook's `REFRESH_ATTEMPT_CAP` for details.
+ *
+ * Codes that ARE in this set:
+ * - `1008` ("policy violation") — observed in practice when the
+ *   gateway or its upstream runtime rejects a frame after a successful
+ *   handshake (e.g. buffer overflow, explicit policy kicks). The
+ *   runtime may also bubble up 1008 when the actor-token binding
+ *   becomes stale mid-session.
  * - `4001`/`4002`/`4003` are in the RFC 6455 "application" range
- *   (4000–4999) and match the codes emitted by
- *   `gateway/src/http/routes/browser-relay-websocket.ts` for the three
- *   distinct auth-failure paths.
- * - `1008` ("policy violation") is included for robustness — some
- *   intermediaries rewrite application codes back to 1008 when the socket
- *   is torn down mid-handshake.
+ *   (4000–4999). Neither the gateway nor the runtime emits these
+ *   today for the standard pre-upgrade auth rejection (that path is
+ *   HTTP 401 → 1006), but they are retained as a forward-compatible
+ *   contract: future gateway changes may close the socket with a
+ *   4xxx code for post-upgrade auth failures (e.g. a rotated signing
+ *   key invalidating an already-connected socket) without requiring
+ *   a matching extension update.
  */
 export const CLOUD_AUTH_FAILURE_CLOSE_CODES: ReadonlySet<number> = new Set([
   1008, 4001, 4002, 4003,
