@@ -731,7 +731,9 @@ describe("commitImport", () => {
       expect(writtenDb).toEqual(newDbData);
 
       const writtenConfig = readFileSync(testConfigPath, "utf8");
-      expect(writtenConfig).toBe('{"model":"claude"}');
+      expect(writtenConfig).toBe(
+        JSON.stringify({ model: "claude" }, null, 2) + "\n",
+      );
     }
   });
 });
