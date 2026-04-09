@@ -20,7 +20,6 @@ mock.module("../auth/token-exchange.js", () => ({
   mintIngressToken: () => "mock-ingress-token",
   mintServiceToken: () => "mock-service-token",
   mintExchangeToken: () => "mock-exchange-token",
-  mintBrowserRelayToken: () => "mock-browser-relay-token",
   validateEdgeToken: () => ({ ok: true }),
 }));
 

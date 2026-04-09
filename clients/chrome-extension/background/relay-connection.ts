@@ -532,11 +532,8 @@ function normaliseReconnectResult(
 //     stored capability token.
 //   - cloud: send the envelope as a `host_browser_result` frame over
 //     the existing browser-relay WebSocket. The gateway proxies the
-//     frame straight through to the runtime — see
-//     `gateway/src/http/routes/browser-relay-websocket.ts`. (Phase 3
-//     will land the runtime-side handler for inbound result frames;
-//     today the runtime drops them, but the cloud CDP path is
-//     feature-flagged off in Phase 2 so this is harmless.)
+//     frame straight through to the runtime, which resolves it through
+//     the same shared resolver used by `/v1/host-browser-result`.
 
 /**
  * Minimal subset of {@link RelayConnection} that {@link postHostBrowserResult}

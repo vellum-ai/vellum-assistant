@@ -217,8 +217,7 @@ async function dispatchHostBrowserResult(
   // Self-hosted fallback: POST directly to the local daemon using live
   // creds. Prefer the capability token from the native-messaging pair
   // flow; fall back to the bearer token stored under the gateway
-  // `/v1/browser-relay/token` path for installs that haven't been
-  // paired via native messaging yet.
+  // pair flow.
   const local = await getStoredLocalToken();
   if (local) {
     const fallbackPort = local.assistantPort ?? (await getRelayPort());
@@ -229,13 +228,9 @@ async function dispatchHostBrowserResult(
     };
     return postHostBrowserResult(fallbackMode, null, result);
   }
-  const [token, port] = await Promise.all([getBearerToken(), getRelayPort()]);
-  const fallbackMode: RelayMode = {
-    kind: 'self-hosted',
-    baseUrl: `http://127.0.0.1:${port}`,
-    token,
-  };
-  return postHostBrowserResult(fallbackMode, null, result);
+  console.warn(
+    '[vellum-relay] host_browser_result dropped: self-hosted relay not paired',
+  );
 }
 
 /**
@@ -279,11 +274,6 @@ const hostBrowserDispatcher: HostBrowserDispatcher = createHostBrowserDispatcher
 
 // ── Storage helpers ─────────────────────────────────────────────────
 
-async function getBearerToken(): Promise<string | null> {
-  const result = await chrome.storage.local.get('bearerToken');
-  return typeof result.bearerToken === 'string' ? result.bearerToken : null;
-}
-
 async function getRelayPort(): Promise<number> {
   const result = await chrome.storage.local.get('relayPort');
   const stored = result.relayPort;
@@ -293,26 +283,6 @@ async function getRelayPort(): Promise<number> {
     if (!isNaN(parsed) && parsed > 0 && parsed <= 65535) return parsed;
   }
   return DEFAULT_RELAY_PORT;
-}
-
-/**
- * Fetch a fresh bearer token from the gateway's localhost-only endpoint
- * and persist it for future connections.
- */
-async function refreshToken(): Promise<boolean> {
-  try {
-    const port = await getRelayPort();
-    const resp = await fetch(`http://127.0.0.1:${port}/v1/browser-relay/token`);
-    if (!resp.ok) return false;
-    const data = await resp.json();
-    if (typeof data.token !== 'string') return false;
-    await chrome.storage.local.set({ bearerToken: data.token });
-    console.log('[vellum-relay] Token refreshed from gateway');
-    return true;
-  } catch {
-    console.warn('[vellum-relay] Failed to refresh token from gateway');
-    return false;
-  }
 }
 
 // ── Relay connection lifecycle ──────────────────────────────────────
@@ -338,10 +308,8 @@ async function buildRelayModeConfig(kind: RelayModeKind): Promise<RelayMode> {
   // carries the assistant runtime port the helper used when it
   // pair-bootstrapped, so we target the runtime directly.
   //
-  // Compatibility branch: if there is no stored capability token yet
-  // (e.g. a chrome profile that hasn't been paired via native
-  // messaging) we fall back to the `bearerToken` / `relayPort` storage
-  // keys so installs without a paired helper keep working.
+  // No compatibility fallback: self-hosted relay now requires pairing
+  // through the native-messaging capability-token flow.
   const local = await getStoredLocalToken();
   if (local) {
     const port = local.assistantPort ?? (await getRelayPort());
@@ -351,14 +319,11 @@ async function buildRelayModeConfig(kind: RelayModeKind): Promise<RelayMode> {
       token: local.token,
     };
   }
-  const [legacyToken, port] = await Promise.all([
-    getBearerToken(),
-    getRelayPort(),
-  ]);
+  const port = await getRelayPort();
   return {
     kind: 'self-hosted',
     baseUrl: `http://127.0.0.1:${port}`,
-    token: legacyToken,
+    token: null,
   };
 }
 
@@ -525,14 +490,10 @@ function createRelayConnection(
       // code. If refresh is impossible we abort the reconnect loop
       // and surface the error to the popup — see cloudReconnectHook.
       //
-      // Self-hosted mode uses a two-step refresh ladder:
-      //  1. Re-read the stored capability token from
-      //     `self-hosted-auth.ts`. The token may have been rotated by
-      //     a re-pair in another tab, or it may simply still be valid
-      //     and the drop was a transient server bounce.
-      //  2. Fall back to the gateway `/v1/browser-relay/token`
-      //     refresh for installs without a paired native-messaging
-      //     helper.
+      // Self-hosted mode re-reads the stored capability token from
+      // `self-hosted-auth.ts` on every reconnect. If pairing data is
+      // missing/expired we abort reconnects and surface an actionable
+      // error.
       //
       // Pull the live mode through getCurrentMode so a setMode() that
       // flipped us to cloud mid-reconnect still routes through the
@@ -542,13 +503,14 @@ function createRelayConnection(
         return cloudReconnectHook(ctx);
       }
       const local = await getStoredLocalToken();
-      if (local?.token) return local.token;
-      const ok = await refreshToken();
-      if (ok) {
-        const refreshed = await getBearerToken();
-        return refreshed;
+      if (local?.token) {
+        return { kind: 'refreshed', token: local.token };
       }
-      return null;
+      return {
+        kind: 'abort',
+        error:
+          'Self-hosted relay token missing or expired. Pair the Vellum assistant again from the extension popup.',
+      };
     },
   });
 }
@@ -744,24 +706,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
 });
 
 // Auto-connect on service worker start if previously connected.
-// Refresh the self-hosted token first so we don't reconnect with stale
-// credentials — cloud-mode auto-connect just reads the stored OAuth
-// token and trusts the caller to re-sign in if it's expired.
 async function bootstrap(): Promise<void> {
   relayMode = await loadRelayMode();
   const { autoConnect } = await chrome.storage.local.get('autoConnect');
   if (autoConnect !== true) return;
   shouldConnect = true;
-  if (relayMode === 'self-hosted') {
-    // Only mint a fresh gateway JWT if the capability-token path isn't
-    // usable yet. The capability token is the default auth for
-    // self-hosted installs with a paired native-messaging helper; the
-    // gateway refresh is only needed for installs without one.
-    const local = await getStoredLocalToken();
-    if (!local) {
-      await refreshToken();
-    }
-  }
   try {
     await connect();
   } catch (err) {

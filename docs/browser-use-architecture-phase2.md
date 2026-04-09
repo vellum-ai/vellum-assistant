@@ -71,7 +71,7 @@ and the handshake differ.
           │  http-server.ts open/close │
           │        │                   │
           │        ▼                   │
-          │  ChromeExtensionRegistry   │  (guardianId → ws)
+         │  ChromeExtensionRegistry   │  (guardianId, clientInstanceId → ws)
           │        │                   │
           │        ▼                   │
           │  HostBrowserProxy          │
@@ -85,10 +85,11 @@ and the handshake differ.
           └────────────────────────────┘
 ```
 
-Result envelopes flow back via `POST /v1/host-browser-result`, which
-resolves the pending interaction keyed by `requestId` and feeds the
-result into the current agent turn exactly like the macOS host proxies
-do.
+Result envelopes normally flow back over the same `/v1/browser-relay`
+WebSocket as `host_browser_result` frames (cloud + self-hosted). The
+runtime resolves these through the same shared resolver used by
+`POST /v1/host-browser-result`. The HTTP route remains as a self-hosted
+fallback when no relay socket is available.
 
 ## Cloud transport
 
@@ -107,7 +108,7 @@ Handshake:
 3. On success, the gateway returns a guardian-bound JWT and the
    extension persists it via `cloud-auth.ts::getStoredToken`.
 4. The extension opens `wss://api.vellum.ai/v1/browser-relay` with the
-   JWT as the `Authorization: Bearer …` header.
+   JWT on the `token=...` query parameter.
 5. The gateway verifies the JWT, extracts the guardian id, and forwards
    the upgrade to the assistant runtime. The runtime registers the
    connection under that guardian id in the `ChromeExtensionRegistry`.
@@ -136,8 +137,8 @@ Handshake:
       mint a scoped capability token bound to the caller's guardian.
    d. Writes a `token_response` frame to stdout and exits.
 4. The extension persists the token and opens
-   `ws://127.0.0.1:<port>/v1/browser-relay` with the token as a bearer
-   header.
+   `ws://127.0.0.1:<port>/v1/browser-relay` with the token on the
+   `token=...` query parameter.
 5. The daemon verifies the token via
    `verifyHostBrowserCapability`, registers the connection in the
    `ChromeExtensionRegistry`, and starts routing `host_browser_request`
@@ -154,8 +155,9 @@ The new modules that implement Phase 2:
 
 - **`assistant/src/runtime/chrome-extension-registry.ts`** — Singleton
   tracking active `chrome-extension` WebSocket connections keyed by
-  guardian id. Reconnects from the same guardian supersede the prior
-  entry, closing the older socket cleanly.
+  `(guardianId, clientInstanceId)`. Reconnects from the same instance
+  supersede only that instance's prior entry, leaving sibling installs
+  under the same guardian intact.
 - **`assistant/src/runtime/routes/browser-extension-pair-routes.ts`** —
   `POST /v1/browser-extension-pair` endpoint. Loopback-only. Mints a
   capability token bound to the caller's guardian id and the
@@ -175,7 +177,8 @@ The new modules that implement Phase 2:
   concurrent commands don't double-attach.
 - **`clients/chrome-extension/background/host-browser-dispatcher.ts`** —
   Consumes `host_browser_request` envelopes, drives the `cdp-proxy`, and
-  hands results to the worker for POST-back.
+  hands results to the worker for relay-aware delivery (WS first, HTTP
+  fallback in self-hosted mode).
 - **`clients/chrome-extension/background/relay-connection.ts`** —
   WebSocket relay with heartbeat, reconnect-with-token-refresh, and
   mode-aware bearer injection.

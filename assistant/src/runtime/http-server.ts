@@ -937,7 +937,8 @@ export class RuntimeHttpServer {
     // `sub=svc:gateway:self` with no actor principal id. The gateway
     // parses the downstream edge token's `actorPrincipalId` and forwards
     // it as an explicit `guardianId` query parameter (and/or header) so
-    // we can register the connection under the real guardian.
+    // we can register the connection under the real guardian. Missing
+    // guardian context on this path is rejected (fail closed).
     // Read the client-supplied stable instance id off the handshake.
     // The extension generates this on first run and persists it in
     // chrome.storage so it survives service-worker restarts and
@@ -995,12 +996,10 @@ export class RuntimeHttpServer {
           if (fallbackGuardianId) {
             guardianId = fallbackGuardianId;
           } else {
-            // No guardian context on a service-token upgrade. We log a
-            // warning so operators still see a signal but allow the
-            // upgrade to proceed with `guardianId = undefined`. The
-            // registry skips the scoped registration in that case, and
-            // host_browser_request frames will log a warning downstream
-            // if routing fails.
+            // Fail closed: a service-token relay upgrade without a
+            // guardian context cannot be routed safely. Allowing the
+            // upgrade to proceed creates an unscoped socket that never
+            // registers in the ChromeExtensionRegistry.
             log.warn(
               {
                 principalType: subResult.ok
@@ -1008,7 +1007,12 @@ export class RuntimeHttpServer {
                   : "unknown",
                 sub: jwtResult.claims.sub,
               },
-              "Browser relay upgrade allowed without guardian context (service-token path)",
+              "Browser relay upgrade denied: missing guardian context on service-token path",
+            );
+            return httpError(
+              "UNAUTHORIZED",
+              "Browser relay requires guardian context",
+              401,
             );
           }
         }

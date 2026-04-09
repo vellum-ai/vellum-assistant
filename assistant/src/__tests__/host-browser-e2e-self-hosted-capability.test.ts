@@ -9,8 +9,7 @@
  *
  * Invariants covered:
  *
- *   1. `/v1/browser-relay` accepts capability tokens directly — no
- *      gateway `/v1/browser-relay/token` round-trip required.
+ *   1. `/v1/browser-relay` accepts capability tokens directly.
  *   2. The WS upgrade handler derives the registry-key guardianId from
  *      the capability claims so host_browser_request frames route
  *      back to the right connection.
