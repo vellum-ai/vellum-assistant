@@ -120,7 +120,10 @@ function createHarness(opts: HarnessOptions = {}): Harness {
   let connectCalls = 0;
 
   // Track Target.attachToTarget specifically so tests can assert
-  // how many attach attempts the client has made.
+  // how many attach attempts the client has made. The counter is
+  // bumped ONLY in the default happy-path branch so tests that
+  // install a custom `transportOnSend` (and therefore model their
+  // own attach semantics) can't accidentally double-count.
   const attachSends: Array<unknown> = [];
 
   const defaultOnSend: FakeTransportOptions["onSend"] = (method) => {
@@ -136,9 +139,6 @@ function createHarness(opts: HarnessOptions = {}): Harness {
     params,
     o,
   ) => {
-    if (method === "Target.attachToTarget") {
-      attachSends.push(method);
-    }
     if (opts.transportOnSend) {
       return opts.transportOnSend(method, params, o);
     }
@@ -311,13 +311,15 @@ describe("CdpInspectClient", () => {
 
     // Second call — cached promise was cleared, so probe + list +
     // connect + attach all run again, then the forwarded call
-    // resolves normally.
+    // resolves normally. listCalls is only 1 because the first
+    // attempt threw inside probeDevToolsJsonVersion before it ever
+    // reached listDevToolsTargets.
     const result = await harness.client.send<{ ok: boolean }>(
       "Browser.getVersion",
     );
     expect(result).toEqual({ ok: true });
     expect(probeCount).toBe(2);
-    expect(harness.listCalls).toBe(2);
+    expect(harness.listCalls).toBe(1);
     expect(harness.connectCalls).toBe(1);
     expect(harness.attachCallCount()).toBe(1);
   });
@@ -596,5 +598,147 @@ describe("CdpInspectClient", () => {
     // The transport opened by attach() should have been disposed so
     // the socket doesn't leak.
     expect(localDisposeCount.count).toBe(1);
+  });
+
+  test("send() aborts promptly when signal fires during ensureSession", async () => {
+    // Discovery is deliberately stalled so the caller has to rely on
+    // raceAbort() to cut through. If raceAbort worked correctly, the
+    // send() promise rejects with an 'aborted' CdpError the instant
+    // the controller fires — even though probeDevToolsJsonVersion is
+    // still hanging on an unresolved await.
+    const controller = new AbortController();
+    let probeSignalSeen: AbortSignal | undefined;
+    let probeResolve: (() => void) | undefined;
+    const probeStarted = new Promise<void>((resolve) => {
+      probeResolve = resolve;
+    });
+
+    const client = createCdpInspectClient("conv-abort-during-ensure", {
+      host: "127.0.0.1",
+      port: 9222,
+      helpers: {
+        probeDevToolsJsonVersion: async (probeOpts) => {
+          // Capture the signal so we can assert the shared attach
+          // controller actually fired downstream.
+          probeSignalSeen = (probeOpts as { signal?: AbortSignal }).signal;
+          probeResolve?.();
+          // Hang forever unless the shared controller fires.
+          await new Promise<never>((_, reject) => {
+            const onAbort = () => {
+              reject(new Error("probe aborted via shared controller"));
+            };
+            if (probeSignalSeen?.aborted) {
+              onAbort();
+            } else {
+              probeSignalSeen?.addEventListener("abort", onAbort, {
+                once: true,
+              });
+            }
+          });
+          throw new Error("unreachable");
+        },
+        listDevToolsTargets: async () => [
+          {
+            id: "target-1",
+            type: "page",
+            title: "Example",
+            url: "https://example.com/",
+            webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/page/target-1",
+          },
+        ],
+        connectCdpWsTransport: async () =>
+          createFakeTransport({
+            onSend: async (method) => {
+              if (method === "Target.attachToTarget") {
+                return { sessionId: "fake-session-id" };
+              }
+              return undefined;
+            },
+          }),
+      },
+    });
+
+    const sendPromise = client.send(
+      "Browser.getVersion",
+      undefined,
+      controller.signal,
+    );
+    // Wait until probe is actually running, then abort.
+    await probeStarted;
+    controller.abort();
+
+    let caught: unknown;
+    try {
+      await sendPromise;
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(CdpError);
+    const cdpErr = caught as InstanceType<typeof CdpError>;
+    expect(cdpErr.code).toBe("aborted");
+    expect(cdpErr.cdpMethod).toBe("Browser.getVersion");
+    // Probe saw a non-null signal, meaning ensureSession plumbed one
+    // all the way down to the discovery helper.
+    expect(probeSignalSeen).toBeDefined();
+    // After the last (and only) waiter aborted, the shared controller
+    // should have been aborted — downstream probe's await should have
+    // been rejected.
+    expect(probeSignalSeen?.aborted).toBe(true);
+  });
+
+  test("concurrent send() callers can abort independently", async () => {
+    // Two callers race the same in-flight attach. The first caller
+    // aborts; the second caller must still complete normally once the
+    // shared attach resolves.
+    const aborter = new AbortController();
+    let probeResolve: (() => void) | undefined;
+    let releaseProbe: (() => void) | undefined;
+    const probeRunning = new Promise<void>((resolve) => {
+      probeResolve = resolve;
+    });
+    const probeCanFinish = new Promise<void>((resolve) => {
+      releaseProbe = resolve;
+    });
+
+    const harness = createHarness({
+      probeImpl: async () => {
+        probeResolve?.();
+        await probeCanFinish;
+        return {
+          browser: "Chrome/125.0.0.0",
+          protocolVersion: "1.3",
+          webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser/fake",
+        };
+      },
+    });
+
+    const aborted = harness.client.send(
+      "Runtime.enable",
+      undefined,
+      aborter.signal,
+    );
+    const stable = harness.client.send("Page.enable");
+
+    await probeRunning;
+    aborter.abort();
+
+    // First caller aborts promptly…
+    let firstErr: unknown;
+    try {
+      await aborted;
+    } catch (err) {
+      firstErr = err;
+    }
+    expect(firstErr).toBeInstanceOf(CdpError);
+    expect((firstErr as InstanceType<typeof CdpError>).code).toBe("aborted");
+
+    // …but the second caller is still alive and can make progress
+    // once the shared attach finishes.
+    releaseProbe?.();
+    await stable;
+    expect(harness.probeCalls).toBe(1);
+    expect(harness.listCalls).toBe(1);
+    expect(harness.connectCalls).toBe(1);
+    expect(harness.attachCallCount()).toBe(1);
   });
 });

@@ -70,6 +70,23 @@ interface AttachedSession {
 }
 
 /**
+ * In-flight attach handle. Wraps the shared attach promise with a
+ * dedicated {@link AbortController} and a ref-count of live callers
+ * waiting on the attach. When every caller has raced its own signal
+ * and given up, the ref-count drops to zero and the shared controller
+ * aborts so the underlying discovery / ws / `Target.attachToTarget`
+ * work stops promptly instead of wedging the socket.
+ */
+interface PendingAttach {
+  /** Shared attach promise — resolved exactly once per attach attempt. */
+  promise: Promise<AttachedSession>;
+  /** Controller wired through probe / list / connect / attach. */
+  controller: AbortController;
+  /** Number of live callers still awaiting this attach. */
+  waiters: number;
+}
+
+/**
  * CdpClient backed by the DevTools JSON protocol over a raw
  * WebSocket (the `cdp-inspect` transport). Composes the discovery
  * helpers (`probeDevToolsJsonVersion` + `listDevToolsTargets` +
@@ -84,6 +101,10 @@ interface AttachedSession {
  *    caches the session for every subsequent call.
  *  - Concurrent callers share a single in-flight attach promise so
  *    `Target.attachToTarget` runs exactly once per client instance.
+ *  - Each `send(..., signal)` caller can race its own AbortSignal
+ *    against the shared attach and cut through promptly. When every
+ *    concurrent caller has aborted, the shared attach work is also
+ *    cancelled so we don't leak discovery fetches or a half-open ws.
  *  - If the attach promise rejects, the cached promise is cleared so
  *    the next `send()` retries from scratch instead of replaying the
  *    same failure forever.
@@ -93,7 +114,8 @@ interface AttachedSession {
 export class CdpInspectClient implements ScopedCdpClient {
   readonly kind: CdpClientKind = "cdp-inspect";
 
-  private sessionPromise: Promise<AttachedSession> | null = null;
+  private pending: PendingAttach | null = null;
+  private session: AttachedSession | null = null;
   private disposed = false;
   private readonly helpers: Required<CdpInspectHelpers>;
 
@@ -115,27 +137,110 @@ export class CdpInspectClient implements ScopedCdpClient {
 
   /**
    * Lazily attach (and cache) a CDP session against the configured
-   * DevTools endpoint. See class-level docs for the resilience
-   * contract — in particular, transient attach failures must NOT
-   * poison the cached promise for subsequent calls.
+   * DevTools endpoint. Each caller races its own `signal` against the
+   * shared attach so an individual abort always wins promptly; when
+   * every waiter has aborted, the shared attach work is cancelled
+   * too via the pending attach's internal controller. See class-level
+   * docs for the resilience contract — in particular, transient
+   * attach failures must NOT poison the cached promise for subsequent
+   * calls.
    */
-  private async ensureSession(): Promise<AttachedSession> {
+  private async ensureSession(signal?: AbortSignal): Promise<AttachedSession> {
     if (this.disposed) {
       throw new CdpError("disposed", "CdpInspectClient already disposed");
     }
-    if (this.sessionPromise) return this.sessionPromise;
-    const created = this.attach();
-    this.sessionPromise = created;
-    // Clear the cached promise on rejection so the next call retries
-    // from scratch instead of replaying the same failure forever. Only
-    // clear if `created` is still the cached promise — a concurrent
-    // dispose may have already nulled it.
-    created.catch(() => {
-      if (this.sessionPromise === created) {
-        this.sessionPromise = null;
+    if (this.session) return this.session;
+
+    const pending = this.pending ?? this.startAttach();
+    pending.waiters += 1;
+
+    // `onAbort` fires exactly once if this caller's signal wins the
+    // race. It (a) drops this caller's waiter slot and (b) aborts
+    // the shared controller iff no other caller is still listening,
+    // so the underlying discovery / ws / attach work is cancelled
+    // promptly instead of leaking into the background.
+    let released = false;
+    const onAbort = () => {
+      if (released) return;
+      released = true;
+      pending.waiters -= 1;
+      if (pending.waiters <= 0 && this.pending === pending) {
+        try {
+          pending.controller.abort();
+        } catch {
+          // best effort
+        }
       }
-    });
-    return created;
+    };
+
+    try {
+      return await raceAbort(pending.promise, signal, onAbort);
+    } finally {
+      // Inner attach resolved or rejected before this caller's
+      // signal fired — drop the waiter slot without touching the
+      // shared controller (it's already settled). If `onAbort` ran,
+      // `released` is already true and this is a no-op.
+      if (!released) {
+        released = true;
+        pending.waiters -= 1;
+      }
+    }
+  }
+
+  /**
+   * Kick off a fresh shared attach. The returned {@link PendingAttach}
+   * is cached on `this.pending` until it either resolves (in which
+   * case the session is stashed on `this.session`) or rejects (in
+   * which case the cache is cleared so the next caller retries from
+   * scratch).
+   */
+  private startAttach(): PendingAttach {
+    const controller = new AbortController();
+    const pending: PendingAttach = {
+      controller,
+      waiters: 0,
+      promise: this.attach(controller.signal),
+    };
+    this.pending = pending;
+
+    pending.promise
+      .then((session) => {
+        // Another concurrent attach may have won the race (e.g. after
+        // a dispose + retry). Only cache the result if we're still
+        // the current attempt.
+        if (this.pending === pending) {
+          this.pending = null;
+          if (this.disposed) {
+            // Dispose landed before we could publish the session —
+            // tear down the transport immediately so we don't leak.
+            try {
+              session.transport.dispose();
+            } catch {
+              // best effort
+            }
+            return;
+          }
+          this.session = session;
+        } else {
+          // A stale attempt — drop the transport so we don't leak.
+          try {
+            session.transport.dispose();
+          } catch {
+            // best effort
+          }
+        }
+      })
+      .catch(() => {
+        // Clear the cached pending attach on rejection so the next
+        // call retries from scratch instead of replaying the same
+        // failure forever. Only clear if we're still the current
+        // attempt — a concurrent dispose may have already nulled it.
+        if (this.pending === pending) {
+          this.pending = null;
+        }
+      });
+
+    return pending;
   }
 
   /**
@@ -143,8 +248,13 @@ export class CdpInspectClient implements ScopedCdpClient {
    * underlying errors are rethrown unchanged so the `send()` wrapper
    * can map them to stable `CdpError` codes without double-wrapping
    * the already-typed discovery / ws-transport errors.
+   *
+   * The `signal` here is the shared, internal {@link PendingAttach}
+   * signal — NOT the per-caller signal. It is aborted when the last
+   * caller interested in this attach has given up, or when `dispose()`
+   * races an in-flight attach.
    */
-  private async attach(): Promise<AttachedSession> {
+  private async attach(signal: AbortSignal): Promise<AttachedSession> {
     const discoveryTimeoutMs =
       this.options.discoveryTimeoutMs ?? DEFAULT_DISCOVERY_TIMEOUT_MS;
     const { host, port } = this.options;
@@ -153,12 +263,20 @@ export class CdpInspectClient implements ScopedCdpClient {
       host,
       port,
       timeoutMs: discoveryTimeoutMs,
+      signal,
     });
+    if (signal.aborted) {
+      throw new CdpError("aborted", "CdpInspectClient attach aborted");
+    }
     const targets = await this.helpers.listDevToolsTargets({
       host,
       port,
       timeoutMs: discoveryTimeoutMs,
+      signal,
     });
+    if (signal.aborted) {
+      throw new CdpError("aborted", "CdpInspectClient attach aborted");
+    }
     const target = this.helpers.pickDefaultTarget(targets);
 
     // Prefer the browser-level ws URL from the version probe because
@@ -168,6 +286,7 @@ export class CdpInspectClient implements ScopedCdpClient {
     const wsUrl = version.webSocketDebuggerUrl || target.webSocketDebuggerUrl;
     const transport = await this.helpers.connectCdpWsTransport(wsUrl, {
       connectTimeoutMs: this.options.wsConnectTimeoutMs,
+      signal,
     });
 
     // If dispose() landed while connect was in flight, tear down the
@@ -181,13 +300,28 @@ export class CdpInspectClient implements ScopedCdpClient {
       }
       throw new CdpError("disposed", "CdpInspectClient disposed during attach");
     }
+    if (signal.aborted) {
+      try {
+        transport.dispose();
+      } catch {
+        // best effort
+      }
+      throw new CdpError(
+        "aborted",
+        "CdpInspectClient attach aborted after ws connect",
+      );
+    }
 
     let attachResult: unknown;
     try {
-      attachResult = await transport.send<unknown>("Target.attachToTarget", {
-        targetId: target.id,
-        flatten: true,
-      });
+      attachResult = await transport.send<unknown>(
+        "Target.attachToTarget",
+        {
+          targetId: target.id,
+          flatten: true,
+        },
+        { signal },
+      );
     } catch (err) {
       // Attach failed — drop the transport we just opened so we don't
       // leak the socket on retry.
@@ -245,10 +379,20 @@ export class CdpInspectClient implements ScopedCdpClient {
 
     let attached: AttachedSession;
     try {
-      attached = await this.ensureSession();
+      attached = await this.ensureSession(signal);
     } catch (err) {
       if (signal?.aborted) {
         throw new CdpError("aborted", "Aborted during send", {
+          cdpMethod: method,
+          cdpParams: params,
+          underlying: err,
+        });
+      }
+      // If a concurrent dispose() aborted the shared attach under us,
+      // surface a stable "disposed" error instead of the incidental
+      // discovery / transport rejection that the aborted work threw.
+      if (this.disposed) {
+        throw new CdpError("disposed", "CdpInspectClient already disposed", {
           cdpMethod: method,
           cdpParams: params,
           underlying: err,
@@ -318,25 +462,33 @@ export class CdpInspectClient implements ScopedCdpClient {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    const pending = this.sessionPromise;
-    this.sessionPromise = null;
-    if (!pending) return;
-    pending
-      .then((attached) => {
-        try {
-          attached.transport.dispose();
-        } catch (err) {
-          log.debug(
-            { err },
-            "CdpInspectClient: transport.dispose threw (ignored)",
-          );
-        }
-      })
-      .catch(() => {
-        // Attach never resolved — nothing to tear down here. The
-        // attach() helper is responsible for disposing the transport
-        // on its own failure paths.
-      });
+
+    // Cancel any in-flight attach so discovery / ws / Target.attach
+    // stop promptly. The `.then()` handler in startAttach() will
+    // tear down any transport that managed to open before dispose
+    // landed.
+    const pending = this.pending;
+    this.pending = null;
+    if (pending) {
+      try {
+        pending.controller.abort();
+      } catch {
+        // best effort
+      }
+    }
+
+    const session = this.session;
+    this.session = null;
+    if (session) {
+      try {
+        session.transport.dispose();
+      } catch (err) {
+        log.debug(
+          { err },
+          "CdpInspectClient: transport.dispose threw (ignored)",
+        );
+      }
+    }
   }
 }
 
@@ -344,8 +496,11 @@ export class CdpInspectClient implements ScopedCdpClient {
  * Classify an `ensureSession()` rejection into a stable CdpError
  * code. Discovery + ws-transport failures become `transport_error`,
  * while CDP-level errors returned by `Target.attachToTarget` become
- * `cdp_error`. Already-typed CdpErrors (e.g. a concurrent dispose
- * surfacing as "disposed") are re-thrown unchanged.
+ * `cdp_error`. Already-typed CdpErrors (e.g. a missing-sessionId
+ * attach response or a concurrent dispose) are rewritten so that
+ * the internal `cdpMethod` (`"Target.attachToTarget"`) is replaced
+ * with the caller's method, while preserving the underlying error
+ * shape.
  */
 function mapEnsureSessionError(
   err: unknown,
@@ -353,7 +508,16 @@ function mapEnsureSessionError(
   params?: Record<string, unknown>,
 ): CdpError {
   if (err instanceof CdpError) {
-    return err;
+    // Rewrite cdpMethod to the caller's method so attach-stage
+    // metadata (e.g. "Target.attachToTarget") doesn't leak into the
+    // caller-visible error. Preserve code, message, and the original
+    // underlying error so logging / upstream mapping can still
+    // introspect the real cause.
+    return new CdpError(err.code, err.message, {
+      cdpMethod: method,
+      cdpParams: params,
+      underlying: err.underlying ?? err,
+    });
   }
   if (err instanceof CdpWsTransportError) {
     if (err.code === "cdp_error") {
@@ -376,6 +540,60 @@ function mapEnsureSessionError(
     cdpMethod: method,
     cdpParams: params,
     underlying: err,
+  });
+}
+
+/**
+ * Race a long-running shared promise against a per-caller
+ * {@link AbortSignal}. When the signal fires first, the returned
+ * promise rejects with a synthetic `abort` error and the optional
+ * `onAbort` hook is invoked exactly once so callers can decrement
+ * ref-counts, release locks, etc. The underlying `inner` promise is
+ * intentionally NOT cancelled here — shared in-flight work is
+ * cancelled separately via the owning {@link PendingAttach}
+ * controller once every waiter has given up.
+ */
+function raceAbort<T>(
+  inner: Promise<T>,
+  signal: AbortSignal | undefined,
+  onAbort: () => void,
+): Promise<T> {
+  if (!signal) return inner;
+  if (signal.aborted) {
+    try {
+      onAbort();
+    } catch {
+      // best effort
+    }
+    return Promise.reject(new Error("aborted"));
+  }
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const handleAbort = () => {
+      if (settled) return;
+      settled = true;
+      try {
+        onAbort();
+      } catch {
+        // best effort
+      }
+      reject(new Error("aborted"));
+    };
+    signal.addEventListener("abort", handleAbort, { once: true });
+    inner.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", handleAbort);
+        resolve(value);
+      },
+      (err) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", handleAbort);
+        reject(err);
+      },
+    );
   });
 }
 
