@@ -59,7 +59,7 @@ struct OnboardingFlowView: View {
                 VStack(spacing: 0) {
                     // Fixed top inset — positions the icon 93px from the
                     // top of the container, matching the Figma spec.
-                    Color.clear.frame(height: 93)
+                    Color.clear.frame(height: 80)
 
                     if let nsImage = Self.appIcon {
                         Image(nsImage: nsImage)
