@@ -236,9 +236,9 @@ struct MessageListContentView: View, Equatable {
                 .equatable()
                 .frame(minHeight: 60, alignment: .top)
                 // Active assistant turn: wrap in VStack with minHeight so user
-                // message sits at top. Only applies when this is the last message
-                // (no user message sent after it).
-                .if(row.isLatestAssistant && row.message.id == state.rows.last?.message.id) { view in
+                // message sits at top. Only applies while the assistant has an
+                // active turn (sending, thinking, streaming, tool running).
+                .if(state.isActiveTurn && row.isLatestAssistant && row.message.id == state.rows.last?.message.id) { view in
                     VStack(spacing: 0) { view }
                         .frame(minHeight: turnMinHeight, alignment: .top)
                 }
