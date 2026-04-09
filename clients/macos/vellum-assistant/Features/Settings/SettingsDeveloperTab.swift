@@ -581,6 +581,12 @@ struct SettingsDeveloperTab: View {
         for assistant in lockfileAssistants {
             if let name = assistant.loadDisplayName() {
                 displayNames[assistant.assistantId] = name
+            } else {
+                let cachedName = IdentityInfo.cached(for: assistant.assistantId)?.name
+                if let resolved = AssistantDisplayName.firstUserFacing(from: [cachedName]),
+                   resolved != AssistantDisplayName.placeholder {
+                    displayNames[assistant.assistantId] = resolved
+                }
             }
         }
     }
