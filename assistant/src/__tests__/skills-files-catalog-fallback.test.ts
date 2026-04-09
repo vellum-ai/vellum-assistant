@@ -2,16 +2,19 @@
  * Tests for `getSkillFiles` catalog fallback.
  *
  * When a skill id isn't resolvable via `findSkillById` (i.e. not installed
- * locally, not bundled, not a managed skill) or the on-disk directory is
- * missing, `getSkillFiles` now falls back to the Vellum catalog via
- * `readCatalogSkillFiles`. Catalog fallback entries carry `content: null`
- * because the catalog-files helper defers content fetching to a follow-up
- * per-file endpoint.
+ * locally, not bundled, not a managed skill), `getSkillFiles` falls back to
+ * the Vellum catalog via `readCatalogSkillFiles`. Catalog fallback entries
+ * carry `content: null` because the catalog-files helper defers content
+ * fetching to a follow-up per-file endpoint. When a skill IS resolved by
+ * `findSkillById` but its on-disk directory is missing, `getSkillFiles`
+ * returns a 404 without falling through to the catalog so the listing and
+ * detail responses agree on `isInstalled`.
  *
  * Coverage:
  *   - Uninstalled catalog skill: returns `{ skill: catalog/vellum/available, files }` with `content: null` for every entry.
  *   - Neither installed nor in catalog: returns 404.
- *   - Installed skill: preserves the existing disk-read behavior with inline `content`.
+ *   - Installed skill: preserves the disk-read behavior with inline `content`.
+ *   - Installed skill with missing directory: returns 404 without consulting the catalog.
  *   - `catalogSkillToSlim` mapping: `metadata.vellum["display-name"]` wins over `cs.name`.
  */
 
@@ -344,6 +347,59 @@ describe("getSkillFiles — catalog fallback", () => {
     } finally {
       rmSync(workspaceRoot, { recursive: true, force: true });
     }
+  });
+
+  test("returns 404 without catalog fallback when installed skill directory is missing on disk", async () => {
+    // `findSkillById` resolves the skill (resolver lists it as installed)
+    // but the on-disk directoryPath does not exist — simulates a corrupted
+    // install, mid-delete race, or external unmount. The handler must
+    // return 404 so the listing response (`kind: "installed"`) and the
+    // detail response stay consistent; falling through to the catalog
+    // would flip the detail to `kind: "catalog"` and break the
+    // client-side `isInstalled` contract.
+    mockResolvedStates = [
+      {
+        summary: makeSummary({
+          id: "ghost-installed",
+          name: "ghost-installed",
+          displayName: "Ghost Installed",
+          description: "Installed in resolver but directory is gone",
+          directoryPath: "/tmp/definitely-does-not-exist-" + Date.now(),
+          source: "workspace",
+        }),
+        state: "enabled",
+      },
+    ];
+    // Even if the same id is present in the catalog, the handler must NOT
+    // fall through — return 404 instead to avoid masking the missing
+    // install directory with a catalog response.
+    mockCatalog = [
+      {
+        id: "ghost-installed",
+        name: "ghost-installed",
+        description: "Also present in catalog",
+      },
+    ];
+    mockCatalogFiles = [
+      {
+        path: "SKILL.md",
+        name: "SKILL.md",
+        size: 10,
+        mimeType: "",
+        isBinary: false,
+        content: null,
+      },
+    ];
+
+    const result = await getSkillFiles("ghost-installed", dummyCtx);
+
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) return;
+    expect(result.status).toBe(404);
+    expect(result.error).toContain("ghost-installed");
+    expect(result.error).toContain("directory missing");
+    // Catalog fallback must not have been consulted.
+    expect(catalogFilesCalls).toEqual([]);
   });
 
   test("catalogSkillToSlim falls back to cs.name when metadata.vellum.display-name is absent", async () => {

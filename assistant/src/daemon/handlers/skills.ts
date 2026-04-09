@@ -31,7 +31,10 @@ import {
   getConfiguredProvider,
   userMessage,
 } from "../../providers/provider-send-message.js";
-import { isTextMimeType as isTextMime } from "../../runtime/routes/workspace-utils.js";
+import {
+  isTextMimeType as isTextMime,
+  MAX_INLINE_TEXT_SIZE,
+} from "../../runtime/routes/workspace-utils.js";
 import { getCatalog } from "../../skills/catalog-cache.js";
 import {
   hasHiddenOrSkippedSegment,
@@ -82,10 +85,6 @@ import {
   type HandlerContext,
   log,
 } from "./shared.js";
-
-// ─── MIME detection helpers ───────────────────────────────────────────────────
-
-const MAX_INLINE_SIZE = 2 * 1024 * 1024; // 2 MB
 
 // ─── Shared context for standalone functions ─────────────────────────────────
 
@@ -548,7 +547,7 @@ function readDirRecursive(dir: string, rootDir: string): SkillFileEntry[] {
       const mimeType = Bun.file(fullPath).type;
       const isText = isTextMime(mimeType, dirent.name);
       let content: string | null = null;
-      if (isText && stat.size <= MAX_INLINE_SIZE) {
+      if (isText && stat.size <= MAX_INLINE_TEXT_SIZE) {
         content = readFileSync(fullPath, "utf-8");
       }
       entries.push({
@@ -674,7 +673,7 @@ export async function getSkillFileContent(
     const isText = isTextMime(mimeType, name);
     const isBinary = !isText;
     let content: string | null = null;
-    if (isText && stat.size <= MAX_INLINE_SIZE) {
+    if (isText && stat.size <= MAX_INLINE_TEXT_SIZE) {
       try {
         content = readFileSync(abs, "utf-8");
       } catch {
@@ -728,18 +727,29 @@ export async function getSkillFiles(
 > {
   // Preferred path: the skill is resolved locally (bundled, managed,
   // workspace, or extra) AND its directory exists on disk. Read files
-  // eagerly with inline content exactly as before.
+  // eagerly with inline content.
   const found = findSkillById(skillId);
-  if (found && existsSync(found.summary.directoryPath)) {
-    const dirPath = found.summary.directoryPath;
-    const files = readDirRecursive(dirPath, dirPath);
-    files.sort((a, b) => a.path.localeCompare(b.path));
-    return { skill: found.item, files };
+  if (found) {
+    if (existsSync(found.summary.directoryPath)) {
+      const dirPath = found.summary.directoryPath;
+      const files = readDirRecursive(dirPath, dirPath);
+      files.sort((a, b) => a.path.localeCompare(b.path));
+      return { skill: found.item, files };
+    }
+    // Resolver lists the skill as installed but the directory is missing
+    // on disk (corrupted install, mid-delete race, external unmount, etc.).
+    // Return a distinct 404 instead of falling through to the catalog path
+    // so the detail response stays consistent with `listSkillsWithCatalog`,
+    // which classifies the same id as `kind: "installed"`.
+    return {
+      error: `Skill directory missing for "${skillId}"`,
+      status: 404,
+    };
   }
 
-  // Fallback: skill is not installed (or its directory is missing). Try
-  // the Vellum catalog — this covers previewing files for an uninstalled
-  // catalog skill without touching the install flow.
+  // Fallback: skill is not installed. Try the Vellum catalog — this covers
+  // previewing files for an uninstalled catalog skill without touching the
+  // install flow.
   let catalog: CatalogSkill[];
   try {
     catalog = await getCatalog();

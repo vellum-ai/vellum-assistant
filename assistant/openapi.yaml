@@ -6776,7 +6776,9 @@ paths:
                   name:
                     type: string
                   size:
-                    type: number
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
                   mimeType:
                     type: string
                   isBinary:
