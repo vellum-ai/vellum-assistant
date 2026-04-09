@@ -1,5 +1,11 @@
 import SwiftUI
 
+private enum DockLayoutConstants {
+    static let minDockWidth: CGFloat = 300
+    static let minWorkspaceWidth: CGFloat = 300
+    static let dividerAndPadding: CGFloat = VSpacing.xs + 12
+}
+
 public struct VAppWorkspaceDockLayout<Dock: View, Workspace: View>: View {
     // MARK: - Properties
 
@@ -19,10 +25,21 @@ public struct VAppWorkspaceDockLayout<Dock: View, Workspace: View>: View {
     // MARK: - Body
 
     public var body: some View {
+        // Clamp dock width to the measured available space so the workspace
+        // is never crushed below its minimum during layout transitions
+        // (e.g. sidebar collapse animation where the binding computes for
+        // the final sidebar width while the layout still uses the animated
+        // intermediate width).
+        let effectiveDockWidth: CGFloat = {
+            guard showDock, availableWidth > 0, availableWidth.isFinite else { return CGFloat(dockWidth) }
+            let maxAllowed = availableWidth - DockLayoutConstants.minWorkspaceWidth - DockLayoutConstants.dividerAndPadding
+            return min(CGFloat(dockWidth), max(maxAllowed, 0))
+        }()
+
         HStack(spacing: 0) {
             if showDock {
                 dock
-                    .frame(width: dockWidth)
+                    .frame(width: effectiveDockWidth)
                     .animation(nil, value: dockWidth)
                     .background(dockBackground ?? VColor.surfaceBase)
                     .clipShape(RoundedRectangle(cornerRadius: dockCornerRadius ?? VRadius.lg))
@@ -89,7 +106,11 @@ public struct VAppWorkspaceDockLayout<Dock: View, Workspace: View>: View {
 
     private func handleDragChanged(_ value: DragGesture.Value, availableWidth: CGFloat) {
         if dragStartWidth == nil || !isDragging {
-            dragStartWidth = dockWidth
+            // Use the effective (clamped) width so drag math matches
+            // what is visually rendered, avoiding a dead-drag region
+            // when the container is narrower than the stored dockWidth.
+            let maxAllowedNow = availableWidth - DockLayoutConstants.minWorkspaceWidth - DockLayoutConstants.dividerAndPadding
+            dragStartWidth = min(dockWidth, max(Double(maxAllowedNow), 0))
             dragStartAvailableWidth = availableWidth
             isDragging = true
         }
@@ -103,15 +124,12 @@ public struct VAppWorkspaceDockLayout<Dock: View, Workspace: View>: View {
         // Dragging right grows the dock (opposite of VSplitView's panel)
         let newWidth = initialWidth + Double(deltaX)
 
-        let minDockWidth: CGFloat = 300
-        let minWorkspaceWidth: CGFloat = 300
-        let dividerAndPadding = VSpacing.xs + 12
-        let maxAllowed = initialAvailableWidth - minWorkspaceWidth - dividerAndPadding
+        let maxAllowed = initialAvailableWidth - DockLayoutConstants.minWorkspaceWidth - DockLayoutConstants.dividerAndPadding
 
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
-            dockWidth = min(max(newWidth, minDockWidth), maxAllowed)
+            dockWidth = min(max(newWidth, DockLayoutConstants.minDockWidth), maxAllowed)
         }
     }
 
