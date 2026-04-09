@@ -44,8 +44,6 @@ public final class EventStreamClient {
     private var sseParseCountInWindow: Int = 0
     private var sseWindowStart: CFAbsoluteTime = 0
 
-    private let decoder = JSONDecoder()
-
     // MARK: - Conversation ID Mapping
 
     /// Maps the daemon's server-side conversationId → client-local conversationId.
@@ -284,7 +282,7 @@ public final class EventStreamClient {
 
                     if line.hasPrefix("data: ") {
                         let payload = String(line.dropFirst(6))
-                        self.parseSSEData(payload)
+                        await self.parseSSEData(payload)
                     }
                 }
             } catch {
@@ -313,28 +311,9 @@ public final class EventStreamClient {
         return nil
     }
 
-    private func parseSSEData(_ data: String) {
+    private func parseSSEData(_ data: String) async {
         let byteCount = data.utf8.count
         let start = CFAbsoluteTimeGetCurrent()
-        defer {
-            let elapsed = CFAbsoluteTimeGetCurrent() - start
-            if elapsed > 0.05 || byteCount > 100_000 {
-                log.warning("Slow SSE event: \(String(format: "%.1f", elapsed * 1000), privacy: .public)ms, \(byteCount, privacy: .public) bytes")
-            }
-            sseParseTimeAccumulator += elapsed
-            sseParseCountInWindow += 1
-            let now = CFAbsoluteTimeGetCurrent()
-            if now - sseWindowStart > 1.0 {
-                if sseParseTimeAccumulator > 0.5 {
-                    let totalMs = String(format: "%.0f", sseParseTimeAccumulator * 1000)
-                    let count = sseParseCountInWindow
-                    log.warning("SSE main-thread saturation: \(totalMs, privacy: .public)ms in \(count, privacy: .public) events over 1s")
-                }
-                sseParseTimeAccumulator = 0
-                sseParseCountInWindow = 0
-                sseWindowStart = now
-            }
-        }
 
         var jsonString = data
 
@@ -383,20 +362,48 @@ public final class EventStreamClient {
 
         guard let jsonData = jsonString.data(using: .utf8) else { return }
 
-        do {
-            let event = try decoder.decode(AssistantEvent.self, from: jsonData)
-            if shouldIgnoreHostToolRequest(event.message) { return }
-            handleParsedMessage(event.message)
-        } catch {
+        // Decode JSON off the main thread to avoid blocking UI during rapid SSE
+        // streaming. A fresh JSONDecoder is created per call because JSONDecoder
+        // is not documented as thread-safe by Apple.
+        let message: ServerMessage? = await Task.detached(priority: .userInitiated) {
+            let decoder = JSONDecoder()
             do {
-                let message = try decoder.decode(ServerMessage.self, from: jsonData)
-                if shouldIgnoreHostToolRequest(message) { return }
-                handleParsedMessage(message)
+                let event = try decoder.decode(AssistantEvent.self, from: jsonData)
+                return event.message
             } catch {
-                let byteCount = jsonData.count
-                log.error("Failed to decode SSE event: \(error.localizedDescription, privacy: .public), bytes: \(byteCount, privacy: .public)")
+                do {
+                    return try decoder.decode(ServerMessage.self, from: jsonData)
+                } catch {
+                    let failedByteCount = jsonData.count
+                    log.error("Failed to decode SSE event: \(error.localizedDescription, privacy: .public), bytes: \(failedByteCount, privacy: .public)")
+                    return nil
+                }
             }
+        }.value
+
+        // Timing instrumentation — tracks wall-clock time including the off-main
+        // decode so the saturation metric still reflects total per-event cost.
+        let elapsed = CFAbsoluteTimeGetCurrent() - start
+        if elapsed > 0.05 || byteCount > 100_000 {
+            log.warning("Slow SSE event: \(String(format: "%.1f", elapsed * 1000), privacy: .public)ms, \(byteCount, privacy: .public) bytes")
         }
+        sseParseTimeAccumulator += elapsed
+        sseParseCountInWindow += 1
+        let now = CFAbsoluteTimeGetCurrent()
+        if now - sseWindowStart > 1.0 {
+            if sseParseTimeAccumulator > 0.5 {
+                let totalMs = String(format: "%.0f", sseParseTimeAccumulator * 1000)
+                let count = sseParseCountInWindow
+                log.warning("SSE parse saturation: \(totalMs, privacy: .public)ms in \(count, privacy: .public) events over 1s")
+            }
+            sseParseTimeAccumulator = 0
+            sseParseCountInWindow = 0
+            sseWindowStart = now
+        }
+
+        guard let message else { return }
+        if shouldIgnoreHostToolRequest(message) { return }
+        handleParsedMessage(message)
     }
 
     private func shouldIgnoreHostToolRequest(_ message: ServerMessage) -> Bool {
