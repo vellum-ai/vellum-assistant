@@ -26,7 +26,9 @@ enum VellumEnvironment: String {
             return "https://platform.vellum.ai"
         case .staging:
             return "https://staging-platform.vellum.ai"
-        case .local, .dev, .test:
+        case .test:
+            return "https://test-platform.vellum.ai"
+        case .local, .dev:
             return "https://dev-platform.vellum.ai"
         }
     }
