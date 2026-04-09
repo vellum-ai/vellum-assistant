@@ -81,6 +81,8 @@ extension MessageListView {
             isCompacting: isCompacting,
             assistantStatusText: assistantStatusText,
             assistantActivityPhase: assistantActivityPhase,
+            assistantActivityAnchor: assistantActivityAnchor,
+            assistantActivityReason: assistantActivityReason,
             activeSubagentFingerprint: Self.computeSubagentFingerprint(activeSubagents),
             displayedMessageCount: displayedMessageCount
         )
