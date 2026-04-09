@@ -226,6 +226,7 @@ struct MessageListContentView: View, Equatable {
                     providerCatalogHash: providerCatalogHash
                 )
                 .equatable()
+                .frame(minHeight: 60, alignment: .top)
             }
 
             ForEach(state.orphanSubagents) { subagent in
