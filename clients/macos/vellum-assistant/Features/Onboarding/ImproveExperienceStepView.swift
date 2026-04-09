@@ -25,13 +25,13 @@ struct ImproveExperienceStepView: View {
 
     var body: some View {
         Text("Before You Start")
-            .font(VFont.displayLarge)
+            .font(VFont.titleLarge)
             .foregroundStyle(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
 
-        Text("Choose your privacy preferences. You can update these anytime in the settings.")
+        Text("Choose your privacy preferences. You can update these anytime in the Settings.")
             .font(VFont.titleSmall)
             .multilineTextAlignment(.center)
             .foregroundStyle(VColor.contentSecondary)
@@ -40,9 +40,7 @@ struct ImproveExperienceStepView: View {
             .padding(.bottom, VSpacing.xxl)
 
         VStack(spacing: VSpacing.md) {
-            VStack(spacing: VSpacing.md) {
-                SettingsDivider()
-
+            VStack(spacing: VSpacing.sm) {
                 // Usage analytics toggle
                 VToggle(
                     isOn: $collectUsageData,
@@ -50,6 +48,15 @@ struct ImproveExperienceStepView: View {
                     helperText: "Send anonymous product usage data."
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(VSpacing.md)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .fill(VColor.surfaceLift)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.lg)
+                                .stroke(VColor.surfaceBase, lineWidth: 1)
+                        )
+                )
 
                 // Diagnostics toggle
                 VToggle(
@@ -58,6 +65,15 @@ struct ImproveExperienceStepView: View {
                     helperText: "Send crash reports and performance metrics."
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(VSpacing.md)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .fill(VColor.surfaceLift)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.lg)
+                                .stroke(VColor.surfaceBase, lineWidth: 1)
+                        )
+                )
 
                 // Privacy note bar
                 HStack(spacing: VSpacing.xs) {
