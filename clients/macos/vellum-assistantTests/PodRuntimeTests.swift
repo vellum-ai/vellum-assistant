@@ -1,9 +1,10 @@
 import XCTest
 @testable import VellumAssistantLib
 
-final class PodRuntimeTests: XCTestCase {
+// MARK: - AppleContainersPodRuntime Tests
 
-    // MARK: - Configuration defaults
+@available(macOS 26.0, *)
+final class PodRuntimeTests: XCTestCase {
 
     func testDefaultConfigurationValues() {
         let config = AppleContainersPodRuntime.Configuration(
@@ -18,21 +19,22 @@ final class PodRuntimeTests: XCTestCase {
         )
         XCTAssertEqual(config.cpus, 4)
         XCTAssertEqual(config.memoryInBytes, 2 * 1024 * 1024 * 1024)
-        XCTAssertEqual(config.rootfsSizeInBytes, 512 * 1024 * 1024)
+        XCTAssertEqual(config.rootfsSizeInBytes, 1024 * 1024 * 1024)
         XCTAssertNil(config.bootstrapSecret)
         XCTAssertNil(config.cesServiceToken)
     }
-
-    // MARK: - Missing image ref
 
     func testMissingImageRefErrorDescription() {
         let error = AppleContainersPodRuntime.PodRuntimeError.missingImageRef(.gateway)
         XCTAssertTrue(error.errorDescription!.contains("vellum-gateway"))
     }
+}
 
-    // MARK: - LineBufferedWriter
+// MARK: - LineBufferedWriter Tests
 
-    func testLineBufferedWriterSplitsLines() throws {
+final class LineBufferedWriterTests: XCTestCase {
+
+    func testSplitsLines() throws {
         var received: [String] = []
         let (stream, continuation) = AsyncStream<String>.makeStream()
         let writer = LineBufferedWriter(continuation: continuation)
@@ -52,7 +54,7 @@ final class PodRuntimeTests: XCTestCase {
         XCTAssertEqual(received, ["hello", "world"])
     }
 
-    func testLineBufferedWriterFlushesPartialLine() throws {
+    func testFlushesPartialLine() throws {
         var received: [String] = []
         let (stream, continuation) = AsyncStream<String>.makeStream()
         let writer = LineBufferedWriter(continuation: continuation)
@@ -72,7 +74,7 @@ final class PodRuntimeTests: XCTestCase {
         XCTAssertEqual(received, ["no newline"])
     }
 
-    func testLineBufferedWriterHandlesMultipleWrites() throws {
+    func testHandlesMultipleWrites() throws {
         var received: [String] = []
         let (stream, continuation) = AsyncStream<String>.makeStream()
         let writer = LineBufferedWriter(continuation: continuation)
