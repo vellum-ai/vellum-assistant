@@ -46,9 +46,6 @@ describe("supportsHostProxy (runtime)", () => {
     expect(supportsHostProxy("macos", "host_bash")).toBe(true);
     expect(supportsHostProxy("macos", "host_file")).toBe(true);
     expect(supportsHostProxy("macos", "host_cu")).toBe(true);
-    // Browser tools fall back to the local Playwright Chromium on macos
-    // because the host_browser proxy path requires a Chrome extension
-    // that isn't guaranteed to be attached.
     expect(supportsHostProxy("macos", "host_browser")).toBe(false);
   });
 

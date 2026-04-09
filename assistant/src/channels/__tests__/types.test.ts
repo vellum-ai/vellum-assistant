@@ -58,10 +58,7 @@ describe("isInterfaceId", () => {
 });
 
 describe("supportsHostProxy", () => {
-  // ── macOS: supports host_bash / host_file / host_cu, but NOT host_browser.
-  // The no-arg form still returns true (macos is a desktop host-proxy client),
-  // but host_browser is omitted because the proxy path needs a Chrome
-  // extension that isn't guaranteed to be attached. ──
+  // ── macOS: supports host_bash / host_file / host_cu, but NOT host_browser. ──
   test("macos returns true (no capability)", () => {
     expect(supportsHostProxy("macos")).toBe(true);
   });
@@ -79,9 +76,6 @@ describe("supportsHostProxy", () => {
   });
 
   test("macos returns false for host_browser", () => {
-    // macos-interface conversations fall back to the local Playwright
-    // Chromium for browser tools instead of relaying CDP through a
-    // Chrome extension that may not be attached.
     expect(supportsHostProxy("macos", "host_browser")).toBe(false);
   });
 

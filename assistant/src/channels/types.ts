@@ -126,9 +126,7 @@ export type HostProxyInterfaceId = "macos";
  * in the drain queue). Callers that want to check a single capability —
  * for example, to decide whether to keep `hostBrowserProxy` available for
  * chrome-extension — should pass the capability explicitly:
- * `supportsHostProxy(id, "host_browser")`. Note that macOS does NOT
- * advertise `host_browser` support (browser tools fall back to the local
- * Playwright Chromium); see the implementation comment below.
+ * `supportsHostProxy(id, "host_browser")`.
  */
 export function supportsHostProxy(id: InterfaceId): id is HostProxyInterfaceId;
 export function supportsHostProxy(
@@ -139,14 +137,9 @@ export function supportsHostProxy(
   id: InterfaceId,
   capability?: HostProxyCapability,
 ): boolean {
-  // macos supports host_bash / host_file / host_cu (serviced directly by
-  // the macOS app), but NOT host_browser. The host_browser proxy path
-  // requires a Chrome extension to be attached, which is not guaranteed
-  // for macos-interface conversations. Without this exclusion, browser
-  // tools would route CDP through host_browser_request and time out on
-  // bare-metal installs (and the e2e harness) where no extension is
-  // connected. Conversations that originate from the chrome-extension
-  // interface still get host_browser support below.
+  // host_browser is excluded for macos because the proxy path requires a
+  // Chrome extension that isn't guaranteed to be attached; browser tools
+  // fall back to the local Playwright Chromium instead.
   if (id === "macos") return capability !== "host_browser";
   if (id === "chrome-extension" && capability === "host_browser") return true;
   return false;
