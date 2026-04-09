@@ -15,8 +15,8 @@ struct MessageListLayoutMetrics: Equatable {
         // Use the container width directly when valid. When unknown (0 or
         // non-finite), fall back to 0 instead of chatColumnMaxWidth to avoid
         // rendering 808pt-wide content inside a narrow container (e.g. the
-        // chat dock). The content becomes visible once onGeometryChange
-        // supplies the true width on the next layout pass.
+        // chat dock). The content becomes visible once GeometryReader
+        // supplies the true width on the first layout pass.
         let scrollSurfaceWidth =
             (containerWidth.isFinite && containerWidth > 0)
             ? containerWidth
