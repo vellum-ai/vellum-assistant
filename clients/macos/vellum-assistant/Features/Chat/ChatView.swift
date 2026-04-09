@@ -103,7 +103,6 @@ struct ChatView: View {
     @State private var currentMatchIndex = 0
     @State private var showSkeleton = false
     @State private var skeletonDebounceTask: Task<Void, Never>? = nil
-    @State private var containerWidth: CGFloat = 0
     @State private var isUpdatingConversationHostAccess = false
     @State private var conversationHostAccessError: String?
 
@@ -157,23 +156,25 @@ struct ChatView: View {
         #if DEBUG
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "ChatView.body")
         #endif
-        ZStack {
-            mainContentStack(containerWidth: containerWidth)
-                .background(alignment: .bottom) {
-                    chatBackground
-                }
-                .background(VColor.surfaceBase)
-                .overlay(alignment: .bottom) {
-                    btwOverlay
-                }
-                .animation(VAnimation.fast, value: viewModel.btwResponse != nil)
+        // GeometryReader reliably reports the parent's proposed width,
+        // even during interactive drag resizing of the dock. Using
+        // onGeometryChange on a ZStack or Color.clear can miss updates
+        // when the ZStack's intrinsic size is inflated by fixed-width
+        // children (808pt fallback) or when rapid drag updates are batched.
+        GeometryReader { proxy in
+            ZStack {
+                mainContentStack(containerWidth: proxy.size.width)
+                    .background(alignment: .bottom) {
+                        chatBackground
+                    }
+                    .background(VColor.surfaceBase)
+                    .overlay(alignment: .bottom) {
+                        btwOverlay
+                    }
+                    .animation(VAnimation.fast, value: viewModel.btwResponse != nil)
 
-            dropTargetOverlay
-        }
-        .onGeometryChange(for: CGFloat.self) { proxy in
-            proxy.size.width
-        } action: { newWidth in
-            containerWidth = newWidth
+                dropTargetOverlay
+            }
         }
         .environment(\.dropActions, currentDropActions)
         .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in

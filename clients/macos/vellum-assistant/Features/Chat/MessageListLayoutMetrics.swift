@@ -12,10 +12,15 @@ struct MessageListLayoutMetrics: Equatable {
     let bubbleMaxWidth: CGFloat
 
     init(containerWidth: CGFloat) {
+        // Use the container width directly when valid. When unknown (0 or
+        // non-finite), fall back to 0 instead of chatColumnMaxWidth to avoid
+        // rendering 808pt-wide content inside a narrow container (e.g. the
+        // chat dock). The content becomes visible once GeometryReader
+        // supplies the true width on the first layout pass.
         let scrollSurfaceWidth =
             (containerWidth.isFinite && containerWidth > 0)
             ? containerWidth
-            : VSpacing.chatColumnMaxWidth
+            : 0
         let chatColumnWidth = min(scrollSurfaceWidth, VSpacing.chatColumnMaxWidth)
 
         self.scrollSurfaceWidth = scrollSurfaceWidth

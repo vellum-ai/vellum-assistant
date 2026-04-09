@@ -536,9 +536,22 @@ struct ChatBubble: View, Equatable {
         !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    // MARK: - User Message Collapse / Expand
+    //
+    // .frame(maxHeight:) creates _FlexFrameLayout which recursively measures
+    // children and resolves explicitAlignment through the entire LazyVStack
+    // subtree — O(n × depth) per layout pass, causing 35 s+ hangs.
+    //
+    // Fix: .frame(height:) creates _FrameLayout — O(1), no alignment cascade.
+    // When height is nil (expanded / short), _FrameLayout passes through the
+    // child's natural height. Single view identity is preserved (no
+    // _ConditionalContent), so withAnimation still drives a smooth height
+    // transition on expand/collapse.
+
     @ViewBuilder
     private func userMessageHeightWrapper<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        let needsCollapse = userMessageIntrinsicHeight > userMessageMaxCollapsedHeight && !isUserMessageExpanded
+        let isCollapsible = userMessageIntrinsicHeight > userMessageMaxCollapsedHeight
+        let needsCollapse = isCollapsible && !isUserMessageExpanded
         VStack(alignment: .trailing, spacing: VSpacing.xs) {
             content()
                 .background(
@@ -549,10 +562,10 @@ struct ChatBubble: View, Equatable {
                 .onPreferenceChange(IntrinsicHeightKey.self) { height in
                     userMessageIntrinsicHeight = height
                 }
-                .frame(maxHeight: needsCollapse ? userMessageMaxCollapsedHeight : nil, alignment: .top)
+                .frame(height: needsCollapse ? userMessageMaxCollapsedHeight : nil, alignment: .top)
                 .clipped()
 
-            if userMessageIntrinsicHeight > userMessageMaxCollapsedHeight {
+            if isCollapsible {
                 Button(action: {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         isUserMessageExpanded.toggle()

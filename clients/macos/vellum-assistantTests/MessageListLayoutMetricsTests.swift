@@ -3,12 +3,12 @@ import XCTest
 
 final class MessageListLayoutMetricsTests: XCTestCase {
 
-    func testZeroWidthFallsBackToChatColumnMaxWidth() {
+    func testZeroWidthFallsBackToZero() {
         let metrics = MessageListLayoutMetrics(containerWidth: 0)
-        let capped = MessageListLayoutMetrics(containerWidth: 10_000)
 
-        XCTAssertEqual(metrics.scrollSurfaceWidth, metrics.chatColumnWidth)
-        XCTAssertEqual(metrics.chatColumnWidth, capped.chatColumnWidth)
+        XCTAssertEqual(metrics.scrollSurfaceWidth, 0)
+        XCTAssertEqual(metrics.chatColumnWidth, 0)
+        XCTAssertEqual(metrics.bubbleMaxWidth, 0)
     }
 
     func testNarrowPaneUsesAvailableWidthForSurfaceAndColumn() {

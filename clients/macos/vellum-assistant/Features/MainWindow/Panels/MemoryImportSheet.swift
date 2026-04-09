@@ -130,6 +130,6 @@ struct MemoryImportSheet: View {
                 }
             }
         }
-        .frame(width: 560, height: 600)
+        .frame(width: 560)
     }
 }
