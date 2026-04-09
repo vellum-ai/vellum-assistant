@@ -43,6 +43,12 @@ private actor MockSkillsFileContentStore {
     private var continuations: [String: [CheckedContinuation<SkillFileContentResponse?, Never>]] = [:]
     private var blockingPaths: Set<String> = []
 
+    /// Ordered log of `fetchSkillFiles(skillId:)` calls issued through the
+    /// mock client. Tests use this to assert that the store reissues a
+    /// same-skill re-fetch (e.g. during the install-from-preview transition)
+    /// rather than short-circuiting when `currentFilesSkillId` is unchanged.
+    private(set) var fetchSkillFilesRequests: [String] = []
+
     func setResponse(for path: String, _ response: SkillFileContentResponse?) {
         if let response {
             fileContentResponses[path] = response
@@ -57,6 +63,14 @@ private actor MockSkillsFileContentStore {
 
     func record(skillId: String, path: String) {
         requestedPaths.append((skillId: skillId, path: path))
+    }
+
+    func recordFetchSkillFiles(skillId: String) {
+        fetchSkillFilesRequests.append(skillId)
+    }
+
+    func fetchSkillFilesCount() -> Int {
+        fetchSkillFilesRequests.count
     }
 
     func awaitResponse(skillId: String, path: String) async -> SkillFileContentResponse? {
@@ -105,9 +119,12 @@ private struct MockSkillsClient: SkillsClientProtocol {
     func createSkill(skillId: String, name: String, description: String, emoji: String?, bodyMarkdown: String, overwrite: Bool?) async -> SkillOperationResult? { nil }
     func fetchSkillDetail(skillId: String) async -> SkillDetailHTTPResponse? { nil }
     func fetchSkillFiles(skillId: String) async -> SkillDetailFilesHTTPResponse? {
-        // Tests drive `currentFilesSkillId` via `fetchSkillFiles`; the response
-        // body itself is irrelevant to the loadSkillFileContent code paths.
-        nil
+        // Tests drive `currentFilesSkillId` via `fetchSkillFiles` and count
+        // how many times it is reissued (e.g. for the install-from-preview
+        // re-fetch path); the response body itself is irrelevant to the
+        // loadSkillFileContent code paths.
+        await backing.recordFetchSkillFiles(skillId: skillId)
+        return nil
     }
 
     func fetchSkillFileContent(skillId: String, path: String) async -> SkillFileContentResponse? {
@@ -364,6 +381,37 @@ final class SkillsFileContentStoreTests: XCTestCase {
 
         XCTAssertEqual(store.loadedFileContents["docs/readme.md"], "yay")
         XCTAssertNil(store.fileContentErrors["docs/readme.md"])
+    }
+
+    func testFetchSkillFilesReIssuesRequestForSameSkillId() async throws {
+        // Regression coverage for the install-from-preview transition. When
+        // the detail view re-calls `fetchSkillFiles(skillId:)` for the same
+        // skill (because an install just flipped `skill.kind` from
+        // "catalog" to "installed"/"bundled"), the store must reissue the
+        // request rather than short-circuiting on a `currentFilesSkillId`
+        // match. Otherwise the right pane of the detail view is stuck
+        // showing the lazy/null-content preview payload with no inline
+        // content.
+        let backing = MockSkillsFileContentStore()
+        let mock = MockSkillsClient(backing: backing)
+        let store = SkillsStore(skillsClient: mock)
+
+        store.fetchSkillFiles(skillId: "my-skill")
+        try await waitUntilAsync(timeout: 1.0) {
+            await backing.fetchSkillFilesCount() >= 1
+        }
+
+        store.fetchSkillFiles(skillId: "my-skill")
+        try await waitUntilAsync(timeout: 1.0) {
+            await backing.fetchSkillFilesCount() >= 2
+        }
+
+        let totalRequests = await backing.fetchSkillFilesCount()
+        XCTAssertEqual(
+            totalRequests,
+            2,
+            "Same-skill re-fetch must reissue the request so install-from-preview can replace lazy content"
+        )
     }
 
     func testClearLoadedFileContentsCancelsTasksAndClearsState() async throws {
