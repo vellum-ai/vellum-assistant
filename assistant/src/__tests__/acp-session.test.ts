@@ -253,6 +253,25 @@ describe("VellumAcpClientHandler", () => {
       expect(handler.pendingRequestIds.size).toBe(0);
     });
 
+    test("suppresses ACP confirmation UI under v2 and cancels when no reject option exists", async () => {
+      _setOverridesForTesting({ "permission-controls-v2": true });
+
+      const result = await handler.requestPermission({
+        toolCall: {
+          title: "Read file",
+          kind: "read",
+          rawInput: "/tmp/example.txt",
+        },
+        options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+      } as any);
+
+      expect(result).toEqual({
+        outcome: { outcome: "cancelled" },
+      });
+      expect(sent).toHaveLength(0);
+      expect(handler.pendingRequestIds.size).toBe(0);
+    });
+
     test("ACP registration survives sendToVellum overwrite (makeEventSender race)", async () => {
       // Simulate makeEventSender: when sendToVellum is called with a
       // confirmation_request, it overwrites the pendingInteractions entry
