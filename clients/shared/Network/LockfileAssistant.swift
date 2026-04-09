@@ -219,7 +219,7 @@ public struct LockfileAssistant {
             // Local assistants always use localhost so the Swift app can
             // reliably connect without depending on mDNS or LAN discovery.
             let runtimeUrl: String? = cloud.lowercased() == "local"
-                ? gatewayPort.map { "http://localhost:\($0)" }
+                ? gatewayPort.map { "http://localhost:\($0)" } ?? entry["runtimeUrl"] as? String
                 : entry["runtimeUrl"] as? String
             return LockfileAssistant(
                 assistantId: assistantId,
