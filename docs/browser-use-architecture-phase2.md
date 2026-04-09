@@ -161,9 +161,11 @@ The new modules that implement Phase 2:
   (`loadOrCreateCapabilityTokenSecret`, legacy workspace →
   protected-directory migration, mode enforcement on write,
   corruption-triggered regeneration, per-test injection).
-- **`assistant/src/browser-session/`** — Phase 3 `BrowserSessionManager`
-  scaffold (types, backends, manager). No consumers yet — the
-  in-turn browser-execution loop still uses the legacy path in Phase 2.
+- **`assistant/src/browser-session/`** — `BrowserSessionManager` and its
+  `extension` + `local` backends. The cdp-client factory constructs a
+  per-invocation manager for each browser tool call, which is the single
+  choke point for CDP backend selection, session lifetime, and future
+  session-invalidation handling.
 - **`clients/chrome-extension/background/cdp-proxy.ts`** — CDP JSON-RPC
   wrapper around `chrome.debugger`. Tracks attach state per target so
   concurrent commands don't double-attach.

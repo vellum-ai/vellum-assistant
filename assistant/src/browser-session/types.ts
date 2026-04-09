@@ -1,4 +1,4 @@
-export type BrowserBackendKind = "extension"; // Phase 4/5 will add "cdp-inspect", "playwright".
+export type BrowserBackendKind = "extension" | "local";
 
 export interface CdpCommand {
   method: string;

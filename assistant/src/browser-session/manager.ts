@@ -8,7 +8,7 @@ import type {
 } from "./types.js";
 
 export interface BrowserSessionManagerOptions {
-  /** Ordered list of backends to try; first available wins. Phase 2 only has extension. */
+  /** Ordered list of backends to try; first available wins. */
   backends: BrowserBackend[];
 }
 
@@ -44,12 +44,11 @@ export class BrowserSessionManager {
    * - If `sessionId` is provided, the session must exist in the manager; otherwise this throws.
    *   The command is routed through the backend whose `kind` matches the session's `backendKind`,
    *   ensuring per-session backend isolation and making `disposeSession()` an actual enforcement
-   *   boundary against stale ids.
-   * - If `sessionId` is `undefined`, the first available backend is selected (legacy advisory
-   *   behavior used for one-off commands without a session handle).
-   *
-   * Phase 2 only has the extension backend so routing is effectively a no-op, but Phase 4 will
-   * rely on this contract once multi-backend / multi-tab multiplexing lands.
+   *   boundary against stale ids. If the session has an opaque `targetId` and the command does
+   *   not already carry its own CDP `sessionId`, the manager injects the session's `targetId`
+   *   as the CDP `sessionId` so backends can multiplex commands across multiple tabs/targets.
+   * - If `sessionId` is `undefined`, the first available backend is selected for one-off
+   *   commands without a session handle (e.g. transport health probes).
    */
   async send(
     sessionId: string | undefined,
@@ -57,6 +56,7 @@ export class BrowserSessionManager {
     signal?: AbortSignal,
   ): Promise<CdpResult> {
     let backend: BrowserBackend;
+    let outgoing = command;
     if (sessionId !== undefined) {
       const session = this.sessions.get(sessionId);
       if (!session) {
@@ -69,10 +69,18 @@ export class BrowserSessionManager {
         );
       }
       backend = matched;
+      // If the session has an opaque targetId and the command does not
+      // carry its own CDP sessionId, inject the session's targetId as
+      // the CDP sessionId. Backends that support multi-target routing
+      // will forward it; backends that ignore it will treat the call
+      // as "most-recent-tab" as before.
+      if (session.targetId !== undefined && command.sessionId === undefined) {
+        outgoing = { ...command, sessionId: session.targetId };
+      }
     } else {
       backend = this.selectBackend();
     }
-    return backend.send(command, signal);
+    return backend.send(outgoing, signal);
   }
 
   disposeSession(id: string): void {
