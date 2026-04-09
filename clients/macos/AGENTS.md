@@ -242,7 +242,7 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 
 ### Rules
 
-- **`@MainActor` on view models and UI state managers only** — see `clients/AGENTS.md` § "@MainActor Isolation Boundaries" for the full rule, reference links, and examples.
+- **`@MainActor` on stateful types (view models, managers, clients with mutable state)** — see `clients/AGENTS.md` § "@MainActor Isolation Boundaries" for the full rule, reference links, and examples.
 - **Nested ObservableObject**: When a view reads properties from a nested ObservableObject (e.g. `conversationManager.activeViewModel.messages`), the parent must subscribe to the child's `objectWillChange` and forward it. See `ConversationManager.subscribeToActiveViewModel()`.
 - **`@Observable` → `ObservableObject` bridge**: When an `@Observable` child is owned by an `ObservableObject` parent, use a recursive `withObservationTracking` loop to forward changes. See `MainWindowState.observeNavigationHistory()`.
 - **Dependency injection**: Pass dependencies through init parameters, not singletons. Session dependencies use protocols for testability.

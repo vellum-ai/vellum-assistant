@@ -215,7 +215,7 @@ See `MainWindowState.observeNavigationHistory()` for a production example.
 
 ### Concurrency and Task Management
 
-- **Prefer async/await and structured concurrency.** Use `Task {}` with proper cancellation over raw GCD. `Task.detached` is appropriate when you need to **escape actor isolation** for CPU-bound work (e.g., image resize, data encoding, file I/O from a `@MainActor` context). In Swift 6.2+, prefer [`@concurrent` functions](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0461-async-function-isolation.md) instead of `Task.detached` for this purpose — they achieve the same isolation escape with structured concurrency benefits. (Ref: [WWDC25 — Embracing Swift concurrency](https://developer.apple.com/videos/play/wwdc2025/268/))
+- **Prefer async/await and structured concurrency.** Use `Task {}` with proper cancellation over raw GCD. `Task.detached` is appropriate when you need to **escape actor isolation** for CPU-bound work (e.g., image resize, data encoding, file I/O from a `@MainActor` context). **Note:** The project has the Swift 6.2 toolchain but runs in **Swift 5 language mode** (`swiftLanguageModes: [.v5]` in Package.swift). `Task.detached` is the correct pattern for escaping actor isolation in this mode. [`@concurrent` functions (SE-0461)](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0461-async-function-isolation.md) are a cleaner alternative but require enabling the `NonisolatedNonsendingByDefault` feature flag, which changes the behavior of all `nonisolated async` functions across the codebase — a separate migration step. (Ref: [WWDC25 — Embracing Swift concurrency](https://developer.apple.com/videos/play/wwdc2025/268/))
 - **Always cancel subscriptions and tasks.** Store `AnyCancellable` tokens and cancel them in `deinit` or `onDisappear`. For `Task {}` started in `onAppear`, cancel in `onDisappear`. For `@StateObject` / `@ObservedObject` view models, cancel in `deinit`.
 - **Remove observers and listeners.** Unsubscribe from `NotificationCenter`, KVO, and any custom event systems when the owning object is deallocated or the view disappears. Prefer the `task {}` modifier with implicit cancellation over manual `NotificationCenter.addObserver`.
 <details>
@@ -232,13 +232,13 @@ See `MainWindowState.observeNavigationHistory()` for a production example.
 
 ### @MainActor Isolation Boundaries
 
-**Default to `@MainActor` for stateful types.** Only escape to background for CPU-bound work that measurably blocks the UI (JSON decode, image processing, compression). This follows Apple's WWDC25 direction toward [default main-actor isolation](https://developer.apple.com/videos/play/wwdc2025/268/).
+**Default to `@MainActor` for stateful types.** Only escape to background for CPU-bound work that measurably blocks the UI (JSON decode, image processing, compression). This follows Apple's recommended architecture ([WWDC25 — Embracing Swift concurrency](https://developer.apple.com/videos/play/wwdc2025/268/)): keep mutable state on the main actor for thread safety, and offload only the expensive computation. This principle applies regardless of language mode.
 
 **Two failure modes to avoid:**
 1. **Over-isolation** — putting `@MainActor` on a type is correct, but running CPU-bound work *inside* it without offloading blocks the UI. Fix: offload the expensive method, not the whole type.
 2. **Under-isolation** — making a stateful class `nonisolated` removes all thread safety. Concurrent access to its stored properties is a data race. Only use `nonisolated` for truly stateless types (enums with static methods, structs, pure-function utilities).
 
-**Offloading CPU-bound work:** Use `Task.detached(priority:)` to escape `@MainActor` for the smallest piece of work that needs it. When the project migrates to Swift 6 language mode, replace with [`@concurrent` functions (SE-0461)](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0461-async-function-isolation.md).
+**Offloading CPU-bound work:** Use `Task.detached(priority:)` to escape `@MainActor` for the smallest piece of work that needs it. This is the correct approach for the project's current Swift 5 language mode. If the project later enables the `NonisolatedNonsendingByDefault` feature flag (or migrates to Swift 6 language mode), `Task.detached` calls can be replaced with [`@concurrent` functions (SE-0461)](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0461-async-function-isolation.md), which achieve the same isolation escape with structured concurrency benefits.
 
 ```swift
 @MainActor
@@ -462,7 +462,7 @@ Swift's type checker has quadratic complexity with chained view modifiers. Compl
 | `GeometryReader` in `.background()` for measurement | Requires a `Color.clear` wrapper, fires only via manual `.onAppear`/`.onChange`, and is easy to wire incorrectly | Use `.onGeometryChange(for:body:action:)` with the **single-value action overload** (iOS 17+ / macOS 14+). Fires on initial layout and on changes automatically — no wrapper view needed. Extract the minimal type (e.g., `Bool`, `CGFloat`) in the `body` closure so the action only fires when the derived value changes. |
 | `Timer.publish` / `Timer.scheduledTimer` for UI updates | Timer continues firing when the view is off-screen, wastes energy, and requires manual lifecycle management (invalidate, cancellable storage) | Use `TimelineView(.periodic(from: .now, by: interval))` for fixed-rate progress displays or `TimelineView(.animation)` for frame-rate animations. TimelineView auto-pauses when the view is off-screen and requires no manual teardown. |
 | `DispatchQueue.main.sync` from `@MainActor` or main thread | Deadlocks. Ref: [Apple — DispatchQueue.sync](https://developer.apple.com/documentation/dispatch/dispatchqueue/sync(execute:)-3gef0) | Use `Thread.isMainThread` guard, or `await MainActor.run {}` from async contexts. Prefer thread-safe APIs that don't need the main thread. |
-| CPU-bound work inside `@MainActor` type without offloading | Blocks UI (JSON decode, image resize, compression). Ref: [WWDC25 — Embracing Swift concurrency](https://developer.apple.com/videos/play/wwdc2025/268/) | Offload the expensive call via `Task.detached` (Swift 5 mode) or `@concurrent` (Swift 6.2). Keep the type on `@MainActor`. See § "@MainActor Isolation Boundaries". |
+| CPU-bound work inside `@MainActor` type without offloading | Blocks UI (JSON decode, image resize, compression). Ref: [WWDC25 — Embracing Swift concurrency](https://developer.apple.com/videos/play/wwdc2025/268/) | Offload the expensive call via `Task.detached`. Keep the type on `@MainActor`. See § "@MainActor Isolation Boundaries". |
 
 </details>
 
