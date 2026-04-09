@@ -250,6 +250,16 @@ final class MessageListScrollState {
     /// viewport from overshooting into unmaterialized estimated space.
     @ObservationIgnored var lastRecoveryAttempt: Date = .distantPast
 
+    /// Timestamp of the last content-height-change auto-follow call
+    /// when the viewport is NOT at bottom. Throttles the auto-follow
+    /// to at most once per 50ms when stuck off-bottom. Without this,
+    /// each `scrollTo(id:)` triggers LazyVStack to re-estimate heights
+    /// (materializing/dematerializing items), which changes content
+    /// height, which triggers another geometry callback — creating an
+    /// infinite feedback loop at ~250/sec that never converges.
+    /// When the viewport IS at bottom, auto-follow fires unthrottled.
+    @ObservationIgnored var lastAutoFollowAttempt: Date = .distantPast
+
     /// Timestamp of the last user-initiated CTA tap. Used to suppress
     /// `.decelerating` scroll-up detection for 500ms after the tap.
     /// Without this cooldown, residual upward momentum from the user's
@@ -896,6 +906,7 @@ final class MessageListScrollState {
         // hasn't materialized yet. Until it does, isAtBottom is unreliable.
         bottomAnchorAppeared = false
         lastRecoveryAttempt = .distantPast
+        lastAutoFollowAttempt = .distantPast
         lastUserInitiatedPinTime = nil
         recoveryAlternator = false
         // Mark that a recovery window is active. Recovery fires
@@ -946,6 +957,7 @@ final class MessageListScrollState {
         recoveryDeadline = nil
         bottomAnchorAppeared = false
         lastRecoveryAttempt = .distantPast
+        lastAutoFollowAttempt = .distantPast
         lastUserInitiatedPinTime = nil
         recoveryAlternator = false
         lastMessageId = nil

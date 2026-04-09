@@ -18,12 +18,18 @@ extension MessageListView {
         // Must check BEFORE configureScrollCallbacks() which updates
         // currentConversationId.
         //
-        // Skip when currentConversationId is nil (true first mount) — reset()
-        // on freshly-initialized state is redundant and its 300ms scroll-
-        // indicator-hide task would cause a visual flicker on app launch.
+        // previousConversationId can be nil in two cases:
+        //   1. True first mount (app launch) — reset() on freshly-initialized
+        //      state is redundant but harmless (scrollToEdge on empty content
+        //      is a no-op, recovery window helps with subsequent content load).
+        //   2. Parent view recreated MessageListView during a conversation
+        //      switch (conditional rendering) — @State was re-initialized,
+        //      clearing currentConversationId. handleConversationSwitched()
+        //      MUST run to properly position the viewport.
+        // Both cases are handled correctly by running handleConversationSwitched
+        // whenever the IDs differ (including nil != UUID).
         let previousConversationId = scrollState.currentConversationId
-        let isConversationSwitch = previousConversationId != nil
-            && previousConversationId != conversationId
+        let isConversationSwitch = previousConversationId != conversationId
         scrollDiag.debug("handleAppear: isSwitch=\(isConversationSwitch, privacy: .public) old=\(previousConversationId?.uuidString ?? "nil", privacy: .public) new=\(conversationId?.uuidString ?? "nil", privacy: .public) msgCount=\(paginatedVisibleMessages.count, privacy: .public)")
         configureScrollCallbacks()
         if isConversationSwitch {

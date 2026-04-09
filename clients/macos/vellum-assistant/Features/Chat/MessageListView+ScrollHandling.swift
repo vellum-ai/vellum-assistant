@@ -214,13 +214,31 @@ extension MessageListView {
         //   Shrinkage → LazyVStack height-estimate convergence after a
         //               conversation switch (estimated height overshoots,
         //               then shrinks as views materialize with actual heights)
-        // The 0.5pt threshold filters sub-pixel layout noise. Safe from
-        // feedback loops because pinning changes contentOffsetY, not
-        // contentHeight.
+        // The 0.5pt threshold filters sub-pixel layout noise.
+        //
+        // When the viewport is at bottom, auto-follow fires unthrottled
+        // (normal streaming path — content grows, viewport follows).
+        //
+        // When NOT at bottom, auto-follow is throttled to 50ms (20Hz).
+        // Without this, each scrollTo(id:) triggers LazyVStack to
+        // re-estimate heights (materializing/dematerializing items),
+        // which changes content height by >0.5pt, which triggers another
+        // geometry callback — creating an infinite feedback loop at
+        // ~250/sec that never converges. The 50ms gap also prevents
+        // auto-follow from overriding recovery edge scrolls within
+        // the same layout cycle (recovery fires at 100ms intervals).
         if abs(effectiveContentHeight - previousContentHeight) > 0.5,
            scrollState.mode.allowsAutoScroll,
            phaseAllowsAutoFollow {
-            scrollState.requestPinToBottom()
+            if nowAtBottom {
+                scrollState.requestPinToBottom()
+            } else {
+                let now = Date()
+                if now.timeIntervalSince(scrollState.lastAutoFollowAttempt) >= 0.05 {
+                    scrollState.lastAutoFollowAttempt = now
+                    scrollState.requestPinToBottom()
+                }
+            }
         }
         // --- Persistent bottom-recovery ---
         // Independent of the content-height auto-follow. Catches cases
