@@ -98,7 +98,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
 
         let platformURL: String
         switch vellumEnvironment {
-        case "production":
+        case "production", "staging":
             platformURL = "https://platform.vellum.ai"
         default:
             platformURL = "https://dev-platform.vellum.ai"
