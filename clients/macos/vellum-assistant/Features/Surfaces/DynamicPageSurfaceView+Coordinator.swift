@@ -137,7 +137,7 @@ extension DynamicPageSurfaceView {
 
                 // Validate that the URL targets the expected gateway origin.
                 // When allowedFetchBaseURL is nil (no credentials), reject all requests.
-                guard let allowed = allowedFetchBaseURL, urlString.hasPrefix(allowed) else {
+                guard let allowed = allowedFetchBaseURL, urlString.hasPrefix(allowed + "/") else {
                     log.error("[vellum.fetch] Blocked request to disallowed origin: \(urlString, privacy: .public) (allowed: \(self.allowedFetchBaseURL ?? "nil", privacy: .public))")
                     let safeCallId = callId
                         .replacingOccurrences(of: "\\", with: "\\\\")
