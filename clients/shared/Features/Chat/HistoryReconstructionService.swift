@@ -57,9 +57,9 @@ enum HistoryReconstructionService {
                     // Decode images eagerly — NSImage/UIImage init from Data is
                     // thread-safe and the views expect cachedImages to be populated.
                     toolCall.cachedImages = (tc.imageDataList ?? []).compactMap { ToolCallData.decodeImage(from: $0) }
-                    toolCall.reasonDescription = (tc.input["activity"]?.value as? String)
+                    toolCall.reasonDescription = ((tc.input["activity"]?.value as? String)
                         ?? (tc.input["reason"]?.value as? String)
-                        ?? (tc.input["reasoning"]?.value as? String)
+                        ?? (tc.input["reasoning"]?.value as? String)).map { ToolCallData.displaySafe($0) }
                     if let startMs = tc.startedAt {
                         toolCall.startedAt = Date(timeIntervalSince1970: Double(startMs) / 1000.0)
                     }

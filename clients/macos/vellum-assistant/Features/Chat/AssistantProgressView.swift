@@ -459,7 +459,7 @@ struct AssistantProgressView: View {
             if phase == .processing {
                 processingLabel
             } else {
-                Text(headlineText)
+                Text(ToolCallData.displaySafe(headlineText))
                     .font(VFont.bodyMediumLighter)
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
@@ -735,7 +735,7 @@ private struct StepDetailRow: View {
                     }
 
                     // Title (reason-first, then skillLabel for skill_execute, then fallback)
-                    Text(stepTitle)
+                    Text(ToolCallData.displaySafe(stepTitle))
                         .font(VFont.labelDefault)
                         .foregroundStyle(stepTitleColor)
                         .lineLimit(1)

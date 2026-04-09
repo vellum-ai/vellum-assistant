@@ -1157,6 +1157,21 @@ public struct ToolCallData: Identifiable, Equatable {
         s.count > length ? String(s.prefix(length - 1)) + "…" : s
     }
 
+    /// Maximum character count for strings rendered in single-line `Text` views
+    /// with `.lineLimit(1)` + `.truncationMode(.tail)`. CoreText's
+    /// `TRun::CountCharsInWidth` scans the entire string to compute truncation,
+    /// which is O(n) on string length and runs on the main thread. Pre-truncating
+    /// to this limit keeps the measurement cheap while remaining visually lossless
+    /// (no single-line label would ever display more than ~200 characters).
+    public static let singleLineDisplayLimit = 200
+
+    /// Pre-truncate a string so CoreText's line-truncation measurement stays
+    /// cheap. Use this for any value that feeds a `.lineLimit(1)` `Text` view.
+    public static func displaySafe(_ s: String) -> String {
+        guard s.count > singleLineDisplayLimit else { return s }
+        return String(s.prefix(singleLineDisplayLimit - 1)) + "…"
+    }
+
     // MARK: - Lazy tool input formatting
 
     /// Priority list of input keys whose values are most useful as a tool call summary.
