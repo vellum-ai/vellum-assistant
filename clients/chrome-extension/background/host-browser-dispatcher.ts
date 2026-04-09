@@ -272,13 +272,25 @@ export function createHostBrowserDispatcher(
 
   async function handle(envelope: HostBrowserRequestEnvelope): Promise<void> {
     const { requestId } = envelope;
-    // Re-entrant delivery of the same request id (e.g. a duplicate frame
-    // across a relay reconnect after a previous handle() was cancelled)
-    // is naturally safe without a stale-marker delete here: `cancel()`
-    // only records cancellations for requests currently in `inFlight`,
-    // and the finally block below prunes the entry before the handler
-    // returns, so by the time a retry reaches this point no leftover
-    // marker can exist for this requestId.
+    // Clear any stale cancel marker from a prior invocation of this
+    // same requestId before we start processing. This matters for the
+    // overlap-retry race: if a previous handle() for `requestId` was
+    // cancelled while suspended at an await inside proxy.send(), its
+    // finally block has not yet pruned the marker from
+    // `cancelledRequestIds`. A fresh handle() for the same id (e.g. a
+    // retry frame replayed across a relay reconnect) must not inherit
+    // that stale marker — otherwise call B's legitimate result would
+    // be suppressed at the postResult site by call A's leftover flag.
+    //
+    // This delete is safe to pair with the in-flight-only guard in
+    // `cancel()`: together they still bound `cancelledRequestIds` by
+    // the current in-flight count. cancel() only adds markers for
+    // requests present in `inFlight`, so non-in-flight cancels remain
+    // no-ops that cannot grow the set. The delete here strictly
+    // reduces the set size (or is a no-op if no stale entry exists),
+    // and the finally block below still prunes our own entry on unwind
+    // to cover the non-overlapping case.
+    cancelledRequestIds.delete(requestId);
     const abort = new AbortController();
     inFlight.set(requestId, abort);
     try {
@@ -335,13 +347,24 @@ export function createHostBrowserDispatcher(
           attachedTargets.delete(key);
         }
       }
-      // Deterministic-cancel guarantee: if the request was cancelled
-      // while we were awaiting the CDP round-trip, drop the late result
-      // on the floor. The daemon has already resolved its pending entry
-      // with `"Aborted"` (see host-browser-proxy.ts), so delivering a
-      // frame here would be a ghost completion against an entry that
-      // no longer exists.
-      if (cancelledRequestIds.has(requestId)) return;
+      // Deterministic-cancel guarantee: if this specific invocation
+      // was cancelled while we were awaiting the CDP round-trip, drop
+      // the late result on the floor. The daemon has already resolved
+      // its pending entry with `"Aborted"` (see host-browser-proxy.ts),
+      // so delivering a frame here would be a ghost completion against
+      // an entry that no longer exists.
+      //
+      // We check this invocation's own `abort.signal.aborted` first so
+      // that an overlapping retry (call B starting while call A is
+      // still suspended at a later await) does not have call A's
+      // suppression leak into call B's result — each call has its own
+      // AbortController captured in closure, so the per-call signal is
+      // the authoritative "was this specific invocation cancelled?"
+      // check. The `cancelledRequestIds.has(...)` fallback still matters
+      // for the case where no retry has arrived yet: the set is the
+      // mechanism that survives the cancel-to-finally window while the
+      // handler unwinds.
+      if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
       await deps.postResult({
         requestId,
         content: JSON.stringify(frame.error ?? frame.result ?? {}),
@@ -352,7 +375,7 @@ export function createHostBrowserDispatcher(
       // cancelled mid-flight must not deliver its failure envelope to
       // the daemon either. The daemon proxy has already resolved its
       // pending entry, so any late postResult would be a ghost completion.
-      if (cancelledRequestIds.has(requestId)) return;
+      if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
       // Guard the failure-path postResult in its own try/catch: if the HTTP
       // POST itself fails (e.g. the relay socket is torn down while we're
       // in the error path) we must NOT let that secondary rejection escape
@@ -400,15 +423,20 @@ export function createHostBrowserDispatcher(
     // difference from the caller's point of view.
     const ctl = inFlight.get(requestId);
     if (!ctl) return;
-    // Record the cancellation BEFORE aborting so that any listener on
-    // the abort signal that races to post a result sees the cancelled
-    // flag first. The suppression check in `handle()` reads from this
-    // set, not from the abort signal, specifically to close the race
-    // between "cancel arrives after proxy.send resolves" and "handle()
-    // reaches its postResult call". Marking here also makes cancel()
-    // idempotent within the in-flight window: a repeat cancel for the
-    // same id is a no-op because the set already contains the entry and
-    // the controller has already been removed from `inFlight`.
+    // Record the cancellation in both the per-id set and the per-call
+    // abort signal. The handle() suppression check reads from
+    // `abort.signal.aborted` first (per-invocation, survives overlap
+    // retries) and falls back to `cancelledRequestIds.has(...)`
+    // (per-id, survives the cancel-to-finally window). Updating both
+    // here keeps the two paths in sync: the per-id set is what a
+    // suspended handler sees while its finally block hasn't yet run,
+    // and the per-call signal is what an overlapping retry for the
+    // same id uses to tell "am I the cancelled invocation?" apart
+    // from "has some invocation of this id been cancelled?".
+    //
+    // Marking here also makes cancel() idempotent within the
+    // in-flight window: a repeat cancel for the same id is a no-op
+    // because the controller has already been removed from `inFlight`.
     cancelledRequestIds.add(requestId);
     try {
       ctl.abort();
