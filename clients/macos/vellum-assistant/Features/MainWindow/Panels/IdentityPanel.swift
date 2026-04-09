@@ -344,8 +344,6 @@ struct IdentityPanel: View {
             Text(value)
                 .font(VFont.bodySmallEmphasised)
                 .foregroundStyle(VColor.contentEmphasized)
-                .lineLimit(2)
-                .truncationMode(.tail)
         }
     }
 
