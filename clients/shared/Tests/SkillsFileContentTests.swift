@@ -40,7 +40,7 @@ private final class MockSkillsFileContentURLProtocol: URLProtocol {
 private actor MockSkillsFileContentStore {
     private var fileContentResponses: [String: SkillFileContentResponse] = [:]
     private(set) var requestedPaths: [(skillId: String, path: String)] = []
-    private var continuations: [String: CheckedContinuation<SkillFileContentResponse?, Never>] = [:]
+    private var continuations: [String: [CheckedContinuation<SkillFileContentResponse?, Never>]] = [:]
     private var blockingPaths: Set<String> = []
 
     func setResponse(for path: String, _ response: SkillFileContentResponse?) {
@@ -63,16 +63,26 @@ private actor MockSkillsFileContentStore {
         record(skillId: skillId, path: path)
         if blockingPaths.contains(path) {
             return await withCheckedContinuation { cont in
-                continuations[path] = cont
+                continuations[path, default: []].append(cont)
             }
         }
         // Default to nil when no response has been configured.
         return fileContentResponses[path]
     }
 
+    func pendingContinuationCount(for path: String) -> Int {
+        continuations[path]?.count ?? 0
+    }
+
     func unblock(path: String, with response: SkillFileContentResponse?) {
-        guard let cont = continuations.removeValue(forKey: path) else { return }
-        blockingPaths.remove(path)
+        guard var queue = continuations[path], !queue.isEmpty else { return }
+        let cont = queue.removeFirst()
+        if queue.isEmpty {
+            continuations.removeValue(forKey: path)
+            blockingPaths.remove(path)
+        } else {
+            continuations[path] = queue
+        }
         cont.resume(returning: response)
     }
 
@@ -296,6 +306,66 @@ final class SkillsFileContentStoreTests: XCTestCase {
         XCTAssertFalse(store.loadingFilePaths.contains("missing.txt"))
     }
 
+    func testLoadSkillFileContentIgnoresStaleCancelledTaskCompletion() async throws {
+        let backing = MockSkillsFileContentStore()
+        await backing.setBlocking(for: "docs/readme.md")
+        let mock = MockSkillsClient(backing: backing)
+        let store = SkillsStore(skillsClient: mock)
+
+        store.fetchSkillFiles(skillId: "my-skill")
+        try await Task.sleep(nanoseconds: 20_000_000)
+
+        // Task A: starts the first fetch and parks on the continuation.
+        store.loadSkillFileContent(skillId: "my-skill", path: "docs/readme.md")
+        try await waitUntilAsync(timeout: 1.0) {
+            await backing.pendingContinuationCount(for: "docs/readme.md") >= 1
+        }
+
+        // Task B: a second call for the same path cancels Task A and parks
+        // on its own continuation.
+        store.loadSkillFileContent(skillId: "my-skill", path: "docs/readme.md")
+        try await waitUntilAsync(timeout: 1.0) {
+            await backing.pendingContinuationCount(for: "docs/readme.md") >= 2
+        }
+
+        XCTAssertTrue(store.loadingFilePaths.contains("docs/readme.md"))
+
+        // Resume Task A with a failure-shaped response. Because Task A was
+        // cancelled, the Task.isCancelled guard in loadSkillFileContent must
+        // prevent it from mutating loadingFilePaths/fileContentErrors.
+        await backing.unblock(path: "docs/readme.md", with: nil)
+
+        // Give Task A a chance to run its (guarded) completion.
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        XCTAssertTrue(
+            store.loadingFilePaths.contains("docs/readme.md"),
+            "Cancelled Task A must not clear the loading flag"
+        )
+        XCTAssertNil(
+            store.fileContentErrors["docs/readme.md"],
+            "Cancelled Task A must not set a spurious error"
+        )
+
+        // Resume Task B with a success response and verify it wins.
+        let success = SkillFileContentResponse(
+            path: "docs/readme.md",
+            name: "readme.md",
+            size: 3,
+            mimeType: "text/markdown",
+            isBinary: false,
+            content: "yay"
+        )
+        await backing.unblock(path: "docs/readme.md", with: success)
+
+        try await waitUntil(timeout: 1.0) {
+            !store.loadingFilePaths.contains("docs/readme.md")
+        }
+
+        XCTAssertEqual(store.loadedFileContents["docs/readme.md"], "yay")
+        XCTAssertNil(store.fileContentErrors["docs/readme.md"])
+    }
+
     func testClearLoadedFileContentsCancelsTasksAndClearsState() async throws {
         let backing = MockSkillsFileContentStore()
         await backing.setBlocking(for: "long-path.md")
@@ -333,6 +403,18 @@ final class SkillsFileContentStoreTests: XCTestCase {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if condition() { return }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTFail("Condition not met within \(timeout) seconds")
+    }
+
+    private func waitUntilAsync(
+        timeout: TimeInterval,
+        _ condition: @Sendable () async -> Bool
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if await condition() { return }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         XCTFail("Condition not met within \(timeout) seconds")

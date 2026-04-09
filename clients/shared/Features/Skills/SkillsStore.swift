@@ -364,6 +364,7 @@ public final class SkillsStore: ObservableObject {
         let task = Task { [weak self] in
             guard let self else { return }
             let result = await self.skillsClient.fetchSkillFileContent(skillId: skillId, path: path)
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard self.currentFilesSkillId == skillId else { return }
                 self.loadingFilePaths.remove(path)
