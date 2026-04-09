@@ -106,7 +106,11 @@ public struct VAppWorkspaceDockLayout<Dock: View, Workspace: View>: View {
 
     private func handleDragChanged(_ value: DragGesture.Value, availableWidth: CGFloat) {
         if dragStartWidth == nil || !isDragging {
-            dragStartWidth = dockWidth
+            // Use the effective (clamped) width so drag math matches
+            // what is visually rendered, avoiding a dead-drag region
+            // when the container is narrower than the stored dockWidth.
+            let maxAllowedNow = availableWidth - DockLayoutConstants.minWorkspaceWidth - DockLayoutConstants.dividerAndPadding
+            dragStartWidth = min(dockWidth, max(Double(maxAllowedNow), 0))
             dragStartAvailableWidth = availableWidth
             isDragging = true
         }
