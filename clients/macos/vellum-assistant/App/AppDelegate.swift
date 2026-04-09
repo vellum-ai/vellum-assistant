@@ -132,6 +132,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var galleryWindow: ComponentGalleryWindow?
     #endif
     var windowObserver: Any?
+    var sleepObserver: NSObjectProtocol?
+    var wakeObserver: NSObjectProtocol?
     /// Timestamp of the last `showMainWindow` call that performed work.
     /// Used by the debounce guard in `showMainWindow()`.
     var lastShowMainWindowTime: CFAbsoluteTime = 0
@@ -643,6 +645,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupToolConfirmationNotifications()
         setupSecretPromptManager()
         setupWindowObserver()
+        setupSleepWakeHandlers()
         setupNotifications()
         setupAutoUpdate()
 
@@ -828,6 +831,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if let observer = appMenuActivationObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        tearDownSleepWakeHandlers()
         NSApp.dockTile.badgeLabel = nil
         connectionStatusCancellable?.cancel()
         pulseTimer?.invalidate()
