@@ -2,6 +2,9 @@ import VellumAssistantShared
 import XCTest
 @testable import VellumAssistantLib
 
+// MARK: - AppleContainersLauncher Lockfile Tests
+
+@available(macOS 26.0, *)
 final class LockfileAssistantAppleContainerTests: XCTestCase {
     private var tempDir: URL!
     private var lockfilePath: String!
@@ -139,7 +142,11 @@ final class LockfileAssistantAppleContainerTests: XCTestCase {
         XCTAssertEqual(json["version"] as? Int, 1)
     }
 
-    // MARK: - isAppleContainer property
+}
+
+// MARK: - LockfileAssistant isAppleContainer Tests
+
+final class LockfileAssistantIsAppleContainerTests: XCTestCase {
 
     func testIsAppleContainerReturnsTrueForAppleContainerCloud() {
         let assistant = LockfileAssistant(
