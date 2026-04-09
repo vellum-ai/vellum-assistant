@@ -37,7 +37,7 @@ final class MessageListTypographyRefreshTests: XCTestCase {
             isLoadingMoreMessages: false,
             isCompacting: false,
             isInteractionEnabled: true,
-            containerWidth: 800,
+            layoutMetrics: MessageListLayoutMetrics(containerWidth: 800),
             dismissedDocumentSurfaceIds: [],
             activeSurfaceId: nil,
             highlightedMessageId: nil,

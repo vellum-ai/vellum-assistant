@@ -33,7 +33,7 @@ struct MessageListContentView: View, Equatable {
             && lhs.isLoadingMoreMessages == rhs.isLoadingMoreMessages
             && lhs.isCompacting == rhs.isCompacting
             && lhs.isInteractionEnabled == rhs.isInteractionEnabled
-            && lhs.containerWidth == rhs.containerWidth
+            && lhs.layoutMetrics == rhs.layoutMetrics
             && lhs.dismissedDocumentSurfaceIds == rhs.dismissedDocumentSurfaceIds
             && lhs.activeSurfaceId == rhs.activeSurfaceId
             && lhs.highlightedMessageId == rhs.highlightedMessageId
@@ -56,7 +56,7 @@ struct MessageListContentView: View, Equatable {
     let isLoadingMoreMessages: Bool
     let isCompacting: Bool
     let isInteractionEnabled: Bool
-    let containerWidth: CGFloat
+    let layoutMetrics: MessageListLayoutMetrics
     let dismissedDocumentSurfaceIds: Set<String>
     let activeSurfaceId: String?
     let highlightedMessageId: UUID?
@@ -94,9 +94,7 @@ struct MessageListContentView: View, Equatable {
     // MARK: - Thinking indicator helpers
 
     private var effectiveBubbleMaxWidth: CGFloat {
-        containerWidth > 0
-            ? min(VSpacing.chatBubbleMaxWidth, max(containerWidth - 2 * VSpacing.xl, 0))
-            : VSpacing.chatBubbleMaxWidth
+        layoutMetrics.bubbleMaxWidth
     }
 
     @ViewBuilder
@@ -280,8 +278,6 @@ struct MessageListContentView: View, Equatable {
         .transaction { $0.animation = nil }
         .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.xl,
                             bottom: VSpacing.md, trailing: VSpacing.xl))
-        .environment(\.bubbleMaxWidth, containerWidth > 0
-            ? min(VSpacing.chatBubbleMaxWidth, max(containerWidth - 2 * VSpacing.xl, 0))
-            : VSpacing.chatBubbleMaxWidth)
+        .environment(\.bubbleMaxWidth, layoutMetrics.bubbleMaxWidth)
     }
 }

@@ -71,12 +71,15 @@ struct MessageListView: View {
     @Binding var anchorMessageId: UUID?
     /// Message ID to visually highlight after an anchor scroll completes.
     @Binding var highlightedMessageId: UUID?
-    /// Measured width of the chat container, used to detect sidebar/split resizes
-    /// and stabilize scroll position during layout width changes.
     /// When false, disables interactive controls (buttons, actions) inside the
     /// message list while keeping scrolling and text selection functional.
     var isInteractionEnabled: Bool = true
+    /// Measured width of the full chat pane. `layoutMetrics` derives the
+    /// centered transcript column width from this value.
     var containerWidth: CGFloat = 0
+    var layoutMetrics: MessageListLayoutMetrics {
+        MessageListLayoutMetrics(containerWidth: containerWidth)
+    }
     /// Cached in `@State` to avoid `UserDefaults` IPC on every view body
     /// evaluation. Seeded once from `UserDefaults` when SwiftUI first creates
     /// the state; persisted back in `handleSendingChanged()` when flipped.
@@ -111,18 +114,25 @@ struct MessageListView: View {
         #if DEBUG
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "MessageListView.body")
         #endif
+            let widths = layoutMetrics
             // .frame(width:) creates _FrameLayout (not _FlexFrameLayout). FrameLayout
             // returns bounds.midX for alignment without querying children, stopping the
             // alignment cascade. The old .frame(maxWidth:) pattern created FlexFrameLayout
             // which queried explicitAlignment on the entire LazyVStack subtree — O(n) per
             // layout pass, causing 34-70s hangs. See AGENTS.md.
             ScrollView {
-                scrollViewContent
-                    .background(
-                        MessageListScrollObserver { newState in
-                            enqueueScrollGeometryUpdate(newState)
-                        }
-                    )
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    scrollViewContent
+                        .frame(width: widths.chatColumnWidth)
+                        .background(
+                            MessageListScrollObserver { newState in
+                                enqueueScrollGeometryUpdate(newState)
+                            }
+                        )
+                    Spacer(minLength: 0)
+                }
+                .frame(width: widths.scrollSurfaceWidth)
             }
             .scrollContentBackground(.hidden)
             .scrollDisabled(messages.isEmpty && !isSending)
@@ -157,7 +167,7 @@ struct MessageListView: View {
             }
             .scrollIndicators(scrollState.scrollIndicatorsHidden ? .hidden : .automatic)
             .id(conversationId)
-            .frame(width: containerWidth > 0 ? min(containerWidth, VSpacing.chatColumnMaxWidth) : VSpacing.chatColumnMaxWidth)
+            .frame(width: widths.scrollSurfaceWidth)
             .overlay(alignment: .bottom) {
                 ScrollToLatestOverlayView(scrollState: scrollState)
             }

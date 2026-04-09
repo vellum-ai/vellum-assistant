@@ -201,8 +201,8 @@ final class MessageListScrollState {
     /// Captures the `assistantActivityPhase` at the moment `isSending` goes false.
     @ObservationIgnored var lastActivityPhaseWhenIdle: String = ""
 
-    /// Last container width that triggered a resize scroll handler.
-    @ObservationIgnored var lastHandledContainerWidth: CGFloat = 0
+    /// Last transcript column width that triggered a resize scroll handler.
+    @ObservationIgnored var lastHandledChatColumnWidth: CGFloat = 0
 
     /// Tracks the last pending confirmation request ID that triggered an
     /// auto-focus handoff.
