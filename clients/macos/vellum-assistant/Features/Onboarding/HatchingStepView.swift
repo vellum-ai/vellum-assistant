@@ -36,7 +36,7 @@ struct HatchingStepView: View {
 
     var body: some View {
         VStack(spacing: VSpacing.lg) {
-            Color.clear.frame(height: VSpacing.xxxl)
+            Color.clear.frame(height: VSpacing.xxl)
 
             statusText
 
@@ -154,14 +154,14 @@ struct HatchingStepView: View {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: 100, height: 100)
+                    .frame(width: 122, height: 125)
                     .scaleEffect(characterAwake ? 1.1 : pulseScale)
                     .opacity(showCharacter ? (characterAwake ? 1.0 : 0.6) : 0)
                     .animation(.spring(duration: 0.6, bounce: 0.3), value: characterAwake)
                     .accessibilityHidden(true)
             }
         }
-        .frame(width: 120, height: 120)
+        .frame(width: 140, height: 140)
     }
 
     private func startPulse() {
