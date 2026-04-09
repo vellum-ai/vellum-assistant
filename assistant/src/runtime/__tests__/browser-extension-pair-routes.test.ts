@@ -328,26 +328,49 @@ describe("handleBrowserExtensionPair", () => {
     expect(payload.error?.code).toBe("RATE_LIMITED");
   });
 
-  test("rate limit applies BEFORE native-host marker check (can't probe without spending budget)", async () => {
-    // Attackers shouldn't be able to distinguish "unauthenticated
-    // endpoint" from "endpoint doesn't exist" without consuming a
-    // rate-limit slot. Send 12 unauthenticated probes; after the 10th
-    // request is rate limited, they should get 429 — not 403 — which
-    // proves the limiter runs first.
-    const results: number[] = [];
-    for (let i = 0; i < 12; i++) {
+  test("native-host marker check runs BEFORE the rate limiter (unmarked requests don't burn budget)", async () => {
+    // Security invariant: an unmarked drive-by POST from a malicious
+    // webpage must NOT consume the legitimate 10/min quota. If the
+    // rate limiter ran first, a cross-origin page could issue 10
+    // unmarked requests per minute and starve the native messaging
+    // helper's real pair attempts with 429s until the window reset.
+    //
+    // We send a large burst of UNMARKED requests (well beyond the
+    // 10/min budget). Every single one must return 403 (missing
+    // marker), NOT 429 — because the marker check runs first and
+    // unmarked requests are supposed to short-circuit the handler
+    // without touching the limiter at all.
+    const unmarkedResults: number[] = [];
+    for (let i = 0; i < 30; i++) {
       const req = buildRequest({
         body: { extensionOrigin: ALLOWED_ORIGIN },
-        nativeHost: false, // forces a 403 if rate-limiter doesn't run first
+        nativeHost: false, // no marker header
       });
       const res = await handleBrowserExtensionPair(req, loopbackServer);
-      results.push(res.status);
+      unmarkedResults.push(res.status);
       await res.text();
     }
-    // The first 10 should be 403 (missing marker). Beyond that the
-    // rate limiter kicks in and returns 429.
-    expect(results.slice(0, 10).every((s) => s === 403)).toBe(true);
-    expect(results.slice(10).every((s) => s === 429)).toBe(true);
+    // Every unmarked request should be 403. If any 429 appeared, the
+    // limiter was burning budget on unauthenticated probes.
+    expect(unmarkedResults.every((s) => s === 403)).toBe(true);
+    expect(unmarkedResults.some((s) => s === 429)).toBe(false);
+
+    // After 30 unmarked requests, the legitimate native-messaging
+    // helper must still have its full 10/min budget intact. Issue 10
+    // MARKED requests: all 10 should succeed. The 11th should be the
+    // first 429 — proving the limiter only counts marker-carrying
+    // requests.
+    const markedResults: number[] = [];
+    for (let i = 0; i < 11; i++) {
+      const req = buildRequest({
+        body: { extensionOrigin: ALLOWED_ORIGIN },
+      });
+      const res = await handleBrowserExtensionPair(req, loopbackServer);
+      markedResults.push(res.status);
+      await res.text();
+    }
+    expect(markedResults.slice(0, 10).every((s) => s === 200)).toBe(true);
+    expect(markedResults[10]).toBe(429);
   });
 
   // ─────────────────────────────────────────────────────────────────────

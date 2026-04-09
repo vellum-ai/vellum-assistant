@@ -280,12 +280,31 @@ export async function handleBrowserExtensionPair(
     return httpError("FORBIDDEN", "endpoint is local-only", 403);
   }
 
+  // Primary marker-header gate. The native messaging helper sets this
+  // header on every pair request; browsers cannot (without CORS
+  // preflight, which this endpoint does not serve). Reject when the
+  // header is absent or set to an unexpected value.
+  //
+  // IMPORTANT: this check runs BEFORE the rate limiter so that
+  // unmarked drive-by POSTs from a malicious webpage cannot burn the
+  // legitimate 10/min budget. If the rate limiter ran first, a
+  // cross-origin page could issue 10 unmarked requests per minute and
+  // starve the native messaging helper's real pair attempts with 429s
+  // until the window reset. Unmarked requests therefore return 403
+  // without touching the limiter at all.
+  const marker = req.headers.get(NATIVE_HOST_MARKER_HEADER);
+  if (marker !== NATIVE_HOST_MARKER_VALUE) {
+    auditDeny(req, peerIp, "missing_native_host_marker");
+    return httpError("FORBIDDEN", "native host marker required", 403);
+  }
+
   // Strict rate limit by peer IP. The limiter is keyed on the loopback
   // peer address; browsers (even local ones) all appear as 127.0.0.1
   // here, which is intentional — a single compromised local process
   // should not be able to hammer the mint endpoint. We evaluate this
-  // BEFORE the native-host marker / origin checks so an attacker can't
-  // use those 403s as an unmetered probe for liveness.
+  // AFTER the native-host marker check so that unauthenticated
+  // drive-by POSTs can't consume the legitimate 10/min quota (see
+  // comment above the marker check for the DoS rationale).
   const rateResult = pairRateLimiter.check(
     peerIp,
     "/v1/browser-extension-pair",
@@ -321,16 +340,6 @@ export async function handleBrowserExtensionPair(
         },
       },
     );
-  }
-
-  // Primary marker-header gate. The native messaging helper sets this
-  // header on every pair request; browsers cannot (without CORS
-  // preflight, which this endpoint does not serve). Reject when the
-  // header is absent or set to an unexpected value.
-  const marker = req.headers.get(NATIVE_HOST_MARKER_HEADER);
-  if (marker !== NATIVE_HOST_MARKER_VALUE) {
-    auditDeny(req, peerIp, "missing_native_host_marker");
-    return httpError("FORBIDDEN", "native host marker required", 403);
   }
 
   // Browser-origin rejection. Any non-empty `Origin` header that isn't
