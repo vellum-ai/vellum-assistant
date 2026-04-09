@@ -125,7 +125,7 @@ final class ChatActionHandler {
             vm.suggestion = resp.suggestion
 
         case .messageComplete(let complete):
-            Task { await self.handleMessageComplete(complete, vm: vm) }
+            handleMessageComplete(complete, vm: vm)
 
         case .undoComplete(let undoMsg):
             handleUndoComplete(undoMsg, vm: vm)
@@ -147,7 +147,7 @@ final class ChatActionHandler {
             handleMessageRequestComplete(msg, vm: vm)
 
         case .generationHandoff(let handoff):
-            Task { await self.handleGenerationHandoff(handoff, vm: vm) }
+            handleGenerationHandoff(handoff, vm: vm)
 
         case .error(let err):
             handleError(err, vm: vm)
@@ -342,7 +342,7 @@ final class ChatActionHandler {
         vm.scheduleStreamingFlush()
     }
 
-    private func handleMessageComplete(_ complete: MessageCompleteMessage, vm: ChatViewModel) async {
+    private func handleMessageComplete(_ complete: MessageCompleteMessage, vm: ChatViewModel) {
         guard belongsToConversation(complete.conversationId) else { return }
         // Auxiliary message_complete events (watch notifiers, call notifications)
         // that lack a messageId should not reset the main agent turn state.
@@ -444,9 +444,14 @@ final class ChatActionHandler {
             vm.refinementTextBuffer = ""
             vm.refinementReceivedSurfaceUpdate = false
         }
-        // Must run before currentAssistantMessageId is cleared so attachments land on the right message
-        if !wasRefinement {
-            await vm.ingestAssistantAttachments(complete.attachments)
+        // Capture the assistant message ID before clearing turn state so that
+        // the async attachment ingestion (which runs thumbnail generation on a
+        // background thread) can target the correct message even after
+        // currentAssistantMessageId is nilled out below.  This keeps all
+        // synchronous state mutations in-order with the SSE dispatch loop.
+        let capturedAssistantMessageId = vm.currentAssistantMessageId
+        if !wasRefinement, let attachments = complete.attachments, !attachments.isEmpty {
+            Task { await vm.ingestAssistantAttachments(attachments, targetMessageId: capturedAssistantMessageId) }
         }
         if vm.pendingVoiceMessage {
             vm.pendingVoiceMessage = false
@@ -743,7 +748,7 @@ final class ChatActionHandler {
         }
     }
 
-    private func handleGenerationHandoff(_ handoff: GenerationHandoffMessage, vm: ChatViewModel) async {
+    private func handleGenerationHandoff(_ handoff: GenerationHandoffMessage, vm: ChatViewModel) {
         guard belongsToConversation(handoff.conversationId) else { return }
         if let requestId = handoff.requestId {
             vm.activeRequestIdToMessageId.removeValue(forKey: requestId)
@@ -753,8 +758,12 @@ final class ChatActionHandler {
         // before we clear the ID and hand off to the next queued turn.
         vm.flushStreamingBuffer()
         vm.flushPartialOutputBuffer()
-        // Must run before currentAssistantMessageId is cleared so attachments land on the right message
-        await vm.ingestAssistantAttachments(handoff.attachments)
+        // Capture the assistant message ID before clearing turn state so that
+        // the async attachment ingestion targets the correct message.
+        let capturedAssistantMessageId = vm.currentAssistantMessageId
+        if let attachments = handoff.attachments, !attachments.isEmpty {
+            Task { await vm.ingestAssistantAttachments(attachments, targetMessageId: capturedAssistantMessageId) }
+        }
         // Keep isSending = true — daemon is handing off to next queued message
         if let existingId = vm.currentAssistantMessageId,
            let index = vm.messages.firstIndex(where: { $0.id == existingId }) {

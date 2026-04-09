@@ -230,18 +230,22 @@ extension ChatViewModel {
         }.value
     }
 
-    /// Ingest attachments from a completion/handoff event into the current or new assistant message.
-    func ingestAssistantAttachments(_ attachments: [UserMessageAttachment]?) async {
+    /// Ingest attachments from a completion/handoff event into the given (or current) assistant message.
+    ///
+    /// `targetMessageId` is the assistant message that should receive the attachments.
+    /// Callers capture `currentAssistantMessageId` **before** clearing turn state so
+    /// the CPU-intensive thumbnail work can run in a fire-and-forget Task without
+    /// racing with subsequent SSE events that reset `currentAssistantMessageId`.
+    func ingestAssistantAttachments(_ attachments: [UserMessageAttachment]?, targetMessageId: String?) async {
         guard let attachments, !attachments.isEmpty else { return }
         let chatAttachments = await mapMessageAttachments(attachments)
         guard !chatAttachments.isEmpty else { return }
 
-        if let existingId = currentAssistantMessageId,
+        if let existingId = targetMessageId,
            let index = messages.firstIndex(where: { $0.id == existingId }) {
             messages[index].attachments.append(contentsOf: chatAttachments)
         } else {
             let msg = ChatMessage(role: .assistant, text: "", attachments: chatAttachments)
-            currentAssistantMessageId = msg.id
             messages.append(msg)
         }
     }
