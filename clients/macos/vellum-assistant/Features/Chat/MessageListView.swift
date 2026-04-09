@@ -116,6 +116,13 @@ struct MessageListView: View {
             // placing it inside the ScrollView breaks LazyVStack's viewport
             // tracking, causing cells to not materialize until scrolled.
             // See AGENTS.md and AlignmentBarrierLayout.swift for details.
+            //
+            // Scroll-specific modifiers (.scrollPosition, .defaultScrollAnchor,
+            // .onScrollPhaseChange, .scrollIndicators) are applied INSIDE the
+            // barrier directly on the ScrollView. Placing them outside forces
+            // SwiftUI to traverse a custom Layout container to find the
+            // ScrollView, which can intermittently fail and cause cells to
+            // not materialize.
             AlignmentBarrierLayout {
                 ScrollView {
                     scrollViewContent
@@ -127,6 +134,36 @@ struct MessageListView: View {
                 }
                 .scrollContentBackground(.hidden)
                 .scrollDisabled(messages.isEmpty && !isSending)
+                // Apply only to .initialOffset — where the scroll view starts
+                // when first displayed (including .id() recreation on switch).
+                // Deliberately NOT using the all-roles overload (.sizeChanges)
+                // because it fights user scroll-up during streaming: SwiftUI's
+                // definition of "at bottom" for anchor purposes can differ from
+                // our hysteresis-based isAtBottom, causing the viewport to snap
+                // back to bottom on every content-height change even after the
+                // user has entered freeBrowsing. Our explicit content-height
+                // auto-follow handles streaming growth with proper mode checks.
+                // https://developer.apple.com/documentation/swiftui/view/defaultscrollanchor(_:for:)
+                .defaultScrollAnchor(.bottom, for: .initialOffset)
+                .scrollPosition($scrollPosition)
+                .environment(\.suppressAutoScroll, { [self] in
+                    os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=manualExpansionDetach")
+                    let intents = scrollCoordinator.handle(.manualExpansion)
+                    executeCoordinatorIntents(intents)
+                    // Keep scrollState in sync as runtime executor.
+                    scrollState.handleManualExpansionInteraction()
+                })
+                .onScrollPhaseChange { oldPhase, newPhase in
+                    let coordinatorPhase = ScrollCoordinator.Phase.from(newPhase)
+                    let intents = scrollCoordinator.handle(.scrollPhaseChanged(phase: coordinatorPhase))
+                    executeCoordinatorIntents(intents)
+                    // Keep scrollState in sync as runtime executor.
+                    scrollState.scrollPhase = newPhase
+                    if newPhase == .idle && oldPhase != .idle && scrollState.isAtBottom {
+                        scrollState.handleReachedBottom()
+                    }
+                }
+                .scrollIndicators(scrollState.scrollIndicatorsHidden ? .hidden : .automatic)
             }
             // .id() MUST be outside AlignmentBarrierLayout. A custom Layout
             // container does not propagate child identity changes to the outer
@@ -137,36 +174,6 @@ struct MessageListView: View {
             .id(conversationId)
             .frame(maxWidth: VSpacing.chatColumnMaxWidth)
             .frame(maxWidth: .infinity)
-            // Apply only to .initialOffset — where the scroll view starts
-            // when first displayed (including .id() recreation on switch).
-            // Deliberately NOT using the all-roles overload (.sizeChanges)
-            // because it fights user scroll-up during streaming: SwiftUI's
-            // definition of "at bottom" for anchor purposes can differ from
-            // our hysteresis-based isAtBottom, causing the viewport to snap
-            // back to bottom on every content-height change even after the
-            // user has entered freeBrowsing. Our explicit content-height
-            // auto-follow handles streaming growth with proper mode checks.
-            // https://developer.apple.com/documentation/swiftui/view/defaultscrollanchor(_:for:)
-            .defaultScrollAnchor(.bottom, for: .initialOffset)
-            .scrollPosition($scrollPosition)
-            .environment(\.suppressAutoScroll, { [self] in
-                os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=manualExpansionDetach")
-                let intents = scrollCoordinator.handle(.manualExpansion)
-                executeCoordinatorIntents(intents)
-                // Keep scrollState in sync as runtime executor.
-                scrollState.handleManualExpansionInteraction()
-            })
-            .onScrollPhaseChange { oldPhase, newPhase in
-                let coordinatorPhase = ScrollCoordinator.Phase.from(newPhase)
-                let intents = scrollCoordinator.handle(.scrollPhaseChanged(phase: coordinatorPhase))
-                executeCoordinatorIntents(intents)
-                // Keep scrollState in sync as runtime executor.
-                scrollState.scrollPhase = newPhase
-                if newPhase == .idle && oldPhase != .idle && scrollState.isAtBottom {
-                    scrollState.handleReachedBottom()
-                }
-            }
-            .scrollIndicators(scrollState.scrollIndicatorsHidden ? .hidden : .automatic)
             .overlay(alignment: .bottom) {
                 ScrollToLatestOverlayView(scrollState: scrollState)
             }

@@ -26,7 +26,13 @@ public struct AlignmentBarrierLayout: Layout {
         subviews: Subviews,
         cache: inout ()
     ) {
-        subviews.first?.place(at: bounds.origin, proposal: proposal)
+        // Use bounds.size (the actual allocated region) rather than the
+        // original proposal. They usually match, but can diverge when the
+        // parent clamps or when the proposal contains nil dimensions.
+        subviews.first?.place(
+            at: bounds.origin,
+            proposal: ProposedViewSize(bounds.size)
+        )
     }
 
     public func explicitAlignment(
