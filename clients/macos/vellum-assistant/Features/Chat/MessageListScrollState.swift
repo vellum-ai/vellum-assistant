@@ -259,13 +259,15 @@ final class MessageListScrollState {
     @ObservationIgnored var lastUserInitiatedPinTime: Date?
 
     /// Alternates between edge-based and ID-based scroll strategies in
-    /// `executeScrollToBottom()`. `ScrollPosition` is a value type —
-    /// repeated writes of the same value (e.g. `ScrollPosition(id: X,
-    /// anchor: .bottom)`) are silently deduped by SwiftUI's binding
-    /// update mechanism. By alternating between `ScrollPosition(edge:
-    /// .bottom)` and `ScrollPosition(id:, anchor: .bottom)`, each
-    /// recovery attempt produces a structurally different value that
-    /// SwiftUI is guaranteed to process.
+    /// `executeScrollToBottom()` during the recovery window. Even though
+    /// the scroll closures use imperative `.scrollTo()` methods (which are
+    /// commands, not state declarations), alternating between edge-based
+    /// and ID-based strategies provides two benefits:
+    ///   1. Defense-in-depth against potential deduplication by SwiftUI.
+    ///   2. The two strategies use different estimation paths — edge-based
+    ///      computes a single total-content-height offset, ID-based sums
+    ///      per-item estimates — which may land the viewport at slightly
+    ///      different positions, helping LazyVStack converge faster.
     @ObservationIgnored var recoveryAlternator: Bool = false
 
     // MARK: - Layout Cache Fields
@@ -629,7 +631,7 @@ final class MessageListScrollState {
     /// `userInitiated: true` bypasses mode checks — user intent always wins.
     @discardableResult
     func requestPinToBottom(animated: Bool = false, userInitiated: Bool = false, forRecovery: Bool = false) -> Bool {
-        scrollDiag.debug("requestPinToBottom: mode=\(mode.description, privacy: .public) userInit=\(userInitiated, privacy: .public) forRecovery=\(forRecovery, privacy: .public) allowsAuto=\(mode.allowsAutoScroll, privacy: .public)")
+        scrollDiag.debug("requestPinToBottom: mode=\(self.mode.description, privacy: .public) userInit=\(userInitiated, privacy: .public) forRecovery=\(forRecovery, privacy: .public) allowsAuto=\(self.mode.allowsAutoScroll, privacy: .public)")
         if userInitiated {
             transition(to: .followingBottom)
             // Sync UI immediately so showScrollToLatest is updated within
@@ -651,7 +653,7 @@ final class MessageListScrollState {
         }
 
         guard mode.allowsAutoScroll else {
-            scrollDiag.debug("requestPinToBottom: BLOCKED by mode=\(mode.description, privacy: .public)")
+            scrollDiag.debug("requestPinToBottom: BLOCKED by mode=\(self.mode.description, privacy: .public)")
             return false
         }
         executeScrollToBottom(animated: animated, forRecovery: forRecovery)
@@ -690,7 +692,7 @@ final class MessageListScrollState {
     /// - SeeAlso: https://developer.apple.com/documentation/swiftui/scrollposition/scrollto(edge:)
     private func executeScrollToBottom(animated: Bool, userInitiated: Bool = false, forRecovery: Bool = false) {
         let path = userInitiated ? "userInitiated" : (forRecovery ? "recovery" : "autoFollow")
-        scrollDiag.debug("executeScrollToBottom: path=\(path, privacy: .public) animated=\(animated, privacy: .public) lastMsgId=\(lastMessageId?.uuidString ?? "nil", privacy: .public) alternator=\(recoveryAlternator, privacy: .public)")
+        scrollDiag.debug("executeScrollToBottom: path=\(path, privacy: .public) animated=\(animated, privacy: .public) lastMsgId=\(self.lastMessageId?.uuidString ?? "nil", privacy: .public) alternator=\(self.recoveryAlternator, privacy: .public)")
         if userInitiated {
             // Two-step scroll: edge first to break any stale position,
             // then ID-based for precise targeting. The recovery window
