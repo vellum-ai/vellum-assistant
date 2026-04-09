@@ -1,7 +1,30 @@
 import SwiftUI
 import VellumAssistantShared
 
-struct ComposerSection: View {
+struct ComposerSection: View, Equatable {
+    static func == (lhs: ComposerSection, rhs: ComposerSection) -> Bool {
+        lhs.inputText == rhs.inputText
+            && lhs.isSending == rhs.isSending
+            && lhs.isAssistantBusy == rhs.isAssistantBusy
+            && lhs.hasPendingConfirmation == rhs.hasPendingConfirmation
+            && lhs.isRecording == rhs.isRecording
+            && lhs.suggestion == rhs.suggestion
+            && lhs.pendingAttachments.map(\.id) == rhs.pendingAttachments.map(\.id)
+            && lhs.isLoadingAttachment == rhs.isLoadingAttachment
+            && lhs.watchSession === rhs.watchSession
+            && lhs.voiceModeManager === rhs.voiceModeManager
+            && lhs.voiceService === rhs.voiceService
+            && lhs.recordingAmplitude == rhs.recordingAmplitude
+            && lhs.conversationId == rhs.conversationId
+            && lhs.isInteractionEnabled == rhs.isInteractionEnabled
+            && lhs.contextWindowFillRatio == rhs.contextWindowFillRatio
+            && lhs.contextWindowTokens == rhs.contextWindowTokens
+            && lhs.contextWindowMaxTokens == rhs.contextWindowMaxTokens
+        // Closures are intentionally skipped — they always compare as
+        // unequal but are freshly captured from the same stable references
+        // on each parent rebuild, so excluding them is safe.
+    }
+
     @Binding var inputText: String
     let isSending: Bool
     var isAssistantBusy: Bool = false
@@ -73,6 +96,7 @@ struct ComposerSection: View {
                 contextWindowMaxTokens: contextWindowMaxTokens,
                 conversationHostAccessControl: conversationHostAccessControl
             )
+            .equatable()
         }
         .background(
             LinearGradient(

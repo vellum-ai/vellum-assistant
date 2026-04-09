@@ -485,6 +485,7 @@ struct ChatView: View {
                         contextWindowMaxTokens: viewModel.contextWindowMaxTokens,
                         conversationHostAccessControl: conversationHostAccessControl
                     )
+                    .equatable()
                 }
             }
         }

@@ -9,7 +9,30 @@ import AppKit
 
 private let composerLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "Composer")
 
-struct ComposerView: View {
+struct ComposerView: View, Equatable {
+    static func == (lhs: ComposerView, rhs: ComposerView) -> Bool {
+        lhs.inputText == rhs.inputText
+            && lhs.isSending == rhs.isSending
+            && lhs.isAssistantBusy == rhs.isAssistantBusy
+            && lhs.hasPendingConfirmation == rhs.hasPendingConfirmation
+            && lhs.isRecording == rhs.isRecording
+            && lhs.suggestion == rhs.suggestion
+            && lhs.pendingAttachments.map(\.id) == rhs.pendingAttachments.map(\.id)
+            && lhs.isLoadingAttachment == rhs.isLoadingAttachment
+            && lhs.voiceModeManager === rhs.voiceModeManager
+            && lhs.voiceService === rhs.voiceService
+            && lhs.recordingAmplitude == rhs.recordingAmplitude
+            && lhs.placeholderText == rhs.placeholderText
+            && lhs.composerCompactHeight == rhs.composerCompactHeight
+            && lhs.conversationId == rhs.conversationId
+            && lhs.isInteractionEnabled == rhs.isInteractionEnabled
+            && lhs.contextWindowFillRatio == rhs.contextWindowFillRatio
+            && lhs.contextWindowTokens == rhs.contextWindowTokens
+            && lhs.contextWindowMaxTokens == rhs.contextWindowMaxTokens
+        // Closures are intentionally skipped — they always compare as
+        // unequal but are freshly captured from the same stable references
+        // on each parent rebuild, so excluding them is safe.
+    }
     private let composerMaxHeight: CGFloat = 300
     private let composerActionButtonSize: CGFloat = 32
 

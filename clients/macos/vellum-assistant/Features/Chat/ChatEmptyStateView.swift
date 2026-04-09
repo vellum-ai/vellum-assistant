@@ -154,6 +154,7 @@ struct ChatEmptyStateView: View {
                 conversationId: conversationId,
                 conversationHostAccessControl: conversationHostAccessControl
             )
+            .equatable()
         }
         .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
         .opacity(visible ? 1 : 0)
@@ -404,6 +405,7 @@ struct ChatTemporaryChatEmptyStateView: View {
                     conversationId: conversationId,
                     conversationHostAccessControl: conversationHostAccessControl
                 )
+                .equatable()
             }
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
 
