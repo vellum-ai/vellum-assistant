@@ -146,7 +146,7 @@ describe("host_browser self-hosted capability-token e2e round-trip", () => {
     __resetChromeExtensionRegistryForTests();
   });
 
-  test("capability token round-trips Browser.getVersion", async () => {
+  test("capability token round-trips Browser.getVersion over WS result transport", async () => {
     const guardianId = `self-hosted-guardian-${crypto.randomUUID()}`;
 
     // Mint the capability token the chrome extension would have
@@ -157,13 +157,10 @@ describe("host_browser self-hosted capability-token e2e round-trip", () => {
 
     const { createMockChromeExtension } =
       await import("./fixtures/mock-chrome-extension.js");
-    // Use the WS result transport (PR 2 of the remediation plan)
-    // rather than the HTTP POST fallback. The POST path goes through
-    // the JWT-bearer auth middleware which doesn't currently accept
-    // capability tokens; the WS frame path is the canonical
-    // self-hosted return transport and works without any additional
-    // auth because the WS connection is already authenticated by the
-    // same capability token.
+    // WS result transport: the extension returns results over the same
+    // `/v1/browser-relay` WebSocket it received the request on. This
+    // is the canonical self-hosted return path when the socket is
+    // healthy.
     const mockExt = createMockChromeExtension({
       runtimeBaseUrl,
       token,
@@ -178,11 +175,11 @@ describe("host_browser self-hosted capability-token e2e round-trip", () => {
     // before the Browser.getVersion call runs.
     await waitForRegistryEntry(guardianId);
 
-    const { proxy } = createBoundProxy(guardianId, "conv-cap-happy");
+    const { proxy } = createBoundProxy(guardianId, "conv-cap-happy-ws");
 
     const result = await proxy.request(
       { cdpMethod: "Browser.getVersion" },
-      "conv-cap-happy",
+      "conv-cap-happy-ws",
     );
 
     expect(result.isError).toBe(false);
@@ -191,7 +188,49 @@ describe("host_browser self-hosted capability-token e2e round-trip", () => {
     const received = mockExt.receivedRequests();
     expect(received).toHaveLength(1);
     expect(received[0].cdpMethod).toBe("Browser.getVersion");
-    expect(received[0].conversationId).toBe("conv-cap-happy");
+    expect(received[0].conversationId).toBe("conv-cap-happy-ws");
+
+    proxy.dispose();
+    await mockExt.stop();
+  });
+
+  test("capability token round-trips Browser.getVersion over HTTP POST fallback", async () => {
+    // HTTP result transport: the extension POSTs results back to
+    // `/v1/host-browser-result` with the same capability token as the
+    // WS handshake. This exercises the fix added on top of the PR3
+    // cutover — before the fix the POST route's JWT-only auth
+    // middleware 401'd every capability-token-bearing request and
+    // silently dropped the CDP result whenever the relay WS was
+    // unavailable. The test must prove the HTTP fallback actually
+    // resolves the pending interaction end-to-end.
+    const guardianId = `self-hosted-guardian-${crypto.randomUUID()}`;
+    const { token } = mintHostBrowserCapability(guardianId);
+
+    const { createMockChromeExtension } =
+      await import("./fixtures/mock-chrome-extension.js");
+    const mockExt = createMockChromeExtension({
+      runtimeBaseUrl,
+      token,
+      resultTransport: "http",
+    });
+    await mockExt.start();
+    await mockExt.waitForConnection();
+    await waitForRegistryEntry(guardianId);
+
+    const { proxy } = createBoundProxy(guardianId, "conv-cap-happy-http");
+
+    const result = await proxy.request(
+      { cdpMethod: "Browser.getVersion" },
+      "conv-cap-happy-http",
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Chrome/MockTest");
+
+    const received = mockExt.receivedRequests();
+    expect(received).toHaveLength(1);
+    expect(received[0].cdpMethod).toBe("Browser.getVersion");
+    expect(received[0].conversationId).toBe("conv-cap-happy-http");
 
     proxy.dispose();
     await mockExt.stop();

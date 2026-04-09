@@ -73,7 +73,10 @@ import { buildAssistantEvent } from "./assistant-event.js";
 import { assistantEventHub } from "./assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 // Auth
-import { authenticateRequest } from "./auth/middleware.js";
+import {
+  authenticateHostBrowserResultRequest,
+  authenticateRequest,
+} from "./auth/middleware.js";
 import { parseSub } from "./auth/subject.js";
 import {
   mintDaemonDeliveryToken,
@@ -800,7 +803,19 @@ export class RuntimeHttpServer {
 
     // JWT bearer authentication — replaces the old shared-secret comparison.
     // authenticateRequest handles dev bypass (DISABLE_HTTP_AUTH) internally.
-    const authResult = authenticateRequest(req);
+    //
+    // Special-case: /v1/host-browser-result POST accepts either a
+    // daemon-minted JWT (legacy/cloud) or a host_browser capability
+    // token (self-hosted chrome extension). The chrome extension's
+    // HTTP fallback (`postHostBrowserResult`) hands over the same
+    // capability token it presented to `/v1/browser-relay`, so the
+    // POST route must understand both auth shapes. Every other route
+    // keeps the JWT-only flow via `authenticateRequest`.
+    const normalizedPath = path.endsWith("/") ? path.slice(0, -1) : path;
+    const authResult =
+      normalizedPath === "/v1/host-browser-result" && req.method === "POST"
+        ? authenticateHostBrowserResultRequest(req)
+        : authenticateRequest(req);
     if (!authResult.ok) {
       return authResult.response;
     }
