@@ -69,10 +69,11 @@ struct MainWindowView: View {
     @State var groupToDelete: ConversationGroup?
     @State var archiveAllPending: ArchiveAllTarget?
 
-    /// Cached assistant display name, refreshed when the daemon emits an identity change event.
-    @State var cachedAssistantName: String = "Your Assistant"
+    /// Cached assistant display name, seeded from the static identity cache on init
+    /// and refreshed when the daemon emits an identity change event.
+    @State var cachedAssistantName: String
     /// Whether cachedAssistantName has been resolved from IDENTITY.md at least once.
-    @State var assistantNameResolved: Bool = false
+    @State var assistantNameResolved: Bool
     /// Whether the "coming alive" overlay is currently showing.
     @State private var showComingAlive: Bool
     /// Whether the daemon-loading skeleton overlay is currently showing.
@@ -107,6 +108,9 @@ struct MainWindowView: View {
         self.voiceModeManager = voiceModeManager
         self.updateManager = updateManager
         self.onSendWakeUp = onSendWakeUp
+        let cached = IdentityInfo.current
+        self._cachedAssistantName = State(initialValue: AssistantDisplayName.resolve(cached?.name, fallback: "Your Assistant"))
+        self._assistantNameResolved = State(initialValue: cached != nil)
         self._showComingAlive = State(initialValue: onSendWakeUp != nil)
         // Show skeleton loading only for normal launches (not post-onboarding where
         // ComingAliveOverlay handles the transition).

@@ -300,7 +300,7 @@ struct ContactsContainerView: View {
     @State private var isCreatingContact: Bool = false
     @State private var createContactError: String?
 
-    @State private var cachedAssistantName: String = AssistantDisplayName.placeholder
+    @State private var cachedAssistantName: String = AssistantDisplayName.resolve(IdentityInfo.current?.name)
 
     /// Assistant detail — header + channels.
     @ViewBuilder

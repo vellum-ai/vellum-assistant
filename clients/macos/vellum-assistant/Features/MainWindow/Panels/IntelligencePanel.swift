@@ -19,7 +19,7 @@ struct IntelligencePanel: View {
     @Binding var pendingMemoryId: String?
 
     @State private var selectedTab: IntelligenceTab
-    @State private var cachedAssistantName: String = "Your Assistant"
+    @State private var cachedAssistantName: String = AssistantDisplayName.resolve(IdentityInfo.current?.name, fallback: "Your Assistant")
     @Binding var pendingSkillId: String?
     @State private var pendingFilePath: String?
 
