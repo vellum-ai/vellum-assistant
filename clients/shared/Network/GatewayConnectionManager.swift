@@ -176,6 +176,7 @@ public final class GatewayConnectionManager: ObservableObject {
 
         #if os(macOS)
         refreshCachedAssistant()
+        LockfileAssistant.startWatching()
         #endif
 
         isConnecting = true
@@ -843,6 +844,7 @@ public final class GatewayConnectionManager: ObservableObject {
         if let observer = assistantChangeObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        LockfileAssistant.stopWatching()
         #endif
     }
 }
