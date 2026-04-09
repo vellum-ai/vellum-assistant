@@ -93,6 +93,12 @@ struct MessageListContentView: View, Equatable {
 
     // MARK: - Thinking indicator helpers
 
+    private var effectiveBubbleMaxWidth: CGFloat {
+        containerWidth > 0
+            ? min(VSpacing.chatBubbleMaxWidth, max(containerWidth - 2 * VSpacing.xl, 0))
+            : VSpacing.chatBubbleMaxWidth
+    }
+
     @ViewBuilder
     private func thinkingIndicatorRow(hasUserMessage: Bool) -> some View {
         HStack(spacing: VSpacing.sm) {
@@ -107,7 +113,7 @@ struct MessageListContentView: View, Equatable {
             }
             Spacer()
         }
-        .frame(width: VSpacing.chatBubbleMaxWidth)
+        .frame(width: effectiveBubbleMaxWidth)
         .id("thinking-indicator")
         .transition(.opacity)
     }
@@ -118,7 +124,7 @@ struct MessageListContentView: View, Equatable {
             label: "Compacting context\u{2026}",
             showIcon: false
         )
-        .frame(width: VSpacing.chatBubbleMaxWidth)
+        .frame(width: effectiveBubbleMaxWidth)
         .id("compacting-indicator")
         .transition(.opacity)
     }
@@ -251,7 +257,7 @@ struct MessageListContentView: View, Equatable {
                     TypingIndicatorView()
                     Spacer()
                 }
-                .frame(width: VSpacing.chatBubbleMaxWidth)
+                .frame(width: effectiveBubbleMaxWidth)
                 .id("streaming-without-text-indicator")
                 .transition(.opacity)
             } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
