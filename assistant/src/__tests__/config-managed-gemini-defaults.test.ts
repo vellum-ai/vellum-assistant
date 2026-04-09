@@ -74,37 +74,13 @@ mock.module("../config/assistant-feature-flags.js", () => ({
   getAssistantFeatureFlagDefaults: () => ({}),
 }));
 
-// ---------------------------------------------------------------------------
-// Managed proxy context mock — controls whether proxy prereqs are satisfied
-// ---------------------------------------------------------------------------
-
-let proxyEnabled = false;
-
-mock.module("../providers/managed-proxy/context.js", () => ({
-  resolveManagedProxyContext: async () => ({
-    enabled: proxyEnabled,
-    platformBaseUrl: proxyEnabled ? "https://api.vellum.ai" : "",
-    assistantApiKey: proxyEnabled ? "test-api-key" : "",
-  }),
-  hasManagedProxyPrereqs: async () => proxyEnabled,
-  buildManagedBaseUrl: async () =>
-    proxyEnabled ? "https://api.vellum.ai/v1/runtime-proxy/gemini" : undefined,
-  managedFallbackEnabledFor: async () => proxyEnabled,
-  isManagedProxyEnabledSync: () => proxyEnabled,
-  _resetManagedProxyEnabledCache: () => {},
-}));
-
 // Restore all mocked modules after this file's tests complete to prevent
 // cross-test contamination when running grouped with other test files.
 afterAll(() => {
   mock.restore();
 });
 
-import {
-  applyManagedGeminiDefaults,
-  invalidateConfigCache,
-  loadConfig,
-} from "../config/loader.js";
+import { invalidateConfigCache, loadConfig } from "../config/loader.js";
 import { _setStorePath } from "../security/encrypted-store.js";
 
 // ---------------------------------------------------------------------------
@@ -119,11 +95,14 @@ function readConfig(): Record<string, unknown> {
   return JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 }
 
+/** Stash and restore IS_PLATFORM across each test. */
+let originalIsPlatform: string | undefined;
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("applyManagedGeminiDefaults", () => {
+describe("managed Gemini embedding defaults (via loadConfig)", () => {
   beforeEach(() => {
     ensureTestDir();
     const resetPaths = [
@@ -143,33 +122,37 @@ describe("applyManagedGeminiDefaults", () => {
 
     // Reset mock state
     featureFlagEnabled = false;
-    proxyEnabled = false;
+    originalIsPlatform = process.env.IS_PLATFORM;
+    delete process.env.IS_PLATFORM;
   });
 
   afterEach(() => {
     _setStorePath(null);
     invalidateConfigCache();
+
+    // Restore IS_PLATFORM
+    if (originalIsPlatform !== undefined) {
+      process.env.IS_PLATFORM = originalIsPlatform;
+    } else {
+      delete process.env.IS_PLATFORM;
+    }
   });
 
-  test("applies managed Gemini defaults when FF on + proxy available + provider auto", async () => {
-    // Config with default provider=auto (no explicit provider)
+  test("applies managed Gemini defaults when FF on + IS_PLATFORM + provider auto", () => {
     writeConfig({});
 
     featureFlagEnabled = true;
-    proxyEnabled = true;
+    process.env.IS_PLATFORM = "true";
 
     const config = loadConfig();
-    expect(config.memory.embeddings.provider).toBe("auto");
 
-    const updated = await applyManagedGeminiDefaults(config);
-
-    // In-memory config should be updated
-    expect(updated.memory.embeddings.provider).toBe("gemini");
-    expect(updated.memory.embeddings.geminiModel).toBe(
+    // In-memory config should have managed Gemini defaults
+    expect(config.memory.embeddings.provider).toBe("gemini");
+    expect(config.memory.embeddings.geminiModel).toBe(
       "gemini-embedding-2-preview",
     );
-    expect(updated.memory.embeddings.geminiDimensions).toBe(3072);
-    expect(updated.memory.qdrant.vectorSize).toBe(3072);
+    expect(config.memory.embeddings.geminiDimensions).toBe(3072);
+    expect(config.memory.qdrant.vectorSize).toBe(3072);
 
     // Config file on disk should also be updated
     const raw = readConfig();
@@ -182,64 +165,56 @@ describe("applyManagedGeminiDefaults", () => {
     expect(qdrantRaw.vectorSize).toBe(3072);
   });
 
-  test("does NOT apply when feature flag is OFF", async () => {
+  test("does NOT apply when feature flag is OFF", () => {
     writeConfig({});
 
     featureFlagEnabled = false;
-    proxyEnabled = true;
+    process.env.IS_PLATFORM = "true";
 
     const config = loadConfig();
-    const updated = await applyManagedGeminiDefaults(config);
 
-    expect(updated.memory.embeddings.provider).toBe("auto");
-    expect(updated.memory.qdrant.vectorSize).toBe(384);
+    expect(config.memory.embeddings.provider).toBe("auto");
+    expect(config.memory.qdrant.vectorSize).toBe(384);
   });
 
-  test("does NOT apply when proxy context is unavailable", async () => {
+  test("does NOT apply when IS_PLATFORM is not set", () => {
     writeConfig({});
 
     featureFlagEnabled = true;
-    proxyEnabled = false;
+    delete process.env.IS_PLATFORM;
 
     const config = loadConfig();
-    const updated = await applyManagedGeminiDefaults(config);
 
-    expect(updated.memory.embeddings.provider).toBe("auto");
-    expect(updated.memory.qdrant.vectorSize).toBe(384);
+    expect(config.memory.embeddings.provider).toBe("auto");
+    expect(config.memory.qdrant.vectorSize).toBe(384);
   });
 
-  test("does NOT apply when provider is explicitly set to local", async () => {
+  test("does NOT apply when provider is explicitly set to local", () => {
     writeConfig({
       memory: { embeddings: { provider: "local" } },
     });
 
     featureFlagEnabled = true;
-    proxyEnabled = true;
+    process.env.IS_PLATFORM = "true";
 
     const config = loadConfig();
     expect(config.memory.embeddings.provider).toBe("local");
-
-    const updated = await applyManagedGeminiDefaults(config);
-
-    expect(updated.memory.embeddings.provider).toBe("local");
-    expect(updated.memory.qdrant.vectorSize).toBe(384);
+    expect(config.memory.qdrant.vectorSize).toBe(384);
   });
 
-  test("does NOT apply when provider is explicitly set to openai", async () => {
+  test("does NOT apply when provider is explicitly set to openai", () => {
     writeConfig({
       memory: { embeddings: { provider: "openai" } },
     });
 
     featureFlagEnabled = true;
-    proxyEnabled = true;
+    process.env.IS_PLATFORM = "true";
 
     const config = loadConfig();
-    const updated = await applyManagedGeminiDefaults(config);
-
-    expect(updated.memory.embeddings.provider).toBe("openai");
+    expect(config.memory.embeddings.provider).toBe("openai");
   });
 
-  test("does NOT apply when provider is explicitly set to gemini", async () => {
+  test("does NOT apply when provider is explicitly set to gemini", () => {
     writeConfig({
       memory: {
         embeddings: { provider: "gemini", geminiDimensions: 768 },
@@ -248,58 +223,51 @@ describe("applyManagedGeminiDefaults", () => {
     });
 
     featureFlagEnabled = true;
-    proxyEnabled = true;
+    process.env.IS_PLATFORM = "true";
 
     const config = loadConfig();
-    const updated = await applyManagedGeminiDefaults(config);
 
     // Already gemini — should not overwrite user's custom dimensions
-    expect(updated.memory.embeddings.provider).toBe("gemini");
-    expect(updated.memory.embeddings.geminiDimensions).toBe(768);
-    expect(updated.memory.qdrant.vectorSize).toBe(768);
+    expect(config.memory.embeddings.provider).toBe("gemini");
+    expect(config.memory.embeddings.geminiDimensions).toBe(768);
+    expect(config.memory.qdrant.vectorSize).toBe(768);
   });
 
-  test("does NOT apply when provider is explicitly set to ollama", async () => {
+  test("does NOT apply when provider is explicitly set to ollama", () => {
     writeConfig({
       memory: { embeddings: { provider: "ollama" } },
     });
 
     featureFlagEnabled = true;
-    proxyEnabled = true;
+    process.env.IS_PLATFORM = "true";
 
     const config = loadConfig();
-    const updated = await applyManagedGeminiDefaults(config);
-
-    expect(updated.memory.embeddings.provider).toBe("ollama");
+    expect(config.memory.embeddings.provider).toBe("ollama");
   });
 
-  test("is idempotent — second call is a no-op after migration", async () => {
+  test("is idempotent — second loadConfig is a no-op after migration", () => {
     writeConfig({});
 
     featureFlagEnabled = true;
-    proxyEnabled = true;
+    process.env.IS_PLATFORM = "true";
 
     const config = loadConfig();
-    const updated = await applyManagedGeminiDefaults(config);
-    expect(updated.memory.embeddings.provider).toBe("gemini");
+    expect(config.memory.embeddings.provider).toBe("gemini");
 
     // Read file content after first migration
     const contentAfterFirst = readFileSync(CONFIG_PATH, "utf-8");
 
-    // Second call — provider is now "gemini", not "auto", so no-op
+    // Second call — provider is now "gemini", not "auto", so migration skipped
     invalidateConfigCache();
     const config2 = loadConfig();
     expect(config2.memory.embeddings.provider).toBe("gemini");
-
-    const updated2 = await applyManagedGeminiDefaults(config2);
-    expect(updated2.memory.embeddings.provider).toBe("gemini");
 
     // File on disk should not have changed
     const contentAfterSecond = readFileSync(CONFIG_PATH, "utf-8");
     expect(contentAfterSecond).toBe(contentAfterFirst);
   });
 
-  test("preserves existing config values while setting managed defaults", async () => {
+  test("preserves existing config values while setting managed defaults", () => {
     writeConfig({
       provider: "anthropic",
       model: "claude-opus-4-6",
@@ -310,17 +278,16 @@ describe("applyManagedGeminiDefaults", () => {
     });
 
     featureFlagEnabled = true;
-    proxyEnabled = true;
+    process.env.IS_PLATFORM = "true";
 
     const config = loadConfig();
-    const updated = await applyManagedGeminiDefaults(config);
 
     // Managed defaults applied
-    expect(updated.memory.embeddings.provider).toBe("gemini");
-    expect(updated.memory.embeddings.geminiModel).toBe(
+    expect(config.memory.embeddings.provider).toBe("gemini");
+    expect(config.memory.embeddings.geminiModel).toBe(
       "gemini-embedding-2-preview",
     );
-    expect(updated.memory.qdrant.vectorSize).toBe(3072);
+    expect(config.memory.qdrant.vectorSize).toBe(3072);
 
     // Existing values preserved
     const raw = readConfig();
@@ -333,16 +300,27 @@ describe("applyManagedGeminiDefaults", () => {
     expect(qdrantRaw.onDisk).toBe(false);
   });
 
-  test("does NOT apply when both FF off and proxy unavailable", async () => {
+  test("does NOT apply when both FF off and IS_PLATFORM not set", () => {
     writeConfig({});
 
     featureFlagEnabled = false;
-    proxyEnabled = false;
+    delete process.env.IS_PLATFORM;
 
     const config = loadConfig();
-    const updated = await applyManagedGeminiDefaults(config);
 
-    expect(updated.memory.embeddings.provider).toBe("auto");
-    expect(updated.memory.qdrant.vectorSize).toBe(384);
+    expect(config.memory.embeddings.provider).toBe("auto");
+    expect(config.memory.qdrant.vectorSize).toBe(384);
+  });
+
+  test("applies when IS_PLATFORM is '1'", () => {
+    writeConfig({});
+
+    featureFlagEnabled = true;
+    process.env.IS_PLATFORM = "1";
+
+    const config = loadConfig();
+
+    expect(config.memory.embeddings.provider).toBe("gemini");
+    expect(config.memory.embeddings.geminiDimensions).toBe(3072);
   });
 });

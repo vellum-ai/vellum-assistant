@@ -15,11 +15,7 @@ import {
   setIngressPublicBaseUrl,
   validateEnv,
 } from "../config/env.js";
-import {
-  applyManagedGeminiDefaults,
-  loadConfig,
-  mergeDefaultWorkspaceConfig,
-} from "../config/loader.js";
+import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { createCesClient } from "../credential-execution/client.js";
@@ -520,19 +516,7 @@ export async function runDaemon(): Promise<void> {
     mergeDefaultWorkspaceConfig();
 
     log.info("Daemon startup: loading config");
-    let config = loadConfig();
-
-    // Apply managed Gemini embedding defaults for platform assistants.
-    // Must run after loadConfig() and before Qdrant init so the updated
-    // vectorSize is picked up by ensureCollection().
-    try {
-      config = await applyManagedGeminiDefaults(config);
-    } catch (err) {
-      log.warn(
-        { err },
-        "Managed Gemini defaults migration failed — continuing with existing config",
-      );
-    }
+    const config = loadConfig();
 
     // Seed module-level ingress state from the workspace config so that
     // getIngressPublicBaseUrl() returns the correct value immediately after

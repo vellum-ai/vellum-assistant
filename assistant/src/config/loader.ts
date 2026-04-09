@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import { ConfigError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { ensureDataDir, getWorkspaceConfigPath } from "../util/platform.js";
+import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import { AssistantConfigSchema } from "./schema.js";
 import type { AssistantConfig } from "./types.js";
 
@@ -385,7 +386,46 @@ export function loadConfig(): AssistantConfig {
     warnAndStripDeprecatedFields(fileConfig, configPath);
 
     // Validate and apply defaults via Zod schema
-    const config = validateWithSchema(fileConfig);
+    let config = validateWithSchema(fileConfig);
+
+    // Managed Gemini embedding defaults migration.
+    // When on a managed platform (IS_PLATFORM=true) with the feature flag
+    // enabled and no explicit embedding provider chosen (provider=auto),
+    // persist Gemini embedding defaults into the raw config file.
+    // Idempotent: once provider=gemini is written, subsequent loads skip this.
+    if (config.memory.embeddings.provider === "auto") {
+      try {
+        if (
+          (process.env.IS_PLATFORM === "true" ||
+            process.env.IS_PLATFORM === "1") &&
+          isManagedGeminiFFEnabled(config)
+        ) {
+          setNestedValue(fileConfig, "memory.embeddings.provider", "gemini");
+          setNestedValue(
+            fileConfig,
+            "memory.embeddings.geminiModel",
+            "gemini-embedding-2-preview",
+          );
+          setNestedValue(
+            fileConfig,
+            "memory.embeddings.geminiDimensions",
+            3072,
+          );
+          setNestedValue(fileConfig, "memory.qdrant.vectorSize", 3072);
+          writeFileSync(configPath, JSON.stringify(fileConfig, null, 2) + "\n");
+          log.info(
+            "Applied managed Gemini embedding defaults (provider=gemini, model=gemini-embedding-2-preview, dimensions=3072, vectorSize=3072)",
+          );
+          // Re-validate so the returned config reflects the migration.
+          config = validateWithSchema(fileConfig);
+        }
+      } catch (err) {
+        log.warn(
+          { err },
+          "Managed Gemini defaults migration failed — continuing with existing config",
+        );
+      }
+    }
 
     // If the config file didn't exist, write the full defaults to disk so
     // users can discover and edit all available options.
@@ -422,65 +462,18 @@ export function loadConfig(): AssistantConfig {
 }
 
 /**
- * Managed Gemini embedding defaults migration.
- *
- * When ALL of the following are true, persists Gemini embedding defaults
- * into the workspace config file and reloads the cached config:
- *   1. The `managed-gemini-embeddings-enabled` feature flag is ON
- *   2. Managed proxy prerequisites are satisfied (platform URL + API key)
- *   3. `memory.embeddings.provider` is `auto` (the schema default)
- *
- * Explicit provider selections (local, openai, gemini, ollama) are never
- * touched. The function is idempotent — once the config has provider=gemini
- * persisted, subsequent calls are no-ops (provider !== "auto").
- *
- * Must be called AFTER loadConfig() so the cached config is available, and
- * BEFORE Qdrant initialization so the updated vectorSize is picked up by
- * ensureCollection() (which already handles dimension-mismatch recreation
- * and enqueues rebuild_index).
+ * Check whether the managed-gemini-embeddings-enabled feature flag is on.
+ * Wrapped in a try/catch so a flag-resolver failure never breaks config loading.
  */
-export async function applyManagedGeminiDefaults(
-  config: AssistantConfig,
-): Promise<AssistantConfig> {
-  // Only migrate when provider is still the "auto" default.
-  if (config.memory.embeddings.provider !== "auto") {
-    return config;
+function isManagedGeminiFFEnabled(config: AssistantConfig): boolean {
+  try {
+    return isAssistantFeatureFlagEnabled(
+      "managed-gemini-embeddings-enabled",
+      config,
+    );
+  } catch {
+    return false;
   }
-
-  // Lazy-import to avoid circular dependencies at module load time.
-  const { isAssistantFeatureFlagEnabled } =
-    await import("./assistant-feature-flags.js");
-  if (
-    !isAssistantFeatureFlagEnabled("managed-gemini-embeddings-enabled", config)
-  ) {
-    return config;
-  }
-
-  const { resolveManagedProxyContext } =
-    await import("../providers/managed-proxy/context.js");
-  const proxyCtx = await resolveManagedProxyContext();
-  if (!proxyCtx.enabled) {
-    return config;
-  }
-
-  // All prerequisites met — persist managed Gemini embedding defaults.
-  const raw = loadRawConfig();
-  setNestedValue(raw, "memory.embeddings.provider", "gemini");
-  setNestedValue(
-    raw,
-    "memory.embeddings.geminiModel",
-    "gemini-embedding-2-preview",
-  );
-  setNestedValue(raw, "memory.embeddings.geminiDimensions", 3072);
-  setNestedValue(raw, "memory.qdrant.vectorSize", 3072);
-  saveRawConfig(raw);
-
-  log.info(
-    "Applied managed Gemini embedding defaults (provider=gemini, model=gemini-embedding-2-preview, dimensions=3072, vectorSize=3072)",
-  );
-
-  // Reload config so the caller (and Qdrant init) sees the updated values.
-  return loadConfig();
 }
 
 export function saveConfig(config: AssistantConfig): void {

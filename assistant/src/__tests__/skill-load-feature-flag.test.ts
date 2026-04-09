@@ -41,7 +41,6 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => {},
   deepMergeOverwrite: (a: unknown) => a,
   mergeDefaultWorkspaceConfig: () => {},
-  applyManagedGeminiDefaults: async (c: unknown) => c,
   API_KEY_PROVIDERS: [
     "anthropic",
     "openai",
