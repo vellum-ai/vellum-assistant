@@ -416,8 +416,8 @@ bundle_kata_kernel() {
 if [ -z "${VELLUM_ENVIRONMENT:-}" ]; then
     case "$CMD" in
         test)                          VELLUM_ENVIRONMENT="test" ;;
-        run)                           VELLUM_ENVIRONMENT="dev" ;;
-        release|release-application)   VELLUM_ENVIRONMENT="production" ;;
+        run)                           VELLUM_ENVIRONMENT="local" ;;
+        release|release-application)   VELLUM_ENVIRONMENT="staging" ;;
         *)                             VELLUM_ENVIRONMENT="local" ;;
     esac
 fi

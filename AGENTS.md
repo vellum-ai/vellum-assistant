@@ -199,13 +199,13 @@ When making changes that could affect the cloud platform, review the sibling `..
 
 The `VELLUM_ENVIRONMENT` environment variable identifies the runtime environment for all clients (macOS, iOS, CLI). It is embedded into the app bundle's `LSEnvironment` (Info.plist) at build time by each platform's `build.sh`.
 
-| Value | When | Use cases |
-|---|---|---|
-| `local` | `./build.sh` (debug build, no platform) | Enable developer-only features (e.g. build images from local source, verbose logging) |
-| `dev` | `./build.sh run` (local dev against dev platform) | Same as `local` but connected to the dev platform; skip production guards |
-| `test` | `./build.sh test` (unit/integration tests) | Stub external services, use test fixtures |
-| `staging` | Release build with `VELLUM_ENVIRONMENT=staging` | QA against staging platform before production rollout |
-| `production` | `./build.sh release` (default for release builds) | Full production behavior, no developer shortcuts |
+| Value | Use cases |
+|---|---|
+| `local` | Always built from local source code. Enable developer-only features (e.g. build container images from local source, verbose logging). |
+| `dev` | Artifacts generated from `main`. Connected to the dev platform; skip production guards. |
+| `test` | Stub external services, use test fixtures. |
+| `staging` | QA against staging platform before production rollout. Default for release branch builds. |
+| `production` | Full production behavior, no developer shortcuts. Set explicitly for final production releases. |
 
 **Defaults**: `build.sh` sets the value automatically based on the build command. CI and developers can override it by exporting `VELLUM_ENVIRONMENT` before invoking the build script — the explicit value takes precedence.
 
