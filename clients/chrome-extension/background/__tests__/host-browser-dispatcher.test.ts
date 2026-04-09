@@ -794,10 +794,10 @@ describe('createHostBrowserDispatcher', () => {
       releaseResolve();
       await handlePromise;
 
-      // Post-handler cancel must also be a no-op (nothing in flight,
-      // the cancelled-set entry has been pruned by handle()'s finally
-      // block, but adding it back is harmless because it will be
-      // deleted again at the start of the next handle() for the same id).
+      // Post-handler cancel must also be a no-op: cancel() only records
+      // markers for requests currently in `inFlight`, and the previous
+      // handler has already unwound and removed its entry, so this
+      // third cancel short-circuits without touching cancelledRequestIds.
       expect(() => harness.dispatcher.cancel(cancelEnvelope)).not.toThrow();
 
       expect(harness.results.length).toBe(0);

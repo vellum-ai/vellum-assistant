@@ -180,11 +180,18 @@ export function createHostBrowserDispatcher(
   // Track request IDs that were cancelled while in flight so we can
   // suppress the late `postResult` call when the underlying CDP command
   // eventually settles. This is the core deterministic-cancel guarantee:
-  // once the daemon has told us a request is cancelled, we must never
-  // deliver a result frame for it — otherwise the daemon can see a
-  // "ghost completion" after it has already returned `"Aborted"` to its
-  // caller. The set is pruned in `handle()`'s finally block so it can't
-  // grow unbounded across long-running dispatcher lifetimes.
+  // once the daemon has told us an in-flight request is cancelled, we
+  // must never deliver a result frame for it — otherwise the daemon can
+  // see a "ghost completion" after it has already returned `"Aborted"`
+  // to its caller.
+  //
+  // Invariant: entries are only added by `cancel()` when the requestId
+  // is currently present in `inFlight`, and they are always pruned in
+  // `handle()`'s finally block once the handler unwinds. Together these
+  // bound the set size to at most the current in-flight count, so the
+  // set cannot grow unbounded across long-running service-worker
+  // lifetimes even under duplicate/late cancel churn around relay
+  // reconnects.
   const cancelledRequestIds = new Set<string>();
   // Track which targets we've already attached to so repeat commands
   // against the same tab/session don't unnecessarily call attach again.
@@ -265,14 +272,13 @@ export function createHostBrowserDispatcher(
 
   async function handle(envelope: HostBrowserRequestEnvelope): Promise<void> {
     const { requestId } = envelope;
-    // Guard against re-entrant delivery of the same request id: if the
-    // caller hands us the same id twice (or delivers a duplicate frame
-    // across a relay reconnect), the second `handle()` invocation should
-    // not be silently treated as "already cancelled" just because a
-    // previous attempt was aborted. Clear any stale cancel marker at the
-    // start of each new handle so the cancellation state is scoped to
-    // the lifetime of a single handle() call.
-    cancelledRequestIds.delete(requestId);
+    // Re-entrant delivery of the same request id (e.g. a duplicate frame
+    // across a relay reconnect after a previous handle() was cancelled)
+    // is naturally safe without a stale-marker delete here: `cancel()`
+    // only records cancellations for requests currently in `inFlight`,
+    // and the finally block below prunes the entry before the handler
+    // returns, so by the time a retry reaches this point no leftover
+    // marker can exist for this requestId.
     const abort = new AbortController();
     inFlight.set(requestId, abort);
     try {
@@ -332,9 +338,9 @@ export function createHostBrowserDispatcher(
       // Deterministic-cancel guarantee: if the request was cancelled
       // while we were awaiting the CDP round-trip, drop the late result
       // on the floor. The daemon has already resolved its pending entry
-      // with `"Aborted"` (see host-browser-proxy.ts) and would log a
-      // noisy "no pending host browser request for response" warning if
-      // we delivered a stale frame after the fact.
+      // with `"Aborted"` (see host-browser-proxy.ts), so delivering a
+      // frame here would be a ghost completion against an entry that
+      // no longer exists.
       if (cancelledRequestIds.has(requestId)) return;
       await deps.postResult({
         requestId,
@@ -366,40 +372,52 @@ export function createHostBrowserDispatcher(
       }
     } finally {
       inFlight.delete(requestId);
-      // Prune the cancelled set once the handle() call has fully
+      // Prune the cancelled marker once the handle() call has fully
       // unwound. Leaving the entry in place would silently drop the
-      // result of a *subsequent* handle() for the same requestId — see
-      // the `cancelledRequestIds.delete(requestId)` call at the top of
-      // this function for the symmetric guard at the start of a new
-      // call. Deleting it here keeps the set bounded even under
-      // high-churn workloads.
+      // result of a *subsequent* handle() for the same requestId (e.g.
+      // a retry across a relay reconnect). Deleting it here is the
+      // symmetric counterpart to the `cancel()` guard that only adds
+      // markers for in-flight requests, and together they bound
+      // `cancelledRequestIds` by the current in-flight count.
       cancelledRequestIds.delete(requestId);
     }
   }
 
   function cancel(envelope: HostBrowserCancelEnvelope): void {
     const { requestId } = envelope;
+    // Cancellations only apply to requests that are currently in flight.
+    // This matches the daemon-side protocol (see host-browser-proxy.ts),
+    // which only emits `host_browser_cancel` for a requestId while its
+    // pending entry is still live — a cancel that races with a completed
+    // handler, a duplicate cancel after a relay reconnect, or a cancel
+    // for an id this dispatcher has never seen are all safe no-ops.
+    //
+    // Recording the cancelled marker only for in-flight requests keeps
+    // `cancelledRequestIds` bounded by the current in-flight count and
+    // prevents unbounded growth in long-lived service workers when
+    // duplicate/late cancels accumulate across reconnects. Non-in-flight
+    // cancels have nothing to suppress anyway, so there is no behavioural
+    // difference from the caller's point of view.
+    const ctl = inFlight.get(requestId);
+    if (!ctl) return;
     // Record the cancellation BEFORE aborting so that any listener on
     // the abort signal that races to post a result sees the cancelled
     // flag first. The suppression check in `handle()` reads from this
     // set, not from the abort signal, specifically to close the race
     // between "cancel arrives after proxy.send resolves" and "handle()
     // reaches its postResult call". Marking here also makes cancel()
-    // idempotent: a repeat cancel for the same id is a no-op because
-    // the set already contains the entry and `abort()` on an
-    // already-aborted controller is safe.
+    // idempotent within the in-flight window: a repeat cancel for the
+    // same id is a no-op because the set already contains the entry and
+    // the controller has already been removed from `inFlight`.
     cancelledRequestIds.add(requestId);
-    const ctl = inFlight.get(requestId);
-    if (ctl) {
-      try {
-        ctl.abort();
-      } catch {
-        // AbortController.abort() is spec'd to never throw, but we
-        // belt-and-brace here so a pathological polyfill can't derail
-        // the cancel path and leave inFlight in an inconsistent state.
-      }
-      inFlight.delete(requestId);
+    try {
+      ctl.abort();
+    } catch {
+      // AbortController.abort() is spec'd to never throw, but we
+      // belt-and-brace here so a pathological polyfill can't derail
+      // the cancel path and leave inFlight in an inconsistent state.
     }
+    inFlight.delete(requestId);
   }
 
   function dispose(): void {
