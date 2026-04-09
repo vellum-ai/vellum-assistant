@@ -125,6 +125,9 @@ struct SettingsDeveloperTab: View {
                 ToolPermissionTesterView(model: model)
             }
 
+            // Browser backend (cdp-inspect host Chrome)
+            browserBackendSection
+
             // Feature Flags
             featureFlagSection
             // Environment Variables
@@ -887,6 +890,17 @@ struct SettingsDeveloperTab: View {
             withAnimation {
                 if revokeApiKeyStatus == message { revokeApiKeyStatus = nil }
             }
+        }
+    }
+
+    // MARK: - Browser Backend (cdp-inspect)
+
+    private var browserBackendSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Browser backend")
+                .font(VFont.titleSmall)
+                .foregroundStyle(VColor.contentEmphasized)
+            BrowserBackendCard(store: store)
         }
     }
 

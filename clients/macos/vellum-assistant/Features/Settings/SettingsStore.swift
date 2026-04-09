@@ -278,6 +278,31 @@ public final class SettingsStore: ObservableObject {
     /// view layer can defer diagnostics until the real config values are available.
     @Published var ingressConfigLoaded: Bool = false
 
+    // MARK: - Host Browser (CDP Inspect) State
+
+    /// Whether the cdp-inspect host-browser backend is enabled.
+    ///
+    /// When true, the browser-session manager probes the configured
+    /// `hostBrowserCdpInspectHost`/`hostBrowserCdpInspectPort` for a running
+    /// Chrome instance exposing `--remote-debugging-port` before falling
+    /// back to the local Playwright backend.
+    @Published var hostBrowserCdpInspectEnabled: Bool = false
+
+    /// Host name or IP address for the host Chrome remote-debugging endpoint.
+    ///
+    /// Only loopback values are accepted (`localhost`, `127.0.0.1`, `::1`,
+    /// `[::1]`) to prevent remote attach attempts.
+    @Published var hostBrowserCdpInspectHost: String = "localhost"
+
+    /// TCP port for the host Chrome remote-debugging endpoint.
+    ///
+    /// Must be in the range `1...65535`.
+    @Published var hostBrowserCdpInspectPort: Int = 9222
+
+    /// Timeout (in milliseconds) for the backend availability probe.
+    /// Defaults to `500` and is preserved verbatim from the fetched config.
+    @Published var hostBrowserCdpInspectProbeTimeoutMs: Int = 500
+
     // MARK: - Connection Health Check State
 
     @Published var gatewayReachable: Bool?
@@ -3298,6 +3323,8 @@ public final class SettingsStore: ObservableObject {
             self.webSearchProvider = provider
         }
 
+        Self.applyHostBrowserCdpInspectConfig(config, into: self)
+
         loadServiceModes(config: config)
 
         // Persist enabledSince when it was defaulted so subsequent loads
@@ -3317,6 +3344,122 @@ public final class SettingsStore: ObservableObject {
             return nil
         }
         return canonicalizeTimeZoneIdentifier(trimmed)
+    }
+
+    // MARK: - Host Browser (CDP Inspect) Loading
+
+    /// Loopback hostnames accepted by the cdp-inspect backend. Non-loopback
+    /// values are rejected at the UI layer to prevent remote attach.
+    static let hostBrowserCdpInspectAllowedHosts: Set<String> = [
+        "localhost",
+        "127.0.0.1",
+        "::1",
+        "[::1]",
+    ]
+
+    /// Returns `true` when `host` is one of the accepted loopback addresses
+    /// for the cdp-inspect backend.
+    static func isValidHostBrowserCdpInspectHost(_ host: String) -> Bool {
+        let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return hostBrowserCdpInspectAllowedHosts.contains(trimmed)
+    }
+
+    /// Returns `true` when `port` is within the valid TCP port range.
+    static func isValidHostBrowserCdpInspectPort(_ port: Int) -> Bool {
+        return (1...65535).contains(port)
+    }
+
+    /// Reads `hostBrowser.cdpInspect.{enabled,host,port,probeTimeoutMs}` from
+    /// the workspace config and copies the values into `store`. Missing keys
+    /// leave the existing values untouched so the defaults set in the
+    /// property declarations apply.
+    private static func applyHostBrowserCdpInspectConfig(
+        _ config: [String: Any],
+        into store: SettingsStore
+    ) {
+        guard let hostBrowser = config["hostBrowser"] as? [String: Any],
+              let cdpInspect = hostBrowser["cdpInspect"] as? [String: Any] else {
+            return
+        }
+        if let enabled = cdpInspect["enabled"] as? Bool {
+            store.hostBrowserCdpInspectEnabled = enabled
+        }
+        if let host = cdpInspect["host"] as? String, !host.isEmpty {
+            store.hostBrowserCdpInspectHost = host
+        }
+        if let port = cdpInspect["port"] as? Int {
+            store.hostBrowserCdpInspectPort = port
+        } else if let portDouble = cdpInspect["port"] as? Double {
+            // JSONSerialization may surface integral numbers as Double.
+            store.hostBrowserCdpInspectPort = Int(portDouble)
+        }
+        if let probeTimeout = cdpInspect["probeTimeoutMs"] as? Int {
+            store.hostBrowserCdpInspectProbeTimeoutMs = probeTimeout
+        } else if let probeTimeoutDouble = cdpInspect["probeTimeoutMs"] as? Double {
+            store.hostBrowserCdpInspectProbeTimeoutMs = Int(probeTimeoutDouble)
+        }
+    }
+
+    // MARK: - Host Browser (CDP Inspect) Actions
+
+    /// Persists the cdp-inspect enable flag by patching
+    /// `hostBrowser.cdpInspect.enabled` on the workspace config.
+    ///
+    /// The local `@Published` value is updated optimistically before the
+    /// patch completes so the UI reflects the new state immediately.
+    @discardableResult
+    func setHostBrowserCdpInspectEnabled(_ enabled: Bool) -> Task<Bool, Never> {
+        hostBrowserCdpInspectEnabled = enabled
+        return Task {
+            let success = await settingsClient.patchConfig([
+                "hostBrowser": ["cdpInspect": ["enabled": enabled]]
+            ])
+            if !success {
+                log.error("Failed to patch config for hostBrowser.cdpInspect.enabled")
+            }
+            return success
+        }
+    }
+
+    /// Persists the cdp-inspect host override by patching
+    /// `hostBrowser.cdpInspect.host`. Returns an error string and does not
+    /// emit a patch when `host` is not one of the accepted loopback values.
+    @discardableResult
+    func setHostBrowserCdpInspectHost(_ host: String) -> String? {
+        let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Self.isValidHostBrowserCdpInspectHost(trimmed) else {
+            return "Only loopback hosts are allowed (localhost, 127.0.0.1, ::1, [::1])."
+        }
+        hostBrowserCdpInspectHost = trimmed
+        Task {
+            let success = await settingsClient.patchConfig([
+                "hostBrowser": ["cdpInspect": ["host": trimmed]]
+            ])
+            if !success {
+                log.error("Failed to patch config for hostBrowser.cdpInspect.host")
+            }
+        }
+        return nil
+    }
+
+    /// Persists the cdp-inspect port override by patching
+    /// `hostBrowser.cdpInspect.port`. Returns an error string and does not
+    /// emit a patch when `port` is outside the valid TCP range.
+    @discardableResult
+    func setHostBrowserCdpInspectPort(_ port: Int) -> String? {
+        guard Self.isValidHostBrowserCdpInspectPort(port) else {
+            return "Port must be between 1 and 65535."
+        }
+        hostBrowserCdpInspectPort = port
+        Task {
+            let success = await settingsClient.patchConfig([
+                "hostBrowser": ["cdpInspect": ["port": port]]
+            ])
+            if !success {
+                log.error("Failed to patch config for hostBrowser.cdpInspect.port")
+            }
+        }
+        return nil
     }
 
 }
