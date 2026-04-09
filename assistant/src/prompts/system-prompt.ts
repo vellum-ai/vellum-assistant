@@ -8,8 +8,8 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-import { loadConfig } from "../config/loader.js";
 import { getIsContainerized } from "../config/env-registry.js";
+import { loadConfig } from "../config/loader.js";
 import { listConnections } from "../oauth/oauth-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
