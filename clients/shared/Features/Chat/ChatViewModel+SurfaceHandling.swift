@@ -232,33 +232,56 @@ extension ChatViewModel {
 
     /// Ingest attachments from a completion/handoff event into the given (or current) assistant message.
     ///
+    /// Attachments are appended **synchronously** (preserving the contract that
+    /// callers see them on the message immediately after this call returns).
+    /// The CPU-intensive thumbnail generation runs in a background Task and
+    /// replaces the lightweight attachment structs when complete.
+    ///
     /// `targetMessageId` is the assistant message that should receive the attachments.
-    /// Callers capture `currentAssistantMessageId` **before** clearing turn state so
-    /// the CPU-intensive thumbnail work can run in a fire-and-forget Task without
-    /// racing with subsequent SSE events that reset `currentAssistantMessageId`.
+    /// Callers capture `currentAssistantMessageId` **before** clearing turn state.
     func ingestAssistantAttachments(
         _ attachments: [UserMessageAttachment]?,
         targetMessageId: UUID?,
         daemonMessageId: String? = nil
-    ) async {
+    ) {
         guard let attachments, !attachments.isEmpty else { return }
-        let chatAttachments = await mapMessageAttachments(attachments)
-        guard !chatAttachments.isEmpty else { return }
 
+        // Phase 1: create attachments synchronously WITHOUT thumbnails.
+        let lightAttachments = HistoryReconstructionService.mapMessageAttachmentsStatic(
+            attachments, includeThumbnails: false
+        )
+        guard !lightAttachments.isEmpty else { return }
+
+        var resolvedMessageId: UUID?
         if let existingId = targetMessageId,
            let index = messages.firstIndex(where: { $0.id == existingId }) {
-            messages[index].attachments.append(contentsOf: chatAttachments)
+            messages[index].attachments.append(contentsOf: lightAttachments)
+            resolvedMessageId = existingId
         } else if targetMessageId == nil {
             // No target — create a standalone attachment message (e.g. attachment-only completion/handoff).
             // Backfill the daemon message ID so fork, inspect, TTS, and other
             // daemon-anchored actions work without a history reload.
-            var msg = ChatMessage(role: .assistant, text: "", attachments: chatAttachments)
+            var msg = ChatMessage(role: .assistant, text: "", attachments: lightAttachments)
             msg.daemonMessageId = daemonMessageId
+            resolvedMessageId = msg.id
             messages.append(msg)
         }
         // If targetMessageId was set but the message was not found (e.g. messages
         // array replaced by a concurrent populateFromHistory), silently drop the
         // attachments rather than creating an orphan message.
+
+        // Phase 2: generate thumbnails on a background thread and replace the
+        // lightweight attachment structs with full versions that include thumbnails.
+        guard let msgId = resolvedMessageId else { return }
+        Task {
+            let fullAttachments = await mapMessageAttachments(attachments)
+            guard let idx = self.messages.firstIndex(where: { $0.id == msgId }) else { return }
+            for full in fullAttachments {
+                if let aIdx = self.messages[idx].attachments.firstIndex(where: { $0.id == full.id }) {
+                    self.messages[idx].attachments[aIdx] = full
+                }
+            }
+        }
     }
 
     /// Ingest attachment warnings from a completion/handoff event into the

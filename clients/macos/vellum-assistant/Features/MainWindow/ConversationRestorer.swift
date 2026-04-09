@@ -377,7 +377,7 @@ final class ConversationRestorer {
     }
 
     func handleHistoryResponse(_ response: HistoryResponse) {
-        guard let localId = pendingHistoryByConversationId.removeValue(forKey: response.conversationId) else { return }
+        guard let localId = pendingHistoryByConversationId[response.conversationId] else { return }
         guard let viewModel = delegate?.chatViewModel(for: localId) else { return }
 
         // Determine whether this is a pagination load (older page) vs an initial
@@ -387,14 +387,18 @@ final class ConversationRestorer {
 
         // populateFromHistory is async because it dispatches CPU-intensive
         // reconstruction (thumbnail generation, JSON estimation) to a background
-        // thread. The callback wiring below doesn't depend on completion.
-        Task {
+        // thread.  Remove from pendingHistory AFTER completion so that
+        // loadHistoryIfNeeded's guard prevents duplicate fetches during the
+        // deferred Task window.
+        let conversationId = response.conversationId
+        Task { [weak self] in
             await viewModel.populateFromHistory(
                 response.messages,
                 hasMore: response.hasMore,
                 oldestTimestamp: response.oldestTimestamp,
                 isPaginationLoad: isPaginationLoad
             )
+            self?.pendingHistoryByConversationId.removeValue(forKey: conversationId)
         }
 
         // Wire up the onLoadMoreHistory callback if not already set (e.g. for

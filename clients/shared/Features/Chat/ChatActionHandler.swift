@@ -445,14 +445,13 @@ final class ChatActionHandler {
             vm.refinementReceivedSurfaceUpdate = false
         }
         // Capture the assistant message ID before clearing turn state so that
-        // the async attachment ingestion (which runs thumbnail generation on a
-        // background thread) can target the correct message even after
-        // currentAssistantMessageId is nilled out below.  This keeps all
-        // synchronous state mutations in-order with the SSE dispatch loop.
+        // attachment ingestion targets the correct message even after
+        // currentAssistantMessageId is nilled out below.  Attachments are
+        // appended synchronously; only thumbnail generation runs in a
+        // background Task inside ingestAssistantAttachments.
         let capturedAssistantMessageId = vm.currentAssistantMessageId
-        if !wasRefinement, let attachments = complete.attachments, !attachments.isEmpty {
-            let dmId = complete.messageId
-            Task { await vm.ingestAssistantAttachments(attachments, targetMessageId: capturedAssistantMessageId, daemonMessageId: dmId) }
+        if !wasRefinement {
+            vm.ingestAssistantAttachments(complete.attachments, targetMessageId: capturedAssistantMessageId, daemonMessageId: complete.messageId)
         }
         if vm.pendingVoiceMessage {
             vm.pendingVoiceMessage = false
@@ -760,15 +759,11 @@ final class ChatActionHandler {
         vm.flushStreamingBuffer()
         vm.flushPartialOutputBuffer()
         // Capture the assistant message ID before clearing turn state so that
-        // the async attachment ingestion targets the correct message.
+        // attachment ingestion targets the correct message.  Attachments are
+        // appended synchronously; only thumbnail generation runs in a
+        // background Task inside ingestAssistantAttachments.
         let capturedAssistantMessageId = vm.currentAssistantMessageId
-        if let attachments = handoff.attachments, !attachments.isEmpty {
-            // Pass daemonMessageId so that attachment-only handoffs (where
-            // currentAssistantMessageId is nil and a new message is created)
-            // get the daemon ID backfilled inside the async Task.
-            let dmId = handoff.messageId
-            Task { await vm.ingestAssistantAttachments(attachments, targetMessageId: capturedAssistantMessageId, daemonMessageId: dmId) }
-        }
+        vm.ingestAssistantAttachments(handoff.attachments, targetMessageId: capturedAssistantMessageId, daemonMessageId: handoff.messageId)
         // Keep isSending = true — daemon is handing off to next queued message
         if let existingId = vm.currentAssistantMessageId,
            let index = vm.messages.firstIndex(where: { $0.id == existingId }) {

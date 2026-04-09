@@ -309,7 +309,17 @@ enum HistoryReconstructionService {
     // MARK: - Attachment mapping
 
     /// Map attachment DTOs to ChatAttachment values, generating thumbnails for images.
-    nonisolated static func mapMessageAttachmentsStatic(_ attachments: [UserMessageAttachment]) -> [ChatAttachment] {
+    /// Map attachment DTOs to `ChatAttachment` values.
+    ///
+    /// - Parameter includeThumbnails: When `true` (the default), CPU-intensive
+    ///   thumbnail generation (base64 decode + ImageIO resize) is performed
+    ///   inline.  Pass `false` to create lightweight attachment structs
+    ///   synchronously — callers can generate thumbnails later on a background
+    ///   thread and replace the structs via their stable `id`.
+    nonisolated static func mapMessageAttachmentsStatic(
+        _ attachments: [UserMessageAttachment],
+        includeThumbnails: Bool = true
+    ) -> [ChatAttachment] {
         attachments.compactMap { attachment in
             let id = attachment.id ?? UUID().uuidString
             let base64 = attachment.data
@@ -325,21 +335,23 @@ enum HistoryReconstructionService {
             #error("Unsupported platform")
             #endif
 
-            if attachment.mimeType.hasPrefix("image/"), !base64.isEmpty, let rawData = Data(base64Encoded: base64) {
-                thumbnailData = generateThumbnail(from: rawData, maxDimension: 800)
-                #if os(macOS)
-                thumbnailImage = thumbnailData.flatMap { NSImage(data: $0) }
-                #elseif os(iOS)
-                thumbnailImage = thumbnailData.flatMap { UIImage(data: $0) }
-                #endif
-            } else if let serverThumb = attachment.thumbnailData, !serverThumb.isEmpty,
-                      let thumbData = Data(base64Encoded: serverThumb) {
-                thumbnailData = thumbData
-                #if os(macOS)
-                thumbnailImage = NSImage(data: thumbData)
-                #elseif os(iOS)
-                thumbnailImage = UIImage(data: thumbData)
-                #endif
+            if includeThumbnails {
+                if attachment.mimeType.hasPrefix("image/"), !base64.isEmpty, let rawData = Data(base64Encoded: base64) {
+                    thumbnailData = generateThumbnail(from: rawData, maxDimension: 800)
+                    #if os(macOS)
+                    thumbnailImage = thumbnailData.flatMap { NSImage(data: $0) }
+                    #elseif os(iOS)
+                    thumbnailImage = thumbnailData.flatMap { UIImage(data: $0) }
+                    #endif
+                } else if let serverThumb = attachment.thumbnailData, !serverThumb.isEmpty,
+                          let thumbData = Data(base64Encoded: serverThumb) {
+                    thumbnailData = thumbData
+                    #if os(macOS)
+                    thumbnailImage = NSImage(data: thumbData)
+                    #elseif os(iOS)
+                    thumbnailImage = UIImage(data: thumbData)
+                    #endif
+                }
             }
 
             return ChatAttachment(
