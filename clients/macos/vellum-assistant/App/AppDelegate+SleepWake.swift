@@ -28,6 +28,12 @@ extension AppDelegate {
     /// - [didWakeNotification](https://developer.apple.com/documentation/appkit/nsworkspace/1524362-didwakenotification)
     /// - [makeFirstResponder(_:)](https://developer.apple.com/documentation/appkit/nswindow/1419366-makefirstresponder)
     func setupSleepWakeHandlers() {
+        // Remove any existing observers first. proceedToApp() can be
+        // called more than once in a single process (e.g. managed
+        // logout/switch resets hasSetupApp), so we must avoid leaking
+        // prior observer tokens.
+        tearDownSleepWakeHandlers()
+
         let center = NSWorkspace.shared.notificationCenter
 
         sleepObserver = center.addObserver(
