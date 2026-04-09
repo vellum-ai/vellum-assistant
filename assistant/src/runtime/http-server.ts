@@ -562,34 +562,7 @@ export class RuntimeHttpServer {
       },
     });
 
-    if (this.processMessage) {
-      const pm = this.processMessage;
-      const mintBt = () => mintDaemonDeliveryToken();
-      this.retrySweepTimer = setInterval(() => {
-        if (this.sweepInProgress) return;
-        this.sweepInProgress = true;
-        sweepFailedEvents(pm, mintBt).finally(() => {
-          this.sweepInProgress = false;
-        });
-      }, 30_000);
-    }
-
-    startGuardianExpirySweep(
-      getGatewayInternalBaseUrl(),
-      () => mintDaemonDeliveryToken(),
-      this.approvalCopyGenerator,
-    );
-    log.info("Guardian approval expiry sweep started");
-
-    startGuardianActionSweep(
-      getGatewayInternalBaseUrl(),
-      () => mintDaemonDeliveryToken(),
-      this.guardianActionCopyGenerator,
-    );
-    log.info("Guardian action expiry sweep started");
-
-    startCanonicalGuardianExpirySweep();
-    log.info("Canonical guardian request expiry sweep started");
+    this.startBackgroundSweeps();
 
     log.info(
       "Running in gateway-only ingress mode. Direct webhook routes disabled.",
@@ -625,6 +598,42 @@ export class RuntimeHttpServer {
     // runtime without inheriting the daemon's environment (e.g. the
     // chrome-extension native messaging helper, spawned by Chrome).
     this.writeRuntimePortFile(this.actualPort);
+  }
+
+  /**
+   * Start background sweep timers: retry sweep for failed channel events,
+   * guardian approval/action expiry sweeps, and canonical guardian expiry.
+   * Extracted from start() to allow future callers to defer sweep startup.
+   */
+  private startBackgroundSweeps(): void {
+    if (this.processMessage && !this.retrySweepTimer) {
+      const pm = this.processMessage;
+      const mintBt = () => mintDaemonDeliveryToken();
+      this.retrySweepTimer = setInterval(() => {
+        if (this.sweepInProgress) return;
+        this.sweepInProgress = true;
+        sweepFailedEvents(pm, mintBt).finally(() => {
+          this.sweepInProgress = false;
+        });
+      }, 30_000);
+    }
+
+    startGuardianExpirySweep(
+      getGatewayInternalBaseUrl(),
+      () => mintDaemonDeliveryToken(),
+      this.approvalCopyGenerator,
+    );
+    log.info("Guardian approval expiry sweep started");
+
+    startGuardianActionSweep(
+      getGatewayInternalBaseUrl(),
+      () => mintDaemonDeliveryToken(),
+      this.guardianActionCopyGenerator,
+    );
+    log.info("Guardian action expiry sweep started");
+
+    startCanonicalGuardianExpirySweep();
+    log.info("Canonical guardian request expiry sweep started");
   }
 
   /**
