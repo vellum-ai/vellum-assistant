@@ -248,9 +248,5 @@ Alternatives considered:
 - Playwright / `chrome --remote-debugging-port` in a sacrificial profile
   avoids the infobar but requires installing Chromium and is out-of-
   scope (Phase 5).
-- The assistant-local `cdp-inspect` backend attaches to an existing
-  Chrome instance via `chrome://inspect` / `--remote-debugging-port`
-  and avoids the per-tab debugger infobar entirely. It is implemented
-  and opt-in via `hostBrowser.cdpInspect.enabled`; see
-  [Browser Use — `cdp-inspect` Backend](./browser-use-cdp-inspect-backend.md)
-  for setup, security trade-offs, and troubleshooting.
+- Chrome 146+ `chrome://inspect` attach backend may offer a less
+  intrusive UX and is being tracked for Phase 4.
