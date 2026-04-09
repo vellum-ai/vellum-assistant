@@ -113,7 +113,6 @@ struct MessageListContentView: View, Equatable {
         }
         .frame(width: effectiveBubbleMaxWidth)
         .id("thinking-indicator")
-        .transition(.opacity)
     }
 
     @ViewBuilder
@@ -124,7 +123,6 @@ struct MessageListContentView: View, Equatable {
         )
         .frame(width: effectiveBubbleMaxWidth)
         .id("compacting-indicator")
-        .transition(.opacity)
     }
 
     @ViewBuilder
@@ -251,7 +249,6 @@ struct MessageListContentView: View, Equatable {
                     Spacer(minLength: 0)
                 }
                     .id("subagent-\(subagent.id)")
-                    .transition(.opacity)
             }
 
             if isUnanchoredThinking {
@@ -274,7 +271,6 @@ struct MessageListContentView: View, Equatable {
                 }
                 .frame(minHeight: turnMinHeight, alignment: .top)
                 .id("streaming-without-text-indicator")
-                .transition(.opacity)
             } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
                 VStack(spacing: 0) { compactingIndicatorRow() }
                     .frame(minHeight: turnMinHeight, alignment: .top)
