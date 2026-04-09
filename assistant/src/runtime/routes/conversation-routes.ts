@@ -813,6 +813,59 @@ function mergeToolResultsIntoAssistantMessages(
 
 // ── Consecutive assistant message merging ────────────────────────────
 
+/** Parse a message's JSON content into an array of content blocks. */
+function parseContentBlocks(content: string): unknown[] {
+  try {
+    const parsed = JSON.parse(content);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Append content blocks from a donor message onto a target block array.
+ * Parses the donor's JSON content and pushes each block into `target`.
+ */
+function appendContentBlocks(target: unknown[], donorContent: string): void {
+  try {
+    const parsed = JSON.parse(donorContent);
+    if (Array.isArray(parsed)) {
+      target.push(...parsed);
+    } else {
+      target.push(parsed);
+    }
+  } catch {
+    // Unparseable content — skip silently.
+  }
+}
+
+/**
+ * Promote metadata fields from a donor message to the surviving message
+ * when the survivor lacks them. Currently promotes `subagentNotification`.
+ * Returns a new MessageRow if promotion occurred, otherwise the original.
+ */
+function promoteMetadata(survivor: MessageRow, donor: MessageRow): MessageRow {
+  if (donor.metadata && survivor.metadata) {
+    try {
+      const survivorMeta = JSON.parse(survivor.metadata);
+      const donorMeta = JSON.parse(donor.metadata);
+      if (
+        !survivorMeta.subagentNotification &&
+        donorMeta.subagentNotification
+      ) {
+        survivorMeta.subagentNotification = donorMeta.subagentNotification;
+        return { ...survivor, metadata: JSON.stringify(survivorMeta) };
+      }
+    } catch {
+      // Malformed metadata — skip promotion.
+    }
+  } else if (donor.metadata && !survivor.metadata) {
+    return { ...survivor, metadata: donor.metadata };
+  }
+  return survivor;
+}
+
 /**
  * Merge consecutive assistant messages into a single message at query time.
  *
@@ -842,76 +895,40 @@ function mergeConsecutiveAssistantMessages(messages: MessageRow[]): {
   mergedIdMap: Map<string, string[]>;
 } {
   const result: MessageRow[] = [];
-  // Tracks parsed content for messages we're actively merging into.
-  // Key = index in `result`, value = parsed content blocks array.
+  // Key = index in `result`, value = accumulated content blocks.
   const pendingMerges = new Map<number, unknown[]>();
-  // Tracks all original message IDs that were merged into each target.
-  // Key = index in `result`, value = array of merged-away message IDs.
+  // Key = index in `result`, value = IDs of messages merged into the target.
   const mergedIds = new Map<number, string[]>();
 
   for (const msg of messages) {
-    if (msg.role === "assistant") {
-      const lastIdx = result.length - 1;
-      if (lastIdx >= 0 && result[lastIdx].role === "assistant") {
-        // Consecutive assistant message — merge into the previous one.
-        let ids = mergedIds.get(lastIdx);
-        if (!ids) {
-          ids = [];
-          mergedIds.set(lastIdx, ids);
-        }
-        ids.push(msg.id);
-        let targetContent = pendingMerges.get(lastIdx);
-        if (!targetContent) {
-          // First merge for this target — parse its existing content.
-          try {
-            const parsed = JSON.parse(result[lastIdx].content);
-            targetContent = Array.isArray(parsed) ? parsed : [parsed];
-          } catch {
-            targetContent = [];
-          }
-          pendingMerges.set(lastIdx, targetContent);
-        }
-        // Append this message's content blocks.
-        try {
-          const parsed = JSON.parse(msg.content);
-          if (Array.isArray(parsed)) {
-            targetContent.push(...parsed);
-          } else {
-            targetContent.push(parsed);
-          }
-        } catch {
-          // Unparseable content — skip silently.
-        }
-        // Promote metadata fields that the surviving message lacks.
-        if (msg.metadata && result[lastIdx].metadata) {
-          try {
-            const survivorMeta = JSON.parse(result[lastIdx].metadata!);
-            const donorMeta = JSON.parse(msg.metadata);
-            let promoted = false;
-            if (
-              !survivorMeta.subagentNotification &&
-              donorMeta.subagentNotification
-            ) {
-              survivorMeta.subagentNotification =
-                donorMeta.subagentNotification;
-              promoted = true;
-            }
-            if (promoted) {
-              result[lastIdx] = {
-                ...result[lastIdx],
-                metadata: JSON.stringify(survivorMeta),
-              };
-            }
-          } catch {
-            // Malformed metadata — skip promotion.
-          }
-        } else if (msg.metadata && !result[lastIdx].metadata) {
-          result[lastIdx] = { ...result[lastIdx], metadata: msg.metadata };
-        }
-        continue;
-      }
+    const lastIdx = result.length - 1;
+    const isConsecutiveAssistant =
+      msg.role === "assistant" &&
+      lastIdx >= 0 &&
+      result[lastIdx].role === "assistant";
+
+    if (!isConsecutiveAssistant) {
+      result.push(msg);
+      continue;
     }
-    result.push(msg);
+
+    // Track the donor message ID.
+    let ids = mergedIds.get(lastIdx);
+    if (!ids) {
+      ids = [];
+      mergedIds.set(lastIdx, ids);
+    }
+    ids.push(msg.id);
+
+    // Lazily parse the target's content on first merge.
+    let targetContent = pendingMerges.get(lastIdx);
+    if (!targetContent) {
+      targetContent = parseContentBlocks(result[lastIdx].content);
+      pendingMerges.set(lastIdx, targetContent);
+    }
+
+    appendContentBlocks(targetContent, msg.content);
+    result[lastIdx] = promoteMetadata(result[lastIdx], msg);
   }
 
   // Write back merged content for any messages that were targets.
