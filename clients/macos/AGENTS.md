@@ -105,7 +105,7 @@ CU execution dependencies are protocol-based for testability:
 ### Network Layer (`Network/`)
 
 All inference (both computer-use sessions and ambient analysis) goes through the assistant's HTTP API:
-- `GatewayHTTPClient` — stateless HTTP client (enum with static async methods). Must be `nonisolated`. See `clients/AGENTS.md` § "@MainActor Isolation Boundaries" and § "Networking: GatewayHTTPClient".
+- `GatewayHTTPClient` — stateless HTTP client (enum with static async methods). Naturally `nonisolated` since it has no mutable state. See `clients/AGENTS.md` § "Networking: GatewayHTTPClient".
 - `MessageTypes.swift` — Codable structs for HTTP request/response types: `host_cu_request`, `host_cu_result`, `cu_error`, `ambient_analyze`, `trace_event`, etc.
 - `Network/Generated/GeneratedAPITypes.swift` — Codable Swift types used for JSON serialization. Use these generated types directly in Swift code instead of hand-writing structs.
 
