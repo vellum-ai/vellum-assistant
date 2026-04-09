@@ -172,11 +172,11 @@ struct SettingsAppearanceTab: View {
                         }
                     } else {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Record", style: .outlined) {
+                            VButton(label: "Change", style: .outlined) {
                                 startRecording()
                             }
                             if !store.globalHotkeyShortcut.isEmpty {
-                                VButton(label: "Unbind", style: .outlined) {
+                                VButton(label: "Clear", style: .outlined) {
                                     store.globalHotkeyShortcut = ""
                                 }
                             }
@@ -212,11 +212,11 @@ struct SettingsAppearanceTab: View {
                         }
                     } else {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Record", style: .outlined) {
+                            VButton(label: "Change", style: .outlined) {
                                 startRecordingQuickInput()
                             }
                             if !store.quickInputHotkeyShortcut.isEmpty {
-                                VButton(label: "Unbind", style: .outlined) {
+                                VButton(label: "Clear", style: .outlined) {
                                     store.quickInputHotkeyShortcut = ""
                                     store.quickInputHotkeyKeyCode = 0
                                 }
@@ -244,11 +244,11 @@ struct SettingsAppearanceTab: View {
                     } else {
                         VShortcutTag(activator.kind != .none ? "Hold \(activator.displayName)" : "Disabled")
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Record", style: .outlined) {
+                            VButton(label: "Change", style: .outlined) {
                                 startRecordingVoiceInput()
                             }
                             if activator.kind != .none {
-                                VButton(label: "Unbind", style: .outlined) {
+                                VButton(label: "Clear", style: .outlined) {
                                     PTTActivator.off.store()
                                     PTTActivator.updateCache(.off)
                                     activationKey = "none"
@@ -280,11 +280,11 @@ struct SettingsAppearanceTab: View {
                         }
                     } else {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Record", style: .outlined) {
+                            VButton(label: "Change", style: .outlined) {
                                 startRecordingNewChat()
                             }
                             if !store.newChatShortcut.isEmpty {
-                                VButton(label: "Unbind", style: .outlined) {
+                                VButton(label: "Clear", style: .outlined) {
                                     store.newChatShortcut = ""
                                 }
                             }
@@ -313,11 +313,11 @@ struct SettingsAppearanceTab: View {
                         }
                     } else {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Record", style: .outlined) {
+                            VButton(label: "Change", style: .outlined) {
                                 startRecordingCurrentConversation()
                             }
                             if !store.currentConversationShortcut.isEmpty {
-                                VButton(label: "Unbind", style: .outlined) {
+                                VButton(label: "Clear", style: .outlined) {
                                     store.currentConversationShortcut = ""
                                 }
                             }
@@ -346,11 +346,11 @@ struct SettingsAppearanceTab: View {
                         }
                     } else {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Record", style: .outlined) {
+                            VButton(label: "Change", style: .outlined) {
                                 startRecordingSidebarToggle()
                             }
                             if !store.sidebarToggleShortcut.isEmpty {
-                                VButton(label: "Unbind", style: .outlined) {
+                                VButton(label: "Clear", style: .outlined) {
                                     store.sidebarToggleShortcut = ""
                                 }
                             }
@@ -379,11 +379,11 @@ struct SettingsAppearanceTab: View {
                         }
                     } else {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Record", style: .outlined) {
+                            VButton(label: "Change", style: .outlined) {
                                 startRecordingPopOut()
                             }
                             if !store.popOutShortcut.isEmpty {
-                                VButton(label: "Unbind", style: .outlined) {
+                                VButton(label: "Clear", style: .outlined) {
                                     store.popOutShortcut = ""
                                 }
                             }
