@@ -49,6 +49,12 @@ struct TranscriptRenderModel: Equatable {
 
     /// The active pending confirmation request ID, if any.
     let activePendingRequestId: String?
+
+    /// Whether the user's last message is still being processed (active
+    /// generation cycle). Used to gate the expanded min-height frame on
+    /// the last assistant cell so that idle conversations render at
+    /// natural height and don't push content above the viewport.
+    let isSending: Bool
 }
 
 // MARK: - Transcript Row Model

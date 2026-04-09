@@ -173,7 +173,8 @@ enum TranscriptProjector {
             hasMessages: !visibleMessages.isEmpty,
             hasUserMessage: hasUserMessage,
             hasActiveToolCall: hasActiveToolCall,
-            activePendingRequestId: activePendingRequestId
+            activePendingRequestId: activePendingRequestId,
+            isSending: isSending
         )
     }
 
