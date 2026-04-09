@@ -89,7 +89,7 @@ struct APIKeyEntryStepView: View {
 
     var body: some View {
         Text("Connect a Model Provider")
-            .font(VFont.displayLarge)
+            .font(VFont.titleLarge)
             .foregroundStyle(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
@@ -129,7 +129,7 @@ struct APIKeyEntryStepView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                VButton(label: "Start", style: .primary, isFullWidth: true, isDisabled: providerRequiresKey && apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                VButton(label: "Continue", style: .primary, isFullWidth: true, isDisabled: providerRequiresKey && apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                     saveAndHatch()
                 }
 
