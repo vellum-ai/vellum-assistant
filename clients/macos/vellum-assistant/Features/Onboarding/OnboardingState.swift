@@ -25,7 +25,7 @@ final class OnboardingState {
     private static let currentFlowVersion = 13
 
     var currentStep: Int = 0
-    var assistantName: String = "Velly"
+    var assistantName: String = RandomNameGenerator.generateInstanceName()
     var chosenKey: ActivationKey = .fn
 
     /// Whether the user explicitly skipped login during onboarding.
@@ -132,7 +132,7 @@ final class OnboardingState {
             } else {
                 currentStep = saved
             }
-            assistantName = UserDefaults.standard.string(forKey: "onboarding.name") ?? "Velly"
+            assistantName = UserDefaults.standard.string(forKey: "onboarding.name") ?? RandomNameGenerator.generateInstanceName()
             if let raw = UserDefaults.standard.string(forKey: "onboarding.key"),
                let key = ActivationKey(rawValue: raw) {
                 chosenKey = key
