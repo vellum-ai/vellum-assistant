@@ -255,8 +255,6 @@ enum LocalImageBuilder {
         process.standardOutput = pipe
         process.standardError = pipe
 
-        try process.run()
-
         // Drain the pipe on a detached task so the buffer never fills up.
         // Reading must happen concurrently with the process — if we wait
         // until the terminationHandler, Docker build output (which easily
@@ -267,6 +265,10 @@ enum LocalImageBuilder {
         }
 
         return try await withCheckedThrowingContinuation { continuation in
+            // Install the termination handler *before* run() so that a
+            // fast-exiting command (e.g. a failing `docker info`) cannot
+            // complete before the handler is registered, which would leave
+            // the continuation unresumed.
             process.terminationHandler = { proc in
                 Task {
                     let data = await readTask.value
@@ -282,6 +284,12 @@ enum LocalImageBuilder {
                         ))
                     }
                 }
+            }
+
+            do {
+                try process.run()
+            } catch {
+                continuation.resume(throwing: error)
             }
         }
     }
