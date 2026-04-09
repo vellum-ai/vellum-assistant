@@ -95,13 +95,16 @@ struct AppSharePanel: NSViewRepresentable {
             )
 
             let hostingController = NSHostingController(rootView: panelView)
-            hostingController.view.frame = NSRect(x: 0, y: 0, width: 240, height: 400)
+            // Auto-update preferredContentSize from SwiftUI content's ideal size.
+            // NSPopover observes preferredContentSize and animates resizes, so the
+            // panel starts compact and smoothly grows when sharing services load
+            // asynchronously via .task.
+            hostingController.sizingOptions = .preferredContentSize
 
             let popover = NSPopover()
             popover.contentViewController = hostingController
             popover.behavior = .transient
             popover.delegate = self
-            popover.contentSize = NSSize(width: 240, height: 400)
 
             self.popover = popover
             isPopoverShown = true
