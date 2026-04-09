@@ -1,6 +1,15 @@
 import SwiftUI
 import VellumAssistantShared
 
+// MARK: - Height caching preference key
+
+private struct CellHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 // MARK: - MessageCellView
 
 /// Per-message cell extracted from the ForEach body so SwiftUI has a typed
@@ -74,6 +83,8 @@ struct MessageCellView: View, Equatable {
     let configuredProviders: Set<String>
     let providerCatalog: [ProviderCatalogEntry]
     let providerCatalogHash: Int
+
+    @State private var measuredHeight: CGFloat?
 
     static func hashCatalog(_ catalog: [ProviderCatalogEntry]) -> Int {
         var hasher = Hasher()
@@ -150,6 +161,21 @@ struct MessageCellView: View, Equatable {
     }
 
     var body: some View {
+        cellContent
+            .background(GeometryReader { geo in
+                Color.clear.preference(key: CellHeightKey.self, value: geo.size.height)
+            })
+            .onPreferenceChange(CellHeightKey.self) { height in
+                if !message.isStreaming && measuredHeight == nil && height > 0 {
+                    measuredHeight = height
+                }
+            }
+            .frame(height: message.isStreaming ? nil : measuredHeight)
+            .onChange(of: message.text) { _, _ in measuredHeight = nil }
+    }
+
+    @ViewBuilder
+    private var cellContent: some View {
         if showTimestamp {
             TimestampDivider(date: message.timestamp)
         }
