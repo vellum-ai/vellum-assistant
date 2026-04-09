@@ -653,7 +653,6 @@ struct MainWindowView: View {
                    alignment: .topLeading)
             .scaleEffect(zoomManager.zoomLevel, anchor: .topLeading)
             .frame(width: windowSize.width, height: windowSize.height, alignment: .topLeading)
-            .clipped()
     }
 
     @ViewBuilder
