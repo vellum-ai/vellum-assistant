@@ -33,8 +33,12 @@ import {
 } from "../../providers/provider-send-message.js";
 import { isTextMimeType as isTextMime } from "../../runtime/routes/workspace-utils.js";
 import { getCatalog } from "../../skills/catalog-cache.js";
-import type { SkillFileEntry } from "../../skills/catalog-files.js";
 import {
+  readCatalogSkillFiles,
+  type SkillFileEntry,
+} from "../../skills/catalog-files.js";
+import {
+  type CatalogSkill,
   installSkillLocally,
   upsertSkillsIndex,
 } from "../../skills/catalog-install.js";
@@ -365,7 +369,7 @@ export async function listSkillsWithCatalog(
   const installed = listSkills(ctx);
   const installedIds = new Set(installed.map((s) => s.id));
 
-  let catalogSkills: import("../../skills/catalog-install.js").CatalogSkill[];
+  let catalogSkills: CatalogSkill[];
   try {
     catalogSkills = await getCatalog();
   } catch {
@@ -377,15 +381,7 @@ export async function listSkillsWithCatalog(
   // Create SlimSkillResponses for catalog skills not already installed.
   const available: SlimSkillResponse[] = catalogSkills
     .filter((cs) => !installedIds.has(cs.id))
-    .map((cs) => ({
-      id: cs.id,
-      name: cs.metadata?.vellum?.["display-name"] ?? cs.name,
-      description: cs.description,
-      emoji: cs.emoji,
-      kind: "catalog" as const,
-      origin: "vellum" as const,
-      status: "available" as const,
-    }));
+    .map((cs) => catalogSkillToSlim(cs));
 
   const merged = [...installed, ...available];
 
@@ -567,26 +563,68 @@ function readDirRecursive(dir: string, rootDir: string): SkillFileEntry[] {
   return entries;
 }
 
-export function getSkillFiles(
+/**
+ * Map a `CatalogSkill` (from the Vellum platform API) to a `SlimSkillResponse`
+ * shaped for the "available catalog skill" case. Shared between
+ * `listSkillsWithCatalog` (merging catalog entries into the installed list)
+ * and `getSkillFiles` (catalog fallback for preview listings). Keeping the
+ * mapping in one place avoids divergence between the list and detail paths.
+ */
+function catalogSkillToSlim(cs: CatalogSkill): SlimSkillResponse {
+  return {
+    id: cs.id,
+    name: cs.metadata?.vellum?.["display-name"] ?? cs.name,
+    description: cs.description,
+    emoji: cs.emoji,
+    kind: "catalog",
+    origin: "vellum",
+    status: "available",
+  };
+}
+
+export async function getSkillFiles(
   skillId: string,
   _ctx: SkillOperationContext,
-):
+): Promise<
   | { skill: SlimSkillResponse; files: SkillFileEntry[] }
-  | { error: string; status: number } {
+  | { error: string; status: number }
+> {
+  // Preferred path: the skill is resolved locally (bundled, managed,
+  // workspace, or extra) AND its directory exists on disk. Read files
+  // eagerly with inline content exactly as before.
   const found = findSkillById(skillId);
-  if (!found) {
+  if (found && existsSync(found.summary.directoryPath)) {
+    const dirPath = found.summary.directoryPath;
+    const files = readDirRecursive(dirPath, dirPath);
+    files.sort((a, b) => a.path.localeCompare(b.path));
+    return { skill: found.item, files };
+  }
+
+  // Fallback: skill is not installed (or its directory is missing). Try
+  // the Vellum catalog — this covers previewing files for an uninstalled
+  // catalog skill without touching the install flow.
+  let catalog: CatalogSkill[];
+  try {
+    catalog = await getCatalog();
+  } catch {
+    return { error: `Skill "${skillId}" not found`, status: 404 };
+  }
+  const cs = catalog.find((c) => c.id === skillId);
+  if (!cs) {
     return { error: `Skill "${skillId}" not found`, status: 404 };
   }
 
-  const dirPath = found.summary.directoryPath;
-  if (!existsSync(dirPath)) {
-    return { error: `Skill directory not found for "${skillId}"`, status: 404 };
+  const files = await readCatalogSkillFiles(skillId);
+  if (files === null) {
+    return {
+      error: `Skill files unavailable for "${skillId}"`,
+      status: 404,
+    };
   }
 
-  const files = readDirRecursive(dirPath, dirPath);
+  const skill = catalogSkillToSlim(cs);
   files.sort((a, b) => a.path.localeCompare(b.path));
-
-  return { skill: found.item, files };
+  return { skill, files };
 }
 
 export function enableSkill(
