@@ -230,13 +230,24 @@ extension MessageListView {
         //   • "False at-bottom" — viewport at the estimated bottom but
         //     actual content is above (LazyVStack blank space)
         //
-        // Uses edge-based scroll instead of ID-based (requestPinToBottom).
-        // ID-based ScrollPosition(id: lastMessageId, .bottom) depends on
-        // accurate height estimates for all preceding views — in long
-        // conversations with images, estimates are unreliable and the
-        // scroll lands short. Edge-based scrollToEdge(.bottom) targets
-        // the absolute content bottom, converging as LazyVStack
-        // materializes more views with each attempt.
+        // Uses ID-based scroll via requestPinToBottom(), which targets
+        // the last ForEach message. ForEach items are always locatable
+        // by ScrollPosition even when not materialized — SwiftUI
+        // resolves them from the data source. ID-based scroll may land
+        // slightly short (a few pixels above the absolute bottom) when
+        // height estimates for preceding views are imprecise, but
+        // landing short shows real messages. Edge-based scrollToEdge
+        // (.bottom) targets the *estimated* content bottom, which can
+        // overshoot into blank LazyVStack space when the estimate is
+        // inflated (e.g. after a conversation switch, only the last
+        // few tall cells are materialized and their heights are
+        // extrapolated to all unmaterialized cells). Landing in blank
+        // space is far more disruptive than landing short.
+        //
+        // The repeated 100ms recovery cycle handles convergence for
+        // the "landing short" case — each attempt materializes views
+        // near the actual bottom, correcting estimates, until the
+        // bottom anchor materializes and recovery stops.
         //
         // Recovery fires unconditionally until the bottom anchor view
         // has appeared (meaning LazyVStack materialized to the actual
@@ -248,6 +259,8 @@ extension MessageListView {
         // hierarchy transitions, the flag won't be re-set and recovery
         // would fire indefinitely without the time cutoff.
         // Only fires in initialLoad/followingBottom.
+        //
+        // https://developer.apple.com/documentation/swiftui/scrollposition
         let isInRecoveryWindow: Bool
         if scrollState.bottomAnchorAppeared {
             // Anchor materialized — isAtBottom is reliable now.
@@ -279,17 +292,18 @@ extension MessageListView {
            effectiveContentHeight > newState.visibleRectHeight,
            (!nowAtBottom || isInRecoveryWindow) {
             // Throttle recovery to at most once per 100ms. Without this,
-            // geometry updates at ~60fps fire scrollToEdge every ~16ms.
-            // LazyVStack needs time between scroll attempts to materialize
-            // views at the new position — rapid-fire scrolls keep yanking
-            // the viewport before materialization completes, causing the
-            // chat to appear blank (especially in long conversations).
-            // 100ms ≈ 6 frames at 60fps — enough for LazyVStack to
-            // materialize a batch of views while still feeling responsive.
+            // geometry updates at ~60fps fire requestPinToBottom every
+            // ~16ms. LazyVStack needs time between scroll attempts to
+            // materialize views at the new position — rapid-fire scrolls
+            // keep yanking the viewport before materialization completes,
+            // causing the chat to appear blank (especially in long
+            // conversations). 100ms ≈ 6 frames at 60fps — enough for
+            // LazyVStack to materialize a batch of views while still
+            // feeling responsive.
             let now = Date()
             if now.timeIntervalSince(scrollState.lastRecoveryAttempt) >= 0.1 {
                 scrollState.lastRecoveryAttempt = now
-                scrollState.scrollToEdge?(.bottom)
+                scrollState.requestPinToBottom()
             }
         }
 

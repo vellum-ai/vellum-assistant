@@ -29,6 +29,7 @@ struct PrecomputedCacheKey: Equatable {
     let isThinking: Bool
     let isCompacting: Bool
     let assistantStatusText: String?
+    let assistantActivityPhase: String
     let activeSubagentFingerprint: Int
     let displayedMessageCount: Int
 }
