@@ -166,6 +166,10 @@ struct MessageListView: View {
                 }
             }
             .scrollIndicators(scrollState.scrollIndicatorsHidden ? .hidden : .automatic)
+            // Inset scroll indicators away from coreLayoutBase's rounded clip shape
+            // so the scrollbar track doesn't get clipped at the corners.
+            // https://developer.apple.com/documentation/swiftui/view/contentmargins(_:for:)
+            .contentMargins(.vertical, VRadius.xl, for: .scrollIndicators)
             .id(conversationId)
             .frame(width: widths.scrollSurfaceWidth)
             .overlay(alignment: .bottom) {
