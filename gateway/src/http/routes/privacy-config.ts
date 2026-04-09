@@ -28,11 +28,19 @@ const MAX_LLM_REQUEST_LOG_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
  * `llmRequestLogRetentionMs`.
  *
  * A value of 0 is valid (it means "never prune") and is returned verbatim.
+ *
+ * When `options.maxValue` is provided, any leaf value exceeding it is treated
+ * as invalid and replaced with `defaultValue`. This prevents the gateway from
+ * serving an out-of-range retention value that a manually-edited config.json
+ * might contain (e.g. someone sets a 10-year retention, the Swift client
+ * snaps it to the nearest supported option, and the next PATCH silently
+ * truncates the on-disk value with no UI warning).
  */
 function parseNestedNumber(
   config: Record<string, unknown>,
   path: readonly string[],
   defaultValue: number,
+  options?: { maxValue?: number },
 ): number {
   let current: unknown = config;
   for (const key of path) {
@@ -46,13 +54,32 @@ function parseNestedNumber(
     current = (current as Record<string, unknown>)[key];
   }
   if (
-    typeof current === "number" &&
-    Number.isInteger(current) &&
-    current >= 0
+    typeof current !== "number" ||
+    !Number.isInteger(current) ||
+    current < 0
   ) {
-    return current;
+    return defaultValue;
   }
-  return defaultValue;
+  if (options?.maxValue !== undefined && current > options.maxValue) {
+    return defaultValue;
+  }
+  return current;
+}
+
+/**
+ * Resolve a privacy-config boolean field from the post-read/post-write config,
+ * falling back to the daemon schema default when the on-disk value is missing
+ * or not a boolean. Shared by GET and PATCH so the OpenAPI contract
+ * (`collectUsageData` and `sendDiagnostics` are both `required`) is honored
+ * regardless of whether config.json has the keys set.
+ */
+function resolveBoolean(
+  config: Record<string, unknown>,
+  key: "collectUsageData" | "sendDiagnostics",
+  defaultValue: boolean,
+): boolean {
+  const raw = config[key];
+  return typeof raw === "boolean" ? raw : defaultValue;
 }
 
 export function createPrivacyConfigPatchHandler() {
@@ -184,16 +211,29 @@ export function createPrivacyConfigPatchHandler() {
           }
           writeConfigFileAtomic(config);
 
-          // Always include llmRequestLogRetentionMs in the response so GET
-          // and PATCH share the same shape. Source it from the post-write
-          // config via the same fallback logic as the GET handler.
+          // Always include all three fields in the response so GET and PATCH
+          // share the same shape and match the OpenAPI schema contract
+          // (`required: [collectUsageData, sendDiagnostics,
+          // llmRequestLogRetentionMs]`). Source each value from the
+          // post-write config via the same fallback logic as the GET handler
+          // so a fresh or manually-edited config.json that lacks any of
+          // these keys still produces a well-formed response.
           const responseData = {
-            collectUsageData: config.collectUsageData,
-            sendDiagnostics: config.sendDiagnostics,
+            collectUsageData: resolveBoolean(
+              config,
+              "collectUsageData",
+              DEFAULT_COLLECT_USAGE_DATA,
+            ),
+            sendDiagnostics: resolveBoolean(
+              config,
+              "sendDiagnostics",
+              DEFAULT_SEND_DIAGNOSTICS,
+            ),
             llmRequestLogRetentionMs: parseNestedNumber(
               config,
               ["memory", "cleanup", "llmRequestLogRetentionMs"],
               DEFAULT_LLM_REQUEST_LOG_RETENTION_MS,
+              { maxValue: MAX_LLM_REQUEST_LOG_RETENTION_MS },
             ),
           };
           log.info(responseData, "Privacy config updated");
@@ -227,26 +267,27 @@ export function createPrivacyConfigGetHandler() {
 
     const config = result.data;
 
-    const rawCollectUsageData = (config as { collectUsageData?: unknown })
-      .collectUsageData;
-    const collectUsageData =
-      typeof rawCollectUsageData === "boolean"
-        ? rawCollectUsageData
-        : DEFAULT_COLLECT_USAGE_DATA;
+    const collectUsageData = resolveBoolean(
+      config,
+      "collectUsageData",
+      DEFAULT_COLLECT_USAGE_DATA,
+    );
 
-    const rawSendDiagnostics = (config as { sendDiagnostics?: unknown })
-      .sendDiagnostics;
-    const sendDiagnostics =
-      typeof rawSendDiagnostics === "boolean"
-        ? rawSendDiagnostics
-        : DEFAULT_SEND_DIAGNOSTICS;
+    const sendDiagnostics = resolveBoolean(
+      config,
+      "sendDiagnostics",
+      DEFAULT_SEND_DIAGNOSTICS,
+    );
 
     // Extract nested memory.cleanup.llmRequestLogRetentionMs safely.
     // A value of 0 is valid (means "never prune") and is returned verbatim.
+    // Clamp out-of-range values to the default so a manually-edited
+    // config.json cannot trick clients into snapping-and-truncating.
     const llmRequestLogRetentionMs = parseNestedNumber(
       config,
       ["memory", "cleanup", "llmRequestLogRetentionMs"],
       DEFAULT_LLM_REQUEST_LOG_RETENTION_MS,
+      { maxValue: MAX_LLM_REQUEST_LOG_RETENTION_MS },
     );
 
     return Response.json({
