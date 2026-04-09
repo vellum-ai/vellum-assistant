@@ -945,8 +945,12 @@ export async function runAgentLoopImpl(
         // value from injectionOpts to avoid duplicate injection.
         runMessages = applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
-          ...(step.compactionResult?.compacted && { pkbContext: currentPkbContent }),
-          ...(step.compactionResult?.compacted && { nowScratchpad: currentNowContent }),
+          ...(step.compactionResult?.compacted && {
+            pkbContext: currentPkbContent,
+          }),
+          ...(step.compactionResult?.compacted && {
+            nowScratchpad: currentNowContent,
+          }),
           workspaceTopLevelContext: shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
             : null,

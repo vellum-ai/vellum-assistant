@@ -22,6 +22,25 @@ import {
   WorkspaceGitService,
 } from "../workspace/git-service.js";
 
+function getLocalGitConfig(cwd: string, key: string): string | null {
+  try {
+    return execFileSync("git", ["config", "--local", "--get", key], {
+      cwd,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function getHeadAuthor(cwd: string): string {
+  return execFileSync("git", ["log", "-1", "--format=%an <%ae>"], {
+    cwd,
+    encoding: "utf-8",
+  }).trim();
+}
+
 describe("WorkspaceGitService", () => {
   let testDir: string;
 
@@ -70,21 +89,15 @@ describe("WorkspaceGitService", () => {
       expect(content).toContain("session-token");
     });
 
-    test("sets git identity correctly", async () => {
+    test("creates commits with the assistant identity without writing local config", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      const userName = execFileSync("git", ["config", "user.name"], {
-        cwd: testDir,
-        encoding: "utf-8",
-      }).trim();
-      const userEmail = execFileSync("git", ["config", "user.email"], {
-        cwd: testDir,
-        encoding: "utf-8",
-      }).trim();
-
-      expect(userName).toBe("Vellum Assistant");
-      expect(userEmail).toBe("assistant@vellum.ai");
+      expect(getHeadAuthor(testDir)).toBe(
+        "Vellum Assistant <assistant@vellum.ai>",
+      );
+      expect(getLocalGitConfig(testDir, "user.name")).toBeNull();
+      expect(getLocalGitConfig(testDir, "user.email")).toBeNull();
     });
 
     test("multiple ensureInitialized calls are idempotent", async () => {
@@ -681,7 +694,7 @@ describe("WorkspaceGitService", () => {
       expect(contentAfter).toContain("*.sock");
     });
 
-    test("existing repo gets local identity set on init", async () => {
+    test("existing repo preserves local identity config on init", async () => {
       // Set up a pre-existing git repo with a different identity
       execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
       execFileSync("git", ["config", "user.name", "Old Name"], {
@@ -698,17 +711,33 @@ describe("WorkspaceGitService", () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      const userName = execFileSync("git", ["config", "user.name"], {
-        cwd: testDir,
-        encoding: "utf-8",
-      }).trim();
-      const userEmail = execFileSync("git", ["config", "user.email"], {
-        cwd: testDir,
-        encoding: "utf-8",
-      }).trim();
+      expect(getLocalGitConfig(testDir, "user.name")).toBe("Old Name");
+      expect(getLocalGitConfig(testDir, "user.email")).toBe("old@example.com");
+    });
 
-      expect(userName).toBe("Vellum Assistant");
-      expect(userEmail).toBe("assistant@vellum.ai");
+    test("assistant-managed commits keep the assistant identity without overwriting local config", async () => {
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Old Name"], {
+        cwd: testDir,
+      });
+      execFileSync("git", ["config", "user.email", "old@example.com"], {
+        cwd: testDir,
+      });
+      writeFileSync(join(testDir, "file.txt"), "content");
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "init"], { cwd: testDir });
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, "assistant.txt"), "assistant change");
+      await service.commitChanges("Assistant commit");
+
+      expect(getHeadAuthor(testDir)).toBe(
+        "Vellum Assistant <assistant@vellum.ai>",
+      );
+      expect(getLocalGitConfig(testDir, "user.name")).toBe("Old Name");
+      expect(getLocalGitConfig(testDir, "user.email")).toBe("old@example.com");
     });
 
     test("existing repo with correct config is idempotent", async () => {
@@ -740,10 +769,7 @@ describe("WorkspaceGitService", () => {
       const gitignoreAfter = readFileSync(join(testDir, ".gitignore"), "utf-8");
       expect(gitignoreAfter).toBe(gitignoreBefore);
 
-      const userName = execFileSync("git", ["config", "user.name"], {
-        cwd: testDir,
-        encoding: "utf-8",
-      }).trim();
+      const userName = getLocalGitConfig(testDir, "user.name");
       expect(userName).toBe("Vellum Assistant");
 
       const branch = execFileSync("git", ["symbolic-ref", "--short", "HEAD"], {

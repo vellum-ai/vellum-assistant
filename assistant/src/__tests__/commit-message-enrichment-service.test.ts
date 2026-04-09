@@ -80,6 +80,10 @@ describe("CommitEnrichmentService", () => {
       "git",
       [
         "-c",
+        "user.name=Vellum Assistant",
+        "-c",
+        "user.email=assistant@vellum.ai",
+        "-c",
         "core.hooksPath=/dev/null",
         "commit",
         "--no-verify",
