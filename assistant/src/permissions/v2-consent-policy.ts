@@ -67,7 +67,7 @@ export function evaluateV2ConsentDisposition(
 export function isConversationHostAccessEnablePrompt(
   details: PromptLike | undefined,
 ): boolean {
-  if (!details || !isPermissionControlsV2Enabled()) {
+  if (!details) {
     return false;
   }
 
