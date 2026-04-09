@@ -18,6 +18,7 @@ public struct VAppWorkspaceDockLayout<Dock: View, Workspace: View>: View {
 
     // MARK: - Layout Constants
 
+    private static let minDockWidth: CGFloat = 300
     private static let minWorkspaceWidth: CGFloat = 300
     private static let dividerAndPadding: CGFloat = VSpacing.xs + 12
 
@@ -32,7 +33,7 @@ public struct VAppWorkspaceDockLayout<Dock: View, Workspace: View>: View {
         let effectiveDockWidth: CGFloat = {
             guard showDock, availableWidth > 0 else { return CGFloat(dockWidth) }
             let maxAllowed = availableWidth - Self.minWorkspaceWidth - Self.dividerAndPadding
-            return min(CGFloat(dockWidth), max(maxAllowed, 0))
+            return min(CGFloat(dockWidth), max(maxAllowed, Self.minDockWidth))
         }()
 
         HStack(spacing: 0) {
@@ -119,13 +120,12 @@ public struct VAppWorkspaceDockLayout<Dock: View, Workspace: View>: View {
         // Dragging right grows the dock (opposite of VSplitView's panel)
         let newWidth = initialWidth + Double(deltaX)
 
-        let minDockWidth: CGFloat = 300
         let maxAllowed = initialAvailableWidth - Self.minWorkspaceWidth - Self.dividerAndPadding
 
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
-            dockWidth = min(max(newWidth, minDockWidth), maxAllowed)
+            dockWidth = min(max(newWidth, Self.minDockWidth), maxAllowed)
         }
     }
 
