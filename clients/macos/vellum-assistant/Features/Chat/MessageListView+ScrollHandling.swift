@@ -230,24 +230,23 @@ extension MessageListView {
         //   • "False at-bottom" — viewport at the estimated bottom but
         //     actual content is above (LazyVStack blank space)
         //
-        // Uses ID-based scroll via requestPinToBottom(), which targets
-        // the last ForEach message. ForEach items are always locatable
-        // by ScrollPosition even when not materialized — SwiftUI
-        // resolves them from the data source. ID-based scroll may land
-        // slightly short (a few pixels above the absolute bottom) when
-        // height estimates for preceding views are imprecise, but
-        // landing short shows real messages. Edge-based scrollToEdge
-        // (.bottom) targets the *estimated* content bottom, which can
-        // overshoot into blank LazyVStack space when the estimate is
-        // inflated (e.g. after a conversation switch, only the last
-        // few tall cells are materialized and their heights are
-        // extrapolated to all unmaterialized cells). Landing in blank
-        // space is far more disruptive than landing short.
+        // Uses the alternating edge/ID scroll strategy via
+        // requestPinToBottom() → executeScrollToBottom(). Each call
+        // toggles recoveryAlternator, producing a structurally
+        // different ScrollPosition value (edge-based vs ID-based)
+        // that SwiftUI is guaranteed to process — breaking the
+        // silent dedup that occurs with repeated identical values.
+        // The two strategies use different estimation paths:
+        // edge-based computes a single total-content-height offset,
+        // ID-based sums per-item estimates. This may land the
+        // viewport at slightly different positions, helping
+        // LazyVStack materialize items in different areas and
+        // converge faster.
         //
-        // The repeated 100ms recovery cycle handles convergence for
-        // the "landing short" case — each attempt materializes views
-        // near the actual bottom, correcting estimates, until the
-        // bottom anchor materializes and recovery stops.
+        // The repeated 100ms recovery cycle handles convergence —
+        // each attempt materializes views near the actual bottom,
+        // correcting estimates, until the bottom anchor materializes
+        // and recovery stops.
         //
         // Recovery fires unconditionally until the bottom anchor view
         // has appeared (meaning LazyVStack materialized to the actual
