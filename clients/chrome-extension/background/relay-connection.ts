@@ -199,9 +199,30 @@ export class RelayConnection {
    * Swap the connection mode / token without destroying the class
    * instance. The current socket is closed cleanly and a fresh one is
    * opened for the new mode. Used by the popup's mode switcher.
+   *
+   * A mode switch ends the previous lifecycle: any pending deferred
+   * close notification left over from a non-normal ws close on the
+   * old lifecycle is flushed synchronously before the new socket is
+   * constructed, so the caller still sees exactly one onClose per
+   * lifecycle and the stale ctx cannot cross into the new lifecycle
+   * (where a later explicit `close()` would otherwise re-deliver it
+   * with the wrong code/reason).
    */
   setMode(mode: RelayMode): void {
     this.deps = { ...this.deps, mode };
+    // Flush any pending deferred close from the prior lifecycle first.
+    // When the previous socket hit a non-normal close the ws listener
+    // stashed its ctx into `pendingDeferredCloseCtx` and armed the
+    // reconnect-with-refresh timer. Clearing the timer below without
+    // firing the deferred notification would leave the caller with
+    // zero onClose calls for the prior lifecycle, and any subsequent
+    // `close()` on the new lifecycle would re-deliver the old ctx as
+    // if it belonged to the new socket.
+    if (this.pendingDeferredCloseCtx !== null) {
+      const deferred = this.pendingDeferredCloseCtx;
+      this.pendingDeferredCloseCtx = null;
+      this.deps.onClose(deferred.code, deferred.reason);
+    }
     // Tear down the current socket without marking the caller as having
     // closed us permanently — `start()` below re-arms shouldConnect.
     if (this.reconnectTimer !== null) {
