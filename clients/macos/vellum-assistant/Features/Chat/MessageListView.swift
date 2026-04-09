@@ -125,10 +125,16 @@ struct MessageListView: View {
                             }
                         )
                 }
-                .id(conversationId)
                 .scrollContentBackground(.hidden)
                 .scrollDisabled(messages.isEmpty && !isSending)
             }
+            // .id() MUST be outside AlignmentBarrierLayout. A custom Layout
+            // container does not propagate child identity changes to the outer
+            // modifier chain — .onAppear would not fire on conversation switch
+            // if .id() were inside the Layout, breaking handleAppear() and all
+            // scroll state that depends on it (configureScrollCallbacks,
+            // handleConversationSwitched). See MessageListView+Lifecycle.swift.
+            .id(conversationId)
             .frame(maxWidth: VSpacing.chatColumnMaxWidth)
             .frame(maxWidth: .infinity)
             // Apply only to .initialOffset — where the scroll view starts
