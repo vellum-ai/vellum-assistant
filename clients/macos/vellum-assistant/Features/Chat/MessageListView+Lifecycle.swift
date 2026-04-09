@@ -306,22 +306,19 @@ extension MessageListView {
         //
         // Seed lastMessageId so executeScrollToBottom can target it.
         scrollState.lastMessageId = paginatedVisibleMessages.last?.id
-        // Declarative position reset — processed in the same layout pass as new content.
-        // Prefer the last ForEach message ID over the standalone anchor because
-        // ForEach items are always indexable by ScrollPosition even when not
-        // materialized — SwiftUI locates them in the data source. The standalone
-        // "scroll-bottom-anchor" (outside ForEach) is only locatable when materialized.
-        // https://developer.apple.com/documentation/swiftui/scrollposition
+        // Clear any stale scroll position from the previous conversation.
+        // Do NOT set an explicit ScrollPosition(id:anchor:) here — for long
+        // conversations the cumulative height-estimate error across hundreds of
+        // unmaterialized LazyVStack items places the viewport in blank space.
+        // Instead, let .defaultScrollAnchor(.bottom, for: .initialOffset) handle
+        // initial positioning: it anchors content from the bottom up, materializing
+        // the last items first with correct heights. restoreScrollToBottom() (100ms
+        // fallback) then fine-tunes with an ID-based scroll once nearby items are
+        // materialized and heights are accurate.
+        // https://developer.apple.com/documentation/swiftui/view/defaultscrollanchor(_:for:)
         scrollState.scrollRestoreTask?.cancel()
         if anchorMessageId == nil {
-            if let lastId = paginatedVisibleMessages.last?.id {
-                scrollPosition = ScrollPosition(id: lastId, anchor: .bottom)
-            } else {
-                // Empty conversation — no ForEach items to target.
-                // Use edge-based position; the standalone "scroll-bottom-anchor"
-                // is outside ForEach and only locatable when materialized.
-                scrollPosition = ScrollPosition(edge: .bottom)
-            }
+            scrollPosition = ScrollPosition()
         }
         restoreScrollToBottom()
     }

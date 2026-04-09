@@ -441,10 +441,9 @@ extension MessageListView {
         // mutating `.scrollTo(id:anchor:)` method. Value replacement
         // forces SwiftUI to process a fresh scroll command every time.
         // The `.scrollTo()` method can be silently deduped when the
-        // position was previously set to the same ID (e.g. from a
-        // conversation switch `ScrollPosition(id: lastId, .bottom)`) —
-        // even after the user has scrolled away, the internal state may
-        // still consider itself "at" that ID.
+        // position was previously set to the same ID — even after the
+        // user has scrolled away, the internal state may still consider
+        // itself "at" that ID.
         scrollState.scrollTo = { id, anchor in
             if let uuidId = id as? UUID {
                 binding.wrappedValue = ScrollPosition(id: uuidId, anchor: anchor)
