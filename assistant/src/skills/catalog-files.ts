@@ -213,6 +213,15 @@ async function fetchPlatformJson<T>(
 
 // ─── Dev-mode directory walker ───────────────────────────────────────────────
 
+// Directory names that are always skipped when walking a catalog skill dir in
+// dev mode. Kept in sync with `SKIP_DIRS` in
+// `src/daemon/handlers/skills.ts` (which performs the same filter for
+// installed skills). Duplicated here rather than imported to avoid a
+// circular dependency: `daemon/handlers/skills.ts` already imports the
+// `SkillFileEntry` type from this module. If you add or remove an entry,
+// update the other copy as well.
+const SKIP_DIRS = new Set(["node_modules", "__pycache__", ".git"]);
+
 function walkSkillDir(dir: string, rootDir: string): SkillFileEntry[] {
   const out: SkillFileEntry[] = [];
   let dirents;
@@ -222,10 +231,18 @@ function walkSkillDir(dir: string, rootDir: string): SkillFileEntry[] {
     return out;
   }
   for (const dirent of dirents) {
+    // Skip dot-prefixed entries (hidden files like `.DS_Store` and dot-dirs
+    // like `.git`, `.venv`). Matches the behavior of the installed-skill
+    // walker in `daemon/handlers/skills.ts`.
+    if (dirent.name.startsWith(".")) continue;
     const abs = join(dir, dirent.name);
     // Silently skip symlinks, sockets, devices, etc.
     if (dirent.isSymbolicLink()) continue;
     if (dirent.isDirectory()) {
+      // Skip well-known heavyweight directories (node_modules, __pycache__,
+      // ...) so a dev working on a catalog skill locally doesn't see
+      // thousands of spurious entries in the preview listing.
+      if (SKIP_DIRS.has(dirent.name)) continue;
       out.push(...walkSkillDir(abs, rootDir));
       continue;
     }

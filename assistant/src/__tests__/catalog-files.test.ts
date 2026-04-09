@@ -285,6 +285,34 @@ describe("readCatalogSkillFiles (dev mode)", () => {
     expect(await readCatalogSkillFiles("my-skill")).toBeNull();
     expect(fetchCalls.length).toBe(0);
   });
+
+  test("filters hidden files and SKIP_DIRS from the listing", async () => {
+    // Simulates a dev working on a catalog skill locally who has a
+    // node_modules/, a .git/, and a .hidden.md file sitting next to
+    // SKILL.md. The preview listing must only show SKILL.md — matching
+    // the behavior of `readDirRecursive` in `daemon/handlers/skills.ts`
+    // for installed skills.
+    const root = makeTempSkillsDir();
+    writeSkill(root, "my-skill", {
+      "SKILL.md": "# hello",
+      "node_modules/foo.js": "module.exports = {};",
+      "node_modules/nested/bar.js": "module.exports = {};",
+      "__pycache__/cached.pyc": Buffer.from([0x00, 0x01, 0x02]),
+      ".git/HEAD": "ref: refs/heads/main\n",
+      ".git/config": "[core]\n",
+      ".hidden.md": "secret",
+      ".DS_Store": Buffer.from([0x00, 0x00]),
+    });
+    mockRepoSkillsDir = root;
+    mockCatalog = [skill("my-skill")];
+    installFetchForbidden();
+
+    const entries = await readCatalogSkillFiles("my-skill");
+    expect(entries).not.toBeNull();
+    const paths = entries!.map((e) => e.path).sort();
+    expect(paths).toEqual(["SKILL.md"]);
+    expect(fetchCalls.length).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
