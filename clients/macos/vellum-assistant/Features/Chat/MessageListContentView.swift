@@ -173,7 +173,12 @@ struct MessageListContentView: View, Equatable {
             let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
             // Min height for the active assistant turn — ensures the user message
             // can reach the top of the viewport when content is short.
-            let turnMinHeight: CGFloat = max(0, scrollState.viewportHeight - 150)
+            // viewportHeight is initialized to .infinity until the scroll view lays
+            // out; guard against non-finite values so we never pass NaN/∞ into
+            // .frame(minHeight:), which trips _NSViewValidateGeometry in AppKit.
+            let turnMinHeight: CGFloat = scrollState.viewportHeight.isFinite
+                ? max(0, scrollState.viewportHeight - 150)
+                : 0
             let isUnanchoredThinking = state.shouldShowThinkingIndicator && !state.rows.contains(where: \.isAnchoredThinkingRow)
             let thinkingLabel = !hasEverSentMessage && state.hasUserMessage
                 ? "Waking up..."
