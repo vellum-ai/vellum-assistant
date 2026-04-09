@@ -39,7 +39,7 @@ struct WakeUpStepView: View {
     var body: some View {
         // Title
         Text("Welcome to Vellum")
-            .font(VFont.displayLarge)
+            .font(VFont.titleLarge)
             .foregroundStyle(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
@@ -54,10 +54,8 @@ struct WakeUpStepView: View {
             .offset(y: showSubtext ? 0 : 8)
             .padding(.bottom, VSpacing.xxl)
 
-        Color.clear.frame(height: VSpacing.xxl)
-
         // Buttons
-        VStack(spacing: VSpacing.md) {
+        VStack(spacing: VSpacing.sm) {
             if authManager?.isLoading == true {
                 HStack(spacing: VSpacing.sm) {
                     ProgressView()
@@ -79,17 +77,13 @@ struct WakeUpStepView: View {
                 }
                 .frame(height: 36)
             } else if managedSignInEnabled {
-                HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Sign In", style: .primary) {
-                        onContinueWithVellum()
-                    }
-                    .frame(maxWidth: .infinity)
+                VButton(label: "Log In", style: .primary, isFullWidth: true) {
+                    onContinueWithVellum()
+                }
 
-                    VButton(label: "Self-Host", style: .outlined) {
-                        state?.skippedAuth = true
-                        onStartWithAPIKey()
-                    }
-                    .frame(maxWidth: .infinity)
+                VButton(label: "Continue Without Account", style: .outlined, isFullWidth: true) {
+                    state?.skippedAuth = true
+                    onStartWithAPIKey()
                 }
             } else {
                 VButton(label: "Get Started", style: .primary, isFullWidth: true) {
@@ -105,7 +99,8 @@ struct WakeUpStepView: View {
                     .multilineTextAlignment(.center)
             }
         }
-        .frame(maxWidth: 280)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, VSpacing.xxl)
         .opacity(showButtons ? 1 : 0)
         .offset(y: showButtons ? 0 : 12)
         .disabled(isAdvancing || authManager?.isSubmitting == true)
@@ -123,7 +118,7 @@ struct WakeUpStepView: View {
 
         Spacer()
 
-        Text("\u{00A9} 2026 Vellum Inc.")
+        Text("2026 Vellum Inc.")
             .font(VFont.bodySmallDefault)
             .foregroundStyle(VColor.borderElement)
             .padding(.bottom, VSpacing.sm)
