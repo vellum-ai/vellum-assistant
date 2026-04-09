@@ -59,13 +59,39 @@ struct IdentityPanel: View {
                     VStack(spacing: 0) {
                         VStack(spacing: 0) {
                             // Intro heading — show daemon-generated text, fall back to static name
-                            Text(introText ?? (hasRealName ? "I'm \(assistantDisplayName)!" : assistantDisplayName))
-                                .font(VFont.titleMedium)
-                                .foregroundStyle(VColor.contentDefault)
-                                .multilineTextAlignment(.center)
+                            if isEditingName {
+                                inlineEditField(
+                                    text: $editingNameText,
+                                    placeholder: "Enter a name",
+                                    font: VFont.titleMedium,
+                                    isSaving: isSavingIdentityField,
+                                    onSave: { saveIdentityField(field: "Name", value: editingNameText) },
+                                    onCancel: { isEditingName = false }
+                                )
+                                .padding(.top, VSpacing.xxl)
+                                .padding(.horizontal, VSpacing.lg)
+                            } else {
+                                HStack(spacing: VSpacing.xs) {
+                                    Text(introText ?? (hasRealName ? "I'm \(assistantDisplayName)!" : assistantDisplayName))
+                                        .font(VFont.titleMedium)
+                                        .foregroundStyle(VColor.contentDefault)
+                                        .multilineTextAlignment(.center)
+
+                                    VButton(
+                                        label: "Edit name",
+                                        iconOnly: VIcon.pencil.rawValue,
+                                        style: .ghost,
+                                        size: .compact
+                                    ) {
+                                        isEditingRole = false
+                                        editingNameText = hasRealName ? assistantDisplayName : ""
+                                        isEditingName = true
+                                    }
+                                }
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .padding(.top, VSpacing.xxl)
                                 .padding(.horizontal, VSpacing.lg)
+                            }
 
                             Spacer()
 
@@ -101,7 +127,36 @@ struct IdentityPanel: View {
                                                 let role = AssistantDisplayName.firstUserFacing(from: [
                                                     identity?.role
                                                 ])
-                                identityInfoRow(label: "Role", value: role ?? "Not set")
+                                if isEditingRole {
+                                    VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                                        Text("Role")
+                                            .font(VFont.bodySmallDefault)
+                                            .foregroundStyle(VColor.contentTertiary)
+                                        inlineEditField(
+                                            text: $editingRoleText,
+                                            placeholder: "Enter a role",
+                                            font: VFont.bodySmallDefault,
+                                            isSaving: isSavingIdentityField,
+                                            onSave: { saveIdentityField(field: "Role", value: editingRoleText) },
+                                            onCancel: { isEditingRole = false }
+                                        )
+                                    }
+                                } else {
+                                    HStack(spacing: VSpacing.xs) {
+                                        identityInfoRow(label: "Role", value: role ?? "Not set")
+                                        Spacer()
+                                        VButton(
+                                            label: "Edit role",
+                                            iconOnly: VIcon.pencil.rawValue,
+                                            style: .ghost,
+                                            size: .compact
+                                        ) {
+                                            isEditingName = false
+                                            editingRoleText = role ?? ""
+                                            isEditingRole = true
+                                        }
+                                    }
+                                }
                                 if let date = metadata?.createdAt {
                                     identityInfoRow(label: "Hatched", value: formatHatchedDate(date))
                                 }
