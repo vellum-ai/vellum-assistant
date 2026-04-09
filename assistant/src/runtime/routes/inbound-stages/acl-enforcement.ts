@@ -57,6 +57,7 @@ const inFlightSlackAclDenyNotifications = new Map<
 >();
 
 export const SLACK_ACL_DENY_DEDUP_TTL_MS = 24 * 60 * 60 * 1000;
+const SLACK_ACL_DENY_IN_FLIGHT_WAIT_MS = 250;
 
 /**
  * Resolve the guardian's display name for use in requester-facing messages.
@@ -150,7 +151,11 @@ async function reserveSlackAclDenyNotification(params: {
   canonicalAssistantId: string;
   conversationExternalId: string;
   requesterUserId: string | undefined;
-}): Promise<{ shouldDeliver: boolean; dedupeKey?: string }> {
+}): Promise<{
+  shouldDeliver: boolean;
+  dedupeKey?: string;
+  ownsReservation?: boolean;
+}> {
   const dedupeKey = buildSlackAclDenyNotificationKey(params);
   if (!dedupeKey) {
     return { shouldDeliver: true };
@@ -167,14 +172,50 @@ async function reserveSlackAclDenyNotification(params: {
         dedupeKey,
         createSlackAclDenyNotificationReservation(),
       );
-      return { shouldDeliver: true, dedupeKey };
+      return { shouldDeliver: true, dedupeKey, ownsReservation: true };
     }
 
-    const delivered = await inFlight.settled;
-    if (delivered) {
+    const settled = await Promise.race([
+      inFlight.settled.then(
+        (delivered) =>
+          ({ kind: "settled" as const, delivered }) satisfies {
+            kind: "settled";
+            delivered: boolean;
+          },
+      ),
+      new Promise<{ kind: "timeout" }>((resolve) => {
+        const timer = setTimeout(() => {
+          resolve({ kind: "timeout" });
+        }, SLACK_ACL_DENY_IN_FLIGHT_WAIT_MS);
+        (timer as { unref?: () => void }).unref?.();
+      }),
+    ]);
+
+    if (settled.kind === "timeout") {
+      return { shouldDeliver: true, dedupeKey, ownsReservation: false };
+    }
+
+    if (settled.delivered) {
       return { shouldDeliver: false };
     }
   }
+}
+
+function markSlackAclDenyNotificationDelivered(
+  dedupeKey: string | undefined,
+): void {
+  if (!dedupeKey) return;
+
+  const existingTimer = recentSlackAclDenyNotifications.get(dedupeKey);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+
+  const timer = setTimeout(() => {
+    recentSlackAclDenyNotifications.delete(dedupeKey);
+  }, SLACK_ACL_DENY_DEDUP_TTL_MS);
+  (timer as { unref?: () => void }).unref?.();
+  recentSlackAclDenyNotifications.set(dedupeKey, timer);
 }
 
 function finalizeSlackAclDenyNotification(
@@ -184,22 +225,17 @@ function finalizeSlackAclDenyNotification(
   if (!dedupeKey) return;
 
   const inFlight = inFlightSlackAclDenyNotifications.get(dedupeKey);
-  if (!inFlight) return;
+  if (!inFlight) {
+    if (delivered) {
+      markSlackAclDenyNotificationDelivered(dedupeKey);
+    }
+    return;
+  }
 
   inFlightSlackAclDenyNotifications.delete(dedupeKey);
   if (delivered) {
-    const existingTimer = recentSlackAclDenyNotifications.get(dedupeKey);
-    if (existingTimer) {
-      clearTimeout(existingTimer);
-    }
-
-    const timer = setTimeout(() => {
-      recentSlackAclDenyNotifications.delete(dedupeKey);
-    }, SLACK_ACL_DENY_DEDUP_TTL_MS);
-    (timer as { unref?: () => void }).unref?.();
-    recentSlackAclDenyNotifications.set(dedupeKey, timer);
+    markSlackAclDenyNotificationDelivered(dedupeKey);
   }
-
   inFlight.resolve(delivered);
 }
 
@@ -601,9 +637,18 @@ export async function enforceIngressAcl(
                 mintBearerToken(),
               );
               replyDelivered = true;
-              finalizeSlackAclDenyNotification(slackAclReply.dedupeKey, true);
+              if (slackAclReply.ownsReservation) {
+                finalizeSlackAclDenyNotification(slackAclReply.dedupeKey, true);
+              } else {
+                markSlackAclDenyNotificationDelivered(slackAclReply.dedupeKey);
+              }
             } catch (err) {
-              finalizeSlackAclDenyNotification(slackAclReply.dedupeKey, false);
+              if (slackAclReply.ownsReservation) {
+                finalizeSlackAclDenyNotification(
+                  slackAclReply.dedupeKey,
+                  false,
+                );
+              }
               log.error(
                 { err, conversationExternalId },
                 "Failed to deliver ACL rejection reply",
@@ -890,12 +935,23 @@ export async function enforceIngressAcl(
                   mintBearerToken(),
                 );
                 inactiveReplyDelivered = true;
-                finalizeSlackAclDenyNotification(slackAclReply.dedupeKey, true);
+                if (slackAclReply.ownsReservation) {
+                  finalizeSlackAclDenyNotification(
+                    slackAclReply.dedupeKey,
+                    true,
+                  );
+                } else {
+                  markSlackAclDenyNotificationDelivered(
+                    slackAclReply.dedupeKey,
+                  );
+                }
               } catch (err) {
-                finalizeSlackAclDenyNotification(
-                  slackAclReply.dedupeKey,
-                  false,
-                );
+                if (slackAclReply.ownsReservation) {
+                  finalizeSlackAclDenyNotification(
+                    slackAclReply.dedupeKey,
+                    false,
+                  );
+                }
                 log.error(
                   { err, conversationExternalId },
                   "Failed to deliver ACL rejection reply",
@@ -954,9 +1010,18 @@ export async function enforceIngressAcl(
                 mintBearerToken(),
               );
               denyReplyDelivered = true;
-              finalizeSlackAclDenyNotification(slackAclReply.dedupeKey, true);
+              if (slackAclReply.ownsReservation) {
+                finalizeSlackAclDenyNotification(slackAclReply.dedupeKey, true);
+              } else {
+                markSlackAclDenyNotificationDelivered(slackAclReply.dedupeKey);
+              }
             } catch (err) {
-              finalizeSlackAclDenyNotification(slackAclReply.dedupeKey, false);
+              if (slackAclReply.ownsReservation) {
+                finalizeSlackAclDenyNotification(
+                  slackAclReply.dedupeKey,
+                  false,
+                );
+              }
               log.error(
                 { err, conversationExternalId },
                 "Failed to deliver ACL rejection reply",
