@@ -613,15 +613,16 @@ final class ConversationManager: ConversationRestorerDelegate {
         log.info("Created schedule conversation \(localId) for conversation \(conversationId) (schedule \(scheduleJobId))")
     }
 
-    func createNotificationConversation(conversationId: String, title: String, sourceEventName: String, groupId: String? = nil, source: String? = nil) {
+    func createNotificationConversation(conversationId: String, title: String, sourceEventName: String, groupId: String? = nil, source: String? = nil, scheduleJobId: String? = nil) {
         guard let localId = createBackgroundConversation(
             conversationId: conversationId,
             title: title,
             source: source ?? "notification",
+            scheduleJobId: scheduleJobId,
             markHistoryLoaded: false,
             groupId: groupId ?? ConversationGroup.all.id
         ) else { return }
-        log.info("Created notification conversation \(localId) for conversation \(conversationId) (source: \(sourceEventName), groupId: \(groupId ?? "nil"))")
+        log.info("Created notification conversation \(localId) for conversation \(conversationId) (source: \(sourceEventName), groupId: \(groupId ?? "nil"), scheduleJobId: \(scheduleJobId ?? "nil"))")
     }
 
     func createHeartbeatConversation(conversationId: String, title: String) {

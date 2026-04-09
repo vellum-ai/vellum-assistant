@@ -2831,8 +2831,11 @@ public struct NotificationConversationCreated: Codable, Sendable {
     /// Semantic source of the conversation (e.g. "schedule", "reminder").
     /// Allows clients to override the default "notification" source.
     public let source: String?
+    /// Schedule job identifier from the signal producer, used for sub-grouping
+    /// conversations under the same schedule execution in the sidebar.
+    public let scheduleJobId: String?
 
-    public init(type: String, conversationId: String, title: String, sourceEventName: String, targetGuardianPrincipalId: String? = nil, groupId: String? = nil, source: String? = nil) {
+    public init(type: String, conversationId: String, title: String, sourceEventName: String, targetGuardianPrincipalId: String? = nil, groupId: String? = nil, source: String? = nil, scheduleJobId: String? = nil) {
         self.type = type
         self.conversationId = conversationId
         self.title = title
@@ -2840,6 +2843,7 @@ public struct NotificationConversationCreated: Codable, Sendable {
         self.targetGuardianPrincipalId = targetGuardianPrincipalId
         self.groupId = groupId
         self.source = source
+        self.scheduleJobId = scheduleJobId
     }
 }
 

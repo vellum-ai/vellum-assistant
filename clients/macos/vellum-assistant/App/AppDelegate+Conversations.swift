@@ -73,7 +73,8 @@ extension AppDelegate {
             title: msg.title,
             sourceEventName: msg.sourceEventName,
             groupId: msg.groupId,
-            source: msg.source
+            source: msg.source,
+            scheduleJobId: msg.scheduleJobId
         )
 
         if NSApp.isActive {
