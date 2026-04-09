@@ -1,7 +1,55 @@
 import SwiftUI
 import VellumAssistantShared
 
-struct ComposerSection: View {
+struct ComposerSection: View, Equatable {
+    static func == (lhs: ComposerSection, rhs: ComposerSection) -> Bool {
+        // VoiceModeManager is @MainActor ObservableObject, not @Observable,
+        // so SwiftUI cannot track its internal state changes via struct ==.
+        // voiceModeState is a snapshot captured at struct-creation time so
+        // lhs holds the previous state and rhs holds the current state,
+        // avoiding live reads from a shared mutable reference.
+        if lhs.voiceModeState != .off || rhs.voiceModeState != .off {
+            return false
+        }
+
+        // WatchSession is @Observable, but its .state is read conditionally
+        // in body. Always re-evaluate when a session is present so capture
+        // state transitions are rendered.
+        if lhs.watchSession !== rhs.watchSession
+            || lhs.watchSession != nil {
+            return false
+        }
+
+        return lhs.inputText == rhs.inputText
+            && lhs.isSending == rhs.isSending
+            && lhs.isAssistantBusy == rhs.isAssistantBusy
+            && lhs.hasPendingConfirmation == rhs.hasPendingConfirmation
+            && lhs.isRecording == rhs.isRecording
+            && lhs.suggestion == rhs.suggestion
+            && lhs.pendingAttachments.map(\.id) == rhs.pendingAttachments.map(\.id)
+            && lhs.isLoadingAttachment == rhs.isLoadingAttachment
+            && lhs.recordingAmplitude == rhs.recordingAmplitude
+            && lhs.conversationId == rhs.conversationId
+            && lhs.isInteractionEnabled == rhs.isInteractionEnabled
+            && lhs.contextWindowFillRatio == rhs.contextWindowFillRatio
+            && lhs.contextWindowTokens == rhs.contextWindowTokens
+            && lhs.contextWindowMaxTokens == rhs.contextWindowMaxTokens
+            // Optional closure availability — nil vs non-nil affects which
+            // buttons are rendered in the inner ComposerView.
+            && (lhs.onAllowPendingConfirmation != nil) == (rhs.onAllowPendingConfirmation != nil)
+            && (lhs.onEndVoiceMode != nil) == (rhs.onEndVoiceMode != nil)
+            && (lhs.onDictateToggle != nil) == (rhs.onDictateToggle != nil)
+            && (lhs.onVoiceModeToggle != nil) == (rhs.onVoiceModeToggle != nil)
+            // ConversationHostAccessControlConfiguration contains a closure
+            // so it can't be Equatable; compare nil/non-nil plus the
+            // value-type fields that drive rendering.
+            && lhs.conversationHostAccessControl?.isEnabled == rhs.conversationHostAccessControl?.isEnabled
+            && lhs.conversationHostAccessControl?.canToggle == rhs.conversationHostAccessControl?.canToggle
+            && lhs.conversationHostAccessControl?.isUpdating == rhs.conversationHostAccessControl?.isUpdating
+            && lhs.conversationHostAccessControl?.subtitle == rhs.conversationHostAccessControl?.subtitle
+            && lhs.conversationHostAccessControl?.errorMessage == rhs.conversationHostAccessControl?.errorMessage
+    }
+
     @Binding var inputText: String
     let isSending: Bool
     var isAssistantBusy: Bool = false
@@ -21,6 +69,7 @@ struct ComposerSection: View {
     let watchSession: WatchSession?
     let onStopWatch: () -> Void
     var voiceModeManager: VoiceModeManager? = nil
+    var voiceModeState: VoiceModeManager.State = .off
     var voiceService: OpenAIVoiceService? = nil
     var onEndVoiceMode: (() -> Void)? = nil
     var recordingAmplitude: Float = 0
@@ -60,6 +109,7 @@ struct ComposerSection: View {
                 onPaste: onPaste,
                 onMicrophoneToggle: onMicrophoneToggle,
                 voiceModeManager: voiceModeManager,
+                voiceModeState: voiceModeState,
                 voiceService: voiceService,
                 onEndVoiceMode: onEndVoiceMode,
                 recordingAmplitude: recordingAmplitude,
@@ -73,6 +123,7 @@ struct ComposerSection: View {
                 contextWindowMaxTokens: contextWindowMaxTokens,
                 conversationHostAccessControl: conversationHostAccessControl
             )
+            .equatable()
         }
         .background(
             LinearGradient(

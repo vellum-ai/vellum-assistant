@@ -473,6 +473,7 @@ struct ChatView: View {
                         watchSession: watchSession,
                         onStopWatch: { viewModel.stopWatchSession() },
                         voiceModeManager: voiceModeManager,
+                        voiceModeState: voiceModeManager?.state ?? .off,
                         voiceService: voiceService,
                         onEndVoiceMode: onEndVoiceMode,
                         recordingAmplitude: viewModel.recordingAmplitude,
@@ -485,6 +486,7 @@ struct ChatView: View {
                         contextWindowMaxTokens: viewModel.contextWindowMaxTokens,
                         conversationHostAccessControl: conversationHostAccessControl
                     )
+                    .equatable()
                 }
             }
         }

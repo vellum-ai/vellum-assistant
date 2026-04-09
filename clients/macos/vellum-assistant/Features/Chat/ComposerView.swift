@@ -9,7 +9,48 @@ import AppKit
 
 private let composerLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "Composer")
 
-struct ComposerView: View {
+struct ComposerView: View, Equatable {
+    static func == (lhs: ComposerView, rhs: ComposerView) -> Bool {
+        // VoiceModeManager is @MainActor ObservableObject, not @Observable,
+        // so SwiftUI cannot track its internal state changes via struct ==.
+        // voiceModeState is a snapshot captured at struct-creation time so
+        // lhs holds the previous state and rhs holds the current state,
+        // avoiding live reads from a shared mutable reference.
+        if lhs.voiceModeState != .off || rhs.voiceModeState != .off {
+            return false
+        }
+
+        return lhs.inputText == rhs.inputText
+            && lhs.isSending == rhs.isSending
+            && lhs.isAssistantBusy == rhs.isAssistantBusy
+            && lhs.hasPendingConfirmation == rhs.hasPendingConfirmation
+            && lhs.isRecording == rhs.isRecording
+            && lhs.suggestion == rhs.suggestion
+            && lhs.pendingAttachments.map(\.id) == rhs.pendingAttachments.map(\.id)
+            && lhs.isLoadingAttachment == rhs.isLoadingAttachment
+            && lhs.recordingAmplitude == rhs.recordingAmplitude
+            && lhs.placeholderText == rhs.placeholderText
+            && lhs.composerCompactHeight == rhs.composerCompactHeight
+            && lhs.conversationId == rhs.conversationId
+            && lhs.isInteractionEnabled == rhs.isInteractionEnabled
+            && lhs.contextWindowFillRatio == rhs.contextWindowFillRatio
+            && lhs.contextWindowTokens == rhs.contextWindowTokens
+            && lhs.contextWindowMaxTokens == rhs.contextWindowMaxTokens
+            // Optional closure availability — nil vs non-nil affects which
+            // buttons are rendered (e.g. voice toggle, dictation routing).
+            && (lhs.onAllowPendingConfirmation != nil) == (rhs.onAllowPendingConfirmation != nil)
+            && (lhs.onEndVoiceMode != nil) == (rhs.onEndVoiceMode != nil)
+            && (lhs.onDictateToggle != nil) == (rhs.onDictateToggle != nil)
+            && (lhs.onVoiceModeToggle != nil) == (rhs.onVoiceModeToggle != nil)
+            // ConversationHostAccessControlConfiguration contains a closure
+            // so it can't be Equatable; compare nil/non-nil plus the
+            // value-type fields that drive rendering.
+            && lhs.conversationHostAccessControl?.isEnabled == rhs.conversationHostAccessControl?.isEnabled
+            && lhs.conversationHostAccessControl?.canToggle == rhs.conversationHostAccessControl?.canToggle
+            && lhs.conversationHostAccessControl?.isUpdating == rhs.conversationHostAccessControl?.isUpdating
+            && lhs.conversationHostAccessControl?.subtitle == rhs.conversationHostAccessControl?.subtitle
+            && lhs.conversationHostAccessControl?.errorMessage == rhs.conversationHostAccessControl?.errorMessage
+    }
     private let composerMaxHeight: CGFloat = 300
     private let composerActionButtonSize: CGFloat = 32
 
@@ -53,6 +94,7 @@ struct ComposerView: View {
     let onPaste: () -> Void
     let onMicrophoneToggle: () -> Void
     var voiceModeManager: VoiceModeManager? = nil
+    var voiceModeState: VoiceModeManager.State = .off
     var voiceService: OpenAIVoiceService? = nil
     var onEndVoiceMode: (() -> Void)? = nil
     var recordingAmplitude: Float = 0
