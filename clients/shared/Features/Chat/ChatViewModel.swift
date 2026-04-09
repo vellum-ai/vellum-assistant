@@ -2040,13 +2040,11 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             activeSubagents.append(info)
         }
 
-        // Update daemon pagination cursor from the response metadata.
-        self.hasMoreHistory = hasMore
-        self.historyCursor = oldestTimestamp
-
         if isPaginationLoad {
             // A full history load ran while we were awaiting reconstruction —
             // the messages array has been replaced, so discard the stale page.
+            // Cursor updates are deferred until after this guard so a stale
+            // pagination response cannot clobber values set by a full load.
             guard capturedGeneration == historyGeneration else {
                 self.paginationState.loadMoreTimeoutTask?.cancel()
                 self.paginationState.loadMoreTimeoutTask = nil
@@ -2054,6 +2052,9 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                 os_signpost(.end, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "path=pagination_stale")
                 return
             }
+            // Update pagination cursor now that we know this response is fresh.
+            self.hasMoreHistory = hasMore
+            self.historyCursor = oldestTimestamp
             // Older page fetched on demand — prepend before existing messages
             // and expand the display window so the newly loaded messages are
             // visible. The loading indicator is cleared here.
@@ -2078,6 +2079,10 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             os_signpost(.end, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "path=pagination")
             return
         }
+
+        // Update pagination cursor for non-pagination loads.
+        self.hasMoreHistory = hasMore
+        self.historyCursor = oldestTimestamp
 
         // isLoadingHistory and streaming state were already set/discarded
         // above, before the background reconstruction await.
