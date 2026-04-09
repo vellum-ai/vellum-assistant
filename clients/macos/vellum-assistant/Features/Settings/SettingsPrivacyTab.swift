@@ -40,6 +40,14 @@ struct SettingsPrivacyTab: View {
     /// stack concurrent GETs against the gateway.
     @State private var retentionLoadTask: Task<Void, Never>?
 
+    /// Tracks whether the user has actively picked a retention option since
+    /// the view appeared. Once set, `loadPrivacyConfig()` will NOT overwrite
+    /// `retentionSelection` with the daemon's reconciled value — otherwise a
+    /// late GET response could stomp a user's mid-load selection with stale
+    /// server data. Complements the `Binding(get:set:)` guard that prevents
+    /// programmatic assignments from spuriously triggering `syncRetention`.
+    @State private var hasUserInteracted: Bool = false
+
     var body: some View {
         privacySection
     }
@@ -87,24 +95,23 @@ struct SettingsPrivacyTab: View {
                 Text("LLM Request Log Retention")
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentDefault)
-                Picker(
-                    "LLM Request Log Retention",
+                VDropdown(
+                    options: LlmLogRetentionOption.allCases.map {
+                        VDropdownOption(label: $0.label, value: $0)
+                    },
                     selection: Binding(
                         get: { retentionSelection },
                         set: { newValue in
+                            hasUserInteracted = true
                             retentionSelection = newValue
                             syncRetention(newValue)
                         }
-                    )
-                ) {
-                    ForEach(LlmLogRetentionOption.allCases) { option in
-                        Text(option.label).tag(option)
-                    }
-                }
-                .labelsHidden()
+                    ),
+                    maxWidth: 280
+                )
                 .accessibilityLabel("LLM Request Log Retention")
                 Text("How long to keep LLM request and response logs on this device. These logs record the prompts and completions sent to model providers and are used for debugging. Shorter retention improves privacy; longer retention helps troubleshoot issues.")
-                    .font(VFont.bodySmallDefault)
+                    .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentTertiary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -137,6 +144,12 @@ struct SettingsPrivacyTab: View {
     /// renders instantly on view appear even before the GET completes.
     /// Errors are logged and swallowed — the picker gracefully keeps the
     /// default if the GET fails.
+    ///
+    /// Race-safety: if the user picks an option *before* the GET completes,
+    /// `hasUserInteracted` will be true and the reconciliation assignment
+    /// below is skipped so stale server data cannot overwrite the user's
+    /// just-made selection. The `Binding(get:set:)` on the picker handles the
+    /// inverse race (programmatic assignments do not trigger `syncRetention`).
     private func loadPrivacyConfig() async {
         // Seed from UserDefaults for instant render.
         if let cachedMs = readCachedRetentionMs() {
@@ -148,6 +161,11 @@ struct SettingsPrivacyTab: View {
             do {
                 let config = try await featureFlagClient.getPrivacyConfig()
                 guard !Task.isCancelled else { return }
+                // If the user has already picked an option, do NOT overwrite
+                // their selection with the daemon's pre-PATCH value — the
+                // PATCH dispatched by `syncRetention` is the authoritative
+                // write and will settle the server state to match.
+                guard !hasUserInteracted else { return }
                 retentionSelection = LlmLogRetentionOption.closest(
                     toMs: config.llmRequestLogRetentionMs
                 )
