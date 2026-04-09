@@ -323,6 +323,56 @@ final class SkillsFileContentStoreTests: XCTestCase {
         XCTAssertFalse(store.loadingFilePaths.contains("missing.txt"))
     }
 
+    func testLoadSkillFileContentTreatsOversizedTextAsNoPreview() async throws {
+        // The daemon returns `content: null` for text files above
+        // `MAX_INLINE_TEXT_SIZE`. `loadSkillFileContent` must treat that as
+        // "no preview available" and clear the loading flag without
+        // surfacing a spurious error or populating `loadedFileContents`.
+        // The detail view then falls through to its "Select a file to
+        // view" empty state for the oversized file.
+        let backing = MockSkillsFileContentStore()
+        await backing.setBlocking(for: "large.md")
+        let mock = MockSkillsClient(backing: backing)
+        let store = SkillsStore(skillsClient: mock)
+
+        // Seed `currentFilesSkillId` so `loadSkillFileContent`'s
+        // same-skill guard lets the result reach the completion branch.
+        store.fetchSkillFiles(skillId: "test-skill")
+        try await Task.sleep(nanoseconds: 20_000_000)
+
+        store.loadSkillFileContent(skillId: "test-skill", path: "large.md")
+        XCTAssertTrue(store.loadingFilePaths.contains("large.md"))
+
+        // Unblock the mock with a text-file response that has
+        // `content: nil` — the oversized-text shape the daemon emits.
+        let oversizedResponse = SkillFileContentResponse(
+            path: "large.md",
+            name: "large.md",
+            size: 10_000_000,
+            mimeType: "text/markdown",
+            isBinary: false,
+            content: nil
+        )
+        await backing.unblock(path: "large.md", with: oversizedResponse)
+
+        try await waitUntil(timeout: 1.0) {
+            !store.loadingFilePaths.contains("large.md")
+        }
+
+        XCTAssertNil(
+            store.loadedFileContents["large.md"],
+            "Oversized text file must not populate loadedFileContents"
+        )
+        XCTAssertNil(
+            store.fileContentErrors["large.md"],
+            "Oversized text file must not be surfaced as an error"
+        )
+        XCTAssertFalse(
+            store.loadingFilePaths.contains("large.md"),
+            "Loading flag must be cleared after the response is handled"
+        )
+    }
+
     func testLoadSkillFileContentIgnoresStaleCancelledTaskCompletion() async throws {
         let backing = MockSkillsFileContentStore()
         await backing.setBlocking(for: "docs/readme.md")
