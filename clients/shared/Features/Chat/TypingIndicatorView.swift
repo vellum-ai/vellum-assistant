@@ -28,6 +28,12 @@ public struct TypingIndicatorView: View {
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .fill(VColor.surfaceOverlay)
         )
+        // Isolate the repeatForever scale animation from parent geometry
+        // changes. Without this barrier, LazyVStack repositioning or outer
+        // .frame(width:) resize (containerWidth 0→actual) gets captured by
+        // the persistent animation context, causing the dots to bounce in
+        // position instead of just pulsing in scale.
+        .geometryGroup()
         .onAppear {
             animate = true
         }
