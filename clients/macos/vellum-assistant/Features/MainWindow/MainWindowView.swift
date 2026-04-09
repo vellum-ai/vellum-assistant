@@ -584,6 +584,9 @@ struct MainWindowView: View {
     @ViewBuilder
     private func coreLayoutContent(windowSize: CGSize) -> some View {
         coreLayoutBase(windowSize: windowSize)
+            // Keep the zoomed canvas pinned to the top-left so width changes
+            // do not recenter the layout and clip the sidebar off-screen.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .overlay { preferencesDismissLayer }
             .overlay(alignment: .bottomLeading) { preferencesDrawerLayer }
             .sheet(isPresented: $showEarnCreditsModal) {
@@ -595,7 +598,8 @@ struct MainWindowView: View {
             .ignoresSafeArea(edges: .top)
             .background(VColor.surfaceBase.ignoresSafeArea())
             .frame(width: windowSize.width / zoomManager.zoomLevel,
-                   height: windowSize.height / zoomManager.zoomLevel)
+                   height: windowSize.height / zoomManager.zoomLevel,
+                   alignment: .topLeading)
             .scaleEffect(zoomManager.zoomLevel, anchor: .topLeading)
             .frame(width: windowSize.width, height: windowSize.height, alignment: .topLeading)
     }

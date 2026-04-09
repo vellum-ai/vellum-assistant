@@ -49,6 +49,13 @@ struct TranscriptRenderModel: Equatable {
 
     /// The active pending confirmation request ID, if any.
     let activePendingRequestId: String?
+
+    /// Whether the assistant has an active turn in progress (sending,
+    /// thinking, streaming, tool running, or awaiting confirmation).
+    /// Gates the expanded min-height frame on the last assistant cell so
+    /// that idle conversations render at natural height and don't push
+    /// content above the viewport.
+    let isActiveTurn: Bool
 }
 
 // MARK: - Transcript Row Model

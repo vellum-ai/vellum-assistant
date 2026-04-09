@@ -25,6 +25,8 @@ set -euo pipefail
 #   VELLUM_PLATFORM_URL  Override managed sign-in platform URL for app launches
 #   VELLUM_DOCS_BASE_URL Override docs base URL for in-app docs links (e.g. staging)
 #   SKIP_BUN_REBUILD    Set to 1 to skip Bun binary staleness checks (use pre-built binaries as-is)
+#   VELLUM_ENVIRONMENT   Runtime environment (local|dev|test|staging|production).
+#                        Auto-set by build command if not provided. See AGENTS.md.
 #   SENTRY_DSN_MACOS     Sentry DSN for the macOS app project (omit to disable)
 #   SENTRY_DSN_ASSISTANT Sentry DSN for the assistant/daemon project (omit to disable)
 #   SU_FEED_URL          Sparkle appcast URL for auto-updates (default: Vellum GitHub releases)
@@ -406,6 +408,29 @@ bundle_kata_kernel() {
     mkdir -p "$KATA_KERNEL_BUNDLE_DIR"
     cp "$KATA_KERNEL_PATH" "$KATA_KERNEL_BUNDLE_DIR/vmlinux.container"
 }
+
+# Default VELLUM_ENVIRONMENT based on build command (overridable via env).
+# See AGENTS.md "Build Environment" for the full matrix.
+# This must run before the early-exit commands (test, lint, clean, binaries)
+# so that swift test inherits the correct value.
+if [ -z "${VELLUM_ENVIRONMENT:-}" ]; then
+    case "$CMD" in
+        test)                          VELLUM_ENVIRONMENT="test" ;;
+        run)                           VELLUM_ENVIRONMENT="local" ;;
+        release|release-application)
+            # Staging releases have a prerelease suffix in DISPLAY_VERSION
+            # (e.g. "0.6.0-staging.3"); clean semver means production.
+            if [[ "${DISPLAY_VERSION:-}" == *-staging* ]]; then
+                VELLUM_ENVIRONMENT="staging"
+            else
+                VELLUM_ENVIRONMENT="production"
+            fi
+            ;;
+        *)                             VELLUM_ENVIRONMENT="local" ;;
+    esac
+fi
+export VELLUM_ENVIRONMENT
+echo "VELLUM_ENVIRONMENT=$VELLUM_ENVIRONMENT"
 
 case "$CMD" in
     test)
@@ -928,6 +953,9 @@ if [ "$CONFIG" = "debug" ]; then
         <key>VELLUM_FLAG_LOCAL_DOCKER_ENABLED</key>
         <string>1</string>"
 fi
+_LSE_ENTRIES+="
+        <key>VELLUM_ENVIRONMENT</key>
+        <string>$VELLUM_ENVIRONMENT</string>"
 if [ -n "${SENTRY_DSN_MACOS:-}" ]; then
     echo "Embedding SENTRY_DSN_MACOS"
     _LSE_ENTRIES+="

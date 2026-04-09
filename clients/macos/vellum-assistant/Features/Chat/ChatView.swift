@@ -346,6 +346,7 @@ struct ChatView: View {
     /// `TranscriptRenderModel` via `MessageListContentView`.
     @ViewBuilder
     private func activeConversationContent(containerWidth: CGFloat) -> some View {
+        let layoutMetrics = MessageListLayoutMetrics(containerWidth: containerWidth)
         VStack(spacing: 0) {
             MessageListView(
                 // -- TranscriptProjector inputs --
@@ -404,82 +405,86 @@ struct ChatView: View {
             )
 
             if let error = viewModel.errorManager.conversationError, error.isCreditsExhausted {
-                CreditsExhaustedBanner(
-                    onAddFunds: { onAddFunds?() }
-                )
-                .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
-                .frame(maxWidth: .infinity)
+                centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
+                    CreditsExhaustedBanner(
+                        onAddFunds: { onAddFunds?() }
+                    )
+                }
                 .padding(.bottom, -VSpacing.sm)
             }
 
             if let error = viewModel.errorManager.conversationError, error.isProviderNotConfigured {
-                MissingApiKeyBanner(
-                    onOpenSettings: { onOpenModelsAndServices?() },
-                    onDismiss: { viewModel.dismissConversationError() }
-                )
-                .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
-                .frame(maxWidth: .infinity)
+                centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
+                    MissingApiKeyBanner(
+                        onOpenSettings: { onOpenModelsAndServices?() },
+                        onDismiss: { viewModel.dismissConversationError() }
+                    )
+                }
                 .padding(.bottom, -VSpacing.sm)
             }
 
             if let mode = recoveryMode, mode.enabled {
-                RecoveryModeBanner(
-                    recoveryMode: mode,
-                    onResumeAssistant: { onResumeAssistant?() },
-                    onOpenSSHSettings: { onOpenSSHSettings?() },
-                    isExiting: isRecoveryModeExiting
-                )
-                .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
-                .frame(maxWidth: .infinity)
+                centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
+                    RecoveryModeBanner(
+                        recoveryMode: mode,
+                        onResumeAssistant: { onResumeAssistant?() },
+                        onOpenSSHSettings: { onOpenSSHSettings?() },
+                        isExiting: isRecoveryModeExiting
+                    )
+                }
                 .padding(.bottom, -VSpacing.sm)
             }
 
             if isReadonly {
-                HStack(spacing: VSpacing.xs) {
-                    VIconView(.eye, size: 14)
-                    Text("Read-only conversation")
-                        .font(VFont.bodySmallDefault)
+                centeredChatColumn(width: layoutMetrics.chatColumnWidth) {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.eye, size: 14)
+                        Text("Read-only conversation")
+                            .font(VFont.bodySmallDefault)
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(VColor.contentTertiary)
+                    .padding(.vertical, VSpacing.md)
                 }
-                .foregroundStyle(VColor.contentTertiary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, VSpacing.md)
             } else {
-                ComposerSection(
-                    inputText: $viewModel.inputText,
-                    isSending: viewModel.isSending,
-                    isAssistantBusy: viewModel.isAssistantBusy,
-                    hasPendingConfirmation: viewModel.activePendingRequestId != nil,
-                    onAllowPendingConfirmation: {
-                        if let requestId = viewModel.activePendingRequestId {
-                            viewModel.respondToConfirmation(requestId: requestId, decision: "allow")
-                        }
-                    },
-                    isRecording: viewModel.isRecording,
-                    suggestion: viewModel.suggestion,
-                    pendingAttachments: viewModel.pendingAttachments,
-                    isLoadingAttachment: viewModel.isLoadingAttachment,
-                    onSend: { sendMessage() },
-                    onStop: { viewModel.stopGenerating() },
-                    onAcceptSuggestion: { viewModel.acceptSuggestion() },
-                    onAttach: { presentFilePicker() },
-                    onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
-                    onPaste: { viewModel.addAttachmentFromPasteboard() },
-                    onMicrophoneToggle: onMicrophoneToggle,
-                    watchSession: watchSession,
-                    onStopWatch: { viewModel.stopWatchSession() },
-                    voiceModeManager: voiceModeManager,
-                    voiceService: voiceService,
-                    onEndVoiceMode: onEndVoiceMode,
-                    recordingAmplitude: viewModel.recordingAmplitude,
-                    onDictateToggle: onDictateToggle,
-                    onVoiceModeToggle: onVoiceModeToggle,
-                    conversationId: conversationId,
-                    isInteractionEnabled: isInteractionEnabled,
-                    contextWindowFillRatio: viewModel.contextWindowFillRatio,
-                    contextWindowTokens: viewModel.contextWindowTokens,
-                    contextWindowMaxTokens: viewModel.contextWindowMaxTokens,
-                    conversationHostAccessControl: conversationHostAccessControl
-                )
+                centeredChatColumn(width: layoutMetrics.chatColumnWidth) {
+                    ComposerSection(
+                        inputText: $viewModel.inputText,
+                        isSending: viewModel.isSending,
+                        isAssistantBusy: viewModel.isAssistantBusy,
+                        hasPendingConfirmation: viewModel.activePendingRequestId != nil,
+                        onAllowPendingConfirmation: {
+                            if let requestId = viewModel.activePendingRequestId {
+                                viewModel.respondToConfirmation(requestId: requestId, decision: "allow")
+                            }
+                        },
+                        isRecording: viewModel.isRecording,
+                        suggestion: viewModel.suggestion,
+                        pendingAttachments: viewModel.pendingAttachments,
+                        isLoadingAttachment: viewModel.isLoadingAttachment,
+                        onSend: { sendMessage() },
+                        onStop: { viewModel.stopGenerating() },
+                        onAcceptSuggestion: { viewModel.acceptSuggestion() },
+                        onAttach: { presentFilePicker() },
+                        onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
+                        onPaste: { viewModel.addAttachmentFromPasteboard() },
+                        onMicrophoneToggle: onMicrophoneToggle,
+                        watchSession: watchSession,
+                        onStopWatch: { viewModel.stopWatchSession() },
+                        voiceModeManager: voiceModeManager,
+                        voiceService: voiceService,
+                        onEndVoiceMode: onEndVoiceMode,
+                        recordingAmplitude: viewModel.recordingAmplitude,
+                        onDictateToggle: onDictateToggle,
+                        onVoiceModeToggle: onVoiceModeToggle,
+                        conversationId: conversationId,
+                        isInteractionEnabled: isInteractionEnabled,
+                        contextWindowFillRatio: viewModel.contextWindowFillRatio,
+                        contextWindowTokens: viewModel.contextWindowTokens,
+                        contextWindowMaxTokens: viewModel.contextWindowMaxTokens,
+                        conversationHostAccessControl: conversationHostAccessControl
+                    )
+                }
             }
         }
     }
@@ -504,6 +509,21 @@ struct ChatView: View {
             if !success {
                 conversationHostAccessError = "Couldn't update computer access for this conversation."
             }
+        }
+    }
+
+    /// Centers chat chrome to the same fixed transcript width using _FrameLayout
+    /// rather than nested max-width flex frames.
+    @ViewBuilder
+    private func centeredChatColumn<Content: View>(
+        width: CGFloat,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+            content()
+                .frame(width: width)
+            Spacer(minLength: 0)
         }
     }
 

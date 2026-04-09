@@ -197,6 +197,30 @@ When making changes that could affect the cloud platform, review the sibling `..
 - Dockerfile or container runtime/build changes.
 - **Feature flags**: Adding a flag to `meta/feature-flags/feature-flag-registry.json` requires a companion PR in `vellum-assistant-platform` to provision the flag in Terraform. See the [Assistant Feature Flags](#assistant-feature-flags) section.
 
+## Build Environment (`VELLUM_ENVIRONMENT`)
+
+The `VELLUM_ENVIRONMENT` environment variable identifies the runtime environment for all clients (macOS, iOS, CLI). It is embedded into the app bundle's `LSEnvironment` (Info.plist) at build time by each platform's `build.sh`.
+
+| Value | Use cases |
+|---|---|
+| `local` | Always built from local source code. Enable developer-only features (e.g. build container images from local source, verbose logging). |
+| `dev` | Artifacts generated from `main`. Connected to the dev platform; skip production guards. |
+| `test` | Stub external services, use test fixtures. |
+| `staging` | QA against staging platform before production rollout. Default for release branch builds. |
+| `production` | Full production behavior, no developer shortcuts. Set explicitly for final production releases. |
+
+**Defaults**: `build.sh` sets the value automatically based on the build command. CI and developers can override it by exporting `VELLUM_ENVIRONMENT` before invoking the build script — the explicit value takes precedence.
+
+**Reading the value at runtime** (Swift):
+```swift
+let env = ProcessInfo.processInfo.environment["VELLUM_ENVIRONMENT"] ?? "production"
+```
+
+**Guidelines**:
+- Use `VELLUM_ENVIRONMENT` for behavior that varies by deployment target (e.g. local image builds, telemetry sampling, API base URLs).
+- Do **not** use it as a substitute for feature flags — flags gate features per-user/org, environments gate per-deployment.
+- Do **not** check for `DEBUG` / `RELEASE` compiler flags (`#if DEBUG`) when the distinction is really about deployment environment. A debug build pointed at staging is still `staging`, not `local`.
+
 ## Sentry & Linear Integration
 
 Error reporting uses Sentry. Two projects exist: one for the daemon/runtime (Node) and one for the macOS app (Swift). DSNs are configured via environment variables (`SENTRY_DSN_ASSISTANT`, `SENTRY_DSN_MACOS`) — see `.env.example`.

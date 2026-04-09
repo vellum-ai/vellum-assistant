@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
+import { loadConfig } from "../config/loader.js";
 import { getIsContainerized } from "../config/env-registry.js";
 import { listConnections } from "../oauth/oauth-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
@@ -216,6 +217,8 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // the first cache block so they remain cached even when workspace files
   // (IDENTITY.md, SOUL.md, USER.md, etc.) are edited between turns.
   const staticParts: string[] = [];
+  const customPrefix = readCustomSystemPromptPrefix();
+  if (customPrefix) staticParts.push(customPrefix);
   staticParts.push(buildParallelToolCallsSection());
   if (getIsContainerized()) staticParts.push(buildContainerizedSection());
   staticParts.push(buildCliReferenceSection());
@@ -385,6 +388,21 @@ function buildIntegrationSection(): string {
   return lines.join("\n");
 }
 
+/**
+ * Read the user-configured custom system prompt prefix.  Returns the trimmed
+ * value when set and non-empty, otherwise null.  Errors (e.g. config file
+ * unavailable) are swallowed so prompt construction never fails.
+ */
+function readCustomSystemPromptPrefix(): string | null {
+  try {
+    const prefix = loadConfig().systemPromptPrefix;
+    if (typeof prefix !== "string") return null;
+    const trimmed = prefix.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
 function buildContainerizedSection(): string {
   const workspaceDir = getWorkspaceDir();
   return [

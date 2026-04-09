@@ -115,24 +115,97 @@ final class ConversationListStore {
     private static let archivedConversationsKey = "archivedSessionIds"
     // Intermediate builds may have written under this key before the compat fix.
     private static let archivedConversationsNewKey = "archivedConversationIds"
+    // [String: TimeInterval] mapping conversationId -> archive time (seconds since 1970).
+    // Used to sort the Settings → Archived Conversations tab by most-recently-archived.
+    private static let archivedConversationsSortKey = "archivedConversationTimestamps"
 
+    /// Timestamped archive state: conversationId -> archivedAt. Source of truth for both
+    /// "is this conversation archived?" and the sort order in the Settings tab. Persisted
+    /// to UserDefaults via `didSet` as `[String: TimeInterval]`.
+    var archivedConversationTimestamps: [String: Date] = [:] {
+        didSet {
+            let encoded = archivedConversationTimestamps.mapValues { $0.timeIntervalSince1970 }
+            UserDefaults.standard.set(encoded, forKey: Self.archivedConversationsSortKey)
+        }
+    }
+
+    /// Backwards-compatible view of archived ids as a `Set<String>`. Reads return the
+    /// current keyset; writes preserve existing timestamps for ids that stay archived
+    /// and assign `Date.distantPast` for newly-added ids (since the caller doesn't know
+    /// the archive time). Production code should prefer `markArchived`/`unmarkArchived`.
     var archivedConversationIds: Set<String> {
-        get {
-            let legacy = Set(UserDefaults.standard.stringArray(forKey: Self.archivedConversationsKey) ?? [])
-            let newer = Set(UserDefaults.standard.stringArray(forKey: Self.archivedConversationsNewKey) ?? [])
-            let merged = legacy.union(newer)
-            // Migrate: consolidate into the canonical key and remove the intermediate key.
-            if !newer.isEmpty {
-                UserDefaults.standard.set(Array(merged), forKey: Self.archivedConversationsKey)
-                UserDefaults.standard.removeObject(forKey: Self.archivedConversationsNewKey)
-            }
-            return merged
-        }
+        get { Set(archivedConversationTimestamps.keys) }
         set {
-            UserDefaults.standard.set(Array(newValue), forKey: Self.archivedConversationsKey)
-            // Clean up the intermediate key if it exists.
-            UserDefaults.standard.removeObject(forKey: Self.archivedConversationsNewKey)
+            var updated = archivedConversationTimestamps
+            for id in newValue where updated[id] == nil {
+                updated[id] = .distantPast
+            }
+            for id in Set(updated.keys).subtracting(newValue) {
+                updated.removeValue(forKey: id)
+            }
+            archivedConversationTimestamps = updated
         }
+    }
+
+    /// Mark a conversation as archived, recording the archive time.
+    func markArchived(_ conversationId: String, at date: Date = Date()) {
+        var updated = archivedConversationTimestamps
+        updated[conversationId] = date
+        archivedConversationTimestamps = updated
+    }
+
+    /// Mark multiple conversations as archived in one write, all at the same timestamp.
+    func markArchived(_ conversationIds: some Sequence<String>, at date: Date = Date()) {
+        var updated = archivedConversationTimestamps
+        for id in conversationIds {
+            updated[id] = date
+        }
+        archivedConversationTimestamps = updated
+    }
+
+    /// Remove a conversation's archive entry.
+    func unmarkArchived(_ conversationId: String) {
+        guard archivedConversationTimestamps[conversationId] != nil else { return }
+        var updated = archivedConversationTimestamps
+        updated.removeValue(forKey: conversationId)
+        archivedConversationTimestamps = updated
+    }
+
+    /// Re-key an archive entry when a synthetic conversation id is resolved to a real one.
+    /// Preserves the original archive timestamp so the item keeps its sort position.
+    func replaceArchivedKey(from oldId: String, to newId: String) {
+        guard let date = archivedConversationTimestamps[oldId] else { return }
+        var updated = archivedConversationTimestamps
+        updated.removeValue(forKey: oldId)
+        updated[newId] = date
+        archivedConversationTimestamps = updated
+    }
+
+    init() {
+        self.archivedConversationTimestamps = Self.loadAndMigrateArchivedTimestamps()
+    }
+
+    /// One-shot loader: if the new timestamp dict is present, return it. Otherwise,
+    /// migrate from the legacy `Set<String>` format by assigning `Date.distantPast` to
+    /// each legacy id so they sort to the bottom of the archive list (below any
+    /// newly-archived items). Runs once from `init()` to avoid mutating-getter hazards
+    /// under `@Observable`.
+    private static func loadAndMigrateArchivedTimestamps() -> [String: Date] {
+        let defaults = UserDefaults.standard
+
+        if let raw = defaults.dictionary(forKey: archivedConversationsSortKey) as? [String: TimeInterval] {
+            return raw.mapValues { Date(timeIntervalSince1970: $0) }
+        }
+
+        let legacy = Set(defaults.stringArray(forKey: archivedConversationsKey) ?? [])
+        let newer = Set(defaults.stringArray(forKey: archivedConversationsNewKey) ?? [])
+        let merged = legacy.union(newer)
+        guard !merged.isEmpty else { return [:] }
+
+        let migrated = Dictionary(uniqueKeysWithValues: merged.map { ($0, Date.distantPast) })
+        let encoded = migrated.mapValues { $0.timeIntervalSince1970 }
+        defaults.set(encoded, forKey: archivedConversationsSortKey)
+        return migrated
     }
 
     // MARK: - Cached Derived Properties
@@ -154,7 +227,25 @@ final class ConversationListStore {
     /// Count of visible conversations with unseen assistant messages (dock badge).
     private(set) var unseenVisibleConversationCount: Int = 0
 
-    private(set) var archivedConversations: [ConversationModel] = []
+    /// Archived conversations ordered by most-recently-archived first. Items whose
+    /// archive timestamp is unknown (legacy, pre-migration) sort to the bottom with
+    /// `createdAt` as a stable tiebreaker. Computed on read — only consumed by the
+    /// Settings → Archived Conversations tab, which is not a hot path. Under
+    /// `@Observable`, reading this re-computes when either `conversations` or
+    /// `archivedConversationTimestamps` changes.
+    var archivedConversations: [ConversationModel] {
+        let timestamps = archivedConversationTimestamps
+        return conversations
+            .filter { $0.isArchived }
+            .sorted { lhs, rhs in
+                let lhsDate = lhs.conversationId.flatMap { timestamps[$0] } ?? .distantPast
+                let rhsDate = rhs.conversationId.flatMap { timestamps[$0] } ?? .distantPast
+                if lhsDate == rhsDate {
+                    return lhs.createdAt > rhs.createdAt
+                }
+                return lhsDate > rhsDate
+            }
+    }
 
     /// Pre-computed sidebar group entries with feature-flag-aware folding applied.
     /// When custom groups are disabled, non-system-group conversations are folded
@@ -172,7 +263,6 @@ final class ConversationListStore {
             groupedConversations = []
             visibleConversations = []
             unseenVisibleConversationCount = 0
-            archivedConversations = []
             sidebarGroupEntries = []
             return
         }
@@ -189,8 +279,6 @@ final class ConversationListStore {
             !$0.isArchived && $0.kind != .private && $0.hasUnseenLatestAssistantMessage
                 && !$0.shouldSuppressUnreadIndicator
         }
-
-        archivedConversations = conversations.filter { $0.isArchived }
 
         // Bucket visible conversations by group in a single pass (O(N)).
         let knownGroupIds = Set(groups.map(\.id))

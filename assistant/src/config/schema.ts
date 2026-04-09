@@ -318,6 +318,13 @@ export const AssistantConfigSchema = z
       .max(200, "maxStepsPerSession must be <= 200")
       .default(50)
       .describe("Maximum number of computer-use steps per session"),
+    systemPromptPrefix: z
+      .string({ error: "systemPromptPrefix must be a string" })
+      .nullable()
+      .default(null)
+      .describe(
+        "Custom text injected at the very beginning of the system prompt. Defaults to null (no injection).",
+      ),
   })
   .superRefine((config, ctx) => {
     if (

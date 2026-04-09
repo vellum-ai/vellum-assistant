@@ -24,9 +24,10 @@ The platform subsystem manages the connection to Vellum Platform. Use
 'connect', 'status', and 'disconnect' to manage platform credentials.
 Any assistant using the managed LLM proxy can use these commands.
 
-When IS_PLATFORM=true (platform-managed deployments), external service
-callbacks (Telegram webhooks, Twilio webhooks, OAuth redirects) also
-route through the platform's gateway proxy via 'callback-routes'.
+External service callbacks (Telegram webhooks, Twilio webhooks, email,
+OAuth redirects) route through the platform's gateway proxy via
+'callback-routes'. Works for both platform-managed and self-hosted
+assistants.
 
 Examples:
   $ assistant platform status --json
@@ -222,9 +223,10 @@ Known callback path/type combinations:
   --path webhooks/twilio/status     --type twilio_status
   --path oauth/callback             --type oauth
 
-Requires a platform-managed environment (IS_PLATFORM=true) with
-VELLUM_PLATFORM_URL and PLATFORM_ASSISTANT_ID configured. Returns the
-platform-provided stable callback URL that external services should use.
+Works for both platform-managed and self-hosted assistants. Requires
+VELLUM_PLATFORM_URL and PLATFORM_ASSISTANT_ID (from environment or stored
+credentials via 'assistant platform connect'). Returns the platform-provided
+stable callback URL that external services should use.
 
 Examples:
   $ assistant platform callback-routes register --path webhooks/telegram --type telegram --json
@@ -237,7 +239,7 @@ Examples:
           writeOutput(cmd, {
             ok: false,
             error:
-              "Platform callbacks not available — missing platform registration context",
+              "Platform callbacks not available — missing platform base URL, assistant ID, or API key. Run 'assistant platform connect' or ensure credentials are configured.",
           });
           process.exitCode = 1;
           return;

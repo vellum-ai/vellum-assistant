@@ -57,17 +57,22 @@ struct OnboardingFlowView: View {
                 // Onboarding flow: WakeUp → HostingSelector → APIKeyEntry → ImproveExperience (steps 0–3)
                 ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
-                    // Fixed top inset — positions the icon consistently
-                    // across all steps regardless of bottom content weight.
-                    Color.clear.frame(height: VSpacing.xxxl)
+                    if state.currentStep == 0 {
+                        // Step 0 only: top inset + app icon
+                        Color.clear.frame(height: 80)
 
-                    if let nsImage = Self.appIcon {
-                        Image(nsImage: nsImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 96, height: 96)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                            .padding(.bottom, VSpacing.xl)
+                        if let nsImage = Self.appIcon {
+                            Image(nsImage: nsImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 80, height: 80)
+                                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                                .shadow(color: VColor.auxBlack.opacity(0.15), radius: 1, x: 0, y: 1)
+                                .padding(.bottom, 78)
+                        }
+                    } else {
+                        // Steps 1–3: top inset only (no icon)
+                        Color.clear.frame(height: VSpacing.xxxl)
                     }
 
                     // Step content — Group flattens into parent VStack so
@@ -147,9 +152,10 @@ struct OnboardingFlowView: View {
                     .id(isBootstrappingManaged ? -1 : state.currentStep)
 
                     // Bottom padding so content isn't flush with window edge.
-                    // Skip for steps with characters footer (0, 2) where the
-                    // graphic is designed to sit flush at the window bottom.
-                    if (state.currentStep != 0 && state.currentStep != 2) || isBootstrappingManaged {
+                    // All onboarding steps now have a characters footer that sits
+                    // flush at the window bottom, so only add padding for the
+                    // managed bootstrap view.
+                    if isBootstrappingManaged {
                         Color.clear.frame(height: VSpacing.xxl)
                     }
                 }
@@ -172,7 +178,7 @@ struct OnboardingFlowView: View {
             }
         }
         }
-        .frame(minWidth: 460, minHeight: 700)
+        .frame(minWidth: 440, minHeight: 630)
         .task {
             if !authManager.isAuthenticated {
                 await authManager.checkSession()

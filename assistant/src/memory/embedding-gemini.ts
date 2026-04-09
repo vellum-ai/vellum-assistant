@@ -15,22 +15,27 @@ interface GeminiEmbedResponse {
   };
 }
 
+export interface GeminiEmbeddingOptions {
+  taskType?: EmbeddingTaskType;
+  dimensions?: number;
+  /** When set, routes requests through the managed proxy at this base URL. */
+  managedBaseUrl?: string;
+}
+
 export class GeminiEmbeddingBackend implements EmbeddingBackend {
   readonly provider = "gemini" as const;
   readonly model: string;
   private readonly apiKey: string;
   private readonly taskType?: EmbeddingTaskType;
   private readonly dimensions?: number;
+  private readonly managedBaseUrl?: string;
 
-  constructor(
-    apiKey: string,
-    model: string,
-    options?: { taskType?: EmbeddingTaskType; dimensions?: number },
-  ) {
+  constructor(apiKey: string, model: string, options?: GeminiEmbeddingOptions) {
     this.apiKey = apiKey;
     this.model = model;
     this.taskType = options?.taskType;
     this.dimensions = options?.dimensions;
+    this.managedBaseUrl = options?.managedBaseUrl;
   }
 
   async embed(
@@ -59,12 +64,18 @@ export class GeminiEmbeddingBackend implements EmbeddingBackend {
     if (this.taskType) body.taskType = this.taskType;
     if (this.dimensions) body.outputDimensionality = this.dimensions;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-      this.model,
-    )}:embedContent?key=${encodeURIComponent(this.apiKey)}`;
+    const url = this.managedBaseUrl
+      ? `${this.managedBaseUrl}/v1beta/models/${encodeURIComponent(this.model)}:embedContent`
+      : `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.model)}:embedContent?key=${encodeURIComponent(this.apiKey)}`;
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (this.managedBaseUrl) {
+      headers["Authorization"] = `Bearer ${this.apiKey}`;
+    }
     const response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(body),
       signal: options?.signal,
     });

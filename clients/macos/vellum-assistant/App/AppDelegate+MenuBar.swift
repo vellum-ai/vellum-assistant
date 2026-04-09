@@ -785,6 +785,16 @@ extension AppDelegate {
         guard success else {
             throw AssistantSwitcherError.lockfilePersistenceFailed
         }
+
+        Task {
+            try? await AuthService.shared.updateAssistant(
+                id: platformAssistant.id,
+                organizationId: organizationId,
+                name: name
+            )
+        }
+
+        IdentityInfo.seedCache(name: name, forAssistantId: platformAssistant.id)
     }
 
     /// Retire an assistant requested from the switcher. Today the switcher
