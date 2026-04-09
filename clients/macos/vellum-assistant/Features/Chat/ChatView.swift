@@ -135,6 +135,14 @@ struct ChatView: View {
 
             dropTargetOverlay
         }
+        // Accept the parent's proposed width so onGeometryChange reports
+        // the actual container size (e.g. the dock frame width) rather than
+        // the content's inflated size. Without this, the ZStack expands to
+        // fit its children (e.g. 808pt chatColumnMaxWidth), onGeometryChange
+        // reports that wider value, and containerWidth locks into a
+        // self-reinforcing loop that causes clipping in narrow containers
+        // like the app-editing chat dock.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.width
         } action: { newWidth in

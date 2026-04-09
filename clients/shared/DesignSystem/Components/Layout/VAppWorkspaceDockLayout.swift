@@ -33,7 +33,7 @@ public struct VAppWorkspaceDockLayout<Dock: View, Workspace: View>: View {
         let effectiveDockWidth: CGFloat = {
             guard showDock, availableWidth > 0 else { return CGFloat(dockWidth) }
             let maxAllowed = availableWidth - Self.minWorkspaceWidth - Self.dividerAndPadding
-            return min(CGFloat(dockWidth), max(maxAllowed, Self.minDockWidth))
+            return min(CGFloat(dockWidth), max(maxAllowed, 0))
         }()
 
         HStack(spacing: 0) {
