@@ -43,6 +43,11 @@ import {
   mintGrantFromDecision,
   type MintGrantParams,
 } from "../approvals/approval-primitive.js";
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
+import {
+  createConversation,
+  updateConversationHostAccess,
+} from "../memory/conversation-crud.js";
 import { getDb, initializeDb } from "../memory/db.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
@@ -54,6 +59,8 @@ initializeDb();
 function clearTables(): void {
   const db = getDb();
   db.delete(scopedApprovalGrants).run();
+  db.run("DELETE FROM messages");
+  db.run("DELETE FROM conversations");
 }
 
 // ---------------------------------------------------------------------------
@@ -96,6 +103,7 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
   beforeEach(() => {
     clearTables();
     events.length = 0;
+    _setOverridesForTesting({});
   });
 
   test("untrusted actor + matching tool_signature grant -> allow", async () => {
@@ -507,5 +515,70 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       expect(lastError.errorMessage).toBe("Cancelled");
       expect(lastError.isExpected).toBe(true);
     }
+  });
+
+  test("v2 trusted contact bypasses tool grants for sandboxed side-effect tools", async () => {
+    _setOverridesForTesting({ "permission-controls-v2": true });
+
+    const result = await handler.checkPreExecutionGates(
+      "bash",
+      { command: "echo hello" },
+      makeContext({ trustClass: "trusted_contact" }),
+      "sandbox",
+      "high",
+      Date.now(),
+      emitLifecycleEvent,
+    );
+
+    expect(result.allowed).toBe(true);
+    expect(events.filter((e) => e.type === "permission_denied")).toHaveLength(
+      0,
+    );
+  });
+
+  test("v2 trusted contact host tools are denied until computer access is enabled for the conversation", async () => {
+    _setOverridesForTesting({ "permission-controls-v2": true });
+
+    const conv = createConversation("trusted contact host gate");
+    const result = await handler.checkPreExecutionGates(
+      "bash",
+      { command: "ls -la" },
+      makeContext({
+        trustClass: "trusted_contact",
+        conversationId: conv.id,
+      }),
+      "host",
+      "high",
+      Date.now(),
+      emitLifecycleEvent,
+    );
+
+    expect(result.allowed).toBe(false);
+    if (result.allowed) return;
+    expect(result.result.content).toContain(
+      "computer access is not enabled for this conversation",
+    );
+  });
+
+  test("v2 trusted contact host tools run once computer access is enabled for the conversation", async () => {
+    _setOverridesForTesting({ "permission-controls-v2": true });
+
+    const conv = createConversation("trusted contact host access enabled");
+    updateConversationHostAccess(conv.id, true);
+
+    const result = await handler.checkPreExecutionGates(
+      "bash",
+      { command: "ls -la" },
+      makeContext({
+        trustClass: "trusted_contact",
+        conversationId: conv.id,
+      }),
+      "host",
+      "high",
+      Date.now(),
+      emitLifecycleEvent,
+    );
+
+    expect(result.allowed).toBe(true);
   });
 });

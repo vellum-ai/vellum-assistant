@@ -19,6 +19,7 @@ import {
 } from "../memory/canonical-guardian-store.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import type { NotificationSourceChannel } from "../notifications/signal.js";
+import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
@@ -49,6 +50,7 @@ export type BridgeConfirmationRequestResult =
       skipped: true;
       reason:
         | "not_trusted_contact"
+        | "v2_model_mediated"
         | "no_guardian_binding"
         | "missing_guardian_identity"
         | "binding_identity_mismatch";
@@ -82,6 +84,10 @@ export function bridgeConfirmationRequestToGuardian(
   // unknown actors are fail-closed by the routing layer.
   if (trustContext.trustClass !== "trusted_contact") {
     return { skipped: true, reason: "not_trusted_contact" };
+  }
+
+  if (isPermissionControlsV2Enabled()) {
+    return { skipped: true, reason: "v2_model_mediated" };
   }
 
   if (!trustContext.guardianExternalUserId) {
