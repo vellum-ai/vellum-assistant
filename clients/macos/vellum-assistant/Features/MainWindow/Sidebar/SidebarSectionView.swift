@@ -174,45 +174,12 @@ struct SidebarSectionView: View {
                                 .transition(.opacity)
                         }
                     }
-                    .dropDestination(for: String.self) { items, _ in
-                        guard let droppedId = items.first,
-                              let sourceUUID = UUID(uuidString: droppedId),
-                              sourceUUID != conversation.id else {
-                            sidebar.endConversationDrag()
-                            return false
-                        }
-                        // Block within-Recents reorder — Recents uses recency sorting.
-                        // Compare actual conversation groupIds (not section group.id) so
-                        // cross-group moves still work when custom groups are folded into Recents.
-                        let sourceGroup = conversationManager.conversations.first(where: { $0.id == sourceUUID })?.groupId
-                        if sourceGroup == ConversationGroup.all.id && conversation.groupId == ConversationGroup.all.id {
-                            sidebar.endConversationDrag()
-                            return false
-                        }
-                        let insertAfter = sidebar.dropIndicatorAtBottom
-                        let moved = conversationManager.moveConversation(sourceId: sourceUUID, targetId: conversation.id, insertAfterTarget: insertAfter)
-                        sidebar.endConversationDrag()
-                        return moved
-                    } isTargeted: { isTargeted in
-                        if isTargeted && conversation.id != sidebar.draggingConversationId {
-                            // Suppress drop indicator for within-Recents drags
-                            if conversation.groupId == ConversationGroup.all.id,
-                               let dragId = sidebar.draggingConversationId,
-                               conversationManager.conversations.first(where: { $0.id == dragId })?.groupId == ConversationGroup.all.id {
-                                return
-                            }
-                            sidebar.dropTargetConversationId = conversation.id
-                            if let dragId = sidebar.draggingConversationId {
-                                let groupConversations = conversationManager.groupedConversations
-                                    .first { $0.group?.id == group.id }?.conversations ?? []
-                                let sIdx = groupConversations.firstIndex(where: { $0.id == dragId }) ?? 0
-                                let tIdx = groupConversations.firstIndex(where: { $0.id == conversation.id }) ?? 0
-                                sidebar.dropIndicatorAtBottom = sIdx < tIdx
-                            }
-                        } else if !isTargeted && sidebar.dropTargetConversationId == conversation.id {
-                            sidebar.dropTargetConversationId = nil
-                        }
-                    }
+                    .onDrop(of: [.plainText], delegate: SidebarConversationRowDropDelegate(
+                        conversation: conversation,
+                        sectionGroupId: group.id,
+                        sidebar: sidebar,
+                        conversationManager: conversationManager
+                    ))
             }
         } else {
             ForEach(displayed) { conversation in
@@ -516,6 +483,68 @@ struct SectionBodyDropModifier: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+/// Drop delegate for individual conversation rows within a section.
+/// Replaces `.dropDestination(for: String.self)` to avoid synchronous
+/// `Transferable` conformance resolution on every `ForEachChild` update.
+struct SidebarConversationRowDropDelegate: DropDelegate {
+    let conversation: ConversationModel
+    let sectionGroupId: String
+    let sidebar: SidebarInteractionState
+    let conversationManager: ConversationManager
+
+    func validateDrop(info: DropInfo) -> Bool {
+        guard let sourceId = sidebar.draggingConversationId,
+              sourceId != conversation.id else { return false }
+        // Block within-Recents reorder — Recents uses recency sorting.
+        let sourceGroup = conversationManager.conversations.first(where: { $0.id == sourceId })?.groupId
+        if sourceGroup == ConversationGroup.all.id && conversation.groupId == ConversationGroup.all.id {
+            return false
+        }
+        return true
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard conversation.id != sidebar.draggingConversationId else { return }
+        // Suppress drop indicator for within-Recents drags
+        if conversation.groupId == ConversationGroup.all.id,
+           let dragId = sidebar.draggingConversationId,
+           conversationManager.conversations.first(where: { $0.id == dragId })?.groupId == ConversationGroup.all.id {
+            return
+        }
+        sidebar.dropTargetConversationId = conversation.id
+        if let dragId = sidebar.draggingConversationId {
+            let groupConversations = conversationManager.groupedConversations
+                .first { $0.group?.id == sectionGroupId }?.conversations ?? []
+            let sIdx = groupConversations.firstIndex(where: { $0.id == dragId }) ?? 0
+            let tIdx = groupConversations.firstIndex(where: { $0.id == conversation.id }) ?? 0
+            sidebar.dropIndicatorAtBottom = sIdx < tIdx
+        }
+    }
+
+    func dropExited(info: DropInfo) {
+        if sidebar.dropTargetConversationId == conversation.id {
+            sidebar.dropTargetConversationId = nil
+        }
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let sourceId = sidebar.draggingConversationId
+        sidebar.endConversationDrag()
+        guard let sourceId, sourceId != conversation.id else { return false }
+        // Block within-Recents reorder
+        let sourceGroup = conversationManager.conversations.first(where: { $0.id == sourceId })?.groupId
+        if sourceGroup == ConversationGroup.all.id && conversation.groupId == ConversationGroup.all.id {
+            return false
+        }
+        let insertAfter = sidebar.dropIndicatorAtBottom
+        return conversationManager.moveConversation(sourceId: sourceId, targetId: conversation.id, insertAfterTarget: insertAfter)
     }
 }
 
