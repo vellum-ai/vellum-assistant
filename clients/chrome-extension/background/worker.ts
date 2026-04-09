@@ -214,8 +214,9 @@ async function dispatchHostBrowserResult(
 
   // Self-hosted fallback: POST directly to the local daemon using live
   // creds. Prefer the capability token from the native-messaging pair
-  // flow (PR 3 cutover); fall back to the legacy bearer token for
-  // compatibility.
+  // flow; fall back to the bearer token stored under the gateway
+  // `/v1/browser-relay/token` path for installs that haven't been
+  // paired via native messaging yet.
   const local = await getStoredLocalToken();
   if (local) {
     const fallbackPort = local.assistantPort ?? (await getRelayPort());
@@ -331,16 +332,14 @@ async function buildRelayModeConfig(kind: RelayModeKind): Promise<RelayMode> {
   }
 
   // Self-hosted: prefer the capability token the native-messaging pair
-  // flow persisted (see self-hosted-auth.ts and PR 3 of the
-  // browser-remediation plan). The stored token already carries the
-  // assistant runtime port the helper used when it pair-bootstrapped,
-  // so we target the runtime directly without going through the
-  // legacy gateway `/v1/browser-relay/token` fallback.
+  // flow persisted (see self-hosted-auth.ts). The stored token already
+  // carries the assistant runtime port the helper used when it
+  // pair-bootstrapped, so we target the runtime directly.
   //
   // Compatibility branch: if there is no stored capability token yet
-  // (e.g. a chrome profile that hasn't re-paired after the cutover)
-  // we fall back to the legacy `bearerToken` / `relayPort` storage
-  // keys so existing installs keep working until the user re-pairs.
+  // (e.g. a chrome profile that hasn't been paired via native
+  // messaging) we fall back to the `bearerToken` / `relayPort` storage
+  // keys so installs without a paired helper keep working.
   const local = await getStoredLocalToken();
   if (local) {
     const port = local.assistantPort ?? (await getRelayPort());
@@ -544,13 +543,14 @@ function createRelayConnection(
       // code. If refresh is impossible we abort the reconnect loop
       // and surface the error to the popup — see cloudReconnectHook.
       //
-      // Self-hosted mode keeps the legacy refresh ladder:
+      // Self-hosted mode uses a two-step refresh ladder:
       //  1. Re-read the stored capability token from
       //     `self-hosted-auth.ts`. The token may have been rotated by
       //     a re-pair in another tab, or it may simply still be valid
       //     and the drop was a transient server bounce.
-      //  2. Fall back to the legacy gateway `/v1/browser-relay/token`
-      //     refresh for installs that haven't migrated yet.
+      //  2. Fall back to the gateway `/v1/browser-relay/token`
+      //     refresh for installs without a paired native-messaging
+      //     helper.
       //
       // Pull the live mode through getCurrentMode so a setMode() that
       // flipped us to cloud mid-reconnect still routes through the
@@ -763,9 +763,9 @@ async function bootstrap(): Promise<void> {
   shouldConnect = true;
   if (relayMode === 'self-hosted') {
     // Only mint a fresh gateway JWT if the capability-token path isn't
-    // usable yet. The capability token is the default post-cutover —
-    // the legacy refresh is only needed for installs that haven't been
-    // re-paired since the PR 3 transport change.
+    // usable yet. The capability token is the default auth for
+    // self-hosted installs with a paired native-messaging helper; the
+    // gateway refresh is only needed for installs without one.
     const local = await getStoredLocalToken();
     if (!local) {
       await refreshToken();

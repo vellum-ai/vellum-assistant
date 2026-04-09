@@ -1093,9 +1093,9 @@ describe('createHostBrowserDispatcher', () => {
 
     test('still clears the local attach cache when forwarding fails', async () => {
       // Wire a forwarder that throws to assert that local cache
-      // eviction (the legacy onDetach behaviour) is unaffected by a
-      // broken runtime forwarder. The forward and the local
-      // bookkeeping must be independent.
+      // eviction on onDetach is unaffected by a broken runtime
+      // forwarder. The forward and the local bookkeeping must be
+      // independent.
       harness = createHarness({ sendResult: { id: 1, result: {} } });
       harness.forwardSessionInvalidatedImpl = () => {
         throw new Error('forwarder exploded');

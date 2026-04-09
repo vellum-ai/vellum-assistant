@@ -196,12 +196,9 @@ describe("host_browser self-hosted capability-token e2e round-trip", () => {
 
   test("capability token round-trips Browser.getVersion over HTTP POST fallback", async () => {
     // HTTP result transport: the extension POSTs results back to
-    // `/v1/host-browser-result` with the same capability token as the
-    // WS handshake. This exercises the fix added on top of the PR3
-    // cutover — before the fix the POST route's JWT-only auth
-    // middleware 401'd every capability-token-bearing request and
-    // silently dropped the CDP result whenever the relay WS was
-    // unavailable. The test must prove the HTTP fallback actually
+    // `/v1/host-browser-result` with the same capability token used
+    // for the WS handshake. This exercises the capability-token-aware
+    // auth on the POST route and proves the HTTP fallback path
     // resolves the pending interaction end-to-end.
     const guardianId = `self-hosted-guardian-${crypto.randomUUID()}`;
     const { token } = mintHostBrowserCapability(guardianId);

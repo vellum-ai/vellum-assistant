@@ -1,11 +1,11 @@
 /**
  * Relay WebSocket connection helper.
  *
- * Extracted from worker.ts so we can share the open/close/reconnect
- * lifecycle between the two relay transports:
+ * Shares the open/close/reconnect lifecycle between the two relay
+ * transports:
  *
  *   - `self-hosted` — ws://127.0.0.1:<port>/v1/browser-relay, token minted
- *     by the local daemon (legacy path; default for back-compat).
+ *     by the local daemon.
  *   - `cloud`       — wss://<cloud-gateway>/v1/browser-relay, token from
  *     the cloud OAuth flow (see cloud-auth.ts).
  *
@@ -17,9 +17,9 @@
  * This module also exports {@link postHostBrowserResult}, the relay-aware
  * helper used by the host-browser dispatcher to ship CDP result envelopes
  * back to the daemon. In self-hosted mode the result is POSTed to the
- * local `/v1/host-browser-result` HTTP endpoint; in cloud mode it would
- * round-trip back through the gateway WebSocket — see the function
- * docstring for the current Phase 2 behaviour.
+ * local `/v1/host-browser-result` HTTP endpoint; in cloud mode it
+ * round-trips back through the gateway WebSocket — see the function
+ * docstring for the full behaviour.
  */
 
 import type {
@@ -28,7 +28,7 @@ import type {
   HostBrowserSessionInvalidatedEnvelope,
 } from './host-browser-dispatcher.js';
 
-/** Reconnect backoff bounds mirror the legacy inline worker.ts values. */
+/** Reconnect backoff bounds for transient relay disconnects. */
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
 
@@ -114,16 +114,15 @@ export interface RelayConnectionDeps {
    * an unexpected close. Callers use this to refresh stale tokens before
    * the next `start()` attempt.
    *
-   * The legacy shape (`Promise<string | null | void>`) is preserved for
-   * backwards compatibility:
+   * Two return shapes are accepted:
    *
-   *   - `string` → treated as `{ kind: 'refreshed', token: <string> }`.
-   *   - `null` / `undefined` → treated as `{ kind: 'keep' }`.
-   *
-   * New callers should return a {@link RelayReconnectDecision} so they
-   * can abort the reconnect loop entirely when refresh is impossible
-   * (e.g. the cloud OAuth flow can no longer renew non-interactively
-   * and the user must sign in again).
+   *   - A plain `Promise<string | null | void>`, where:
+   *     - `string` is treated as `{ kind: 'refreshed', token: <string> }`.
+   *     - `null` / `undefined` is treated as `{ kind: 'keep' }`.
+   *   - A {@link RelayReconnectDecision}, which additionally lets the
+   *     hook abort the reconnect loop entirely when refresh is
+   *     impossible (e.g. the cloud OAuth flow can no longer renew
+   *     non-interactively and the user must sign in again).
    *
    * The {@link RelayReconnectContext} argument carries the close code
    * / reason so handlers can distinguish auth-failure closes from
@@ -427,11 +426,11 @@ export class RelayConnection {
 
 /**
  * Coerce the flexible `onReconnect` return shape into a canonical
- * {@link RelayReconnectDecision}. The legacy shape supported a plain
- * `string` (treated as a fresh token) or `null`/`undefined` (treated as
- * "keep the existing token"). New callers return a
- * {@link RelayReconnectDecision} directly and get access to the
- * `{ kind: 'abort' }` branch that stops the reconnect loop.
+ * {@link RelayReconnectDecision}. A plain `string` is treated as a
+ * fresh token; `null`/`undefined` is treated as "keep the existing
+ * token"; a {@link RelayReconnectDecision} is returned as-is and gives
+ * the caller access to the `{ kind: 'abort' }` branch that stops the
+ * reconnect loop.
  */
 function normaliseReconnectResult(
   result: string | null | void | RelayReconnectDecision,
