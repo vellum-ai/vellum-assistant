@@ -16,6 +16,7 @@ import type { UserDecision } from "../../permissions/types.js";
 import {
   isConversationHostAccessDecision,
   isConversationHostAccessEnablePrompt,
+  isPermissionControlsV2Enabled,
 } from "../../permissions/v2-consent-policy.js";
 import { getTool } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
@@ -51,22 +52,27 @@ export async function handleConfirm(
     return httpError("BAD_REQUEST", "requestId is required", 400);
   }
 
-  const validConfirmDecisions = [
-    "allow",
-    "allow_10m",
-    "allow_conversation",
-    "deny",
-    "always_allow",
-    "always_deny",
-    "always_allow_high_risk",
-  ];
+  const v2Enabled = isPermissionControlsV2Enabled();
+  const validConfirmDecisions = v2Enabled
+    ? ["allow", "deny"]
+    : [
+        "allow",
+        "allow_10m",
+        "allow_conversation",
+        "deny",
+        "always_allow",
+        "always_deny",
+        "always_allow_high_risk",
+      ];
   if (
     typeof decision !== "string" ||
     !validConfirmDecisions.includes(decision)
   ) {
     return httpError(
       "BAD_REQUEST",
-      `decision must be one of: ${validConfirmDecisions.join(", ")}`,
+      v2Enabled
+        ? "decision must be one of: allow, deny"
+        : `decision must be one of: ${validConfirmDecisions.join(", ")}`,
       400,
     );
   }
@@ -94,6 +100,14 @@ export async function handleConfirm(
     return httpError(
       "FORBIDDEN",
       "Conversation host-access prompts only accept allow or deny",
+      403,
+    );
+  }
+
+  if (v2Enabled && (selectedPattern || selectedScope)) {
+    return httpError(
+      "FORBIDDEN",
+      "Scoped or persistent approval selections are not supported under permission-controls-v2",
       403,
     );
   }
@@ -248,6 +262,14 @@ export async function handleTrustRule(
 ): Promise<Response> {
   const authError = requireBoundGuardian(authContext);
   if (authError) return authError;
+
+  if (isPermissionControlsV2Enabled()) {
+    return httpError(
+      "FORBIDDEN",
+      "Persistent trust rules are not supported under permission-controls-v2",
+      403,
+    );
+  }
 
   const body = (await req.json()) as {
     requestId?: string;
