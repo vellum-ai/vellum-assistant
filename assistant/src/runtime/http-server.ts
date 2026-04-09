@@ -624,12 +624,11 @@ export class RuntimeHttpServer {
       },
     });
 
-    // In the two-phase startup path, processMessage and the copy
-    // generators are not available until setFullDeps() is called.
-    // Defer sweep/timer creation to setFullDeps() in that case so
-    // the guardian sweeps don't capture undefined generators (they
-    // have early-return guards that prevent restarting later).
-    if (this.processMessage) {
+    // In the two-phase startup path (deferReady: true), deps are not
+    // available until setFullDeps() is called.  Defer sweep/timer
+    // creation to setFullDeps() in that case so the guardian sweeps
+    // don't capture undefined generators.
+    if (this._ready) {
       this.startBackgroundSweeps();
     }
 
