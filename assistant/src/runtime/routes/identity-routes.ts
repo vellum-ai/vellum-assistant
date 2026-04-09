@@ -204,8 +204,11 @@ function parseK8sCpuCores(value: string): number | null {
     const millis = parseInt(milliMatch[1], 10);
     return millis > 0 ? millis / 1000 : null;
   }
-  const num = parseFloat(trimmed);
-  return !isNaN(num) && num > 0 ? num : null;
+  if (/^\d+(\.\d+)?$/.test(trimmed)) {
+    const num = parseFloat(trimmed);
+    return !isNaN(num) && num > 0 ? num : null;
+  }
+  return null;
 }
 
 /**
