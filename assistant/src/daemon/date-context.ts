@@ -18,14 +18,14 @@ export interface TemporalContextOptions {
   userTimeZone?: string | null;
 }
 
-const WEEKDAY_SHORT = [
-  "Sun",
-  "Mon",
-  "Tue",
-  "Wed",
-  "Thu",
-  "Fri",
-  "Sat",
+const WEEKDAY_LONG = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
 ] as const;
 const UTC_GMT_OFFSET_TOKEN_RE = /^(?:UTC|GMT)([+-])(\d{1,2})(?::?(\d{2}))?$/i;
 
@@ -295,7 +295,7 @@ function formatLocalDate(date: Date, timeZone: string): string {
  * Uses the timezone resolution cascade:
  * explicit override → configured user tz → profile user tz → host fallback.
  *
- * Returns format: `2026-04-02 (Thu) 01:52:33 -05:00 (America/Chicago)`
+ * Returns format: `2026-04-02 (Thursday) 01:52:33 -05:00 (America/Chicago)`
  */
 export function formatTurnTimestamp(
   options: TemporalContextOptions = {},
@@ -322,7 +322,7 @@ export function formatTurnTimestamp(
 
   const dateStr = formatLocalDate(now, timeZone);
   const todayParts = localDateParts(now, timeZone);
-  const dayName = WEEKDAY_SHORT[todayParts.weekday];
+  const dayName = WEEKDAY_LONG[todayParts.weekday];
 
   const fmt = new Intl.DateTimeFormat("en-US", {
     timeZone,

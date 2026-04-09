@@ -904,7 +904,7 @@ export function buildUnifiedTurnContextBlock(
   };
 
   const lines: string[] = ["<turn_context>"];
-  lines.push(`timestamp: ${options.timestamp}`);
+  lines.push(`current_time: ${options.timestamp}`);
   if (options.interfaceName) {
     lines.push(`interface: ${options.interfaceName}`);
   }

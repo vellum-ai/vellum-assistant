@@ -604,7 +604,7 @@ describe("applyRuntimeInjections — injection mode", () => {
       supportsVoiceInput: false,
     } as ChannelCapabilities,
     unifiedTurnContext:
-      "<turn_context>\ntimestamp: 2026-03-04 (Tue) 12:00:00 +00:00 (UTC)\ninterface: telegram\n</turn_context>",
+      "<turn_context>\ncurrent_time: 2026-03-04 (Tuesday) 12:00:00 +00:00 (UTC)\ninterface: telegram\n</turn_context>",
     nowScratchpad: "Current focus: shipping PR 3",
     pkbContext: "essentials content here",
     pkbActive: true,
@@ -898,7 +898,7 @@ describe("stripInjectionsForCompaction preserves persistent blocks", () => {
         content: [
           {
             type: "text",
-            text: "<turn_context>\ntimestamp: 2026-04-02 (Thu) 01:52:33 -05:00 (America/Chicago)\ninterface: macos\n</turn_context>",
+            text: "<turn_context>\ncurrent_time: 2026-04-02 (Thursday) 01:52:33 -05:00 (America/Chicago)\ninterface: macos\n</turn_context>",
           },
           { type: "text", text: "Hello" },
         ],
@@ -1087,7 +1087,7 @@ describe("buildUnifiedTurnContextBlock", () => {
     const text = buildUnifiedTurnContextBlock(options);
     const lines = text.split("\n");
     expect(lines[0]).toBe("<turn_context>");
-    expect(lines[1]).toBe("timestamp: 2026-04-02T12:00:00Z");
+    expect(lines[1]).toBe("current_time: 2026-04-02T12:00:00Z");
     expect(lines[2]).toBe("interface: macos");
     expect(lines[3]).toBe("</turn_context>");
     expect(lines).toHaveLength(4);
@@ -1118,7 +1118,7 @@ describe("buildUnifiedTurnContextBlock", () => {
 
     const text = buildUnifiedTurnContextBlock(options);
     expect(text).toContain("<turn_context>");
-    expect(text).toContain("timestamp: 2026-04-02T12:00:00Z");
+    expect(text).toContain("current_time: 2026-04-02T12:00:00Z");
     expect(text).toContain("interface: telegram");
     expect(text).toContain("source_channel: telegram");
     expect(text).toContain("canonical_actor_identity: trusted-user-1");
@@ -1154,7 +1154,7 @@ describe("buildUnifiedTurnContextBlock", () => {
 
     const text = buildUnifiedTurnContextBlock(options);
     expect(text).toContain("<turn_context>");
-    expect(text).toContain("timestamp: 2026-04-02T12:00:00Z");
+    expect(text).toContain("current_time: 2026-04-02T12:00:00Z");
     expect(text).toContain("canonical_actor_identity: unknown");
     expect(text).toContain("trust_class: unknown");
     expect(text).toContain("non-guardian account");
@@ -1315,7 +1315,7 @@ describe("buildUnifiedTurnContextBlock", () => {
     expect(text).not.toContain("interface:");
     const lines = text.split("\n");
     expect(lines[0]).toBe("<turn_context>");
-    expect(lines[1]).toBe("timestamp: 2026-04-02T12:00:00Z");
+    expect(lines[1]).toBe("current_time: 2026-04-02T12:00:00Z");
     expect(lines[2]).toBe("</turn_context>");
   });
 
@@ -1362,7 +1362,7 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
   ];
 
   const sampleBlock =
-    "<turn_context>\ntimestamp: 2026-04-02T12:00:00Z\ninterface: macos\n</turn_context>";
+    "<turn_context>\ncurrent_time: 2026-04-02T12:00:00Z\ninterface: macos\n</turn_context>";
 
   test("injects unifiedTurnContext when provided", () => {
     const result = applyRuntimeInjections(baseMessages, {
