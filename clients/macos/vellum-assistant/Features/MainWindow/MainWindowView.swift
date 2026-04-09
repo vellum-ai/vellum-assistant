@@ -673,6 +673,7 @@ struct MainWindowView: View {
 
                 chatContentView(windowSize: windowSize)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+                    .clipped()
                     .animation(VAnimation.panel, value: sidebarExpanded)
                     .animation(VAnimation.panel, value: isSettingsOpen)
                     .overlay {

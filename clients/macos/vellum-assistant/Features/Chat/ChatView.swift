@@ -123,6 +123,19 @@ struct ChatView: View {
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "ChatView.body")
         #endif
         ZStack {
+            // Color.clear always fills the proposed size, so measuring it
+            // gives the true available width from the parent — unlike the
+            // ZStack whose intrinsic size is driven by its children. This
+            // breaks the circular dependency where fixed-width frames inside
+            // mainContentStack would inflate the ZStack beyond the parent's
+            // proposal (e.g. 808pt default in a 300pt dock).
+            Color.clear
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.width
+                } action: { newWidth in
+                    containerWidth = newWidth
+                }
+
             mainContentStack(containerWidth: containerWidth)
                 .background(alignment: .bottom) {
                     chatBackground
@@ -134,11 +147,6 @@ struct ChatView: View {
                 .animation(VAnimation.fast, value: viewModel.btwResponse != nil)
 
             dropTargetOverlay
-        }
-        .onGeometryChange(for: CGFloat.self) { proxy in
-            proxy.size.width
-        } action: { newWidth in
-            containerWidth = newWidth
         }
         .environment(\.dropActions, currentDropActions)
         .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
