@@ -222,9 +222,10 @@ describe("sanitizeRelativePath", () => {
   });
 
   test("rejects paths that become absolute after ./ stripping", () => {
-    // The leading `./` strip loop used to leave `/etc/passwd` behind, which
-    // posix.normalize then passed through as an absolute path. The
-    // post-normalization absolute-path check should reject each of these.
+    // `sanitizeRelativePath` performs a post-normalization absolute-path
+    // check so inputs like `.//etc/passwd` cannot reach the filesystem:
+    // the leading `./` strip loop leaves `/etc/passwd`, which
+    // `posix.normalize` would otherwise pass through as an absolute path.
     expect(sanitizeRelativePath(".//etc/passwd")).toBeNull();
     expect(sanitizeRelativePath("./././/etc/passwd")).toBeNull();
     // The backslash normalizes to `/`, so `.\\/etc/passwd` becomes
@@ -287,19 +288,20 @@ describe("readCatalogSkillFiles (dev mode)", () => {
   });
 
   test("rejects a symlinked skill root and falls through to platform mode", async () => {
-    // Reproduces the Codex P2 attack: an attacker (or a misconfigured dev)
-    // creates <repoSkillsDir>/my-skill as a symlink pointing at an external
-    // directory. Without the symlink-root check in `resolveCatalogSource`,
-    // the dev-mode branch would happily walk the external directory,
-    // because the realpath containment check downstream derives `realRoot`
-    // from the already-resolved symlink target.
+    // An attacker (or a misconfigured dev) creates
+    // <repoSkillsDir>/my-skill as a symlink pointing at an external
+    // directory. `resolveCatalogSource` rejects symlinked skill roots so
+    // the dev-mode branch never walks the external directory — the
+    // realpath containment check downstream would otherwise derive
+    // `realRoot` from the already-resolved symlink target and become a
+    // no-op.
     //
     // Expected behavior: the dev-mode shortcut is rejected up-front, and
     // we fall through to platform mode — which in this test is stubbed
-    // to return an empty file list. So `readCatalogSkillFiles` should
-    // return the empty platform response, and `fetch` MUST be called
-    // (proving the fall-through happened, rather than the dev-mode
-    // shortcut silently reading from the external directory).
+    // to return an empty file list. So `readCatalogSkillFiles` returns
+    // the empty platform response, and `fetch` MUST be called (proving
+    // the fall-through happened, rather than the dev-mode shortcut
+    // silently reading from the external directory).
     const root = makeTempSkillsDir();
     const externalRoot = mkdtempSync(join(tmpdir(), "catalog-files-ext-"));
     tempDirs.push(externalRoot);
@@ -662,6 +664,74 @@ describe("readCatalogSkillFileContent (dev mode)", () => {
     );
     expect(entry).toBeNull();
   });
+
+  test("rejects dotfile paths and returns null without reading disk", async () => {
+    // `.env` is a valid sanitized path (sanitizeRelativePath accepts it),
+    // but the hidden-segment check must reject it so the catalog content
+    // reader never exposes dotfiles, matching the listing API that hides
+    // them. This preserves parity between listing and content endpoints.
+    const root = makeTempSkillsDir();
+    writeSkill(root, "my-skill", {
+      "SKILL.md": "ok",
+      ".env": "SECRET=abc\n",
+    });
+    mockRepoSkillsDir = root;
+    mockCatalog = [skill("my-skill")];
+    installFetchForbidden();
+
+    expect(await readCatalogSkillFileContent("my-skill", ".env")).toBeNull();
+    expect(
+      await readCatalogSkillFileContent("my-skill", ".git/config"),
+    ).toBeNull();
+    expect(
+      await readCatalogSkillFileContent("my-skill", "docs/.hidden/file.md"),
+    ).toBeNull();
+  });
+
+  test("rejects SKIP_DIRS paths and returns null without reading disk", async () => {
+    const root = makeTempSkillsDir();
+    writeSkill(root, "my-skill", {
+      "SKILL.md": "ok",
+      "node_modules/foo/index.js": "module.exports = {};",
+    });
+    mockRepoSkillsDir = root;
+    mockCatalog = [skill("my-skill")];
+    installFetchForbidden();
+
+    expect(
+      await readCatalogSkillFileContent(
+        "my-skill",
+        "node_modules/foo/index.js",
+      ),
+    ).toBeNull();
+    expect(
+      await readCatalogSkillFileContent("my-skill", "__pycache__/cached.pyc"),
+    ).toBeNull();
+    expect(
+      await readCatalogSkillFileContent(
+        "my-skill",
+        "nested/node_modules/foo.js",
+      ),
+    ).toBeNull();
+  });
+
+  test("regular docs/readme.md still returns content (sanity)", async () => {
+    const root = makeTempSkillsDir();
+    writeSkill(root, "my-skill", {
+      "docs/readme.md": "# readme\n",
+    });
+    mockRepoSkillsDir = root;
+    mockCatalog = [skill("my-skill")];
+    installFetchForbidden();
+
+    const entry = await readCatalogSkillFileContent(
+      "my-skill",
+      "docs/readme.md",
+    );
+    expect(entry).not.toBeNull();
+    expect(entry!.content).toBe("# readme\n");
+    expect(entry!.name).toBe("readme.md");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -757,6 +827,28 @@ describe("readCatalogSkillFileContent (platform mode)", () => {
     expect(await readCatalogSkillFileContent("remote-skill", "..")).toBeNull();
     expect(
       await readCatalogSkillFileContent("remote-skill", "../etc/passwd"),
+    ).toBeNull();
+    expect(fetchCalls.length).toBe(0);
+  });
+
+  test("rejects hidden / SKIP_DIRS paths BEFORE making any fetch call", async () => {
+    // Platform-mode defense in depth: even though the platform endpoint
+    // would refuse these reads server-side, we must short-circuit in
+    // `readCatalogSkillFileContent` so an attacker cannot use the daemon
+    // as a probe channel (and so we avoid unnecessary network traffic).
+    mockCatalog = [skill("remote-skill")];
+    installFetchForbidden();
+    expect(
+      await readCatalogSkillFileContent("remote-skill", ".env"),
+    ).toBeNull();
+    expect(
+      await readCatalogSkillFileContent("remote-skill", ".git/config"),
+    ).toBeNull();
+    expect(
+      await readCatalogSkillFileContent(
+        "remote-skill",
+        "node_modules/foo/index.js",
+      ),
     ).toBeNull();
     expect(fetchCalls.length).toBe(0);
   });

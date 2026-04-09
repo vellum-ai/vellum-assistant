@@ -6756,6 +6756,55 @@ paths:
           required: true
           schema:
             type: string
+  /v1/skills/{id}/files/content:
+    get:
+      operationId: skills_by_id_files_content_get
+      summary: Get skill file content
+      description: Return the content of a single file belonging to an installed or catalog skill.
+      tags:
+        - skills
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path:
+                    type: string
+                  name:
+                    type: string
+                  size:
+                    type: number
+                  mimeType:
+                    type: string
+                  isBinary:
+                    type: boolean
+                  content:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - path
+                  - name
+                  - size
+                  - mimeType
+                  - isBinary
+                  - content
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Relative path of the file within the skill directory
   /v1/skills/{id}/inspect:
     get:
       operationId: skills_by_id_inspect_get
