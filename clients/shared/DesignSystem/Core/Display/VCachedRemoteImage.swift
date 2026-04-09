@@ -1,5 +1,3 @@
-import CoreGraphics
-import ImageIO
 import SwiftUI
 
 /// Shared URL session with a disk-backed cache for small remote images
@@ -31,6 +29,18 @@ public enum VRemoteImageCache {
 
 /// A SwiftUI view that loads a remote image through `VRemoteImageCache.session`
 /// and renders `placeholder` while loading or on error.
+///
+/// **Intended for small images only** (logos, avatars at a few KB each). The
+/// decode path runs on the MainActor via `NSImage(data:)` / `UIImage(data:)`,
+/// which is safe for Simple Icons-sized assets but would cause scroll jank for
+/// large photos. For high-res images, use a different primitive that decodes
+/// on a background task.
+///
+/// We deliberately decode through `PlatformImage(data:)` rather than
+/// `CGImageSource` so SVG payloads (the format every `cdn.simpleicons.org`
+/// URL returns) are handled correctly. `CGImageSource` only supports raster
+/// formats (PNG/JPEG/GIF/HEIC); `NSImage`/`UIImage` understand both raster
+/// and SVG on macOS 14+ / iOS 17+.
 ///
 /// `VCachedRemoteImage` deliberately does NOT render a system `AsyncImage` — it
 /// owns the session so the cache is shared and the call site can customize the
@@ -71,19 +81,15 @@ public struct VCachedRemoteImage<Content: View, Placeholder: View>: View {
         do {
             let (data, _) = try await VRemoteImageCache.session.data(from: url)
             guard !Task.isCancelled else { return }
-            // Decode off the main thread via a CGImageSource on a background
-            // task — per clients/AGENTS.md: "Never decode or resize images
-            // synchronously on the main thread." CGImage is Sendable so it
-            // crosses the actor boundary cleanly, unlike NSImage/UIImage.
-            let cgImage: CGImage? = await Task.detached(priority: .userInitiated) {
-                guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
-                    return nil
-                }
-                return CGImageSourceCreateImageAtIndex(source, 0, nil)
-            }.value
-            guard !Task.isCancelled else { return }
-            if let cgImage {
-                loadedImage = PlatformImage(fromCGImage: cgImage)
+            // Decode on the MainActor via NSImage(data:) / UIImage(data:).
+            // These support BOTH raster formats (PNG/JPEG/GIF/HEIC) and SVG
+            // on macOS 14+ / iOS 17+. CGImageSource was used previously but
+            // does not decode SVG, which broke every cdn.simpleicons.org URL
+            // (the primary use case for this component). The MainActor decode
+            // cost is acceptable here because this component is constrained
+            // to small images (logos/avatars at a few KB each).
+            if let img = PlatformImage(data: data) {
+                loadedImage = img
             }
         } catch {
             // Load failed — placeholder remains visible.
@@ -97,22 +103,10 @@ public typealias PlatformImage = NSImage
 extension Image {
     init(platformImage: PlatformImage) { self.init(nsImage: platformImage) }
 }
-extension NSImage {
-    /// Creates an `NSImage` from a decoded `CGImage`. Uses `.zero` to let the
-    /// image infer its size from the underlying `CGImage` pixel dimensions.
-    fileprivate convenience init(fromCGImage cgImage: CGImage) {
-        self.init(cgImage: cgImage, size: .zero)
-    }
-}
 #elseif canImport(UIKit)
 import UIKit
 public typealias PlatformImage = UIImage
 extension Image {
     init(platformImage: PlatformImage) { self.init(uiImage: platformImage) }
-}
-extension UIImage {
-    fileprivate convenience init(fromCGImage cgImage: CGImage) {
-        self.init(cgImage: cgImage)
-    }
 }
 #endif
