@@ -3369,11 +3369,27 @@ public final class SettingsStore: ObservableObject {
         return (1...65535).contains(port)
     }
 
+    /// Default loopback host for the cdp-inspect backend. Used as the fallback
+    /// when the daemon config contains an invalid (non-loopback) host value.
+    static let defaultHostBrowserCdpInspectHost: String = "localhost"
+    /// Default DevTools remote-debugging port for the cdp-inspect backend.
+    /// Used as the fallback when the daemon config contains an out-of-range
+    /// port value.
+    static let defaultHostBrowserCdpInspectPort: Int = 9222
+
     /// Reads `hostBrowser.cdpInspect.{enabled,host,port,probeTimeoutMs}` from
     /// the workspace config and copies the values into `store`. Missing keys
     /// leave the existing values untouched so the defaults set in the
     /// property declarations apply.
-    private static func applyHostBrowserCdpInspectConfig(
+    ///
+    /// The `host` and `port` values are validated the same way as the UI
+    /// setters (`setHostBrowserCdpInspectHost` / `setHostBrowserCdpInspectPort`)
+    /// to preserve the loopback-only security invariant: if the workspace
+    /// config file is manually edited (or tampered with) to contain a
+    /// non-loopback host like `"attacker.example.com"` or an out-of-range
+    /// port, we fall back to the safe defaults (`localhost` / `9222`) and
+    /// log a warning instead of silently accepting the unsafe value.
+    static func applyHostBrowserCdpInspectConfig(
         _ config: [String: Any],
         into store: SettingsStore
     ) {
@@ -3385,13 +3401,30 @@ public final class SettingsStore: ObservableObject {
             store.hostBrowserCdpInspectEnabled = enabled
         }
         if let host = cdpInspect["host"] as? String, !host.isEmpty {
-            store.hostBrowserCdpInspectHost = host
+            if isValidHostBrowserCdpInspectHost(host) {
+                store.hostBrowserCdpInspectHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+            } else {
+                log.warning("Ignoring invalid hostBrowser.cdpInspect.host value from daemon config (must be loopback); falling back to default")
+                store.hostBrowserCdpInspectHost = defaultHostBrowserCdpInspectHost
+            }
         }
+        // JSONSerialization may surface integral numbers as Double, so coerce
+        // through a single path before validating.
+        let rawPort: Int?
         if let port = cdpInspect["port"] as? Int {
-            store.hostBrowserCdpInspectPort = port
+            rawPort = port
         } else if let portDouble = cdpInspect["port"] as? Double {
-            // JSONSerialization may surface integral numbers as Double.
-            store.hostBrowserCdpInspectPort = Int(portDouble)
+            rawPort = Int(portDouble)
+        } else {
+            rawPort = nil
+        }
+        if let port = rawPort {
+            if isValidHostBrowserCdpInspectPort(port) {
+                store.hostBrowserCdpInspectPort = port
+            } else {
+                log.warning("Ignoring out-of-range hostBrowser.cdpInspect.port value from daemon config (must be 1..65535); falling back to default")
+                store.hostBrowserCdpInspectPort = defaultHostBrowserCdpInspectPort
+            }
         }
         if let probeTimeout = cdpInspect["probeTimeoutMs"] as? Int {
             store.hostBrowserCdpInspectProbeTimeoutMs = probeTimeout

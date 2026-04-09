@@ -22,11 +22,14 @@ struct BrowserBackendCard: View {
     @FocusState private var isHostFocused: Bool
     @FocusState private var isPortFocused: Bool
 
-    /// Placeholder docs URL. The real docs page lands with the browser CDP
-    /// inspect docs PR so the exact slug may change before the docs ship.
-    private static let learnMoreURL = URL(
-        string: "https://docs.vellum.ai/assistant/browser/use-your-own-chrome"
-    )
+    /// Docs URL for the "use your own Chrome" backend. Routed through
+    /// `AppURLs.browserCdpInspectDocs` so it honors `VELLUM_DOCS_BASE_URL`
+    /// overrides (staging / local docs servers) — see
+    /// `clients/macos/AGENTS.md` § External URLs. The real docs page lands
+    /// with a later PR so the slug is a placeholder.
+    private static var learnMoreURL: URL {
+        AppURLs.browserCdpInspectDocs
+    }
 
     var body: some View {
         SettingsCard(
@@ -153,9 +156,7 @@ struct BrowserBackendCard: View {
 
     private var learnMoreLink: some View {
         Button {
-            if let url = Self.learnMoreURL {
-                NSWorkspace.shared.open(url)
-            }
+            NSWorkspace.shared.open(Self.learnMoreURL)
         } label: {
             HStack(spacing: VSpacing.xxs) {
                 VIconView(.info, size: 12)
@@ -186,41 +187,62 @@ struct BrowserBackendCard: View {
     }
 
     private func saveFormChanges() {
+        // Validate BOTH host and port before applying any patches so the save
+        // path is atomic: if either field is invalid, we surface all errors
+        // and persist neither change. Previously, host-only failures still
+        // silently persisted the port, leaving the form in a partially-applied
+        // state that was hard to reason about.
         let trimmedHost = draftHost.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedPortText = draftPortText.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        var blockedByValidation = false
+        var pendingHostError: String?
+        var pendingPortError: String?
 
-        if trimmedHost != store.hostBrowserCdpInspectHost {
+        let hostChanged = trimmedHost != store.hostBrowserCdpInspectHost
+        if hostChanged, !SettingsStore.isValidHostBrowserCdpInspectHost(trimmedHost) {
+            pendingHostError = "Only loopback hosts are allowed (localhost, 127.0.0.1, ::1, [::1])."
+        }
+
+        let parsedPort = Int(trimmedPortText)
+        let portChanged: Bool
+        if let parsedPort {
+            portChanged = parsedPort != store.hostBrowserCdpInspectPort
+            if portChanged, !SettingsStore.isValidHostBrowserCdpInspectPort(parsedPort) {
+                pendingPortError = "Port must be between 1 and 65535."
+            }
+        } else {
+            portChanged = false
+            pendingPortError = "Port must be a number between 1 and 65535."
+        }
+
+        // Publish both error slots in one pass so the user sees every issue at
+        // once rather than fixing them sequentially.
+        hostError = pendingHostError
+        portError = pendingPortError
+
+        if pendingHostError != nil || pendingPortError != nil {
+            // Validation failed — do not mutate the store or emit any patches.
+            return
+        }
+
+        // All validation passed — apply only the fields that actually changed.
+        // The setters run their own validation too, but we've already checked
+        // it above so they should return nil. If they don't, we surface the
+        // error instead of silently swallowing it.
+        if hostChanged {
             if let error = store.setHostBrowserCdpInspectHost(trimmedHost) {
                 hostError = error
-                blockedByValidation = true
-            } else {
-                hostError = nil
+                return
             }
-        } else {
-            hostError = nil
+        }
+        if portChanged, let parsedPort {
+            if let error = store.setHostBrowserCdpInspectPort(parsedPort) {
+                portError = error
+                return
+            }
         }
 
-        if let parsedPort = Int(trimmedPortText) {
-            if parsedPort != store.hostBrowserCdpInspectPort {
-                if let error = store.setHostBrowserCdpInspectPort(parsedPort) {
-                    portError = error
-                    blockedByValidation = true
-                } else {
-                    portError = nil
-                }
-            } else {
-                portError = nil
-            }
-        } else {
-            portError = "Port must be a number between 1 and 65535."
-            blockedByValidation = true
-        }
-
-        if !blockedByValidation {
-            isHostFocused = false
-            isPortFocused = false
-        }
+        isHostFocused = false
+        isPortFocused = false
     }
 }

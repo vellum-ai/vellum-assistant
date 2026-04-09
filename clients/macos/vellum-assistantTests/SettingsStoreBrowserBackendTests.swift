@@ -195,4 +195,142 @@ final class SettingsStoreBrowserBackendTests: XCTestCase {
         XCTAssertFalse(SettingsStore.isValidHostBrowserCdpInspectPort(-1))
         XCTAssertFalse(SettingsStore.isValidHostBrowserCdpInspectPort(65536))
     }
+
+    // MARK: - applyHostBrowserCdpInspectConfig
+
+    func testApplyDaemonConfigAcceptsValidValues() {
+        // Reset to known-distinct values so we can verify the apply path
+        // overwrites them with the config payload.
+        store.hostBrowserCdpInspectEnabled = false
+        store.hostBrowserCdpInspectHost = "localhost"
+        store.hostBrowserCdpInspectPort = 9222
+
+        let config: [String: Any] = [
+            "hostBrowser": [
+                "cdpInspect": [
+                    "enabled": true,
+                    "host": "127.0.0.1",
+                    "port": 9333,
+                    "probeTimeoutMs": 750,
+                ]
+            ]
+        ]
+        SettingsStore.applyHostBrowserCdpInspectConfig(config, into: store)
+
+        XCTAssertTrue(store.hostBrowserCdpInspectEnabled)
+        XCTAssertEqual(store.hostBrowserCdpInspectHost, "127.0.0.1")
+        XCTAssertEqual(store.hostBrowserCdpInspectPort, 9333)
+        XCTAssertEqual(store.hostBrowserCdpInspectProbeTimeoutMs, 750)
+    }
+
+    func testApplyDaemonConfigRejectsNonLoopbackHost() {
+        // Pre-seed with a valid non-default value so we can distinguish
+        // "left untouched" from "reset to default" in the assertion.
+        store.hostBrowserCdpInspectHost = "127.0.0.1"
+
+        let config: [String: Any] = [
+            "hostBrowser": [
+                "cdpInspect": [
+                    "host": "attacker.example.com",
+                ]
+            ]
+        ]
+        SettingsStore.applyHostBrowserCdpInspectConfig(config, into: store)
+
+        // Invalid host should fall back to the default, NOT persist
+        // "attacker.example.com" and NOT silently leave the old value.
+        XCTAssertEqual(store.hostBrowserCdpInspectHost, SettingsStore.defaultHostBrowserCdpInspectHost)
+        XCTAssertEqual(store.hostBrowserCdpInspectHost, "localhost")
+    }
+
+    func testApplyDaemonConfigRejectsPublicIPHost() {
+        store.hostBrowserCdpInspectHost = "127.0.0.1"
+        let config: [String: Any] = [
+            "hostBrowser": [
+                "cdpInspect": [
+                    "host": "192.168.1.10",
+                ]
+            ]
+        ]
+        SettingsStore.applyHostBrowserCdpInspectConfig(config, into: store)
+        XCTAssertEqual(store.hostBrowserCdpInspectHost, "localhost")
+    }
+
+    func testApplyDaemonConfigRejectsOutOfRangePort() {
+        store.hostBrowserCdpInspectPort = 9333
+
+        let config: [String: Any] = [
+            "hostBrowser": [
+                "cdpInspect": [
+                    "port": 70000,
+                ]
+            ]
+        ]
+        SettingsStore.applyHostBrowserCdpInspectConfig(config, into: store)
+
+        // Out-of-range port should fall back to the default.
+        XCTAssertEqual(store.hostBrowserCdpInspectPort, SettingsStore.defaultHostBrowserCdpInspectPort)
+        XCTAssertEqual(store.hostBrowserCdpInspectPort, 9222)
+    }
+
+    func testApplyDaemonConfigRejectsZeroPort() {
+        store.hostBrowserCdpInspectPort = 9333
+        let config: [String: Any] = [
+            "hostBrowser": [
+                "cdpInspect": [
+                    "port": 0,
+                ]
+            ]
+        ]
+        SettingsStore.applyHostBrowserCdpInspectConfig(config, into: store)
+        XCTAssertEqual(store.hostBrowserCdpInspectPort, 9222)
+    }
+
+    func testApplyDaemonConfigRejectsOutOfRangePortFromDouble() {
+        store.hostBrowserCdpInspectPort = 9333
+        // JSONSerialization may surface integral numbers as Double; ensure
+        // the validation applies in that path too.
+        let config: [String: Any] = [
+            "hostBrowser": [
+                "cdpInspect": [
+                    "port": Double(70000),
+                ]
+            ]
+        ]
+        SettingsStore.applyHostBrowserCdpInspectConfig(config, into: store)
+        XCTAssertEqual(store.hostBrowserCdpInspectPort, 9222)
+    }
+
+    func testApplyDaemonConfigRejectsBothInvalidHostAndPort() {
+        store.hostBrowserCdpInspectHost = "127.0.0.1"
+        store.hostBrowserCdpInspectPort = 9333
+
+        let config: [String: Any] = [
+            "hostBrowser": [
+                "cdpInspect": [
+                    "host": "attacker.example.com",
+                    "port": -5,
+                ]
+            ]
+        ]
+        SettingsStore.applyHostBrowserCdpInspectConfig(config, into: store)
+
+        XCTAssertEqual(store.hostBrowserCdpInspectHost, "localhost")
+        XCTAssertEqual(store.hostBrowserCdpInspectPort, 9222)
+    }
+
+    func testApplyDaemonConfigIgnoresEmptyHostAndLeavesExistingValue() {
+        store.hostBrowserCdpInspectHost = "127.0.0.1"
+        let config: [String: Any] = [
+            "hostBrowser": [
+                "cdpInspect": [
+                    "host": "",
+                ]
+            ]
+        ]
+        SettingsStore.applyHostBrowserCdpInspectConfig(config, into: store)
+        // Empty host is a "key not set" signal, not invalid — we leave the
+        // existing value untouched (same contract as missing keys).
+        XCTAssertEqual(store.hostBrowserCdpInspectHost, "127.0.0.1")
+    }
 }
