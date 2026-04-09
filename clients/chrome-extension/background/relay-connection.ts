@@ -145,6 +145,21 @@ export class RelayConnection {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectDelay = RECONNECT_BASE_MS;
   private closedByCaller = false;
+  /**
+   * Context of a non-normal ws close whose onClose notification has
+   * been deferred into the reconnect-with-refresh timer. Populated
+   * from the ws 'close' listener BEFORE arming the timer, and cleared
+   * right before the timer's setTimeout callback fires onClose (on
+   * abort/keep/refreshed branches). When {@link close} is called
+   * while this is non-null the caller is racing the deferred
+   * notification — we fire the single pending onClose before
+   * clearing the timer to keep the exactly-once invariant.
+   *
+   * Without this guard, `close()` would silently cancel the timer
+   * and the caller would see ZERO onClose calls for the lifecycle,
+   * turning the contract from "exactly once" into "at most once".
+   */
+  private pendingDeferredCloseCtx: RelayReconnectContext | null = null;
 
   constructor(deps: RelayConnectionDeps) {
     this.deps = deps;
@@ -219,9 +234,23 @@ export class RelayConnection {
   /**
    * Close the socket permanently. After this the connection will not
    * reconnect on its own; call `start()` again to resume.
+   *
+   * If a non-normal ws close already fired and deferred its onClose
+   * notification into a reconnect timer that hasn't executed yet,
+   * fire that single pending notification before clearing the timer
+   * so the caller still sees exactly one onClose per lifecycle. The
+   * previous behaviour silently cancelled the timer and left the
+   * caller with zero close callbacks for the aborted lifecycle,
+   * which broke the invariant documented on
+   * {@link scheduleReconnectWithRefresh}.
    */
   close(code = 1000, reason = 'closed by caller'): void {
     this.closedByCaller = true;
+    if (this.pendingDeferredCloseCtx !== null) {
+      const deferred = this.pendingDeferredCloseCtx;
+      this.pendingDeferredCloseCtx = null;
+      this.deps.onClose(deferred.code, deferred.reason);
+    }
     if (this.reconnectTimer !== null) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -287,7 +316,14 @@ export class RelayConnection {
       // the reconnect-with-refresh decision resolves so the caller
       // sees exactly one onClose call per lifecycle. The helper
       // surfaces an authError when refresh returns/aborts.
-      this.scheduleReconnectWithRefresh({ code, reason });
+      //
+      // Track the pending deferred close so that a concurrent
+      // close() call that clears the timer can still fire onClose
+      // once before tearing down — otherwise the caller would see
+      // zero close notifications for this lifecycle.
+      const deferredCtx = { code, reason };
+      this.pendingDeferredCloseCtx = deferredCtx;
+      this.scheduleReconnectWithRefresh(deferredCtx);
     });
 
     ws.addEventListener('error', () => {
@@ -359,9 +395,19 @@ export class RelayConnection {
       this.reconnectTimer = null;
       if (this.closedByCaller) {
         // Caller called close() while we were waiting for the
-        // backoff timer to fire. Notify them once with the original
-        // close code/reason and stop — no reconnect, no refresh.
-        this.deps.onClose(ctx.code, ctx.reason);
+        // backoff timer to fire. close() already fired the single
+        // pending onClose via pendingDeferredCloseCtx before
+        // clearing the timer, so there is nothing left to do here.
+        // (Historically this branch was reachable because
+        // close() left the deferred notification unfired; now
+        // close() always flushes it synchronously, so if we somehow
+        // still observe closedByCaller without a pending ctx the
+        // notification was already delivered.)
+        if (this.pendingDeferredCloseCtx !== null) {
+          const pending = this.pendingDeferredCloseCtx;
+          this.pendingDeferredCloseCtx = null;
+          this.deps.onClose(pending.code, pending.reason);
+        }
         return;
       }
       let decision: RelayReconnectDecision = { kind: 'keep' };
@@ -396,6 +442,7 @@ export class RelayConnection {
         // worker can push an actionable message into chrome.storage
         // for the popup.
         this.closedByCaller = true;
+        this.pendingDeferredCloseCtx = null;
         this.deps.onClose(ctx.code, ctx.reason, decision.error);
         return;
       }
@@ -411,13 +458,25 @@ export class RelayConnection {
       // Caller may have called close() concurrently with the refresh
       // hook — re-check before firing onClose or reconnecting.
       if (this.closedByCaller) {
-        this.deps.onClose(ctx.code, ctx.reason);
+        // Same reasoning as the pre-refresh closedByCaller branch
+        // above: close() normally flushes the pending onClose, so
+        // the pending ctx should already be null. Defensive flush
+        // guards against a rare race where closedByCaller was set
+        // via another path.
+        if (this.pendingDeferredCloseCtx !== null) {
+          const pending = this.pendingDeferredCloseCtx;
+          this.pendingDeferredCloseCtx = null;
+          this.deps.onClose(pending.code, pending.reason);
+        }
         return;
       }
       // Fire onClose once for this lifecycle before we start a fresh
       // connect attempt. The caller sees exactly one onClose per
       // non-normal close, with authError undefined on the reconnect
-      // path and set on the abort path.
+      // path and set on the abort path. Clear the pending deferred
+      // close ctx so a later close() doesn't re-deliver the same
+      // notification.
+      this.pendingDeferredCloseCtx = null;
       this.deps.onClose(ctx.code, ctx.reason);
       this.connect();
     }, delay);

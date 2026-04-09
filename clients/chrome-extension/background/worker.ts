@@ -25,11 +25,13 @@ import {
   refreshCloudToken,
   getStoredToken as getStoredCloudToken,
   getStoredTokenRaw as getStoredCloudTokenRaw,
-  isCloudTokenStale,
   CLOUD_AUTH_FAILURE_CLOSE_CODES,
   type CloudAuthConfig,
   type StoredCloudToken,
 } from './cloud-auth.js';
+import {
+  decideCloudReconnectAction,
+} from './cloud-reconnect-decision.js';
 import {
   bootstrapLocalToken,
   getStoredLocalToken,
@@ -381,8 +383,11 @@ async function buildRelayModeConfig(kind: RelayModeKind): Promise<RelayMode> {
 //      sign-in prompt instead of silently hammering the gateway.
 //   3. The counter resets to zero every time a socket successfully
 //      opens (see the `onOpen` wiring in `createRelayConnection`).
-const WS_CLOSE_CODE_ABNORMAL = 1006;
-const CLOUD_REFRESH_ATTEMPT_CAP = 3;
+//
+// The pure action-picker lives in `cloud-reconnect-decision.ts` so
+// unit tests can exercise the ordering without dragging in the
+// service worker surface. This module is responsible for the async
+// side effects (reading storage, calling refreshCloudToken, etc.).
 
 /**
  * Count of consecutive refresh attempts made from
@@ -404,61 +409,36 @@ function resetCloudRefreshAttempts(): void {
  * abort the reconnect loop entirely so the popup can prompt the user
  * to sign in again.
  *
- * Refresh is forced when:
- *   - The stored token is missing, expired, or within the stale
- *     window (see `isCloudTokenStale`).
- *   - The close code matches a known auth-failure code emitted by the
- *     gateway's browser-relay handshake (see
- *     `CLOUD_AUTH_FAILURE_CLOSE_CODES`).
- *   - The close code is 1006 AND we haven't already exhausted the
- *     1006 refresh budget. See the docstring on
- *     {@link WS_CLOSE_CODE_ABNORMAL} for the rationale.
- *
- * On successful refresh the new token is persisted to storage by
- * `refreshCloudToken` and returned via `{ kind: 'refreshed' }` so the
- * {@link RelayConnection} rebuilds the URL for the next connect. On
- * failure we return `{ kind: 'abort' }` which halts the reconnect
- * loop, marks the socket closed, and propagates the error through
- * `onClose` for the UI to surface.
+ * The pure decision (keep / refresh / abort) is delegated to
+ * {@link decideCloudReconnectAction}, which is covered by a direct
+ * unit test. This function is the async side-effect wrapper that
+ * reads the stored token, consults the decision helper, fires the
+ * refresh network call on the `refresh` branch, and maps the
+ * outcomes onto a {@link RelayReconnectDecision} for
+ * {@link RelayConnection}.
  */
 async function cloudReconnectHook(
   ctx: RelayReconnectContext,
 ): Promise<RelayReconnectDecision> {
   const stored = await getStoredCloudTokenRaw();
-  const authFailure = CLOUD_AUTH_FAILURE_CLOSE_CODES.has(ctx.code);
-  const abnormal = ctx.code === WS_CLOSE_CODE_ABNORMAL;
-  // For 1006 we only assume "this is an auth problem" while we
-  // haven't burned through the refresh budget. A mid-session cable
-  // pull will also produce 1006 and we don't want to abort the
-  // reconnect loop on the very first network blip — the attempt
-  // counter resets every time a socket successfully re-opens (see
-  // resetCloudRefreshAttempts in the onOpen hook), so a transient
-  // network outage just racks up attempts we never actually use.
-  const abnormalNeedsRefresh =
-    abnormal && cloudRefreshAttempts < CLOUD_REFRESH_ATTEMPT_CAP;
-  const needsRefresh =
-    authFailure || abnormalNeedsRefresh || isCloudTokenStale(stored);
-
-  if (!needsRefresh && stored?.token) {
+  const action = decideCloudReconnectAction({
+    ctx,
+    stored,
+    attempts: cloudRefreshAttempts,
+  });
+  if (action.kind === 'keep') {
     // Transient network blip with a still-valid token. Keep the
     // existing token and let the relay helper retry.
     return { kind: 'keep' };
   }
-
-  // If we've already burned the 1006 refresh budget without a
-  // successful reconnect, stop hammering the gateway and prompt the
-  // user to sign in again. We intentionally check this BEFORE calling
-  // refreshCloudToken so an in-flight reconnect that just flipped us
-  // into the abort branch doesn't rack up a gratuitous refresh.
-  if (abnormal && cloudRefreshAttempts >= CLOUD_REFRESH_ATTEMPT_CAP) {
-    return {
-      kind: 'abort',
-      error:
-        `Cloud relay kept closing with abnormal closure (code 1006) after ${CLOUD_REFRESH_ATTEMPT_CAP} ` +
-        'token refresh attempts. Please sign in with Vellum (cloud) again from the extension popup to reconnect.',
-    };
+  if (action.kind === 'abort') {
+    // Budget-exhausted short-circuit for repeated 1006 closes — the
+    // decision helper has already generated an actionable sign-in
+    // prompt message.
+    return { kind: 'abort', error: action.error };
   }
 
+  // action.kind === 'refresh'
   cloudRefreshAttempts += 1;
   const refreshed = await refreshCloudToken({
     gatewayBaseUrl: CLOUD_GATEWAY_BASE_URL,
@@ -470,6 +450,8 @@ async function cloudReconnectHook(
   }
 
   // Non-interactive refresh is impossible — user must sign in again.
+  const authFailure = CLOUD_AUTH_FAILURE_CLOSE_CODES.has(ctx.code);
+  const abnormal = ctx.code === 1006;
   const reason = authFailure
     ? 'Cloud relay closed with an auth-failure code'
     : abnormal
@@ -594,6 +576,15 @@ function missingTokenMessage(kind: RelayModeKind): string {
 
 async function connect(): Promise<void> {
   if (relayConnection && relayConnection.isOpen()) return;
+  // Defensive: a fresh connect() always starts the 1006 refresh
+  // budget from scratch. The counter is normally reset from onOpen,
+  // but if a previous session exhausted the cap (so onOpen never
+  // fired for the aborted attempt) and the user then signed in again
+  // and clicked Connect, the carried-over counter would cause the
+  // first 1006 in the new session to immediately land in the abort
+  // branch. Resetting here guarantees a fresh Connect gets the full
+  // refresh budget regardless of prior session state.
+  resetCloudRefreshAttempts();
   // A fresh connect attempt supersedes any previously persisted
   // auth-error — the user either just signed back in or is explicitly
   // retrying, and we want the popup to stop nagging.

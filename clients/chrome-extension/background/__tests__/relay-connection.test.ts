@@ -496,6 +496,48 @@ describe('RelayConnection', () => {
       expect(instances.length).toBe(1);
     });
 
+    test('close during pending deferred reconnect still fires onClose exactly once (Gap 2)', async () => {
+      // Regression guard for Gap 2 of the round-2 cloud-cap review:
+      // the ws 'close' listener defers onClose into
+      // scheduleReconnectWithRefresh for non-normal closes so the
+      // caller sees exactly one notification per lifecycle. Before
+      // the fix, calling close() before the reconnect timer fired
+      // would clear the timer WITHOUT flushing the pending deferred
+      // close — leaving the caller with ZERO onClose callbacks and
+      // quietly turning the "exactly once" contract into "at most
+      // once."
+      const cbs = makeCallbacks();
+      const conn = makeConn(
+        { kind: 'self-hosted', baseUrl: 'http://127.0.0.1:7830', token: 't' },
+        cbs,
+      );
+
+      conn.start();
+      openSocket(instances[0]);
+      // Server closes with 1006 → close listener arms the reconnect
+      // timer and stashes the deferred close ctx.
+      closeSocket(instances[0], 1006, 'abnormal');
+      // Nothing should have fired yet — the onClose is deferred.
+      expect(cbs.closeCalls.length).toBe(0);
+
+      // Caller tears the connection down before the reconnect timer
+      // fires. The fix flushes the pending deferred close once and
+      // then clears the timer so no reconnect happens.
+      conn.close();
+
+      expect(cbs.closeCalls.length).toBe(1);
+      expect(cbs.closeCalls[0].code).toBe(1006);
+      expect(cbs.closeCalls[0].reason).toBe('abnormal');
+      // caller-initiated close path → no authError expected.
+      expect(cbs.closeCalls[0].authError).toBeUndefined();
+
+      // Wait past the reconnect timer to make sure nothing else
+      // fires: no double onClose, no spurious reconnect.
+      await new Promise((r) => setTimeout(r, 1100));
+      expect(cbs.closeCalls.length).toBe(1);
+      expect(instances.length).toBe(1);
+    });
+
     test('cloud reconnect: token refresh replaces URL token on next connect', async () => {
       const cbs = makeCallbacks();
       let seenCtx: RelayReconnectContext | null = null;
