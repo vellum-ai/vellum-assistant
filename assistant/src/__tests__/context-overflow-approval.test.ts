@@ -1,5 +1,6 @@
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import {
   CONTEXT_OVERFLOW_TOOL_NAME,
   requestCompressionApproval,
@@ -20,7 +21,21 @@ function createMockPrompter(decision: UserDecision): PermissionPrompter {
 }
 
 describe("requestCompressionApproval", () => {
+  beforeEach(() => {
+    _setOverridesForTesting({});
+  });
+
   // ── Prompt shape ──
+
+  test("auto-approves without prompting under v2", async () => {
+    _setOverridesForTesting({ "permission-controls-v2": true });
+
+    const prompter = createMockPrompter("deny");
+    const result = await requestCompressionApproval(prompter);
+
+    expect(result).toEqual({ approved: true });
+    expect(prompter.prompt).not.toHaveBeenCalled();
+  });
 
   test("uses the reserved pseudo tool name", async () => {
     const prompter = createMockPrompter("allow");

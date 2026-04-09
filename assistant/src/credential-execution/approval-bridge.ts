@@ -21,6 +21,7 @@ import type {
 
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { UserDecision } from "../permissions/types.js";
+import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
 import { getLogger } from "../util/logger.js";
 import type { CesClient } from "./client.js";
 
@@ -190,6 +191,18 @@ export async function bridgeCesApproval(
         sessionId,
       },
       "CES approval request denied: non-interactive session",
+    );
+    return { outcome: "denied", userDecision: "deny" };
+  }
+
+  if (isPermissionControlsV2Enabled()) {
+    log.info(
+      {
+        event: "ces_approval_bridge_v2_suppressed",
+        proposalHash,
+        sessionId,
+      },
+      "CES approval request denied without deterministic prompt under v2",
     );
     return { outcome: "denied", userDecision: "deny" };
   }

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type { ProxyApprovalRequest } from "../outbound-proxy/index.js";
 
 // ---------------------------------------------------------------------------
@@ -110,6 +111,23 @@ describe("createProxyApprovalCallback", () => {
     addRuleMock.mockClear();
     findHighestPriorityRuleMock.mockClear();
     findHighestPriorityRuleMock.mockReturnValue(null);
+    _setOverridesForTesting({});
+  });
+
+  test("suppresses network approval cards under v2 and returns false", async () => {
+    _setOverridesForTesting({ "permission-controls-v2": true });
+
+    const ctx = makeContext();
+    const prompterSendToClient = mock(() => {});
+    const prompter = new PermissionPrompter(prompterSendToClient);
+
+    const callback = createProxyApprovalCallback(prompter, ctx);
+    const result = await callback(makeAskMissingCredentialRequest());
+
+    expect(result).toBe(false);
+    expect(prompterSendToClient).not.toHaveBeenCalled();
+    expect(findHighestPriorityRuleMock).not.toHaveBeenCalled();
+    expect(addRuleMock).not.toHaveBeenCalled();
   });
 
   test("returns true when user allows an ask_missing_credential request", async () => {
