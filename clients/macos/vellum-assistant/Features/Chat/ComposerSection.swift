@@ -3,7 +3,22 @@ import VellumAssistantShared
 
 struct ComposerSection: View, Equatable {
     static func == (lhs: ComposerSection, rhs: ComposerSection) -> Bool {
-        lhs.inputText == rhs.inputText
+        // VoiceModeManager is ObservableObject, not @Observable, so SwiftUI
+        // cannot track its internal state changes. When active, always
+        // re-evaluate so voice-mode transitions are never stale.
+        if lhs.voiceModeManager != nil || rhs.voiceModeManager != nil {
+            return false
+        }
+
+        // WatchSession is @Observable, but its .state is read conditionally
+        // in body. Always re-evaluate when a session is present so capture
+        // state transitions are rendered.
+        if lhs.watchSession !== rhs.watchSession
+            || lhs.watchSession != nil {
+            return false
+        }
+
+        return lhs.inputText == rhs.inputText
             && lhs.isSending == rhs.isSending
             && lhs.isAssistantBusy == rhs.isAssistantBusy
             && lhs.hasPendingConfirmation == rhs.hasPendingConfirmation
@@ -11,18 +26,18 @@ struct ComposerSection: View, Equatable {
             && lhs.suggestion == rhs.suggestion
             && lhs.pendingAttachments.map(\.id) == rhs.pendingAttachments.map(\.id)
             && lhs.isLoadingAttachment == rhs.isLoadingAttachment
-            && lhs.watchSession === rhs.watchSession
-            && lhs.voiceModeManager === rhs.voiceModeManager
-            && lhs.voiceService === rhs.voiceService
             && lhs.recordingAmplitude == rhs.recordingAmplitude
             && lhs.conversationId == rhs.conversationId
             && lhs.isInteractionEnabled == rhs.isInteractionEnabled
             && lhs.contextWindowFillRatio == rhs.contextWindowFillRatio
             && lhs.contextWindowTokens == rhs.contextWindowTokens
             && lhs.contextWindowMaxTokens == rhs.contextWindowMaxTokens
-        // Closures are intentionally skipped — they always compare as
-        // unequal but are freshly captured from the same stable references
-        // on each parent rebuild, so excluding them is safe.
+            // Optional closure availability — nil vs non-nil affects which
+            // buttons are rendered in the inner ComposerView.
+            && (lhs.onAllowPendingConfirmation != nil) == (rhs.onAllowPendingConfirmation != nil)
+            && (lhs.onEndVoiceMode != nil) == (rhs.onEndVoiceMode != nil)
+            && (lhs.onDictateToggle != nil) == (rhs.onDictateToggle != nil)
+            && (lhs.onVoiceModeToggle != nil) == (rhs.onVoiceModeToggle != nil)
     }
 
     @Binding var inputText: String

@@ -11,7 +11,15 @@ private let composerLog = Logger(subsystem: Bundle.appBundleIdentifier, category
 
 struct ComposerView: View, Equatable {
     static func == (lhs: ComposerView, rhs: ComposerView) -> Bool {
-        lhs.inputText == rhs.inputText
+        // VoiceModeManager is ObservableObject, not @Observable, so SwiftUI
+        // cannot track its internal state changes. When active, always
+        // re-evaluate so voice-mode transitions (listening → speaking, etc.)
+        // are never stale.
+        if lhs.voiceModeManager != nil || rhs.voiceModeManager != nil {
+            return false
+        }
+
+        return lhs.inputText == rhs.inputText
             && lhs.isSending == rhs.isSending
             && lhs.isAssistantBusy == rhs.isAssistantBusy
             && lhs.hasPendingConfirmation == rhs.hasPendingConfirmation
@@ -19,8 +27,6 @@ struct ComposerView: View, Equatable {
             && lhs.suggestion == rhs.suggestion
             && lhs.pendingAttachments.map(\.id) == rhs.pendingAttachments.map(\.id)
             && lhs.isLoadingAttachment == rhs.isLoadingAttachment
-            && lhs.voiceModeManager === rhs.voiceModeManager
-            && lhs.voiceService === rhs.voiceService
             && lhs.recordingAmplitude == rhs.recordingAmplitude
             && lhs.placeholderText == rhs.placeholderText
             && lhs.composerCompactHeight == rhs.composerCompactHeight
@@ -29,9 +35,12 @@ struct ComposerView: View, Equatable {
             && lhs.contextWindowFillRatio == rhs.contextWindowFillRatio
             && lhs.contextWindowTokens == rhs.contextWindowTokens
             && lhs.contextWindowMaxTokens == rhs.contextWindowMaxTokens
-        // Closures are intentionally skipped — they always compare as
-        // unequal but are freshly captured from the same stable references
-        // on each parent rebuild, so excluding them is safe.
+            // Optional closure availability — nil vs non-nil affects which
+            // buttons are rendered (e.g. voice toggle, dictation routing).
+            && (lhs.onAllowPendingConfirmation != nil) == (rhs.onAllowPendingConfirmation != nil)
+            && (lhs.onEndVoiceMode != nil) == (rhs.onEndVoiceMode != nil)
+            && (lhs.onDictateToggle != nil) == (rhs.onDictateToggle != nil)
+            && (lhs.onVoiceModeToggle != nil) == (rhs.onVoiceModeToggle != nil)
     }
     private let composerMaxHeight: CGFloat = 300
     private let composerActionButtonSize: CGFloat = 32
