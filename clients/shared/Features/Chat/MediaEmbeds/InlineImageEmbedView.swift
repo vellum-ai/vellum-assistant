@@ -63,7 +63,7 @@ public struct InlineImageEmbedView: View {
             }
         )
         .onPreferenceChange(ImageHeightKey.self) { imageIntrinsicHeight = $0 }
-        .frame(height: imageIntrinsicHeight > 300 ? 300 : nil)
+        .frame(height: imageIntrinsicHeight >= 300 ? 300 : nil)
         .clipped()
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .onAppear { isVisible = true }
