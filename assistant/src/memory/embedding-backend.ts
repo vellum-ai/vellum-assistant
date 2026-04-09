@@ -401,11 +401,18 @@ export async function selectEmbeddingBackend(
       case "gemini": {
         const geminiKey = await getProviderKeyAsync("gemini");
         if (!geminiKey) {
-          const cached = getCached(
-            "gemini",
-            config.memory.embeddings.geminiModel,
-            geminiCacheExtras(config),
-          );
+          // Check managed cache variant first so a warm managed backend
+          // survives transient proxy-context blips, then non-managed.
+          const cached =
+            getCached("gemini", config.memory.embeddings.geminiModel, [
+              ...geminiCacheExtras(config),
+              "managed",
+            ]) ??
+            getCached(
+              "gemini",
+              config.memory.embeddings.geminiModel,
+              geminiCacheExtras(config),
+            );
           if (cached) return { backend: cached, reason: null };
           continue;
         }
