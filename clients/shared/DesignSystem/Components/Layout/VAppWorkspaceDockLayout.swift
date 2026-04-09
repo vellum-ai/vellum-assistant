@@ -32,9 +32,12 @@ public struct VAppWorkspaceDockLayout<Dock: View, Workspace: View>: View {
                 dragDivider(availableWidth: availableWidth)
             }
 
-            workspace
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(VColor.surfaceBase)
+            // Workspace content. The background Color fills the HStack's
+            // remaining width so the pane stays full-size regardless of the
+            // workspace view's intrinsic size, while avoiding _FlexFrameLayout
+            // which can cascade alignment queries into descendant LazyVStacks.
+            VColor.surfaceBase
+                .overlay { workspace }
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                 .padding(.leading, showDock ? 0 : VSpacing.xs)
                 .padding([.bottom, .trailing], VSpacing.xs)
