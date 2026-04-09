@@ -61,16 +61,16 @@ struct MemoryItemRow: View {
                 }
 
                 VButton(
-                    label: "Delete",
+                    label: "Remove",
                     leftIcon: VIcon.trash.rawValue,
                     style: .dangerOutline,
                     action: onDelete
                 )
-                .accessibilityLabel("Delete memory")
+                .accessibilityLabel("Remove memory")
             }
         }
         .contextMenu {
-            Button("Delete", role: .destructive, action: onDelete)
+            Button("Remove", role: .destructive, action: onDelete)
         }
         .accessibilityElement(children: .combine)
     }

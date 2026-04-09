@@ -94,33 +94,6 @@ struct MemoriesPanel: View {
         VStack(alignment: .leading, spacing: 0) {
             filterBar
 
-            // Active filter pills
-            let hasActiveFilters = selectedKind != nil || statusFilter != .active || !store.searchText.isEmpty
-            if hasActiveFilters {
-                HStack(spacing: VSpacing.xs) {
-                    if let kind = selectedKind {
-                        filterPill(label: kind.label, color: kind.color) {
-                            withAnimation(VAnimation.fast) { selectedKind = nil }
-                            store.kindFilter = nil
-                            Task { await store.loadItems() }
-                        }
-                    }
-                    if statusFilter != .active {
-                        filterPill(label: statusFilter.rawValue, color: VColor.contentSecondary) {
-                            statusFilter = .active
-                            store.statusFilter = statusFilter.apiValue
-                            Task { await store.loadItems() }
-                        }
-                    }
-                    if !store.searchText.isEmpty {
-                        filterPill(label: "\"\(store.searchText)\"", color: VColor.contentSecondary) {
-                            store.searchText = ""
-                        }
-                    }
-                }
-                .padding(.top, VSpacing.xs)
-            }
-
             HStack(alignment: .top, spacing: VSpacing.xxl) {
                 kindSidebar
                     .frame(width: 220)
@@ -267,26 +240,6 @@ struct MemoriesPanel: View {
             return store.kindCounts.values.reduce(0, +)
         }
         return store.kindCounts[kind.rawValue] ?? 0
-    }
-
-    // MARK: - Filter Pill
-
-    private func filterPill(label: String, color: Color, onRemove: @escaping () -> Void) -> some View {
-        HStack(spacing: VSpacing.xxs) {
-            Text(label)
-                .font(VFont.labelDefault)
-                .foregroundStyle(color)
-            Button(action: onRemove) {
-                VIconView(.x, size: 9)
-                    .foregroundStyle(VColor.contentTertiary)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Remove \(label) filter")
-        }
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xxs)
-        .background(color.opacity(0.1))
-        .clipShape(Capsule())
     }
 
     // MARK: - List Content
