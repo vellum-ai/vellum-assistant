@@ -209,24 +209,57 @@ function classifyFetchError(
 }
 
 /**
+ * Read the response body as text, propagating abort/timeout errors so
+ * the caller can distinguish them from a merely malformed payload.
+ *
+ * The fetch signal is the same AbortSignal passed to the original
+ * `fetch()` call, so if the timeout fires (or the caller aborts) while
+ * we're still reading the body, the underlying stream is cancelled and
+ * `response.text()` rejects. We rethrow those abort-shaped failures as
+ * a distinct sentinel (`TimeoutDuringBodyReadError`) so the caller can
+ * map them to `timeout` / `unreachable` instead of `invalid_response`.
+ */
+class TimeoutDuringBodyReadError extends Error {
+  constructor(
+    public readonly timedOut: boolean,
+    public readonly callerAborted: boolean,
+    public readonly underlying: unknown,
+  ) {
+    super("Discovery body read aborted.");
+    this.name = "TimeoutDuringBodyReadError";
+  }
+}
+
+function isAbortShaped(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (err.name === "AbortError") return true;
+  if (/abort/i.test(err.message)) return true;
+  return false;
+}
+
+async function readResponseText(
+  response: Response,
+  handle: TimeoutHandle,
+  callerSignal: AbortSignal | undefined,
+): Promise<string> {
+  try {
+    return await response.text();
+  } catch (err) {
+    const callerAborted = callerSignal?.aborted === true;
+    if (handle.timedOut || callerAborted || isAbortShaped(err)) {
+      throw new TimeoutDuringBodyReadError(handle.timedOut, callerAborted, err);
+    }
+    throw err;
+  }
+}
+
+/**
  * Best-effort JSON parser. Returns a parsed object or throws a
  * discovery error with `invalid_response` so the caller doesn't need
- * to wrap this itself.
+ * to wrap this itself. Assumes the body text has already been read
+ * (see {@link readResponseText}).
  */
-async function parseJsonResponse(
-  response: Response,
-  endpoint: string,
-): Promise<unknown> {
-  let text: string;
-  try {
-    text = await response.text();
-  } catch (err) {
-    throw new DevToolsDiscoveryError(
-      "invalid_response",
-      `Failed to read ${endpoint} response body.`,
-      err,
-    );
-  }
+function parseJsonText(text: string, endpoint: string): unknown {
   try {
     return JSON.parse(text);
   } catch (err) {
@@ -283,27 +316,52 @@ export async function probeDevToolsJsonVersion(opts: {
   const url = buildUrl(opts.host, opts.port, "/json/version");
   const handle = withTimeout(opts.timeoutMs, opts.signal);
 
-  let response: Response;
+  // Keep `handle` active until AFTER the body has been read, so the
+  // timeout (and caller abort) still enforce against a server that
+  // stalls mid-body. If we cleared the timer right after `fetch()`
+  // resolved, a chunked response that stalls on the second chunk would
+  // block `response.text()` indefinitely.
+  let text: string;
   try {
-    response = await fetch(url, { signal: handle.signal });
-  } catch (err) {
-    throw classifyFetchError(
-      err,
-      handle.timedOut,
-      opts.signal?.aborted === true,
-    );
+    let response: Response;
+    try {
+      response = await fetch(url, { signal: handle.signal });
+    } catch (err) {
+      throw classifyFetchError(
+        err,
+        handle.timedOut,
+        opts.signal?.aborted === true,
+      );
+    }
+
+    if (!response.ok) {
+      throw new DevToolsDiscoveryError(
+        "invalid_response",
+        `DevTools /json/version returned HTTP ${response.status}.`,
+      );
+    }
+
+    try {
+      text = await readResponseText(response, handle, opts.signal);
+    } catch (err) {
+      if (err instanceof TimeoutDuringBodyReadError) {
+        throw classifyFetchError(
+          err.underlying,
+          err.timedOut,
+          err.callerAborted,
+        );
+      }
+      throw new DevToolsDiscoveryError(
+        "invalid_response",
+        "Failed to read /json/version response body.",
+        err,
+      );
+    }
   } finally {
     handle.cleanup();
   }
 
-  if (!response.ok) {
-    throw new DevToolsDiscoveryError(
-      "invalid_response",
-      `DevTools /json/version returned HTTP ${response.status}.`,
-    );
-  }
-
-  const parsed = await parseJsonResponse(response, "/json/version");
+  const parsed = parseJsonText(text, "/json/version");
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new DevToolsDiscoveryError(
       "invalid_response",
@@ -361,27 +419,52 @@ export async function listDevToolsTargets(opts: {
   const url = buildUrl(opts.host, opts.port, "/json/list");
   const handle = withTimeout(opts.timeoutMs, opts.signal);
 
-  let response: Response;
+  // Keep `handle` active until AFTER the body has been read, so the
+  // timeout (and caller abort) still enforce against a server that
+  // stalls mid-body. See the matching comment in
+  // probeDevToolsJsonVersion for the exact failure mode this guards
+  // against.
+  let text: string;
   try {
-    response = await fetch(url, { signal: handle.signal });
-  } catch (err) {
-    throw classifyFetchError(
-      err,
-      handle.timedOut,
-      opts.signal?.aborted === true,
-    );
+    let response: Response;
+    try {
+      response = await fetch(url, { signal: handle.signal });
+    } catch (err) {
+      throw classifyFetchError(
+        err,
+        handle.timedOut,
+        opts.signal?.aborted === true,
+      );
+    }
+
+    if (!response.ok) {
+      throw new DevToolsDiscoveryError(
+        "invalid_response",
+        `DevTools /json/list returned HTTP ${response.status}.`,
+      );
+    }
+
+    try {
+      text = await readResponseText(response, handle, opts.signal);
+    } catch (err) {
+      if (err instanceof TimeoutDuringBodyReadError) {
+        throw classifyFetchError(
+          err.underlying,
+          err.timedOut,
+          err.callerAborted,
+        );
+      }
+      throw new DevToolsDiscoveryError(
+        "invalid_response",
+        "Failed to read /json/list response body.",
+        err,
+      );
+    }
   } finally {
     handle.cleanup();
   }
 
-  if (!response.ok) {
-    throw new DevToolsDiscoveryError(
-      "invalid_response",
-      `DevTools /json/list returned HTTP ${response.status}.`,
-    );
-  }
-
-  const parsed = await parseJsonResponse(response, "/json/list");
+  const parsed = parseJsonText(text, "/json/list");
   if (!Array.isArray(parsed)) {
     throw new DevToolsDiscoveryError(
       "invalid_response",

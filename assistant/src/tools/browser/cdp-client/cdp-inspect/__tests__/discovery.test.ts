@@ -339,6 +339,112 @@ describe("probeDevToolsJsonVersion — network errors", () => {
       fake.stop();
     }
   });
+
+  test("stalled response body triggers timeout (not invalid_response)", async () => {
+    // Regression test: a responder that sends headers + a partial body
+    // and then stalls the stream must still be cancelled by the
+    // discovery timeout. If the timer was cleared right after `fetch()`
+    // resolved, `response.text()` would hang forever. See review on
+    // PR #24601.
+    const fake = startFakeDevTools();
+    const stalledStreams: ReadableStreamDefaultController<Uint8Array>[] = [];
+    fake.setHandler(
+      () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              // Send a partial JSON body so `fetch()` can resolve its
+              // headers promise, then never enqueue more. Keep a ref so
+              // the test can close the stream during cleanup.
+              controller.enqueue(new TextEncoder().encode('{"'));
+              stalledStreams.push(controller);
+              // Intentionally do NOT call controller.close().
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              // No content-length so the reader keeps waiting for more.
+              "transfer-encoding": "chunked",
+            },
+          },
+        ),
+    );
+
+    try {
+      const startedAt = Date.now();
+      const error = await probeDevToolsJsonVersion({
+        host: "127.0.0.1",
+        port: fake.port,
+        timeoutMs: 100,
+      }).catch((e: unknown) => e);
+      const elapsed = Date.now() - startedAt;
+
+      expect(error).toBeInstanceOf(DevToolsDiscoveryError);
+      expect((error as DevToolsDiscoveryError).code).toBe("timeout");
+      // Should resolve roughly at `timeoutMs`, not hang indefinitely.
+      // Generous upper bound to keep the test stable under load.
+      expect(elapsed).toBeLessThan(2000);
+    } finally {
+      // Unblock the server's streams so Bun.serve can shut down cleanly.
+      for (const controller of stalledStreams) {
+        try {
+          controller.close();
+        } catch {
+          // Stream may already be in an errored state from the abort.
+        }
+      }
+      fake.stop();
+    }
+  });
+
+  test("stalled response body during listDevToolsTargets triggers timeout", async () => {
+    // Same regression, checked on the /json/list path.
+    const fake = startFakeDevTools();
+    const stalledStreams: ReadableStreamDefaultController<Uint8Array>[] = [];
+    fake.setHandler(
+      () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode("["));
+              stalledStreams.push(controller);
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "transfer-encoding": "chunked",
+            },
+          },
+        ),
+    );
+
+    try {
+      const startedAt = Date.now();
+      const error = await listDevToolsTargets({
+        host: "127.0.0.1",
+        port: fake.port,
+        timeoutMs: 100,
+      }).catch((e: unknown) => e);
+      const elapsed = Date.now() - startedAt;
+
+      expect(error).toBeInstanceOf(DevToolsDiscoveryError);
+      expect((error as DevToolsDiscoveryError).code).toBe("timeout");
+      expect(elapsed).toBeLessThan(2000);
+    } finally {
+      for (const controller of stalledStreams) {
+        try {
+          controller.close();
+        } catch {
+          // Stream may already be in an errored state from the abort.
+        }
+      }
+      fake.stop();
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
