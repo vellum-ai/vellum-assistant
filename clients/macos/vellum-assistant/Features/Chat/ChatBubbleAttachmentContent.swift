@@ -78,7 +78,9 @@ private struct InlineToolCallImageView: View {
     private var image: NSImage { NSImage(cgImage: cgImage, size: .zero) }
     @Environment(\.displayScale) private var displayScale
     @State private var sharingServices: [NSSharingService] = []
-    @State private var displayImage: NSImage?
+    /// Downsampled CGImage for display-appropriate rendering. Falls back to
+    /// the full-resolution `cgImage` until the downsample task completes.
+    @State private var displayCGImage: CGImage?
 
     @available(macOS, deprecated: 13.0)
     var body: some View {
@@ -101,10 +103,17 @@ private struct InlineToolCallImageView: View {
             }
             .task(id: displayScale) {
                 let maxDim = VSpacing.chatBubbleMaxWidth
+                let maxPixelDim = maxDim * displayScale
+                // Skip downsampling if the image is already small enough.
+                let sourceMaxDim = max(CGFloat(cgImage.width), CGFloat(cgImage.height))
+                guard sourceMaxDim > maxPixelDim * 1.1 else { return }
                 let targetSize = CGSize(width: maxDim, height: maxDim)
                 let scale = displayScale
                 let source = image
-                displayImage = downsampleForDisplay(source, targetSize: targetSize, scale: scale)
+                if let downsampled = downsampleForDisplay(source, targetSize: targetSize, scale: scale),
+                   let cg = downsampled.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                    displayCGImage = cg
+                }
             }
             .onDrag {
                 NotificationCenter.default.post(name: .internalImageDragStarted, object: nil)
@@ -125,10 +134,11 @@ private struct InlineToolCallImageView: View {
 
     @ViewBuilder
     private var imageContent: some View {
-        let nativeWidth = CGFloat(cgImage.width) / displayScale
-        let nativeHeight = CGFloat(cgImage.height) / displayScale
+        let renderImage = displayCGImage ?? cgImage
+        let nativeWidth = CGFloat(renderImage.width) / displayScale
+        let nativeHeight = CGFloat(renderImage.height) / displayScale
         let maxDim: CGFloat = VSpacing.chatBubbleMaxWidth
-        Image(decorative: cgImage, scale: displayScale)
+        Image(decorative: renderImage, scale: displayScale)
             .resizable()
             .interpolation(.high)
             .aspectRatio(contentMode: .fit)
