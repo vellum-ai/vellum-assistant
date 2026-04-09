@@ -251,7 +251,7 @@ struct IntegrationDetailModal: View {
                 } else {
                     ForEach(Array(connections.enumerated()), id: \.element.id) { index, entry in
                         if index > 0 {
-                            Divider().overlay(VColor.borderHover)
+                            SettingsDivider()
                         }
                         HStack(alignment: .center, spacing: VSpacing.lg) {
                             VIconView(.circleUser, size: 14)
@@ -274,7 +274,7 @@ struct IntegrationDetailModal: View {
                     }
                 }
 
-                Divider().overlay(VColor.borderHover)
+                SettingsDivider()
 
                 // Connect account button
                 if isConnecting {
@@ -430,13 +430,13 @@ struct IntegrationDetailModal: View {
                 } else {
                     ForEach(Array(appConnections.enumerated()), id: \.element.id) { index, conn in
                         if index > 0 {
-                            Divider().overlay(VColor.borderHover)
+                            SettingsDivider()
                         }
                         yourOwnConnectionRow(for: conn, appId: app.id)
                     }
                 }
 
-                Divider().overlay(VColor.borderHover)
+                SettingsDivider()
 
                 // Connect button
                 if store.yourOwnOAuthConnectingAppId == app.id {
