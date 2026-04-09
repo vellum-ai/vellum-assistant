@@ -342,14 +342,16 @@ struct ChatBubble: View, Equatable {
         // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
         HStack(spacing: 0) {
             if isUser { Spacer(minLength: 0) }
-            // Outer VStack ensures a single resolved subview for the parent
+            // Single VStack ensures a single resolved subview for the parent
             // LazyVStack, avoiding duplicate .id(message.id) from MessageCellView
             // that caused incorrect width proposals at narrow window sizes (LUM-688).
-            // The avatar sits outside the inner .compositingGroup() scope so
+            // The avatar sits outside the Group's .compositingGroup() scope so
             // CAShapeLayer animations (breathing, blink, twitch) are unaffected.
             VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
-            // --- Message content (composited) ---
-            VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
+                // --- Message content (composited) ---
+                // Wrapped in Group + .compositingGroup() so CAShapeLayer animations
+                // on the avatar (placed below) are not flattened by compositing.
+                Group {
                 if !isUser && cachedHasInterleavedContent {
                     interleavedContent
                 } else {
@@ -411,21 +413,21 @@ struct ChatBubble: View, Equatable {
                     onForkFromMessage: onForkFromMessage,
                     onInspectMessage: onInspectMessage
                 )
-            }
-            // Give this content priority so LazyVStack doesn't compress it,
-            // which caused trailing tool chips to overlap long text content.
-            // Uses layoutPriority instead of fixedSize to avoid forcing
-            // full height measurement during lazy placement.
-            .layoutPriority(1)
-            .compositingGroup()
+                }
+                // Give this content priority so LazyVStack doesn't compress it,
+                // which caused trailing tool chips to overlap long text content.
+                // Uses layoutPriority instead of fixedSize to avoid forcing
+                // full height measurement during lazy placement.
+                .layoutPriority(1)
+                .compositingGroup()
 
-            // --- Avatar (outside compositing group) ---
-            // Placed after the composited content VStack so CAShapeLayer
-            // animations on the NSView-backed AnimatedAvatarView are not
-            // affected by .compositingGroup() flattening layer effects.
-            if isLatestAssistantMessage && !isUser && !hideInlineAvatar {
-                inlineAvatar
-            }
+                // --- Avatar (outside compositing group) ---
+                // Placed after the composited content Group so CAShapeLayer
+                // animations on the NSView-backed AnimatedAvatarView are not
+                // affected by .compositingGroup() flattening layer effects.
+                if isLatestAssistantMessage && !isUser && !hideInlineAvatar {
+                    inlineAvatar
+                }
             }
             if !isUser { Spacer(minLength: 0) }
         }
