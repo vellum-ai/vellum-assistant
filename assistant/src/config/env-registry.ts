@@ -87,6 +87,17 @@ export function getWorkspaceDirOverride(): string | undefined {
 // profiler output on the workspace volume.
 
 /**
+ * VELLUM_CPU_LIMIT — string (K8s resource format), default: undefined
+ * The CPU resource limit for the container (e.g. "2000m", "2").
+ * Set by the platform StatefulSet template to the exact K8s CPU limit.
+ * Used by the health endpoint to report accurate CPU core count inside
+ * gVisor sandboxes where cgroup files may expose the host node's CPUs.
+ */
+export function getCpuLimit(): string | undefined {
+  return str("VELLUM_CPU_LIMIT");
+}
+
+/**
  * VELLUM_PROFILER_RUN_ID — string, default: undefined
  * Unique identifier for the current profiler run. When set, the profiler
  * run store treats this run as "active" and will never prune its directory.
@@ -165,6 +176,7 @@ const KNOWN_VELLUM_VARS = new Set([
   "VELLUM_SSH_USER",
   "VELLUM_UNSAFE_AUTH_BYPASS",
   "VELLUM_WORKSPACE_DIR",
+  "VELLUM_CPU_LIMIT",
 ]);
 
 /**

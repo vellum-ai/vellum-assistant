@@ -3,7 +3,7 @@
  */
 
 import { existsSync, readFileSync, statfsSync, statSync } from "node:fs";
-import { cpus, totalmem } from "node:os";
+import { availableParallelism, cpus, totalmem } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -193,36 +193,168 @@ interface CpuInfo {
   maxCores: number;
 }
 
+/**
+ * Parse a Kubernetes-style CPU string (e.g. "2000m", "1", "500m") into
+ * fractional cores. Returns null if the value is not a recognized format.
+ */
+function parseK8sCpuCores(value: string): number | null {
+  const trimmed = value.trim();
+  const milliMatch = trimmed.match(/^(\d+)m$/);
+  if (milliMatch) {
+    const millis = parseInt(milliMatch[1], 10);
+    return millis > 0 ? millis / 1000 : null;
+  }
+  const num = parseFloat(trimmed);
+  return !isNaN(num) && num > 0 ? num : null;
+}
+
+/**
+ * Read the container's CPU core limit.
+ *
+ * Resolution order:
+ * 1. VELLUM_CPU_LIMIT env var (K8s resource format, e.g. "2000m" or "2").
+ *    In platform mode the container runs under gVisor where cgroup files may
+ *    report the node's CPU count rather than the sandbox limit.
+ * 2. cgroups v2 cpu.max (quota / period → fractional cores).
+ * 3. cgroups v1 cpu.cfs_quota_us / cpu.cfs_period_us.
+ * 4. os.cpus().length as last resort.
+ */
+function getContainerCpuCores(): number {
+  // 1. Prefer the explicit env var set by the platform StatefulSet template.
+  try {
+    const envLimit = process.env.VELLUM_CPU_LIMIT;
+    if (envLimit) {
+      const parsed = parseK8sCpuCores(envLimit);
+      if (parsed !== null) return parsed;
+    }
+  } catch {
+    /* env var parsing failed – fall through */
+  }
+
+  // 2. Try cgroups v2: /sys/fs/cgroup/cpu.max contains "$MAX $PERIOD".
+  try {
+    const raw = readFileSync("/sys/fs/cgroup/cpu.max", "utf-8").trim();
+    if (!raw.startsWith("max")) {
+      const parts = raw.split(/\s+/);
+      const quota = parseInt(parts[0], 10);
+      const period = parseInt(parts[1], 10);
+      if (!isNaN(quota) && !isNaN(period) && period > 0 && quota > 0) {
+        const cores = quota / period;
+        // Sanity check: if the value looks like the node's full CPU count
+        // and we're on a platform pod, it's likely gVisor leaking the host value.
+        if (cores < cpus().length * 0.9 || !getIsPlatform()) {
+          return cores;
+        }
+      }
+    }
+  } catch {
+    /* not available */
+  }
+
+  // 3. Try cgroups v1.
+  try {
+    const quota = parseInt(
+      readFileSync("/sys/fs/cgroup/cpu/cpu.cfs_quota_us", "utf-8").trim(),
+      10,
+    );
+    const period = parseInt(
+      readFileSync("/sys/fs/cgroup/cpu/cpu.cfs_period_us", "utf-8").trim(),
+      10,
+    );
+    if (!isNaN(quota) && !isNaN(period) && period > 0 && quota > 0) {
+      const cores = quota / period;
+      if (cores < cpus().length * 0.9 || !getIsPlatform()) {
+        return cores;
+      }
+    }
+  } catch {
+    /* not available */
+  }
+
+  return cpus().length || availableParallelism();
+}
+
+/**
+ * Read the container's CPU usage from cgroup accounting files.
+ *
+ * Returns total CPU microseconds consumed by the container since boot.
+ * We use the delta between two samples to compute percentage.
+ */
+function getContainerCpuUsageUs(): number | null {
+  // cgroups v2: cpu.stat has a "usage_usec" line.
+  try {
+    const stat = readFileSync("/sys/fs/cgroup/cpu.stat", "utf-8");
+    for (const line of stat.split("\n")) {
+      if (line.startsWith("usage_usec")) {
+        const val = parseInt(line.split(/\s+/)[1], 10);
+        if (!isNaN(val) && val > 0) return val;
+      }
+    }
+  } catch {
+    /* not available */
+  }
+
+  // cgroups v1: cpuacct.usage is in nanoseconds.
+  try {
+    const ns = parseInt(
+      readFileSync("/sys/fs/cgroup/cpuacct/cpuacct.usage", "utf-8").trim(),
+      10,
+    );
+    if (!isNaN(ns) && ns > 0) return ns / 1000; // convert ns → µs
+  } catch {
+    /* not available */
+  }
+
+  return null;
+}
+
 // Track CPU usage over a rolling window so /v1/health reports near-real-time
 // utilization instead of a lifetime average (total CPU time / total uptime).
 const CPU_SAMPLE_INTERVAL_MS = 5_000;
-let _lastCpuUsage: NodeJS.CpuUsage = process.cpuUsage();
+let _lastProcessCpuUsage: NodeJS.CpuUsage = process.cpuUsage();
+let _lastCgroupCpuUs: number | null = getContainerCpuUsageUs();
 let _lastCpuTime: number = Date.now();
 let _cachedCpuPercent = 0;
 
 // Kick off the background sampler. unref() so it never prevents process exit.
 setInterval(() => {
   const now = Date.now();
-  const newUsage = process.cpuUsage();
   const elapsedMs = now - _lastCpuTime;
-  if (elapsedMs > 0) {
+  if (elapsedMs <= 0) return;
+
+  const numCores = getContainerCpuCores();
+
+  if (getIsPlatform()) {
+    // In platform mode, prefer cgroup-level CPU usage so we see the full
+    // container footprint, not just this process.
+    const cgroupUs = getContainerCpuUsageUs();
+    if (cgroupUs !== null && _lastCgroupCpuUs !== null) {
+      const deltaCpuUs = cgroupUs - _lastCgroupCpuUs;
+      const deltaCpuMs = deltaCpuUs / 1000;
+      _cachedCpuPercent =
+        Math.round((deltaCpuMs / (elapsedMs * numCores)) * 10000) / 100;
+    }
+    _lastCgroupCpuUs = cgroupUs;
+  } else {
+    // Non-platform: use process.cpuUsage() (accurate for single-process mode).
+    const newUsage = process.cpuUsage();
     const deltaCpuUs =
       newUsage.user -
-      _lastCpuUsage.user +
-      (newUsage.system - _lastCpuUsage.system);
+      _lastProcessCpuUsage.user +
+      (newUsage.system - _lastProcessCpuUsage.system);
     const deltaCpuMs = deltaCpuUs / 1000;
-    const numCores = cpus().length;
     _cachedCpuPercent =
       Math.round((deltaCpuMs / (elapsedMs * numCores)) * 10000) / 100;
+    _lastProcessCpuUsage = newUsage;
   }
-  _lastCpuUsage = newUsage;
+
   _lastCpuTime = now;
 }, CPU_SAMPLE_INTERVAL_MS).unref();
 
 function getCpuInfo(): CpuInfo {
   return {
     currentPercent: _cachedCpuPercent,
-    maxCores: cpus().length,
+    maxCores: getContainerCpuCores(),
   };
 }
 
