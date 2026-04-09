@@ -89,6 +89,7 @@ struct ImproveExperienceStepView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(VColor.surfaceBase)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .padding(.bottom, VSpacing.sm)
 
                 // ToS consent checkbox
                 HStack(spacing: VSpacing.md) {
