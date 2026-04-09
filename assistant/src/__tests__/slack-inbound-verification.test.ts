@@ -46,16 +46,25 @@ const deliverReplyCalls: Array<{
   url: string;
   payload: Record<string, unknown>;
 }> = [];
+let deliverChannelReplyImpl:
+  | ((url: string, payload: Record<string, unknown>) => Promise<void>)
+  | null = null;
 mock.module("../runtime/gateway-client.js", () => ({
   deliverChannelReply: async (
     url: string,
     payload: Record<string, unknown>,
   ) => {
     deliverReplyCalls.push({ url, payload });
+    if (deliverChannelReplyImpl) {
+      await deliverChannelReplyImpl(url, payload);
+    }
   },
 }));
 
-import { createGuardianBinding } from "../contacts/contacts-write.js";
+import {
+  createGuardianBinding,
+  upsertContactChannel,
+} from "../contacts/contacts-write.js";
 import { getDb, initializeDb } from "../memory/db.js";
 import { findActiveSession } from "../runtime/channel-verification-service.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
@@ -83,6 +92,7 @@ function resetState(): void {
   db.run("DELETE FROM contacts");
   emitSignalCalls.length = 0;
   deliverReplyCalls.length = 0;
+  deliverChannelReplyImpl = null;
   clearSlackAclDenyNotificationCache();
 }
 
@@ -285,6 +295,109 @@ describe("Slack inbound trusted contact verification", () => {
     expect(deliverReplyCalls[2].url).toBe(secondThreadCallbackUrl);
     expect(deliverReplyCalls[2].payload.ephemeral).toBe(true);
     expect(deliverReplyCalls[2].payload.user).toBe("U0123UNKNOWN");
+  });
+
+  test("failed threaded Slack ACL delivery does not suppress a later retry in the same thread", async () => {
+    const threadReplyCallbackUrl =
+      "http://localhost:7830/deliver/slack?channel=C0123CHANNEL&threadTs=1700000000.000100";
+
+    const req1 = buildSlackInboundRequest({
+      replyCallbackUrl: threadReplyCallbackUrl,
+    });
+    await handleChannelInbound(req1, undefined, TEST_BEARER_TOKEN);
+
+    let releaseFirstFailure: ((reason?: unknown) => void) | null = null;
+    let denialAttemptCount = 0;
+    deliverChannelReplyImpl = async (_url, payload) => {
+      const text = payload.text;
+      if (
+        payload.ephemeral === true &&
+        typeof text === "string" &&
+        text.includes("don't have access to talk to me")
+      ) {
+        denialAttemptCount += 1;
+        if (denialAttemptCount === 1) {
+          await new Promise<never>((_resolve, reject) => {
+            releaseFirstFailure = reject;
+          });
+        }
+      }
+    };
+
+    const req2 = buildSlackInboundRequest({
+      replyCallbackUrl: threadReplyCallbackUrl,
+      externalMessageId: `msg-${Date.now()}-second`,
+    });
+    const resp2Promise = handleChannelInbound(
+      req2,
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+
+    while (!releaseFirstFailure) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    const req3 = buildSlackInboundRequest({
+      replyCallbackUrl: threadReplyCallbackUrl,
+      externalMessageId: `msg-${Date.now()}-third`,
+    });
+    const resp3Promise = handleChannelInbound(
+      req3,
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+
+    releaseFirstFailure(new Error("slack delivery failed"));
+
+    const [resp2, resp3] = await Promise.all([resp2Promise, resp3Promise]);
+    const json2 = (await resp2.json()) as Record<string, unknown>;
+    const json3 = (await resp3.json()) as Record<string, unknown>;
+
+    expect(json2.reason).toBe("not_a_member");
+    expect(json3.reason).toBe("not_a_member");
+    expect(denialAttemptCount).toBe(2);
+  });
+
+  test("policy deny uses the same once-per-thread Slack dedupe", async () => {
+    const threadReplyCallbackUrl =
+      "http://localhost:7830/deliver/slack?channel=C0123CHANNEL&threadTs=1700000000.000100";
+
+    upsertContactChannel({
+      channelType: "slack",
+      externalUserId: "U0123UNKNOWN",
+      externalChatId: "C0123CHANNEL",
+      displayName: "Alice Unknown",
+      status: "active",
+      policy: "deny",
+    });
+
+    const req1 = buildSlackInboundRequest({
+      replyCallbackUrl: threadReplyCallbackUrl,
+    });
+    const resp1 = await handleChannelInbound(
+      req1,
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+    const json1 = (await resp1.json()) as Record<string, unknown>;
+    expect(json1.reason).toBe("policy_deny");
+
+    const req2 = buildSlackInboundRequest({
+      replyCallbackUrl: threadReplyCallbackUrl,
+      externalMessageId: `msg-${Date.now()}-second`,
+    });
+    const resp2 = await handleChannelInbound(
+      req2,
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+    const json2 = (await resp2.json()) as Record<string, unknown>;
+    expect(json2.reason).toBe("policy_deny");
+
+    expect(deliverReplyCalls).toHaveLength(1);
+    expect(deliverReplyCalls[0].payload.ephemeral).toBe(true);
+    expect(deliverReplyCalls[0].payload.user).toBe("U0123UNKNOWN");
   });
 
   test("different Slack user is not suppressed by existing session for another user", async () => {
