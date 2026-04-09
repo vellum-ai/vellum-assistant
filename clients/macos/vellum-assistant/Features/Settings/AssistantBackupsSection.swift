@@ -1,28 +1,24 @@
-import AppKit
 import Foundation
 import SwiftUI
 import VellumAssistantShared
 
-/// Backup and restore UI for the Settings Account tab.
+/// Backup and restore UI for the General settings tab.
 ///
-/// For local assistants, creates/restores `.vbundle` archives via the gateway's
-/// migration endpoints (`POST /v1/migrations/export` and `POST /v1/migrations/import`).
+/// Only rendered for cloud-hosted (platform-managed) assistants — the call site
+/// in `SettingsGeneralTab` gates this section on `LockfileAssistant.isManaged`.
+/// Uses the platform API endpoints (`GET/POST /v1/assistants/{id}/backups`,
+/// `POST /v1/assistants/{id}/backups/{name}/restore`).
 ///
-/// For managed/remote assistants, uses the platform API endpoints
-/// (`GET/POST /v1/assistants/{id}/backups`, `POST /v1/assistants/{id}/backups/{name}/restore`).
+/// Pre-update local recovery for non-managed assistants lives in
+/// `PreUpdateBackupBanner` and is rendered separately above this section.
 @MainActor
 struct AssistantBackupsSection: View {
     let assistant: LockfileAssistant
     let store: SettingsStore
 
-    @State private var isExporting = false
-    @State private var isImporting = false
     @State private var errorMessage: String?
     @State private var successMessage: String?
 
-    @AppStorage("preUpdateBackupPath") private var preUpdateBackupPath: String?
-
-    // Managed assistant state
     @State private var managedBackups: [ManagedBackup] = []
     @State private var isLoadingBackups = false
     @State private var isCreatingBackup = false
@@ -35,31 +31,7 @@ struct AssistantBackupsSection: View {
                 .font(VFont.titleSmall)
                 .foregroundStyle(VColor.contentDefault)
 
-            if let backupPath = preUpdateBackupPath,
-               FileManager.default.fileExists(atPath: backupPath) {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text("A backup was automatically created before the last update.")
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                    HStack {
-                        VButton(label: "Restore Pre-Update Data", style: .outlined) {
-                            Task {
-                                await performLocalRestore(URL(fileURLWithPath: backupPath))
-                                preUpdateBackupPath = nil
-                            }
-                        }
-                        VButton(label: "Dismiss", style: .ghost) {
-                            preUpdateBackupPath = nil
-                        }
-                    }
-                }
-            }
-
-            if assistant.isManaged || (assistant.isRemote && !assistant.isDocker) {
-                managedBackupContent
-            } else {
-                localBackupContent
-            }
+            managedBackupContent
 
             if let error = errorMessage {
                 Text(error)
@@ -78,42 +50,7 @@ struct AssistantBackupsSection: View {
         .vCard()
         .frame(maxWidth: .infinity, alignment: .leading)
         .task {
-            if assistant.isManaged || (assistant.isRemote && !assistant.isDocker) {
-                await loadManagedBackupsQuietly()
-            }
-        }
-    }
-
-    // MARK: - Local Backup Content
-
-    @ViewBuilder
-    private var localBackupContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Export or restore assistant data as a .vbundle archive.")
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.contentTertiary)
-        }
-
-        HStack(spacing: VSpacing.md) {
-            VButton(label: isExporting ? "Exporting..." : "Create Backup", style: .outlined) {
-                Task { await exportLocalBackup() }
-            }
-            .disabled(isExporting || isImporting)
-
-            VButton(label: isImporting ? "Restoring..." : "Restore from Backup", style: .outlined) {
-                selectAndRestoreLocalBackup()
-            }
-            .disabled(isExporting || isImporting)
-        }
-
-        if isExporting || isImporting {
-            HStack(spacing: VSpacing.sm) {
-                ProgressView()
-                    .controlSize(.small)
-                Text(isExporting ? "Creating backup..." : "Restoring backup...")
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentTertiary)
-            }
+            await loadManagedBackupsQuietly()
         }
     }
 
@@ -201,77 +138,6 @@ struct AssistantBackupsSection: View {
         }
     }
 
-    // MARK: - Local Backup Actions
-
-    private func exportLocalBackup() async {
-        clearMessages()
-        isExporting = true
-        defer { isExporting = false }
-
-        do {
-            let response = try await GatewayHTTPClient.post(path: "migrations/export", timeout: 120)
-
-            guard response.isSuccess else {
-                errorMessage = "Export failed (HTTP \(response.statusCode))"
-                return
-            }
-
-            // Generate a timestamped filename (Content-Disposition header is not
-            // available through GatewayHTTPClient.Response).
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy-MM-dd-HHmmss"
-            let filename = "export-\(formatter.string(from: Date())).vbundle"
-
-            // Show save panel — don't set allowedContentTypes since the filename
-            // already includes .vbundle; setting it causes NSSavePanel to append
-            // a duplicate extension (.vbundle.vbundle).
-            let panel = NSSavePanel()
-            panel.nameFieldStringValue = filename
-            panel.canCreateDirectories = true
-
-            let panelResult = await panel.beginSheetModal(for: NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first!)
-            guard panelResult == .OK, let saveURL = panel.url else { return }
-
-            try response.data.write(to: saveURL)
-            successMessage = "Backup saved to \(saveURL.lastPathComponent)"
-        } catch let error as GatewayHTTPClient.ClientError {
-            errorMessage = error.localizedDescription
-        } catch {
-            errorMessage = "Export failed: \(error.localizedDescription)"
-        }
-    }
-
-    private func selectAndRestoreLocalBackup() {
-        clearMessages()
-
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.init(filenameExtension: "vbundle") ?? .data]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-
-        panel.begin { result in
-            Task { @MainActor in
-                guard result == .OK, let url = panel.url else { return }
-
-                // Use NSAlert instead of SwiftUI .alert — SwiftUI alerts on
-                // inner views are swallowed when the parent has its own .alert
-                // modifiers (SettingsDeveloperTab has several).
-                let alert = NSAlert()
-                alert.messageText = "Restore from Backup"
-                alert.informativeText = "This will replace the assistant's current data with the backup and restart it. This action cannot be undone."
-                alert.alertStyle = .warning
-                alert.addButton(withTitle: "Restore")
-                alert.addButton(withTitle: "Cancel")
-                alert.buttons.first?.hasDestructiveAction = true
-
-                let response = alert.runModal()
-                guard response == .alertFirstButtonReturn else { return }
-
-                await performLocalRestore(url)
-            }
-        }
-    }
-
     // MARK: - Managed Backup Actions
 
     private func loadManagedBackups() async {
@@ -351,52 +217,6 @@ struct AssistantBackupsSection: View {
     private func clearMessages() {
         errorMessage = nil
         successMessage = nil
-    }
-}
-
-// MARK: - Local Restore
-
-extension AssistantBackupsSection {
-    func performLocalRestore(_ fileURL: URL) async {
-        isImporting = true
-        defer { isImporting = false }
-
-        do {
-            let fileData = try Data(contentsOf: fileURL)
-            let response = try await GatewayHTTPClient.post(path: "migrations/import", body: fileData, contentType: "application/octet-stream", timeout: 120)
-
-            if response.isSuccess {
-                if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
-                   let success = json["success"] as? Bool, success {
-                    successMessage = "Backup restored. Restarting assistant..."
-
-                    // Auto-restart the assistant so restored state takes effect
-                    let assistantName = assistant.assistantId
-                    let isDocker = assistant.isDocker
-                    Task {
-                        if isDocker {
-                            try? await AppDelegate.shared?.vellumCli.sleep(name: assistantName)
-                        } else {
-                            await AppDelegate.shared?.vellumCli.stop(name: assistantName)
-                        }
-                        try? await Task.sleep(nanoseconds: 500_000_000)
-                        try? await AppDelegate.shared?.vellumCli.wake(name: assistantName)
-                        // Reload avatar after restart so the restored avatar is displayed
-                        AvatarAppearanceManager.shared.reloadAvatar()
-                    }
-                } else {
-                    errorMessage = "Import completed with warnings. Check assistant logs for details."
-                }
-            } else if response.statusCode == 413 {
-                errorMessage = "Backup file is too large. Please upgrade the assistant to restore this backup."
-            } else {
-                errorMessage = "Import failed (HTTP \(response.statusCode))"
-            }
-        } catch let error as GatewayHTTPClient.ClientError {
-            errorMessage = error.localizedDescription
-        } catch {
-            errorMessage = "Import failed: \(error.localizedDescription)"
-        }
     }
 }
 
