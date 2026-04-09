@@ -83,23 +83,26 @@ final class AppleContainersLauncher: AssistantManagementClient {
             uniqueKeysWithValues: imageRefs.map { ($0.key, $0.value.fullReference) }
         )
 
-        // In development builds, build images from local source instead of
+        let vellumEnvironment = ProcessInfo.processInfo.environment["VELLUM_ENVIRONMENT"] ?? "production"
+
+        // In local builds, build images from local source instead of
         // pulling from Docker Hub. The images are loaded into the shared
         // ImageStore so PodRuntime finds them in cache via store.get().
-        #if DEBUG
-        await self.buildLocalImagesIfAvailable(
-            kernelStore: kernelStore,
-            imageRefs: imageRefs,
-            onProgress: onProgress
-        )
-        #endif
+        if vellumEnvironment == "local" {
+            await self.buildLocalImagesIfAvailable(
+                kernelStore: kernelStore,
+                imageRefs: imageRefs,
+                onProgress: onProgress
+            )
+        }
 
         let platformURL: String
-        #if DEBUG
-        platformURL = "https://dev-platform.vellum.ai"
-        #else
-        platformURL = "https://platform.vellum.ai"
-        #endif
+        switch vellumEnvironment {
+        case "production":
+            platformURL = "https://platform.vellum.ai"
+        default:
+            platformURL = "https://dev-platform.vellum.ai"
+        }
 
         let config = AppleContainersPodRuntime.Configuration(
             instanceName: assistantName,
@@ -150,9 +153,9 @@ final class AppleContainersLauncher: AssistantManagementClient {
 
     // MARK: - Local Image Building
 
-    #if DEBUG
     /// Attempts to build service images from local source code using Docker.
     /// Falls back silently to Docker Hub pull (via PodRuntime) if any step fails.
+    /// Only called when `VELLUM_ENVIRONMENT=local`.
     private func buildLocalImagesIfAvailable(
         kernelStore: KataKernelStore,
         imageRefs: [VellumServiceName: VellumImageReference],
@@ -188,7 +191,6 @@ final class AppleContainersLauncher: AssistantManagementClient {
             await onProgress?("Local build failed — will pull images from registry")
         }
     }
-    #endif
 
     // MARK: - Signing Key
 
