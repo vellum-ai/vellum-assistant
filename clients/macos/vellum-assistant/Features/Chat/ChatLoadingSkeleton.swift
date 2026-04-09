@@ -26,12 +26,15 @@ struct ChatLoadingSkeleton: View {
             assistantMessage
             Spacer(minLength: 0)
         }
-        // .frame(width:) creates _FrameLayout — no alignment queries.
-        // The old .frame(maxWidth:) created _FlexFrameLayout.
+        // When containerWidth is provided, .frame(width:) creates
+        // _FrameLayout — no alignment queries. When containerWidth is 0
+        // (callers that don't thread it), fall back to flexible maxWidth
+        // so the skeleton adapts to narrow parent proposals.
         .frame(
             width: containerWidth > 0
-                ? min(containerWidth, VSpacing.chatColumnMaxWidth)
-                : VSpacing.chatColumnMaxWidth,
+                ? min(containerWidth, VSpacing.chatColumnMaxWidth) : nil,
+            maxWidth: containerWidth > 0
+                ? nil : VSpacing.chatColumnMaxWidth,
             alignment: .leading
         )
     }
