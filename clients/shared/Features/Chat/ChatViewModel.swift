@@ -1395,7 +1395,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
 
     // MARK: - Surface Refetch
 
-    @ObservationIgnored private lazy var surfaceRefetchCoordinator = SurfaceRefetchCoordinator(
+    @ObservationIgnored lazy var surfaceRefetchCoordinator = SurfaceRefetchCoordinator(
         surfaceRefetchManager: SurfaceRefetchManager { [weak self] surfaceId, conversationId in
             guard let self else { return nil }
             return await self.surfaceClient.fetchSurfaceData(surfaceId: surfaceId, conversationId: conversationId)
