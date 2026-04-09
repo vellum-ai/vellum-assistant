@@ -57,18 +57,22 @@ struct OnboardingFlowView: View {
                 // Onboarding flow: WakeUp → HostingSelector → APIKeyEntry → ImproveExperience (steps 0–3)
                 ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
-                    // Fixed top inset — positions the icon 93px from the
-                    // top of the container, matching the Figma spec.
-                    Color.clear.frame(height: 80)
+                    if state.currentStep == 0 {
+                        // Step 0 only: top inset + app icon
+                        Color.clear.frame(height: 80)
 
-                    if let nsImage = Self.appIcon {
-                        Image(nsImage: nsImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 80, height: 80)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                            .shadow(color: .black.opacity(0.15), radius: 1, x: 0, y: 1)
-                            .padding(.bottom, 78)
+                        if let nsImage = Self.appIcon {
+                            Image(nsImage: nsImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 80, height: 80)
+                                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                                .shadow(color: .black.opacity(0.15), radius: 1, x: 0, y: 1)
+                                .padding(.bottom, 78)
+                        }
+                    } else {
+                        // Steps 1–3: top inset only (no icon)
+                        Color.clear.frame(height: VSpacing.xxxl)
                     }
 
                     // Step content — Group flattens into parent VStack so
