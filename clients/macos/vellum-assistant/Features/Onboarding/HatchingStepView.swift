@@ -226,16 +226,24 @@ struct HatchingStepView: View {
     }
 
     private var progressSection: some View {
-        VStack(spacing: VSpacing.xs) {
+        VStack(spacing: VSpacing.lg) {
             TimelineView(.animation) { context in
-                ProgressView(value: progressValue(at: context.date))
-                    .progressViewStyle(.linear)
-                    .tint(VColor.primaryBase)
-                    .frame(maxWidth: 240)
+                let progress = progressValue(at: context.date)
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(VColor.surfaceBase)
+                            .frame(height: 6)
+                        Capsule()
+                            .fill(VColor.primaryBase)
+                            .frame(width: geo.size.width * progress, height: 6)
+                    }
+                }
+                .frame(maxWidth: 200, maxHeight: 6)
             }
             if let label = state.hatchStepLabel {
                 Text(label)
-                    .font(VFont.bodySmallDefault)
+                    .font(VFont.labelSmallDefault)
                     .foregroundStyle(VColor.contentTertiary)
             }
         }
