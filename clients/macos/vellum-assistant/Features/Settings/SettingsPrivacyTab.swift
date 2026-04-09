@@ -185,6 +185,13 @@ struct SettingsPrivacyTab: View {
 
     /// Syncs the selected retention option to the daemon and persists the
     /// selection locally so the picker renders instantly on next open.
+    ///
+    /// If the PATCH fails (network down, daemon unreachable, non-2xx
+    /// response), clears `hasUserInteracted` so a subsequent
+    /// `loadPrivacyConfig()` call can reconcile the picker against the
+    /// authoritative daemon state. Otherwise the UI would silently display
+    /// the user's attempted value forever while the daemon still holds the
+    /// old value, and closing/reopening the Settings tab wouldn't recover.
     private func syncRetention(_ option: LlmLogRetentionOption) {
         UserDefaults.standard.set(
             option.rawValue,
@@ -192,11 +199,27 @@ struct SettingsPrivacyTab: View {
         )
         retentionSyncTask?.cancel()
         retentionSyncTask = Task {
-            try? await featureFlagClient.setPrivacyConfig(
-                collectUsageData: nil,
-                sendDiagnostics: nil,
-                llmRequestLogRetentionMs: option.rawValue
-            )
+            do {
+                try await featureFlagClient.setPrivacyConfig(
+                    collectUsageData: nil,
+                    sendDiagnostics: nil,
+                    llmRequestLogRetentionMs: option.rawValue
+                )
+            } catch {
+                // PATCH failed — daemon still has the old value. Clear the
+                // user-interacted flag so the next loadPrivacyConfig() can
+                // reconcile the picker from the authoritative server state
+                // on next Settings open. We intentionally leave
+                // `retentionSelection` showing the attempted value rather
+                // than snapping it back — a sudden revert would be visually
+                // jarring and the next reconcile will correct it.
+                privacyTabLog.error(
+                    "syncRetention PATCH failed: \(error.localizedDescription, privacy: .public)"
+                )
+                await MainActor.run {
+                    hasUserInteracted = false
+                }
+            }
         }
     }
 
