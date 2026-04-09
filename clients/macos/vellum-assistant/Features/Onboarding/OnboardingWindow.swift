@@ -53,6 +53,9 @@ final class OnboardingWindow {
         window.isMovableByWindowBackground = true
         window.backgroundColor = NSColor(VColor.surfaceOverlay)
         window.isReleasedWhenClosed = false
+        window.contentView?.wantsLayer = true
+        window.contentView?.layer?.cornerRadius = 24
+        window.contentView?.layer?.masksToBounds = true
 
         window.contentMinSize = NSSize(width: 440, height: 630)
 
