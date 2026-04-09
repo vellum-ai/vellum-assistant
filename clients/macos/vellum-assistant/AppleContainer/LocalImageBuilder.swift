@@ -289,6 +289,9 @@ enum LocalImageBuilder {
             do {
                 try process.run()
             } catch {
+                // Close the write end so readTask's readDataToEndOfFile() sees EOF
+                // and the detached task completes instead of blocking forever.
+                try? pipe.fileHandleForWriting.close()
                 continuation.resume(throwing: error)
             }
         }
