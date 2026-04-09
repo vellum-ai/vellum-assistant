@@ -19,7 +19,7 @@ struct ConversationHostAccessControl: View {
                 VIconView(configuration.isEnabled ? .terminal : .lock, size: 14)
                     .foregroundStyle(configuration.isEnabled ? VColor.systemPositiveStrong : VColor.contentSecondary)
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: VSpacing.xxs) {
                     Text("Computer access")
                         .font(VFont.bodyMediumDefault)
                         .foregroundStyle(VColor.contentEmphasized)
