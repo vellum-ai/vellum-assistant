@@ -57,9 +57,9 @@ struct OnboardingFlowView: View {
                 // Onboarding flow: WakeUp → HostingSelector → APIKeyEntry → ImproveExperience (steps 0–3)
                 ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
-                    // Fixed top inset — positions the icon consistently
-                    // across all steps regardless of bottom content weight.
-                    Color.clear.frame(height: VSpacing.xxxl)
+                    // Fixed top inset — positions the icon 93px from the
+                    // top of the container, matching the Figma spec.
+                    Color.clear.frame(height: 93)
 
                     if let nsImage = Self.appIcon {
                         Image(nsImage: nsImage)
