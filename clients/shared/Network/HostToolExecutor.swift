@@ -6,6 +6,14 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "HostT
 /// Standalone executor for host tool requests (bash commands, file operations).
 /// These run locally on macOS and post results back via `HostProxyClient`.
 public enum HostToolExecutor {
+    private static let imageExtensions: Set<String> = [
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".gif",
+        ".webp",
+    ]
+    private static let maxImageSourceBytes = 100 * 1024 * 1024
 
     // MARK: - Cancelled Request Tracking
 
@@ -249,15 +257,11 @@ public enum HostToolExecutor {
             do {
                 switch request.operation {
                 case "read":
-                    let content = try readFile(
+                    result = try readFileResult(
+                        requestId: request.requestId,
                         path: request.path,
                         offset: request.offset,
                         limit: request.limit
-                    )
-                    result = HostFileResultPayload(
-                        requestId: request.requestId,
-                        content: content,
-                        isError: false
                     )
 
                 case "write":
@@ -320,7 +324,25 @@ public enum HostToolExecutor {
 
     // MARK: - File Operations
 
-    private static func readFile(path: String, offset: Int?, limit: Int?) throws -> String {
+    private static func readFileResult(
+        requestId: String,
+        path: String,
+        offset: Int?,
+        limit: Int?
+    ) throws -> HostFileResultPayload {
+        if isImagePath(path) {
+            return try readImageFile(requestId: requestId, path: path)
+        }
+
+        let content = try readTextFile(path: path, offset: offset, limit: limit)
+        return HostFileResultPayload(
+            requestId: requestId,
+            content: content,
+            isError: false
+        )
+    }
+
+    private static func readTextFile(path: String, offset: Int?, limit: Int?) throws -> String {
         let fileContent = try String(contentsOfFile: path, encoding: .utf8)
         var lines = fileContent.components(separatedBy: "\n")
 
@@ -343,6 +365,32 @@ public enum HostToolExecutor {
         }
 
         return formatted.joined(separator: "\n")
+    }
+
+    private static func readImageFile(requestId: String, path: String) throws -> HostFileResultPayload {
+        let fileURL = URL(fileURLWithPath: path)
+        let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+        if values.isRegularFile != true {
+            throw FileOperationError.notAFile(path)
+        }
+
+        let sourceBytes = values.fileSize ?? 0
+        if sourceBytes > maxImageSourceBytes {
+            let sizeMB = Double(sourceBytes) / (1024 * 1024)
+            throw FileOperationError.imageTooLarge(sizeMB)
+        }
+
+        let data = try Data(contentsOf: fileURL)
+        guard let mediaType = detectImageMediaType(data) else {
+            throw FileOperationError.invalidImageFormat(path)
+        }
+
+        return HostFileResultPayload(
+            requestId: requestId,
+            content: "Image loaded on host: \(path) (\(data.count) bytes, \(mediaType))",
+            isError: false,
+            imageData: data.base64EncodedString()
+        )
     }
 
     private static func writeFile(path: String, content: String) throws -> String {
@@ -388,10 +436,49 @@ public enum HostToolExecutor {
         }
     }
 
+    private static func isImagePath(_ path: String) -> Bool {
+        let ext = URL(fileURLWithPath: path).pathExtension.lowercased()
+        guard !ext.isEmpty else { return false }
+        return imageExtensions.contains(".\(ext)")
+    }
+
+    private static func detectImageMediaType(_ data: Data) -> String? {
+        guard data.count >= 12 else { return nil }
+        let bytes = [UInt8](data.prefix(12))
+
+        if bytes[0] == 0xff, bytes[1] == 0xd8, bytes[2] == 0xff {
+            return "image/jpeg"
+        }
+
+        if bytes[0] == 0x89, bytes[1] == 0x50, bytes[2] == 0x4e, bytes[3] == 0x47 {
+            return "image/png"
+        }
+
+        if bytes[0] == 0x47, bytes[1] == 0x49, bytes[2] == 0x46, bytes[3] == 0x38 {
+            return "image/gif"
+        }
+
+        if bytes[0] == 0x52,
+           bytes[1] == 0x49,
+           bytes[2] == 0x46,
+           bytes[3] == 0x46,
+           bytes[8] == 0x57,
+           bytes[9] == 0x45,
+           bytes[10] == 0x42,
+           bytes[11] == 0x50 {
+            return "image/webp"
+        }
+
+        return nil
+    }
+
     private enum FileOperationError: LocalizedError {
         case noMatch
         case multipleMatches(Int)
         case sameStrings
+        case notAFile(String)
+        case imageTooLarge(Double)
+        case invalidImageFormat(String)
 
         var errorDescription: String? {
             switch self {
@@ -401,6 +488,12 @@ public enum HostToolExecutor {
                 return "old_string found \(count) times in file — must be unique (use replace_all to replace all occurrences)"
             case .sameStrings:
                 return "old_string and new_string are identical — no changes needed"
+            case .notAFile(let path):
+                return "\(path) is not a file"
+            case .imageTooLarge(let sizeMB):
+                return String(format: "image too large (%.1f MB). Maximum source file size is 100 MB.", sizeMB)
+            case .invalidImageFormat(let path):
+                return "could not detect image format for \(path). The file may be corrupt."
             }
         }
     }

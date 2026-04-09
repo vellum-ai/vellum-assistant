@@ -4043,6 +4043,9 @@ paths:
                 isError:
                   type: boolean
                   description: Whether the result is an error
+                imageData:
+                  type: string
+                  description: Optional base64-encoded image bytes for successful image reads
               required:
                 - requestId
               additionalProperties: false

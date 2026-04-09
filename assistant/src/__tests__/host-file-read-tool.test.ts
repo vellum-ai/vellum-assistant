@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
+import type { HostFileInput } from "../daemon/host-file-proxy.js";
 import { hostFileReadTool } from "../tools/host-filesystem/read.js";
 import type { ToolContext } from "../tools/types.js";
 
@@ -165,6 +166,57 @@ describe("host_file_read tool", () => {
 });
 
 describe("host_file_read image support", () => {
+  test("uses host proxy for image reads when available", async () => {
+    const requests: Array<{
+      input: HostFileInput;
+      conversationId: string;
+      signal?: AbortSignal;
+    }> = [];
+    const proxyContext: ToolContext = {
+      ...makeContext(),
+      hostFileProxy: {
+        isAvailable: () => true,
+        request: async (input, conversationId, signal) => {
+          requests.push({ input, conversationId, signal });
+          return {
+            content: "Image loaded: /host/screenshot.png",
+            isError: false,
+            contentBlocks: [
+              {
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: "image/png",
+                  data: PNG_HEADER.toString("base64"),
+                },
+              },
+            ],
+          };
+        },
+      } as ToolContext["hostFileProxy"],
+    };
+
+    const result = await hostFileReadTool.execute(
+      { path: "/host/screenshot.png" },
+      proxyContext,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.contentBlocks).toHaveLength(1);
+    expect(requests).toEqual([
+      {
+        input: {
+          operation: "read",
+          path: "/host/screenshot.png",
+          offset: undefined,
+          limit: undefined,
+        },
+        conversationId: "test-conversation",
+        signal: undefined,
+      },
+    ]);
+  });
+
   test("returns image content block for .png file", async () => {
     const dir = makeTempDir();
     const filePath = join(dir, "screenshot.png");

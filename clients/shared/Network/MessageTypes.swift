@@ -1573,11 +1573,13 @@ public struct HostFileResultPayload: Codable, Sendable {
     public let requestId: String
     public let content: String
     public let isError: Bool
+    public let imageData: String?
 
-    public init(requestId: String, content: String, isError: Bool) {
+    public init(requestId: String, content: String, isError: Bool, imageData: String? = nil) {
         self.requestId = requestId
         self.content = content
         self.isError = isError
+        self.imageData = imageData
     }
 }
 

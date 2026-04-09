@@ -1044,7 +1044,7 @@ export class Conversation {
 
   resolveHostFile(
     requestId: string,
-    response: { content: string; isError: boolean },
+    response: { content: string; isError: boolean; imageData?: string },
   ): void {
     this.hostFileProxy?.resolve(requestId, response);
   }
