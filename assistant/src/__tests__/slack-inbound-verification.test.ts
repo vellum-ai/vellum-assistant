@@ -337,6 +337,10 @@ describe("Slack inbound trusted contact verification", () => {
     while (!releaseFirstFailure) {
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
+    if (!releaseFirstFailure) {
+      throw new Error("Expected first Slack denial delivery to block");
+    }
+    const rejectFirstFailure = releaseFirstFailure;
 
     const req3 = buildSlackInboundRequest({
       replyCallbackUrl: threadReplyCallbackUrl,
@@ -348,7 +352,7 @@ describe("Slack inbound trusted contact verification", () => {
       TEST_BEARER_TOKEN,
     );
 
-    releaseFirstFailure(new Error("slack delivery failed"));
+    rejectFirstFailure(new Error("slack delivery failed"));
 
     const [resp2, resp3] = await Promise.all([resp2Promise, resp3Promise]);
     const json2 = (await resp2.json()) as Record<string, unknown>;
@@ -364,7 +368,7 @@ describe("Slack inbound trusted contact verification", () => {
       "http://localhost:7830/deliver/slack?channel=C0123CHANNEL&threadTs=1700000000.000100";
 
     upsertContactChannel({
-      channelType: "slack",
+      sourceChannel: "slack",
       externalUserId: "U0123UNKNOWN",
       externalChatId: "C0123CHANNEL",
       displayName: "Alice Unknown",
