@@ -229,6 +229,28 @@ public final class AuthService {
     private struct PlatformResponse {
         let data: Data
         let statusCode: Int
+
+        func decode<T: Decodable>(_ type: T.Type) throws -> T {
+            switch statusCode {
+            case 401:
+                throw PlatformAPIError.authenticationRequired
+            case 403:
+                throw PlatformAPIError.accessDenied(detail: "Access denied")
+            case 404:
+                throw PlatformAPIError.notFound
+            case 200..<300:
+                do {
+                    return try JSONDecoder().decode(type, from: data)
+                } catch {
+                    throw PlatformAPIError.decodingError(error.localizedDescription)
+                }
+            default:
+                throw PlatformAPIError.serverError(
+                    statusCode: statusCode,
+                    detail: String(data: data, encoding: .utf8)
+                )
+            }
+        }
     }
 
     /// Dispatch an authenticated platform API request and return the raw
@@ -328,25 +350,7 @@ public final class AuthService {
             method: "GET",
             organizationId: organizationId
         )
-
-        switch response.statusCode {
-        case 401:
-            throw PlatformAPIError.authenticationRequired
-        case 403:
-            throw PlatformAPIError.accessDenied(detail: "Access denied")
-        case 200..<300:
-            do {
-                let paginated = try JSONDecoder().decode(PaginatedPlatformAssistantsResponse.self, from: response.data)
-                return paginated.results
-            } catch {
-                throw PlatformAPIError.decodingError(error.localizedDescription)
-            }
-        default:
-            throw PlatformAPIError.serverError(
-                statusCode: response.statusCode,
-                detail: String(data: response.data, encoding: .utf8)
-            )
-        }
+        return try response.decode(PaginatedPlatformAssistantsResponse.self).results
     }
 
     /// Create or retrieve a managed assistant via the idempotent hatch endpoint.
@@ -416,34 +420,14 @@ public final class AuthService {
         var fields: [String: String] = [:]
         if let name { fields["name"] = name }
         if let description { fields["description"] = description }
-        let bodyData = try JSONEncoder().encode(fields)
 
         let response = try await performPlatformRequest(
             path: "v1/assistants/\(id)/",
             method: "PATCH",
             organizationId: organizationId,
-            body: bodyData
+            body: try JSONEncoder().encode(fields)
         )
-
-        switch response.statusCode {
-        case 401:
-            throw PlatformAPIError.authenticationRequired
-        case 403:
-            throw PlatformAPIError.accessDenied(detail: "Access denied")
-        case 404:
-            throw PlatformAPIError.notFound
-        case 200..<300:
-            do {
-                return try JSONDecoder().decode(PlatformAssistant.self, from: response.data)
-            } catch {
-                throw PlatformAPIError.decodingError(error.localizedDescription)
-            }
-        default:
-            throw PlatformAPIError.serverError(
-                statusCode: response.statusCode,
-                detail: String(data: response.data, encoding: .utf8)
-            )
-        }
+        return try response.decode(PlatformAssistant.self)
     }
 
     // MARK: - Recovery Mode

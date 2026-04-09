@@ -213,21 +213,17 @@ struct IdentityInfo: Codable, Equatable {
     @MainActor private static func store(_ info: IdentityInfo?) {
         guard let info, let activeId = LockfileAssistant.loadActiveAssistantId() else { return }
         if cachedByAssistantId[activeId] == info { return }
-        cachedByAssistantId[activeId] = info
-        IdentityInfoStore.save(cachedByAssistantId)
+        persist(info, for: activeId)
     }
 
     /// Seeds a placeholder identity so the switcher can show the name before a gateway fetch.
     @MainActor static func seedCache(name: String, forAssistantId assistantId: String) {
-        let placeholder = IdentityInfo(
-            name: name,
-            role: "",
-            personality: "",
-            emoji: "",
-            home: nil
-        )
         guard cachedByAssistantId[assistantId] == nil else { return }
-        cachedByAssistantId[assistantId] = placeholder
+        persist(IdentityInfo(name: name, role: "", personality: "", emoji: "", home: nil), for: assistantId)
+    }
+
+    @MainActor private static func persist(_ info: IdentityInfo, for assistantId: String) {
+        cachedByAssistantId[assistantId] = info
         IdentityInfoStore.save(cachedByAssistantId)
     }
 
