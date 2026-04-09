@@ -115,6 +115,12 @@ extension DynamicPageSurfaceView {
             if let type = body["type"] as? String, type == "fetch_request" {
                 if sandboxMode {
                     log.warning("fetch_request: blocked in sandbox mode")
+                    if let callId = body["callId"] as? String {
+                        let safeCallId = callId
+                            .replacingOccurrences(of: "\\", with: "\\\\")
+                            .replacingOccurrences(of: "'", with: "\\'")
+                        webView?.evaluateJavaScript("window.vellum._rejectFetch('\(safeCallId)', 'Request blocked: sandbox mode')", completionHandler: nil)
+                    }
                     return
                 }
                 guard let callId = body["callId"] as? String,
