@@ -401,6 +401,12 @@ public final class EventStreamClient {
             sseWindowStart = now
         }
 
+        // If the parent task was cancelled during the off-main decode (e.g.,
+        // stopSSE() ran while we were suspended), discard the decoded message.
+        // Without this guard, a stale .tokenRotated event could reopen the
+        // stream after the caller explicitly stopped it.
+        if Task.isCancelled { return }
+
         guard let message else { return }
         if shouldIgnoreHostToolRequest(message) { return }
         handleParsedMessage(message)
