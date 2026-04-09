@@ -195,7 +195,7 @@ struct SettingsGeneralTab: View {
     private var systemResourcesSection: some View {
         SettingsCard(
             title: "System Resources",
-            subtitle: "Current resource usage on your platform-managed assistant",
+            subtitle: "Current resource usage on your assistant",
             accessory: {
                 if isRefreshingHealthz {
                     ProgressView()
