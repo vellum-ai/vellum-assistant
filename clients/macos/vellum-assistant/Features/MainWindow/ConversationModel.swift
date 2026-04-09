@@ -40,6 +40,7 @@ struct ConversationModel: Identifiable, Hashable {
     var lastInteractedAt: Date
     var kind: ConversationKind
     var source: String?
+    var hostAccess: Bool
     /// The schedule job ID that created this conversation, if any.
     /// Conversations sharing the same scheduleJobId belong to the same schedule group.
     var scheduleJobId: String?
@@ -49,7 +50,7 @@ struct ConversationModel: Identifiable, Hashable {
     var forkParent: ConversationForkParent?
     var originChannel: String?
 
-    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), conversationId: String? = nil, isArchived: Bool = false, groupId: String? = nil, displayOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ConversationKind = .standard, source: String? = nil, scheduleJobId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil, forkParent: ConversationForkParent? = nil, originChannel: String? = nil) {
+    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), conversationId: String? = nil, isArchived: Bool = false, groupId: String? = nil, displayOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ConversationKind = .standard, source: String? = nil, hostAccess: Bool = false, scheduleJobId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil, forkParent: ConversationForkParent? = nil, originChannel: String? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -60,6 +61,7 @@ struct ConversationModel: Identifiable, Hashable {
         self.lastInteractedAt = lastInteractedAt ?? createdAt
         self.kind = kind
         self.source = source
+        self.hostAccess = hostAccess
         self.scheduleJobId = scheduleJobId
         self.hasUnseenLatestAssistantMessage = hasUnseenLatestAssistantMessage
         self.latestAssistantMessageAt = latestAssistantMessageAt
@@ -131,6 +133,7 @@ struct ConversationModel: Identifiable, Hashable {
             lhs.lastInteractedAt == rhs.lastInteractedAt &&
             lhs.kind == rhs.kind &&
             lhs.source == rhs.source &&
+            lhs.hostAccess == rhs.hostAccess &&
             lhs.scheduleJobId == rhs.scheduleJobId &&
             lhs.hasUnseenLatestAssistantMessage == rhs.hasUnseenLatestAssistantMessage &&
             lhs.latestAssistantMessageAt == rhs.latestAssistantMessageAt &&
@@ -152,6 +155,7 @@ struct ConversationModel: Identifiable, Hashable {
         hasher.combine(lastInteractedAt)
         hasher.combine(kind)
         hasher.combine(source)
+        hasher.combine(hostAccess)
         hasher.combine(scheduleJobId)
         hasher.combine(hasUnseenLatestAssistantMessage)
         hasher.combine(latestAssistantMessageAt)

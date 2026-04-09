@@ -323,6 +323,7 @@ final class ConversationListStore {
             lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(item.lastMessageAt ?? item.updatedAt) / 1000.0),
             kind: item.conversationType == "private" ? .private : .standard,
             source: item.source,
+            hostAccess: item.hostAccess ?? false,
             scheduleJobId: item.scheduleJobId,
             hasUnseenLatestAssistantMessage: (item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false),
             latestAssistantMessageAt: item.assistantAttention?.latestAssistantMessageAt.map {
@@ -349,6 +350,11 @@ final class ConversationListStore {
     func updateConversationTitle(id: UUID, title: String) {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
         conversations[index].title = title
+    }
+
+    func updateConversationHostAccess(id: UUID, hostAccess: Bool) {
+        guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
+        conversations[index].hostAccess = hostAccess
     }
 
     /// Rename a conversation and send the rename to the daemon.

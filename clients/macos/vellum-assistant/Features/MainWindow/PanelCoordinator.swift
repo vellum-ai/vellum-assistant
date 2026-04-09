@@ -452,10 +452,14 @@ extension MainWindowView {
             let isVoiceModeEnabled = assistantFeatureFlagStore.isEnabled(
                 "voice-mode"
             )
+            let showsConversationHostAccessControl = assistantFeatureFlagStore.isEnabled(
+                "permission-controls-v2"
+            )
             ActiveChatViewWrapper(
                 viewModel: viewModel,
                 windowState: windowState,
                 conversationStartersEnabled: conversationStartersEnabled,
+                showsConversationHostAccessControl: showsConversationHostAccessControl,
                 showInspectButton: showInspectButton,
                 isTTSEnabled: isTTSEnabled,
                 ambientAgent: ambientAgent,
@@ -651,6 +655,7 @@ struct ActiveChatViewWrapper: View {
     @Bindable var viewModel: ChatViewModel
     var windowState: MainWindowState
     let conversationStartersEnabled: Bool
+    let showsConversationHostAccessControl: Bool
     var showInspectButton: Bool = false
     var isTTSEnabled: Bool = false
     var ambientAgent: AmbientAgent
@@ -730,7 +735,9 @@ struct ActiveChatViewWrapper: View {
                 onEndVoiceMode: onEndVoiceMode,
                 onDictateToggle: onDictateToggle,
                 onVoiceModeToggle: onVoiceModeToggle,
-                watchSession: ambientAgent.activeWatchSession
+                watchSession: ambientAgent.activeWatchSession,
+                conversationManager: conversationManager,
+                showsConversationHostAccessControl: showsConversationHostAccessControl
             )
             .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
             .disabled(windowState.inspectorMessageId != nil)

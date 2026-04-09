@@ -225,7 +225,9 @@ private struct ThreadWindowContentView: View {
                     highlightedMessageId: $highlightedMessageId,
                     isInteractionEnabled: true,
                     isReadonly: conversation?.isChannelConversation ?? false,
-                    watchSession: ambientAgent.activeWatchSession
+                    watchSession: ambientAgent.activeWatchSession,
+                    conversationManager: conversationManager,
+                    showsConversationHostAccessControl: false
                 )
                 .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
                 .padding(.bottom, VSpacing.md)
