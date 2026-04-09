@@ -50,6 +50,14 @@ export { FishAudioConfigSchema } from "./schemas/fish-audio.js";
 export type { HeartbeatConfig } from "./schemas/heartbeat.js";
 export { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
 export type {
+  HostBrowserCdpInspectConfig,
+  HostBrowserConfig,
+} from "./schemas/host-browser.js";
+export {
+  HostBrowserCdpInspectConfigSchema,
+  HostBrowserConfigSchema,
+} from "./schemas/host-browser.js";
+export type {
   ContextOverflowRecoveryConfig,
   ContextWindowConfig,
   Effort,
@@ -205,6 +213,7 @@ import { ElevenLabsConfigSchema } from "./schemas/elevenlabs.js";
 import { FilingConfigSchema } from "./schemas/filing.js";
 import { FishAudioConfigSchema } from "./schemas/fish-audio.js";
 import { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
+import { HostBrowserConfigSchema } from "./schemas/host-browser.js";
 import {
   ContextWindowConfigSchema,
   EffortSchema,
@@ -278,6 +287,9 @@ export const AssistantConfigSchema = z
       ),
     filing: FilingConfigSchema.default(FilingConfigSchema.parse({})),
     heartbeat: HeartbeatConfigSchema.default(HeartbeatConfigSchema.parse({})),
+    hostBrowser: HostBrowserConfigSchema.default(
+      HostBrowserConfigSchema.parse({}),
+    ),
     journal: JournalConfigSchema.default(JournalConfigSchema.parse({})),
     mcp: McpConfigSchema.default(McpConfigSchema.parse({})),
     acp: AcpConfigSchema.default(AcpConfigSchema.parse({})),

@@ -839,6 +839,125 @@ describe("AssistantConfigSchema", () => {
     });
     expect(result.calls.callerIdentity.allowPerCallOverride).toBe(true);
   });
+
+  // ── hostBrowser.cdpInspect config ─────────────────────────────────
+
+  test("applies hostBrowser.cdpInspect defaults", () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.hostBrowser).toEqual({
+      cdpInspect: {
+        enabled: false,
+        host: "localhost",
+        port: 9222,
+        probeTimeoutMs: 500,
+      },
+    });
+  });
+
+  test("accepts hostBrowser.cdpInspect enabled with custom host/port", () => {
+    const result = AssistantConfigSchema.parse({
+      hostBrowser: {
+        cdpInspect: {
+          enabled: true,
+          host: "127.0.0.1",
+          port: 9333,
+        },
+      },
+    });
+    expect(result.hostBrowser.cdpInspect.enabled).toBe(true);
+    expect(result.hostBrowser.cdpInspect.host).toBe("127.0.0.1");
+    expect(result.hostBrowser.cdpInspect.port).toBe(9333);
+    // Unset field should still receive its default.
+    expect(result.hostBrowser.cdpInspect.probeTimeoutMs).toBe(500);
+  });
+
+  test("accepts hostBrowser.cdpInspect custom probeTimeoutMs", () => {
+    const result = AssistantConfigSchema.parse({
+      hostBrowser: { cdpInspect: { probeTimeoutMs: 1000 } },
+    });
+    expect(result.hostBrowser.cdpInspect.probeTimeoutMs).toBe(1000);
+  });
+
+  test("rejects hostBrowser.cdpInspect.port below 1", () => {
+    const result = AssistantConfigSchema.safeParse({
+      hostBrowser: { cdpInspect: { port: 0 } },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.some((issue) =>
+          issue.path.join(".").includes("hostBrowser.cdpInspect.port"),
+        ),
+      ).toBe(true);
+    }
+  });
+
+  test("rejects hostBrowser.cdpInspect.port above 65535", () => {
+    const result = AssistantConfigSchema.safeParse({
+      hostBrowser: { cdpInspect: { port: 70000 } },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.some((issue) =>
+          issue.path.join(".").includes("hostBrowser.cdpInspect.port"),
+        ),
+      ).toBe(true);
+    }
+  });
+
+  test("rejects non-integer hostBrowser.cdpInspect.port", () => {
+    const result = AssistantConfigSchema.safeParse({
+      hostBrowser: { cdpInspect: { port: 9222.5 } },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects hostBrowser.cdpInspect.probeTimeoutMs below 50", () => {
+    const result = AssistantConfigSchema.safeParse({
+      hostBrowser: { cdpInspect: { probeTimeoutMs: 10 } },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.some((issue) =>
+          issue.path
+            .join(".")
+            .includes("hostBrowser.cdpInspect.probeTimeoutMs"),
+        ),
+      ).toBe(true);
+    }
+  });
+
+  test("rejects hostBrowser.cdpInspect.probeTimeoutMs above 5000", () => {
+    const result = AssistantConfigSchema.safeParse({
+      hostBrowser: { cdpInspect: { probeTimeoutMs: 10000 } },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.some((issue) =>
+          issue.path
+            .join(".")
+            .includes("hostBrowser.cdpInspect.probeTimeoutMs"),
+        ),
+      ).toBe(true);
+    }
+  });
+
+  test("rejects non-integer hostBrowser.cdpInspect.probeTimeoutMs", () => {
+    const result = AssistantConfigSchema.safeParse({
+      hostBrowser: { cdpInspect: { probeTimeoutMs: 500.5 } },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects non-boolean hostBrowser.cdpInspect.enabled", () => {
+    const result = AssistantConfigSchema.safeParse({
+      hostBrowser: { cdpInspect: { enabled: "yes" } },
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
