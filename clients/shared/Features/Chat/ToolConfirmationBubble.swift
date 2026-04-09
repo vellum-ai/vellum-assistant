@@ -69,6 +69,19 @@ public struct ToolConfirmationBubble: View {
 
     /// Label shown in the collapsed state after a decision is made.
     private var collapsedLabel: String {
+        if confirmation.isConversationHostAccessPrompt {
+            switch confirmation.state {
+            case .approved:
+                return "Computer access enabled for this conversation"
+            case .denied:
+                return "Computer access not enabled for this conversation"
+            case .timedOut:
+                return "Timed out"
+            case .pending:
+                return ""
+            }
+        }
+
         switch confirmation.state {
         case .approved:
             switch confirmation.approvedDecision {
@@ -424,6 +437,10 @@ public struct ToolConfirmationBubble: View {
     }
 
     private var primaryAllowLabel: String {
+        if confirmation.isConversationHostAccessPrompt {
+            return "Enable computer access"
+        }
+
         switch effectivePrimaryAction {
         case "allow_10m": return "Allow for 10 minutes"
         case "allow_conversation": return "Allow for this conversation"
