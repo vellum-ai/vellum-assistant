@@ -264,7 +264,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 let (data, response) = try await URLSession.shared.data(for: request)
                 guard let httpResponse = response as? HTTPURLResponse else {
                     log.error("Guardian token lease: non-HTTP response")
-                    return
+                    return false
                 }
                 guard httpResponse.statusCode == 200 else {
                     let body = String(data: data, encoding: .utf8) ?? ""
