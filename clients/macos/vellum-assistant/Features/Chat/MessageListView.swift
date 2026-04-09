@@ -110,22 +110,25 @@ struct MessageListView: View {
         #if DEBUG
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "MessageListView.body")
         #endif
-            ScrollView {
-                // AlignmentBarrierLayout stops explicitAlignment queries from
-                // cascading into the LazyVStack — see AGENTS.md and
-                // AlignmentBarrierLayout.swift for details.
-                AlignmentBarrierLayout {
+            // AlignmentBarrierLayout stops explicitAlignment queries from the
+            // outer .frame(maxWidth:) modifiers from cascading into the
+            // LazyVStack. It MUST wrap the ScrollView from the outside —
+            // placing it inside the ScrollView breaks LazyVStack's viewport
+            // tracking, causing cells to not materialize until scrolled.
+            // See AGENTS.md and AlignmentBarrierLayout.swift for details.
+            AlignmentBarrierLayout {
+                ScrollView {
                     scrollViewContent
+                        .background(
+                            MessageListScrollObserver { newState in
+                                enqueueScrollGeometryUpdate(newState)
+                            }
+                        )
                 }
-                .background(
-                    MessageListScrollObserver { newState in
-                        enqueueScrollGeometryUpdate(newState)
-                    }
-                )
+                .id(conversationId)
+                .scrollContentBackground(.hidden)
+                .scrollDisabled(messages.isEmpty && !isSending)
             }
-            .id(conversationId)
-            .scrollContentBackground(.hidden)
-            .scrollDisabled(messages.isEmpty && !isSending)
             .frame(maxWidth: VSpacing.chatColumnMaxWidth)
             .frame(maxWidth: .infinity)
             // Apply only to .initialOffset — where the scroll view starts
