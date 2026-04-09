@@ -155,6 +155,7 @@ final class ProjectionCache {
     var lastKnownLastMessageStreaming = false
     var lastKnownIncompleteToolCallCount = 0
     var lastKnownVisibleIdFingerprint = 0
+    var lastKnownTextFingerprint = 0
     var cachedFirstVisibleMessageId: UUID?
     var bodyEvalTimestamps: [CFAbsoluteTime] = []
     var isThrottled = false
@@ -169,6 +170,7 @@ final class ProjectionCache {
         lastKnownLastMessageStreaming = false
         lastKnownIncompleteToolCallCount = 0
         lastKnownVisibleIdFingerprint = 0
+        lastKnownTextFingerprint = 0
         cachedFirstVisibleMessageId = nil
         bodyEvalTimestamps.removeAll()
         throttleRecoveryTask?.cancel()

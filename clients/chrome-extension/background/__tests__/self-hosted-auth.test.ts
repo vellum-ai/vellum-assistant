@@ -248,10 +248,10 @@ describe('bootstrapLocalToken', () => {
   });
 
   test('omits assistantPort when the helper frame is missing it', async () => {
-    // Older native helpers pre-dating PR 3 don't emit the
-    // assistantPort field. Those frames must still produce a valid
-    // StoredLocalToken — the worker will fall back to the stored
-    // `relayPort` / default value when assistantPort is undefined.
+    // Native helpers that omit the optional assistantPort field must
+    // still produce a valid StoredLocalToken — the worker will fall
+    // back to the stored `relayPort` / default value when
+    // assistantPort is undefined.
     const expiresAtIso = new Date(Date.now() + 60_000).toISOString();
 
     fakeRuntime.onConnect = (port) => {

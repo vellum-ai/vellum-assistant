@@ -496,6 +496,48 @@ describe('RelayConnection', () => {
       expect(instances.length).toBe(1);
     });
 
+    test('close during pending deferred reconnect still fires onClose exactly once (Gap 2)', async () => {
+      // Regression guard for Gap 2 of the round-2 cloud-cap review:
+      // the ws 'close' listener defers onClose into
+      // scheduleReconnectWithRefresh for non-normal closes so the
+      // caller sees exactly one notification per lifecycle. Before
+      // the fix, calling close() before the reconnect timer fired
+      // would clear the timer WITHOUT flushing the pending deferred
+      // close — leaving the caller with ZERO onClose callbacks and
+      // quietly turning the "exactly once" contract into "at most
+      // once."
+      const cbs = makeCallbacks();
+      const conn = makeConn(
+        { kind: 'self-hosted', baseUrl: 'http://127.0.0.1:7830', token: 't' },
+        cbs,
+      );
+
+      conn.start();
+      openSocket(instances[0]);
+      // Server closes with 1006 → close listener arms the reconnect
+      // timer and stashes the deferred close ctx.
+      closeSocket(instances[0], 1006, 'abnormal');
+      // Nothing should have fired yet — the onClose is deferred.
+      expect(cbs.closeCalls.length).toBe(0);
+
+      // Caller tears the connection down before the reconnect timer
+      // fires. The fix flushes the pending deferred close once and
+      // then clears the timer so no reconnect happens.
+      conn.close();
+
+      expect(cbs.closeCalls.length).toBe(1);
+      expect(cbs.closeCalls[0].code).toBe(1006);
+      expect(cbs.closeCalls[0].reason).toBe('abnormal');
+      // caller-initiated close path → no authError expected.
+      expect(cbs.closeCalls[0].authError).toBeUndefined();
+
+      // Wait past the reconnect timer to make sure nothing else
+      // fires: no double onClose, no spurious reconnect.
+      await new Promise((r) => setTimeout(r, 1100));
+      expect(cbs.closeCalls.length).toBe(1);
+      expect(instances.length).toBe(1);
+    });
+
     test('cloud reconnect: token refresh replaces URL token on next connect', async () => {
       const cbs = makeCallbacks();
       let seenCtx: RelayReconnectContext | null = null;
@@ -813,6 +855,75 @@ describe('RelayConnection', () => {
       expect(instances.length).toBe(2);
 
       conn.close();
+    });
+
+    test('flushes pending deferred close from prior lifecycle before switching modes', async () => {
+      // Regression guard for the setMode lifecycle leak: when a
+      // non-normal close arms the reconnect-with-refresh timer it
+      // stashes a deferred onClose ctx so the caller sees exactly
+      // one onClose per lifecycle. If setMode then tears down the
+      // current socket without flushing that pending ctx, the
+      // caller sees zero onClose calls for the prior lifecycle and
+      // a subsequent close() on the new lifecycle would re-deliver
+      // the stale ctx as if it belonged to the new socket.
+      //
+      // This test pins both halves of the invariant: setMode MUST
+      // fire the deferred onClose exactly once with the original
+      // 1006 code/reason, and the new lifecycle's eventual close
+      // MUST NOT re-deliver that same ctx.
+      const cbs = makeCallbacks();
+      const conn = makeConn(
+        { kind: 'self-hosted', baseUrl: 'http://127.0.0.1:7830', token: 't' },
+        cbs,
+      );
+
+      conn.start();
+      openSocket(instances[0]);
+
+      // Server-initiated abnormal close on the prior lifecycle. The
+      // close listener arms the reconnect timer and stashes the
+      // deferred ctx — the caller has not been notified yet.
+      closeSocket(instances[0], 1006, 'abnormal');
+      expect(cbs.closeCalls.length).toBe(0);
+
+      // Switch modes before the reconnect timer fires. setMode must
+      // flush the single pending onClose with the ORIGINAL 1006
+      // code/reason (not 1000 / 'mode switched'), then tear down
+      // the old socket and construct a new one for the cloud mode.
+      conn.setMode({
+        kind: 'cloud',
+        baseUrl: 'https://api.vellum.ai',
+        token: 'cloud-jwt',
+      });
+
+      expect(cbs.closeCalls.length).toBe(1);
+      expect(cbs.closeCalls[0].code).toBe(1006);
+      expect(cbs.closeCalls[0].reason).toBe('abnormal');
+      expect(cbs.closeCalls[0].authError).toBeUndefined();
+
+      // New socket was constructed for the cloud mode.
+      expect(instances.length).toBe(2);
+      expect(instances[1].url).toBe(
+        'wss://api.vellum.ai/v1/browser-relay?token=cloud-jwt',
+      );
+
+      // Wait past the old reconnect timer to make sure it does not
+      // fire and nothing else surfaces onto the caller.
+      await new Promise((r) => setTimeout(r, 1100));
+      expect(cbs.closeCalls.length).toBe(1);
+
+      // A subsequent explicit close() on the new lifecycle must not
+      // re-deliver the stale 1006 ctx. Without the flush in setMode,
+      // `pendingDeferredCloseCtx` would still carry the prior
+      // lifecycle's 1006/'abnormal' at this point and close() would
+      // fire a second onClose with that stale code — the assertion
+      // below catches that regression.
+      openSocket(instances[1]);
+      conn.close();
+
+      expect(cbs.closeCalls.length).toBe(1);
+      expect(cbs.closeCalls[0].code).toBe(1006);
+      expect(cbs.closeCalls[0].reason).toBe('abnormal');
     });
   });
 

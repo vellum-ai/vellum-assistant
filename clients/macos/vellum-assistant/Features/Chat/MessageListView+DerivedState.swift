@@ -66,6 +66,22 @@ extension MessageListView {
             changed = true
         }
 
+        // O(1) text content fingerprint — segment count + last segment byte length.
+        // Busts cache on every streaming flush (~50ms) without scanning all text.
+        let currentTextFingerprint: Int = {
+            guard let last = visibleMessages.last else { return 0 }
+            let segCount = last.textSegments.count
+            let lastLen = last.textSegments.last?.utf8.count ?? 0
+            let thinkSegCount = last.thinkingSegments.count
+            let thinkLastLen = last.thinkingSegments.last?.utf8.count ?? 0
+            let toolCallsRev = last.toolCallsRevision
+            return segCount &* 1_000_003 &+ lastLen &* 101 &+ thinkSegCount &* 11 &+ thinkLastLen &* 7 &+ toolCallsRev
+        }()
+        if currentTextFingerprint != cache.lastKnownTextFingerprint {
+            cache.lastKnownTextFingerprint = currentTextFingerprint
+            changed = true
+        }
+
         if changed {
             cache.messageListVersion += 1
         }
