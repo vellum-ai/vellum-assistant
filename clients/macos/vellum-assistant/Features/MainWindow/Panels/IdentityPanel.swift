@@ -65,7 +65,7 @@ struct IdentityPanel: View {
                                     .multilineTextAlignment(.center)
                                     .frame(maxWidth: .infinity)
                                 Button {
-                                    onOpenThread?("I want to change your name")
+                                    onOpenThread?("I would like to change your name")
                                 } label: {
                                     VIconView(.pencil, size: 13)
                                         .foregroundStyle(VColor.contentTertiary)
@@ -113,7 +113,7 @@ struct IdentityPanel: View {
                                     identity?.role
                                 ])
                                 editableInfoRow(label: "Role", value: role ?? "Not set") {
-                                    onOpenThread?("I want to change your role description")
+                                    onOpenThread?("I would like to change your role description")
                                 }
                                 if let date = metadata?.createdAt {
                                     identityInfoRow(label: "Hatched", value: formatHatchedDate(date))
