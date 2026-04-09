@@ -269,14 +269,25 @@ export class RelayConnection {
       const code = event.code;
       const reason = event.reason;
       this.ws = null;
-      this.deps.onClose(code, reason);
-      if (!this.closedByCaller) {
-        if (!NORMAL_CLOSE_CODES.has(code)) {
-          this.scheduleReconnectWithRefresh({ code, reason });
-        } else {
-          this.scheduleReconnect();
-        }
+      if (this.closedByCaller) {
+        // The caller tore down this connection (mode switch, explicit
+        // close, etc.) — fire onClose exactly once and stop.
+        this.deps.onClose(code, reason);
+        return;
       }
+      if (NORMAL_CLOSE_CODES.has(code)) {
+        // Clean server-initiated close (e.g. 1000/1001). Notify the
+        // caller and schedule a plain reconnect without going through
+        // the refresh hook.
+        this.deps.onClose(code, reason);
+        this.scheduleReconnect();
+        return;
+      }
+      // Non-normal close: defer the onClose notification until after
+      // the reconnect-with-refresh decision resolves so the caller
+      // sees exactly one onClose call per lifecycle. The helper
+      // surfaces an authError when refresh returns/aborts.
+      this.scheduleReconnectWithRefresh({ code, reason });
     });
 
     ws.addEventListener('error', () => {
@@ -324,50 +335,91 @@ export class RelayConnection {
    *
    * The close `code` / `reason` are forwarded as a
    * {@link RelayReconnectContext} so the handler can tell an
-   * auth-failure close (4001/4002/4003/1008) apart from a transient
-   * network drop. For auth-failure closes in cloud mode the handler
-   * returns `{ kind: 'abort' }` when refresh is impossible — we stop
-   * the reconnect loop, mark the connection closed, and surface the
-   * error through `onClose` so the popup UI can prompt the user to
-   * sign in again instead of silently hammering the gateway.
+   * auth-failure close (4001/4002/4003/1008, or 1006 when the
+   * pre-upgrade HTTP 401 surfaces as abnormal closure) apart from a
+   * transient network drop. For auth-failure closes in cloud mode the
+   * handler returns `{ kind: 'abort' }` when refresh is impossible —
+   * we stop the reconnect loop, mark the connection closed, and
+   * surface the error through `onClose` so the popup UI can prompt
+   * the user to sign in again instead of silently hammering the
+   * gateway.
+   *
+   * `onClose` is invoked EXACTLY ONCE per lifecycle here: either with
+   * `authError` set when the refresh hook aborts, or with `authError`
+   * undefined when we proceed with a reconnect attempt. The
+   * `ws.addEventListener('close', ...)` handler deliberately does NOT
+   * fire onClose for non-normal closes — it defers that
+   * responsibility to this method so the caller never sees a double
+   * invocation on the abort-decision path.
    */
   private scheduleReconnectWithRefresh(ctx: RelayReconnectContext): void {
     if (this.reconnectTimer !== null) return;
     const delay = this.reconnectDelay;
     this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null;
-      if (this.closedByCaller) return;
+      if (this.closedByCaller) {
+        // Caller called close() while we were waiting for the
+        // backoff timer to fire. Notify them once with the original
+        // close code/reason and stop — no reconnect, no refresh.
+        this.deps.onClose(ctx.code, ctx.reason);
+        return;
+      }
+      let decision: RelayReconnectDecision = { kind: 'keep' };
       if (this.deps.onReconnect) {
-        let decision: RelayReconnectDecision | null = null;
         try {
           const result = await this.deps.onReconnect(ctx);
           decision = normaliseReconnectResult(result);
-        } catch {
-          // Refresh failures fall through to a bare reconnect attempt —
-          // the server will reject the handshake and we'll loop.
-          decision = null;
-        }
-        if (decision) {
-          if (decision.kind === 'abort') {
-            // Refresh is impossible (e.g. cloud token expired and
-            // non-interactive renewal failed). Stop reconnecting and
-            // surface the error via onClose so the worker can push an
-            // actionable message into chrome.storage for the popup.
-            this.closedByCaller = true;
-            this.deps.onClose(ctx.code, ctx.reason, decision.error);
-            return;
-          }
-          if (decision.kind === 'refreshed') {
-            this.deps = {
-              ...this.deps,
-              mode: { ...this.deps.mode, token: decision.token },
-            };
-          }
-          // 'keep' → leave mode.token alone and fall through to
-          // connect() with the existing token.
+        } catch (err) {
+          // Refresh threw unexpectedly — log and convert to an abort
+          // so the reconnect loop halts and the popup can surface a
+          // sign-in prompt. Previously we swallowed the error and
+          // reconnected with the same (probably invalid) token,
+          // which produced a silent retry loop that never reached
+          // the user. See browser-use-main-remediation-plan Gap 2.
+          const message = err instanceof Error ? err.message : String(err);
+          console.warn(
+            '[vellum-relay] onReconnect hook threw; aborting reconnect loop',
+            err,
+          );
+          decision = {
+            kind: 'abort',
+            error:
+              `Relay token refresh failed: ${message}. ` +
+              `Sign in with Vellum again from the extension popup to reconnect.`,
+          };
         }
       }
-      if (!this.closedByCaller) this.connect();
+      if (decision.kind === 'abort') {
+        // Refresh is impossible (e.g. cloud token expired and
+        // non-interactive renewal failed, or the refresh hook threw).
+        // Stop reconnecting and surface the error via onClose so the
+        // worker can push an actionable message into chrome.storage
+        // for the popup.
+        this.closedByCaller = true;
+        this.deps.onClose(ctx.code, ctx.reason, decision.error);
+        return;
+      }
+      if (decision.kind === 'refreshed') {
+        this.deps = {
+          ...this.deps,
+          mode: { ...this.deps.mode, token: decision.token },
+        };
+      }
+      // 'keep' → leave mode.token alone and fall through to
+      // connect() with the existing token.
+      //
+      // Caller may have called close() concurrently with the refresh
+      // hook — re-check before firing onClose or reconnecting.
+      if (this.closedByCaller) {
+        this.deps.onClose(ctx.code, ctx.reason);
+        return;
+      }
+      // Fire onClose once for this lifecycle before we start a fresh
+      // connect attempt. The caller sees exactly one onClose per
+      // non-normal close, with authError undefined on the reconnect
+      // path and set on the abort path.
+      this.deps.onClose(ctx.code, ctx.reason);
+      this.connect();
     }, delay);
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, RECONNECT_MAX_MS);
   }

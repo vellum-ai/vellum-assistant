@@ -373,8 +373,14 @@ describe('RelayConnection', () => {
       // Server-side abnormal close (e.g. the daemon restarted).
       closeSocket(instances[0], 1006, 'abnormal');
 
-      expect(cbs.closeCalls.length).toBe(1);
-      expect(cbs.closeCalls[0].code).toBe(1006);
+      // onClose is now deferred until after the reconnect-with-refresh
+      // decision resolves, so right after the ws 'close' event fires
+      // the caller has NOT yet been notified. See Gap 4 of the
+      // browser-use-main-remediation-plan: the helper fires onClose
+      // exactly once per lifecycle and defers it to the refresh-path
+      // so an abort decision can propagate the auth error through the
+      // same single notification instead of a double-invoke.
+      expect(cbs.closeCalls.length).toBe(0);
 
       // The reconnect is scheduled behind a real setTimeout — wait long
       // enough for it to fire. The base delay is 1000ms; we tolerate
@@ -385,6 +391,13 @@ describe('RelayConnection', () => {
       expect(instances[1].url).toBe(
         'ws://127.0.0.1:7830/v1/browser-relay?token=t',
       );
+
+      // And by the time the reconnect has fired, the single deferred
+      // onClose has been delivered with the original close code.
+      expect(cbs.closeCalls.length).toBe(1);
+      expect(cbs.closeCalls[0].code).toBe(1006);
+      expect(cbs.closeCalls[0].reason).toBe('abnormal');
+      expect(cbs.closeCalls[0].authError).toBeUndefined();
 
       // Clean up.
       conn.close();
@@ -569,14 +582,19 @@ describe('RelayConnection', () => {
       // decision must stop the reconnect loop cold.
       expect(instances.length).toBe(1);
 
-      // The helper surfaced the auth error via onClose with the
-      // original close code + reason so the worker can route it to
-      // the popup without a second close event.
-      const authCloses = cbs.closeCalls.filter((c) => c.authError !== undefined);
-      expect(authCloses.length).toBe(1);
-      expect(authCloses[0].code).toBe(4001);
-      expect(authCloses[0].reason).toBe('token expired');
-      expect(authCloses[0].authError).toBe('Cloud token expired — sign in again.');
+      // onClose must fire exactly once per lifecycle — the non-normal
+      // close listener defers the notification until after the
+      // reconnect refresh decision resolves, so the caller sees a
+      // single call with the auth error populated and never a prior
+      // invocation with authError undefined. This is the contract
+      // the worker relies on to distinguish "refresh succeeded, will
+      // reconnect" from "refresh failed, surface sign-in prompt".
+      expect(cbs.closeCalls.length).toBe(1);
+      expect(cbs.closeCalls[0].code).toBe(4001);
+      expect(cbs.closeCalls[0].reason).toBe('token expired');
+      expect(cbs.closeCalls[0].authError).toBe(
+        'Cloud token expired — sign in again.',
+      );
 
       // isOpen must return false and a subsequent unexpected close
       // event must not restart reconnects — the helper is marked as
@@ -584,6 +602,73 @@ describe('RelayConnection', () => {
       expect(conn.isOpen()).toBe(false);
       await new Promise((r) => setTimeout(r, 1100));
       expect(instances.length).toBe(1);
+    });
+
+    test('cloud reconnect: onClose fires once per lifecycle on non-abort reconnect', async () => {
+      // Sibling of the abort test above: this pins the invariant
+      // that a reconnect-with-refresh cycle produces exactly ONE
+      // onClose notification (with authError undefined), not two.
+      // A prior revision fired onClose eagerly in the ws 'close'
+      // listener and then again from the abort branch — this test
+      // would catch a regression back to that behaviour by seeing
+      // two entries in closeCalls after a 4001 → refreshed cycle.
+      const cbs = makeCallbacks();
+      const conn = makeConn(
+        { kind: 'cloud', baseUrl: 'https://api.vellum.ai', token: 'old-jwt' },
+        cbs,
+        async () => ({ kind: 'refreshed', token: 'fresh-jwt' }),
+      );
+
+      conn.start();
+      openSocket(instances[0]);
+      closeSocket(instances[0], 4001, 'token expired');
+      await new Promise((r) => setTimeout(r, 1100));
+
+      expect(cbs.closeCalls.length).toBe(1);
+      expect(cbs.closeCalls[0].code).toBe(4001);
+      expect(cbs.closeCalls[0].reason).toBe('token expired');
+      expect(cbs.closeCalls[0].authError).toBeUndefined();
+      // And a fresh socket was built with the refreshed token.
+      expect(instances.length).toBe(2);
+      expect(instances[1].url).toContain('token=fresh-jwt');
+
+      conn.close();
+    });
+
+    test('reconnect refresh exception converts to abort decision', async () => {
+      // The catch branch in scheduleReconnectWithRefresh used to
+      // swallow exceptions and fall through to a bare reconnect with
+      // the same (almost certainly invalid) token, which produced a
+      // silent loop that never reached the popup. Post-fix, any
+      // thrown error from the refresh hook is turned into an abort
+      // decision so the worker surfaces a sign-in prompt.
+      const cbs = makeCallbacks();
+      const conn = makeConn(
+        { kind: 'cloud', baseUrl: 'https://api.vellum.ai', token: 'old-jwt' },
+        cbs,
+        async () => {
+          throw new Error('cloud sign-in returned incomplete payload');
+        },
+      );
+
+      conn.start();
+      openSocket(instances[0]);
+      closeSocket(instances[0], 4001, 'token expired');
+
+      await new Promise((r) => setTimeout(r, 1100));
+
+      // Reconnect loop is halted — no second socket.
+      expect(instances.length).toBe(1);
+      // And onClose fires exactly once with an authError populated
+      // from the thrown exception's message.
+      expect(cbs.closeCalls.length).toBe(1);
+      const authError = cbs.closeCalls[0].authError;
+      expect(typeof authError).toBe('string');
+      expect(authError ?? '').toContain(
+        'cloud sign-in returned incomplete payload',
+      );
+
+      expect(conn.isOpen()).toBe(false);
     });
 
     test('cloud reconnect: keep decision reuses the existing token', async () => {
