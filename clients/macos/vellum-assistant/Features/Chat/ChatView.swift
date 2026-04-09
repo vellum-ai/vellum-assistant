@@ -227,7 +227,9 @@ struct ChatView: View {
                     .padding(VSpacing.lg)
                     .frame(width: containerWidth > 0 ? containerWidth : nil,
                            alignment: .top)
-                    .frame(maxHeight: .infinity, alignment: .top)
+                    .frame(maxWidth: containerWidth > 0 ? nil : .infinity,
+                           maxHeight: .infinity,
+                           alignment: .top)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Loading chat history")
             } else if isEmptyState && isBootstrapping {
@@ -370,14 +372,10 @@ struct ChatView: View {
                 CreditsExhaustedBanner(
                     onAddFunds: { onAddFunds?() }
                 )
-                // .frame(width:) creates _FrameLayout — no alignment queries.
-                // The old .frame(maxWidth:).frame(maxWidth: .infinity) created
-                // _FlexFrameLayout which cascaded explicitAlignment through the
-                // sibling LazyVStack. VStack default .center alignment centers
-                // the fixed-width child automatically.
                 .frame(width: containerWidth > 0
-                    ? min(containerWidth, VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
-                    : VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
+                    ? min(containerWidth, VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl) : nil)
+                .frame(maxWidth: containerWidth > 0
+                    ? nil : VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
                 .padding(.bottom, -VSpacing.sm)
             }
 
@@ -387,8 +385,9 @@ struct ChatView: View {
                     onDismiss: { viewModel.dismissConversationError() }
                 )
                 .frame(width: containerWidth > 0
-                    ? min(containerWidth, VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
-                    : VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
+                    ? min(containerWidth, VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl) : nil)
+                .frame(maxWidth: containerWidth > 0
+                    ? nil : VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
                 .padding(.bottom, -VSpacing.sm)
             }
 
@@ -400,8 +399,9 @@ struct ChatView: View {
                     isExiting: isRecoveryModeExiting
                 )
                 .frame(width: containerWidth > 0
-                    ? min(containerWidth, VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
-                    : VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
+                    ? min(containerWidth, VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl) : nil)
+                .frame(maxWidth: containerWidth > 0
+                    ? nil : VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
                 .padding(.bottom, -VSpacing.sm)
             }
 
