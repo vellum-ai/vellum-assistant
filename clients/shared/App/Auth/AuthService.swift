@@ -406,8 +406,6 @@ public final class AuthService {
         return response.statusCode == 200 ? .reusedExisting(assistant) : .createdNew(assistant)
     }
 
-    /// Update a managed assistant's name and/or description via PATCH.
-    /// Returns the updated `PlatformAssistant` on success.
     @discardableResult
     public func updateAssistant(
         id: String,

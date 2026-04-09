@@ -785,12 +785,6 @@ extension AppDelegate {
             throw AssistantSwitcherError.lockfilePersistenceFailed
         }
 
-        // Ensure the platform record carries the user-provided name so the
-        // assistant daemon can discover it. For newly created assistants the
-        // hatch endpoint already sets the name, but for reused assistants
-        // (single-assistant mode) the existing record may have a stale or
-        // missing name. Fire-and-forget: a failure here is non-fatal since
-        // the local cache below is the primary display path.
         Task {
             try? await AuthService.shared.updateAssistant(
                 id: platformAssistant.id,
@@ -799,10 +793,6 @@ extension AppDelegate {
             )
         }
 
-        // Seed the identity cache so the menu-bar switcher can display the
-        // assistant's name immediately without waiting for a gateway fetch.
-        // Always use the user-provided name rather than platformAssistant.name,
-        // which may be stale for reused assistants.
         IdentityInfo.seedCache(name: name, forAssistantId: platformAssistant.id)
     }
 

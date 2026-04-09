@@ -217,11 +217,7 @@ struct IdentityInfo: Codable, Equatable {
         IdentityInfoStore.save(cachedByAssistantId)
     }
 
-    /// Seeds the cache with a placeholder identity for a newly created
-    /// assistant so the menu-bar switcher can display the name immediately
-    /// without waiting for a full gateway fetch. The seeded entry will be
-    /// overwritten by real data when the user connects to the assistant
-    /// and `refreshCache()` runs.
+    /// Seeds a placeholder identity so the switcher can show the name before a gateway fetch.
     @MainActor static func seedCache(name: String, forAssistantId assistantId: String) {
         let placeholder = IdentityInfo(
             name: name,
