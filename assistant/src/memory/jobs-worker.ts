@@ -2,6 +2,11 @@ import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getLogger } from "../util/logger.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
+import {
+  getLastScheduledCleanupEnqueueMs,
+  markScheduledCleanupEnqueued,
+  resetCleanupScheduleThrottle as resetCleanupScheduleThrottleImpl,
+} from "./cleanup-schedule-state.js";
 import { bootstrapFromHistory } from "./graph/bootstrap.js";
 import { runConsolidation } from "./graph/consolidation.js";
 import { runDecayTick } from "./graph/decay.js";
@@ -449,12 +454,13 @@ async function processJob(
 
 // ── Cleanup scheduling ─────────────────────────────────────────────
 
-let lastScheduledCleanupEnqueueMs = 0;
-
-/** Reset the cleanup enqueue throttle so tests can run deterministic checks. */
-export function resetCleanupScheduleThrottle(): void {
-  lastScheduledCleanupEnqueueMs = 0;
-}
+/**
+ * Re-export of the shared throttle-reset helper. The underlying state lives
+ * in cleanup-schedule-state.ts so that lighter-weight callers (e.g.
+ * ConfigWatcher) can reset it without pulling in jobs-worker's transitive
+ * imports.
+ */
+export const resetCleanupScheduleThrottle = resetCleanupScheduleThrottleImpl;
 
 /**
  * Enqueue periodic cleanup jobs using config-driven retention windows.
@@ -466,7 +472,7 @@ export function maybeEnqueueScheduledCleanupJobs(
 ): boolean {
   const cleanup = config.memory.cleanup;
   if (!cleanup.enabled) return false;
-  if (nowMs - lastScheduledCleanupEnqueueMs < cleanup.enqueueIntervalMs)
+  if (nowMs - getLastScheduledCleanupEnqueueMs() < cleanup.enqueueIntervalMs)
     return false;
 
   const pruneConversationsJobId =
@@ -477,7 +483,7 @@ export function maybeEnqueueScheduledCleanupJobs(
     cleanup.llmRequestLogRetentionMs > 0
       ? enqueuePruneOldLlmRequestLogsJob(cleanup.llmRequestLogRetentionMs)
       : null;
-  lastScheduledCleanupEnqueueMs = nowMs;
+  markScheduledCleanupEnqueued(nowMs);
   log.debug(
     {
       pruneConversationsJobId,
