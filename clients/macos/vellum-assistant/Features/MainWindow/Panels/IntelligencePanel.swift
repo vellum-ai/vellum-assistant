@@ -122,7 +122,8 @@ struct IntelligencePanel: View {
                 onNavigateToFile: { path in
                     pendingFilePath = path
                     withAnimation(VAnimation.fast) { selectedTab = .workspace }
-                }
+                },
+                onOpenThread: onImportMemory
             )
             .padding(.top, VSpacing.sm)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)

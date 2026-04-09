@@ -6,6 +6,7 @@ struct IdentityPanel: View {
     let connectionManager: GatewayConnectionManager
     var onNavigateToSkill: ((String) -> Void)?
     var onNavigateToFile: ((String) -> Void)?
+    var onOpenThread: ((String) -> Void)?
     private let btwClient: any BtwClientProtocol = BtwClient()
     var workspaceClient: WorkspaceClientProtocol = WorkspaceClient()
     @State private var appearance = AvatarAppearanceManager.shared
@@ -26,8 +27,6 @@ struct IdentityPanel: View {
     @State private var isBootstrapActive: Bool = true
     @State private var isEditingName: Bool = false
     @State private var editingNameText: String = ""
-    @State private var isEditingRole: Bool = false
-    @State private var editingRoleText: String = ""
     @State private var isSavingIdentityField: Bool = false
 
     private let sidebarMinWidth: CGFloat = 200
@@ -96,12 +95,18 @@ struct IdentityPanel: View {
                             // Divider
                             Rectangle().fill(VColor.surfaceOverlay).frame(height: 2)
 
-                            // Role + Hatched date
+                            // Role + Description + Hatched date
                             VStack(alignment: .leading, spacing: VSpacing.lg) {
-                                                let role = AssistantDisplayName.firstUserFacing(from: [
-                                                    identity?.role
-                                                ])
-                                identityInfoRow(label: "Role", value: role ?? "Not set")
+                                let role = AssistantDisplayName.firstUserFacing(from: [
+                                    identity?.role
+                                ])
+                                editableInfoRow(label: "Role", value: role ?? "Not set") {
+                                    onOpenThread?("I want to change my Role")
+                                }
+                                let personality = identity?.personality ?? ""
+                                editableInfoRow(label: "Description", value: personality.isEmpty ? "Not set" : personality) {
+                                    onOpenThread?("I want to change my Description")
+                                }
                                 if let date = metadata?.createdAt {
                                     identityInfoRow(label: "Hatched", value: formatHatchedDate(date))
                                 }
@@ -244,7 +249,6 @@ struct IdentityPanel: View {
             let fileResponse = await workspaceClient.fetchWorkspaceFile(path: "IDENTITY.md", showHidden: false)
             guard let content = fileResponse?.content else {
                 isEditingName = false
-                isEditingRole = false
                 return
             }
 
@@ -266,7 +270,6 @@ struct IdentityPanel: View {
             if success {
                 identity = await IdentityInfo.loadAsync()
                 isEditingName = false
-                isEditingRole = false
 
                 if field == "Name" {
                     introText = nil
@@ -280,7 +283,6 @@ struct IdentityPanel: View {
                 }
             } else {
                 isEditingName = false
-                isEditingRole = false
             }
         }
     }
@@ -398,6 +400,28 @@ struct IdentityPanel: View {
                     .foregroundStyle(VColor.contentDefault)
                     .textSelection(.enabled)
             }
+        }
+    }
+
+    private func editableInfoRow(label: String, value: String, onEdit: @escaping () -> Void) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.xxs) {
+            HStack(spacing: VSpacing.xs) {
+                Text(label)
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+                Spacer()
+                Button(action: onEdit) {
+                    VIconView(.pencil, size: 10)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
+                .buttonStyle(.plain)
+                .help("Edit \(label)")
+            }
+            Text(value)
+                .font(VFont.bodySmallEmphasised)
+                .foregroundStyle(VColor.contentEmphasized)
+                .lineLimit(2)
+                .truncationMode(.tail)
         }
     }
 
