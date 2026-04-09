@@ -214,10 +214,9 @@ async function dispatchHostBrowserResult(
     return;
   }
 
-  // Self-hosted fallback: POST directly to the local daemon using live
-  // creds. Prefer the capability token from the native-messaging pair
-  // flow; fall back to the bearer token stored under the gateway
-  // pair flow.
+  // Self-hosted fallback: POST directly to the local daemon using the
+  // capability token from the native-messaging pair flow. If no paired
+  // token is available the result is dropped.
   const local = await getStoredLocalToken();
   if (local) {
     const fallbackPort = local.assistantPort ?? (await getRelayPort());
