@@ -170,6 +170,27 @@ const sampleRequest: HostBrowserRequestEnvelope = {
   cdpParams: { foo: 'bar' },
 };
 
+/**
+ * Poll-based wait helper used by the cancel-race tests to synchronise
+ * on dispatcher internals (e.g. "wait until proxy.send has been called")
+ * without reaching into private state. Falls back to a wall-clock
+ * deadline so a broken dispatcher can't hang the test suite forever.
+ */
+async function waitFor(
+  predicate: () => boolean,
+  timeoutMs = 1000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) {
+      throw new Error(
+        `waitFor: predicate did not become true within ${timeoutMs}ms`,
+      );
+    }
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
 // ── Tests ───────────────────────────────────────────────────────────
 
 describe('createHostBrowserDispatcher', () => {
@@ -559,9 +580,14 @@ describe('createHostBrowserDispatcher', () => {
   });
 
   describe('cancel', () => {
-    test('aborts the in-flight controller for the matching request id', async () => {
-      // Gate resolveTarget on an externally-controllable promise so we can
-      // issue a cancel while the handler is still mid-flight.
+    test('suppresses late postResult delivery for a cancelled request (deterministic-cancel guarantee)', async () => {
+      // Regression: the dispatcher must NOT deliver a result envelope
+      // after the daemon has sent a host_browser_cancel. The daemon
+      // has already resolved the caller with "Aborted" — a late post
+      // would be a ghost completion and trip the daemon's "No pending
+      // host browser request" warning. Gate resolveTarget so we can
+      // issue the cancel mid-flight, then release the gate and verify
+      // that the handler runs to completion without posting anything.
       let releaseResolve: () => void = () => {};
       const gate = new Promise<void>((resolve) => {
         releaseResolve = resolve;
@@ -574,22 +600,240 @@ describe('createHostBrowserDispatcher', () => {
 
       const handlePromise = harness.dispatcher.handle(sampleRequest);
 
-      // Mid-flight cancel.
+      // Mid-flight cancel — arrives BEFORE resolveTarget settles, so the
+      // handler is still awaiting its first internal await.
       const cancelEnvelope: HostBrowserCancelEnvelope = {
         type: 'host_browser_cancel',
         requestId: 'req-1',
       };
       harness.dispatcher.cancel(cancelEnvelope);
 
-      // Release the gate so the handler can run to completion.
+      // Release the gate so the handler can finish its internal work
+      // (proxy.send will still be invoked because resolveTarget runs
+      // before the cancellation check at the postResult site).
       releaseResolve();
       await handlePromise;
 
-      // Handler still ran to completion and posted a result — the dispatcher
-      // does not early-return on cancel; instead it removes the abort
-      // controller from the in-flight map. This matches the plan's acceptance
-      // criteria for the "cancel aborts the in-flight controller" test.
+      // Critical assertion: no result envelope was posted. The cancelled
+      // request is dropped on the floor at the postResult site.
+      expect(harness.results.length).toBe(0);
+    });
+
+    test('suppresses late postResult when cancel races with proxy.send resolution', async () => {
+      // Simulates the window where proxy.send has already been called
+      // but hasn't resolved yet. The cancel lands between send() and
+      // the postResult call. This is the tightest race the dispatcher
+      // needs to handle deterministically.
+      let releaseSend: (frame: {
+        id: number;
+        result: unknown;
+      }) => void = () => {};
+      const sendGate = new Promise<{ id: number; result: unknown }>(
+        (resolve) => {
+          releaseSend = resolve;
+        },
+      );
+      const proxy = harness.proxy;
+      // Override send on the existing mock proxy so we can externally
+      // control when the CDP round-trip resolves.
+      proxy.send = async (target, frame) => {
+        proxy.sendCalls.push({ target, frame });
+        const result = await sendGate;
+        return { ...result, id: frame.id };
+      };
+
+      const handlePromise = harness.dispatcher.handle(sampleRequest);
+
+      // Wait for the handler to reach proxy.send before cancelling.
+      await waitFor(() => proxy.sendCalls.length === 1);
+
+      harness.dispatcher.cancel({
+        type: 'host_browser_cancel',
+        requestId: 'req-1',
+      });
+
+      // Resolve the CDP round-trip — the dispatcher must now notice
+      // the request was cancelled and drop the result instead of
+      // calling postResult.
+      releaseSend({ id: 0, result: { ok: true } });
+      await handlePromise;
+
+      expect(harness.results.length).toBe(0);
+    });
+
+    test('suppresses late postResult when cancel races with a send() that returned an error frame', async () => {
+      // Mirror the previous race test but with the CDP round-trip
+      // returning a JSON-RPC error envelope. The dispatcher must still
+      // drop the error envelope on the floor — both the success and
+      // the error branches of handle() route through the same
+      // postResult call site and must honour the cancellation check.
+      let releaseSend: (frame: {
+        id: number;
+        error: { code: number; message: string };
+      }) => void = () => {};
+      const sendGate = new Promise<{
+        id: number;
+        error: { code: number; message: string };
+      }>((resolve) => {
+        releaseSend = resolve;
+      });
+      const proxy = harness.proxy;
+      proxy.send = async (target, frame) => {
+        proxy.sendCalls.push({ target, frame });
+        const result = await sendGate;
+        return { ...result, id: frame.id };
+      };
+
+      const handlePromise = harness.dispatcher.handle(sampleRequest);
+      await waitFor(() => proxy.sendCalls.length === 1);
+
+      harness.dispatcher.cancel({
+        type: 'host_browser_cancel',
+        requestId: 'req-1',
+      });
+
+      releaseSend({
+        id: 0,
+        error: { code: -32000, message: 'cannot find context with specified id' },
+      });
+      await handlePromise;
+
+      expect(harness.results.length).toBe(0);
+    });
+
+    test('suppresses the error envelope when cancel races with a thrown send', async () => {
+      // Error path: the CDP send throws *after* cancel has arrived.
+      // The catch block in handle() must honour the cancelled set and
+      // skip its postResult call.
+      let rejectSend: (err: Error) => void = () => {};
+      const sendGate = new Promise<never>((_, reject) => {
+        rejectSend = reject;
+      });
+      const proxy = harness.proxy;
+      proxy.send = async (target, frame) => {
+        proxy.sendCalls.push({ target, frame });
+        return sendGate;
+      };
+
+      const handlePromise = harness.dispatcher.handle(sampleRequest);
+      await waitFor(() => proxy.sendCalls.length === 1);
+
+      harness.dispatcher.cancel({
+        type: 'host_browser_cancel',
+        requestId: 'req-1',
+      });
+
+      rejectSend(new Error('debugger detached mid-command'));
+      await handlePromise;
+
+      expect(harness.results.length).toBe(0);
+    });
+
+    test('cancel is idempotent: repeat cancels for the same request id are safe', async () => {
+      // Issue the same cancel twice, then a third time after the
+      // handler has already unwound. None of them must throw, and no
+      // result envelope must be posted for the original request.
+      let releaseResolve: () => void = () => {};
+      const gate = new Promise<void>((resolve) => {
+        releaseResolve = resolve;
+      });
+
+      harness.resolveTargetImpl = async () => {
+        await gate;
+        return { tabId: 7 };
+      };
+
+      const handlePromise = harness.dispatcher.handle(sampleRequest);
+
+      const cancelEnvelope: HostBrowserCancelEnvelope = {
+        type: 'host_browser_cancel',
+        requestId: 'req-1',
+      };
+      expect(() => harness.dispatcher.cancel(cancelEnvelope)).not.toThrow();
+      expect(() => harness.dispatcher.cancel(cancelEnvelope)).not.toThrow();
+
+      releaseResolve();
+      await handlePromise;
+
+      // Post-handler cancel must also be a no-op (nothing in flight,
+      // the cancelled-set entry has been pruned by handle()'s finally
+      // block, but adding it back is harmless because it will be
+      // deleted again at the start of the next handle() for the same id).
+      expect(() => harness.dispatcher.cancel(cancelEnvelope)).not.toThrow();
+
+      expect(harness.results.length).toBe(0);
+    });
+
+    test('cancel for a finished request does not affect a subsequent request with the same id', async () => {
+      // A cancelled request marks its id in the internal cancelled set,
+      // and handle()'s finally block prunes the entry. A subsequent
+      // handle() call for the *same* requestId (e.g. a retry across a
+      // relay reconnect) must NOT inherit the cancelled flag from the
+      // previous invocation — otherwise the retry would silently drop
+      // its result.
+      harness = createHarness({
+        sendResult: { id: 1, result: { ok: true } },
+      });
+
+      // First invocation — cancel it mid-flight.
+      let releaseResolve: () => void = () => {};
+      const gate = new Promise<void>((resolve) => {
+        releaseResolve = resolve;
+      });
+      harness.resolveTargetImpl = async () => {
+        await gate;
+        return { tabId: 42 };
+      };
+
+      const firstPromise = harness.dispatcher.handle(sampleRequest);
+      harness.dispatcher.cancel({
+        type: 'host_browser_cancel',
+        requestId: 'req-1',
+      });
+      releaseResolve();
+      await firstPromise;
+      expect(harness.results.length).toBe(0);
+
+      // Second invocation with the same requestId — must run to
+      // completion and post its result.
+      harness.resolveTargetImpl = async () => ({ tabId: 42 });
+      await harness.dispatcher.handle(sampleRequest);
+
       expect(harness.results.length).toBe(1);
+      expect(harness.results[0].requestId).toBe('req-1');
+      expect(harness.results[0].isError).toBe(false);
+    });
+
+    test('aborts the in-flight controller and removes it from the inFlight map', async () => {
+      // Sanity check on the cancel path's bookkeeping: after cancel()
+      // returns, the in-flight map no longer holds the cancelled entry,
+      // and disposing the dispatcher afterwards must not throw even
+      // though the cancelled handler is still technically awaiting its
+      // internal gate.
+      let releaseResolve: () => void = () => {};
+      const gate = new Promise<void>((resolve) => {
+        releaseResolve = resolve;
+      });
+      harness.resolveTargetImpl = async () => {
+        await gate;
+        return { tabId: 7 };
+      };
+
+      const handlePromise = harness.dispatcher.handle(sampleRequest);
+      harness.dispatcher.cancel({
+        type: 'host_browser_cancel',
+        requestId: 'req-1',
+      });
+
+      // Dispose while the cancelled handler is still in flight — this
+      // is the same path the service worker takes on shutdown.
+      harness.dispatcher.dispose();
+
+      // Release the gate so the promise can settle cleanly.
+      releaseResolve();
+      await handlePromise;
+
+      expect(harness.results.length).toBe(0);
     });
 
     test('is a no-op for unknown request ids', () => {

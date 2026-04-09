@@ -138,7 +138,18 @@ export class HostBrowserProxy {
   ): void {
     const entry = this.pending.get(requestId);
     if (!entry) {
-      log.warn({ requestId }, "No pending host browser request for response");
+      // Benign race, not an error. A late result frame with no matching
+      // pending entry means one of:
+      //   - the proxy-side setTimeout has already resolved the caller;
+      //   - the caller's AbortSignal fired and the entry was torn down;
+      //   - a duplicate result frame was delivered (e.g. retry after a
+      //     transient WS drop).
+      // Log at debug so operators don't chase false-positive "timeout"
+      // alerts on what is actually a cleanly-handled race.
+      log.debug(
+        { requestId },
+        "Ignoring host_browser_result for unknown or already-resolved request",
+      );
       return;
     }
     clearTimeout(entry.timer);

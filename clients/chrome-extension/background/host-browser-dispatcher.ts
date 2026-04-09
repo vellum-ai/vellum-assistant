@@ -115,6 +115,15 @@ export function createHostBrowserDispatcher(
 ): HostBrowserDispatcher {
   const proxy = deps.cdpProxy ?? createCdpProxy();
   const inFlight = new Map<string, AbortController>();
+  // Track request IDs that were cancelled while in flight so we can
+  // suppress the late `postResult` call when the underlying CDP command
+  // eventually settles. This is the core deterministic-cancel guarantee:
+  // once the daemon has told us a request is cancelled, we must never
+  // deliver a result frame for it — otherwise the daemon can see a
+  // "ghost completion" after it has already returned `"Aborted"` to its
+  // caller. The set is pruned in `handle()`'s finally block so it can't
+  // grow unbounded across long-running dispatcher lifetimes.
+  const cancelledRequestIds = new Set<string>();
   // Track which targets we've already attached to so repeat commands
   // against the same tab/session don't unnecessarily call attach again.
   // Chrome treats a second attach as a hard failure ("Another debugger is
@@ -136,8 +145,17 @@ export function createHostBrowserDispatcher(
   });
 
   async function handle(envelope: HostBrowserRequestEnvelope): Promise<void> {
+    const { requestId } = envelope;
+    // Guard against re-entrant delivery of the same request id: if the
+    // caller hands us the same id twice (or delivers a duplicate frame
+    // across a relay reconnect), the second `handle()` invocation should
+    // not be silently treated as "already cancelled" just because a
+    // previous attempt was aborted. Clear any stale cancel marker at the
+    // start of each new handle so the cancellation state is scoped to
+    // the lifetime of a single handle() call.
+    cancelledRequestIds.delete(requestId);
     const abort = new AbortController();
-    inFlight.set(envelope.requestId, abort);
+    inFlight.set(requestId, abort);
     try {
       const target = await deps.resolveTarget(envelope.cdpSessionId);
       const key = targetKey(target);
@@ -192,40 +210,91 @@ export function createHostBrowserDispatcher(
           attachedTargets.delete(key);
         }
       }
+      // Deterministic-cancel guarantee: if the request was cancelled
+      // while we were awaiting the CDP round-trip, drop the late result
+      // on the floor. The daemon has already resolved its pending entry
+      // with `"Aborted"` (see host-browser-proxy.ts) and would log a
+      // noisy "no pending host browser request for response" warning if
+      // we delivered a stale frame after the fact.
+      if (cancelledRequestIds.has(requestId)) return;
       await deps.postResult({
-        requestId: envelope.requestId,
+        requestId,
         content: JSON.stringify(frame.error ?? frame.result ?? {}),
         isError: frame.error != null,
       });
     } catch (err) {
+      // Same cancellation check as the happy path: a request that was
+      // cancelled mid-flight must not deliver its failure envelope to
+      // the daemon either. The daemon proxy has already resolved its
+      // pending entry, so any late postResult would be a ghost completion.
+      if (cancelledRequestIds.has(requestId)) return;
       // Guard the failure-path postResult in its own try/catch: if the HTTP
       // POST itself fails (e.g. the relay socket is torn down while we're
       // in the error path) we must NOT let that secondary rejection escape
       // to the Chrome service worker as an unhandled promise rejection.
       try {
         await deps.postResult({
-          requestId: envelope.requestId,
+          requestId,
           content: err instanceof Error ? err.message : String(err),
           isError: true,
         });
       } catch (postErr) {
         console.error(
           '[host-browser-dispatcher] Failed to post error result for',
-          envelope.requestId,
+          requestId,
           postErr,
         );
       }
     } finally {
-      inFlight.delete(envelope.requestId);
+      inFlight.delete(requestId);
+      // Prune the cancelled set once the handle() call has fully
+      // unwound. Leaving the entry in place would silently drop the
+      // result of a *subsequent* handle() for the same requestId — see
+      // the `cancelledRequestIds.delete(requestId)` call at the top of
+      // this function for the symmetric guard at the start of a new
+      // call. Deleting it here keeps the set bounded even under
+      // high-churn workloads.
+      cancelledRequestIds.delete(requestId);
     }
   }
 
   function cancel(envelope: HostBrowserCancelEnvelope): void {
-    inFlight.get(envelope.requestId)?.abort();
-    inFlight.delete(envelope.requestId);
+    const { requestId } = envelope;
+    // Record the cancellation BEFORE aborting so that any listener on
+    // the abort signal that races to post a result sees the cancelled
+    // flag first. The suppression check in `handle()` reads from this
+    // set, not from the abort signal, specifically to close the race
+    // between "cancel arrives after proxy.send resolves" and "handle()
+    // reaches its postResult call". Marking here also makes cancel()
+    // idempotent: a repeat cancel for the same id is a no-op because
+    // the set already contains the entry and `abort()` on an
+    // already-aborted controller is safe.
+    cancelledRequestIds.add(requestId);
+    const ctl = inFlight.get(requestId);
+    if (ctl) {
+      try {
+        ctl.abort();
+      } catch {
+        // AbortController.abort() is spec'd to never throw, but we
+        // belt-and-brace here so a pathological polyfill can't derail
+        // the cancel path and leave inFlight in an inconsistent state.
+      }
+      inFlight.delete(requestId);
+    }
   }
 
   function dispose(): void {
+    // Mark every in-flight request as cancelled BEFORE aborting its
+    // controller so that any handler currently suspended at an await
+    // point unwinds through the same deterministic-cancel suppression
+    // path as a regular cancel(). Without this, dispose() would leave
+    // `cancelledRequestIds` empty and a handler that resumes post-
+    // dispose would happily call postResult into a torn-down service
+    // worker (or worse, into a freshly-constructed replacement
+    // dispatcher during a hot reload).
+    for (const requestId of inFlight.keys()) {
+      cancelledRequestIds.add(requestId);
+    }
     for (const abort of inFlight.values()) abort.abort();
     inFlight.clear();
     attachedTargets.clear();
