@@ -58,13 +58,24 @@ struct IdentityPanel: View {
                     VStack(spacing: 0) {
                         VStack(spacing: 0) {
                             // Intro heading — show daemon-generated text, fall back to static name
-                            Text(introText ?? (hasRealName ? "I'm \(assistantDisplayName)!" : assistantDisplayName))
-                                .font(VFont.titleMedium)
-                                .foregroundStyle(VColor.contentDefault)
-                                .multilineTextAlignment(.center)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                                .padding(.top, VSpacing.xxl)
-                                .padding(.horizontal, VSpacing.lg)
+                            ZStack(alignment: .topTrailing) {
+                                Text(introText ?? (hasRealName ? "I'm \(assistantDisplayName)!" : assistantDisplayName))
+                                    .font(VFont.titleMedium)
+                                    .foregroundStyle(VColor.contentDefault)
+                                    .multilineTextAlignment(.center)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                                Button {
+                                    onOpenThread?("I want to change your name")
+                                } label: {
+                                    VIconView(.pencil, size: 10)
+                                        .foregroundStyle(VColor.contentTertiary)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Edit Name")
+                                .help("Edit Name")
+                            }
+                            .padding(.top, VSpacing.xxl)
+                            .padding(.horizontal, VSpacing.lg)
 
                             Spacer()
 
@@ -95,17 +106,13 @@ struct IdentityPanel: View {
                             // Divider
                             Rectangle().fill(VColor.surfaceOverlay).frame(height: 2)
 
-                            // Role + Description + Hatched date
+                            // Role + Hatched date
                             VStack(alignment: .leading, spacing: VSpacing.lg) {
                                 let role = AssistantDisplayName.firstUserFacing(from: [
                                     identity?.role
                                 ])
                                 editableInfoRow(label: "Role", value: role ?? "Not set") {
-                                    onOpenThread?("I want to change my Role")
-                                }
-                                let personality = identity?.personality ?? ""
-                                editableInfoRow(label: "Description", value: personality.isEmpty ? "Not set" : personality) {
-                                    onOpenThread?("I want to change my Description")
+                                    onOpenThread?("I want to change your role description")
                                 }
                                 if let date = metadata?.createdAt {
                                     identityInfoRow(label: "Hatched", value: formatHatchedDate(date))
