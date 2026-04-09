@@ -278,13 +278,7 @@ public final class ChatAttachmentManager {
         case .failure(let error):
             return .failure(error)
         case .success(let processed):
-            #if os(macOS)
-            let thumbnailImage = processed.thumbnailData.flatMap { NSImage(data: $0) }
-            #elseif os(iOS)
-            let thumbnailImage = processed.thumbnailData.flatMap { UIImage(data: $0) }
-            #else
-            #error("Unsupported platform")
-            #endif
+            let thumbnailImage = processed.thumbnailData.flatMap { ChatAttachment.decodeCGImage(from: $0) }
             return .success(ChatAttachment(
                 id: processed.id,
                 filename: processed.filename,
@@ -299,8 +293,7 @@ public final class ChatAttachmentManager {
     }
 
     /// Converts, validates, compresses, and thumbnails an attachment from raw image data.
-    /// All blocking work (ImageIO decode/encode, compression) runs off the main actor;
-    /// platform image construction happens back on @MainActor where it is safe.
+    /// All blocking work (ImageIO decode/encode, compression) runs off the main actor.
     private func loadAttachment(imageData: Data, filename: String) async -> Result<ChatAttachment, AttachmentError> {
         let attachmentId = UUID().uuidString
         log.debug("[Attachment] readStart id=\(attachmentId) source=imageData filename=\(filename) rawBytes=\(imageData.count)")
@@ -370,13 +363,7 @@ public final class ChatAttachmentManager {
         case .failure(let error):
             return .failure(error)
         case .success(let processed):
-            #if os(macOS)
-            let thumbnailImage = processed.thumbnailData.flatMap { NSImage(data: $0) }
-            #elseif os(iOS)
-            let thumbnailImage = processed.thumbnailData.flatMap { UIImage(data: $0) }
-            #else
-            #error("Unsupported platform")
-            #endif
+            let thumbnailImage = processed.thumbnailData.flatMap { ChatAttachment.decodeCGImage(from: $0) }
             return .success(ChatAttachment(
                 id: processed.id,
                 filename: processed.filename,

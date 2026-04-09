@@ -2024,37 +2024,20 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
 
         // Dispatch reconstruction to a background thread.  The heavy work
         // (JSON estimation, tool input formatting, surface mapping, thumbnail
-        // generation via CGImageSource) is in a nonisolated static function
-        // with no @MainActor state.  Task.detached is required — a plain
-        // Task {} inherits the @MainActor executor from this class.
-        // skipImageDecode: true keeps raw base64 on ToolCallData.imageDataList
-        // so NSImage(data:) runs on @MainActor below (NSImage is not thread-safe).
+        // generation via CGImageSource, image decoding via CGImage) is in a
+        // nonisolated static function with no @MainActor state.  All image
+        // decoding uses CGImage (thread-safe), so no @MainActor deferral is
+        // needed.  Task.detached is required — a plain Task {} inherits the
+        // @MainActor executor from this class.
         // https://developer.apple.com/documentation/swift/task/detached(priority:operation:)-3lvix
         let convId = self.conversationId
         let result = await Task.detached(priority: .userInitiated) {
             HistoryReconstructionService.reconstructMessages(
-                from: historyMessages, conversationId: convId, skipImageDecode: true
+                from: historyMessages, conversationId: convId
             )
         }.value
         var chatMessages = result.messages
         let reconstructedSubagents = result.subagents
-
-        // Decode cached images on @MainActor (NSImage is not thread-safe).
-        // Both ToolCallData and ChatAttachment are value types (structs inside
-        // the ChatMessage struct), so we index into chatMessages directly.
-        for i in chatMessages.indices {
-            for k in chatMessages[i].toolCalls.indices {
-                if let rawImages = chatMessages[i].toolCalls[k].imageDataList, !rawImages.isEmpty {
-                    chatMessages[i].toolCalls[k].cachedImages = rawImages.compactMap { ToolCallData.decodeImage(from: $0) }
-                    chatMessages[i].toolCalls[k].imageDataList = nil
-                }
-            }
-            for j in chatMessages[i].attachments.indices
-                where chatMessages[i].attachments[j].thumbnailData != nil
-                    && chatMessages[i].attachments[j].thumbnailImage == nil {
-                chatMessages[i].attachments[j] = chatMessages[i].attachments[j].decodingThumbnailImage()
-            }
-        }
 
         // Merge reconstructed subagents into activeSubagents (avoid duplicates)
         for info in reconstructedSubagents where !activeSubagents.contains(where: { $0.id == info.id }) {

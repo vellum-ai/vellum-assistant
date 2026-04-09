@@ -191,19 +191,11 @@ public struct ToolCallProgressBar: View {
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentTertiary)
 
-                    #if os(macOS)
-                    Image(nsImage: cachedImage)
+                    Image(decorative: cachedImage, scale: 1)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .frame(maxWidth: .infinity)
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                    #elseif os(iOS)
-                    Image(uiImage: cachedImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: .infinity)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                    #endif
                 }
             }
 

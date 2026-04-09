@@ -71,19 +71,11 @@ struct InlineVideoAttachmentView: View {
     init(attachment: ChatAttachment) {
         self.attachment = attachment
 
-        if let img = attachment.thumbnailImage {
-            var w: CGFloat = 0
-            var h: CGFloat = 0
-            if let rep = img.representations.first {
-                w = CGFloat(rep.pixelsWide)
-                h = CGFloat(rep.pixelsHigh)
-            }
-            if w <= 0 || h <= 0 {
-                w = img.size.width
-                h = img.size.height
-            }
+        if let cgImage = attachment.thumbnailImage {
+            let w = CGFloat(cgImage.width)
+            let h = CGFloat(cgImage.height)
             _videoAspectRatio = State(initialValue: w > 0 && h > 0 ? w / h : 3.0 / 4.0)
-            _thumbnailImage = State(initialValue: img)
+            _thumbnailImage = State(initialValue: NSImage(cgImage: cgImage, size: .zero))
         } else {
             _videoAspectRatio = State(initialValue: 3.0 / 4.0)
         }

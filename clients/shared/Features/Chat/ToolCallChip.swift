@@ -155,7 +155,7 @@ public struct ToolCallChip: View {
                         let canOpenImage = !toolCall.inputRawValue.isEmpty
                             && FileManager.default.fileExists(atPath: toolCall.inputRawValue)
                         if canOpenImage {
-                            Image(nsImage: cachedImage)
+                            Image(decorative: cachedImage, scale: 1)
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)
                                 .frame(maxWidth: .infinity)
@@ -166,7 +166,7 @@ public struct ToolCallChip: View {
                                 }
                                 .pointerCursor()
                         } else {
-                            Image(nsImage: cachedImage)
+                            Image(decorative: cachedImage, scale: 1)
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)
                                 .frame(maxWidth: .infinity)
@@ -174,7 +174,7 @@ public struct ToolCallChip: View {
                                 .padding(.horizontal, VSpacing.sm)
                         }
                         #elseif os(iOS)
-                        Image(uiImage: cachedImage)
+                        Image(decorative: cachedImage, scale: 1)
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(maxWidth: .infinity)

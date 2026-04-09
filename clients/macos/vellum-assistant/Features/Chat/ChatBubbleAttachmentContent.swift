@@ -73,7 +73,9 @@ private func downsampleForDisplay(_ image: NSImage, targetSize: CGSize, scale: C
 /// Renders a single tool-call-generated image at full width in the message flow.
 /// Uses `@Environment(\.displayScale)` for correct sizing on Retina and non-Retina displays.
 private struct InlineToolCallImageView: View {
-    let image: NSImage
+    let cgImage: CGImage
+    /// Lazy NSImage wrapper for AppKit-only APIs (lightbox, context menu, drag).
+    private var image: NSImage { NSImage(cgImage: cgImage, size: .zero) }
     @Environment(\.displayScale) private var displayScale
     @State private var sharingServices: [NSSharingService] = []
     @State private var displayImage: NSImage?
@@ -123,27 +125,18 @@ private struct InlineToolCallImageView: View {
 
     @ViewBuilder
     private var imageContent: some View {
-        let renderImage = displayImage ?? image
-        if let cgImage = renderImage.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-            let nativeWidth = CGFloat(cgImage.width) / displayScale
-            let nativeHeight = CGFloat(cgImage.height) / displayScale
-            let maxDim: CGFloat = VSpacing.chatBubbleMaxWidth
-            Image(decorative: cgImage, scale: displayScale)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(
-                    maxWidth: min(nativeWidth, maxDim),
-                    maxHeight: min(nativeHeight, maxDim)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        } else {
-            Image(nsImage: renderImage)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        }
+        let nativeWidth = CGFloat(cgImage.width) / displayScale
+        let nativeHeight = CGFloat(cgImage.height) / displayScale
+        let maxDim: CGFloat = VSpacing.chatBubbleMaxWidth
+        Image(decorative: cgImage, scale: displayScale)
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fit)
+            .frame(
+                maxWidth: min(nativeWidth, maxDim),
+                maxHeight: min(nativeHeight, maxDim)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
     }
 }
 
@@ -299,8 +292,9 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                         guard !Task.isCancelled else { return }
 
                         // Full data unavailable (lazy-load or cleared) — fall back to thumbnail.
-                        if let img = attachment.thumbnailImage {
-                            loadedImages[attachment.id] = downsampleForDisplay(img, targetSize: targetSize, scale: scale)
+                        if let cgThumb = attachment.thumbnailImage {
+                            let nsThumb = NSImage(cgImage: cgThumb, size: .zero)
+                            loadedImages[attachment.id] = downsampleForDisplay(nsThumb, targetSize: targetSize, scale: scale)
                             return
                         }
 
@@ -320,8 +314,9 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                     } else {
                         let gridTargetSize = CGSize(width: 160, height: 120)
                         // Grid mode: prefer thumbnails for fast loading of many images.
-                        if let img = attachment.thumbnailImage {
-                            loadedImages[attachment.id] = downsampleForDisplay(img, targetSize: gridTargetSize, scale: scale)
+                        if let cgThumb = attachment.thumbnailImage {
+                            let nsThumb = NSImage(cgImage: cgThumb, size: .zero)
+                            loadedImages[attachment.id] = downsampleForDisplay(nsThumb, targetSize: gridTargetSize, scale: scale)
                             return
                         }
 
@@ -598,14 +593,14 @@ extension ChatBubble {
     /// at full width in the message flow instead of as tiny attachment thumbnails.
     @ViewBuilder
     func inlineToolCallImages(from toolCalls: [ToolCallData]) -> some View {
-        let imagesWithIds: [(id: String, image: NSImage)] = toolCalls.flatMap { tc in
+        let imagesWithIds: [(id: String, image: CGImage)] = toolCalls.flatMap { tc in
             tc.cachedImages.enumerated().map { (idx, img) in
                 ("\(tc.id.uuidString)-\(idx)", img)
             }
         }
         if !imagesWithIds.isEmpty {
             ForEach(imagesWithIds, id: \.id) { item in
-                InlineToolCallImageView(image: item.image)
+                InlineToolCallImageView(cgImage: item.image)
             }
         }
     }

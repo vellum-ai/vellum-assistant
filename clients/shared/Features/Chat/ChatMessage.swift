@@ -1,12 +1,5 @@
 import Foundation
 import os
-#if os(macOS)
-import AppKit
-#elseif os(iOS)
-import UIKit
-#else
-#error("Unsupported platform")
-#endif
 
 public enum ChatRole: String {
     case user
@@ -768,13 +761,9 @@ public struct ToolCallData: Identifiable, Equatable {
     /// Set when a `confirmation_request` arrives, cleared when approved/denied.
     public var pendingConfirmation: ToolConfirmationData?
     /// Pre-decoded images cached to avoid repeated base64 decoding in SwiftUI body.
-    #if os(macOS)
-    public var cachedImages: [NSImage] = []
-    #elseif os(iOS)
-    public var cachedImages: [UIImage] = []
-    #else
-    #error("Unsupported platform")
-    #endif
+    /// Uses CGImage (thread-safe) instead of NSImage/UIImage so decoding can run
+    /// on any thread without violating AppKit/UIKit thread-safety rules.
+    public var cachedImages: [CGImage] = []
 
     public static func == (lhs: ToolCallData, rhs: ToolCallData) -> Bool {
         lhs.id == rhs.id
@@ -823,12 +812,12 @@ public struct ToolCallData: Identifiable, Equatable {
         self.completedAt = completedAt
     }
 
-    /// Decode base64 image data into a platform image. Returns nil if data is absent or invalid.
-    #if os(macOS)
-    public static func decodeImage(from base64String: String?) -> NSImage? {
+    /// Decode base64 image data into a CGImage via ImageIO. Thread-safe.
+    public static func decodeImage(from base64String: String?) -> CGImage? {
         guard let base64String, let data = Data(base64Encoded: base64String) else { return nil }
         let start = CFAbsoluteTimeGetCurrent()
-        let image = NSImage(data: data)
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
         let elapsed = CFAbsoluteTimeGetCurrent() - start
         if elapsed > 0.05 {
             Logger(subsystem: Bundle.appBundleIdentifier, category: "ToolCallData")
@@ -836,21 +825,6 @@ public struct ToolCallData: Identifiable, Equatable {
         }
         return image
     }
-    #elseif os(iOS)
-    public static func decodeImage(from base64String: String?) -> UIImage? {
-        guard let base64String, let data = Data(base64Encoded: base64String) else { return nil }
-        let start = CFAbsoluteTimeGetCurrent()
-        let image = UIImage(data: data)
-        let elapsed = CFAbsoluteTimeGetCurrent() - start
-        if elapsed > 0.05 {
-            Logger(subsystem: Bundle.appBundleIdentifier, category: "ToolCallData")
-                .warning("Image decode took \(String(format: "%.1f", elapsed * 1000))ms, base64 size \(base64String.count)")
-        }
-        return image
-    }
-    #else
-    #error("Unsupported platform")
-    #endif
 
     /// Human-readable label for the tool (e.g. "Run Command" instead of "bash").
     public var friendlyName: String {
@@ -1383,13 +1357,8 @@ public struct ChatAttachment: Identifiable {
     public let sizeBytes: Int?
     /// Pre-decoded thumbnail image, cached to avoid decoding PNG data on every
     /// SwiftUI render pass (each keystroke triggers a re-evaluation of the composer).
-    #if os(macOS)
-    public let thumbnailImage: NSImage?
-    #elseif os(iOS)
-    public let thumbnailImage: UIImage?
-    #else
-    #error("Unsupported platform")
-    #endif
+    /// Uses CGImage (thread-safe) so thumbnails can be decoded on any thread.
+    public let thumbnailImage: CGImage?
 
     /// Absolute path to the local file on disk. Present for file-backed attachments
     /// (e.g. recordings) where the file lives on the same Mac as the client.
@@ -1399,8 +1368,7 @@ public struct ChatAttachment: Identifiable {
     /// The client should fetch it lazily via the HTTP endpoint when the user interacts.
     public var isLazyLoad: Bool { data.isEmpty && sizeBytes != nil }
 
-    #if os(macOS)
-    public init(id: String, filename: String, mimeType: String, data: String, thumbnailData: Data?, dataLength: Int, sizeBytes: Int? = nil, thumbnailImage: NSImage?, filePath: String? = nil, sourceType: String? = nil) {
+    public init(id: String, filename: String, mimeType: String, data: String, thumbnailData: Data?, dataLength: Int, sizeBytes: Int? = nil, thumbnailImage: CGImage?, filePath: String? = nil, sourceType: String? = nil) {
         self.id = id
         self.filename = filename
         self.mimeType = mimeType
@@ -1412,46 +1380,12 @@ public struct ChatAttachment: Identifiable {
         self.thumbnailImage = thumbnailImage
         self.filePath = filePath
     }
-    #elseif os(iOS)
-    public init(id: String, filename: String, mimeType: String, data: String, thumbnailData: Data?, dataLength: Int, sizeBytes: Int? = nil, thumbnailImage: UIImage?, filePath: String? = nil, sourceType: String? = nil) {
-        self.id = id
-        self.filename = filename
-        self.mimeType = mimeType
-        self.sourceType = sourceType
-        self.data = data
-        self.thumbnailData = thumbnailData
-        self.dataLength = dataLength
-        self.sizeBytes = sizeBytes
-        self.thumbnailImage = thumbnailImage
-        self.filePath = filePath
-    }
-    #else
-    #error("Unsupported platform")
-    #endif
 
-    /// Return a copy with `thumbnailImage` decoded from `thumbnailData`.
-    /// Must be called on @MainActor — NSImage is not thread-safe.
-    #if os(macOS)
-    func decodingThumbnailImage() -> ChatAttachment {
-        let image = thumbnailData.flatMap { NSImage(data: $0) }
-        return ChatAttachment(
-            id: id, filename: filename, mimeType: mimeType,
-            data: data, thumbnailData: thumbnailData,
-            dataLength: dataLength, sizeBytes: sizeBytes,
-            thumbnailImage: image, filePath: filePath, sourceType: sourceType
-        )
+    /// Decode a CGImage from raw image data via ImageIO. Thread-safe.
+    static func decodeCGImage(from data: Data) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
-    #elseif os(iOS)
-    func decodingThumbnailImage() -> ChatAttachment {
-        let image = thumbnailData.flatMap { UIImage(data: $0) }
-        return ChatAttachment(
-            id: id, filename: filename, mimeType: mimeType,
-            data: data, thumbnailData: thumbnailData,
-            dataLength: dataLength, sizeBytes: sizeBytes,
-            thumbnailImage: image, filePath: filePath, sourceType: sourceType
-        )
-    }
-    #endif
 }
 
 /// Tracks the state of a guardian decision prompt displayed in chat.

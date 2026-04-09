@@ -47,8 +47,8 @@ extension ComposerView {
 
         return HStack(spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
-                if isImage, let nsImage = attachment.thumbnailImage {
-                    Image(nsImage: nsImage)
+                if isImage, let cgImage = attachment.thumbnailImage {
+                    Image(decorative: cgImage, scale: 1)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                         .frame(width: 28, height: 28)
@@ -100,15 +100,16 @@ extension ComposerView {
 
 extension ComposerView {
     func openAttachmentPreview(_ attachment: ChatAttachment) {
-        // Prefer full-resolution data for the lightbox, fall back to thumbnail
+        // Prefer full-resolution data for the lightbox, fall back to thumbnail.
+        // The lightbox API expects NSImage, so convert from CGImage at the boundary.
         let image: NSImage?
         if !attachment.data.isEmpty,
            let data = Data(base64Encoded: attachment.data),
            !data.isEmpty,
            let fullRes = NSImage(data: data) {
             image = fullRes
-        } else if let thumbnail = attachment.thumbnailImage {
-            image = thumbnail
+        } else if let cgThumb = attachment.thumbnailImage {
+            image = NSImage(cgImage: cgThumb, size: .zero)
         } else {
             image = nil
         }

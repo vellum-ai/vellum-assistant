@@ -50,23 +50,13 @@ private struct AttachmentChip: View {
 
     @ViewBuilder
     private var thumbnailView: some View {
-        #if os(macOS)
-        if let nsImage = attachment.thumbnailImage {
-            Image(nsImage: nsImage)
+        if let cgImage = attachment.thumbnailImage {
+            Image(decorative: cgImage, scale: 1)
                 .resizable()
                 .scaledToFill()
         } else {
             placeholderView
         }
-        #else
-        if let uiImage = attachment.thumbnailImage {
-            Image(uiImage: uiImage)
-                .resizable()
-                .scaledToFill()
-        } else {
-            placeholderView
-        }
-        #endif
     }
 
     private var placeholderView: some View {

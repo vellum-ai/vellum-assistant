@@ -272,19 +272,20 @@ extension ChatViewModel {
         // array replaced by a concurrent populateFromHistory), silently drop the
         // attachments rather than creating an orphan message.
 
-        // Phase 2: generate thumbnail DATA on a background thread, then decode
-        // platform images on @MainActor (NSImage is not thread-safe).
+        // Phase 2: generate thumbnails (including CGImage decode) on a
+        // background thread.  CGImage is thread-safe, so no @MainActor
+        // deferral is needed.
         guard let msgId = resolvedMessageId else { return nil }
         Task { [weak self] in
-            let bgAttachments = await Task.detached(priority: .userInitiated) {
+            let fullAttachments = await Task.detached(priority: .userInitiated) {
                 HistoryReconstructionService.mapMessageAttachmentsStatic(
-                    attachments, stableIds: stableIds, includePlatformImage: false
+                    attachments, stableIds: stableIds
                 )
             }.value
             guard let self, let idx = self.messages.firstIndex(where: { $0.id == msgId }) else { return }
-            for bg in bgAttachments {
-                if let aIdx = self.messages[idx].attachments.firstIndex(where: { $0.id == bg.id }) {
-                    self.messages[idx].attachments[aIdx] = bg.decodingThumbnailImage()
+            for full in fullAttachments {
+                if let aIdx = self.messages[idx].attachments.firstIndex(where: { $0.id == full.id }) {
+                    self.messages[idx].attachments[aIdx] = full
                 }
             }
         }

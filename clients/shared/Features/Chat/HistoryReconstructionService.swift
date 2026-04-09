@@ -1,11 +1,4 @@
 import Foundation
-#if os(macOS)
-import AppKit
-#elseif os(iOS)
-import UIKit
-#else
-#error("Unsupported platform")
-#endif
 
 /// Namespace for static, nonisolated helpers that reconstruct `ChatMessage` arrays
 /// from daemon history-response payloads. The heavy work (JSON size estimation,
@@ -25,17 +18,11 @@ enum HistoryReconstructionService {
 
     /// Reconstructs ChatMessage and SubagentInfo arrays from raw history items.
     /// This method is nonisolated and accesses no @MainActor state, so it can
-    /// be called from a background context.
-    ///
-    /// - Parameter skipImageDecode: When `true`, raw base64 image data is
-    ///   preserved on each `ToolCallData.imageDataList` instead of being
-    ///   decoded into `cachedImages`.  Callers running on a background thread
-    ///   should pass `true` and decode on @MainActor afterwards, because
-    ///   `NSImage(data:)` is not thread-safe.
+    /// be called from a background context.  All image decoding uses CGImage
+    /// via ImageIO (thread-safe), so no @MainActor deferral is needed.
     nonisolated static func reconstructMessages(
         from historyMessages: [HistoryResponseMessage],
-        conversationId: String?,
-        skipImageDecode: Bool = false
+        conversationId: String?
     ) -> Result {
         var chatMessages: [ChatMessage] = []
         var reconstructedSubagents: [SubagentInfo] = []
@@ -60,12 +47,7 @@ enum HistoryReconstructionService {
                         arrivedBeforeText: toolsBeforeText,
                         imageDataList: nil
                     )
-                    if skipImageDecode {
-                        // Preserve raw base64 for main-thread decode (NSImage is not thread-safe).
-                        toolCall.imageDataList = tc.imageDataList
-                    } else {
-                        toolCall.cachedImages = (tc.imageDataList ?? []).compactMap { ToolCallData.decodeImage(from: $0) }
-                    }
+                    toolCall.cachedImages = (tc.imageDataList ?? []).compactMap { ToolCallData.decodeImage(from: $0) }
                     toolCall.reasonDescription = (tc.input["activity"]?.value as? String)
                         ?? (tc.input["reason"]?.value as? String)
                         ?? (tc.input["reasoning"]?.value as? String)
@@ -97,7 +79,7 @@ enum HistoryReconstructionService {
                 }
             }
             let attachments: [ChatAttachment] = mapMessageAttachmentsStatic(
-                item.attachments ?? [], includePlatformImage: !skipImageDecode
+                item.attachments ?? []
             )
 
             var inlineSurfaces: [InlineSurfaceData] = []
@@ -332,15 +314,10 @@ enum HistoryReconstructionService {
     ///     Use this when the same attachments are mapped twice (e.g. once
     ///     without thumbnails, once with) to guarantee identical IDs even
     ///     when `attachment.id` is nil.
-    ///   - includePlatformImage: When `false`, `thumbnailData` is generated
-    ///     but `thumbnailImage` is left `nil`.  Callers on a background
-    ///     thread should pass `false` and call `decodingThumbnailImage()`
-    ///     on @MainActor — `NSImage(data:)` is not thread-safe.
     nonisolated static func mapMessageAttachmentsStatic(
         _ attachments: [UserMessageAttachment],
         includeThumbnails: Bool = true,
-        stableIds: [String]? = nil,
-        includePlatformImage: Bool = true
+        stableIds: [String]? = nil
     ) -> [ChatAttachment] {
         attachments.enumerated().compactMap { index, attachment in
             let id = stableIds?[index] ?? attachment.id ?? UUID().uuidString
@@ -349,34 +326,16 @@ enum HistoryReconstructionService {
             let sizeBytes: Int? = attachment.sizeBytes.flatMap { Int(exactly: $0) }
 
             var thumbnailData: Data?
-            #if os(macOS)
-            var thumbnailImage: NSImage?
-            #elseif os(iOS)
-            var thumbnailImage: UIImage?
-            #else
-            #error("Unsupported platform")
-            #endif
+            var thumbnailImage: CGImage?
 
             if includeThumbnails {
                 if attachment.mimeType.hasPrefix("image/"), !base64.isEmpty, let rawData = Data(base64Encoded: base64) {
                     thumbnailData = generateThumbnail(from: rawData, maxDimension: 800)
-                    if includePlatformImage {
-                        #if os(macOS)
-                        thumbnailImage = thumbnailData.flatMap { NSImage(data: $0) }
-                        #elseif os(iOS)
-                        thumbnailImage = thumbnailData.flatMap { UIImage(data: $0) }
-                        #endif
-                    }
+                    thumbnailImage = thumbnailData.flatMap { ChatAttachment.decodeCGImage(from: $0) }
                 } else if let serverThumb = attachment.thumbnailData, !serverThumb.isEmpty,
                           let thumbData = Data(base64Encoded: serverThumb) {
                     thumbnailData = thumbData
-                    if includePlatformImage {
-                        #if os(macOS)
-                        thumbnailImage = NSImage(data: thumbData)
-                        #elseif os(iOS)
-                        thumbnailImage = UIImage(data: thumbData)
-                        #endif
-                    }
+                    thumbnailImage = ChatAttachment.decodeCGImage(from: thumbData)
                 }
             }
 
