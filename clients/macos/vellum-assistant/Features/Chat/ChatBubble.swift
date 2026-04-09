@@ -536,23 +536,41 @@ struct ChatBubble: View, Equatable {
         !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    // MARK: - User Message Collapse / Expand
+    //
+    // .frame(maxHeight:) creates _FlexFrameLayout which recursively measures
+    // children and resolves explicitAlignment through the entire LazyVStack
+    // subtree — O(n × depth) per layout pass, causing 35 s+ hangs.
+    //
+    // Fix: two-path conditional.
+    //   Collapsed → .frame(height:) creates _FrameLayout — O(1), no cascade.
+    //   Expanded / short → no frame modifier at all.
+
     @ViewBuilder
     private func userMessageHeightWrapper<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        let needsCollapse = userMessageIntrinsicHeight > userMessageMaxCollapsedHeight && !isUserMessageExpanded
+        let isCollapsible = userMessageIntrinsicHeight > userMessageMaxCollapsedHeight
+        let needsCollapse = isCollapsible && !isUserMessageExpanded
         VStack(alignment: .trailing, spacing: VSpacing.xs) {
-            content()
-                .background(
-                    GeometryReader { geo in
-                        Color.clear.preference(key: IntrinsicHeightKey.self, value: geo.size.height)
+            if needsCollapse {
+                // Collapsed: definite height — _FrameLayout, O(1), no alignment cascade.
+                content()
+                    .frame(height: userMessageMaxCollapsedHeight, alignment: .top)
+                    .clipped()
+            } else {
+                // Expanded or short: no frame modifier — avoids _FlexFrameLayout entirely.
+                // GeometryReader captures intrinsic height for future collapse decisions.
+                content()
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.preference(key: IntrinsicHeightKey.self, value: geo.size.height)
+                        }
+                    )
+                    .onPreferenceChange(IntrinsicHeightKey.self) { height in
+                        userMessageIntrinsicHeight = height
                     }
-                )
-                .onPreferenceChange(IntrinsicHeightKey.self) { height in
-                    userMessageIntrinsicHeight = height
-                }
-                .frame(maxHeight: needsCollapse ? userMessageMaxCollapsedHeight : nil, alignment: .top)
-                .clipped()
+            }
 
-            if userMessageIntrinsicHeight > userMessageMaxCollapsedHeight {
+            if isCollapsible {
                 Button(action: {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         isUserMessageExpanded.toggle()
