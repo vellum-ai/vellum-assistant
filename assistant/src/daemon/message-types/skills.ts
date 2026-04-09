@@ -189,6 +189,16 @@ export type SkillDetailResponse =
   | SkillsshSkillDetail
   | CustomSkillDetail;
 
+// ─── Single-file content response (HTTP API) ─────────────────────────────
+export interface SkillFileContentResponse {
+  path: string;
+  name: string;
+  size: number;
+  mimeType: string;
+  isBinary: boolean;
+  content: string | null;
+}
+
 export interface SkillsDraftResponse {
   type: "skills_draft_response";
   success: boolean;

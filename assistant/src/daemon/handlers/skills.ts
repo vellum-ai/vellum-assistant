@@ -9,7 +9,7 @@ import {
   statSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { join, relative } from "node:path";
+import { basename, join, relative, sep } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import {
@@ -33,7 +33,11 @@ import {
 } from "../../providers/provider-send-message.js";
 import { isTextMimeType as isTextMime } from "../../runtime/routes/workspace-utils.js";
 import { getCatalog } from "../../skills/catalog-cache.js";
-import type { SkillFileEntry } from "../../skills/catalog-files.js";
+import {
+  readCatalogSkillFileContent,
+  sanitizeRelativePath,
+  type SkillFileEntry,
+} from "../../skills/catalog-files.js";
 import {
   installSkillLocally,
   upsertSkillsIndex,
@@ -65,6 +69,7 @@ import {
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
 import type {
   SkillDetailResponse,
+  SkillFileContentResponse,
   SlimSkillResponse,
 } from "../message-types/skills.js";
 import {
@@ -565,6 +570,128 @@ function readDirRecursive(dir: string, rootDir: string): SkillFileEntry[] {
     }
   }
   return entries;
+}
+
+/**
+ * Read a single file's content from an installed or catalog skill.
+ *
+ * Installed-skill path (eager): reads the file directly from the skill's
+ * on-disk directory. Applies lexical containment, symlink rejection, and
+ * realpath containment checks for defense in depth.
+ *
+ * Catalog fallback: when the skill id is not backed by a local directory
+ * (e.g. an uninstalled Vellum catalog skill), delegates to
+ * `readCatalogSkillFileContent`, which handles both the dev-mode repo
+ * checkout path and the platform preview API path internally.
+ */
+export async function getSkillFileContent(
+  skillId: string,
+  relativePath: string,
+  _ctx: SkillOperationContext,
+): Promise<SkillFileContentResponse | { error: string; status: number }> {
+  const sanitized = sanitizeRelativePath(relativePath);
+  if (!sanitized) {
+    return { error: "Invalid path", status: 400 };
+  }
+
+  const found = findSkillById(skillId);
+  if (found && existsSync(found.summary.directoryPath)) {
+    const dir = found.summary.directoryPath;
+    const abs = join(dir, sanitized);
+
+    // Lexical containment: the resolved absolute path must stay inside the
+    // skill directory even after `join` normalization. Cheap short-circuit
+    // before any fs calls.
+    if (!(abs === dir || abs.startsWith(dir + sep))) {
+      return { error: "Invalid path", status: 400 };
+    }
+
+    // Defense-in-depth symlink rejection: refuse to follow a symlinked file
+    // inside the skill dir that could point outside the root. Also catches
+    // symlinked parent directories via a realpath containment check.
+    let lstat;
+    try {
+      lstat = lstatSync(abs);
+    } catch {
+      return { error: "File not found", status: 404 };
+    }
+    if (lstat.isSymbolicLink()) {
+      return { error: "File not found", status: 404 };
+    }
+    if (!lstat.isFile()) {
+      return { error: "File not found", status: 404 };
+    }
+
+    let realAbs: string;
+    let realDir: string;
+    try {
+      realAbs = realpathSync(abs);
+      realDir = realpathSync(dir);
+    } catch {
+      return { error: "File not found", status: 404 };
+    }
+    if (!(realAbs === realDir || realAbs.startsWith(realDir + sep))) {
+      return { error: "File not found", status: 404 };
+    }
+
+    let stat;
+    try {
+      stat = statSync(abs);
+    } catch {
+      return { error: "File not found", status: 404 };
+    }
+    if (!stat.isFile()) {
+      return { error: "File not found", status: 404 };
+    }
+
+    const name = basename(sanitized);
+    const mimeType = Bun.file(abs).type;
+    const isText = isTextMime(mimeType, name);
+    const isBinary = !isText;
+    let content: string | null = null;
+    if (isText && stat.size <= MAX_INLINE_SIZE) {
+      try {
+        content = readFileSync(abs, "utf-8");
+      } catch {
+        content = null;
+      }
+    }
+    return {
+      path: sanitized,
+      name,
+      size: stat.size,
+      mimeType,
+      isBinary,
+      content,
+    };
+  }
+
+  // Catalog fallback: skill is not installed locally (or its directory is
+  // missing on disk). Try the catalog preview helper, which handles both
+  // dev-mode repo checkouts and the platform preview API.
+  let catalog: Awaited<ReturnType<typeof getCatalog>> = [];
+  try {
+    catalog = await getCatalog();
+  } catch {
+    catalog = [];
+  }
+  const inCatalog = catalog.some((s) => s.id === skillId);
+  if (!inCatalog) {
+    return { error: "Skill not found", status: 404 };
+  }
+
+  const result = await readCatalogSkillFileContent(skillId, sanitized);
+  if (!result) {
+    return { error: "File not found", status: 404 };
+  }
+  return {
+    path: result.path,
+    name: result.name,
+    size: result.size,
+    mimeType: result.mimeType,
+    isBinary: result.isBinary,
+    content: result.content,
+  };
 }
 
 export function getSkillFiles(
