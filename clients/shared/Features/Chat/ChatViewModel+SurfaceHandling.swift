@@ -236,7 +236,11 @@ extension ChatViewModel {
     /// Callers capture `currentAssistantMessageId` **before** clearing turn state so
     /// the CPU-intensive thumbnail work can run in a fire-and-forget Task without
     /// racing with subsequent SSE events that reset `currentAssistantMessageId`.
-    func ingestAssistantAttachments(_ attachments: [UserMessageAttachment]?, targetMessageId: UUID?) async {
+    func ingestAssistantAttachments(
+        _ attachments: [UserMessageAttachment]?,
+        targetMessageId: UUID?,
+        daemonMessageId: String? = nil
+    ) async {
         guard let attachments, !attachments.isEmpty else { return }
         let chatAttachments = await mapMessageAttachments(attachments)
         guard !chatAttachments.isEmpty else { return }
@@ -245,8 +249,11 @@ extension ChatViewModel {
            let index = messages.firstIndex(where: { $0.id == existingId }) {
             messages[index].attachments.append(contentsOf: chatAttachments)
         } else if targetMessageId == nil {
-            // No target — create a standalone attachment message (e.g. attachment-only completion)
-            let msg = ChatMessage(role: .assistant, text: "", attachments: chatAttachments)
+            // No target — create a standalone attachment message (e.g. attachment-only completion/handoff).
+            // Backfill the daemon message ID so fork, inspect, TTS, and other
+            // daemon-anchored actions work without a history reload.
+            var msg = ChatMessage(role: .assistant, text: "", attachments: chatAttachments)
+            msg.daemonMessageId = daemonMessageId
             messages.append(msg)
         }
         // If targetMessageId was set but the message was not found (e.g. messages

@@ -451,7 +451,8 @@ final class ChatActionHandler {
         // synchronous state mutations in-order with the SSE dispatch loop.
         let capturedAssistantMessageId = vm.currentAssistantMessageId
         if !wasRefinement, let attachments = complete.attachments, !attachments.isEmpty {
-            Task { await vm.ingestAssistantAttachments(attachments, targetMessageId: capturedAssistantMessageId) }
+            let dmId = complete.messageId
+            Task { await vm.ingestAssistantAttachments(attachments, targetMessageId: capturedAssistantMessageId, daemonMessageId: dmId) }
         }
         if vm.pendingVoiceMessage {
             vm.pendingVoiceMessage = false
@@ -762,7 +763,11 @@ final class ChatActionHandler {
         // the async attachment ingestion targets the correct message.
         let capturedAssistantMessageId = vm.currentAssistantMessageId
         if let attachments = handoff.attachments, !attachments.isEmpty {
-            Task { await vm.ingestAssistantAttachments(attachments, targetMessageId: capturedAssistantMessageId) }
+            // Pass daemonMessageId so that attachment-only handoffs (where
+            // currentAssistantMessageId is nil and a new message is created)
+            // get the daemon ID backfilled inside the async Task.
+            let dmId = handoff.messageId
+            Task { await vm.ingestAssistantAttachments(attachments, targetMessageId: capturedAssistantMessageId, daemonMessageId: dmId) }
         }
         // Keep isSending = true — daemon is handing off to next queued message
         if let existingId = vm.currentAssistantMessageId,
