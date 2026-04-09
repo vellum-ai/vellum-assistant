@@ -109,10 +109,10 @@ struct APIKeyStepView: View {
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.xxl)
 
-        VStack(spacing: VSpacing.md) {
-            VStack(spacing: VSpacing.md) {
-                hostingCards
+        VStack(spacing: 0) {
+            hostingCards
 
+            VStack(spacing: VSpacing.sm) {
                 VButton(label: continueButtonTitle, style: .primary, isFullWidth: true, isDisabled: !canContinue) {
                     handleContinue()
                 }
@@ -122,16 +122,18 @@ struct APIKeyStepView: View {
                         goBack()
                     }
                 }
-
-                Text("Need help choosing?")
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentDefault)
-                    .underline()
-                    .onTapGesture {
-                        NSWorkspace.shared.open(AppURLs.hostingOptionsDocs)
-                    }
-                    .pointerCursor()
             }
+            .padding(.top, VSpacing.xxl)
+
+            Text("Need help choosing?")
+                .font(VFont.bodyMediumDefault)
+                .foregroundStyle(VColor.contentDefault)
+                .underline()
+                .onTapGesture {
+                    NSWorkspace.shared.open(AppURLs.hostingOptionsDocs)
+                }
+                .pointerCursor()
+                .padding(.top, VSpacing.xl)
         }
         .padding(.horizontal, VSpacing.xxl)
         .opacity(showContent ? 1 : 0)
