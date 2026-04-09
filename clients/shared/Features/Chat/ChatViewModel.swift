@@ -2023,17 +2023,39 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         }
 
         // Dispatch reconstruction to a background thread.  The heavy work
-        // (JSON estimation, tool input formatting, surface mapping, image
-        // decoding/thumbnail generation) is in a nonisolated static function
+        // (JSON estimation, tool input formatting, surface mapping, thumbnail
+        // generation via CGImageSource) is in a nonisolated static function
         // with no @MainActor state.  Task.detached is required — a plain
         // Task {} inherits the @MainActor executor from this class.
+        // skipImageDecode: true keeps raw base64 on ToolCallData.imageDataList
+        // so NSImage(data:) runs on @MainActor below (NSImage is not thread-safe).
         // https://developer.apple.com/documentation/swift/task/detached(priority:operation:)-3lvix
         let convId = self.conversationId
         let result = await Task.detached(priority: .userInitiated) {
-            HistoryReconstructionService.reconstructMessages(from: historyMessages, conversationId: convId)
+            HistoryReconstructionService.reconstructMessages(
+                from: historyMessages, conversationId: convId, skipImageDecode: true
+            )
         }.value
-        let chatMessages = result.messages
+        var chatMessages = result.messages
         let reconstructedSubagents = result.subagents
+
+        // Decode cached images on @MainActor (NSImage is not thread-safe).
+        // ToolCallData is a reference type — mutations via the for-in loop are
+        // visible without re-assignment.  ChatAttachment is a value type inside
+        // the ChatMessage struct, so we index into chatMessages directly.
+        for i in chatMessages.indices {
+            for toolCall in chatMessages[i].toolCalls {
+                if let rawImages = toolCall.imageDataList, !rawImages.isEmpty {
+                    toolCall.cachedImages = rawImages.compactMap { ToolCallData.decodeImage(from: $0) }
+                    toolCall.imageDataList = nil
+                }
+            }
+            for j in chatMessages[i].attachments.indices
+                where chatMessages[i].attachments[j].thumbnailData != nil
+                    && chatMessages[i].attachments[j].thumbnailImage == nil {
+                chatMessages[i].attachments[j] = chatMessages[i].attachments[j].decodingThumbnailImage()
+            }
+        }
 
         // Merge reconstructed subagents into activeSubagents (avoid duplicates)
         for info in reconstructedSubagents where !activeSubagents.contains(where: { $0.id == info.id }) {
@@ -2077,6 +2099,13 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             // TODO: Add pagination-aware trim that doesn't regress historyCursor (follow-up)
             refreshModelMetadataIfNeeded(hasModelCommand)
             os_signpost(.end, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "path=pagination")
+            return
+        }
+
+        // Guard against a second non-pagination load that completed while
+        // this one was awaiting reconstruction (same risk as pagination).
+        guard capturedGeneration == historyGeneration else {
+            os_signpost(.end, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "path=full_stale")
             return
         }
 

@@ -1428,6 +1428,30 @@ public struct ChatAttachment: Identifiable {
     #else
     #error("Unsupported platform")
     #endif
+
+    /// Return a copy with `thumbnailImage` decoded from `thumbnailData`.
+    /// Must be called on @MainActor — NSImage is not thread-safe.
+    #if os(macOS)
+    func decodingThumbnailImage() -> ChatAttachment {
+        let image = thumbnailData.flatMap { NSImage(data: $0) }
+        return ChatAttachment(
+            id: id, filename: filename, mimeType: mimeType,
+            data: data, thumbnailData: thumbnailData,
+            dataLength: dataLength, sizeBytes: sizeBytes,
+            thumbnailImage: image, filePath: filePath, sourceType: sourceType
+        )
+    }
+    #elseif os(iOS)
+    func decodingThumbnailImage() -> ChatAttachment {
+        let image = thumbnailData.flatMap { UIImage(data: $0) }
+        return ChatAttachment(
+            id: id, filename: filename, mimeType: mimeType,
+            data: data, thumbnailData: thumbnailData,
+            dataLength: dataLength, sizeBytes: sizeBytes,
+            thumbnailImage: image, filePath: filePath, sourceType: sourceType
+        )
+    }
+    #endif
 }
 
 /// Tracks the state of a guardian decision prompt displayed in chat.

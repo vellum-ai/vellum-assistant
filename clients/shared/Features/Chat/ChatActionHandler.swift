@@ -448,8 +448,8 @@ final class ChatActionHandler {
         // so attachment ingestion targets the correct message.
         let capturedAssistantMessageId = vm.currentAssistantMessageId
         if !wasRefinement {
-            vm.ingestAssistantAttachments(complete.attachments, targetMessageId: capturedAssistantMessageId, daemonMessageId: complete.messageId)
-            vm.ingestAssistantAttachmentWarnings(complete.attachmentWarnings, targetMessageId: capturedAssistantMessageId)
+            let resolvedId = vm.ingestAssistantAttachments(complete.attachments, targetMessageId: capturedAssistantMessageId, daemonMessageId: complete.messageId)
+            vm.ingestAssistantAttachmentWarnings(complete.attachmentWarnings, targetMessageId: resolvedId ?? capturedAssistantMessageId)
         }
         if vm.pendingVoiceMessage {
             vm.pendingVoiceMessage = false
@@ -759,8 +759,8 @@ final class ChatActionHandler {
         // Capture the assistant message ID before turn state is cleared below
         // so attachment ingestion targets the correct message.
         let capturedAssistantMessageId = vm.currentAssistantMessageId
-        vm.ingestAssistantAttachments(handoff.attachments, targetMessageId: capturedAssistantMessageId, daemonMessageId: handoff.messageId)
-        vm.ingestAssistantAttachmentWarnings(handoff.attachmentWarnings, targetMessageId: capturedAssistantMessageId)
+        let resolvedId = vm.ingestAssistantAttachments(handoff.attachments, targetMessageId: capturedAssistantMessageId, daemonMessageId: handoff.messageId)
+        vm.ingestAssistantAttachmentWarnings(handoff.attachmentWarnings, targetMessageId: resolvedId ?? capturedAssistantMessageId)
         // Keep isSending = true — daemon is handing off to next queued message
         if let existingId = vm.currentAssistantMessageId,
            let index = vm.messages.firstIndex(where: { $0.id == existingId }) {

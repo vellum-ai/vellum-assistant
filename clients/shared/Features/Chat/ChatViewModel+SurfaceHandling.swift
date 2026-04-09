@@ -232,12 +232,15 @@ extension ChatViewModel {
     ///   - targetMessageId: The assistant message to receive the attachments.
     ///     Pass `nil` to create a standalone attachment message.
     ///   - daemonMessageId: Daemon-side message ID for fork/inspect/TTS support.
+    /// - Returns: The resolved message ID (existing or newly created), or `nil`
+    ///   if the target was set but the message was not found.
+    @discardableResult
     func ingestAssistantAttachments(
         _ attachments: [UserMessageAttachment]?,
         targetMessageId: UUID?,
         daemonMessageId: String? = nil
-    ) {
-        guard let attachments, !attachments.isEmpty else { return }
+    ) -> UUID? {
+        guard let attachments, !attachments.isEmpty else { return nil }
 
         // Pre-generate stable IDs for both phases.  UserMessageAttachment.id
         // is optional — without this, each call to mapMessageAttachmentsStatic
@@ -249,7 +252,7 @@ extension ChatViewModel {
         let lightAttachments = HistoryReconstructionService.mapMessageAttachmentsStatic(
             attachments, includeThumbnails: false, stableIds: stableIds
         )
-        guard !lightAttachments.isEmpty else { return }
+        guard !lightAttachments.isEmpty else { return nil }
 
         var resolvedMessageId: UUID?
         if let existingId = targetMessageId,
@@ -269,20 +272,23 @@ extension ChatViewModel {
         // array replaced by a concurrent populateFromHistory), silently drop the
         // attachments rather than creating an orphan message.
 
-        // Phase 2: generate thumbnails on a background thread and swap in
-        // full attachment structs (with thumbnails) by matching on stable IDs.
-        guard let msgId = resolvedMessageId else { return }
+        // Phase 2: generate thumbnail DATA on a background thread, then decode
+        // platform images on @MainActor (NSImage is not thread-safe).
+        guard let msgId = resolvedMessageId else { return nil }
         Task { [weak self] in
-            let fullAttachments = await Task.detached(priority: .userInitiated) {
-                HistoryReconstructionService.mapMessageAttachmentsStatic(attachments, stableIds: stableIds)
+            let bgAttachments = await Task.detached(priority: .userInitiated) {
+                HistoryReconstructionService.mapMessageAttachmentsStatic(
+                    attachments, stableIds: stableIds, includePlatformImage: false
+                )
             }.value
             guard let self, let idx = self.messages.firstIndex(where: { $0.id == msgId }) else { return }
-            for full in fullAttachments {
-                if let aIdx = self.messages[idx].attachments.firstIndex(where: { $0.id == full.id }) {
-                    self.messages[idx].attachments[aIdx] = full
+            for bg in bgAttachments {
+                if let aIdx = self.messages[idx].attachments.firstIndex(where: { $0.id == bg.id }) {
+                    self.messages[idx].attachments[aIdx] = bg.decodingThumbnailImage()
                 }
             }
         }
+        return resolvedMessageId
     }
 
     /// Ingest attachment warnings from a completion/handoff event into the
