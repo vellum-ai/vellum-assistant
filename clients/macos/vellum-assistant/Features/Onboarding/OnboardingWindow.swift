@@ -54,10 +54,10 @@ final class OnboardingWindow {
         window.backgroundColor = NSColor(VColor.surfaceOverlay)
         window.isReleasedWhenClosed = false
 
-        window.contentMinSize = NSSize(width: 460, height: 700)
+        window.contentMinSize = NSSize(width: 440, height: 630)
 
-        let startWidth: CGFloat = 520
-        let startHeight: CGFloat = 740
+        let startWidth: CGFloat = 440
+        let startHeight: CGFloat = 630
         if let visibleFrame = Self.visibleScreenFrame() {
             let x = visibleFrame.midX - startWidth / 2
             let y = visibleFrame.midY - startHeight / 2
