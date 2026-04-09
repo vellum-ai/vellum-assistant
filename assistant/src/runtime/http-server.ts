@@ -313,6 +313,17 @@ export class RuntimeHttpServer {
   private getHeartbeatService?: RuntimeHttpServerOptions["getHeartbeatService"];
   private router: HttpRouter;
 
+  /**
+   * Whether the server is fully initialized and ready to serve traffic.
+   * When `deferReady` is passed to the constructor the server starts in
+   * "not ready" mode (health-check and pairing only); `setFullDeps()`
+   * flips this to `true` once heavyweight initialization completes.
+   *
+   * Defaults to `true` so existing callers (tests, fallback path) are
+   * unaffected — only the two-phase daemon startup sets `deferReady`.
+   */
+  private _ready: boolean;
+
   constructor(options: RuntimeHttpServerOptions = {}) {
     this.port = options.port ?? DEFAULT_PORT;
     this.hostname = options.hostname ?? DEFAULT_HOSTNAME;
@@ -336,11 +347,62 @@ export class RuntimeHttpServer {
     this.onProviderCredentialsChanged = options.onProviderCredentialsChanged;
     this.getHeartbeatService = options.getHeartbeatService;
     this.router = new HttpRouter(this.buildRouteTable());
+
+    // Default to ready unless the caller explicitly defers readiness
+    // (used by the two-phase daemon startup to bind the port early).
+    this._ready = !options.deferReady;
   }
 
   /** The port the server is actually listening on (resolved after start). */
   get actualPort(): number {
     return this.server?.port ?? this.port;
+  }
+
+  /** Whether the server has been fully initialized with all deps. */
+  get ready(): boolean {
+    return this._ready;
+  }
+
+  /**
+   * Wire up the full set of daemon dependencies and mark the server as
+   * ready.  Called once heavyweight initialization (CES, providers,
+   * DaemonServer) has completed.  Rebuilds the internal route table so
+   * conditionally-registered routes (e.g. conversation analysis, skills)
+   * pick up the newly available deps.
+   */
+  setFullDeps(
+    options: Omit<
+      RuntimeHttpServerOptions,
+      "port" | "hostname" | "bearerToken" | "deferReady"
+    >,
+  ): void {
+    this.processMessage = options.processMessage;
+    this.approvalCopyGenerator = options.approvalCopyGenerator;
+    this.approvalConversationGenerator = options.approvalConversationGenerator;
+    this.guardianActionCopyGenerator = options.guardianActionCopyGenerator;
+    this.guardianFollowUpConversationGenerator =
+      options.guardianFollowUpConversationGenerator;
+    this.interfacesDir = options.interfacesDir ?? this.interfacesDir;
+    this.sendMessageDeps = options.sendMessageDeps;
+    this.findConversation = options.findConversation;
+    this.findConversationBySurfaceId = options.findConversationBySurfaceId;
+    this.getSkillContext = options.getSkillContext;
+    this.conversationManagementDeps = options.conversationManagementDeps;
+    this.getModelSetContext = options.getModelSetContext;
+    this.getWatchDeps = options.getWatchDeps;
+    this.getRecordingDeps = options.getRecordingDeps;
+    this.getCesClient = options.getCesClient;
+    this.onProviderCredentialsChanged = options.onProviderCredentialsChanged;
+    this.getHeartbeatService = options.getHeartbeatService;
+
+    // Rebuild routes so conditionally-registered handlers pick up deps.
+    this.router = new HttpRouter(this.buildRouteTable());
+
+    // Start background sweeps now that deps are available.
+    this.startBackgroundSweeps();
+
+    this._ready = true;
+    log.info("Runtime HTTP server is now fully ready");
   }
 
   /** Expose the pairing store so the daemon server can wire HTTP handlers. */
@@ -562,7 +624,14 @@ export class RuntimeHttpServer {
       },
     });
 
-    this.startBackgroundSweeps();
+    // In the two-phase startup path, processMessage and the copy
+    // generators are not available until setFullDeps() is called.
+    // Defer sweep/timer creation to setFullDeps() in that case so
+    // the guardian sweeps don't capture undefined generators (they
+    // have early-return guards that prevent restarting later).
+    if (this.processMessage) {
+      this.startBackgroundSweeps();
+    }
 
     log.info(
       "Running in gateway-only ingress mode. Direct webhook routes disabled.",
@@ -751,7 +820,23 @@ export class RuntimeHttpServer {
     }
 
     if (path === "/readyz" && req.method === "GET") {
+      if (!this._ready) {
+        return Response.json({ status: "initializing" }, { status: 503 });
+      }
       return handleReadyz();
+    }
+
+    // When the server hasn't been fully initialized yet, reject all
+    // non-health / non-pairing requests with 503 so clients know the
+    // daemon is alive but not yet ready to serve traffic.
+    if (!this._ready && !path.startsWith("/v1/pairing/")) {
+      return Response.json(
+        {
+          error: "SERVICE_UNAVAILABLE",
+          message: "Assistant is still initializing",
+        },
+        { status: 503 },
+      );
     }
 
     // WebSocket upgrade for the Chrome extension browser relay.

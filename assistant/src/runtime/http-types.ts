@@ -171,6 +171,12 @@ export interface RuntimeHttpServerOptions {
   hostname?: string;
   /** Legacy shared secret for pairing routes (not used for delivery or auth). */
   bearerToken?: string;
+  /**
+   * When true, the server starts in "not ready" mode — /healthz returns 200
+   * but all other routes (except pairing) return 503 until setFullDeps() is
+   * called.  Used by the two-phase daemon startup to bind the port early.
+   */
+  deferReady?: boolean;
   processMessage?: MessageProcessor;
   /** Root directory for interface files on disk. */
   interfacesDir?: string;
