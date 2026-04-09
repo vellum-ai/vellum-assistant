@@ -181,19 +181,22 @@ struct MessageListView: View {
             .onDisappear {
                 scrollCoordinator.reset()
                 scrollState.cancelAll()
-                // Clear the stale scroll position so the next ScrollView
-                // (created by .id(conversationId) recreation) reads an
-                // empty binding during initial layout. Without this,
-                // the new ScrollView inherits the previous conversation's
-                // ScrollPosition value — if that value is ScrollPosition
-                // (edge: .bottom), writing the same value in
-                // handleConversationSwitched() is silently deduped,
-                // leaving the viewport at the stale estimated position.
-                // An empty ScrollPosition() lets .defaultScrollAnchor
-                // (.bottom, for: .initialOffset) handle initial layout
-                // (bottom-up materialization with correct heights).
-                scrollPosition = ScrollPosition()
-                scrollDiag.debug("onDisappear: cleared scrollPosition, leaving conv=\(conversationId?.uuidString ?? "nil", privacy: .public)")
+                // Do NOT clear scrollPosition here. The old ScrollView's
+                // onDisappear fires AFTER the new ScrollView's onAppear
+                // (confirmed by diagnostic logs: 10-225ms delay). Since
+                // both share the same @State var scrollPosition (the .id()
+                // modifier is on ScrollView, not MessageListView), clearing
+                // here overwrites the scrollTo(edge: .bottom) that
+                // handleConversationSwitched() just issued — leaving the
+                // viewport stranded in blank space.
+                //
+                // The stale-dedup concern (old edge:.bottom deduping with
+                // new edge:.bottom) is addressed by:
+                //   1. Imperative .scrollTo() methods (commands, not state)
+                //   2. restoreScrollToBottom() 100ms fallback
+                //   3. Content-height auto-follow on message load
+                //   4. Recovery window convergence
+                scrollDiag.debug("onDisappear: leaving conv=\(conversationId?.uuidString ?? \"nil\", privacy: .public)")
                 resizeScrollTask?.cancel()
                 resizeScrollTask = nil
                 highlightedMessageId = nil
@@ -209,6 +212,23 @@ struct MessageListView: View {
                 handleMessagesCountChanged()
             }
             .onChange(of: containerWidth) { handleContainerWidthChanged() }
+            .onChange(of: conversationId) {
+                // Safety net for rapid conversation switching. When the
+                // user switches conversations faster than SwiftUI can
+                // complete .id() lifecycle events, intermediate onAppear/
+                // onDisappear pairs are coalesced — handleConversationSwitched()
+                // never runs, leaving scrollState with stale data (wrong
+                // lastMessageId, expired recoveryDeadline). This onChange
+                // fires synchronously on every conversationId change,
+                // guaranteeing handleConversationSwitched() runs even when
+                // lifecycle events are dropped.
+                if scrollState.currentConversationId != conversationId,
+                   conversationId != nil {
+                    scrollDiag.debug("onChange(conversationId): detected switch old=\(scrollState.currentConversationId?.uuidString ?? \"nil\", privacy: .public) new=\(conversationId?.uuidString ?? \"nil\", privacy: .public)")
+                    configureScrollCallbacks()
+                    handleConversationSwitched()
+                }
+            }
             .onChange(of: activePendingRequestId) {
                 #if os(macOS)
                 handleConfirmationFocusIfNeeded()

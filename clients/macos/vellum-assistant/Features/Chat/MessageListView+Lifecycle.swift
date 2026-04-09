@@ -68,6 +68,15 @@ extension MessageListView {
             flashHighlight(messageId: id)
             anchorMessageId = nil
             scrollState.anchorSetTime = nil
+            // Cancel the pending restore task. handleConversationSwitched()
+            // unconditionally calls restoreScrollToBottom() (line 335),
+            // which creates a 100ms delayed task. If the anchor was found
+            // and resolved above, the restore task would fire after the
+            // delay and yank the viewport from the anchor position back
+            // to bottom (since anchorMessageId is now nil, the restore
+            // task's `else if anchorMessageId == nil` branch executes).
+            scrollState.scrollRestoreTask?.cancel()
+            scrollState.scrollRestoreTask = nil
         } else if anchorMessageId != nil {
             // Anchor is set but the target message isn't loaded yet.
             os_signpost(.event, log: PerfSignposts.log, name: "anchorSet", "reason=onAppearPending")

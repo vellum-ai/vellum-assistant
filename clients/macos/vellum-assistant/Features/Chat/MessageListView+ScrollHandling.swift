@@ -267,15 +267,21 @@ extension MessageListView {
         // correcting estimates, until the bottom anchor materializes
         // and recovery stops.
         //
-        // Recovery fires unconditionally until the bottom anchor view
-        // has appeared (meaning LazyVStack materialized to the actual
-        // bottom and isAtBottom is reliable) OR the 2-second deadline
-        // expires (whichever comes first). The deadline is critical
-        // because multiple paths reset bottomAnchorAppeared = false
-        // while the anchor may already be visible in the hierarchy
-        // (CTA taps, sends, resizes) — since onAppear only fires on
-        // hierarchy transitions, the flag won't be re-set and recovery
-        // would fire indefinitely without the time cutoff.
+        // Recovery fires only within the recovery window — defined as
+        // the period before the bottom anchor view has appeared AND
+        // before the 2-second deadline expires (whichever comes first).
+        // After the window closes, the content-height auto-follow
+        // (separate block above) continues to handle scroll tracking
+        // for streaming and message loads. If the viewport is still
+        // stuck after the deadline, the CTA ("Scroll to latest")
+        // provides manual recovery.
+        //
+        // The deadline is critical because multiple paths reset
+        // bottomAnchorAppeared = false while the anchor may already
+        // be visible in the hierarchy (CTA taps, sends, resizes) —
+        // since onAppear only fires on hierarchy transitions, the
+        // flag won't be re-set and recovery would fire indefinitely
+        // without the time cutoff.
         // Only fires in initialLoad/followingBottom.
         //
         // https://developer.apple.com/documentation/swiftui/scrollposition
@@ -308,7 +314,8 @@ extension MessageListView {
         if scrollState.mode.allowsAutoScroll,
            phaseAllowsAutoFollow,
            effectiveContentHeight > newState.visibleRectHeight,
-           (!nowAtBottom || isInRecoveryWindow) {
+           isInRecoveryWindow,
+           !nowAtBottom {
             // Throttle recovery to at most once per 100ms. Without this,
             // geometry updates at ~60fps fire requestPinToBottom every
             // ~16ms. LazyVStack needs time between scroll attempts to
