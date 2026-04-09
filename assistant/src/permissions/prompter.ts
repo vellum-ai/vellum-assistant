@@ -33,6 +33,7 @@ export class PermissionPrompter {
   private pending = new Map<string, PendingPrompt>();
   private sendToClient: (msg: ServerMessage) => void;
   private onStateChanged?: ConfirmationStateCallback;
+  private onPromptReleased?: (requestId: string) => void;
 
   constructor(sendToClient: (msg: ServerMessage) => void) {
     this.sendToClient = sendToClient;
@@ -40,6 +41,15 @@ export class PermissionPrompter {
 
   setOnStateChanged(cb: ConfirmationStateCallback): void {
     this.onStateChanged = cb;
+  }
+
+  /**
+   * Register a callback invoked whenever a prompt is removed from this
+   * prompter (timeout, resolution, abort, or dispose). Callers use this
+   * to keep external trackers (e.g. pending-interactions) in sync.
+   */
+  setOnPromptReleased(cb: (requestId: string) => void): void {
+    this.onPromptReleased = cb;
   }
 
   updateSender(sendToClient: (msg: ServerMessage) => void): void {
@@ -78,6 +88,7 @@ export class PermissionPrompter {
       const timeoutMs = getConfig().timeouts.permissionTimeoutSec * 1000;
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
+        this.onPromptReleased?.(requestId);
         log.warn(
           { requestId, toolName },
           "Permission prompt timed out, defaulting to deny",
@@ -96,6 +107,7 @@ export class PermissionPrompter {
           if (this.pending.has(requestId)) {
             clearTimeout(timer);
             this.pending.delete(requestId);
+            this.onPromptReleased?.(requestId);
             resolve({ decision: "deny" });
           }
         };
@@ -157,6 +169,7 @@ export class PermissionPrompter {
     }
     clearTimeout(pending.timer);
     this.pending.delete(requestId);
+    this.onPromptReleased?.(requestId);
     pending.resolve({
       decision,
       selectedPattern,
@@ -174,6 +187,7 @@ export class PermissionPrompter {
     for (const [requestId, pending] of this.pending) {
       clearTimeout(pending.timer);
       this.pending.delete(requestId);
+      this.onPromptReleased?.(requestId);
       pending.resolve({
         decision: "deny",
         decisionContext:
@@ -187,8 +201,9 @@ export class PermissionPrompter {
   }
 
   dispose(): void {
-    for (const [, pending] of this.pending) {
+    for (const [requestId, pending] of this.pending) {
       clearTimeout(pending.timer);
+      this.onPromptReleased?.(requestId);
       pending.reject(
         new AssistantError("Prompter disposed", ErrorCode.INTERNAL_ERROR),
       );

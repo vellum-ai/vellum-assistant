@@ -25,9 +25,19 @@ interface PendingSecretPrompt {
 export class SecretPrompter {
   private pending = new Map<string, PendingSecretPrompt>();
   private sendToClient: (msg: ServerMessage) => void;
+  private onPromptReleased?: (requestId: string) => void;
 
   constructor(sendToClient: (msg: ServerMessage) => void) {
     this.sendToClient = sendToClient;
+  }
+
+  /**
+   * Register a callback invoked whenever a secret prompt is removed from this
+   * prompter (timeout, resolution, or dispose). Callers use this to keep
+   * external trackers (e.g. pending-interactions) in sync.
+   */
+  setOnPromptReleased(cb: (requestId: string) => void): void {
+    this.onPromptReleased = cb;
   }
 
   updateSender(sendToClient: (msg: ServerMessage) => void): void {
@@ -58,6 +68,7 @@ export class SecretPrompter {
       const timeoutMs = getConfig().timeouts.permissionTimeoutSec * 1000;
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
+        this.onPromptReleased?.(requestId);
         log.warn({ requestId, service, field }, "Secret prompt timed out");
         resolve({ value: null, delivery: "store" });
       }, timeoutMs);
@@ -106,12 +117,14 @@ export class SecretPrompter {
     }
     clearTimeout(pending.timer);
     this.pending.delete(requestId);
+    this.onPromptReleased?.(requestId);
     pending.resolve({ value: value ?? null, delivery: delivery ?? "store" });
   }
 
   dispose(): void {
-    for (const [, pending] of this.pending) {
+    for (const [requestId, pending] of this.pending) {
       clearTimeout(pending.timer);
+      this.onPromptReleased?.(requestId);
       pending.reject(
         new AssistantError("Prompter disposed", ErrorCode.INTERNAL_ERROR),
       );

@@ -841,4 +841,154 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await stopServer();
     });
   });
+
+  // ── drop ──────────────────────────────────────────────────────────────
+
+  describe("drop", () => {
+    test("removes a single interaction by requestId", async () => {
+      const session = makeIdleSession();
+      await startServer(() => session);
+
+      pendingInteractions.register("req-drop-1", {
+        conversation: session,
+        conversationId: "conv-d",
+        kind: "confirmation",
+      });
+      expect(pendingInteractions.get("req-drop-1")).toBeDefined();
+
+      pendingInteractions.drop("req-drop-1");
+      expect(pendingInteractions.get("req-drop-1")).toBeUndefined();
+
+      await stopServer();
+    });
+
+    test("is idempotent — dropping a nonexistent requestId does not throw", async () => {
+      const session = makeIdleSession();
+      await startServer(() => session);
+
+      // Should not throw
+      pendingInteractions.drop("nonexistent-id");
+      pendingInteractions.drop("nonexistent-id");
+
+      await stopServer();
+    });
+  });
+
+  // ── dropByConversationId ──────────────────────────────────────────────
+
+  describe("dropByConversationId", () => {
+    test("removes confirmation and secret entries but skips host-tool entries by default", async () => {
+      const session = makeIdleSession();
+      await startServer(() => session);
+
+      pendingInteractions.register("req-conf", {
+        conversation: session,
+        conversationId: "conv-cleanup",
+        kind: "confirmation",
+      });
+      pendingInteractions.register("req-sec", {
+        conversation: session,
+        conversationId: "conv-cleanup",
+        kind: "secret",
+      });
+      pendingInteractions.register("req-bash", {
+        conversation: session,
+        conversationId: "conv-cleanup",
+        kind: "host_bash",
+      });
+      pendingInteractions.register("req-file", {
+        conversation: session,
+        conversationId: "conv-cleanup",
+        kind: "host_file",
+      });
+      pendingInteractions.register("req-cu", {
+        conversation: session,
+        conversationId: "conv-cleanup",
+        kind: "host_cu",
+      });
+
+      pendingInteractions.dropByConversationId("conv-cleanup");
+
+      // Confirmation and secret should be gone
+      expect(pendingInteractions.get("req-conf")).toBeUndefined();
+      expect(pendingInteractions.get("req-sec")).toBeUndefined();
+
+      // Host-tool entries should remain
+      expect(pendingInteractions.get("req-bash")).toBeDefined();
+      expect(pendingInteractions.get("req-file")).toBeDefined();
+      expect(pendingInteractions.get("req-cu")).toBeDefined();
+
+      await stopServer();
+    });
+
+    test("removes host-tool entries when includeHostTools is true but preserves acp_confirmation", async () => {
+      const session = makeIdleSession();
+      await startServer(() => session);
+
+      pendingInteractions.register("req-conf-2", {
+        conversation: session,
+        conversationId: "conv-dispose",
+        kind: "confirmation",
+      });
+      pendingInteractions.register("req-bash-2", {
+        conversation: session,
+        conversationId: "conv-dispose",
+        kind: "host_bash",
+      });
+      pendingInteractions.register("req-file-2", {
+        conversation: session,
+        conversationId: "conv-dispose",
+        kind: "host_file",
+      });
+      pendingInteractions.register("req-cu-2", {
+        conversation: session,
+        conversationId: "conv-dispose",
+        kind: "host_cu",
+      });
+      pendingInteractions.register("req-acp-2", {
+        conversation: null,
+        conversationId: "conv-dispose",
+        kind: "acp_confirmation",
+        directResolve: () => {},
+      });
+
+      pendingInteractions.dropByConversationId("conv-dispose", {
+        includeHostTools: true,
+      });
+
+      expect(pendingInteractions.get("req-conf-2")).toBeUndefined();
+      expect(pendingInteractions.get("req-bash-2")).toBeUndefined();
+      expect(pendingInteractions.get("req-file-2")).toBeUndefined();
+      expect(pendingInteractions.get("req-cu-2")).toBeUndefined();
+      // ACP confirmations are always preserved for the session manager
+      expect(pendingInteractions.get("req-acp-2")).toBeDefined();
+
+      await stopServer();
+    });
+
+    test("does not affect entries for other conversations", async () => {
+      const session = makeIdleSession();
+      await startServer(() => session);
+
+      pendingInteractions.register("req-other-conv", {
+        conversation: session,
+        conversationId: "conv-other",
+        kind: "confirmation",
+      });
+      pendingInteractions.register("req-target-conv", {
+        conversation: session,
+        conversationId: "conv-target",
+        kind: "confirmation",
+      });
+
+      pendingInteractions.dropByConversationId("conv-target", {
+        includeHostTools: true,
+      });
+
+      expect(pendingInteractions.get("req-other-conv")).toBeDefined();
+      expect(pendingInteractions.get("req-target-conv")).toBeUndefined();
+
+      await stopServer();
+    });
+  });
 });

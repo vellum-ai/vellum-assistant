@@ -22,6 +22,7 @@ import {
   isUntrustedTrustClass,
   type TrustClass,
 } from "../runtime/actor-trust-resolver.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { unregisterConversationSender } from "../tools/browser/browser-screencast.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -310,6 +311,14 @@ export function disposeConversation(ctx: DisposeContext): void {
   }
 
   ctx.abort();
+
+  // Drop all remaining pending interactions for this conversation, including
+  // host-tool entries. After disposal the conversation can no longer receive
+  // results, so keeping them would leak the Conversation reference.
+  pendingInteractions.dropByConversationId(ctx.conversationId, {
+    includeHostTools: true,
+  });
+
   unregisterCallNotifiers(ctx.conversationId);
   unregisterConversationSender(ctx.conversationId);
   resetSkillToolProjection(ctx.skillProjectionState);

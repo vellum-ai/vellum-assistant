@@ -331,6 +331,9 @@ export class Conversation {
     );
     this.traceEmitter = new TraceEmitter(conversationId, sendToClient);
     this.prompter = new PermissionPrompter(sendToClient);
+    this.prompter.setOnPromptReleased((requestId) => {
+      pendingInteractions.drop(requestId);
+    });
     this.prompter.setOnStateChanged((requestId, state, source, toolUseId) => {
       // Route through emitConfirmationStateChanged so the event reaches
       // the client via sendToClient (wired to the SSE hub for HTTP conversations).
@@ -362,6 +365,9 @@ export class Conversation {
       }
     });
     this.secretPrompter = new SecretPrompter(sendToClient);
+    this.secretPrompter.setOnPromptReleased((requestId) => {
+      pendingInteractions.drop(requestId);
+    });
 
     // Register watch/call notifiers (reads ctx properties lazily)
     registerConversationNotifiers(conversationId, this);
