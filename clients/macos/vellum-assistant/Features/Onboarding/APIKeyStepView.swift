@@ -267,7 +267,6 @@ struct APIKeyStepView: View {
             )
         }
         .buttonStyle(.plain)
-        .disabled(isDisabled)
         .pointerCursor()
     }
 
