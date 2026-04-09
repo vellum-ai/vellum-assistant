@@ -1,3 +1,5 @@
+import CoreGraphics
+import ImageIO
 import SwiftUI
 
 /// Shared URL session with a disk-backed cache for small remote images
@@ -30,17 +32,20 @@ public enum VRemoteImageCache {
 /// A SwiftUI view that loads a remote image through `VRemoteImageCache.session`
 /// and renders `placeholder` while loading or on error.
 ///
-/// **Intended for small images only** (logos, avatars at a few KB each). The
-/// decode path runs on the MainActor via `NSImage(data:)` / `UIImage(data:)`,
-/// which is safe for Simple Icons-sized assets but would cause scroll jank for
-/// large photos. For high-res images, use a different primitive that decodes
-/// on a background task.
+/// **Intended for small images only** (logos, avatars at a few KB each). Raster
+/// formats are decoded off the main thread via `CGImageSource`; SVG payloads
+/// fall back to `PlatformImage(data:)` on the MainActor because `CGImageSource`
+/// does not decode SVG. For raster images this path satisfies the "never
+/// decode on the main thread" rule in `clients/AGENTS.md:267`. For SVG
+/// payloads the MainActor decode is unavoidable but acceptable for small
+/// vector assets — the decode is a few milliseconds for a ~1KB Simple Icons
+/// SVG.
 ///
-/// We deliberately decode through `PlatformImage(data:)` rather than
-/// `CGImageSource` so SVG payloads (the format every `cdn.simpleicons.org`
-/// URL returns) are handled correctly. `CGImageSource` only supports raster
-/// formats (PNG/JPEG/GIF/HEIC); `NSImage`/`UIImage` understand both raster
-/// and SVG on macOS 14+ / iOS 17+.
+/// **Platform note**: `NSImage(data:)` decodes SVG on macOS 14+ via the
+/// system's CoreSVG support, but `UIImage(data:)` on iOS does **not** decode
+/// raw SVG data (only asset-catalog SVGs via `UIImage(named:)`). iOS callers
+/// who need to render remote SVGs must wrap this primitive with an SVG-aware
+/// decoder (e.g. rasterize server-side, or use a CoreSVG helper).
 ///
 /// `VCachedRemoteImage` deliberately does NOT render a system `AsyncImage` — it
 /// owns the session so the cache is shared and the call site can customize the
@@ -81,13 +86,30 @@ public struct VCachedRemoteImage<Content: View, Placeholder: View>: View {
         do {
             let (data, _) = try await VRemoteImageCache.session.data(from: url)
             guard !Task.isCancelled else { return }
-            // Decode on the MainActor via NSImage(data:) / UIImage(data:).
-            // These support BOTH raster formats (PNG/JPEG/GIF/HEIC) and SVG
-            // on macOS 14+ / iOS 17+. CGImageSource was used previously but
-            // does not decode SVG, which broke every cdn.simpleicons.org URL
-            // (the primary use case for this component). The MainActor decode
-            // cost is acceptable here because this component is constrained
-            // to small images (logos/avatars at a few KB each).
+
+            // Fast path: decode raster formats (PNG/JPEG/GIF/HEIC) off the
+            // main thread via CGImageSource. CGImage is Sendable so it
+            // crosses the actor boundary cleanly. This satisfies the rule
+            // in clients/AGENTS.md:267 for the common case.
+            let cgImage: CGImage? = await Task.detached(priority: .userInitiated) {
+                guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+                    return nil
+                }
+                return CGImageSourceCreateImageAtIndex(source, 0, nil)
+            }.value
+            guard !Task.isCancelled else { return }
+
+            if let cgImage {
+                loadedImage = PlatformImage(fromCGImage: cgImage)
+                return
+            }
+
+            // Fallback: CGImageSource returned nil, which almost always
+            // means the payload is SVG (or another format CGImageSource
+            // does not understand). Decode on the MainActor via
+            // PlatformImage(data:). On macOS 14+ this routes SVG through
+            // CoreSVG; on iOS this only succeeds for raster formats
+            // CGImageSource somehow missed.
             if let img = PlatformImage(data: data) {
                 loadedImage = img
             }
@@ -103,10 +125,22 @@ public typealias PlatformImage = NSImage
 extension Image {
     init(platformImage: PlatformImage) { self.init(nsImage: platformImage) }
 }
+extension NSImage {
+    /// Creates an `NSImage` from a decoded `CGImage`. Uses `.zero` to let the
+    /// image infer its size from the underlying pixel dimensions.
+    fileprivate convenience init(fromCGImage cgImage: CGImage) {
+        self.init(cgImage: cgImage, size: .zero)
+    }
+}
 #elseif canImport(UIKit)
 import UIKit
 public typealias PlatformImage = UIImage
 extension Image {
     init(platformImage: PlatformImage) { self.init(uiImage: platformImage) }
+}
+extension UIImage {
+    fileprivate convenience init(fromCGImage cgImage: CGImage) {
+        self.init(cgImage: cgImage)
+    }
 }
 #endif
