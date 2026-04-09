@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 import { z } from "zod";
 
-import { getIsPlatform } from "../../config/env-registry.js";
+import { getCpuLimit, getIsPlatform } from "../../config/env-registry.js";
 import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getProfilerRuntimeStatus } from "../../daemon/profiler-run-store.js";
 import { getMaxMigrationVersion } from "../../memory/migrations/registry.js";
@@ -222,7 +222,7 @@ function parseK8sCpuCores(value: string): number | null {
 function getContainerCpuCores(): number {
   // 1. Prefer the explicit env var set by the platform StatefulSet template.
   try {
-    const envLimit = process.env.VELLUM_CPU_LIMIT;
+    const envLimit = getCpuLimit();
     if (envLimit) {
       const parsed = parseK8sCpuCores(envLimit);
       if (parsed !== null) return parsed;
@@ -333,6 +333,17 @@ setInterval(() => {
       const deltaCpuMs = deltaCpuUs / 1000;
       _cachedCpuPercent =
         Math.round((deltaCpuMs / (elapsedMs * numCores)) * 10000) / 100;
+    } else if (cgroupUs === null) {
+      // cgroup CPU stats unavailable (e.g. gVisor) – fall back to process-level.
+      const newUsage = process.cpuUsage();
+      const deltaCpuUs =
+        newUsage.user -
+        _lastProcessCpuUsage.user +
+        (newUsage.system - _lastProcessCpuUsage.system);
+      const deltaCpuMs = deltaCpuUs / 1000;
+      _cachedCpuPercent =
+        Math.round((deltaCpuMs / (elapsedMs * numCores)) * 10000) / 100;
+      _lastProcessCpuUsage = newUsage;
     }
     _lastCgroupCpuUs = cgroupUs;
   } else {
@@ -354,7 +365,7 @@ setInterval(() => {
 function getCpuInfo(): CpuInfo {
   return {
     currentPercent: _cachedCpuPercent,
-    maxCores: getContainerCpuCores(),
+    maxCores: Math.ceil(getContainerCpuCores()),
   };
 }
 
