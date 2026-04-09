@@ -152,8 +152,8 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       },
     },
 
-    // Registered BEFORE `skills/:id/files` so the more-specific pattern is
-    // matched first even if the router's matching rule ever changes.
+    // The router uses strict anchored-regex matching, so this route is never
+    // ambiguous with skills/:id/files.
     {
       endpoint: "skills/:id/files/content",
       method: "GET",
@@ -173,7 +173,7 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       responseBody: z.object({
         path: z.string(),
         name: z.string(),
-        size: z.number(),
+        size: z.number().int(),
         mimeType: z.string(),
         isBinary: z.boolean(),
         content: z.string().nullable(),

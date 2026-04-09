@@ -29,15 +29,16 @@ import {
 import { basename, join, posix, sep } from "node:path";
 
 import { getPlatformBaseUrl } from "../config/env.js";
-import { isTextMimeType as isTextMime } from "../runtime/routes/workspace-utils.js";
+import {
+  isTextMimeType as isTextMime,
+  MAX_INLINE_TEXT_SIZE,
+} from "../runtime/routes/workspace-utils.js";
 import { getLogger } from "../util/logger.js";
 import { readPlatformToken } from "../util/platform.js";
 import { getCatalog } from "./catalog-cache.js";
 import { getRepoSkillsDir } from "./catalog-install.js";
 
 const log = getLogger("catalog-files");
-
-const MAX_INLINE_SIZE = 2 * 1024 * 1024; // 2 MB
 
 /**
  * Classify a file as text/binary from its name alone. Used by the preview
@@ -387,7 +388,7 @@ export async function readCatalogSkillFiles(
  *
  * Returns `null` if the skill is missing from the catalog, the path fails
  * sanitization, the underlying source rejects the request, or the file does
- * not exist. In dev mode, text files up to `MAX_INLINE_SIZE` are returned
+ * not exist. In dev mode, text files up to `MAX_INLINE_TEXT_SIZE` are returned
  * with their UTF-8 content inline; anything larger or flagged as binary
  * returns with `content === null`. In platform mode, the server enforces
  * the same contract and we pass its response through unchanged.
@@ -457,7 +458,7 @@ export async function readCatalogSkillFileContent(
     const mimeType = Bun.file(abs).type;
     const isBinary = !isTextMime(mimeType, name);
     let content: string | null = null;
-    if (!isBinary && stat.size <= MAX_INLINE_SIZE) {
+    if (!isBinary && stat.size <= MAX_INLINE_TEXT_SIZE) {
       try {
         content = readFileSync(abs, "utf-8");
       } catch {
