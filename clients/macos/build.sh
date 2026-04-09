@@ -417,7 +417,15 @@ if [ -z "${VELLUM_ENVIRONMENT:-}" ]; then
     case "$CMD" in
         test)                          VELLUM_ENVIRONMENT="test" ;;
         run)                           VELLUM_ENVIRONMENT="local" ;;
-        release|release-application)   VELLUM_ENVIRONMENT="staging" ;;
+        release|release-application)
+            # Staging releases have a prerelease suffix in DISPLAY_VERSION
+            # (e.g. "0.6.0-staging.3"); clean semver means production.
+            if [[ "${DISPLAY_VERSION:-}" == *-staging* ]]; then
+                VELLUM_ENVIRONMENT="staging"
+            else
+                VELLUM_ENVIRONMENT="production"
+            fi
+            ;;
         *)                             VELLUM_ENVIRONMENT="local" ;;
     esac
 fi
