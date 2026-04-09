@@ -236,7 +236,7 @@ extension ChatViewModel {
     /// Callers capture `currentAssistantMessageId` **before** clearing turn state so
     /// the CPU-intensive thumbnail work can run in a fire-and-forget Task without
     /// racing with subsequent SSE events that reset `currentAssistantMessageId`.
-    func ingestAssistantAttachments(_ attachments: [UserMessageAttachment]?, targetMessageId: String?) async {
+    func ingestAssistantAttachments(_ attachments: [UserMessageAttachment]?, targetMessageId: UUID?) async {
         guard let attachments, !attachments.isEmpty else { return }
         let chatAttachments = await mapMessageAttachments(attachments)
         guard !chatAttachments.isEmpty else { return }
