@@ -415,6 +415,7 @@ struct IdentityPanel: View {
                         .foregroundStyle(VColor.contentTertiary)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Edit \(label)")
                 .help("Edit \(label)")
             }
             Text(value)
