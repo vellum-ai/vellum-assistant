@@ -18,8 +18,9 @@ import AppKit
 
 /// Caps content height at a maximum using the Layout protocol (O(1)).
 /// Unlike `.frame(maxHeight:)` which creates `_FlexFrameLayout` with its
-/// O(n × depth) alignment cascade, this measures the child once, caps the
-/// reported height, and places the child within the capped bounds.
+/// O(n × depth) alignment cascade, this measures the child, caps the
+/// reported height, and re-measures with the capped height so the child
+/// can adjust its width (e.g. to preserve aspect ratio).
 /// Unlike GeometryReader + PreferenceKey, this resolves in a single layout
 /// pass — no @State round-trip, so no first-render flicker.
 private struct HeightCapLayout: Layout {
@@ -28,7 +29,11 @@ private struct HeightCapLayout: Layout {
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         guard let child = subviews.first else { return .zero }
         let childSize = child.sizeThatFits(proposal)
-        return CGSize(width: childSize.width, height: min(cap, childSize.height))
+        guard childSize.height > cap else { return childSize }
+        // Re-measure with capped height so the child can adjust its width
+        // (e.g. a resizable image with .fit will narrow to preserve aspect ratio).
+        let cappedSize = child.sizeThatFits(ProposedViewSize(width: proposal.width, height: cap))
+        return CGSize(width: cappedSize.width, height: min(cap, cappedSize.height))
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
