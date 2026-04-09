@@ -96,7 +96,7 @@ struct APIKeyEntryStepView: View {
             .padding(.bottom, VSpacing.md)
 
         Text("Enter an API key to connect your model provider.")
-            .font(VFont.titleSmall)
+            .font(VFont.bodyMediumLighter)
             .multilineTextAlignment(.center)
             .foregroundStyle(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)

@@ -32,7 +32,7 @@ struct ImproveExperienceStepView: View {
             .padding(.bottom, VSpacing.md)
 
         Text("Choose your privacy preferences. You can update these anytime in the Settings.")
-            .font(VFont.titleSmall)
+            .font(VFont.bodyMediumLighter)
             .multilineTextAlignment(.center)
             .foregroundStyle(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)
