@@ -201,11 +201,6 @@ Runtime wiring:
 
 ## Open follow-ups
 
-- Cloud-side `host_browser_result` inbound routing on the gateway
-  WebSocket. In self-hosted mode the extension POSTs results directly
-  to the runtime; in cloud mode this needs to traverse the gateway.
-- Deriving `x-guardian-id` from the edge JWT inside the gateway rather
-  than trusting it from the runtime headers.
 - Production extension allowlist: the native messaging helper, the
   assistant's pair endpoint, and the macOS `NativeMessagingInstaller`
   all contain a dev placeholder extension id pending the first public

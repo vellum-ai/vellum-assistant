@@ -316,15 +316,13 @@ export function mintHostBrowserCapability(
  * Signature comparison uses `timingSafeEqual` to avoid leaking the secret
  * through timing side channels.
  *
- * Phase 2 hand-off: this function has no production caller yet. The
- * `/v1/browser-relay` WebSocket upgrade handler currently authenticates
- * with guardian-bound JWTs only. Phase 3 will extend the upgrade handler
- * to accept capability tokens minted by `mintHostBrowserCapability` so
- * the chrome extension can present the token from the
- * `/v1/browser-extension-pair` flow on its WebSocket handshake — at
- * which point this function becomes the authoritative verifier for
- * chrome-extension host_browser connections. Until then the tests in
- * `browser-extension-pair-routes.test.ts` are the only call site.
+ * The `/v1/browser-relay` WebSocket upgrade handler in `http-server.ts`
+ * (`handleBrowserRelayUpgrade`) calls this to authenticate self-hosted
+ * chrome extensions on the capability-token branch before falling
+ * through to the JWT compatibility path. The `/v1/host-browser-result`
+ * POST route may also call it (see that route's auth handling) when a
+ * result is posted back with a capability-token bearer instead of a
+ * guardian-bound JWT.
  */
 export function verifyHostBrowserCapability(
   token: string,

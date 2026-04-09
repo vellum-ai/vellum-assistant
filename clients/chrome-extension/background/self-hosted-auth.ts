@@ -12,9 +12,12 @@
  * locally running assistant without needing an external OAuth round-trip.
  * Users with a local assistant can pair their extension entirely offline.
  *
- * The token is not yet wired into the relay WebSocket — that plumbing
- * lands in PR 14 of the host-browser-proxy Phase 2 plan. This module is
- * the storage + bootstrap state machine layer only.
+ * This module owns the storage + bootstrap state machine for the
+ * self-hosted capability token. The relay connection consumes the
+ * stored token via `worker.ts::buildRelayModeConfig`, which reads it
+ * (along with the assistant runtime port echoed by the native helper)
+ * and hands both off to the `RelayConnection` when opening the
+ * self-hosted `/v1/browser-relay` WebSocket.
  *
  * Wire format notes: the native helper sends
  * `{ type: "token_response", token, expiresAt }` where `expiresAt` is an
