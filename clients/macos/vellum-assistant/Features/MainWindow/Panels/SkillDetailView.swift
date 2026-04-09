@@ -16,6 +16,10 @@ struct SkillDetailView: View {
     @State private var didSeedExpandedPaths: Bool = false
     @State private var skillFileViewMode: FileViewMode = .source
     @State private var browserNodes: [VFileBrowserNode] = []
+    /// Tracks the previously observed `skill.kind` so an install-from-preview
+    /// transition (catalog → installed/bundled) can be detected and drive a
+    /// refresh of the file tree with eagerly-loaded content.
+    @State private var lastObservedKind: String = ""
 
     /// True when the skill is not installed locally, so file contents must be
     /// fetched lazily rather than delivered inline with the file list.
@@ -33,6 +37,7 @@ struct SkillDetailView: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             SkillDetailTitleRow(
                 skill: skill,
+                isInstalling: skillsManager.installingSkillId == skill.id,
                 onBack: onBack,
                 onDelete: { onDelete(skill) },
                 onInstall: { skillsManager.installSkill(slug: skill.id) }
@@ -50,7 +55,26 @@ struct SkillDetailView: View {
             skillDetailFileBrowser
         }
         .onAppear {
+            // Seed `lastObservedKind` with the current kind so a later flip
+            // into "installed"/"bundled" is detected as a true transition
+            // rather than as the initial layout for an already-installed skill.
+            lastObservedKind = skill.kind
             skillsManager.fetchSkillFiles(skillId: skill.id)
+        }
+        .onChange(of: skill.kind) { _, newKind in
+            // Detect an install-from-preview transition: when the kind flips
+            // from "catalog" to "installed"/"bundled", the preview file list
+            // (which has nil `content` fields served lazily) is now stale —
+            // the backend now holds eagerly-loaded inline content for this
+            // skill. Drop the lazy content cache and re-fetch so the file
+            // tree transparently swaps in the full content without the user
+            // having to navigate away and back.
+            let becameInstalled = newKind == "installed" || newKind == "bundled"
+            if becameInstalled && lastObservedKind == "catalog" {
+                skillsManager.clearLoadedFileContents()
+                skillsManager.fetchSkillFiles(skillId: skill.id)
+            }
+            lastObservedKind = newKind
         }
         .onChange(of: skillsManager.selectedSkillFiles?.files.map(\.path)) {
             // 1. Rebuild the browser node tree from the latest file list (moved out of
@@ -126,6 +150,7 @@ struct SkillDetailView: View {
             expandedPaths = []
             didSeedExpandedPaths = false
             browserNodes = []
+            lastObservedKind = ""
             skillsManager.clearSkillDetail()
         }
     }
@@ -370,6 +395,7 @@ struct SkillDetailView: View {
 
 struct SkillDetailTitleRow: View {
     let skill: SkillInfo
+    var isInstalling: Bool = false
     let onBack: () -> Void
     let onDelete: () -> Void
     let onInstall: () -> Void
@@ -410,8 +436,13 @@ struct SkillDetailTitleRow: View {
                     onDelete()
                 }
             } else if skill.kind == "catalog" {
-                VButton(label: "Install", leftIcon: VIcon.arrowDownToLine.rawValue, style: .primary) {
-                    onInstall()
+                if isInstalling {
+                    VLoadingIndicator()
+                        .accessibilityLabel("Installing skill")
+                } else {
+                    VButton(label: "Install", leftIcon: VIcon.arrowDownToLine.rawValue, style: .primary) {
+                        onInstall()
+                    }
                 }
             }
         }
