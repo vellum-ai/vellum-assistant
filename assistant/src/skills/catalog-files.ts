@@ -150,6 +150,18 @@ type CatalogSource =
  * Resolve where to read files for a given catalog skill id. Performs NO
  * network calls — network requests happen only inside `readCatalogSkillFiles`
  * and `readCatalogSkillFileContent` on the platform path.
+ *
+ * Dev-mode safety: when a `<repoSkillsDir>/<skillId>` entry exists on disk,
+ * we verify that the skill root is a real directory physically located
+ * inside `repoSkillsDir` — rejecting symlinks and anything whose realpath
+ * escapes the repo skills dir. This prevents a symlinked skill root from
+ * pointing at an external directory and bypassing the later realpath
+ * containment check in `readCatalogSkillFileContent` (the check there
+ * derives `realRoot` from the already-resolved skill dir, so if the skill
+ * root itself is a symlink, `realRoot` resolves through the symlink target
+ * and the containment check becomes a no-op). On any violation we silently
+ * fall through to platform mode, which is the safe default — the dev-mode
+ * shortcut is an optimization, not a required code path.
  */
 async function resolveCatalogSource(
   skillId: string,
@@ -161,11 +173,53 @@ async function resolveCatalogSource(
   const repoSkillsDir = getRepoSkillsDir();
   if (repoSkillsDir) {
     const candidate = join(repoSkillsDir, skillId);
-    if (existsSync(candidate)) {
+    if (existsSync(candidate) && isSafeDevSkillRoot(candidate, repoSkillsDir)) {
       return { kind: "dir", dirPath: candidate };
     }
   }
   return { kind: "platform", skillId };
+}
+
+/**
+ * Verify that a dev-mode skill root candidate is a real directory physically
+ * located inside `repoSkillsDir`. Returns `false` for any of:
+ *
+ *   - `candidate` is itself a symbolic link (even if the target is still
+ *     "nearby" — following it would break the realpath containment check
+ *     in `readCatalogSkillFileContent`).
+ *   - `candidate` is not a directory.
+ *   - `realpath(candidate)` escapes `realpath(repoSkillsDir)`.
+ *   - Any fs call throws (EACCES, ENOENT race, etc.).
+ *
+ * Callers should fall through to platform mode on `false`.
+ */
+function isSafeDevSkillRoot(candidate: string, repoSkillsDir: string): boolean {
+  let lstat;
+  try {
+    lstat = lstatSync(candidate);
+  } catch {
+    return false;
+  }
+  if (lstat.isSymbolicLink()) return false;
+  if (!lstat.isDirectory()) return false;
+
+  let realCandidate: string;
+  let realRepoSkillsDir: string;
+  try {
+    realCandidate = realpathSync(candidate);
+    realRepoSkillsDir = realpathSync(repoSkillsDir);
+  } catch {
+    return false;
+  }
+  if (
+    !(
+      realCandidate === realRepoSkillsDir ||
+      realCandidate.startsWith(realRepoSkillsDir + sep)
+    )
+  ) {
+    return false;
+  }
+  return true;
 }
 
 // ─── Platform fetch helper ───────────────────────────────────────────────────

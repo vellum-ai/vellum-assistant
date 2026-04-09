@@ -286,6 +286,108 @@ describe("readCatalogSkillFiles (dev mode)", () => {
     expect(fetchCalls.length).toBe(0);
   });
 
+  test("rejects a symlinked skill root and falls through to platform mode", async () => {
+    // Reproduces the Codex P2 attack: an attacker (or a misconfigured dev)
+    // creates <repoSkillsDir>/my-skill as a symlink pointing at an external
+    // directory. Without the symlink-root check in `resolveCatalogSource`,
+    // the dev-mode branch would happily walk the external directory,
+    // because the realpath containment check downstream derives `realRoot`
+    // from the already-resolved symlink target.
+    //
+    // Expected behavior: the dev-mode shortcut is rejected up-front, and
+    // we fall through to platform mode — which in this test is stubbed
+    // to return an empty file list. So `readCatalogSkillFiles` should
+    // return the empty platform response, and `fetch` MUST be called
+    // (proving the fall-through happened, rather than the dev-mode
+    // shortcut silently reading from the external directory).
+    const root = makeTempSkillsDir();
+    const externalRoot = mkdtempSync(join(tmpdir(), "catalog-files-ext-"));
+    tempDirs.push(externalRoot);
+
+    // External directory populated with a real SKILL.md + a secret file
+    // that must NOT be exposed by the listing.
+    writeFileSync(join(externalRoot, "SKILL.md"), "# EXTERNAL SKILL");
+    writeFileSync(join(externalRoot, "secret.txt"), "EXTERNAL_SECRET");
+
+    // Symlink the skill root at `<root>/my-skill` to the external dir.
+    symlinkSync(externalRoot, join(root, "my-skill"));
+
+    mockRepoSkillsDir = root;
+    mockCatalog = [skill("my-skill")];
+    installFetchMock(() => Response.json({ skill_id: "my-skill", files: [] }));
+
+    const entries = await readCatalogSkillFiles("my-skill");
+
+    // Fall-through should produce the platform response (empty array),
+    // NOT the external directory contents.
+    expect(entries).toEqual([]);
+
+    // Confirm the dev-mode shortcut was bypassed: platform fetch was
+    // called against the preview endpoint.
+    expect(fetchCalls.length).toBe(1);
+    expect(fetchCalls[0]!.url).toBe(
+      "https://platform.test/v1/skills/my-skill/files/",
+    );
+  });
+
+  test("rejects a symlinked skill root for content reads and falls through to platform mode", async () => {
+    // Direct reproduction for `readCatalogSkillFileContent`: with a
+    // symlinked skill root, the dev branch must not read the external
+    // file. Instead we should fall through to the platform endpoint and
+    // return whatever the platform says.
+    const root = makeTempSkillsDir();
+    const externalRoot = mkdtempSync(join(tmpdir(), "catalog-files-ext-"));
+    tempDirs.push(externalRoot);
+
+    writeFileSync(join(externalRoot, "SKILL.md"), "EXTERNAL_SKILL_CONTENT");
+    symlinkSync(externalRoot, join(root, "my-skill"));
+
+    mockRepoSkillsDir = root;
+    mockCatalog = [skill("my-skill")];
+    installFetchMock(() =>
+      Response.json({
+        path: "SKILL.md",
+        name: "SKILL.md",
+        size: 14,
+        mime_type: "text/markdown",
+        is_binary: false,
+        content: "PLATFORM_CONTENT",
+      }),
+    );
+
+    const entry = await readCatalogSkillFileContent("my-skill", "SKILL.md");
+    expect(entry).not.toBeNull();
+    // Content must be the platform payload, NOT the external file's
+    // bytes — otherwise the fall-through didn't happen.
+    expect(entry!.content).toBe("PLATFORM_CONTENT");
+    expect(entry!.mimeType).toBe("text/markdown");
+
+    // And fetch was called, confirming dev-mode was bypassed.
+    expect(fetchCalls.length).toBe(1);
+    const url = fetchCalls[0]!.url;
+    expect(
+      url.startsWith("https://platform.test/v1/skills/my-skill/files/content/"),
+    ).toBe(true);
+  });
+
+  test("non-symlinked skill root still uses the dev-mode shortcut", async () => {
+    // Sanity check: a normal directory-based skill root must still be
+    // served from disk without touching fetch. This guards against the
+    // symlink-rejection path collateral-damaging regular dev flows.
+    const root = makeTempSkillsDir();
+    writeSkill(root, "normal-skill", { "SKILL.md": "# normal\n" });
+    mockRepoSkillsDir = root;
+    mockCatalog = [skill("normal-skill")];
+    installFetchForbidden();
+
+    const entries = await readCatalogSkillFiles("normal-skill");
+    expect(entries).not.toBeNull();
+    const paths = entries!.map((e) => e.path).sort();
+    expect(paths).toEqual(["SKILL.md"]);
+    // No platform round-trip happened.
+    expect(fetchCalls.length).toBe(0);
+  });
+
   test("filters hidden files and SKIP_DIRS from the listing", async () => {
     // Simulates a dev working on a catalog skill locally who has a
     // node_modules/, a .git/, and a .hidden.md file sitting next to
