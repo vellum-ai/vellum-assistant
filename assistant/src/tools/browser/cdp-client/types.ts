@@ -38,7 +38,7 @@ export interface CdpClient {
  * the sacrificial-profile screencast setup when running against the
  * user's own Chrome via the extension).
  */
-export type CdpClientKind = "local" | "extension";
+export type CdpClientKind = "local" | "extension" | "cdp-inspect";
 
 /**
  * Concrete CdpClient instance returned by the factory. Carries the
