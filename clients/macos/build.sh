@@ -453,7 +453,18 @@ case "$CMD" in
         ;;
     clean)
         echo "Cleaning..."
-        rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/../.build"
+        rm -rf "$SCRIPT_DIR/dist"
+        # Preserve checkouts/ and repositories/ so SPM doesn't re-clone all
+        # dependencies (swift-protobuf alone pulls ~400 MB of git submodules).
+        # SPM automatically re-fetches any checkout whose version has drifted.
+        # Use 'clean --full' to nuke everything when you suspect corruption.
+        if [ "${2:-}" = "--full" ]; then
+            rm -rf "$SCRIPT_DIR/../.build"
+        else
+            find "$SCRIPT_DIR/../.build" -maxdepth 1 \
+                ! -name .build ! -name checkouts ! -name repositories ! -name artifacts \
+                -exec rm -rf {} + 2>/dev/null || true
+        fi
         rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin" "$SCRIPT_DIR/native-host-bin"
         rm -rf "$SPM_MODULE_CACHE"
         echo "Done."
@@ -494,7 +505,10 @@ if [ "$CMD" = "release" ] || [ "$CMD" = "release-application" ]; then
     else
         # Force clean for release builds to prevent stale artifacts in production
         echo "Release build: forcing clean to ensure no stale artifacts..."
-        rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/../.build"
+        rm -rf "$SCRIPT_DIR/dist"
+        find "$SCRIPT_DIR/../.build" -maxdepth 1 \
+            ! -name .build ! -name checkouts ! -name repositories ! -name artifacts \
+            -exec rm -rf {} + 2>/dev/null || true
         # Also clean compiled Bun binaries to prevent architecture mismatches
         # (e.g. arm64 binaries from a previous build being bundled into an x86_64 release).
         # Skip when SKIP_BUN_REBUILD=1, since pre-built binaries are intentionally provided.
