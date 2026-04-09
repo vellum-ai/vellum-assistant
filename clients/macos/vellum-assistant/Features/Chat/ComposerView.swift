@@ -65,7 +65,6 @@ struct ComposerView: View {
     var contextWindowFillRatio: Double? = nil
     var contextWindowTokens: Int? = nil
     var contextWindowMaxTokens: Int? = nil
-    var containerWidth: CGFloat = 0
 
     @Environment(\.cmdEnterToSend) private var cmdEnterToSend
     #if os(macOS)
@@ -135,14 +134,8 @@ struct ComposerView: View {
         .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, VSpacing.lg)
         .padding(.top, VSpacing.sm)
-        // Active conversation path: .frame(width:) creates _FrameLayout —
-        // no alignment queries. Empty-state callers that don't pass
-        // containerWidth keep flexible maxWidth so external constraints
-        // (e.g. chatBubbleMaxWidth) can still shrink the view.
-        .frame(width: containerWidth > 0
-            ? min(containerWidth, VSpacing.chatColumnMaxWidth) : nil)
-        .frame(maxWidth: containerWidth > 0
-            ? nil : VSpacing.chatColumnMaxWidth)
+        .frame(maxWidth: VSpacing.chatColumnMaxWidth)
+        .frame(maxWidth: .infinity)
         .disabled(!isInteractionEnabled)
         .animation(VAnimation.fast, value: isComposerFocused)
         .task {
