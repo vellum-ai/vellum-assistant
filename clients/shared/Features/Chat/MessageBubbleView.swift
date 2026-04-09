@@ -285,6 +285,7 @@ public struct MessageBubbleView: View {
             }
         } else {
             MarkdownRenderer(text: text)
+                .equatable()
                 .padding(VSpacing.md)
                 .background(VColor.surfaceBase)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))

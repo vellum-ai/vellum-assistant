@@ -82,6 +82,7 @@ final class FontWarmupCoordinator {
     func refreshTypographyStateForReadyFonts() {
         VFont.bumpTypographyGeneration()
         MarkdownSegmentView.clearAttributedStringCache()
+        MarkdownRenderer.clearCaches()
         ChatBubble.segmentCache.removeAllObjects()
         ChatBubble.lastStreamingSegments = nil
         ChatBubble.lastStreamingParseTime = 0
