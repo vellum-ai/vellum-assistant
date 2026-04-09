@@ -194,7 +194,6 @@ public struct InlineTableWidget: View {
                     .padding(.top, VSpacing.xs)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
             selectedIds = Set(data.rows.filter(\.selected).map(\.id))
             if hasSelection {
@@ -215,7 +214,6 @@ public struct InlineTableWidget: View {
             horizontalScrollableTable
         } else {
             tableContent
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -225,7 +223,7 @@ public struct InlineTableWidget: View {
                 .frame(width: minimumTableWidth, alignment: .leading)
         }
         .scrollDisabled(isResizingColumn)
-        .frame(maxWidth: maxTableViewportWidth, alignment: .leading)
+        .frame(width: maxTableViewportWidth)
         .overlay(alignment: .trailing) {
             if shouldShowHorizontalHint {
                 overflowHint
@@ -240,7 +238,6 @@ public struct InlineTableWidget: View {
             endPoint: .trailing
         )
         .frame(width: 28)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -293,7 +290,6 @@ public struct InlineTableWidget: View {
                             .textSelection(.enabled)
                             .lineLimit(nil)
                             .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
 
                         // Resize handle (between columns, not after the last one)
                         if index < data.columns.count - 1 {
@@ -333,7 +329,6 @@ public struct InlineTableWidget: View {
             }
         }
         .padding(.vertical, VSpacing.xs)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: VRadius.sm)
                 .fill(isSelected ? VColor.primaryBase.opacity(0.1) : Color.clear)
@@ -363,10 +358,8 @@ public struct InlineTableWidget: View {
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.trailing, VSpacing.xs)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Resize Handle
