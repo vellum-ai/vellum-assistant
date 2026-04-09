@@ -110,7 +110,9 @@ struct SidebarSectionHeader: View {
                     .padding(.trailing, VSpacing.xs)
             }
         }
-        .onTapGesture { withAnimation(VAnimation.fast) { onToggleExpand() } }
+        .onTapGesture {
+            withAnimation(VAnimation.fast) { onToggleExpand() }
+        }
         .pointerCursor(onHover: { hovering in
             isHeaderHovered = hovering
         })
@@ -159,8 +161,18 @@ private struct ConditionalGroupContextMenu: ViewModifier {
         onRename != nil || onDelete != nil || onMarkAllRead != nil || onArchiveAll != nil
     }
 
+    /// Whether at least one menu item would be enabled. Prevents attaching
+    /// a context menu where every item is disabled, which leaves an
+    /// undismissable panel (clicking a disabled VMenuItem does not close it).
+    private var hasAnyEnabledAction: Bool {
+        if onRename != nil || onDelete != nil { return true }
+        if onMarkAllRead != nil && hasUnreadConversations { return true }
+        if onArchiveAll != nil && hasConversations { return true }
+        return false
+    }
+
     func body(content: Content) -> some View {
-        if hasAnyAction {
+        if hasAnyAction && hasAnyEnabledAction {
             content.vContextMenu {
                 if let onMarkAllRead {
                     VMenuItem(icon: VIcon.circleCheck.rawValue, label: "Mark All as Read") {

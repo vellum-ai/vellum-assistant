@@ -12,6 +12,12 @@ struct ScheduleSubGroup: Identifiable {
 
 /// Container wrapping a collapsible section header + conversation list.
 ///
+/// Section content (conversation rows, show-more button, etc.) is emitted as
+/// direct siblings so the parent `LazyVStack` can virtualize individual rows.
+/// Only rows within the scroll viewport are materialized, preventing the
+/// main-thread stall that occurred when an inner `VStack` eagerly created
+/// all 70+ rows in a single layout pass.
+///
 /// Handles expand/collapse, show-more/less truncation, auto-expand on unread,
 /// and optional schedule sub-grouping for the Scheduled system group.
 struct SidebarSectionView: View {
@@ -127,23 +133,16 @@ struct SidebarSectionView: View {
         ))
 
         if isExpanded && !conversations.isEmpty {
-            VStack(spacing: 0) {
-                sectionContent
-            }
-            .padding(.bottom, VSpacing.xxs)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(
-                        sidebar?.dropForbiddenSectionId == group.id ? VColor.systemNegativeWeak :
-                        isDropTarget ? VColor.systemPositiveWeak : .clear
-                    )
-            )
-            .modifier(SectionBodyDropModifier(
-                groupId: group.id,
-                sidebar: sidebar,
-                conversationManager: conversationManager
-            ))
-            .transition(.opacity)
+            sectionContent
+
+            // Drop zone for section-level drops below the last visible row.
+            Color.clear
+                .frame(height: VSpacing.xxs)
+                .modifier(SectionBodyDropModifier(
+                    groupId: group.id,
+                    sidebar: sidebar,
+                    conversationManager: conversationManager
+                ))
         }
     }
 
@@ -300,18 +299,11 @@ struct SidebarSectionView: View {
                 hoveredSubGroupKey = nil
             }
         }
-        .vContextMenu {
-            let unread = subGroup.conversations.filter(\.hasUnseenLatestAssistantMessage)
-            VMenuItem(icon: VIcon.circleCheck.rawValue, label: "Mark All as Read") {
-                onMarkAllReadInSubGroup?(subGroup.label, subGroup.conversations.map(\.id))
-            }
-            .disabled(unread.isEmpty)
-            let archivable = subGroup.conversations.filter { !$0.isChannelConversation }
-            VMenuItem(icon: VIcon.archive.rawValue, label: "Archive All\u{2026}") {
-                onArchiveAllInSubGroup?(subGroup.label, archivable.map(\.id))
-            }
-            .disabled(archivable.isEmpty)
-        }
+        .modifier(SubGroupContextMenu(
+            subGroup: subGroup,
+            onMarkAllReadInSubGroup: onMarkAllReadInSubGroup,
+            onArchiveAllInSubGroup: onArchiveAllInSubGroup
+        ))
 
         if isSubGroupExpanded {
             let subGroupShowAll = showAllInSubGroup.contains(subGroup.key)
@@ -386,8 +378,11 @@ struct SidebarSectionView: View {
     }
 
     private var displayedConversations: [ConversationModel] {
-        if effectiveShowAll { return conversations }
-        return Array(conversations.prefix(maxCollapsed))
+        if effectiveShowAll {
+            return conversations
+        } else {
+            return Array(conversations.prefix(maxCollapsed))
+        }
     }
 
     // MARK: - Sub-group helpers
@@ -418,6 +413,50 @@ struct SidebarSectionView: View {
                 label = first.title
             }
             return ScheduleSubGroup(key: key, label: label, conversations: conversations)
+        }
+    }
+}
+
+/// Only attaches a `.vContextMenu` to a schedule/background sub-group header
+/// when at least one menu item would be enabled. Prevents an undismissable
+/// panel when every item is disabled (clicking a disabled VMenuItem does not
+/// call `dismissMenu`).
+private struct SubGroupContextMenu: ViewModifier {
+    let subGroup: ScheduleSubGroup
+    let onMarkAllReadInSubGroup: ((String, [UUID]) -> Void)?
+    let onArchiveAllInSubGroup: ((String, [UUID]) -> Void)?
+
+    private var hasUnread: Bool {
+        subGroup.conversations.contains(where: \.hasUnseenLatestAssistantMessage)
+    }
+
+    private var hasArchivable: Bool {
+        subGroup.conversations.contains(where: { !$0.isChannelConversation })
+    }
+
+    private var hasAnyEnabledAction: Bool {
+        (onMarkAllReadInSubGroup != nil && hasUnread) ||
+        (onArchiveAllInSubGroup != nil && hasArchivable)
+    }
+
+    func body(content: Content) -> some View {
+        if hasAnyEnabledAction {
+            content.vContextMenu {
+                if onMarkAllReadInSubGroup != nil {
+                    VMenuItem(icon: VIcon.circleCheck.rawValue, label: "Mark All as Read") {
+                        onMarkAllReadInSubGroup?(subGroup.label, subGroup.conversations.map(\.id))
+                    }
+                    .disabled(!hasUnread)
+                }
+                if onArchiveAllInSubGroup != nil {
+                    VMenuItem(icon: VIcon.archive.rawValue, label: "Archive All\u{2026}") {
+                        onArchiveAllInSubGroup?(subGroup.label, subGroup.conversations.filter { !$0.isChannelConversation }.map(\.id))
+                    }
+                    .disabled(!hasArchivable)
+                }
+            }
+        } else {
+            content
         }
     }
 }
