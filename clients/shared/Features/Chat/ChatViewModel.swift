@@ -747,6 +747,13 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// Observers can check this to avoid treating the history hydration as new activity.
     public internal(set) var isLoadingHistory: Bool = false
 
+    /// Monotonically increasing counter bumped on every full (non-pagination)
+    /// history load.  Pagination loads capture this before the await and bail
+    /// out if it changed, preventing stale old-page messages from being
+    /// prepended to a messages array that was replaced by a concurrent
+    /// full load (e.g. reconnect during active pagination).
+    private var historyGeneration: UInt64 = 0
+
     // MARK: - Message Pagination (forwarded from ChatPaginationState)
 
     /// Page size for chat message display; older messages are loaded in this increment.
@@ -2000,13 +2007,19 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         // streaming state before the await suspension point so that the
         // isLoadingHistory guard in handleAssistantTextDelta is effective
         // during the entire background reconstruction window.
+        // Capture or bump the history generation counter.
+        let capturedGeneration: UInt64
         if !isPaginationLoad {
+            historyGeneration &+= 1
+            capturedGeneration = historyGeneration
             self.isLoadingHistory = true
             discardStreamingBuffer()
             discardPartialOutputBuffer()
             surfaceRefetchCoordinator.cancelRefetchTasks()
             currentAssistantMessageId = nil
             currentAssistantHasText = false
+        } else {
+            capturedGeneration = historyGeneration
         }
 
         // Dispatch reconstruction to a background thread.  The heavy work
@@ -2032,11 +2045,18 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         self.historyCursor = oldestTimestamp
 
         if isPaginationLoad {
+            // A full history load ran while we were awaiting reconstruction —
+            // the messages array has been replaced, so discard the stale page.
+            guard capturedGeneration == historyGeneration else {
+                self.paginationState.loadMoreTimeoutTask?.cancel()
+                self.paginationState.loadMoreTimeoutTask = nil
+                self.paginationState.isLoadingMoreMessages = false
+                os_signpost(.end, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "path=pagination_stale")
+                return
+            }
             // Older page fetched on demand — prepend before existing messages
             // and expand the display window so the newly loaded messages are
             // visible. The loading indicator is cleared here.
-            // Flush any buffered partial output before prepending — the prepend
-            // shifts positional indices so stale buffer entries would corrupt.
             flushPartialOutputBuffer()
             var mergedMessages = chatMessages + self.messages
             let hasModelCommand = applyHistoryResponseMarkers(to: &mergedMessages)

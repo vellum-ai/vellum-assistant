@@ -385,6 +385,18 @@ final class ConversationRestorer {
         // isLoadingMoreMessages is true, the response is for a "Load more" request.
         let isPaginationLoad = viewModel.isHistoryLoaded && viewModel.isLoadingMoreMessages
 
+        // Set isLoadingHistory synchronously so the guard in
+        // handleAssistantTextDelta blocks stale SSE deltas immediately,
+        // before the Task is picked up by the MainActor executor.
+        if !isPaginationLoad {
+            viewModel.isLoadingHistory = true
+            viewModel.discardStreamingBuffer()
+            viewModel.discardPartialOutputBuffer()
+            viewModel.surfaceRefetchCoordinator.cancelRefetchTasks()
+            viewModel.currentAssistantMessageId = nil
+            viewModel.currentAssistantHasText = false
+        }
+
         // populateFromHistory is async — it dispatches CPU-intensive
         // reconstruction (thumbnail generation, JSON estimation) off the
         // main thread via Task.detached.

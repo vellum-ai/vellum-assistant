@@ -449,6 +449,7 @@ final class ChatActionHandler {
         let capturedAssistantMessageId = vm.currentAssistantMessageId
         if !wasRefinement {
             vm.ingestAssistantAttachments(complete.attachments, targetMessageId: capturedAssistantMessageId, daemonMessageId: complete.messageId)
+            vm.ingestAssistantAttachmentWarnings(complete.attachmentWarnings, targetMessageId: capturedAssistantMessageId)
         }
         if vm.pendingVoiceMessage {
             vm.pendingVoiceMessage = false
@@ -759,6 +760,7 @@ final class ChatActionHandler {
         // so attachment ingestion targets the correct message.
         let capturedAssistantMessageId = vm.currentAssistantMessageId
         vm.ingestAssistantAttachments(handoff.attachments, targetMessageId: capturedAssistantMessageId, daemonMessageId: handoff.messageId)
+        vm.ingestAssistantAttachmentWarnings(handoff.attachmentWarnings, targetMessageId: capturedAssistantMessageId)
         // Keep isSending = true — daemon is handing off to next queued message
         if let existingId = vm.currentAssistantMessageId,
            let index = vm.messages.firstIndex(where: { $0.id == existingId }) {

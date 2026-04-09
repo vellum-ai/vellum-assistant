@@ -857,9 +857,20 @@ class IOSConversationStore: ObservableObject {
 
         let isPaginationLoad = vm.isHistoryLoaded && vm.isLoadingMoreMessages
 
-        // populateFromHistory is async because it dispatches CPU-intensive
-        // reconstruction (thumbnail generation, JSON estimation) to a background
-        // thread.
+        // Set isLoadingHistory synchronously so the guard in
+        // handleAssistantTextDelta blocks stale SSE deltas immediately,
+        // before the Task is picked up by the MainActor executor.
+        if !isPaginationLoad {
+            vm.isLoadingHistory = true
+            vm.discardStreamingBuffer()
+            vm.discardPartialOutputBuffer()
+            vm.surfaceRefetchCoordinator.cancelRefetchTasks()
+            vm.currentAssistantMessageId = nil
+            vm.currentAssistantHasText = false
+        }
+
+        // populateFromHistory is async — it dispatches reconstruction off
+        // the main thread via Task.detached.
         Task {
             await vm.populateFromHistory(
                 response.messages,
