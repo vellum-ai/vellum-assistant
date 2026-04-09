@@ -401,6 +401,5 @@ struct MarkdownTableView: View {
             .foregroundStyle(VColor.contentDefault)
             .textSelection(.enabled)
             .lineLimit(nil)
-            .fixedSize(horizontal: false, vertical: true)
     }
 }
