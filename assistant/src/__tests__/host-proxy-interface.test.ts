@@ -42,11 +42,14 @@ describe("supportsHostProxy (runtime)", () => {
     expect(supportsHostProxy("chrome-extension", "host_cu")).toBe(false);
   });
 
-  test("capability form grants everything to macOS", () => {
+  test("capability form grants host_bash/file/cu to macOS but not host_browser", () => {
     expect(supportsHostProxy("macos", "host_bash")).toBe(true);
     expect(supportsHostProxy("macos", "host_file")).toBe(true);
     expect(supportsHostProxy("macos", "host_cu")).toBe(true);
-    expect(supportsHostProxy("macos", "host_browser")).toBe(true);
+    // Browser tools fall back to the local Playwright Chromium on macos
+    // because the host_browser proxy path requires a Chrome extension
+    // that isn't guaranteed to be attached.
+    expect(supportsHostProxy("macos", "host_browser")).toBe(false);
   });
 
   test("capability form rejects everything for non-host-proxy interfaces", () => {
