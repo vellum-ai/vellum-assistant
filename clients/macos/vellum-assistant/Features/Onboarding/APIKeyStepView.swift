@@ -191,7 +191,7 @@ struct APIKeyStepView: View {
                     for: mode,
                     appleContainerEnabled: appleContainerEnabled
                 )
-                let requiresAccount = mode == .vellumCloud && (!isAuthenticated || state.skippedAuth)
+                let requiresAccount = mode == .vellumCloud && !isAuthenticated
                 hostingCard(
                     icon: iconForMode(mode),
                     title: title,
