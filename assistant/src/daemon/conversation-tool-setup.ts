@@ -322,7 +322,10 @@ export function createProxyApprovalCallback(
     const url = `${scheme}://${hostname}${port ? ":" + port : ""}${path}`;
 
     if (isPermissionControlsV2Enabled()) {
-      return false;
+      // Under v2 we suppress deterministic network approval cards entirely.
+      // Proxied asks should follow the same non-host auto-allow contract as
+      // regular network_request invocations instead of turning into hard blocks.
+      return true;
     }
 
     const input: Record<string, unknown> = {

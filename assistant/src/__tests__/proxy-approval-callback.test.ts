@@ -114,7 +114,7 @@ describe("createProxyApprovalCallback", () => {
     _setOverridesForTesting({});
   });
 
-  test("suppresses network approval cards under v2 and returns false", async () => {
+  test("suppresses network approval cards under v2 and auto-allows", async () => {
     _setOverridesForTesting({ "permission-controls-v2": true });
 
     const ctx = makeContext();
@@ -124,7 +124,7 @@ describe("createProxyApprovalCallback", () => {
     const callback = createProxyApprovalCallback(prompter, ctx);
     const result = await callback(makeAskMissingCredentialRequest());
 
-    expect(result).toBe(false);
+    expect(result).toBe(true);
     expect(prompterSendToClient).not.toHaveBeenCalled();
     expect(findHighestPriorityRuleMock).not.toHaveBeenCalled();
     expect(addRuleMock).not.toHaveBeenCalled();
