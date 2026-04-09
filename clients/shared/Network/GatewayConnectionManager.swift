@@ -310,7 +310,7 @@ public final class GatewayConnectionManager: ObservableObject {
             #if os(macOS)
             healthPath = (cachedAssistant?.isManaged ?? false) ? "assistants/{assistantId}/health" : "health"
             #else
-            healthPath = "health"
+            healthPath = ((try? GatewayHTTPClient.isConnectionManaged()) ?? false) ? "assistants/{assistantId}/health" : "health"
             #endif
             let response = try await GatewayHTTPClient.get(
                 path: healthPath,
@@ -526,7 +526,7 @@ public final class GatewayConnectionManager: ObservableObject {
         #if os(macOS)
         let managedConnection = cachedAssistant?.isManaged ?? false
         #else
-        let managedConnection = false
+        let managedConnection = (try? GatewayHTTPClient.isConnectionManaged()) ?? false
         #endif
         if managedConnection {
             log.warning("401 in managed mode — session token may be expired")
