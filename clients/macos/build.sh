@@ -25,6 +25,8 @@ set -euo pipefail
 #   VELLUM_PLATFORM_URL  Override managed sign-in platform URL for app launches
 #   VELLUM_DOCS_BASE_URL Override docs base URL for in-app docs links (e.g. staging)
 #   SKIP_BUN_REBUILD    Set to 1 to skip Bun binary staleness checks (use pre-built binaries as-is)
+#   VELLUM_ENVIRONMENT   Runtime environment (local|dev|test|staging|production).
+#                        Auto-set by build command if not provided. See AGENTS.md.
 #   SENTRY_DSN_MACOS     Sentry DSN for the macOS app project (omit to disable)
 #   SENTRY_DSN_ASSISTANT Sentry DSN for the assistant/daemon project (omit to disable)
 #   SU_FEED_URL          Sparkle appcast URL for auto-updates (default: Vellum GitHub releases)
@@ -882,6 +884,19 @@ if [ "$CMD" = "run" ] && [ -z "${VELLUM_PLATFORM_URL:-}" ]; then
     export VELLUM_PLATFORM_URL="https://dev-platform.vellum.ai"
 fi
 
+# Default VELLUM_ENVIRONMENT based on build command (overridable via env).
+# See AGENTS.md "Build Environment" for the full matrix.
+if [ -z "${VELLUM_ENVIRONMENT:-}" ]; then
+    case "$CMD" in
+        test)                          VELLUM_ENVIRONMENT="test" ;;
+        run)                           VELLUM_ENVIRONMENT="dev" ;;
+        release|release-application)   VELLUM_ENVIRONMENT="production" ;;
+        *)                             VELLUM_ENVIRONMENT="local" ;;
+    esac
+fi
+export VELLUM_ENVIRONMENT
+echo "VELLUM_ENVIRONMENT=$VELLUM_ENVIRONMENT"
+
 # Always regenerate Info.plist (fast, depends on env vars like DISPLAY_VERSION)
 COMMIT_SHA_PLIST=""
 if [ -n "${COMMIT_SHA:-}" ]; then
@@ -928,6 +943,9 @@ if [ "$CONFIG" = "debug" ]; then
         <key>VELLUM_FLAG_LOCAL_DOCKER_ENABLED</key>
         <string>1</string>"
 fi
+_LSE_ENTRIES+="
+        <key>VELLUM_ENVIRONMENT</key>
+        <string>$VELLUM_ENVIRONMENT</string>"
 if [ -n "${SENTRY_DSN_MACOS:-}" ]; then
     echo "Embedding SENTRY_DSN_MACOS"
     _LSE_ENTRIES+="
