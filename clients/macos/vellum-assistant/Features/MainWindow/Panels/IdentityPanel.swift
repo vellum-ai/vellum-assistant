@@ -58,25 +58,25 @@ struct IdentityPanel: View {
                     VStack(spacing: 0) {
                         VStack(spacing: 0) {
                             // Intro heading — show daemon-generated text, fall back to static name
-                            HStack(alignment: .firstTextBaseline, spacing: VSpacing.sm) {
-                                Spacer(minLength: 0)
-                                Text(introText ?? (hasRealName ? "I'm \(assistantDisplayName)!" : assistantDisplayName))
-                                    .font(VFont.titleMedium)
-                                    .foregroundStyle(VColor.contentDefault)
-                                    .multilineTextAlignment(.center)
-                                Button {
-                                    onOpenThread?("I want to change your name")
-                                } label: {
-                                    VIconView(.pencil, size: 13)
-                                        .foregroundStyle(VColor.contentTertiary)
+                            Text(introText ?? (hasRealName ? "I'm \(assistantDisplayName)!" : assistantDisplayName))
+                                .font(VFont.titleMedium)
+                                .foregroundStyle(VColor.contentDefault)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .overlay(alignment: .trailing) {
+                                    Button {
+                                        onOpenThread?("I want to change your name")
+                                    } label: {
+                                        VIconView(.pencil, size: 13)
+                                            .foregroundStyle(VColor.contentTertiary)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("Edit Name")
+                                    .help("Edit Name")
+                                    .offset(x: VSpacing.xl)
                                 }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("Edit Name")
-                                .help("Edit Name")
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.top, VSpacing.xxl)
-                            .padding(.horizontal, VSpacing.lg)
+                                .padding(.top, VSpacing.xxl)
+                                .padding(.horizontal, VSpacing.lg)
 
                             Spacer()
 
