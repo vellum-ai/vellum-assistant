@@ -6,8 +6,6 @@ struct MemoryItemRow: View {
     let onSelect: () -> Void
     let onDelete: () -> Void
 
-    @State private var isHovered = false
-
     private var memoryKind: MemoryKind? {
         MemoryKind(rawValue: item.kind)
     }
@@ -19,10 +17,6 @@ struct MemoryItemRow: View {
     var body: some View {
         VCard(action: onSelect) {
             HStack(alignment: .center, spacing: VSpacing.lg) {
-                // Kind icon (mirrors emoji slot in skill cards)
-                VIconView(.resolve(memoryKind?.icon ?? VIcon.brain.rawValue), size: 28)
-                    .foregroundStyle(accentColor)
-
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     HStack(alignment: .center, spacing: VSpacing.sm) {
                         Text(item.subject)
@@ -31,15 +25,15 @@ struct MemoryItemRow: View {
                             .lineLimit(1)
                             .truncationMode(.tail)
 
+                        Spacer()
+                    }
+
+                    HStack(alignment: .center, spacing: VSpacing.xs) {
                         VTag(
                             memoryKind?.label ?? item.kind.capitalized,
                             color: accentColor
                         )
 
-                        Spacer()
-                    }
-
-                    HStack(alignment: .center, spacing: VSpacing.xs) {
                         Text(item.relativeLastSeen)
                             .font(VFont.bodySmallDefault)
                             .foregroundStyle(VColor.contentTertiary)
@@ -68,18 +62,13 @@ struct MemoryItemRow: View {
 
                 VButton(
                     label: "Delete",
-                    iconOnly: VIcon.trash.rawValue,
-                    style: .dangerGhost,
-                    size: .compact,
+                    leftIcon: VIcon.trash.rawValue,
+                    style: .dangerOutline,
                     action: onDelete
                 )
-                .opacity(isHovered ? 1 : 0)
-                .allowsHitTesting(isHovered)
-                .accessibilityHidden(!isHovered)
                 .accessibilityLabel("Delete memory")
             }
         }
-        .onHover { isHovered = $0 }
         .contextMenu {
             Button("Delete", role: .destructive, action: onDelete)
         }

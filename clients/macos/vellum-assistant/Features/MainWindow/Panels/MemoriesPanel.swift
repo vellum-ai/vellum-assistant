@@ -92,18 +92,6 @@ struct MemoriesPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Memory count header
-            HStack(alignment: .firstTextBaseline, spacing: VSpacing.sm) {
-                Text("\(store.total)")
-                    .font(VFont.titleLarge)
-                    .foregroundStyle(VColor.contentEmphasized)
-                Text(store.total == 1 ? "memory" : "memories")
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentTertiary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.bottom, VSpacing.xs)
-
             filterBar
 
             // Active filter pills
@@ -256,18 +244,22 @@ struct MemoriesPanel: View {
     }
 
     private func kindFilterRow(icon: String, label: String, kind: MemoryKind?) -> some View {
-        KindFilterRowButton(
+        VNavItem(
             icon: icon,
             label: label,
-            kind: kind,
             isActive: selectedKind == kind,
-            count: kindCount(for: kind),
             action: {
                 withAnimation(VAnimation.fast) { selectedKind = kind }
                 store.kindFilter = kind?.rawValue
                 Task { await store.loadItems() }
             }
-        )
+        ) {
+            Text("\(kindCount(for: kind))")
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentTertiary)
+        }
+        .accessibilityLabel("\(label) filter")
+        .accessibilityAddTraits(selectedKind == kind ? .isSelected : [])
     }
 
     private func kindCount(for kind: MemoryKind?) -> Int {
@@ -348,73 +340,3 @@ struct MemoriesPanel: View {
     }
 }
 
-// MARK: - Kind Filter Row Button
-
-/// Custom sidebar row that adds a color-coded dot and kind-tinted active background.
-private struct KindFilterRowButton: View {
-    let icon: String
-    let label: String
-    let kind: MemoryKind?
-    let isActive: Bool
-    let count: Int
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    private var dotColor: Color {
-        kind?.color ?? VColor.contentTertiary
-    }
-
-    private var activeBackground: Color {
-        kind?.backgroundTint ?? VColor.surfaceActive
-    }
-
-    private var iconColor: Color {
-        isActive ? VColor.primaryActive : VColor.primaryBase
-    }
-
-    private var textColor: Color {
-        isActive ? VColor.contentEmphasized : VColor.contentSecondary
-    }
-
-    var body: some View {
-        HStack(spacing: VSpacing.xs) {
-            Circle()
-                .fill(dotColor)
-                .frame(width: 8, height: 8)
-
-            VIconView(.resolve(icon), size: VSize.iconDefault)
-                .foregroundStyle(iconColor)
-                .frame(width: VSize.iconSlot, height: VSize.iconSlot)
-
-            Text(label)
-                .font(VFont.bodyMediumDefault)
-                .foregroundStyle(textColor)
-                .lineLimit(1)
-                .truncationMode(.tail)
-
-            Spacer()
-
-            Text("\(count)")
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.contentTertiary)
-        }
-        .padding(.leading, VSpacing.xs)
-        .padding(.trailing, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
-        .frame(minHeight: VSize.rowMinHeight)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            isActive ? activeBackground :
-            isHovered ? VColor.surfaceBase :
-            Color.clear
-        )
-        .animation(VAnimation.fast, value: isHovered)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .contentShape(Rectangle())
-        .onTapGesture { action() }
-        .pointerCursor(onHover: { isHovered = $0 })
-        .accessibilityLabel("\(label) filter")
-        .accessibilityAddTraits(isActive ? .isSelected : [])
-    }
-}
