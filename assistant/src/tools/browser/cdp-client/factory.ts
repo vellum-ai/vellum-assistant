@@ -85,11 +85,16 @@ function buildManagedClient(
       signal?: AbortSignal,
     ): Promise<T> {
       if (disposed) {
-        throw new CdpError(
-          "disposed",
-          `${kind === "extension" ? "ExtensionCdpClient" : "LocalCdpClient"} already disposed`,
-          { cdpMethod: method, cdpParams: params },
-        );
+        const clientName =
+          kind === "extension"
+            ? "ExtensionCdpClient"
+            : kind === "cdp-inspect"
+              ? "CdpInspectClient"
+              : "LocalCdpClient";
+        throw new CdpError("disposed", `${clientName} already disposed`, {
+          cdpMethod: method,
+          cdpParams: params,
+        });
       }
       const command: CdpCommand = { method, params };
       const envelope = await manager.send(session.id, command, signal);
