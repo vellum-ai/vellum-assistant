@@ -52,7 +52,7 @@ struct WakeUpStepView: View {
             .multilineTextAlignment(.center)
             .opacity(showSubtext ? 1 : 0)
             .offset(y: showSubtext ? 0 : 8)
-            .padding(.bottom, VSpacing.xxxl)
+            .padding(.bottom, VSpacing.xxl)
 
         // Buttons
         VStack(spacing: VSpacing.sm) {

@@ -68,7 +68,7 @@ struct OnboardingFlowView: View {
                             .frame(width: 80, height: 80)
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                             .shadow(color: .black.opacity(0.15), radius: 1, x: 0, y: 1)
-                            .padding(.bottom, VSpacing.xxxl)
+                            .padding(.bottom, 78)
                     }
 
                     // Step content — Group flattens into parent VStack so
