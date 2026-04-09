@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getOllamaBaseUrlEnv } from "../config/env.js";
 import type { AssistantConfig } from "../config/types.js";
+import { MANAGED_PROVIDER_META } from "../providers/managed-proxy/constants.js";
+import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
 import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { GeminiEmbeddingBackend } from "./embedding-gemini.js";
@@ -309,6 +312,44 @@ export async function selectEmbeddingBackend(
       ),
       reason: null,
     };
+  }
+
+  // When the managed-gemini-embeddings-enabled flag is on AND managed proxy
+  // prerequisites are satisfied, insert managed-proxy Gemini at the front of
+  // the auto chain so platform assistants use Vellum-managed Gemini embeddings.
+  if (
+    (requested === "auto" || requested === "gemini") &&
+    isAssistantFeatureFlagEnabled("managed-gemini-embeddings-enabled", config)
+  ) {
+    const proxyCtx = await resolveManagedProxyContext();
+    if (proxyCtx.enabled) {
+      const meta = MANAGED_PROVIDER_META["gemini"];
+      if (meta?.managed && meta.proxyPath) {
+        const managedBaseUrl = `${proxyCtx.platformBaseUrl}${meta.proxyPath}`;
+        const managedModel = config.memory.embeddings.geminiModel;
+        const managedDimensions =
+          config.memory.embeddings.geminiDimensions ?? 3072;
+        const extras = geminiCacheExtras(config);
+        return {
+          backend: getCachedOrCreate(
+            "gemini",
+            managedModel,
+            () =>
+              new GeminiEmbeddingBackend(
+                proxyCtx.assistantApiKey,
+                managedModel,
+                {
+                  taskType: config.memory.embeddings.geminiTaskType,
+                  dimensions: managedDimensions,
+                  managedBaseUrl,
+                },
+              ),
+            [...extras, "managed"],
+          ),
+          reason: null,
+        };
+      }
+    }
   }
 
   // Auto order: local → openai → gemini → ollama
@@ -645,6 +686,46 @@ async function selectFallbackBackends(
               geminiCacheExtras(config),
             ),
           );
+        } else if (
+          isAssistantFeatureFlagEnabled(
+            "managed-gemini-embeddings-enabled",
+            config,
+          )
+        ) {
+          // Try managed proxy Gemini as fallback when no direct key exists.
+          const proxyCtx = await resolveManagedProxyContext();
+          const meta = MANAGED_PROVIDER_META["gemini"];
+          if (proxyCtx.enabled && meta?.managed && meta.proxyPath) {
+            const managedBaseUrl = `${proxyCtx.platformBaseUrl}${meta.proxyPath}`;
+            const managedModel = config.memory.embeddings.geminiModel;
+            const managedDimensions =
+              config.memory.embeddings.geminiDimensions ?? 3072;
+            const extras = geminiCacheExtras(config);
+            backends.push(
+              getCachedOrCreate(
+                "gemini",
+                managedModel,
+                () =>
+                  new GeminiEmbeddingBackend(
+                    proxyCtx.assistantApiKey,
+                    managedModel,
+                    {
+                      taskType: config.memory.embeddings.geminiTaskType,
+                      dimensions: managedDimensions,
+                      managedBaseUrl,
+                    },
+                  ),
+                [...extras, "managed"],
+              ),
+            );
+          } else {
+            const cached = getCached(
+              "gemini",
+              config.memory.embeddings.geminiModel,
+              geminiCacheExtras(config),
+            );
+            if (cached) backends.push(cached);
+          }
         } else {
           // Preserve cached backend on transient credential-store failures.
           const cached = getCached(
