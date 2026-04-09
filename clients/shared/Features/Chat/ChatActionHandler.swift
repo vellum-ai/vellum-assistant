@@ -125,7 +125,7 @@ final class ChatActionHandler {
             vm.suggestion = resp.suggestion
 
         case .messageComplete(let complete):
-            handleMessageComplete(complete, vm: vm)
+            Task { await self.handleMessageComplete(complete, vm: vm) }
 
         case .undoComplete(let undoMsg):
             handleUndoComplete(undoMsg, vm: vm)
@@ -147,7 +147,7 @@ final class ChatActionHandler {
             handleMessageRequestComplete(msg, vm: vm)
 
         case .generationHandoff(let handoff):
-            handleGenerationHandoff(handoff, vm: vm)
+            Task { await self.handleGenerationHandoff(handoff, vm: vm) }
 
         case .error(let err):
             handleError(err, vm: vm)
@@ -342,7 +342,7 @@ final class ChatActionHandler {
         vm.scheduleStreamingFlush()
     }
 
-    private func handleMessageComplete(_ complete: MessageCompleteMessage, vm: ChatViewModel) {
+    private func handleMessageComplete(_ complete: MessageCompleteMessage, vm: ChatViewModel) async {
         guard belongsToConversation(complete.conversationId) else { return }
         // Auxiliary message_complete events (watch notifiers, call notifications)
         // that lack a messageId should not reset the main agent turn state.
@@ -446,7 +446,7 @@ final class ChatActionHandler {
         }
         // Must run before currentAssistantMessageId is cleared so attachments land on the right message
         if !wasRefinement {
-            vm.ingestAssistantAttachments(complete.attachments)
+            await vm.ingestAssistantAttachments(complete.attachments)
         }
         if vm.pendingVoiceMessage {
             vm.pendingVoiceMessage = false
@@ -743,7 +743,7 @@ final class ChatActionHandler {
         }
     }
 
-    private func handleGenerationHandoff(_ handoff: GenerationHandoffMessage, vm: ChatViewModel) {
+    private func handleGenerationHandoff(_ handoff: GenerationHandoffMessage, vm: ChatViewModel) async {
         guard belongsToConversation(handoff.conversationId) else { return }
         if let requestId = handoff.requestId {
             vm.activeRequestIdToMessageId.removeValue(forKey: requestId)
@@ -754,7 +754,7 @@ final class ChatActionHandler {
         vm.flushStreamingBuffer()
         vm.flushPartialOutputBuffer()
         // Must run before currentAssistantMessageId is cleared so attachments land on the right message
-        vm.ingestAssistantAttachments(handoff.attachments)
+        await vm.ingestAssistantAttachments(handoff.attachments)
         // Keep isSending = true — daemon is handing off to next queued message
         if let existingId = vm.currentAssistantMessageId,
            let index = vm.messages.firstIndex(where: { $0.id == existingId }) {

@@ -857,12 +857,17 @@ class IOSConversationStore: ObservableObject {
 
         let isPaginationLoad = vm.isHistoryLoaded && vm.isLoadingMoreMessages
 
-        vm.populateFromHistory(
-            response.messages,
-            hasMore: response.hasMore,
-            oldestTimestamp: response.oldestTimestamp,
-            isPaginationLoad: isPaginationLoad
-        )
+        // populateFromHistory is async because it dispatches CPU-intensive
+        // reconstruction (thumbnail generation, JSON estimation) to a background
+        // thread. The callback wiring below doesn't depend on completion.
+        Task {
+            await vm.populateFromHistory(
+                response.messages,
+                hasMore: response.hasMore,
+                oldestTimestamp: response.oldestTimestamp,
+                isPaginationLoad: isPaginationLoad
+            )
+        }
 
         // Wire up the onLoadMoreHistory callback if not already set.
         if vm.onLoadMoreHistory == nil {

@@ -222,14 +222,18 @@ extension ChatViewModel {
     // MARK: - Attachment Helpers
 
     /// Map attachment DTOs to ChatAttachment values, generating thumbnails for images.
-    func mapMessageAttachments(_ attachments: [UserMessageAttachment]) -> [ChatAttachment] {
-        HistoryReconstructionService.mapMessageAttachmentsStatic(attachments)
+    /// Runs the CPU-intensive thumbnail generation on a background thread to avoid
+    /// blocking the main actor.
+    func mapMessageAttachments(_ attachments: [UserMessageAttachment]) async -> [ChatAttachment] {
+        await Task.detached(priority: .userInitiated) {
+            HistoryReconstructionService.mapMessageAttachmentsStatic(attachments)
+        }.value
     }
 
     /// Ingest attachments from a completion/handoff event into the current or new assistant message.
-    func ingestAssistantAttachments(_ attachments: [UserMessageAttachment]?) {
+    func ingestAssistantAttachments(_ attachments: [UserMessageAttachment]?) async {
         guard let attachments, !attachments.isEmpty else { return }
-        let chatAttachments = mapMessageAttachments(attachments)
+        let chatAttachments = await mapMessageAttachments(attachments)
         guard !chatAttachments.isEmpty else { return }
 
         if let existingId = currentAssistantMessageId,

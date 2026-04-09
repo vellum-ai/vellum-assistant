@@ -223,7 +223,7 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
         XCTAssertNil(viewModel.conversationError)
     }
 
-    func testPopulateFromHistoryRetagsCommandListAcrossPaginationBoundary() {
+    func testPopulateFromHistoryRetagsCommandListAcrossPaginationBoundary() async {
         let assistantReply = HistoryResponseMessage(
             id: UUID().uuidString,
             role: "assistant",
@@ -231,7 +231,7 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
             timestamp: 2_000
         )
 
-        viewModel.populateFromHistory(
+        await viewModel.populateFromHistory(
             [assistantReply],
             hasMore: true,
             oldestTimestamp: 2_000
@@ -246,7 +246,7 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
             timestamp: 1_000
         )
 
-        viewModel.populateFromHistory(
+        await viewModel.populateFromHistory(
             [olderUserMessage],
             hasMore: false,
             oldestTimestamp: 1_000,

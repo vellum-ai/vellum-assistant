@@ -1799,7 +1799,7 @@ final class ChatViewModelTests: XCTestCase {
 
     // MARK: - History Attachment Hydration
 
-    func testPopulateFromHistoryHydratesAssistantAttachments() {
+    func testPopulateFromHistoryHydratesAssistantAttachments() async {
         let attachment = UserMessageAttachment(
             id: "hist-att-1", filename: "chart.png", mimeType: "image/png",
             data: "iVBORw0KGgo=", extractedText: nil, sizeBytes: nil, thumbnailData: nil
@@ -1809,7 +1809,7 @@ final class ChatViewModelTests: XCTestCase {
             HistoryResponseMessage(id: nil, role: "assistant", text: "Here is your chart", timestamp: 2000, toolCalls: nil, toolCallsBeforeText: nil, attachments: [attachment], textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil),
         ]
 
-        viewModel.populateFromHistory(historyItems, hasMore: false)
+        await viewModel.populateFromHistory(historyItems, hasMore: false)
 
         XCTAssertEqual(viewModel.messages.count, 2)
         XCTAssertEqual(viewModel.messages[1].role, .assistant)
@@ -1818,7 +1818,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages[1].attachments[0].id, "hist-att-1")
     }
 
-    func testPopulateFromHistoryIncludesAttachmentOnlyMessages() {
+    func testPopulateFromHistoryIncludesAttachmentOnlyMessages() async {
         let attachment = UserMessageAttachment(
             id: "hist-att-2", filename: "report.pdf", mimeType: "application/pdf",
             data: "JVBER", extractedText: nil, sizeBytes: nil, thumbnailData: nil
@@ -1827,7 +1827,7 @@ final class ChatViewModelTests: XCTestCase {
             HistoryResponseMessage(id: nil, role: "assistant", text: "", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: [attachment], textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil),
         ]
 
-        viewModel.populateFromHistory(historyItems, hasMore: false)
+        await viewModel.populateFromHistory(historyItems, hasMore: false)
 
         // Attachment-only message (empty text, no tool calls) should NOT be skipped
         XCTAssertEqual(viewModel.messages.count, 1)
@@ -1836,12 +1836,12 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages[0].attachments[0].filename, "report.pdf")
     }
 
-    func testPopulateFromHistorySkipsEmptyMessagesWithNoAttachments() {
+    func testPopulateFromHistorySkipsEmptyMessagesWithNoAttachments() async {
         let historyItems: [HistoryResponseMessage] = [
             HistoryResponseMessage(id: nil, role: "assistant", text: "", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: nil, textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil),
         ]
 
-        viewModel.populateFromHistory(historyItems, hasMore: false)
+        await viewModel.populateFromHistory(historyItems, hasMore: false)
 
         // Empty message with no text, no tool calls, no attachments should be skipped
         XCTAssertEqual(viewModel.messages.count, 0)
@@ -1896,7 +1896,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(msg.contentOrder, [.toolCall(0)])
     }
 
-    func testPopulateFromHistoryUsesTextSegments() {
+    func testPopulateFromHistoryUsesTextSegments() async {
         let toolCall = HistoryResponseToolCall(name: "memory_manage", input: ["key": AnyCodable("task")], result: "saved", isError: nil)
         let historyItems: [HistoryResponseMessage] = [
             HistoryResponseMessage(
@@ -1914,7 +1914,7 @@ final class ChatViewModelTests: XCTestCase {
             ),
         ]
 
-        viewModel.populateFromHistory(historyItems, hasMore: false)
+        await viewModel.populateFromHistory(historyItems, hasMore: false)
 
         XCTAssertEqual(viewModel.messages.count, 1)
         let msg = viewModel.messages[0]
@@ -1922,7 +1922,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(msg.contentOrder, [.text(0), .toolCall(0), .text(1)])
     }
 
-    func testPopulateFromHistoryFallsBackToLegacy() {
+    func testPopulateFromHistoryFallsBackToLegacy() async {
         let toolCall = HistoryResponseToolCall(name: "bash", input: ["command": AnyCodable("ls")], result: "file.txt", isError: nil)
         let historyItems: [HistoryResponseMessage] = [
             HistoryResponseMessage(
@@ -1940,7 +1940,7 @@ final class ChatViewModelTests: XCTestCase {
             ),
         ]
 
-        viewModel.populateFromHistory(historyItems, hasMore: false)
+        await viewModel.populateFromHistory(historyItems, hasMore: false)
 
         XCTAssertEqual(viewModel.messages.count, 1)
         let msg = viewModel.messages[0]
@@ -2740,7 +2740,7 @@ final class ChatViewModelTests: XCTestCase {
                        "onReconnectHistoryNeeded should be called with the conversation ID")
     }
 
-    func testPopulateFromHistoryResetsStreamingState() {
+    func testPopulateFromHistoryResetsStreamingState() async {
         // Simulate mid-stream state: an assistant message is being built,
         // the delta buffer has accumulated text, and a flush task is scheduled.
         let staleId = UUID()
@@ -2751,7 +2751,7 @@ final class ChatViewModelTests: XCTestCase {
         }
 
         // Call populateFromHistory with an empty history payload.
-        viewModel.populateFromHistory([], hasMore: false)
+        await viewModel.populateFromHistory([], hasMore: false)
 
         XCTAssertNil(viewModel.currentAssistantMessageId,
                      "populateFromHistory should clear currentAssistantMessageId")

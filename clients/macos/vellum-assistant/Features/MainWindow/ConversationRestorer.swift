@@ -385,12 +385,17 @@ final class ConversationRestorer {
         // isLoadingMoreMessages is true, the response is for a "Load more" request.
         let isPaginationLoad = viewModel.isHistoryLoaded && viewModel.isLoadingMoreMessages
 
-        viewModel.populateFromHistory(
-            response.messages,
-            hasMore: response.hasMore,
-            oldestTimestamp: response.oldestTimestamp,
-            isPaginationLoad: isPaginationLoad
-        )
+        // populateFromHistory is async because it dispatches CPU-intensive
+        // reconstruction (thumbnail generation, JSON estimation) to a background
+        // thread. The callback wiring below doesn't depend on completion.
+        Task {
+            await viewModel.populateFromHistory(
+                response.messages,
+                hasMore: response.hasMore,
+                oldestTimestamp: response.oldestTimestamp,
+                isPaginationLoad: isPaginationLoad
+            )
+        }
 
         // Wire up the onLoadMoreHistory callback if not already set (e.g. for
         // reconnect-restored conversations that didn't go through loadHistoryIfNeeded).

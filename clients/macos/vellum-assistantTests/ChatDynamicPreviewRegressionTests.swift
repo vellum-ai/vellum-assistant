@@ -423,7 +423,7 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
 
     // MARK: - History hydration with surfaces
 
-    func testPopulateFromHistoryWithDynamicPageSurface() {
+    func testPopulateFromHistoryWithDynamicPageSurface() async {
         let surfaceData: [String: AnyCodable] = [
             "html": AnyCodable("<p>From history</p>"),
             "preview": AnyCodable([
@@ -455,7 +455,7 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
             ),
         ]
 
-        viewModel.populateFromHistory(historyItems, hasMore: false)
+        await viewModel.populateFromHistory(historyItems, hasMore: false)
 
         XCTAssertEqual(viewModel.messages.count, 1)
         let msg = viewModel.messages[0]
@@ -466,7 +466,7 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
         XCTAssertEqual(msg.inlineSurfaces[0].surfaceType, .dynamicPage)
     }
 
-    func testPopulateFromHistoryWithLightModeSurface() {
+    func testPopulateFromHistoryWithLightModeSurface() async {
         // Light-mode history strips html but preserves preview metadata.
         // The surface should still parse and render as an inline preview card.
         let surfaceData: [String: AnyCodable] = [
@@ -500,7 +500,7 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
             ),
         ]
 
-        viewModel.populateFromHistory(historyItems, hasMore: false)
+        await viewModel.populateFromHistory(historyItems, hasMore: false)
 
         XCTAssertEqual(viewModel.messages.count, 1)
         let msg = viewModel.messages[0]

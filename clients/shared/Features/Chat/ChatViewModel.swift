@@ -1992,16 +1992,21 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         hasMore: Bool,
         oldestTimestamp: Double? = nil,
         isPaginationLoad: Bool = false
-    ) {
+    ) async {
         let spid = OSSignpostID(log: Self.poiLog)
         os_signpost(.begin, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "messages=%d isPagination=%d", historyMessages.count, isPaginationLoad ? 1 : 0)
 
-        // Reconstruct messages using a nonisolated static method.
+        // Reconstruct messages on a background thread via Task.detached.
         // The heavy work (JSON size estimation, tool input formatting, surface
-        // mapping, image decoding) is isolated in a pure function that accesses
-        // no @MainActor state, enabling future background execution.
+        // mapping, image decoding/thumbnail generation) is isolated in a pure
+        // nonisolated static function that accesses no @MainActor state.
+        // Task.detached is required because a plain Task {} would inherit the
+        // @MainActor executor, defeating the purpose of offloading CPU work.
+        // See: https://developer.apple.com/documentation/swift/task/detached(priority:operation:)-3lvix
         let convId = self.conversationId
-        let result = HistoryReconstructionService.reconstructMessages(from: historyMessages, conversationId: convId)
+        let result = await Task.detached(priority: .userInitiated) {
+            HistoryReconstructionService.reconstructMessages(from: historyMessages, conversationId: convId)
+        }.value
         let chatMessages = result.messages
         let reconstructedSubagents = result.subagents
 

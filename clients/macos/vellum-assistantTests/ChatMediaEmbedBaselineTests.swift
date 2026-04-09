@@ -206,7 +206,7 @@ final class ChatMediaEmbedBaselineTests: XCTestCase {
 
     // MARK: - History hydration preserves URLs as plain text
 
-    func testPopulateFromHistoryWithMediaURLsHasNoEmbeds() {
+    func testPopulateFromHistoryWithMediaURLsHasNoEmbeds() async {
         let historyItems: [HistoryResponseMessage] = [
             HistoryResponseMessage(
                 id: nil,
@@ -223,7 +223,7 @@ final class ChatMediaEmbedBaselineTests: XCTestCase {
             ),
         ]
 
-        viewModel.populateFromHistory(historyItems, hasMore: false)
+        await viewModel.populateFromHistory(historyItems, hasMore: false)
 
         XCTAssertEqual(viewModel.messages.count, 1)
         let msg = viewModel.messages[0]
