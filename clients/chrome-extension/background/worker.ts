@@ -59,6 +59,46 @@ const CLOUD_OAUTH_CLIENT_ID = 'vellum-chrome-extension';
 
 const DEFAULT_RELAY_PORT = 7830;
 
+// ── Stable client instance id ──────────────────────────────────────
+//
+// Generated once per extension install and persisted in
+// chrome.storage.local so it survives service-worker teardown and
+// browser restarts. Sent on every WebSocket handshake against the
+// runtime's `/v1/browser-relay` endpoint as a `clientInstanceId` query
+// param. The runtime uses it to key its ChromeExtensionRegistry under
+// (guardianId, clientInstanceId) pairs so multiple parallel installs
+// for the same guardian (two Chrome profiles, two desktops) don't
+// evict each other on register/unregister.
+//
+// The value is a UUIDv4, generated via crypto.randomUUID() which is
+// available in MV3 service workers. The key is intentionally distinct
+// from any persisted auth token so the instance id survives re-pair
+// and re-sign-in flows.
+const CLIENT_INSTANCE_ID_KEY = 'vellum.clientInstanceId';
+
+/**
+ * Read-through cache for the stable client instance id. The value is
+ * lazily materialized on first access and persisted in
+ * chrome.storage.local; subsequent reads hit the in-memory cache so
+ * the hot connect path doesn't have to await storage.
+ */
+let cachedClientInstanceId: string | null = null;
+
+async function getOrCreateClientInstanceId(): Promise<string> {
+  if (cachedClientInstanceId) return cachedClientInstanceId;
+  const stored = await chrome.storage.local.get(CLIENT_INSTANCE_ID_KEY);
+  const existing = stored[CLIENT_INSTANCE_ID_KEY];
+  if (typeof existing === 'string' && existing.length > 0) {
+    cachedClientInstanceId = existing;
+    return existing;
+  }
+  const fresh = crypto.randomUUID();
+  await chrome.storage.local.set({ [CLIENT_INSTANCE_ID_KEY]: fresh });
+  cachedClientInstanceId = fresh;
+  console.log(`[vellum-relay] Generated stable clientInstanceId: ${fresh}`);
+  return fresh;
+}
+
 // Storage key used to surface the most recent auth-related relay error
 // to the popup. The popup reads this on open and shows it next to the
 // cloud sign-in button. Cleared on a successful connect so stale errors
@@ -341,9 +381,13 @@ async function cloudReconnectHook(
  * Wire a RelayConnection up with the worker's message/open/close
  * callbacks. Does NOT start it.
  */
-function createRelayConnection(mode: RelayMode): RelayConnection {
+function createRelayConnection(
+  mode: RelayMode,
+  clientInstanceId: string,
+): RelayConnection {
   return new RelayConnection({
     mode,
+    clientInstanceId,
     onOpen: () => {
       console.log(`[vellum-relay] Connected (${mode.kind})`);
       // A successful connect means any persisted auth-error is stale
@@ -467,7 +511,11 @@ async function connect(): Promise<void> {
   if (relayConnection) {
     relayConnection.close(1000, 'reconfigured');
   }
-  relayConnection = createRelayConnection(mode);
+  // Resolve the stable per-install id up front so every handshake
+  // (including reconnects on the freshly constructed RelayConnection)
+  // sends the same value. The call is cached after the first lookup.
+  const clientInstanceId = await getOrCreateClientInstanceId();
+  relayConnection = createRelayConnection(mode, clientInstanceId);
   relayConnection.start();
 }
 

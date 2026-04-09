@@ -8,6 +8,26 @@
  *
  * This is the chrome-extension counterpart to the SSE hub used by the macOS
  * client for the same purpose.
+ *
+ * A single guardian may have multiple simultaneous extension connections —
+ * e.g. the same guardian signed in on two Chrome profiles, two desktops
+ * sharing a sync identity, or a power user with parallel installs for
+ * testing. Each install generates a stable `clientInstanceId` on first
+ * run and sends it on every handshake; the registry keys inner entries by
+ * that id so sibling instances don't evict each other on register/unregister.
+ *
+ * Routing semantics:
+ *   - When a caller does not pin a specific instance, the registry picks
+ *     the "most recently active" instance for the guardian (highest
+ *     `lastActiveAt` timestamp). `lastActiveAt` is bumped on register and
+ *     on every successful `send()`, which is a good enough stand-in for
+ *     WebSocket heartbeats under the current load profile.
+ *   - When no `clientInstanceId` is present on the handshake (older
+ *     extension builds, dev bypass paths), we synthesize a placeholder
+ *     `legacy:<connectionId>` key. The send/lookup path treats it the
+ *     same as any other instance so the call site stays uniform. The
+ *     synthesized key is deliberately connection-scoped so a stale
+ *     legacy unregister can never evict a newer entry.
  */
 
 import type { ServerWebSocket } from "bun";
@@ -17,32 +37,78 @@ import { getLogger } from "../util/logger.js";
 
 const log = getLogger("chrome-extension-registry");
 
+/** Prefix applied to synthesized instance ids for connections that did not
+ * provide a client-supplied `clientInstanceId` at handshake time. Kept
+ * distinct from any plausible client-generated value so it never collides
+ * with a real install id. */
+const LEGACY_INSTANCE_PREFIX = "legacy:";
+
 export interface ChromeExtensionConnection {
   /** Stable identifier for this WebSocket connection (used for unregister). */
   id: string;
   /** Guardian identity this connection is authenticated as. */
   guardianId: string;
+  /**
+   * Stable per-extension-install identifier (persists across browser
+   * restarts, survives service-worker teardown). Absent on older
+   * extension builds and on dev-bypass paths — the registry synthesizes
+   * a `legacy:<connectionId>` key in that case so sibling multi-instance
+   * semantics degrade gracefully to single-instance behavior.
+   */
+  clientInstanceId?: string;
   /** Underlying Bun WebSocket. */
   ws: ServerWebSocket<unknown>;
   /** Wall-clock timestamp (ms) when the connection was registered. */
   connectedAt: number;
+  /**
+   * Wall-clock timestamp (ms) of the most recent activity on this
+   * connection — updated on register and on each successful `send()`.
+   * Used by the default-send routing path to pick the "most recently
+   * active" instance when the caller does not pin a specific one.
+   */
+  lastActiveAt: number;
 }
 
 /**
  * Module-level registry of active chrome-extension connections keyed by
- * guardianId. There is at most one connection per guardian — reconnects
- * supersede the prior entry by closing it first.
+ * guardianId, then by clientInstanceId. Multiple concurrent connections
+ * under the same guardian are supported; reconnects of the *same* install
+ * supersede the prior entry for that instance only, leaving sibling
+ * instances untouched.
  */
 export class ChromeExtensionRegistry {
-  private byGuardian = new Map<string, ChromeExtensionConnection>();
+  private byGuardian = new Map<
+    string,
+    Map<string, ChromeExtensionConnection>
+  >();
 
   /**
-   * Register a chrome-extension WebSocket for a guardian. If a prior
-   * connection already exists for the same guardianId, it is closed and
-   * replaced with the new one.
+   * Resolve the effective instance key for a connection. Prefers the
+   * client-supplied `clientInstanceId`; falls back to a
+   * connection-scoped `legacy:<connectionId>` placeholder when absent
+   * so older clients get stable single-instance semantics without
+   * clobbering sibling instances for the same guardian.
+   */
+  private keyFor(conn: ChromeExtensionConnection): string {
+    return conn.clientInstanceId ?? `${LEGACY_INSTANCE_PREFIX}${conn.id}`;
+  }
+
+  /**
+   * Register a chrome-extension WebSocket for a guardian + instance.
+   * If a prior connection already exists for the same guardianId AND
+   * clientInstanceId (i.e. the same install reconnecting), it is closed
+   * and replaced with the new one. Sibling instances for the same
+   * guardian are left untouched.
    */
   register(conn: ChromeExtensionConnection): void {
-    const prior = this.byGuardian.get(conn.guardianId);
+    let instances = this.byGuardian.get(conn.guardianId);
+    if (!instances) {
+      instances = new Map();
+      this.byGuardian.set(conn.guardianId, instances);
+    }
+
+    const instanceKey = this.keyFor(conn);
+    const prior = instances.get(instanceKey);
     if (prior && prior.id !== conn.id) {
       try {
         prior.ws.close(1000, "superseded by new connection");
@@ -50,9 +116,18 @@ export class ChromeExtensionRegistry {
         // Best-effort — the prior socket may already be closed.
       }
     }
-    this.byGuardian.set(conn.guardianId, conn);
+    // Stamp lastActiveAt on (re-)register so the "most recently active"
+    // routing heuristic treats a fresh connection as the current default
+    // target for its guardian.
+    conn.lastActiveAt = Date.now();
+    instances.set(instanceKey, conn);
     log.info(
-      { guardianId: conn.guardianId, connectionId: conn.id },
+      {
+        guardianId: conn.guardianId,
+        connectionId: conn.id,
+        clientInstanceId: conn.clientInstanceId,
+        instanceCount: instances.size,
+      },
       "chrome extension registered",
     );
   }
@@ -60,40 +135,135 @@ export class ChromeExtensionRegistry {
   /**
    * Remove the entry with the given connectionId. No-op if no connection
    * with that id is currently registered — the entry may already have been
-   * superseded by a newer registration.
+   * superseded by a newer registration for the same instance, or the
+   * guardian may have zero active instances remaining.
+   *
+   * Importantly, this does not evict sibling instances under the same
+   * guardian — multi-instance routing depends on keeping them alive
+   * across single-instance reconnects.
    */
   unregister(connectionId: string): void {
-    for (const [key, conn] of this.byGuardian) {
-      if (conn.id === connectionId) {
-        this.byGuardian.delete(key);
-        log.info(
-          { guardianId: key, connectionId },
-          "chrome extension unregistered",
-        );
-        return;
+    for (const [guardianId, instances] of this.byGuardian) {
+      for (const [instanceKey, conn] of instances) {
+        if (conn.id === connectionId) {
+          instances.delete(instanceKey);
+          if (instances.size === 0) {
+            this.byGuardian.delete(guardianId);
+          }
+          log.info(
+            {
+              guardianId,
+              connectionId,
+              clientInstanceId: conn.clientInstanceId,
+              remaining: instances.size,
+            },
+            "chrome extension unregistered",
+          );
+          return;
+        }
       }
     }
   }
 
-  /** Return the active connection for a guardian, if any. */
+  /**
+   * Return the default "active" connection for a guardian — the
+   * instance with the most recent `lastActiveAt` timestamp. Returns
+   * `undefined` when no instances are registered for the guardian.
+   *
+   * Callers that want to pin a specific instance should use
+   * {@link getInstance} instead.
+   */
   get(guardianId: string): ChromeExtensionConnection | undefined {
-    return this.byGuardian.get(guardianId);
+    const instances = this.byGuardian.get(guardianId);
+    if (!instances || instances.size === 0) return undefined;
+    let best: ChromeExtensionConnection | undefined;
+    for (const conn of instances.values()) {
+      if (!best || conn.lastActiveAt > best.lastActiveAt) {
+        best = conn;
+      }
+    }
+    return best;
   }
 
   /**
-   * Send a ServerMessage to the chrome-extension connection for the given
-   * guardian. Returns `true` when a connection exists and the send
-   * succeeds; `false` when no connection is registered or when the
-   * underlying `ws.send` throws.
+   * Return the connection for an explicit (guardianId, clientInstanceId)
+   * pair, or `undefined` if no such instance is registered. Used by
+   * routing callers that need to target a specific extension install
+   * (e.g. sending a follow-up frame to the same instance that produced
+   * the prior result).
+   */
+  getInstance(
+    guardianId: string,
+    clientInstanceId: string,
+  ): ChromeExtensionConnection | undefined {
+    return this.byGuardian.get(guardianId)?.get(clientInstanceId);
+  }
+
+  /**
+   * Return all currently registered connections for a guardian. Order
+   * is insertion order of the inner map — callers that care about
+   * recency should sort by `lastActiveAt` themselves.
+   */
+  listInstances(guardianId: string): ChromeExtensionConnection[] {
+    const instances = this.byGuardian.get(guardianId);
+    if (!instances) return [];
+    return Array.from(instances.values());
+  }
+
+  /**
+   * Send a ServerMessage to the default active chrome-extension
+   * connection for the given guardian. The "default active" instance
+   * is the one with the most recent `lastActiveAt` timestamp — i.e.
+   * the install the user is currently driving.
+   *
+   * Returns `true` when a connection exists and the send succeeds;
+   * `false` when no connection is registered or when the underlying
+   * `ws.send` throws. On a successful send, the connection's
+   * `lastActiveAt` is bumped so subsequent default sends stay on the
+   * same instance unless another sibling becomes more recent.
    */
   send(guardianId: string, msg: ServerMessage): boolean {
-    const conn = this.byGuardian.get(guardianId);
+    const conn = this.get(guardianId);
     if (!conn) return false;
+    return this.sendTo(conn, msg);
+  }
+
+  /**
+   * Send a ServerMessage to an explicit (guardianId, clientInstanceId)
+   * pair. Returns `false` when no matching instance is registered or
+   * when the underlying `ws.send` throws.
+   */
+  sendToInstance(
+    guardianId: string,
+    clientInstanceId: string,
+    msg: ServerMessage,
+  ): boolean {
+    const conn = this.getInstance(guardianId, clientInstanceId);
+    if (!conn) return false;
+    return this.sendTo(conn, msg);
+  }
+
+  /**
+   * Low-level send helper — writes to the socket and bumps
+   * `lastActiveAt` on success. Callers should use {@link send} or
+   * {@link sendToInstance} unless they already hold a resolved
+   * connection handle.
+   */
+  private sendTo(conn: ChromeExtensionConnection, msg: ServerMessage): boolean {
     try {
       conn.ws.send(JSON.stringify(msg));
+      conn.lastActiveAt = Date.now();
       return true;
     } catch (err) {
-      log.warn({ guardianId, err }, "failed to send to chrome extension");
+      log.warn(
+        {
+          guardianId: conn.guardianId,
+          connectionId: conn.id,
+          clientInstanceId: conn.clientInstanceId,
+          err,
+        },
+        "failed to send to chrome extension",
+      );
       return false;
     }
   }
