@@ -6,6 +6,10 @@
  */
 import { z } from "zod";
 
+import {
+  markTargetInvalidated,
+  publishCdpEvent,
+} from "../../browser-session/events.js";
 import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
@@ -116,6 +120,109 @@ export function resolveHostBrowserResultByRequestId(frame: {
     content: normalizedContent,
     isError: normalizedIsError,
   });
+
+  return { ok: true };
+}
+
+/**
+ * Result of attempting to resolve a `host_browser_event` frame. The
+ * event surface never fails — every well-formed frame is published
+ * to the runtime-side CDP event bus — so the resolution is either
+ * `ok: true` or a `BAD_REQUEST` when the frame is malformed. Kept as
+ * a discriminated union (rather than `void`) so the WS dispatcher
+ * can log rejected frames with a consistent shape.
+ */
+export type HostBrowserEventResolution =
+  | { ok: true }
+  | {
+      ok: false;
+      code: "BAD_REQUEST";
+      status: 400;
+      message: string;
+    };
+
+/**
+ * Shared resolver for `host_browser_event` envelopes. Publishes the
+ * event into the module-level browser-session event bus where
+ * runtime-side consumers can subscribe. Validation is intentionally
+ * minimal — the frame is opaque to the bus and the bus's listeners
+ * are the ones that care about params shape.
+ */
+export function resolveHostBrowserEvent(frame: {
+  method?: unknown;
+  params?: unknown;
+  cdpSessionId?: unknown;
+}): HostBrowserEventResolution {
+  const { method, params, cdpSessionId } = frame;
+
+  if (!method || typeof method !== "string") {
+    return {
+      ok: false,
+      code: "BAD_REQUEST",
+      status: 400,
+      message: "method is required",
+    };
+  }
+
+  publishCdpEvent({
+    method,
+    params,
+    cdpSessionId:
+      typeof cdpSessionId === "string" && cdpSessionId.length > 0
+        ? cdpSessionId
+        : undefined,
+  });
+
+  return { ok: true };
+}
+
+/**
+ * Result of attempting to resolve a `host_browser_session_invalidated`
+ * frame. Mirrors {@link HostBrowserEventResolution} — publishing into
+ * the invalidated-target registry never fails, so the resolution is
+ * either `ok: true` or a `BAD_REQUEST` on a malformed frame.
+ */
+export type HostBrowserSessionInvalidatedResolution =
+  | { ok: true }
+  | {
+      ok: false;
+      code: "BAD_REQUEST";
+      status: 400;
+      message: string;
+    };
+
+/**
+ * Shared resolver for `host_browser_session_invalidated` envelopes.
+ * Marks the target as invalidated in the runtime-side registry; the
+ * next `BrowserSessionManager.send()` against that target will
+ * evict the stale session and force the owning tool to reattach.
+ *
+ * A frame without a `targetId` is tolerated (some detach notifications
+ * carry only a `reason`) but logged at info because it is less
+ * actionable than a targeted invalidation — the caller can still
+ * subscribe to the event bus to observe the signal.
+ */
+export function resolveHostBrowserSessionInvalidated(frame: {
+  targetId?: unknown;
+  reason?: unknown;
+}): HostBrowserSessionInvalidatedResolution {
+  const { targetId, reason } = frame;
+
+  if (targetId !== undefined && typeof targetId !== "string") {
+    return {
+      ok: false,
+      code: "BAD_REQUEST",
+      status: 400,
+      message: "targetId must be a string when present",
+    };
+  }
+
+  if (typeof targetId === "string" && targetId.length > 0) {
+    markTargetInvalidated(
+      targetId,
+      typeof reason === "string" ? reason : undefined,
+    );
+  }
 
   return { ok: true };
 }

@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 
+import { consumeInvalidatedTargetId } from "./events.js";
 import type {
   BrowserBackend,
   BrowserSession,
@@ -62,6 +63,23 @@ export class BrowserSessionManager {
       if (!session) {
         throw new Error(`Unknown browser session: ${sessionId}`);
       }
+      // If the chrome extension has reported this session's target
+      // as detached since the last dispatch, evict the session and
+      // throw so the caller can create a fresh one. Reading (and
+      // consuming) the invalidation flag here keeps the "next
+      // command forces reattach" semantics in lockstep with the
+      // host_browser_session_invalidated envelope handler — without
+      // this check the manager would happily forward a CDP command
+      // against a torn-down target and hit a permanent failure.
+      if (
+        session.targetId !== undefined &&
+        consumeInvalidatedTargetId(session.targetId)
+      ) {
+        this.sessions.delete(sessionId);
+        throw new Error(
+          `Browser session ${sessionId} was invalidated (target ${session.targetId} detached)`,
+        );
+      }
       const matched = this.backends.find((b) => b.kind === session.backendKind);
       if (!matched) {
         throw new Error(
@@ -85,6 +103,53 @@ export class BrowserSessionManager {
 
   disposeSession(id: string): void {
     this.sessions.delete(id);
+  }
+
+  /**
+   * Evict a session that the backend has informed us is no longer
+   * valid — e.g. the chrome extension dispatched a
+   * `host_browser_session_invalidated` envelope after Chrome detached
+   * the debugger from the underlying tab/target.
+   *
+   * Functionally equivalent to {@link disposeSession} today (both
+   * remove the session from the manager's map so a subsequent
+   * `send()` throws "Unknown browser session") but preserved as a
+   * distinct method so call sites can stay explicit about intent.
+   * Callers that receive a detach/invalidated signal should use this
+   * method; callers that are cleaning up at end-of-lifecycle should
+   * use {@link disposeSession}.
+   *
+   * Returns `true` when a session was actually removed, `false` when
+   * no session with that id was tracked. Returning a boolean lets
+   * transport-level dispatchers (see
+   * `resolveHostBrowserSessionInvalidated`) log at the right level
+   * based on whether the invalidation had any effect.
+   */
+  invalidateSession(id: string): boolean {
+    return this.sessions.delete(id);
+  }
+
+  /**
+   * Evict every session whose opaque `targetId` matches the supplied
+   * id. Used by the WS dispatcher when a `host_browser_session_invalidated`
+   * envelope arrives without a manager-level session id: the
+   * extension-side dispatcher only knows its own `tabId` / `targetId`
+   * and does not carry our uuid session handle.
+   *
+   * Returns the number of sessions removed. A zero return does not
+   * necessarily indicate an error — the target may not have a
+   * runtime-side session attached to it yet, or the session may
+   * already have been disposed by its owning tool.
+   */
+  invalidateByTargetId(targetId: string): number {
+    let removed = 0;
+    for (const [id, session] of this.sessions) {
+      if (session.targetId === targetId) {
+        this.sessions.delete(id);
+        removed += 1;
+      }
+    }
+    return removed;
   }
 
   disposeAll(): void {

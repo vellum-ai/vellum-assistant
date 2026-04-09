@@ -12,9 +12,11 @@ import { describe, test, expect, beforeEach } from 'bun:test';
 import {
   createHostBrowserDispatcher,
   type HostBrowserDispatcher,
+  type HostBrowserEventEnvelope,
   type HostBrowserRequestEnvelope,
   type HostBrowserCancelEnvelope,
   type HostBrowserResultEnvelope,
+  type HostBrowserSessionInvalidatedEnvelope,
 } from '../host-browser-dispatcher.js';
 import type {
   CdpProxy,
@@ -54,8 +56,15 @@ interface MockCdpProxy extends CdpProxy {
    * calling these directly via the `fireDetach` helper below.
    */
   detachHandlers: Set<(target: CdpDebuggee, reason: string) => void>;
+  /**
+   * Currently-registered onEvent handlers. Tests fire CDP events by
+   * calling these directly via the `fireEvent` helper below.
+   */
+  eventHandlers: Set<(event: CdpEventFrame) => void>;
   /** Synthetically dispatch a detach event to all registered handlers. */
   fireDetach(target: CdpDebuggee, reason?: string): void;
+  /** Synthetically dispatch a CDP event to all registered handlers. */
+  fireEvent(event: CdpEventFrame): void;
 }
 
 function createMockCdpProxy(options: MockCdpProxyOptions = {}): MockCdpProxy {
@@ -75,6 +84,7 @@ function createMockCdpProxy(options: MockCdpProxyOptions = {}): MockCdpProxy {
     sendCalls,
     detachCalls,
     detachHandlers,
+    eventHandlers,
     get disposeCalls() {
       return disposeCalls;
     },
@@ -107,6 +117,9 @@ function createMockCdpProxy(options: MockCdpProxyOptions = {}): MockCdpProxy {
     fireDetach(target, reason = 'target_closed') {
       for (const h of detachHandlers) h(target, reason);
     },
+    fireEvent(event) {
+      for (const h of eventHandlers) h(event);
+    },
     dispose() {
       disposeCalls += 1;
       eventHandlers.clear();
@@ -120,6 +133,8 @@ interface DispatcherTestHarness {
   dispatcher: HostBrowserDispatcher;
   proxy: MockCdpProxy;
   results: HostBrowserResultEnvelope[];
+  forwardedEvents: HostBrowserEventEnvelope[];
+  forwardedInvalidations: HostBrowserSessionInvalidatedEnvelope[];
   resolveTargetCalls: Array<string | undefined>;
   /** Override this to throw from resolveTarget. */
   resolveTargetImpl: (
@@ -127,17 +142,27 @@ interface DispatcherTestHarness {
   ) => Promise<{ tabId?: number; targetId?: string }>;
   /** Override this to throw from postResult. */
   postResultImpl: (result: HostBrowserResultEnvelope) => Promise<void>;
+  /** Optional override that lets a test simulate forwardCdpEvent throwing. */
+  forwardCdpEventImpl?: (event: HostBrowserEventEnvelope) => void;
+  /** Optional override that lets a test simulate forwardSessionInvalidated throwing. */
+  forwardSessionInvalidatedImpl?: (
+    event: HostBrowserSessionInvalidatedEnvelope,
+  ) => void;
 }
 
 function createHarness(options: MockCdpProxyOptions = {}): DispatcherTestHarness {
   const proxy = createMockCdpProxy(options);
   const results: HostBrowserResultEnvelope[] = [];
+  const forwardedEvents: HostBrowserEventEnvelope[] = [];
+  const forwardedInvalidations: HostBrowserSessionInvalidatedEnvelope[] = [];
   const resolveTargetCalls: Array<string | undefined> = [];
 
   const harness: DispatcherTestHarness = {
     dispatcher: null as unknown as HostBrowserDispatcher,
     proxy,
     results,
+    forwardedEvents,
+    forwardedInvalidations,
     resolveTargetCalls,
     resolveTargetImpl: async (cdpSessionId) => {
       if (cdpSessionId) return { targetId: cdpSessionId };
@@ -156,6 +181,20 @@ function createHarness(options: MockCdpProxyOptions = {}): DispatcherTestHarness
     },
     postResult: async (result) => {
       await harness.postResultImpl(result);
+    },
+    forwardCdpEvent: (event) => {
+      if (harness.forwardCdpEventImpl) {
+        harness.forwardCdpEventImpl(event);
+        return;
+      }
+      forwardedEvents.push(event);
+    },
+    forwardSessionInvalidated: (event) => {
+      if (harness.forwardSessionInvalidatedImpl) {
+        harness.forwardSessionInvalidatedImpl(event);
+        return;
+      }
+      forwardedInvalidations.push(event);
     },
   });
 
@@ -907,6 +946,177 @@ describe('createHostBrowserDispatcher', () => {
       // the proxy isn't left holding a stale closure that references the
       // disposed dispatcher's `attachedTargets` set.
       expect(harness.proxy.detachHandlers.size).toBe(0);
+    });
+
+    test('unsubscribes the onEvent handler', async () => {
+      harness = createHarness({ sendResult: { id: 1, result: {} } });
+
+      // PR10: the dispatcher subscribes to proxy.onEvent so it can
+      // forward CDP events to the runtime. After dispose, the
+      // subscription must be released — otherwise the proxy keeps
+      // a stale closure referencing the disposed dispatcher's hooks.
+      expect(harness.proxy.eventHandlers.size).toBe(1);
+
+      harness.dispatcher.dispose();
+
+      expect(harness.proxy.eventHandlers.size).toBe(0);
+    });
+  });
+
+  // ── PR10: CDP event forwarding ─────────────────────────────────────
+
+  describe('forwardCdpEvent — chrome.debugger.onEvent forwarding', () => {
+    test('forwards CDP events to the worker hook with method, params, and sessionId', () => {
+      // Fire a flat-session event from chrome.debugger and assert
+      // that the dispatcher's `forwardCdpEvent` hook was invoked
+      // with a host_browser_event envelope carrying the same fields.
+      // The CdpEventFrame's `sessionId` field maps to the envelope's
+      // `cdpSessionId` field — see host-browser-dispatcher.ts for
+      // the rationale on the rename.
+      harness.proxy.fireEvent({
+        method: 'Page.frameNavigated',
+        params: { frame: { id: 'frame-1', url: 'https://example.com' } },
+        sessionId: 'flat-session-xyz',
+      });
+
+      expect(harness.forwardedEvents.length).toBe(1);
+      expect(harness.forwardedEvents[0]).toEqual({
+        type: 'host_browser_event',
+        method: 'Page.frameNavigated',
+        params: { frame: { id: 'frame-1', url: 'https://example.com' } },
+        cdpSessionId: 'flat-session-xyz',
+      });
+    });
+
+    test('forwards events with no params and no sessionId', () => {
+      harness.proxy.fireEvent({ method: 'Target.targetDestroyed' });
+
+      expect(harness.forwardedEvents.length).toBe(1);
+      expect(harness.forwardedEvents[0]).toEqual({
+        type: 'host_browser_event',
+        method: 'Target.targetDestroyed',
+        params: undefined,
+        cdpSessionId: undefined,
+      });
+    });
+
+    test('multiple events fired in sequence are forwarded in order', () => {
+      harness.proxy.fireEvent({ method: 'Page.loadEventFired' });
+      harness.proxy.fireEvent({ method: 'Network.responseReceived' });
+      harness.proxy.fireEvent({ method: 'Runtime.consoleAPICalled' });
+
+      expect(harness.forwardedEvents.length).toBe(3);
+      expect(harness.forwardedEvents.map((e) => e.method)).toEqual([
+        'Page.loadEventFired',
+        'Network.responseReceived',
+        'Runtime.consoleAPICalled',
+      ]);
+    });
+
+    test('a throwing forwardCdpEvent hook does not crash the dispatcher', () => {
+      harness.forwardCdpEventImpl = () => {
+        throw new Error('forwarder exploded');
+      };
+
+      // Must not throw out of the proxy's onEvent firing path —
+      // otherwise an unhandled exception in the worker's relay
+      // helper would tear down the chrome.debugger.onEvent listener
+      // and silently break event forwarding.
+      expect(() =>
+        harness.proxy.fireEvent({ method: 'Page.frameNavigated' }),
+      ).not.toThrow();
+    });
+
+    test('a dispatcher with no forwardCdpEvent hook still tolerates events', () => {
+      // Build a fresh dispatcher that omits the hook entirely. The
+      // proxy still notifies its event handlers (since the dispatcher
+      // subscribes unconditionally so unsubscribe is symmetric on
+      // dispose) — the handler must short-circuit when no hook is
+      // wired.
+      const proxy = createMockCdpProxy();
+      const dispatcher = createHostBrowserDispatcher({
+        cdpProxy: proxy,
+        resolveTarget: async () => ({ tabId: 1 }),
+        postResult: async () => {},
+      });
+      expect(() =>
+        proxy.fireEvent({ method: 'Page.frameNavigated' }),
+      ).not.toThrow();
+      dispatcher.dispose();
+    });
+  });
+
+  // ── PR10: detach → host_browser_session_invalidated forwarding ────
+
+  describe('forwardSessionInvalidated — chrome.debugger.onDetach forwarding', () => {
+    test('forwards a tabId detach as a stringified targetId envelope', () => {
+      // Sanity-check the runtime's expectation: the wire envelope
+      // always carries `targetId` as a string, even when the
+      // underlying detach was for a numeric tabId.
+      harness.proxy.fireDetach({ tabId: 42 }, 'target_closed');
+
+      expect(harness.forwardedInvalidations.length).toBe(1);
+      expect(harness.forwardedInvalidations[0]).toEqual({
+        type: 'host_browser_session_invalidated',
+        targetId: '42',
+        reason: 'target_closed',
+      });
+    });
+
+    test('forwards a targetId detach with the targetId preserved verbatim', () => {
+      harness.proxy.fireDetach(
+        { targetId: 'target-xyz' },
+        'canceled_by_user',
+      );
+
+      expect(harness.forwardedInvalidations.length).toBe(1);
+      expect(harness.forwardedInvalidations[0]).toEqual({
+        type: 'host_browser_session_invalidated',
+        targetId: 'target-xyz',
+        reason: 'canceled_by_user',
+      });
+    });
+
+    test('forwards detaches with neither tabId nor targetId as advisory envelopes', () => {
+      // The dispatcher tolerates this shape (e.g. an extensionId-only
+      // detach) and surfaces it without a targetId so the runtime
+      // logger has visibility into the signal.
+      harness.proxy.fireDetach({}, 'extension_unloaded');
+
+      expect(harness.forwardedInvalidations.length).toBe(1);
+      expect(harness.forwardedInvalidations[0]).toEqual({
+        type: 'host_browser_session_invalidated',
+        targetId: undefined,
+        reason: 'extension_unloaded',
+      });
+    });
+
+    test('still clears the local attach cache when forwarding fails', async () => {
+      // Wire a forwarder that throws to assert that local cache
+      // eviction (the legacy onDetach behaviour) is unaffected by a
+      // broken runtime forwarder. The forward and the local
+      // bookkeeping must be independent.
+      harness = createHarness({ sendResult: { id: 1, result: {} } });
+      harness.forwardSessionInvalidatedImpl = () => {
+        throw new Error('forwarder exploded');
+      };
+
+      await harness.dispatcher.handle(sampleRequest);
+      expect(harness.proxy.attachCalls.length).toBe(1);
+
+      // The fire-detach call must NOT throw despite the forwarder
+      // exploding internally — the dispatcher catches and logs.
+      expect(() =>
+        harness.proxy.fireDetach({ tabId: 42 }, 'target_closed'),
+      ).not.toThrow();
+
+      // The next request should still re-attach because the local
+      // attachedTargets cache was cleared by onDetach.
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        requestId: 'req-2',
+      });
+      expect(harness.proxy.attachCalls.length).toBe(2);
     });
   });
 });

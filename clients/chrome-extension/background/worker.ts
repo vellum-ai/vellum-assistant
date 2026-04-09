@@ -38,13 +38,17 @@ import {
 import {
   createHostBrowserDispatcher,
   type HostBrowserDispatcher,
+  type HostBrowserEventEnvelope,
   type HostBrowserRequestEnvelope,
   type HostBrowserCancelEnvelope,
   type HostBrowserResultEnvelope,
+  type HostBrowserSessionInvalidatedEnvelope,
 } from './host-browser-dispatcher.js';
 import {
   RelayConnection,
+  postHostBrowserEvent,
   postHostBrowserResult,
+  postHostBrowserSessionInvalidated,
   type RelayMode,
   type RelayReconnectContext,
   type RelayReconnectDecision,
@@ -231,9 +235,43 @@ async function dispatchHostBrowserResult(
   return postHostBrowserResult(fallbackMode, null, result);
 }
 
+/**
+ * Forward a `host_browser_event` envelope over the active relay
+ * WebSocket. Events are fire-and-forget: if no connection is open the
+ * envelope is dropped. The extension-side dispatcher calls this hook
+ * for every `chrome.debugger.onEvent` firing (see PR10); the runtime
+ * receives the frame via the WS handler in `http-server.ts` and fans
+ * it out through the module-level browser-session event bus.
+ *
+ * We intentionally do NOT fall back to a POST here because CDP events
+ * are lossy — Chrome will emit many more before the next reconnect,
+ * so queuing a POST during a WebSocket outage just piles up stale
+ * notifications that the runtime cannot act on.
+ */
+function dispatchHostBrowserEvent(envelope: HostBrowserEventEnvelope): void {
+  postHostBrowserEvent(relayConnection, envelope);
+}
+
+/**
+ * Forward a `host_browser_session_invalidated` envelope over the
+ * active relay WebSocket. Same fire-and-forget semantics as
+ * {@link dispatchHostBrowserEvent} — a dropped invalidation is
+ * recoverable because the extension's own attach cache is cleared
+ * in lockstep (see `host-browser-dispatcher.ts`), and the runtime's
+ * next command will fail fast with "Unknown browser session" when
+ * a stale session handle is reused after a reconnect.
+ */
+function dispatchHostBrowserSessionInvalidated(
+  envelope: HostBrowserSessionInvalidatedEnvelope,
+): void {
+  postHostBrowserSessionInvalidated(relayConnection, envelope);
+}
+
 const hostBrowserDispatcher: HostBrowserDispatcher = createHostBrowserDispatcher({
   resolveTarget: resolveHostBrowserTarget,
   postResult: dispatchHostBrowserResult,
+  forwardCdpEvent: dispatchHostBrowserEvent,
+  forwardSessionInvalidated: dispatchHostBrowserSessionInvalidated,
 });
 
 // ── Storage helpers ─────────────────────────────────────────────────

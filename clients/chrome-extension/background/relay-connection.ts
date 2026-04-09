@@ -22,7 +22,11 @@
  * docstring for the current Phase 2 behaviour.
  */
 
-import type { HostBrowserResultEnvelope } from './host-browser-dispatcher.js';
+import type {
+  HostBrowserEventEnvelope,
+  HostBrowserResultEnvelope,
+  HostBrowserSessionInvalidatedEnvelope,
+} from './host-browser-dispatcher.js';
 
 /** Reconnect backoff bounds mirror the legacy inline worker.ts values. */
 const RECONNECT_BASE_MS = 1_000;
@@ -417,6 +421,70 @@ export interface RelayConnectionLike {
   isOpen(): boolean;
   send(data: string): void;
   getCurrentMode(): RelayMode;
+}
+
+/**
+ * Send a `host_browser_event` frame over the relay WebSocket.
+ *
+ * Unlike {@link postHostBrowserResult}, event frames are unsolicited
+ * and do not have an HTTP fallback — the runtime only accepts them
+ * through the `/v1/browser-relay` WebSocket's inbound frame handler
+ * (see `resolveHostBrowserEvent` in host-browser-routes.ts). When
+ * the socket is missing or not currently OPEN the frame is silently
+ * dropped: events are inherently lossy (Chrome will fire many more
+ * before the next reconnect) and the caller has no useful recovery
+ * path.
+ *
+ * This function is intentionally synchronous — `relay.send()` is
+ * fire-and-forget — but the return type stays `void` so callers
+ * don't accidentally `await` it and tie the dispatcher's fast path
+ * to the microtask queue.
+ */
+export function postHostBrowserEvent(
+  connection: RelayConnectionLike | null,
+  event: HostBrowserEventEnvelope,
+): void {
+  if (!connection || !connection.isOpen()) {
+    // Events are lossy — the extension will fire many more of them on
+    // the next reconnect, so dropping is the correct behaviour.
+    return;
+  }
+  try {
+    connection.send(JSON.stringify(event));
+  } catch (err) {
+    // Same swallow-and-log posture as the other fire-and-forget
+    // helpers: a send failure here must never surface as an unhandled
+    // rejection in the service worker.
+    console.warn(
+      '[vellum-relay] host-browser-event send failed',
+      err,
+    );
+  }
+}
+
+/**
+ * Send a `host_browser_session_invalidated` frame over the relay
+ * WebSocket. Same lossy semantics as {@link postHostBrowserEvent}:
+ * when the socket is missing or not OPEN the signal is dropped
+ * silently, because the runtime-side session-invalidation registry
+ * is advisory and the next successful reconnect will re-establish
+ * attach state from scratch anyway.
+ */
+export function postHostBrowserSessionInvalidated(
+  connection: RelayConnectionLike | null,
+  event: HostBrowserSessionInvalidatedEnvelope,
+): void {
+  if (!connection || !connection.isOpen()) {
+    return;
+  }
+  try {
+    connection.send(JSON.stringify(event));
+  } catch (err) {
+    console.warn(
+      '[vellum-relay] host-browser-session-invalidated send failed',
+      err,
+    );
+  }
 }
 
 /**

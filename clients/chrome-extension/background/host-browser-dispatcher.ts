@@ -16,6 +16,7 @@
 import {
   createCdpProxy,
   type CdpDebuggee,
+  type CdpEventFrame,
   type CdpProxy,
   type CdpTarget,
 } from './cdp-proxy.js';
@@ -59,6 +60,42 @@ export interface HostBrowserResultEnvelope {
   isError: boolean;
 }
 
+/**
+ * Unsolicited CDP event envelope forwarded from the extension to the
+ * runtime. Mirrors the `HostBrowserEvent` client-message type in
+ * `assistant/src/daemon/message-types/host-browser.ts`. The dispatcher
+ * builds one of these for every `chrome.debugger.onEvent` firing and
+ * hands it off to the worker's `onCdpEvent` hook, which is responsible
+ * for pushing the frame onto the browser-relay WebSocket.
+ */
+export interface HostBrowserEventEnvelope {
+  type: 'host_browser_event';
+  method: string;
+  params?: unknown;
+  cdpSessionId?: string;
+}
+
+/**
+ * Session-invalidation envelope forwarded from the extension to the
+ * runtime. Mirrors the `HostBrowserSessionInvalidated` client-message
+ * type in `assistant/src/daemon/message-types/host-browser.ts`. The
+ * dispatcher builds one of these whenever
+ * `chrome.debugger.onDetach` fires and hands it off to the worker's
+ * `onSessionInvalidated` hook; the worker ships it over the relay
+ * WebSocket so the runtime can evict any stale `BrowserSessionManager`
+ * session and force a reattach on the next command.
+ *
+ * `targetId` is the string form of the detached debuggee's `tabId`
+ * (most common) or `targetId` (flat-session path). When the detach
+ * carries neither the field is omitted — the runtime tolerates the
+ * shape but the invalidation becomes advisory.
+ */
+export interface HostBrowserSessionInvalidatedEnvelope {
+  type: 'host_browser_session_invalidated';
+  targetId?: string;
+  reason?: string;
+}
+
 export interface HostBrowserDispatcherDeps {
   /**
    * Target resolver. When `cdpSessionId` is provided it is treated as an
@@ -71,6 +108,31 @@ export interface HostBrowserDispatcherDeps {
   ): Promise<{ tabId?: number; targetId?: string }>;
   /** POST result envelope back to /v1/host-browser-result. */
   postResult(result: HostBrowserResultEnvelope): Promise<void>;
+  /**
+   * Optional hook invoked for every `chrome.debugger.onEvent` firing.
+   * The worker wires this to {@link postHostBrowserEvent} so the
+   * envelope is forwarded over the active relay WebSocket. Errors
+   * thrown from the hook are caught and logged — a broken forwarder
+   * must never take down the dispatcher's event subscription.
+   *
+   * When omitted, CDP events are observed and dropped. Useful for
+   * unit tests that don't care about the forwarding side.
+   */
+  forwardCdpEvent?: (event: HostBrowserEventEnvelope) => void;
+  /**
+   * Optional hook invoked for every `chrome.debugger.onDetach` firing
+   * after the dispatcher has evicted its local attach cache. The
+   * worker wires this to {@link postHostBrowserSessionInvalidated}
+   * so the runtime-side session state can be evicted in lockstep.
+   * Errors thrown from the hook are caught and logged.
+   *
+   * When omitted, detach signals still clear the local cache but are
+   * not forwarded to the runtime — useful for unit tests that exercise
+   * the cache eviction semantics in isolation.
+   */
+  forwardSessionInvalidated?: (
+    event: HostBrowserSessionInvalidatedEnvelope,
+  ) => void;
   /** Optional injected CdpProxy for tests. Defaults to a real proxy at runtime. */
   cdpProxy?: CdpProxy;
 }
@@ -139,9 +201,66 @@ export function createHostBrowserDispatcher(
   // Target.attachToTarget. Without this subscription the cache would hold
   // a stale entry forever and subsequent commands against the same target
   // would skip the re-attach and hit a permanent CDP failure.
-  const unsubscribeOnDetach = proxy.onDetach((debuggee) => {
+  //
+  // PR10: when a `forwardSessionInvalidated` hook is wired in, we ALSO
+  // ship a `host_browser_session_invalidated` envelope over the relay
+  // WebSocket so the runtime-side `BrowserSessionManager` can evict its
+  // own session state in lockstep. The runtime's eviction is advisory —
+  // tools create sessions per-invocation and the extension is the
+  // source of truth for attach state — but without the forward the
+  // runtime cannot know to force a reattach after a cross-origin
+  // navigation closed the previous tab under it.
+  const unsubscribeOnDetach = proxy.onDetach((debuggee, reason) => {
     const key = debuggeeKey(debuggee);
     if (key !== null) attachedTargets.delete(key);
+    if (deps.forwardSessionInvalidated) {
+      // Stringify tabId so the wire shape is always a string — the
+      // runtime's resolver does not try to coerce between number and
+      // string, and tabId is conceptually opaque once it crosses the
+      // browser/runtime boundary.
+      const targetId = debuggee.targetId
+        ? debuggee.targetId
+        : debuggee.tabId !== undefined
+          ? String(debuggee.tabId)
+          : undefined;
+      try {
+        deps.forwardSessionInvalidated({
+          type: 'host_browser_session_invalidated',
+          targetId,
+          reason,
+        });
+      } catch (err) {
+        console.error(
+          '[host-browser-dispatcher] forwardSessionInvalidated threw',
+          err,
+        );
+      }
+    }
+  });
+
+  // Subscribe to CDP events and forward each one to the worker's
+  // `forwardCdpEvent` hook when one is wired. This is the sibling of
+  // the session-invalidated forwarding above — together they give the
+  // runtime visibility into every chrome.debugger signal the extension
+  // sees, even when no `host_browser_request` is currently in flight.
+  // When no hook is provided the event subscription is still registered
+  // (cdp-proxy only delivers to registered handlers anyway) so there
+  // is no cost to the cold path.
+  const unsubscribeOnEvent = proxy.onEvent((event: CdpEventFrame) => {
+    if (!deps.forwardCdpEvent) return;
+    try {
+      deps.forwardCdpEvent({
+        type: 'host_browser_event',
+        method: event.method,
+        params: event.params,
+        cdpSessionId: event.sessionId,
+      });
+    } catch (err) {
+      console.error(
+        '[host-browser-dispatcher] forwardCdpEvent threw',
+        err,
+      );
+    }
   });
 
   async function handle(envelope: HostBrowserRequestEnvelope): Promise<void> {
@@ -299,6 +418,7 @@ export function createHostBrowserDispatcher(
     inFlight.clear();
     attachedTargets.clear();
     unsubscribeOnDetach();
+    unsubscribeOnEvent();
     proxy.dispose();
   }
 

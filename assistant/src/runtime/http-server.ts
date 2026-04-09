@@ -160,7 +160,9 @@ import { heartbeatRouteDefinitions } from "./routes/heartbeat-routes.js";
 import { hostBashRouteDefinitions } from "./routes/host-bash-routes.js";
 import {
   hostBrowserRouteDefinitions,
+  resolveHostBrowserEvent,
   resolveHostBrowserResultByRequestId,
+  resolveHostBrowserSessionInvalidated,
 } from "./routes/host-browser-routes.js";
 import { hostCuRouteDefinitions } from "./routes/host-cu-routes.js";
 import { hostFileRouteDefinitions } from "./routes/host-file-routes.js";
@@ -411,17 +413,24 @@ export class RuntimeHttpServer {
               ? message
               : new TextDecoder().decode(message);
           if ("wsType" in data && data.wsType === "browser-relay") {
-            // Inbound frames on `/v1/browser-relay` carry
-            // `host_browser_result` envelopes submitted by the Chrome
-            // extension. The extension can also POST results to
-            // `/v1/host-browser-result` over HTTP — both transports
-            // route through `resolveHostBrowserResultByRequestId` so
-            // the validation and resolution semantics stay in lockstep.
+            // Inbound frames on `/v1/browser-relay` carry one of:
+            //   - `host_browser_result` — paired response to an outbound
+            //     `host_browser_request` (see PR2).
+            //   - `host_browser_event` — unsolicited CDP event forwarded
+            //     from the extension's `chrome.debugger.onEvent`
+            //     subscription (PR10).
+            //   - `host_browser_session_invalidated` — detach
+            //     notification forwarded from the extension's
+            //     `chrome.debugger.onDetach` subscription (PR10).
             //
-            // Malformed frames are logged at debug and swallowed — we
-            // never throw out of a WebSocket `message` handler because
-            // an uncaught exception would tear down the whole socket
-            // for an attacker-controlled payload.
+            // Every supported frame type delegates into a shared
+            // resolver exported from `host-browser-routes.ts` so the
+            // validation and resolution semantics stay in lockstep
+            // with the HTTP path. Malformed or unsupported frames are
+            // logged at debug and swallowed — we never throw out of a
+            // WebSocket `message` handler because an uncaught
+            // exception would tear down the whole socket for an
+            // attacker-controlled payload.
             let parsed: unknown;
             try {
               parsed = JSON.parse(raw);
@@ -443,33 +452,80 @@ export class RuntimeHttpServer {
               return;
             }
             const frame = parsed as Record<string, unknown>;
-            if (frame.type !== "host_browser_result") {
-              log.debug(
-                { connectionId: data.connectionId, type: frame.type },
-                "browser-relay: dropped unsupported inbound frame type",
-              );
-              return;
+            switch (frame.type) {
+              case "host_browser_result": {
+                const resolution = resolveHostBrowserResultByRequestId({
+                  requestId: frame.requestId,
+                  content: frame.content,
+                  isError: frame.isError,
+                });
+                if (!resolution.ok) {
+                  log.warn(
+                    {
+                      connectionId: data.connectionId,
+                      requestId:
+                        typeof frame.requestId === "string"
+                          ? frame.requestId
+                          : undefined,
+                      code: resolution.code,
+                      message: resolution.message,
+                    },
+                    "browser-relay: host_browser_result frame rejected",
+                  );
+                }
+                return;
+              }
+              case "host_browser_event": {
+                const resolution = resolveHostBrowserEvent({
+                  method: frame.method,
+                  params: frame.params,
+                  cdpSessionId: frame.cdpSessionId,
+                });
+                if (!resolution.ok) {
+                  log.warn(
+                    {
+                      connectionId: data.connectionId,
+                      method:
+                        typeof frame.method === "string"
+                          ? frame.method
+                          : undefined,
+                      code: resolution.code,
+                      message: resolution.message,
+                    },
+                    "browser-relay: host_browser_event frame rejected",
+                  );
+                }
+                return;
+              }
+              case "host_browser_session_invalidated": {
+                const resolution = resolveHostBrowserSessionInvalidated({
+                  targetId: frame.targetId,
+                  reason: frame.reason,
+                });
+                if (!resolution.ok) {
+                  log.warn(
+                    {
+                      connectionId: data.connectionId,
+                      targetId:
+                        typeof frame.targetId === "string"
+                          ? frame.targetId
+                          : undefined,
+                      code: resolution.code,
+                      message: resolution.message,
+                    },
+                    "browser-relay: host_browser_session_invalidated frame rejected",
+                  );
+                }
+                return;
+              }
+              default: {
+                log.debug(
+                  { connectionId: data.connectionId, type: frame.type },
+                  "browser-relay: dropped unsupported inbound frame type",
+                );
+                return;
+              }
             }
-            const resolution = resolveHostBrowserResultByRequestId({
-              requestId: frame.requestId,
-              content: frame.content,
-              isError: frame.isError,
-            });
-            if (!resolution.ok) {
-              log.warn(
-                {
-                  connectionId: data.connectionId,
-                  requestId:
-                    typeof frame.requestId === "string"
-                      ? frame.requestId
-                      : undefined,
-                  code: resolution.code,
-                  message: resolution.message,
-                },
-                "browser-relay: host_browser_result frame rejected",
-              );
-            }
-            return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
           if (callSessionId) {

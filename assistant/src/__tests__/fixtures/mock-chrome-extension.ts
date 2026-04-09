@@ -103,6 +103,27 @@ export interface MockChromeExtension {
    * Simulates a flaky extension that drops the connection.
    */
   forceDisconnect(): void;
+  /**
+   * Send a `host_browser_event` frame over the active WebSocket,
+   * mirroring what the extension's host-browser-dispatcher does in
+   * response to `chrome.debugger.onEvent`. Used by PR10 acceptance
+   * tests to assert that the runtime's WS handler fans CDP events
+   * out through the browser-session event bus.
+   */
+  sendHostBrowserEvent(event: {
+    method: string;
+    params?: unknown;
+    cdpSessionId?: string;
+  }): void;
+  /**
+   * Send a `host_browser_session_invalidated` frame over the active
+   * WebSocket, mirroring what the extension's host-browser-dispatcher
+   * does in response to `chrome.debugger.onDetach`. Used by PR10
+   * acceptance tests to assert that the runtime-side session
+   * registry evicts stale sessions and forces reattach on the next
+   * command.
+   */
+  sendSessionInvalidated(event: { targetId?: string; reason?: string }): void;
 }
 
 // ── Defaults ────────────────────────────────────────────────────────
@@ -324,6 +345,31 @@ export function createMockChromeExtension(
           // best-effort
         }
       }
+    },
+    sendHostBrowserEvent(event) {
+      const sock = ws;
+      if (!sock || sock.readyState !== WebSocket.OPEN) return;
+      sock.send(
+        JSON.stringify({
+          type: "host_browser_event",
+          method: event.method,
+          ...(event.params !== undefined ? { params: event.params } : {}),
+          ...(event.cdpSessionId !== undefined
+            ? { cdpSessionId: event.cdpSessionId }
+            : {}),
+        }),
+      );
+    },
+    sendSessionInvalidated(event) {
+      const sock = ws;
+      if (!sock || sock.readyState !== WebSocket.OPEN) return;
+      sock.send(
+        JSON.stringify({
+          type: "host_browser_session_invalidated",
+          ...(event.targetId !== undefined ? { targetId: event.targetId } : {}),
+          ...(event.reason !== undefined ? { reason: event.reason } : {}),
+        }),
+      );
     },
   };
 }

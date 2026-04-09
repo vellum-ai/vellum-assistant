@@ -11,5 +11,6 @@
  */
 export * from "./backends/extension.js";
 export * from "./backends/local.js";
+export * from "./events.js";
 export * from "./manager.js";
 export * from "./types.js";
