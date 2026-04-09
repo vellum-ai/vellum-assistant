@@ -206,6 +206,13 @@ struct SettingsPrivacyTab: View {
                     llmRequestLogRetentionMs: option.rawValue
                 )
             } catch {
+                // If this task was cancelled (e.g. by a newer user-initiated
+                // syncRetention call), bail out without touching
+                // `hasUserInteracted` — the newer task owns that state and
+                // clearing it here would race with its in-flight PATCH.
+                // Matches the `guard !Task.isCancelled else { return }`
+                // pattern used in `loadPrivacyConfig()` above.
+                guard !Task.isCancelled else { return }
                 // PATCH failed — daemon still has the old value. Clear the
                 // user-interacted flag so the next loadPrivacyConfig() can
                 // reconcile the picker from the authoritative server state
@@ -216,9 +223,7 @@ struct SettingsPrivacyTab: View {
                 privacyTabLog.error(
                     "syncRetention PATCH failed: \(error.localizedDescription, privacy: .public)"
                 )
-                await MainActor.run {
-                    hasUserInteracted = false
-                }
+                hasUserInteracted = false
             }
         }
     }
