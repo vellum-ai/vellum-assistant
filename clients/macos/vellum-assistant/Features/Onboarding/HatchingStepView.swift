@@ -243,7 +243,7 @@ struct HatchingStepView: View {
             }
             if let label = state.hatchStepLabel {
                 Text(label)
-                    .font(VFont.labelSmallDefault)
+                    .font(VFont.labelSmall)
                     .foregroundStyle(VColor.contentTertiary)
             }
         }
