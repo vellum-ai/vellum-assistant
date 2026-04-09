@@ -23,10 +23,18 @@ enum LlmLogRetentionOption: Int64, CaseIterable, Identifiable {
     }
 
     /// Returns the closest option for an arbitrary millisecond value read from the daemon.
-    /// Unknown / out-of-band values snap to the closest known period; `0` is special-cased to `.never`.
+    /// Unknown / out-of-band values snap to the nearest known period; `0` is special-cased to `.never`.
+    /// Ties (e.g. a value exactly halfway between two options) snap to the *larger* retention to avoid
+    /// silently shortening a user's retention when the UI reconciles an out-of-band value.
     static func closest(toMs ms: Int64) -> LlmLogRetentionOption {
         if ms == 0 { return .never }
         let known = allCases.filter { $0 != .never }
-        return known.min(by: { abs($0.rawValue - ms) < abs($1.rawValue - ms) }) ?? .oneDay
+        return known.min(by: { lhs, rhs in
+            let lhsDist = abs(lhs.rawValue - ms)
+            let rhsDist = abs(rhs.rawValue - ms)
+            if lhsDist != rhsDist { return lhsDist < rhsDist }
+            // Tie → prefer the larger (longer) retention.
+            return lhs.rawValue > rhs.rawValue
+        }) ?? .oneDay
     }
 }

@@ -87,15 +87,22 @@ struct SettingsPrivacyTab: View {
                 Text("LLM Request Log Retention")
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentDefault)
-                Picker("", selection: $retentionSelection) {
+                Picker(
+                    "LLM Request Log Retention",
+                    selection: Binding(
+                        get: { retentionSelection },
+                        set: { newValue in
+                            retentionSelection = newValue
+                            syncRetention(newValue)
+                        }
+                    )
+                ) {
                     ForEach(LlmLogRetentionOption.allCases) { option in
                         Text(option.label).tag(option)
                     }
                 }
                 .labelsHidden()
-                .onChange(of: retentionSelection) { _, newValue in
-                    syncRetention(newValue)
-                }
+                .accessibilityLabel("LLM Request Log Retention")
                 Text("How long to keep LLM request and response logs on this device. These logs record the prompts and completions sent to model providers and are used for debugging. Shorter retention improves privacy; longer retention helps troubleshoot issues.")
                     .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentTertiary)
