@@ -65,9 +65,10 @@ struct OnboardingFlowView: View {
                         Image(nsImage: nsImage)
                             .resizable()
                             .aspectRatio(contentMode: .fit)
-                            .frame(width: 96, height: 96)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                            .padding(.bottom, VSpacing.xl)
+                            .frame(width: 80, height: 80)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                            .shadow(color: .black.opacity(0.15), radius: 1, x: 0, y: 1)
+                            .padding(.bottom, VSpacing.xxxl)
                     }
 
                     // Step content — Group flattens into parent VStack so

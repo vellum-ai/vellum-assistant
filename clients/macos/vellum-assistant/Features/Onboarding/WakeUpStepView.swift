@@ -47,12 +47,12 @@ struct WakeUpStepView: View {
 
         // Subtitle
         Text("The safest way to create your personal assistant.")
-            .font(VFont.titleSmall)
+            .font(VFont.bodyMediumLighter)
             .foregroundStyle(VColor.contentSecondary)
             .multilineTextAlignment(.center)
             .opacity(showSubtext ? 1 : 0)
             .offset(y: showSubtext ? 0 : 8)
-            .padding(.bottom, VSpacing.xxl)
+            .padding(.bottom, VSpacing.xxxl)
 
         // Buttons
         VStack(spacing: VSpacing.sm) {
