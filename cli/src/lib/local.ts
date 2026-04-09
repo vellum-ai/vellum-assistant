@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "fs";
 import { createRequire } from "module";
-import { homedir, hostname, networkInterfaces, platform } from "os";
+import { homedir, hostname, networkInterfaces } from "os";
 import { dirname, join } from "path";
 
 import { type LocalInstanceResources } from "./assistant-config.js";
@@ -522,136 +522,6 @@ function recoverPidFile(
   return pid;
 }
 
-export async function discoverPublicUrl(
-  port?: number,
-): Promise<string | undefined> {
-  const effectivePort = port ?? GATEWAY_PORT;
-
-  // Start cloud metadata lookup (may take up to 1s on non-cloud hosts).
-  const cloudIpPromise = discoverCloudExternalIp();
-
-  // Resolve local address synchronously (no I/O) — does not log.
-  const localResult = discoverLocalUrl(effectivePort);
-
-  // Race: if cloud IP resolves quickly, prefer it; otherwise return the
-  // local URL immediately instead of blocking on the full metadata timeout.
-  const cloudIp = await Promise.race([
-    cloudIpPromise,
-    // Give cloud metadata a short grace period (150ms) before falling back
-    // to the local address. This is enough for on-cloud hosts where the
-    // metadata endpoint responds in single-digit ms, but avoids the full
-    // 1s timeout on non-cloud machines.
-    new Promise<undefined>((resolve) =>
-      setTimeout(() => resolve(undefined), 150),
-    ),
-  ]);
-
-  if (cloudIp) {
-    console.log(`   Discovered external IP: ${cloudIp}`);
-    return `http://${cloudIp}:${effectivePort}`;
-  }
-
-  // Log the local address source only when we actually use it.
-  if (localResult.source === "hostname") {
-    console.log(`   Discovered macOS local hostname: ${localResult.label}`);
-  } else if (localResult.source === "lan") {
-    console.log(`   Discovered LAN IP: ${localResult.label}`);
-  }
-
-  return localResult.url;
-}
-
-/**
- * Resolve a LAN-reachable URL without any async I/O. Returns the best local
- * address or falls back to localhost. Does not emit any logs — the caller
- * decides whether to log based on which result is actually used.
- */
-function discoverLocalUrl(effectivePort: number): {
-  url: string;
-  source: "hostname" | "lan" | "localhost";
-  label?: string;
-} {
-  // On macOS, prefer the .local hostname (Bonjour/mDNS) so other devices on
-  // the same network can reach the gateway by name.
-  if (platform() === "darwin") {
-    const localHostname = getMacLocalHostname();
-    if (localHostname) {
-      return {
-        url: `http://${localHostname}:${effectivePort}`,
-        source: "hostname",
-        label: localHostname,
-      };
-    }
-  }
-
-  const lanIp = getLocalLanIPv4();
-  if (lanIp) {
-    return {
-      url: `http://${lanIp}:${effectivePort}`,
-      source: "lan",
-      label: lanIp,
-    };
-  }
-
-  // Final fallback to localhost when no LAN address could be discovered.
-  return {
-    url: `http://localhost:${effectivePort}`,
-    source: "localhost",
-  };
-}
-
-/**
- * Attempt to discover the VM's external/public IP via cloud metadata services.
- * Tries GCP and AWS IMDSv2 in parallel with a short timeout. Returns undefined
- * on non-cloud machines (the metadata endpoint is unreachable).
- */
-async function discoverCloudExternalIp(): Promise<string | undefined> {
-  const timeoutMs = 1000;
-
-  const gcpPromise = (async (): Promise<string | undefined> => {
-    try {
-      const resp = await fetch(
-        "http://169.254.169.254/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip",
-        {
-          headers: { "Metadata-Flavor": "Google" },
-          signal: AbortSignal.timeout(timeoutMs),
-        },
-      );
-      if (resp.ok) return (await resp.text()).trim() || undefined;
-    } catch {
-      // metadata service not reachable
-    }
-    return undefined;
-  })();
-
-  const awsPromise = (async (): Promise<string | undefined> => {
-    try {
-      const tokenResp = await fetch("http://169.254.169.254/latest/api/token", {
-        method: "PUT",
-        headers: { "X-aws-ec2-metadata-token-ttl-seconds": "30" },
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-      if (tokenResp.ok) {
-        const token = await tokenResp.text();
-        const ipResp = await fetch(
-          "http://169.254.169.254/latest/meta-data/public-ipv4",
-          {
-            headers: { "X-aws-ec2-metadata-token": token },
-            signal: AbortSignal.timeout(timeoutMs),
-          },
-        );
-        if (ipResp.ok) return (await ipResp.text()).trim() || undefined;
-      }
-    } catch {
-      // metadata service not reachable
-    }
-    return undefined;
-  })();
-
-  const [gcpIp, awsIp] = await Promise.all([gcpPromise, awsPromise]);
-  return gcpIp ?? awsIp;
-}
-
 /**
  * Returns the macOS Bonjour/mDNS `.local` hostname (e.g. "Vargass-Mac-Mini.local"),
  * or undefined if not running on macOS or the hostname cannot be determined.
@@ -1020,11 +890,6 @@ export async function startGateway(
   const gwPidFile = join(gwPidDir, "gateway.pid");
   await stopProcessByPidFile(gwPidFile, "gateway");
 
-  const publicUrl = await discoverPublicUrl(effectiveGatewayPort);
-  if (publicUrl) {
-    console.log(`   Public URL: ${publicUrl}`);
-  }
-
   console.log("🌐 Starting gateway...");
 
   const effectiveDaemonPort =
@@ -1048,9 +913,6 @@ export async function startGateway(
     // workspace config for this instance (mirrors the daemon env setup).
     ...(resources ? { BASE_DATA_DIR: resources.instanceDir } : {}),
   };
-  if (publicUrl) {
-    console.log(`   Ingress URL: ${publicUrl}`);
-  }
 
   let gateway;
 
@@ -1094,7 +956,7 @@ export async function startGateway(
     writeFileSync(join(gwPidDir, "gateway.pid"), String(gateway.pid), "utf-8");
   }
 
-  const gatewayUrl = publicUrl || `http://localhost:${effectiveGatewayPort}`;
+  const gatewayUrl = `http://localhost:${effectiveGatewayPort}`;
 
   // Wait for the gateway to be responsive before returning. Without this,
   // callers (e.g. displayPairingQRCode) may try to connect before the HTTP

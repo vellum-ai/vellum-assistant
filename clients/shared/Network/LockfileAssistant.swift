@@ -214,18 +214,25 @@ public struct LockfileAssistant {
                     networkName: pci["networkName"] as? String
                 )
             }
+            let cloud = entry["cloud"] as? String ?? "local"
+            let gatewayPort = resources?["gatewayPort"] as? Int
+            // Local assistants always use localhost so the Swift app can
+            // reliably connect without depending on mDNS or LAN discovery.
+            let runtimeUrl: String? = cloud.lowercased() == "local"
+                ? gatewayPort.map { "http://localhost:\($0)" }
+                : entry["runtimeUrl"] as? String
             return LockfileAssistant(
                 assistantId: assistantId,
-                runtimeUrl: entry["runtimeUrl"] as? String,
+                runtimeUrl: runtimeUrl,
                 bearerToken: entry["bearerToken"] as? String,
-                cloud: entry["cloud"] as? String ?? "local",
+                cloud: cloud,
                 project: entry["project"] as? String,
                 region: entry["region"] as? String,
                 zone: entry["zone"] as? String,
                 instanceId: entry["instanceId"] as? String,
                 hatchedAt: entry["hatchedAt"] as? String,
                 baseDataDir: entry["baseDataDir"] as? String,
-                gatewayPort: resources?["gatewayPort"] as? Int,
+                gatewayPort: gatewayPort,
                 instanceDir: resources?["instanceDir"] as? String,
                 serviceGroupVersion: serviceGroupVersion,
                 containerInfo: containerInfo,
