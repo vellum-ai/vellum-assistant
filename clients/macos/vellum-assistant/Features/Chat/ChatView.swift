@@ -220,7 +220,10 @@ struct ChatView: View {
     private func mainContentStack(containerWidth: CGFloat) -> some View {
         VStack(spacing: 0) {
             if showSkeleton {
-                ChatLoadingSkeleton(containerWidth: containerWidth)
+                ChatLoadingSkeleton(
+                    containerWidth: containerWidth > 0
+                        ? containerWidth - 2 * VSpacing.lg : 0
+                )
                     .padding(VSpacing.lg)
                     .frame(width: containerWidth > 0 ? containerWidth : nil,
                            alignment: .top)
