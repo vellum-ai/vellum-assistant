@@ -51,6 +51,9 @@ let package = Package(
                 .copy("Resources/LUCIDE-LICENSE"),
                 .copy("Resources/lucide-icon-manifest.json"),
                 .copy("Resources/lucide-version.txt"),
+                .copy("Resources/IntegrationLogos"),
+                .copy("Resources/INTEGRATION-LOGOS-LICENSE"),
+                .copy("Resources/integration-logos-manifest.json"),
             ],
             swiftSettings: [
                 .define("DEBUG", .when(configuration: .debug)),

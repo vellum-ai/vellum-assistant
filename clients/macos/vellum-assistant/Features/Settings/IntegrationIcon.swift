@@ -26,7 +26,13 @@ enum IntegrationIcon {
 
     @ViewBuilder
     static func image(for provider: OAuthProviderMetadata, size: CGFloat = 24) -> some View {
-        if let url = provider.logoURL {
+        if let bundled = IntegrationLogoBundle.bundledImage(providerKey: provider.provider_key) {
+            Image(nsImage: bundled)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size)
+        } else if let url = provider.logoURL {
             VCachedRemoteImage(
                 url: url,
                 content: { image in
