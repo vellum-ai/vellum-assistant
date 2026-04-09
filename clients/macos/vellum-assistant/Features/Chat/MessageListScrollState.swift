@@ -109,6 +109,7 @@ enum StabilizedMode: Equatable, CustomStringConvertible {
 }
 
 private let scrollLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "ScrollState")
+private let scrollDiag = Logger(subsystem: Bundle.appBundleIdentifier, category: "ScrollDiag")
 
 // MARK: - MessageListScrollState
 
@@ -628,6 +629,7 @@ final class MessageListScrollState {
     /// `userInitiated: true` bypasses mode checks — user intent always wins.
     @discardableResult
     func requestPinToBottom(animated: Bool = false, userInitiated: Bool = false, forRecovery: Bool = false) -> Bool {
+        scrollDiag.debug("requestPinToBottom: mode=\(mode.description, privacy: .public) userInit=\(userInitiated, privacy: .public) forRecovery=\(forRecovery, privacy: .public) allowsAuto=\(mode.allowsAutoScroll, privacy: .public)")
         if userInitiated {
             transition(to: .followingBottom)
             // Sync UI immediately so showScrollToLatest is updated within
@@ -648,7 +650,10 @@ final class MessageListScrollState {
             return true
         }
 
-        guard mode.allowsAutoScroll else { return false }
+        guard mode.allowsAutoScroll else {
+            scrollDiag.debug("requestPinToBottom: BLOCKED by mode=\(mode.description, privacy: .public)")
+            return false
+        }
         executeScrollToBottom(animated: animated, forRecovery: forRecovery)
         return true
     }
@@ -684,6 +689,8 @@ final class MessageListScrollState {
     /// - SeeAlso: https://stackoverflow.com/q/79884780 (ScrollPosition unreliable with variable heights)
     /// - SeeAlso: https://developer.apple.com/documentation/swiftui/scrollposition/scrollto(edge:)
     private func executeScrollToBottom(animated: Bool, userInitiated: Bool = false, forRecovery: Bool = false) {
+        let path = userInitiated ? "userInitiated" : (forRecovery ? "recovery" : "autoFollow")
+        scrollDiag.debug("executeScrollToBottom: path=\(path, privacy: .public) animated=\(animated, privacy: .public) lastMsgId=\(lastMessageId?.uuidString ?? "nil", privacy: .public) alternator=\(recoveryAlternator, privacy: .public)")
         if userInitiated {
             // Two-step scroll: edge first to break any stale position,
             // then ID-based for precise targeting. The recovery window

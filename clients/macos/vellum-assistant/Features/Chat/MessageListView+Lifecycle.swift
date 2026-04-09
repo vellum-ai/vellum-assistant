@@ -5,6 +5,7 @@ import SwiftUI
 import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "MessageListView")
+private let scrollDiag = Logger(subsystem: Bundle.appBundleIdentifier, category: "ScrollDiag")
 
 extension MessageListView {
 
@@ -23,6 +24,7 @@ extension MessageListView {
         let previousConversationId = scrollState.currentConversationId
         let isConversationSwitch = previousConversationId != nil
             && previousConversationId != conversationId
+        scrollDiag.debug("handleAppear: isSwitch=\(isConversationSwitch, privacy: .public) old=\(previousConversationId?.uuidString ?? "nil", privacy: .public) new=\(conversationId?.uuidString ?? "nil", privacy: .public) msgCount=\(paginatedVisibleMessages.count, privacy: .public)")
         configureScrollCallbacks()
         if isConversationSwitch {
             handleConversationSwitched()
@@ -319,7 +321,10 @@ extension MessageListView {
         // https://developer.apple.com/documentation/swiftui/scrollposition/scrollto(edge:)
         scrollState.scrollRestoreTask?.cancel()
         if anchorMessageId == nil {
+            scrollDiag.debug("handleConversationSwitched: calling scrollTo(edge: .bottom), lastMsgId=\(scrollState.lastMessageId?.uuidString ?? "nil", privacy: .public) conv=\(conversationId?.uuidString ?? "nil", privacy: .public)")
             scrollPosition.scrollTo(edge: .bottom)
+        } else {
+            scrollDiag.debug("handleConversationSwitched: SKIPPED scroll — anchorMessageId is set")
         }
         restoreScrollToBottom()
     }

@@ -5,6 +5,8 @@ import os.signpost
 import SwiftUI
 import VellumAssistantShared
 
+private let scrollDiag = Logger(subsystem: Bundle.appBundleIdentifier, category: "ScrollDiag")
+
 struct MessageListView: View {
 
     let messages: [ChatMessage]
@@ -191,6 +193,7 @@ struct MessageListView: View {
                 // (.bottom, for: .initialOffset) handle initial layout
                 // (bottom-up materialization with correct heights).
                 scrollPosition = ScrollPosition()
+                scrollDiag.debug("onDisappear: cleared scrollPosition, leaving conv=\(conversationId?.uuidString ?? "nil", privacy: .public)")
                 resizeScrollTask?.cancel()
                 resizeScrollTask = nil
                 highlightedMessageId = nil

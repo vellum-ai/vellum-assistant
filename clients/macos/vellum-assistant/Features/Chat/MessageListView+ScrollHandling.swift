@@ -3,6 +3,8 @@ import os.signpost
 import SwiftUI
 import VellumAssistantShared
 
+private let scrollDiag = Logger(subsystem: Bundle.appBundleIdentifier, category: "ScrollDiag")
+
 // MARK: - ScrollCoordinator.Phase Bridge
 
 extension ScrollCoordinator.Phase {
@@ -301,6 +303,8 @@ extension MessageListView {
             let now = Date()
             if now.timeIntervalSince(scrollState.lastRecoveryAttempt) >= 0.1 {
                 scrollState.lastRecoveryAttempt = now
+                let deadlineRemaining = scrollState.recoveryDeadline.map { $0.timeIntervalSince(now) } ?? -1
+                scrollDiag.debug("recovery: firing, distBottom=\(distanceFromBottom, privacy: .public) isAtBottom=\(nowAtBottom, privacy: .public) anchorAppeared=\(scrollState.bottomAnchorAppeared, privacy: .public) deadlineLeft=\(String(format: "%.1f", deadlineRemaining), privacy: .public)s mode=\(scrollState.mode.description, privacy: .public)")
                 scrollState.requestPinToBottom(forRecovery: true)
             }
         }
@@ -408,8 +412,11 @@ extension MessageListView {
                 // `guard case .stabilizing = mode` and bails if mode changed.
             } else if anchorMessageId == nil {
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=fallback")
+                scrollDiag.debug("restoreScrollToBottom: fallback firing, mode=\(scrollState.mode.description, privacy: .public)")
                 scrollState.transition(to: .followingBottom)
                 scrollState.requestPinToBottom()
+            } else {
+                scrollDiag.debug("restoreScrollToBottom: skipped — anchorMessageId is set")
             }
             scrollState.scrollRestoreTask = nil
         }
@@ -452,12 +459,15 @@ extension MessageListView {
         // now") rather than a state declaration ("scroll state is X").
         scrollState.scrollTo = { id, anchor in
             if let uuidId = id as? UUID {
+                scrollDiag.debug("closure.scrollTo: id=\(uuidId.uuidString, privacy: .public) anchor=\(String(describing: anchor), privacy: .public)")
                 binding.wrappedValue.scrollTo(id: uuidId, anchor: anchor)
             } else if let stringId = id as? String {
+                scrollDiag.debug("closure.scrollTo: id=\(stringId, privacy: .public) anchor=\(String(describing: anchor), privacy: .public)")
                 binding.wrappedValue.scrollTo(id: stringId, anchor: anchor)
             }
         }
         scrollState.scrollToEdge = { edge in
+            scrollDiag.debug("closure.scrollToEdge: edge=\(String(describing: edge), privacy: .public)")
             binding.wrappedValue.scrollTo(edge: edge)
         }
         // Cancel in-flight spring animations on the scroll position.
