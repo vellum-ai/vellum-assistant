@@ -31,6 +31,10 @@ mock.module("../util/logger.js", () => ({
   pruneOldLogFiles: () => 0,
 }));
 
+// Mutable config used by the mocked loader so individual tests can override
+// specific fields (e.g. systemPromptPrefix) without touching other sections.
+const mockLoadedConfig: Record<string, unknown> = {};
+
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
@@ -49,7 +53,7 @@ mock.module("../config/loader.js", () => ({
       "web-search": { mode: "your-own", provider: "inference-provider-native" },
     },
   }),
-  loadConfig: () => ({}),
+  loadConfig: () => mockLoadedConfig,
   loadRawConfig: () => ({}),
   saveConfig: () => {},
   saveRawConfig: () => {},
@@ -123,6 +127,7 @@ describe("buildSystemPrompt", () => {
       const p = join(TEST_DIR, name);
       if (existsSync(p)) rmSync(p, { recursive: true, force: true });
     }
+    delete mockLoadedConfig.systemPromptPrefix;
   });
 
   test("returns empty string when no files exist", () => {
@@ -342,6 +347,72 @@ describe("buildSystemPrompt", () => {
     writeFileSync(join(TEST_DIR, "SOUL.md"), "_ All comments\n_ Nothing else");
     const result = buildSystemPrompt();
     expect(basePrompt(result)).toBe("");
+  });
+
+  describe("custom systemPromptPrefix", () => {
+    test("omits prefix when config value is unset", () => {
+      const result = buildSystemPrompt();
+      // With no prefix, the prompt should start with the parallel tool calls
+      // section (the first static section when no prefix is injected).
+      expect(result.startsWith("<use_parallel_tool_calls>")).toBe(true);
+    });
+
+    test("omits prefix when config value is null", () => {
+      mockLoadedConfig.systemPromptPrefix = null;
+      const result = buildSystemPrompt();
+      expect(result.startsWith("<use_parallel_tool_calls>")).toBe(true);
+    });
+
+    test("omits prefix when config value is an empty string", () => {
+      mockLoadedConfig.systemPromptPrefix = "";
+      const result = buildSystemPrompt();
+      expect(result.startsWith("<use_parallel_tool_calls>")).toBe(true);
+    });
+
+    test("omits prefix when config value is whitespace-only", () => {
+      mockLoadedConfig.systemPromptPrefix = "   \n\n  ";
+      const result = buildSystemPrompt();
+      expect(result.startsWith("<use_parallel_tool_calls>")).toBe(true);
+    });
+
+    test("injects prefix at the very start of the prompt when set", () => {
+      mockLoadedConfig.systemPromptPrefix = "You are operating in demo mode.";
+      const result = buildSystemPrompt();
+      expect(result.startsWith("You are operating in demo mode.")).toBe(true);
+      // The standard static sections should still follow the prefix.
+      expect(result).toContain("<use_parallel_tool_calls>");
+      // Prefix lives in the static (cached) block, not the dynamic block.
+      const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
+      expect(boundaryIdx).toBeGreaterThan(-1);
+      const staticBlock = result.slice(0, boundaryIdx);
+      expect(staticBlock).toContain("You are operating in demo mode.");
+    });
+
+    test("trims leading/trailing whitespace from the prefix", () => {
+      mockLoadedConfig.systemPromptPrefix =
+        "\n\n  Pretend you are a pirate.  \n\n";
+      const result = buildSystemPrompt();
+      expect(result.startsWith("Pretend you are a pirate.")).toBe(true);
+    });
+
+    test("multi-line prefixes are preserved verbatim after trimming", () => {
+      mockLoadedConfig.systemPromptPrefix =
+        "# Org Guardrails\n\n- Never discuss pricing.\n- Escalate refunds.";
+      const result = buildSystemPrompt();
+      expect(
+        result.startsWith(
+          "# Org Guardrails\n\n- Never discuss pricing.\n- Escalate refunds.",
+        ),
+      ).toBe(true);
+    });
+
+    test("workspace file content still appears after prefix", () => {
+      mockLoadedConfig.systemPromptPrefix = "Custom prefix";
+      writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
+      const result = buildSystemPrompt();
+      expect(result.startsWith("Custom prefix")).toBe(true);
+      expect(basePrompt(result)).toBe("I am Vellum.");
+    });
   });
 });
 
