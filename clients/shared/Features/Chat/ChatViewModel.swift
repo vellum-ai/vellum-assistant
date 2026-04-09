@@ -2040,14 +2040,13 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         let reconstructedSubagents = result.subagents
 
         // Decode cached images on @MainActor (NSImage is not thread-safe).
-        // ToolCallData is a reference type — mutations via the for-in loop are
-        // visible without re-assignment.  ChatAttachment is a value type inside
-        // the ChatMessage struct, so we index into chatMessages directly.
+        // Both ToolCallData and ChatAttachment are value types (structs inside
+        // the ChatMessage struct), so we index into chatMessages directly.
         for i in chatMessages.indices {
-            for toolCall in chatMessages[i].toolCalls {
-                if let rawImages = toolCall.imageDataList, !rawImages.isEmpty {
-                    toolCall.cachedImages = rawImages.compactMap { ToolCallData.decodeImage(from: $0) }
-                    toolCall.imageDataList = nil
+            for k in chatMessages[i].toolCalls.indices {
+                if let rawImages = chatMessages[i].toolCalls[k].imageDataList, !rawImages.isEmpty {
+                    chatMessages[i].toolCalls[k].cachedImages = rawImages.compactMap { ToolCallData.decodeImage(from: $0) }
+                    chatMessages[i].toolCalls[k].imageDataList = nil
                 }
             }
             for j in chatMessages[i].attachments.indices
