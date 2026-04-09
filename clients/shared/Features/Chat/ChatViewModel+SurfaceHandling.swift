@@ -221,15 +221,6 @@ extension ChatViewModel {
 
     // MARK: - Attachment Helpers
 
-    /// Map attachment DTOs to ChatAttachment values, generating thumbnails for images.
-    /// Runs the CPU-intensive thumbnail generation on a background thread to avoid
-    /// blocking the main actor.
-    func mapMessageAttachments(_ attachments: [UserMessageAttachment]) async -> [ChatAttachment] {
-        await Task.detached(priority: .userInitiated) {
-            HistoryReconstructionService.mapMessageAttachmentsStatic(attachments)
-        }.value
-    }
-
     /// Ingest attachments from a completion/handoff event into the given (or current) assistant message.
     ///
     /// Attachments are appended **synchronously** (preserving the contract that
@@ -273,9 +264,11 @@ extension ChatViewModel {
         // Phase 2: generate thumbnails on a background thread and replace the
         // lightweight attachment structs with full versions that include thumbnails.
         guard let msgId = resolvedMessageId else { return }
-        Task {
-            let fullAttachments = await mapMessageAttachments(attachments)
-            guard let idx = self.messages.firstIndex(where: { $0.id == msgId }) else { return }
+        Task { [weak self] in
+            let fullAttachments = await Task.detached(priority: .userInitiated) {
+                HistoryReconstructionService.mapMessageAttachmentsStatic(attachments)
+            }.value
+            guard let self, let idx = self.messages.firstIndex(where: { $0.id == msgId }) else { return }
             for full in fullAttachments {
                 if let aIdx = self.messages[idx].attachments.firstIndex(where: { $0.id == full.id }) {
                     self.messages[idx].attachments[aIdx] = full

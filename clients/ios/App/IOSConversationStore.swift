@@ -852,25 +852,21 @@ class IOSConversationStore: ObservableObject {
     }
 
     private func handleHistoryResponse(_ response: HistoryResponse) {
-        guard let conversationLocalId = pendingHistoryByConversationId[response.conversationId] else { return }
+        guard let conversationLocalId = pendingHistoryByConversationId.removeValue(forKey: response.conversationId) else { return }
         guard let vm = viewModels[conversationLocalId] else { return }
 
         let isPaginationLoad = vm.isHistoryLoaded && vm.isLoadingMoreMessages
 
         // populateFromHistory is async because it dispatches CPU-intensive
         // reconstruction (thumbnail generation, JSON estimation) to a background
-        // thread.  Remove from pendingHistory AFTER completion so that
-        // loadHistoryIfNeeded's guard prevents duplicate fetches during the
-        // deferred Task window.
-        let conversationId = response.conversationId
-        Task { [weak self] in
+        // thread.
+        Task {
             await vm.populateFromHistory(
                 response.messages,
                 hasMore: response.hasMore,
                 oldestTimestamp: response.oldestTimestamp,
                 isPaginationLoad: isPaginationLoad
             )
-            self?.pendingHistoryByConversationId.removeValue(forKey: conversationId)
         }
 
         // Wire up the onLoadMoreHistory callback if not already set.
