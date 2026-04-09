@@ -266,11 +266,8 @@ struct ChatBubble: View, Equatable {
     func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         let isPlainAssistant = !isUser && !message.isError
         if message.isError {
-            // ⚠️ Do NOT replace .containerRelativeFrame with .frame(maxWidth:, alignment:) here.
-            // FlexFrame alignment queries recurse through all children — see AGENTS.md.
-            // .containerRelativeFrame resolves against the ScrollView, ensuring the error
-            // background spans the full column width even though the parent VStack is
-            // content-sized (the outer HStack+Spacer gives the VStack only its ideal width).
+            // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+            // .containerRelativeFrame resolves against the ScrollView for full-width error background.
             content()
                 .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.lg,
                                     bottom: VSpacing.md, trailing: VSpacing.lg))
@@ -342,8 +339,7 @@ struct ChatBubble: View, Equatable {
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "chatBubbleBody",
                             "id=%{public}s streaming=%d", message.id.uuidString, message.isStreaming ? 1 : 0)
         #endif
-        // ⚠️ Do NOT replace HStack+Spacer with .frame(maxWidth:, alignment:) here.
-        // FlexFrame alignment queries recurse through all children — see AGENTS.md.
+        // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
         HStack(spacing: 0) {
             if isUser { Spacer(minLength: 0) }
             // Outer VStack ensures a single resolved subview for the parent

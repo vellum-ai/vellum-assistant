@@ -35,8 +35,7 @@ extension ChatBubble {
 
         if hasToolCalls || hasStreamingCode || shouldShowProcessing {
             // Unified progress view handles all tool/streaming/processing states
-            // ⚠️ Do NOT replace HStack+Spacer with .frame(maxWidth:, alignment:) here.
-            // FlexFrame alignment queries recurse through all children — see AGENTS.md.
+            // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
             HStack(spacing: 0) {
                 AssistantProgressView(
                     toolCalls: message.toolCalls,
@@ -62,8 +61,7 @@ extension ChatBubble {
             inlineToolCallImages(from: message.toolCalls)
         } else if !effectiveConfirmations.isEmpty, !inlineToolProgressRenderedInContent {
             // No tool display needed — only show permission chips.
-            // ⚠️ Do NOT replace HStack+Spacer with .frame(maxWidth:, alignment:) here.
-            // FlexFrame alignment queries recurse through all children — see AGENTS.md.
+            // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
             HStack(alignment: .center, spacing: VSpacing.sm) {
                 ForEach(Array(effectiveConfirmations.enumerated()), id: \.offset) { _, confirmation in
                     compactPermissionChip(confirmation)

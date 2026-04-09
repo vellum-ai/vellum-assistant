@@ -354,8 +354,6 @@ struct MarkdownTableView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Header row
             HStack(spacing: 0) {
-                // ⚠️ Do NOT replace HStack+Spacer with .frame(maxWidth:, alignment:) here.
-                // FlexFrame alignment queries recurse through all children — see AGENTS.md.
                 ForEach(Array(headers.enumerated()), id: \.offset) { _, header in
                     HStack(spacing: 0) {
                         Text(header)
@@ -392,8 +390,7 @@ struct MarkdownTableView: View {
             RoundedRectangle(cornerRadius: VRadius.md)
                 .stroke(VColor.borderBase, lineWidth: 0.5)
         )
-        // ⚠️ Do NOT replace .frame(width:) with .frame(maxWidth:, alignment:) here.
-        // FlexFrame alignment queries recurse through all children — see AGENTS.md.
+        // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
         .frame(width: maxWidth.isFinite ? maxWidth : nil, alignment: .leading)
     }
 

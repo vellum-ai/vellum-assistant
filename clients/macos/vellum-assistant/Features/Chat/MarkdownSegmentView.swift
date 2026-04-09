@@ -71,8 +71,7 @@ struct MarkdownSegmentView: View, Equatable {
                     )
                     #else
                     let attributed = buildCombinedAttributedString(from: runSegments)
-                    // ⚠️ Do NOT replace HStack+Spacer with .frame(maxWidth:, alignment:) here.
-                    // FlexFrame alignment queries recurse through all children — see AGENTS.md.
+                    // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
                     HStack(spacing: 0) {
                         Text(attributed)
                             .font(chatFont)
@@ -910,14 +909,7 @@ private extension AttributedString {
 private extension View {
     /// Applies a definite `.frame(width:)` only when a width is provided.
     /// When `nil`, no frame is applied — the view shrink-wraps to its content.
-    ///
-    /// Use ONLY for fill-width elements (code blocks, horizontal rules) where exact
-    /// width is desired. Do NOT use for text that should shrink-wrap — use
-    /// `HStack+Spacer` instead for leading alignment without a width constraint.
-    ///
-    /// ⚠️ Uses `.frame(width:alignment:)` which compiles to `_FrameLayout` — safe
-    /// inside LazyVStack cells. Do NOT change to `.frame(maxWidth:alignment:)` which
-    /// compiles to `_FlexFrameLayout` and triggers recursive alignment queries — see AGENTS.md.
+    /// ⚠️ No `.frame(maxWidth:)` — see AGENTS.md.
     @ViewBuilder
     func optionalMaxWidth(_ width: CGFloat?) -> some View {
         if let width {

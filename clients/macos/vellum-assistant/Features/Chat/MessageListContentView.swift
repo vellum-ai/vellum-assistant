@@ -223,8 +223,7 @@ struct MessageListContentView: View, Equatable {
             }
 
             ForEach(state.orphanSubagents) { subagent in
-                // ⚠️ Do NOT replace HStack+Spacer with .frame(maxWidth:, alignment:) here.
-                // FlexFrame alignment queries recurse through all children — see AGENTS.md.
+                // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
                 HStack(spacing: 0) {
                     SubagentEventsReader(
                         store: subagentDetailStore,

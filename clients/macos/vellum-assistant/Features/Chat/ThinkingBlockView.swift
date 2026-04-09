@@ -37,9 +37,7 @@ struct ThinkingBlockView: View {
                 Divider()
                     .padding(.horizontal, VSpacing.sm)
 
-                // ⚠️ Do NOT add .frame(maxWidth:, alignment:) here.
-                // FlexFrame alignment queries recurse through all children — see AGENTS.md.
-                // The parent VStack(alignment: .leading) already provides leading alignment.
+                // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
                 MarkdownSegmentView(
                     segments: cachedSegments,
                     isStreaming: isStreaming,

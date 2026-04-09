@@ -1,23 +1,14 @@
 import SwiftUI
 
-/// Blocks `explicitAlignment` queries from cascading into its subtree.
+/// Blocks [`explicitAlignment`](https://developer.apple.com/documentation/swiftui/layout/explicitalignment(of:in:proposal:subviews:cache:)-3iqmu)
+/// queries from cascading into its subtree. Returns `nil` for both horizontal
+/// and vertical alignment guides while passing sizing and placement through unchanged.
 ///
-/// When a parent `_FlexFrameLayout` (created by `.frame(maxWidth:, alignment:)`)
-/// queries a child's explicit alignment, the query recurses through every
-/// descendant that also has a FlexFrame — O(depth × children) per layout pass.
-/// Inside a `LazyVStack`, this triggers `measureEstimates` on ALL cells,
-/// causing multi-second main-thread hangs.
+/// Place between any `.frame(maxWidth:, alignment:)` and a `LazyVStack` to
+/// prevent O(depth × children) recursive alignment measurement.
 ///
-/// `AlignmentBarrierLayout` returns `nil` for both horizontal and vertical
-/// alignment queries, stopping the cascade at the barrier. Sizing and
-/// placement pass through unchanged — only the alignment query is blocked.
-///
-/// Place this between any external FlexFrame and the `LazyVStack` to prevent
-/// alignment queries from reaching the lazy container.
-///
-/// - SeeAlso: [Layout protocol](https://developer.apple.com/documentation/swiftui/layout)
-/// - SeeAlso: [WWDC23: Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
-/// - SeeAlso: [ViewDimensions.subscript](https://developer.apple.com/documentation/swiftui/viewdimensions)
+/// - SeeAlso: [WWDC23 – Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
+/// - SeeAlso: [`ViewDimensions`](https://developer.apple.com/documentation/swiftui/viewdimensions)
 public struct AlignmentBarrierLayout: Layout {
     public init() {}
 

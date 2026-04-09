@@ -881,8 +881,7 @@ private struct StepDetailRow: View {
         isError: Bool = false
     ) -> some View {
         ZStack(alignment: .topTrailing) {
-            // ⚠️ Do NOT replace HStack+Spacer with .frame(maxWidth:, alignment:) here.
-            // FlexFrame alignment queries recurse through all children — see AGENTS.md.
+            // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
             HStack(spacing: 0) {
                 outputTextView(text: text, attributedText: attributedText, isError: isError)
                 Spacer(minLength: 0)
@@ -926,8 +925,7 @@ private struct StepDetailRow: View {
         attributedText: AttributedString?,
         isError: Bool = false
     ) -> some View {
-        // ⚠️ Do NOT replace HStack+Spacer with .frame(maxWidth:, alignment:) here.
-        // FlexFrame alignment queries recurse through all children — see AGENTS.md.
+        // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
         if let attrText = attributedText {
             HStack(spacing: 0) {
                 Text(attrText)
