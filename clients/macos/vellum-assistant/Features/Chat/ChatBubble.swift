@@ -542,33 +542,28 @@ struct ChatBubble: View, Equatable {
     // children and resolves explicitAlignment through the entire LazyVStack
     // subtree — O(n × depth) per layout pass, causing 35 s+ hangs.
     //
-    // Fix: two-path conditional.
-    //   Collapsed → .frame(height:) creates _FrameLayout — O(1), no cascade.
-    //   Expanded / short → no frame modifier at all.
+    // Fix: .frame(height:) creates _FrameLayout — O(1), no alignment cascade.
+    // When height is nil (expanded / short), _FrameLayout passes through the
+    // child's natural height. Single view identity is preserved (no
+    // _ConditionalContent), so withAnimation still drives a smooth height
+    // transition on expand/collapse.
 
     @ViewBuilder
     private func userMessageHeightWrapper<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         let isCollapsible = userMessageIntrinsicHeight > userMessageMaxCollapsedHeight
         let needsCollapse = isCollapsible && !isUserMessageExpanded
         VStack(alignment: .trailing, spacing: VSpacing.xs) {
-            if needsCollapse {
-                // Collapsed: definite height — _FrameLayout, O(1), no alignment cascade.
-                content()
-                    .frame(height: userMessageMaxCollapsedHeight, alignment: .top)
-                    .clipped()
-            } else {
-                // Expanded or short: no frame modifier — avoids _FlexFrameLayout entirely.
-                // GeometryReader captures intrinsic height for future collapse decisions.
-                content()
-                    .background(
-                        GeometryReader { geo in
-                            Color.clear.preference(key: IntrinsicHeightKey.self, value: geo.size.height)
-                        }
-                    )
-                    .onPreferenceChange(IntrinsicHeightKey.self) { height in
-                        userMessageIntrinsicHeight = height
+            content()
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.preference(key: IntrinsicHeightKey.self, value: geo.size.height)
                     }
-            }
+                )
+                .onPreferenceChange(IntrinsicHeightKey.self) { height in
+                    userMessageIntrinsicHeight = height
+                }
+                .frame(height: needsCollapse ? userMessageMaxCollapsedHeight : nil, alignment: .top)
+                .clipped()
 
             if isCollapsible {
                 Button(action: {
