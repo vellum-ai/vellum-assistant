@@ -107,6 +107,7 @@ struct MessageListContentView: View, Equatable {
             }
             Spacer()
         }
+        .frame(width: VSpacing.chatBubbleMaxWidth)
         .id("thinking-indicator")
         .transition(.opacity)
     }
@@ -117,6 +118,7 @@ struct MessageListContentView: View, Equatable {
             label: "Compacting context\u{2026}",
             showIcon: false
         )
+        .frame(width: VSpacing.chatBubbleMaxWidth)
         .id("compacting-indicator")
         .transition(.opacity)
     }
@@ -249,6 +251,7 @@ struct MessageListContentView: View, Equatable {
                     TypingIndicatorView()
                     Spacer()
                 }
+                .frame(width: VSpacing.chatBubbleMaxWidth)
                 .id("streaming-without-text-indicator")
                 .transition(.opacity)
             } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
