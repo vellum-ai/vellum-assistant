@@ -356,26 +356,36 @@ public final class SkillsStore: ObservableObject {
     // MARK: - Lazy File Content
 
     public func loadSkillFileContent(skillId: String, path: String) {
-        // Cancel any in-flight task for the same path so a second click replaces the first.
+        // Cancel any in-flight task for the same path so a second click
+        // replaces the first. The task body mirrors the structure of
+        // `fetchSkillDetail`/`fetchSkillFiles` above: a single
+        // `Task.isCancelled` check gates every state mutation, and the
+        // `SkillsStore` actor isolation (`@MainActor`) removes the need
+        // for an explicit `MainActor.run` hop.
         fileContentTasks[path]?.cancel()
         loadingFilePaths.insert(path)
         fileContentErrors[path] = nil
 
-        let task = Task { [weak self] in
-            guard let self else { return }
+        let task = Task {
             let result = await self.skillsClient.fetchSkillFileContent(skillId: skillId, path: path)
             guard !Task.isCancelled else { return }
-            await MainActor.run {
-                guard self.currentFilesSkillId == skillId else { return }
-                self.loadingFilePaths.remove(path)
-                if let result, let content = result.content {
-                    self.loadedFileContents[path] = content
-                } else if let result, result.content == nil, result.isBinary {
-                    // Binary file — no preview available is expected, not an error.
-                    self.loadedFileContents.removeValue(forKey: path)
-                } else {
-                    self.fileContentErrors[path] = "Failed to load file content"
-                }
+            guard self.currentFilesSkillId == skillId else { return }
+
+            self.loadingFilePaths.remove(path)
+            if let result, let content = result.content {
+                self.loadedFileContents[path] = content
+            } else if let result, result.isBinary {
+                // Binary file: no preview available is expected, not an error.
+                self.loadedFileContents.removeValue(forKey: path)
+            } else if let result, result.content == nil {
+                // Oversized text file: the daemon returns `content: null`
+                // for text files above the inline-content size threshold.
+                // Treat this as "no preview available" rather than an
+                // error — the detail view falls through to its existing
+                // "Select a file to view" empty state.
+                self.loadedFileContents.removeValue(forKey: path)
+            } else {
+                self.fileContentErrors[path] = "Failed to load file content"
             }
         }
         fileContentTasks[path] = task

@@ -114,9 +114,8 @@ struct SkillDetailView: View {
         .navigationTitle(skill.name)
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            // Only fetch detail and files for locally available skills (bundled or installed).
-            // Remote catalog search results are not in the local resolved catalog, so
-            // GET /skills/:id and GET /skills/:id/files would 404 for them.
+            // iOS does not yet surface catalog previews; file and detail
+            // fetches are gated on locally-installed skills.
             if skill.isInstalled {
                 skillsStore.fetchSkillDetail(skillId: skill.id)
                 skillsStore.fetchSkillFiles(skillId: skill.id)

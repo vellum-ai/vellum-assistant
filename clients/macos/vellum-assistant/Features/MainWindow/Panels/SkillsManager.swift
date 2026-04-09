@@ -50,6 +50,12 @@ final class SkillsManager {
     var fileContentErrors: [String: String] = [:]
     var installingSkillId: String?
 
+    /// Safety timeout that defensively clears `installingSkillId` if a
+    /// wedged `fetchSkills(force:)` response never lands. Without it, the
+    /// install spinner can be stuck indefinitely when the confirmation
+    /// refresh path is blocked or delayed.
+    @ObservationIgnored private var installWatchdogTask: Task<Void, Never>?
+
     // MARK: - Filter Inputs
 
     var searchQuery: String = "" {
@@ -113,7 +119,25 @@ final class SkillsManager {
                 self.fileContentErrors = self.skillsStore.fileContentErrors
                 if let result = self.skillsStore.installResult,
                    result.slug == self.installingSkillId {
-                    self.installingSkillId = nil
+                    if !result.success {
+                        // Failure: release the spinner immediately so the
+                        // Install button returns and the user can retry.
+                        self.installingSkillId = nil
+                        self.installWatchdogTask?.cancel()
+                        self.installWatchdogTask = nil
+                    } else if self.skillsStore.skills
+                        .first(where: { $0.id == result.slug })?.kind != "catalog" {
+                        // Success confirmed: the refreshed skills list has
+                        // flipped the kind away from "catalog", so the
+                        // detail view will render the installed UI on the
+                        // next body pass without flicker.
+                        self.installingSkillId = nil
+                        self.installWatchdogTask?.cancel()
+                        self.installWatchdogTask = nil
+                    }
+                    // Otherwise: keep the spinner up until fetchSkills(force:)
+                    // lands — see `installSkill(slug:)` for the watchdog that
+                    // clears the spinner defensively if the refresh wedges.
                 }
                 self.recomputeFilteredData()
             }
@@ -241,6 +265,20 @@ final class SkillsManager {
     func installSkill(slug: String) {
         installingSkillId = slug
         skillsStore.installSkill(slug: slug)
+
+        // Defensive watchdog: a wedged `fetchSkills(force:)` response
+        // after install would otherwise leave the spinner stuck forever.
+        // Clear `installingSkillId` after 15 seconds if the confirmation
+        // path has not already cleared it.
+        installWatchdogTask?.cancel()
+        installWatchdogTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 15_000_000_000)
+            guard !Task.isCancelled else { return }
+            guard let self else { return }
+            if self.installingSkillId == slug {
+                self.installingSkillId = nil
+            }
+        }
     }
 
     func fetchSkillFiles(skillId: String) {

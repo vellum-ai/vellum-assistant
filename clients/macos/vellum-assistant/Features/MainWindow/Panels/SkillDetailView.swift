@@ -76,11 +76,14 @@ struct SkillDetailView: View {
             }
             lastObservedKind = newKind
         }
-        .onChange(of: skillsManager.selectedSkillFiles?.files.map(\.path)) {
+        .onChange(of: skillsManager.selectedSkillFiles?.files.map { "\($0.path):\($0.content == nil)" }) {
             // 1. Rebuild the browser node tree from the latest file list (moved out of
             //    view body per clients/AGENTS.md: no heavy transformation in body).
             //    In preview mode the `content` field is always nil — files are
             //    fetched lazily on click — so the tree filter must tolerate that.
+            //    The key includes each file's content-nullness so the rebuild
+            //    fires after an install-from-preview refresh, where the path
+            //    list is unchanged but content transitions from null to inline.
             let textFiles: [SkillFileEntry]
             if let files = skillsManager.selectedSkillFiles?.files {
                 textFiles = files.filter { file in
