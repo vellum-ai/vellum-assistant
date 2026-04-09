@@ -103,7 +103,7 @@ struct APIKeyStepView: View {
             .padding(.bottom, VSpacing.md)
 
         Text("Where do you want your assistant to live?")
-            .font(VFont.titleSmall)
+            .font(VFont.bodyMediumLighter)
             .foregroundStyle(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
