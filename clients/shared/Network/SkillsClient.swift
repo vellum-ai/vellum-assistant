@@ -21,6 +21,7 @@ public protocol SkillsClientProtocol {
     func createSkill(skillId: String, name: String, description: String, emoji: String?, bodyMarkdown: String, overwrite: Bool?) async -> SkillOperationResult?
     func fetchSkillDetail(skillId: String) async -> SkillDetailHTTPResponse?
     func fetchSkillFiles(skillId: String) async -> SkillDetailFilesHTTPResponse?
+    func fetchSkillFileContent(skillId: String, path: String) async -> SkillFileContentResponse?
 }
 
 /// Gateway-backed implementation of ``SkillsClientProtocol``.
@@ -308,6 +309,24 @@ public struct SkillsClient: SkillsClientProtocol {
             return try JSONDecoder().decode(SkillDetailFilesHTTPResponse.self, from: response.data)
         } catch {
             log.error("fetchSkillFiles error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func fetchSkillFileContent(skillId: String, path: String) async -> SkillFileContentResponse? {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "assistants/{assistantId}/skills/\(Self.encodePath(skillId))/files/content",
+                params: ["path": path],
+                timeout: 15
+            )
+            guard response.isSuccess else {
+                log.error("fetchSkillFileContent failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            return try JSONDecoder().decode(SkillFileContentResponse.self, from: response.data)
+        } catch {
+            log.error("fetchSkillFileContent error: \(error.localizedDescription)")
             return nil
         }
     }

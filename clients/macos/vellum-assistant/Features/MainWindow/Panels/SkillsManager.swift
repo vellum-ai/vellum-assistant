@@ -45,6 +45,9 @@ final class SkillsManager {
     var selectedSkillFiles: SkillDetailFilesHTTPResponse?
     var isLoadingSkillFiles = false
     var skillFilesError: String?
+    var loadedFileContents: [String: String] = [:]
+    var loadingFilePaths: Set<String> = []
+    var fileContentErrors: [String: String] = [:]
     var installingSkillId: String?
 
     // MARK: - Filter Inputs
@@ -105,6 +108,9 @@ final class SkillsManager {
                 self.selectedSkillFiles = self.skillsStore.selectedSkillFiles
                 self.isLoadingSkillFiles = self.skillsStore.isLoadingSkillFiles
                 self.skillFilesError = self.skillsStore.skillFilesError
+                self.loadedFileContents = self.skillsStore.loadedFileContents
+                self.loadingFilePaths = self.skillsStore.loadingFilePaths
+                self.fileContentErrors = self.skillsStore.fileContentErrors
                 if let result = self.skillsStore.installResult,
                    result.slug == self.installingSkillId {
                     self.installingSkillId = nil
@@ -239,6 +245,14 @@ final class SkillsManager {
 
     func fetchSkillFiles(skillId: String) {
         skillsStore.fetchSkillFiles(skillId: skillId)
+    }
+
+    func loadSkillFileContent(skillId: String, path: String) {
+        skillsStore.loadSkillFileContent(skillId: skillId, path: path)
+    }
+
+    func clearLoadedFileContents() {
+        skillsStore.clearLoadedFileContents()
     }
 
     func clearSkillDetail() {
