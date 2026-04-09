@@ -210,9 +210,6 @@ struct IdentityPanel: View {
         }
     }
 
-    // MARK: - Inline Editing
-
-
     // MARK: - Intro Generation
 
     private func generateIntro() {
