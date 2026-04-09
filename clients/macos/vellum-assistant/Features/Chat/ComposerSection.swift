@@ -74,6 +74,7 @@ struct ComposerSection: View {
                 containerWidth: containerWidth
             )
         }
+        .frame(maxWidth: .infinity)
         .background(
             LinearGradient(
                 stops: [
