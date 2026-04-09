@@ -89,6 +89,7 @@ final class ConversationDetailClientTests: XCTestCase {
                     "title": "Original thread",
                     "createdAt": 1700000000,
                     "updatedAt": 1700000100,
+                    "hostAccess": true,
                     "forkParent": {
                       "conversationId": "conv-root",
                       "messageId": "msg-root",
@@ -113,6 +114,7 @@ final class ConversationDetailClientTests: XCTestCase {
         XCTAssertEqual(capturedRequest?.httpMethod, "GET")
         XCTAssertEqual(conversation?.id, "conv-parent")
         XCTAssertEqual(conversation?.title, "Original thread")
+        XCTAssertEqual(conversation?.hostAccess, true)
         XCTAssertEqual(conversation?.forkParent?.conversationId, "conv-root")
         XCTAssertEqual(conversation?.forkParent?.messageId, "msg-root")
     }

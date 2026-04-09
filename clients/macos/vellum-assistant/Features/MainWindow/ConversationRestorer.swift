@@ -270,6 +270,7 @@ final class ConversationRestorer {
                 var existing = delegate.conversations[existingIdx]
                 existing.groupId = groupId
                 existing.displayOrder = session.displayOrder.map { Int($0) }
+                existing.hostAccess = session.hostAccess ?? false
                 existing.forkParent = session.forkParent
                 delegate.conversations[existingIdx] = existing
                 // Attention merge must go through mergeAssistantAttention so that
@@ -300,6 +301,7 @@ final class ConversationRestorer {
                 lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.lastMessageAt ?? session.updatedAt) / 1000.0),
                 kind: kind,
                 source: session.source,
+                hostAccess: session.hostAccess ?? false,
                 scheduleJobId: session.scheduleJobId,
                 hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false,
                 latestAssistantMessageAt: session.assistantAttention?.latestAssistantMessageAt.map {

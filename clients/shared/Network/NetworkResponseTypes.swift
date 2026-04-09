@@ -22,6 +22,7 @@ public struct ConversationsListResponse: Decodable {
         public let updatedAt: Int
         public let conversationType: String?
         public let source: String?
+        public let hostAccess: Bool?
         public let scheduleJobId: String?
         public let channelBinding: ChannelBinding?
         public let conversationOriginChannel: String?

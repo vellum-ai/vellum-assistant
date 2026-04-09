@@ -3430,13 +3430,15 @@ public struct ConversationInfo: Codable, Sendable {
     public let title: String
     public let correlationId: String?
     public let conversationType: String?
+    public let hostAccess: Bool?
 
-    public init(type: String, conversationId: String, title: String, correlationId: String? = nil, conversationType: String? = nil) {
+    public init(type: String, conversationId: String, title: String, correlationId: String? = nil, conversationType: String? = nil, hostAccess: Bool? = nil) {
         self.type = type
         self.conversationId = conversationId
         self.title = title
         self.correlationId = correlationId
         self.conversationType = conversationType
+        self.hostAccess = hostAccess
     }
 }
 
@@ -3494,6 +3496,7 @@ public struct ConversationListResponseItem: Codable, Sendable {
     public let lastMessageAt: Int?
     public let conversationType: String?
     public let source: String?
+    public let hostAccess: Bool?
     public let scheduleJobId: String?
     /// Channel binding metadata exposed in conversation list APIs.
     public let channelBinding: ChannelBinding?
@@ -3506,7 +3509,7 @@ public struct ConversationListResponseItem: Codable, Sendable {
     public let groupId: String?
     public let forkParent: ConversationForkParent?
 
-    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, lastMessageAt: Int? = nil, conversationType: String? = nil, source: String? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil, groupId: String? = nil, forkParent: ConversationForkParent? = nil) {
+    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, lastMessageAt: Int? = nil, conversationType: String? = nil, source: String? = nil, hostAccess: Bool? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil, groupId: String? = nil, forkParent: ConversationForkParent? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -3514,6 +3517,7 @@ public struct ConversationListResponseItem: Codable, Sendable {
         self.lastMessageAt = lastMessageAt
         self.conversationType = conversationType
         self.source = source
+        self.hostAccess = hostAccess
         self.scheduleJobId = scheduleJobId
         self.channelBinding = channelBinding
         self.conversationOriginChannel = conversationOriginChannel

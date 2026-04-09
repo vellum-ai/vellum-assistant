@@ -31,6 +31,7 @@ struct ChatEmptyStateView: View {
     var conversationStartersLoading: Bool = false
     var onSelectStarter: ((ConversationStarter) -> Void)? = nil
     var onFetchConversationStarters: (() -> Void)? = nil
+    var conversationHostAccessControl: ConversationHostAccessControlConfiguration? = nil
 
     @State private var visible = false
     @State private var fallbackPlaceholder: String = placeholderTexts.randomElement()!
@@ -129,28 +130,34 @@ struct ChatEmptyStateView: View {
     }
 
     private var composerSection: some View {
-        ComposerView(
-            inputText: $inputText,
-            isSending: isSending,
-            isAssistantBusy: isAssistantBusy,
-            hasPendingConfirmation: false,
-            isRecording: isRecording,
-            suggestion: suggestion,
-            pendingAttachments: pendingAttachments,
-            isLoadingAttachment: isLoadingAttachment,
-            onSend: onSend,
-            onStop: onStop,
-            onAcceptSuggestion: onAcceptSuggestion,
-            onAttach: onAttach,
-            onRemoveAttachment: onRemoveAttachment,
-            onPaste: onPaste,
-            onMicrophoneToggle: onMicrophoneToggle,
-            recordingAmplitude: recordingAmplitude,
-            onDictateToggle: onDictateToggle,
-            onVoiceModeToggle: onVoiceModeToggle,
-            placeholderText: fallbackPlaceholder,
-            conversationId: conversationId
-        )
+        VStack(spacing: VSpacing.sm) {
+            if let conversationHostAccessControl {
+                ConversationHostAccessControl(configuration: conversationHostAccessControl)
+            }
+
+            ComposerView(
+                inputText: $inputText,
+                isSending: isSending,
+                isAssistantBusy: isAssistantBusy,
+                hasPendingConfirmation: false,
+                isRecording: isRecording,
+                suggestion: suggestion,
+                pendingAttachments: pendingAttachments,
+                isLoadingAttachment: isLoadingAttachment,
+                onSend: onSend,
+                onStop: onStop,
+                onAcceptSuggestion: onAcceptSuggestion,
+                onAttach: onAttach,
+                onRemoveAttachment: onRemoveAttachment,
+                onPaste: onPaste,
+                onMicrophoneToggle: onMicrophoneToggle,
+                recordingAmplitude: recordingAmplitude,
+                onDictateToggle: onDictateToggle,
+                onVoiceModeToggle: onVoiceModeToggle,
+                placeholderText: fallbackPlaceholder,
+                conversationId: conversationId
+            )
+        }
         .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
         .opacity(visible ? 1 : 0)
         .offset(y: visible ? 0 : 10)
@@ -351,6 +358,7 @@ struct ChatTemporaryChatEmptyStateView: View {
     var onDictateToggle: (() -> Void)? = nil
     var onVoiceModeToggle: (() -> Void)? = nil
     var conversationId: UUID?
+    var conversationHostAccessControl: ConversationHostAccessControlConfiguration? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -375,28 +383,34 @@ struct ChatTemporaryChatEmptyStateView: View {
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.bottom, VSpacing.xxl)
 
-            ComposerView(
-                inputText: $inputText,
-                isSending: isSending,
-                isAssistantBusy: isAssistantBusy,
-                hasPendingConfirmation: false,
-                isRecording: isRecording,
-                suggestion: suggestion,
-                pendingAttachments: pendingAttachments,
-                isLoadingAttachment: isLoadingAttachment,
-                onSend: onSend,
-                onStop: onStop,
-                onAcceptSuggestion: onAcceptSuggestion,
-                onAttach: onAttach,
-                onRemoveAttachment: onRemoveAttachment,
-                onPaste: onPaste,
-                onMicrophoneToggle: onMicrophoneToggle,
-                recordingAmplitude: recordingAmplitude,
-                onDictateToggle: onDictateToggle,
-                onVoiceModeToggle: onVoiceModeToggle,
-                placeholderText: "Ask anything...",
-                conversationId: conversationId
-            )
+            VStack(spacing: VSpacing.sm) {
+                if let conversationHostAccessControl {
+                    ConversationHostAccessControl(configuration: conversationHostAccessControl)
+                }
+
+                ComposerView(
+                    inputText: $inputText,
+                    isSending: isSending,
+                    isAssistantBusy: isAssistantBusy,
+                    hasPendingConfirmation: false,
+                    isRecording: isRecording,
+                    suggestion: suggestion,
+                    pendingAttachments: pendingAttachments,
+                    isLoadingAttachment: isLoadingAttachment,
+                    onSend: onSend,
+                    onStop: onStop,
+                    onAcceptSuggestion: onAcceptSuggestion,
+                    onAttach: onAttach,
+                    onRemoveAttachment: onRemoveAttachment,
+                    onPaste: onPaste,
+                    onMicrophoneToggle: onMicrophoneToggle,
+                    recordingAmplitude: recordingAmplitude,
+                    onDictateToggle: onDictateToggle,
+                    onVoiceModeToggle: onVoiceModeToggle,
+                    placeholderText: "Ask anything...",
+                    conversationId: conversationId
+                )
+            }
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
 
             Spacer()
