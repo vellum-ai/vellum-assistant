@@ -146,6 +146,11 @@ extension MessageListView {
                 )
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
                             "target=bottom reason=sendFollowingBottom")
+
+                // Also scroll the user message to top for Claude-style behavior
+                if let userMessage = messages.last(where: { $0.role == .user }) {
+                    scrollPosition.scrollTo(id: userMessage.id, anchor: .top)
+                }
             }
         } else {
             // Capture the activity phase at the moment sending stops.
@@ -218,16 +223,19 @@ extension MessageListView {
     }
 
     func handleContainerWidthChanged() {
-        guard containerWidth > 0, abs(containerWidth - scrollState.lastHandledContainerWidth) > 2 else { return }
-        // First real measurement (0 → actual width) is not a resize — just
-        // record the width so subsequent changes are detected as real resizes.
-        // This avoids spurious resize stabilization during initial load when
-        // containerWidth starts at 0 (e.g. from @State + .onGeometryChange).
-        guard scrollState.lastHandledContainerWidth > 0 else {
-            scrollState.lastHandledContainerWidth = containerWidth
+        let trackedWidth = layoutMetrics.chatColumnWidth
+        guard containerWidth > 0,
+              abs(trackedWidth - scrollState.lastHandledChatColumnWidth) > 2 else { return }
+        // First real pane measurement (0 → actual width) is not a resize — just
+        // record the transcript column width so subsequent reflows are treated
+        // as real resizes. Once the pane exceeds chatColumnMaxWidth, widening
+        // only the outer gutters leaves trackedWidth unchanged and skips the
+        // resize recovery path entirely.
+        guard scrollState.lastHandledChatColumnWidth > 0 else {
+            scrollState.lastHandledChatColumnWidth = trackedWidth
             return
         }
-        scrollState.lastHandledContainerWidth = containerWidth
+        scrollState.lastHandledChatColumnWidth = trackedWidth
         // Route through coordinator for policy decision.
         let intents = scrollCoordinator.handle(.containerWidthChanged)
         executeCoordinatorIntents(intents)
@@ -285,7 +293,9 @@ extension MessageListView {
         // Capture the new conversation's activity phase so a conversation
         // already paused in awaiting_confirmation is correctly tracked.
         scrollState.lastActivityPhaseWhenIdle = isSending ? "" : assistantActivityPhase
-        scrollState.lastHandledContainerWidth = containerWidth
+        scrollState.lastHandledChatColumnWidth = containerWidth > 0
+            ? layoutMetrics.chatColumnWidth
+            : 0
         scrollState.anchorTimeoutTask?.cancel()
         scrollState.anchorTimeoutTask = nil
         scrollState.lastAutoFocusedRequestId = nil

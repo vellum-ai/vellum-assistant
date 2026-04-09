@@ -46,7 +46,6 @@ mock.module("../../auth/token-exchange.js", () => ({
   validateEdgeToken: () => ({ ok: true, claims: {} }),
   mintExchangeToken: () => "mock-exchange",
   mintIngressToken: () => "mock-ingress",
-  mintBrowserRelayToken: () => "mock-browser-relay",
 }));
 
 mock.module("../../logger.js", () => {

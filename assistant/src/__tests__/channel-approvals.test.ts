@@ -9,6 +9,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type { Conversation } from "../daemon/conversation.js";
 import * as trustStore from "../permissions/trust-store.js";
 import type {
@@ -81,6 +82,7 @@ function registerPendingConfirmation(
 
 describe("getChannelApprovalPrompt", () => {
   beforeEach(() => {
+    _setOverridesForTesting({});
     pendingInteractions.clear();
   });
 
@@ -169,6 +171,20 @@ describe("getChannelApprovalPrompt", () => {
     const result = getChannelApprovalPrompt("conv-2");
     expect(result).toBeNull();
   });
+
+  test("returns approve_once + reject only under v2", () => {
+    _setOverridesForTesting({ "permission-controls-v2": true });
+    registerPendingConfirmation("req-v2", "conv-1", "shell");
+
+    const result = getChannelApprovalPrompt("conv-1");
+    expect(result).not.toBeNull();
+    expect(result!.actions.map((a) => a.id)).toEqual([
+      "approve_once",
+      "reject",
+    ]);
+    expect(result!.plainTextFallback).not.toContain("10 minutes");
+    expect(result!.plainTextFallback).not.toContain("always");
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -241,6 +257,7 @@ describe("buildApprovalUIMetadata", () => {
 
 describe("handleChannelDecision", () => {
   beforeEach(() => {
+    _setOverridesForTesting({});
     pendingInteractions.clear();
   });
 
@@ -414,6 +431,24 @@ describe("handleChannelDecision", () => {
 
     addRuleSpy.mockRestore();
   });
+
+  test("v2 collapses legacy approval actions to one-time allow without persisting rules", () => {
+    _setOverridesForTesting({ "permission-controls-v2": true });
+    registerPendingConfirmation("req-v2", "conv-1", "shell");
+
+    const addRuleSpy = spyOn(trustStore, "addRule");
+    const result = handleChannelDecision("conv-1", {
+      action: "approve_always",
+      requestId: "req-v2",
+      source: "plain_text",
+    });
+
+    expect(result).toEqual({
+      applied: true,
+      requestId: "req-v2",
+    });
+    expect(addRuleSpy).not.toHaveBeenCalled();
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -421,6 +456,10 @@ describe("handleChannelDecision", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("buildGuardianApprovalPrompt", () => {
+  beforeEach(() => {
+    _setOverridesForTesting({});
+  });
+
   test("prompt includes requester identifier and tool name", () => {
     const approvalInfo: PendingApprovalInfo = {
       requestId: "req-g1",
@@ -456,6 +495,20 @@ describe("buildGuardianApprovalPrompt", () => {
     const prompt = buildGuardianApprovalPrompt(approvalInfo, "charlie");
     expect(prompt.plainTextFallback).toContain("yes");
     expect(prompt.plainTextFallback).toContain("no");
+  });
+
+  test("uses approve_once + reject only under v2", () => {
+    _setOverridesForTesting({ "permission-controls-v2": true });
+    const approvalInfo: PendingApprovalInfo = {
+      requestId: "req-g4",
+      toolName: "shell",
+      input: {},
+      riskLevel: "medium",
+      persistentDecisionsAllowed: true,
+    };
+
+    const prompt = buildGuardianApprovalPrompt(approvalInfo, "dana");
+    expect(prompt.actions.map((a) => a.id)).toEqual(["approve_once", "reject"]);
   });
 });
 

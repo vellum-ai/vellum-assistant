@@ -50,6 +50,7 @@ public final class ChatMessageManager {
             withMutation(keyPath: \.messages) {
                 _messagesStorage = newValue
             }
+            advanceMessagesRevision()
             _deferredPublishTask?.cancel()
             _deferredPublishTask = nil
             _messagesSubject.send(newValue)
@@ -59,12 +60,22 @@ public final class ChatMessageManager {
             _$observationRegistrar.willSet(self, keyPath: \.messages)
             defer {
                 _$observationRegistrar.didSet(self, keyPath: \.messages)
+                advanceMessagesRevision()
                 scheduleDeferredPublish()
             }
             yield &_messagesStorage
         }
     }
     @ObservationIgnored private var _messagesStorage: [ChatMessage] = []
+
+    /// Monotonically increasing revision for any `messages` mutation.
+    /// Transcript caches use this to invalidate on content-only edits to
+    /// existing messages, not just count or ID changes.
+    public private(set) var messagesRevision: UInt64 = 0
+
+    private func advanceMessagesRevision() {
+        messagesRevision &+= 1
+    }
 
     /// Apply multiple mutations to the message array in a single batch,
     /// emitting only one Observation notification and one Combine publish
@@ -74,6 +85,7 @@ public final class ChatMessageManager {
         withMutation(keyPath: \.messages) {
             body(&_messagesStorage)
         }
+        advanceMessagesRevision()
         // Cancel any pending deferred publish — this synchronous publish
         // supersedes it with the final post-batch snapshot.
         _deferredPublishTask?.cancel()

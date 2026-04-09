@@ -21,6 +21,7 @@ import type {
 
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { UserDecision } from "../permissions/types.js";
+import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
 import { getLogger } from "../util/logger.js";
 import type { CesClient } from "./client.js";
 
@@ -173,13 +174,7 @@ export async function bridgeCesApproval(
     signal?: AbortSignal;
   },
 ): Promise<CesApprovalBridgeResult> {
-  const {
-    proposal,
-    renderedProposal,
-    proposalHash,
-    sessionId,
-    conversationId,
-  } = approval;
+  const { proposal, renderedProposal, proposalHash, sessionId } = approval;
 
   // Non-interactive sessions have no client to respond — fail closed.
   if (options?.isInteractive === false) {
@@ -192,6 +187,24 @@ export async function bridgeCesApproval(
       "CES approval request denied: non-interactive session",
     );
     return { outcome: "denied", userDecision: "deny" };
+  }
+
+  if (isPermissionControlsV2Enabled()) {
+    log.info(
+      {
+        event: "ces_approval_bridge_v2_suppressed",
+        proposalHash,
+        sessionId,
+      },
+      "CES approval request auto-approved without deterministic prompt under v2",
+    );
+    const v2Decision = mapUserDecisionToCesDecision("allow");
+    return recordCesGrant({
+      approval,
+      cesClient,
+      decision: v2Decision,
+      reason: "permission_controls_v2_auto_allow",
+    });
   }
 
   // Build the tool name and input for the confirmation prompt. The tool
@@ -262,8 +275,29 @@ export async function bridgeCesApproval(
     `CES approval bridge: guardian decision is "${cesDecision.grantDecision}"`,
   );
 
-  if (cesDecision.grantDecision === "denied") {
-    return { outcome: "denied", userDecision: response.decision };
+  return recordCesGrant({
+    approval,
+    cesClient,
+    decision: cesDecision,
+    reason: response.decisionContext,
+  });
+}
+
+async function recordCesGrant({
+  approval,
+  cesClient,
+  decision,
+  reason,
+}: {
+  approval: ApprovalRequired;
+  cesClient: CesClient;
+  decision: CesApprovalDecision;
+  reason?: string;
+}): Promise<CesApprovalBridgeResult> {
+  const { proposal, proposalHash, sessionId, conversationId } = approval;
+
+  if (decision.grantDecision === "denied") {
+    return { outcome: "denied", userDecision: decision.userDecision };
   }
 
   // Commit the approved grant to CES via record_grant RPC.
@@ -274,12 +308,12 @@ export async function bridgeCesApproval(
         decision: {
           proposal,
           proposalHash,
-          decision: cesDecision.grantDecision,
+          decision: decision.grantDecision,
           decidedBy: "guardian",
           decidedAt: new Date().toISOString(),
-          reason: response.decisionContext,
-          ttl: cesDecision.ttl,
-          grantType: cesDecision.grantType,
+          reason,
+          ttl: decision.ttl,
+          grantType: decision.grantType,
         },
         sessionId,
         conversationId,
@@ -323,7 +357,7 @@ export async function bridgeCesApproval(
         proposalHash,
         sessionId,
         grantId,
-        userDecision: response.decision,
+        userDecision: decision.userDecision,
       },
       "CES approval bridge: grant recorded successfully",
     );
@@ -331,7 +365,7 @@ export async function bridgeCesApproval(
     return {
       outcome: "approved",
       grantId,
-      userDecision: response.decision,
+      userDecision: decision.userDecision,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

@@ -33,7 +33,7 @@ struct MessageListContentView: View, Equatable {
             && lhs.isLoadingMoreMessages == rhs.isLoadingMoreMessages
             && lhs.isCompacting == rhs.isCompacting
             && lhs.isInteractionEnabled == rhs.isInteractionEnabled
-            && lhs.containerWidth == rhs.containerWidth
+            && lhs.layoutMetrics == rhs.layoutMetrics
             && lhs.dismissedDocumentSurfaceIds == rhs.dismissedDocumentSurfaceIds
             && lhs.activeSurfaceId == rhs.activeSurfaceId
             && lhs.highlightedMessageId == rhs.highlightedMessageId
@@ -56,7 +56,7 @@ struct MessageListContentView: View, Equatable {
     let isLoadingMoreMessages: Bool
     let isCompacting: Bool
     let isInteractionEnabled: Bool
-    let containerWidth: CGFloat
+    let layoutMetrics: MessageListLayoutMetrics
     let dismissedDocumentSurfaceIds: Set<String>
     let activeSurfaceId: String?
     let highlightedMessageId: UUID?
@@ -93,6 +93,10 @@ struct MessageListContentView: View, Equatable {
 
     // MARK: - Thinking indicator helpers
 
+    private var effectiveBubbleMaxWidth: CGFloat {
+        layoutMetrics.bubbleMaxWidth
+    }
+
     @ViewBuilder
     private func thinkingIndicatorRow(hasUserMessage: Bool) -> some View {
         HStack(spacing: VSpacing.sm) {
@@ -107,7 +111,7 @@ struct MessageListContentView: View, Equatable {
             }
             Spacer()
         }
-        .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+        .frame(width: effectiveBubbleMaxWidth)
         .id("thinking-indicator")
         .transition(.opacity)
     }
@@ -118,7 +122,7 @@ struct MessageListContentView: View, Equatable {
             label: "Compacting context\u{2026}",
             showIcon: false
         )
-        .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+        .frame(width: effectiveBubbleMaxWidth)
         .id("compacting-indicator")
         .transition(.opacity)
     }
@@ -167,6 +171,14 @@ struct MessageListContentView: View, Equatable {
             }
 
             let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
+            // Min height for the active assistant turn — ensures the user message
+            // can reach the top of the viewport when content is short.
+            // viewportHeight is initialized to .infinity until the scroll view lays
+            // out; guard against non-finite values so we never pass NaN/∞ into
+            // .frame(minHeight:), which trips _NSViewValidateGeometry in AppKit.
+            let turnMinHeight: CGFloat = scrollState.viewportHeight.isFinite
+                ? max(0, scrollState.viewportHeight - 150)
+                : 0
             let isUnanchoredThinking = state.shouldShowThinkingIndicator && !state.rows.contains(where: \.isAnchoredThinkingRow)
             let thinkingLabel = !hasEverSentMessage && state.hasUserMessage
                 ? "Waking up..."
@@ -222,37 +234,55 @@ struct MessageListContentView: View, Equatable {
                     providerCatalogHash: providerCatalogHash
                 )
                 .equatable()
+                .frame(minHeight: 60, alignment: .top)
+                // Active assistant turn: wrap in VStack with minHeight so user
+                // message sits at top. Only applies while the assistant has an
+                // active turn (sending, thinking, streaming, tool running).
+                .if(state.isActiveTurn && row.isLatestAssistant && row.message.id == state.rows.last?.message.id) { view in
+                    VStack(spacing: 0) { view }
+                        .frame(minHeight: turnMinHeight, alignment: .top)
+                }
             }
 
             ForEach(state.orphanSubagents) { subagent in
-                SubagentEventsReader(
-                    store: subagentDetailStore,
-                    subagent: subagent,
-                    onAbort: { onAbortSubagent?(subagent.id) },
-                    onTap: { onSubagentTap?(subagent.id) }
-                )
-                    .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+                // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+                HStack(spacing: 0) {
+                    SubagentEventsReader(
+                        store: subagentDetailStore,
+                        subagent: subagent,
+                        onAbort: { onAbortSubagent?(subagent.id) },
+                        onTap: { onSubagentTap?(subagent.id) }
+                    )
+                    Spacer(minLength: 0)
+                }
                     .id("subagent-\(subagent.id)")
                     .transition(.opacity)
             }
 
             if isUnanchoredThinking {
-                if isCompacting {
-                    compactingIndicatorRow()
-                } else {
-                    thinkingIndicatorRow(hasUserMessage: state.hasUserMessage)
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    if isCompacting {
+                        compactingIndicatorRow()
+                    } else {
+                        thinkingIndicatorRow(hasUserMessage: state.hasUserMessage)
+                    }
+                    thinkingAvatarRow
                 }
-                thinkingAvatarRow
+                .frame(minHeight: turnMinHeight, alignment: .top)
             } else if state.isStreamingWithoutText && !state.canInlineProcessing {
-                HStack {
-                    TypingIndicatorView()
-                    Spacer()
+                VStack(spacing: 0) {
+                    HStack {
+                        TypingIndicatorView()
+                        Spacer()
+                    }
+                    .frame(width: effectiveBubbleMaxWidth)
                 }
-                .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+                .frame(minHeight: turnMinHeight, alignment: .top)
                 .id("streaming-without-text-indicator")
                 .transition(.opacity)
             } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
-                compactingIndicatorRow()
+                VStack(spacing: 0) { compactingIndicatorRow() }
+                    .frame(minHeight: turnMinHeight, alignment: .top)
             }
 
             Color.clear.frame(height: 1)
@@ -271,8 +301,6 @@ struct MessageListContentView: View, Equatable {
         .transaction { $0.animation = nil }
         .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.xl,
                             bottom: VSpacing.md, trailing: VSpacing.xl))
-        .environment(\.bubbleMaxWidth, containerWidth > 0
-            ? min(VSpacing.chatBubbleMaxWidth, max(containerWidth - 2 * VSpacing.xl, 0))
-            : VSpacing.chatBubbleMaxWidth)
+        .environment(\.bubbleMaxWidth, layoutMetrics.bubbleMaxWidth)
     }
 }

@@ -7,11 +7,14 @@ import {
   generateAllowlistOptions,
   generateScopeOptions,
 } from "../permissions/checker.js";
-import { getMode } from "../permissions/permission-mode-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { addRule } from "../permissions/trust-store.js";
 import { RiskLevel } from "../permissions/types.js";
-import { isHostTool } from "../permissions/workspace-policy.js";
+import {
+  CONVERSATION_HOST_ACCESS_PROMPT,
+  evaluateV2ConsentDisposition,
+  isConversationHostAccessDecision,
+} from "../permissions/v2-consent-policy.js";
 import {
   getEffectiveMode,
   setConversationMode,
@@ -67,50 +70,29 @@ export class PermissionChecker {
         }
       | undefined,
   ): Promise<PermissionDecision> {
-    // ── permission-controls-v2 early gate ──────────────────────────────
-    // When the v2 flag is enabled, replace the entire risk-classification
-    // path with a simple binary check: is it a host tool + is host access
-    // enabled? Certain security gates (requireFreshApproval,
-    // forcePromptSideEffects, hostAccess=false) fall through to the v1
-    // prompt flow so the interactive prompter is engaged.
-    const cfg = getConfig();
     let v2ForcePrompt = false;
-    if (isAssistantFeatureFlagEnabled("permission-controls-v2", cfg)) {
-      // requireFreshApproval demands an interactive prompt every time —
-      // fall through to v1 so the prompter is engaged.
-      const needsFreshApproval = !!context.requireFreshApproval;
-
-      // forcePromptSideEffects (private conversations, untrusted actors)
-      // requires explicit approval for side-effect tools.
-      const needsSideEffectPrompt =
-        !!context.forcePromptSideEffects && isSideEffectTool(name, input);
-
-      if (!needsFreshApproval && !needsSideEffectPrompt) {
-        if (isHostTool(name)) {
-          const mode = getMode();
-          if (mode.hostAccess) {
-            return {
-              allowed: true,
-              decision: "allow",
-              riskLevel: RiskLevel.Low,
-            };
-          }
-          // Host tool with hostAccess disabled — fall through to v1 so the
-          // interactive prompter is engaged (returning allowed:false here
-          // would surface an error string instead of a permission dialog).
-          // The v2ForcePrompt flag ensures check()'s allow decision is
-          // promoted to prompt so the user sees a permission dialog.
-          v2ForcePrompt = true;
-        } else {
-          // Non-host tools are auto-allowed when v2 is on
-          return {
-            allowed: true,
-            decision: "allow",
-            riskLevel: RiskLevel.Low,
-          };
-        }
+    const cfg = getConfig();
+    const v2Enabled = isAssistantFeatureFlagEnabled(
+      "permission-controls-v2",
+      cfg,
+    );
+    if (v2Enabled) {
+      const v2Disposition = evaluateV2ConsentDisposition(name, input, context);
+      if (v2Disposition === "auto_allow") {
+        return {
+          allowed: true,
+          decision: "allow",
+          riskLevel: RiskLevel.Low,
+        };
       }
-      // Falls through to the v1 risk-classification + prompter path
+      if (v2Disposition === "prompt_host_access") {
+        // Host tool with hostAccess disabled — fall through to v1 so the
+        // interactive prompter is engaged (returning allowed:false here
+        // would surface an error string instead of a permission dialog).
+        // The v2ForcePrompt flag ensures check()'s allow decision is
+        // promoted to prompt so the user sees a permission dialog.
+        v2ForcePrompt = true;
+      }
     }
 
     const risk = await classifyRisk(
@@ -301,25 +283,34 @@ export class PermissionChecker {
           return { allowed: true, decision: "temporary_override", riskLevel };
         }
 
-        const allowlistOptions = await generateAllowlistOptions(
-          name,
-          input,
-          context.signal,
-        );
-        const scopeOptions = generateScopeOptions(context.workingDir, name);
         const previewDiff = computePreviewDiff(name, input, context.workingDir);
-
-        const persistentDecisionsAllowed = !context.requireFreshApproval;
-
-        // Offer temporary approval options to guardians. Suppressed when
-        // requireFreshApproval is true - temporary overrides would be
-        // misleading since future invocations still require fresh approval.
-        const temporaryOptionsAvailable:
-          | Array<"allow_10m" | "allow_conversation">
-          | undefined =
-          context.trustClass === "guardian" && !context.requireFreshApproval
-            ? ["allow_10m", "allow_conversation"]
-            : undefined;
+        const promptOptions = v2ForcePrompt
+          ? CONVERSATION_HOST_ACCESS_PROMPT
+          : v2Enabled
+            ? {
+                allowlistOptions: [] as Awaited<
+                  ReturnType<typeof generateAllowlistOptions>
+                >,
+                scopeOptions: [] as ReturnType<typeof generateScopeOptions>,
+                persistentDecisionsAllowed: false,
+                temporaryOptionsAvailable: undefined,
+              }
+            : {
+                allowlistOptions: await generateAllowlistOptions(
+                  name,
+                  input,
+                  context.signal,
+                ),
+                scopeOptions: generateScopeOptions(context.workingDir, name),
+                persistentDecisionsAllowed: !context.requireFreshApproval,
+                temporaryOptionsAvailable:
+                  context.trustClass === "guardian" &&
+                  !context.requireFreshApproval
+                    ? (["allow_10m", "allow_conversation"] as Array<
+                        "allow_10m" | "allow_conversation"
+                      >)
+                    : undefined,
+              };
 
         emitLifecycleEvent({
           type: "permission_prompt",
@@ -331,10 +322,10 @@ export class PermissionChecker {
           requestId: context.requestId,
           riskLevel,
           reason: result.reason,
-          allowlistOptions,
-          scopeOptions,
+          allowlistOptions: promptOptions.allowlistOptions,
+          scopeOptions: promptOptions.scopeOptions,
           diff: previewDiff,
-          persistentDecisionsAllowed,
+          persistentDecisionsAllowed: promptOptions.persistentDecisionsAllowed,
         });
 
         await getHookManager().trigger("permission-request", {
@@ -348,27 +339,31 @@ export class PermissionChecker {
           name,
           input,
           riskLevel,
-          allowlistOptions,
-          scopeOptions,
+          promptOptions.allowlistOptions,
+          promptOptions.scopeOptions,
           previewDiff,
           context.conversationId,
           executionTarget,
-          persistentDecisionsAllowed,
+          promptOptions.persistentDecisionsAllowed,
           context.signal,
-          temporaryOptionsAvailable,
+          promptOptions.temporaryOptionsAvailable,
           context.toolUseId,
+          v2ForcePrompt,
         );
 
-        const decision = response.decision;
+        const decision =
+          v2ForcePrompt && !isConversationHostAccessDecision(response.decision)
+            ? "deny"
+            : response.decision;
 
         await getHookManager().trigger("permission-resolve", {
           toolName: name,
-          decision: response.decision,
+          decision,
           riskLevel,
           conversationId: context.conversationId,
         });
 
-        if (response.decision === "deny") {
+        if (decision === "deny") {
           const contextualDenial =
             typeof response.decisionContext === "string"
               ? response.decisionContext.trim()
@@ -403,15 +398,15 @@ export class PermissionChecker {
           };
         }
 
-        if (response.decision === "always_deny") {
+        if (decision === "always_deny") {
           // For non-scoped tools (empty scopeOptions), default to 'everywhere' since
           // the client has no scope picker and will send undefined.
           const effectiveDenyScope =
-            scopeOptions.length === 0
+            promptOptions.scopeOptions.length === 0
               ? (response.selectedScope ?? "everywhere")
               : response.selectedScope;
           const ruleSaved = !!(
-            persistentDecisionsAllowed &&
+            promptOptions.persistentDecisionsAllowed &&
             response.selectedPattern &&
             effectiveDenyScope
           );
@@ -452,9 +447,9 @@ export class PermissionChecker {
         }
 
         if (
-          persistentDecisionsAllowed &&
-          (response.decision === "always_allow" ||
-            response.decision === "always_allow_high_risk") &&
+          promptOptions.persistentDecisionsAllowed &&
+          (decision === "always_allow" ||
+            decision === "always_allow_high_risk") &&
           response.selectedPattern
         ) {
           const ruleOptions: {
@@ -462,7 +457,7 @@ export class PermissionChecker {
             executionTarget?: string;
           } = {};
 
-          if (response.decision === "always_allow_high_risk") {
+          if (decision === "always_allow_high_risk") {
             ruleOptions.allowHighRisk = true;
           }
 
@@ -474,7 +469,7 @@ export class PermissionChecker {
           // Only default to 'everywhere' for non-scoped tools (empty scopeOptions).
           // For scoped tools, require an explicit scope to prevent silent permission widening.
           const effectiveScope =
-            scopeOptions.length === 0
+            promptOptions.scopeOptions.length === 0
               ? (response.selectedScope ?? "everywhere")
               : response.selectedScope;
           if (effectiveScope) {
@@ -493,13 +488,13 @@ export class PermissionChecker {
         // time-limited or conversation-scoped override. Subsequent tool
         // invocations in this conversation will auto-approve without
         // prompting (checked above in the temporary override block).
-        if (response.decision === "allow_10m") {
+        if (decision === "allow_10m") {
           setTimedMode(context.conversationId);
           log.info(
             { toolName: name, conversationId: context.conversationId },
             "Activated timed (10m) temporary approval mode",
           );
-        } else if (response.decision === "allow_conversation") {
+        } else if (decision === "allow_conversation") {
           setConversationMode(context.conversationId);
           log.info(
             { toolName: name, conversationId: context.conversationId },

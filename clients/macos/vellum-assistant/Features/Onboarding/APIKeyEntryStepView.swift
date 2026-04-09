@@ -10,7 +10,13 @@ struct APIKeyEntryStepView: View {
     @State private var isEditing = false
     @State private var showTitle = false
     @State private var showContent = false
+    @State private var showCharacters = false
     @FocusState private var keyFieldFocused: Bool
+
+    private static let welcomeCharacters: NSImage? = {
+        guard let url = ResourceBundle.bundle.url(forResource: "welcome-characters", withExtension: "png") else { return nil }
+        return NSImage(contentsOf: url)
+    }()
 
     // MARK: - Provider Catalog
 
@@ -83,43 +89,58 @@ struct APIKeyEntryStepView: View {
 
     var body: some View {
         Text("Connect a Model Provider")
-            .font(VFont.displayLarge)
+            .font(VFont.titleLarge)
             .foregroundStyle(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
 
         Text("Enter an API key to connect your model provider.")
-            .font(VFont.titleSmall)
+            .font(VFont.bodyMediumLighter)
             .multilineTextAlignment(.center)
             .foregroundStyle(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.xxl)
 
-        VStack(spacing: VSpacing.md) {
-            VStack(spacing: VSpacing.md) {
+        VStack(spacing: 0) {
+            VStack(spacing: VSpacing.lg) {
                 providerPicker
 
                 if providerRequiresKey {
                     apiKeyField
                 }
 
+                if let apiKeyUrl = currentProviderEntry?.apiKeyUrl,
+                   let url = URL(string: apiKeyUrl) {
+                    HStack(spacing: VSpacing.sm) {
+                        Text("Don't have it?")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentSecondary)
+                        Text("Get an API key here")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentDefault)
+                            .underline()
+                            .accessibilityAddTraits(.isLink)
+                            .onTapGesture {
+                                NSWorkspace.shared.open(url)
+                            }
+                            .pointerCursor()
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+
+            VStack(spacing: VSpacing.sm) {
                 VButton(label: "Continue", style: .primary, isFullWidth: true, isDisabled: providerRequiresKey && apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                     saveAndHatch()
                 }
 
-                if let apiKeyUrl = currentProviderEntry?.apiKeyUrl,
-                   let url = URL(string: apiKeyUrl) {
-                    VButton(label: "Get an API key", style: .ghost) {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-
-                VButton(label: "Back", style: .ghost) {
+                VButton(label: "Back", style: .outlined, isFullWidth: true) {
                     goBack()
                 }
             }
+            .padding(.top, VSpacing.xxl)
         }
         .padding(.horizontal, VSpacing.xxl)
         .opacity(showContent ? 1 : 0)
@@ -154,6 +175,26 @@ struct APIKeyEntryStepView: View {
                 hasExistingKey = false
                 isEditing = false
             }
+        }
+
+        Spacer()
+
+        if let characters = Self.welcomeCharacters {
+            Image(nsImage: characters)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .clipShape(UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: VRadius.window,
+                    bottomTrailingRadius: VRadius.window,
+                    topTrailingRadius: 0
+                ))
+                .opacity(showCharacters ? 1 : 0)
+                .offset(y: showCharacters ? 0 : 30)
+                .animation(.easeOut(duration: 0.6).delay(0.5), value: showCharacters)
+                .onAppear { showCharacters = true }
+                .accessibilityHidden(true)
         }
     }
 

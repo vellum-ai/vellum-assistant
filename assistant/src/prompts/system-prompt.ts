@@ -8,11 +8,9 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getIsContainerized } from "../config/env-registry.js";
 import { loadConfig } from "../config/loader.js";
 import { listConnections } from "../oauth/oauth-store.js";
-import { getMode } from "../permissions/permission-mode-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -219,6 +217,8 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // the first cache block so they remain cached even when workspace files
   // (IDENTITY.md, SOUL.md, USER.md, etc.) are edited between turns.
   const staticParts: string[] = [];
+  const customPrefix = readCustomSystemPromptPrefix();
+  if (customPrefix) staticParts.push(customPrefix);
   staticParts.push(buildParallelToolCallsSection());
   if (getIsContainerized()) staticParts.push(buildContainerizedSection());
   staticParts.push(buildCliReferenceSection());
@@ -313,9 +313,6 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // Journal entries are extracted into graph nodes by the memory pipeline.
   // Journal files remain writable on disk.
 
-  const askBeforeActingSection = buildAskBeforeActingSection();
-  if (askBeforeActingSection) dynamicParts.push(askBeforeActingSection);
-
   const dynamic = dynamicParts.join("\n\n");
 
   return staticParts.join("\n\n") + SYSTEM_PROMPT_CACHE_BOUNDARY + dynamic;
@@ -391,25 +388,21 @@ function buildIntegrationSection(): string {
   return lines.join("\n");
 }
 
-function buildAskBeforeActingSection(): string | null {
+/**
+ * Read the user-configured custom system prompt prefix.  Returns the trimmed
+ * value when set and non-empty, otherwise null.  Errors (e.g. config file
+ * unavailable) are swallowed so prompt construction never fails.
+ */
+function readCustomSystemPromptPrefix(): string | null {
   try {
-    const config = loadConfig();
-    if (!isAssistantFeatureFlagEnabled("permission-controls-v2", config)) {
-      return null;
-    }
-    const mode = getMode();
-    if (!mode.askBeforeActing) return null;
-
-    return [
-      "## Action Confirmation Mode",
-      "",
-      'You are in "Ask before acting" mode. Use your judgment about when to check in with the user before proceeding. You should ask for confirmation before actions that are costly, time-consuming, or hard to reverse — for example: sending emails or messages, deleting files or data, making purchases, posting publicly, modifying permissions, or taking actions with significant real-world consequences. You do NOT need to ask before routine low-stakes actions like reading files, searching, running safe shell commands, or making code edits — just do those.',
-    ].join("\n");
+    const prefix = loadConfig().systemPromptPrefix;
+    if (typeof prefix !== "string") return null;
+    const trimmed = prefix.trim();
+    return trimmed.length > 0 ? trimmed : null;
   } catch {
     return null;
   }
 }
-
 function buildContainerizedSection(): string {
   const workspaceDir = getWorkspaceDir();
   return [

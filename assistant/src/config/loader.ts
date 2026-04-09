@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import { ConfigError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { ensureDataDir, getWorkspaceConfigPath } from "../util/platform.js";
+import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import { AssistantConfigSchema } from "./schema.js";
 import type { AssistantConfig } from "./types.js";
 
@@ -385,7 +386,46 @@ export function loadConfig(): AssistantConfig {
     warnAndStripDeprecatedFields(fileConfig, configPath);
 
     // Validate and apply defaults via Zod schema
-    const config = validateWithSchema(fileConfig);
+    let config = validateWithSchema(fileConfig);
+
+    // Managed Gemini embedding defaults migration.
+    // When on a managed platform (IS_PLATFORM=true) with the feature flag
+    // enabled and no explicit embedding provider chosen (provider=auto),
+    // persist Gemini embedding defaults into the raw config file.
+    // Idempotent: once provider=gemini is written, subsequent loads skip this.
+    if (config.memory.embeddings.provider === "auto") {
+      try {
+        if (
+          (process.env.IS_PLATFORM === "true" ||
+            process.env.IS_PLATFORM === "1") &&
+          isManagedGeminiFFEnabled(config)
+        ) {
+          setNestedValue(fileConfig, "memory.embeddings.provider", "gemini");
+          setNestedValue(
+            fileConfig,
+            "memory.embeddings.geminiModel",
+            "gemini-embedding-2-preview",
+          );
+          setNestedValue(
+            fileConfig,
+            "memory.embeddings.geminiDimensions",
+            3072,
+          );
+          setNestedValue(fileConfig, "memory.qdrant.vectorSize", 3072);
+          writeFileSync(configPath, JSON.stringify(fileConfig, null, 2) + "\n");
+          log.info(
+            "Applied managed Gemini embedding defaults (provider=gemini, model=gemini-embedding-2-preview, dimensions=3072, vectorSize=3072)",
+          );
+          // Re-validate so the returned config reflects the migration.
+          config = validateWithSchema(fileConfig);
+        }
+      } catch (err) {
+        log.warn(
+          { err },
+          "Managed Gemini defaults migration failed — continuing with existing config",
+        );
+      }
+    }
 
     // If the config file didn't exist, write the full defaults to disk so
     // users can discover and edit all available options.
@@ -418,6 +458,21 @@ export function loadConfig(): AssistantConfig {
     cached = null;
     loading = false;
     throw err;
+  }
+}
+
+/**
+ * Check whether the managed-gemini-embeddings-enabled feature flag is on.
+ * Wrapped in a try/catch so a flag-resolver failure never breaks config loading.
+ */
+function isManagedGeminiFFEnabled(config: AssistantConfig): boolean {
+  try {
+    return isAssistantFeatureFlagEnabled(
+      "managed-gemini-embeddings-enabled",
+      config,
+    );
+  } catch {
+    return false;
   }
 }
 

@@ -27,9 +27,10 @@ export async function handleHostFileResult(
     requestId?: string;
     content?: string;
     isError?: boolean;
+    imageData?: string;
   };
 
-  const { requestId, content, isError } = body;
+  const { requestId, content, isError, imageData } = body;
 
   if (!requestId || typeof requestId !== "string") {
     return httpError("BAD_REQUEST", "requestId is required", 400);
@@ -60,6 +61,7 @@ export async function handleHostFileResult(
   interaction.conversation!.resolveHostFile(requestId, {
     content: content ?? "",
     isError: isError ?? false,
+    imageData,
   });
 
   return Response.json({ accepted: true });
@@ -86,6 +88,12 @@ export function hostFileRouteDefinitions(): RouteDefinition[] {
         isError: z
           .boolean()
           .describe("Whether the result is an error")
+          .optional(),
+        imageData: z
+          .string()
+          .describe(
+            "Optional base64-encoded image bytes for successful image reads",
+          )
           .optional(),
       }),
       responseBody: z.object({

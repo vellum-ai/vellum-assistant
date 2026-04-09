@@ -1,5 +1,6 @@
 #if os(macOS)
 import Foundation
+import Observation
 import VellumAssistantShared
 
 // MARK: - ComposerController
@@ -11,6 +12,7 @@ import VellumAssistantShared
 /// `interactionEnabledChanged`, `dictationStarted`, `dictationStopped`)
 /// instead of reading SwiftUI bindings directly. All popup/focus decisions
 /// live here so they can be unit-tested without importing SwiftUI view types.
+@Observable
 @MainActor
 final class ComposerController {
 
@@ -37,36 +39,36 @@ final class ComposerController {
 
     /// When true, the next text-change cycle skips reopening the slash menu.
     /// Survives exactly one `textChanged` call (user-driven close).
-    private(set) var suppressSlashReopen = false
+    @ObservationIgnored private(set) var suppressSlashReopen = false
     /// When true, the next text-change cycle skips reopening the emoji menu.
     /// Survives exactly one `textChanged` call (user-driven close).
-    private(set) var suppressEmojiReopen = false
+    @ObservationIgnored private(set) var suppressEmojiReopen = false
 
     // MARK: - Internal bookkeeping
 
     /// Snapshot of input text captured when dictation starts, used to restore on cancel.
-    private(set) var preDictationText: String = ""
+    @ObservationIgnored private(set) var preDictationText: String = ""
 
     /// Current cursor position (UTF-16 offset).
-    private var cursorPosition: Int = 0
+    @ObservationIgnored private var cursorPosition: Int = 0
     /// Current input text (kept in sync via events).
-    private var inputText: String = ""
+    @ObservationIgnored private var inputText: String = ""
     /// Whether the composer interaction is enabled.
-    private var isInteractionEnabled: Bool = true
+    @ObservationIgnored private var isInteractionEnabled: Bool = true
 
     // MARK: - Menu refresh scheduling
 
     /// Generation counter for deferred menu-refresh scheduling.
     /// Incremented on every schedule; the deferred block only executes if
     /// its captured generation still matches, superseding stale refreshes.
-    private var menuRefreshGeneration: Int = 0
+    @ObservationIgnored private var menuRefreshGeneration: Int = 0
 
     // MARK: - Dependencies
 
     /// Pluggable slash-command catalog for testability.
-    let slashCommandProvider: SlashCommandProvider
+    @ObservationIgnored let slashCommandProvider: SlashCommandProvider
     /// Pluggable emoji search for testability.
-    let emojiSearchProvider: EmojiSearchProvider
+    @ObservationIgnored let emojiSearchProvider: EmojiSearchProvider
 
     // MARK: - Initialization
 

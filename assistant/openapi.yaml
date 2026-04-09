@@ -2552,6 +2552,75 @@ paths:
           required: true
           schema:
             type: string
+  /v1/conversations/{id}/host-access:
+    get:
+      operationId: conversations_by_id_hostaccess_get
+      summary: Get conversation host access
+      description: Return whether the conversation can use host tools.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                  hostAccess:
+                    type: boolean
+                required:
+                  - conversationId
+                  - hostAccess
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+    patch:
+      operationId: conversations_by_id_hostaccess_patch
+      summary: Update conversation host access
+      description: Enable or disable host access for a conversation.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                  hostAccess:
+                    type: boolean
+                required:
+                  - conversationId
+                  - hostAccess
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                hostAccess:
+                  type: boolean
+              required:
+                - hostAccess
+              additionalProperties: false
   /v1/conversations/{id}/name:
     patch:
       operationId: conversations_by_id_name_patch
@@ -2824,10 +2893,13 @@ paths:
                     type: string
                   conversationType:
                     type: string
+                  hostAccess:
+                    type: boolean
                 required:
                   - conversationId
                   - title
                   - conversationType
+                  - hostAccess
                 additionalProperties: false
       requestBody:
         required: true
@@ -3971,6 +4043,9 @@ paths:
                 isError:
                   type: boolean
                   description: Whether the result is an error
+                imageData:
+                  type: string
+                  description: Optional base64-encoded image bytes for successful image reads
               required:
                 - requestId
               additionalProperties: false
@@ -5155,63 +5230,6 @@ paths:
           schema:
             type: string
           description: Conversation ID
-  /v1/permission-mode:
-    get:
-      operationId: permissionmode_get
-      summary: Get permission mode
-      description: Return the current two-axis permission mode (askBeforeActing, hostAccess).
-      tags:
-        - settings
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  askBeforeActing:
-                    type: boolean
-                  hostAccess:
-                    type: boolean
-                required:
-                  - askBeforeActing
-                  - hostAccess
-                additionalProperties: false
-    put:
-      operationId: permissionmode_put
-      summary: Update permission mode
-      description: Update the two-axis permission mode. Requires the permission-controls-v2 feature flag.
-      tags:
-        - settings
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  askBeforeActing:
-                    type: boolean
-                  hostAccess:
-                    type: boolean
-                required:
-                  - askBeforeActing
-                  - hostAccess
-                additionalProperties: false
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                askBeforeActing:
-                  type: boolean
-                hostAccess:
-                  type: boolean
-              additionalProperties: false
   /v1/profiler/runs:
     get:
       operationId: profiler_runs_get
@@ -6756,6 +6774,57 @@ paths:
           required: true
           schema:
             type: string
+  /v1/skills/{id}/files/content:
+    get:
+      operationId: skills_by_id_files_content_get
+      summary: Get skill file content
+      description: Return the content of a single file belonging to an installed or catalog skill.
+      tags:
+        - skills
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path:
+                    type: string
+                  name:
+                    type: string
+                  size:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  mimeType:
+                    type: string
+                  isBinary:
+                    type: boolean
+                  content:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - path
+                  - name
+                  - size
+                  - mimeType
+                  - isBinary
+                  - content
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Relative path of the file within the skill directory
   /v1/skills/{id}/inspect:
     get:
       operationId: skills_by_id_inspect_get

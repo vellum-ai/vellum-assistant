@@ -32,6 +32,7 @@ import type {
 
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { UserDecision } from "../permissions/types.js";
+import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
 
@@ -183,6 +184,15 @@ export class VellumAcpClientHandler implements Client {
       name: opt.name,
       kind: opt.kind,
     }));
+
+    if (isPermissionControlsV2Enabled()) {
+      const allowOptionId = findAllowOptionId(options);
+      return {
+        outcome: allowOptionId
+          ? { outcome: "selected", optionId: allowOptionId }
+          : { outcome: "cancelled" },
+      };
+    }
 
     // Send the confirmation_request first — this triggers makeEventSender
     // which registers a normal "confirmation" entry in pendingInteractions.
@@ -422,13 +432,29 @@ function mapDecisionToOptionId(
     const alwaysDeny = options.find((o) => o.kind === "reject_always");
     if (alwaysDeny) return alwaysDeny.optionId;
   }
-  const denyOpt =
-    options.find((o) => o.kind === "reject_once") ??
-    options.find((o) => o.kind === "reject_always");
-  if (denyOpt) return denyOpt.optionId;
+  const denyOpt = findRejectOptionId(options);
+  if (denyOpt) return denyOpt;
 
   // Fallback: return first option
   return options[0]?.optionId ?? "deny";
+}
+
+function findRejectOptionId(
+  options: Array<{ optionId: string; kind: string }>,
+): string | undefined {
+  return (
+    options.find((o) => o.kind === "reject_once")?.optionId ??
+    options.find((o) => o.kind === "reject_always")?.optionId
+  );
+}
+
+function findAllowOptionId(
+  options: Array<{ optionId: string; kind: string }>,
+): string | undefined {
+  return (
+    options.find((o) => o.kind === "allow_once")?.optionId ??
+    options.find((o) => o.kind === "allow_always")?.optionId
+  );
 }
 
 /**

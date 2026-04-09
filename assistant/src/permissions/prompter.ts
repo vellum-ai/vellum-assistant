@@ -20,6 +20,7 @@ interface PendingPrompt {
   reject: (reason: Error) => void;
   timer: ReturnType<typeof setTimeout>;
   toolUseId?: string;
+  hostAccessEnablePrompt?: boolean;
 }
 
 export type ConfirmationStateCallback = (
@@ -64,6 +65,7 @@ export class PermissionPrompter {
     signal?: AbortSignal,
     temporaryOptionsAvailable?: Array<"allow_10m" | "allow_conversation">,
     toolUseId?: string,
+    hostAccessEnablePrompt?: boolean,
   ): Promise<{
     decision: UserDecision;
     selectedPattern?: string;
@@ -89,7 +91,13 @@ export class PermissionPrompter {
         });
       }, timeoutMs);
 
-      this.pending.set(requestId, { resolve, reject, timer, toolUseId });
+      this.pending.set(requestId, {
+        resolve,
+        reject,
+        timer,
+        toolUseId,
+        hostAccessEnablePrompt,
+      });
 
       if (signal) {
         const onAbort = () => {
@@ -141,6 +149,10 @@ export class PermissionPrompter {
   /** Returns the toolUseId associated with a pending request, if any. */
   getToolUseId(requestId: string): string | undefined {
     return this.pending.get(requestId)?.toolUseId;
+  }
+
+  isHostAccessEnablePrompt(requestId: string): boolean {
+    return this.pending.get(requestId)?.hostAccessEnablePrompt === true;
   }
 
   resolveConfirmation(

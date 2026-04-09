@@ -37,6 +37,7 @@ final class MessageListForkActionTests: XCTestCase {
     ) -> MessageListView {
         MessageListView(
             messages: messages,
+            messagesRevision: 0,
             isSending: false,
             isThinking: false,
             isCompacting: false,

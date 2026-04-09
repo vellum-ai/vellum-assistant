@@ -20,53 +20,14 @@ extension MessageListView {
 
     // MARK: - Version tracking
 
-    /// Checks whether observable message-level inputs have changed since the
-    /// last body evaluation and, if so, bumps `scrollState.messageListVersion`.
-    /// Over-invalidation is safe (triggers a recompute); under-invalidation
-    /// is not.
-    ///
-    /// Tracks both the raw `messages.count` (catches new arrivals and
-    /// paginated-window shifts at fixed length) and the filtered
-    /// `visibleMessages.count` (catches hidden/subagent visibility
-    /// transitions). All checks are O(1). `isSending` / `isThinking`
-    /// transitions are handled via `PrecomputedCacheKey` fields directly.
-    func refreshMessageListVersionIfNeeded(visibleMessages: [ChatMessage]) {
+    /// Checks whether the shared message model has published a new snapshot
+    /// since the last body evaluation and, if so, bumps the projection cache
+    /// version. This exact signal covers content-only edits to an already-
+    /// streaming message, which count/ID heuristics can miss.
+    func refreshMessageListVersionIfNeeded(messagesRevision: UInt64) {
         let cache = scrollState.derivedStateCache
-        let currentRawCount = messages.count
-        let currentVisibleCount = visibleMessages.count
-        let currentLastStreaming = visibleMessages.last?.isStreaming ?? false
-        let currentIncompleteToolCalls = visibleMessages.last?.toolCalls.filter { !$0.isComplete }.count ?? 0
-
-        // O(n) hash of visible message IDs — catches "same count, different
-        // IDs" scenarios (e.g. mid-array swaps during streaming or pagination).
-        var idHasher = Hasher()
-        for msg in visibleMessages { idHasher.combine(msg.id) }
-        let currentIdFingerprint = idHasher.finalize()
-
-        var changed = false
-
-        if currentRawCount != cache.lastKnownRawMessageCount {
-            cache.lastKnownRawMessageCount = currentRawCount
-            changed = true
-        }
-        if currentVisibleCount != cache.lastKnownVisibleMessageCount {
-            cache.lastKnownVisibleMessageCount = currentVisibleCount
-            changed = true
-        }
-        if currentLastStreaming != cache.lastKnownLastMessageStreaming {
-            cache.lastKnownLastMessageStreaming = currentLastStreaming
-            changed = true
-        }
-        if currentIncompleteToolCalls != cache.lastKnownIncompleteToolCallCount {
-            cache.lastKnownIncompleteToolCallCount = currentIncompleteToolCalls
-            changed = true
-        }
-        if currentIdFingerprint != cache.lastKnownVisibleIdFingerprint {
-            cache.lastKnownVisibleIdFingerprint = currentIdFingerprint
-            changed = true
-        }
-
-        if changed {
+        if messagesRevision != cache.lastKnownMessagesRevision {
+            cache.lastKnownMessagesRevision = messagesRevision
             cache.messageListVersion += 1
         }
     }
@@ -111,7 +72,7 @@ extension MessageListView {
         // both operate on the same filtered set.
         let liveMessages = visibleMessages
         cache.cachedFirstVisibleMessageId = liveMessages.first?.id
-        refreshMessageListVersionIfNeeded(visibleMessages: liveMessages)
+        refreshMessageListVersionIfNeeded(messagesRevision: messagesRevision)
 
         let key = PrecomputedCacheKey(
             messageListVersion: cache.messageListVersion,
@@ -194,7 +155,7 @@ extension MessageListView {
             isLoadingMoreMessages: isLoadingMoreMessages,
             isCompacting: isCompacting,
             isInteractionEnabled: isInteractionEnabled,
-            containerWidth: containerWidth,
+            layoutMetrics: layoutMetrics,
             dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
             activeSurfaceId: taskProgressManager.activeSurfaceId,
             highlightedMessageId: highlightedMessageId,

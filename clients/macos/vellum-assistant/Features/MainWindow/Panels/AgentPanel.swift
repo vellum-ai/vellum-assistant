@@ -13,7 +13,7 @@ struct AgentPanelContent: View {
     @Binding var focusedSkillId: String?
 
     @State private var skillsManager: SkillsManager
-    @State private var selectedInstalledSkillId: String?
+    @State private var selectedSkillId: String?
     @State private var skillToDelete: SkillInfo?
     @AppStorage("skillsBannerDismissed") private var bannerDismissed = false
 
@@ -27,7 +27,7 @@ struct AgentPanelContent: View {
     }
 
     private var isShowingDetail: Bool {
-        selectedInstalledSkillId != nil
+        selectedSkillId != nil
     }
 
     var body: some View {
@@ -82,27 +82,36 @@ struct AgentPanelContent: View {
         .onAppear {
             skillsManager.fetchSkills()
             if let skillId = focusedSkillId {
-                selectedInstalledSkillId = skillId
+                selectedSkillId = skillId
                 focusedSkillId = nil
             }
         }
         .onChange(of: focusedSkillId) {
             if let skillId = focusedSkillId {
-                selectedInstalledSkillId = skillId
+                selectedSkillId = skillId
                 focusedSkillId = nil
             }
         }
         .onChange(of: skillsManager.skills.map(\.id)) {
             onSkillsChanged?()
-            if let selectedId = selectedInstalledSkillId,
+            if let selectedId = selectedSkillId,
+               skillsManager.installingSkillId != selectedId,
                !skillsManager.skills.contains(where: { $0.id == selectedId }) {
-                selectedInstalledSkillId = nil
+                selectedSkillId = nil
             }
         }
         .onChange(of: skillsManager.filteredSkills.map(\.id)) {
-            if let selectedId = selectedInstalledSkillId,
-               !skillsManager.filteredSkills.contains(where: { $0.id == selectedId }) {
-                selectedInstalledSkillId = nil
+            // Preserve the detail selection across post-install refreshes:
+            // after an install, the skill's status flips from "available"
+            // to "enabled", which may remove it from the active
+            // `filteredSkills` (e.g. under the `.available` filter). The
+            // detail view still needs the skill to render its content, so
+            // we only clear the selection when the skill is truly gone
+            // from the unfiltered `skills` list (and not mid-install).
+            if let selectedId = selectedSkillId,
+               skillsManager.installingSkillId != selectedId,
+               !skillsManager.skills.contains(where: { $0.id == selectedId }) {
+                selectedSkillId = nil
             }
         }
         .sheet(item: $skillToDelete) { skill in
@@ -228,20 +237,27 @@ struct AgentPanelContent: View {
 
     @ViewBuilder
     private var contentView: some View {
-        if let selectedId = selectedInstalledSkillId,
-           let skill = skillsManager.filteredSkills.first(where: { $0.id == selectedId }) {
+        // Fall back to the unfiltered `skills` list so a detail view that
+        // would otherwise be hidden by the active filter (e.g. a just-
+        // installed skill viewed under the `.available` filter) still
+        // renders. Pair with `.id(skill.id)` so SwiftUI creates a fresh
+        // view instance when the selected skill changes.
+        if let selectedId = selectedSkillId,
+           let skill = skillsManager.filteredSkills.first(where: { $0.id == selectedId })
+            ?? skillsManager.skills.first(where: { $0.id == selectedId }) {
             SkillDetailView(
                 skill: skill,
                 skillsManager: skillsManager,
                 onBack: {
                     withAnimation(VAnimation.standard) {
-                        selectedInstalledSkillId = nil
+                        selectedSkillId = nil
                     }
                 },
                 onDelete: { skill in
                     skillToDelete = skill
                 }
             )
+            .id(skill.id)
         } else if skillsManager.isLoading && skillsManager.baseSkillsEmpty {
             VStack {
                 Spacer()
@@ -262,6 +278,11 @@ struct AgentPanelContent: View {
                         if skill.isAvailable {
                             AvailableSkillItemRow(
                                 skill: skill,
+                                onSelect: {
+                                    withAnimation(VAnimation.fast) {
+                                        selectedSkillId = skill.id
+                                    }
+                                },
                                 onInstall: { skillsManager.installSkill(slug: skill.id) },
                                 isInstalling: skillsManager.installingSkillId == skill.id
                             )
@@ -270,7 +291,7 @@ struct AgentPanelContent: View {
                                 skill: skill,
                                 onSelect: {
                                     withAnimation(VAnimation.fast) {
-                                        selectedInstalledSkillId = skill.id
+                                        selectedSkillId = skill.id
                                     }
                                 },
                                 onDelete: {
@@ -351,11 +372,12 @@ struct SkillItemRow: View {
 
 struct AvailableSkillItemRow: View {
     let skill: SkillInfo
+    let onSelect: () -> Void
     let onInstall: () -> Void
     var isInstalling: Bool = false
 
     var body: some View {
-        VCard {
+        VCard(action: onSelect) {
             HStack(alignment: .center, spacing: VSpacing.lg) {
                 if let emoji = skill.emoji, !emoji.isEmpty {
                     Text(emoji)
@@ -389,5 +411,10 @@ struct AvailableSkillItemRow: View {
                 }
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("\(skill.name). \(skill.description)")
+        .accessibilityAction { onSelect() }
+        .accessibilityAction(named: "Install") { onInstall() }
     }
 }

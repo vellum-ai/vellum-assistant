@@ -263,9 +263,9 @@ extension ChatViewModel {
             messages[msgIndex].toolCalls[tcIndex].inputRawValue = extractToolInput(msg.input)
             messages[msgIndex].toolCalls[tcIndex].inputRawDict = msg.input
             messages[msgIndex].toolCalls[tcIndex].buildingStatus = buildingStatus
-            messages[msgIndex].toolCalls[tcIndex].reasonDescription = (msg.input["activity"]?.value as? String)
+            messages[msgIndex].toolCalls[tcIndex].reasonDescription = ((msg.input["activity"]?.value as? String)
                 ?? (msg.input["reason"]?.value as? String)
-                ?? (msg.input["reasoning"]?.value as? String)
+                ?? (msg.input["reasoning"]?.value as? String)).map { ToolCallData.displaySafe($0) }
             return
         }
         var toolCall = ToolCallData(
@@ -279,9 +279,9 @@ extension ChatViewModel {
         toolCall.buildingStatus = buildingStatus
         toolCall.toolUseId = msg.toolUseId
         toolCall.inputRawDict = msg.input
-        toolCall.reasonDescription = (msg.input["activity"]?.value as? String)
+        toolCall.reasonDescription = ((msg.input["activity"]?.value as? String)
             ?? (msg.input["reason"]?.value as? String)
-            ?? (msg.input["reasoning"]?.value as? String)
+            ?? (msg.input["reasoning"]?.value as? String)).map { ToolCallData.displaySafe($0) }
         // Add to existing assistant message or create one.
         // Cap at 100 tool calls per message to prevent unbounded memory growth;
         // overflow falls through to create a new message.

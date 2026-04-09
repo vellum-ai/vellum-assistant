@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 
 import { z } from "zod";
 
+import { getIsPlatform } from "../../config/env-registry.js";
 import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getProfilerRuntimeStatus } from "../../daemon/profiler-run-store.js";
 import { getMaxMigrationVersion } from "../../memory/migrations/registry.js";
@@ -133,10 +134,56 @@ function getContainerMemoryLimitBytes(): number | null {
   return null;
 }
 
+/**
+ * Read the container's current memory usage from cgroup files.
+ *
+ * Tries cgroups v2 (`memory.current`) first, then cgroups v1
+ * (`memory/memory.usage_in_bytes`), mirroring the v2-then-v1 fallback used by
+ * `getContainerMemoryLimitBytes`. Returns null if neither file is available
+ * or readable.
+ *
+ * Unlike the limit lookup, no env-var override is needed: the gVisor issue
+ * that motivates VELLUM_MEMORY_LIMIT is specifically about the *limit* files
+ * exposing the host node's memory instead of the sandbox limit. The *usage*
+ * files (memory.current / memory.usage_in_bytes) reflect the sandbox's own
+ * accounting and are accurate under gVisor.
+ */
+function getContainerMemoryUsageBytes(): number | null {
+  // 1. Try cgroups v2.
+  try {
+    const v2 = readFileSync("/sys/fs/cgroup/memory.current", "utf-8").trim();
+    const bytes = parseInt(v2, 10);
+    if (!isNaN(bytes) && bytes > 0) return bytes;
+  } catch {
+    /* not available */
+  }
+
+  // 2. Try cgroups v1.
+  try {
+    const v1 = readFileSync(
+      "/sys/fs/cgroup/memory/memory.usage_in_bytes",
+      "utf-8",
+    ).trim();
+    const bytes = parseInt(v1, 10);
+    if (!isNaN(bytes) && bytes > 0) return bytes;
+  } catch {
+    /* not available */
+  }
+  return null;
+}
+
 function getMemoryInfo(): MemoryInfo {
   const bytesToMb = (b: number) => Math.round((b / (1024 * 1024)) * 100) / 100;
+  // In platform-managed mode the daemon shares its Node process with whatever
+  // the container is doing as a whole; `process.memoryUsage().rss` only sees
+  // this process's resident set, which understates the container footprint
+  // operators care about. Read the cgroup usage file directly so /v1/health
+  // matches what the StatefulSet's memory limit is enforced against.
+  const currentBytes =
+    (getIsPlatform() ? getContainerMemoryUsageBytes() : null) ??
+    process.memoryUsage().rss;
   return {
-    currentMb: bytesToMb(process.memoryUsage().rss),
+    currentMb: bytesToMb(currentBytes),
     maxMb: bytesToMb(getContainerMemoryLimitBytes() ?? totalmem()),
   };
 }

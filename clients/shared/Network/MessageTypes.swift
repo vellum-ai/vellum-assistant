@@ -22,6 +22,8 @@ import Foundation
 // │                                 │ via string `kind`; contract type skipped │
 // │ ConversationErrorMessage        │ References hand-maintained               │
 // │                                 │ ConversationErrorCode enum               │
+// │ ConversationHostAccessUpdated   │ Small client-only wire type added ahead  │
+// │ Message                         │ of generated contract coverage            │
 // │ ConversationErrorCode (enum)    │ String enum with fallback decoding;      │
 // │                                 │ code generator cannot emit Swift enums   │
 // │ ServerMessage (enum)            │ Discriminated union with custom          │
@@ -716,9 +718,14 @@ extension MessageComplete {
 public typealias ConversationInfoMessage = ConversationInfo
 
 extension ConversationInfo {
-    public init(conversationId: String, title: String, correlationId: String? = nil, conversationType: String? = nil) {
-        self.init(type: "conversation_info", conversationId: conversationId, title: title, correlationId: correlationId, conversationType: conversationType)
+    public init(conversationId: String, title: String, correlationId: String? = nil, conversationType: String? = nil, hostAccess: Bool? = nil) {
+        self.init(type: "conversation_info", conversationId: conversationId, title: title, correlationId: correlationId, conversationType: conversationType, hostAccess: hostAccess)
     }
+}
+
+public struct ConversationHostAccessUpdatedMessage: Decodable, Sendable {
+    public let conversationId: String
+    public let hostAccess: Bool
 }
 
 /// Conversation title update push message emitted after first-turn auto-titling.
@@ -1566,11 +1573,13 @@ public struct HostFileResultPayload: Codable, Sendable {
     public let requestId: String
     public let content: String
     public let isError: Bool
+    public let imageData: String?
 
-    public init(requestId: String, content: String, isError: Bool) {
+    public init(requestId: String, content: String, isError: Bool, imageData: String? = nil) {
         self.requestId = requestId
         self.content = content
         self.isError = isError
+        self.imageData = imageData
     }
 }
 
@@ -2188,6 +2197,7 @@ public enum ServerMessage: Decodable, Sendable {
     case assistantThinkingDelta(AssistantThinkingDeltaMessage)
     case messageComplete(MessageCompleteMessage)
     case conversationInfo(ConversationInfoMessage)
+    case conversationHostAccessUpdated(ConversationHostAccessUpdatedMessage)
     case conversationTitleUpdated(ConversationTitleUpdatedMessage)
     case conversationListResponse(ConversationListResponseMessage)
     case historyResponse(HistoryResponse)
@@ -2326,7 +2336,6 @@ public enum ServerMessage: Decodable, Sendable {
     case hostCuCancel(HostCuCancelRequest)
     case hostBrowserRequest(HostBrowserRequest)
     case hostBrowserCancel(HostBrowserCancelRequest)
-    case permissionModeUpdate(PermissionModeUpdateMessage)
     case usageUpdate(UsageUpdate)
     case serviceGroupUpdateStarting(ServiceGroupUpdateStartingMessage)
     case serviceGroupUpdateProgress(ServiceGroupUpdateProgressMessage)
@@ -2368,6 +2377,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "conversation_info":
             let message = try ConversationInfoMessage(from: decoder)
             self = .conversationInfo(message)
+        case "conversation_host_access_updated":
+            let message = try ConversationHostAccessUpdatedMessage(from: decoder)
+            self = .conversationHostAccessUpdated(message)
         case "conversation_title_updated":
             let message = try ConversationTitleUpdatedMessage(from: decoder)
             self = .conversationTitleUpdated(message)
@@ -2786,9 +2798,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "host_browser_cancel":
             let message = try HostBrowserCancelRequest(from: decoder)
             self = .hostBrowserCancel(message)
-        case "permission_mode_update":
-            let message = try PermissionModeUpdateMessage(from: decoder)
-            self = .permissionModeUpdate(message)
         case "usage_update":
             let message = try UsageUpdate(from: decoder)
             self = .usageUpdate(message)
@@ -2807,15 +2816,6 @@ public enum ServerMessage: Decodable, Sendable {
             self = .unknown(type)
         }
     }
-}
-
-
-// MARK: - Permission Mode
-
-/// Two-axis permission mode state broadcast via SSE or returned by GET /v1/permission-mode.
-public struct PermissionModeUpdateMessage: Decodable, Sendable {
-    public let askBeforeActing: Bool
-    public let hostAccess: Bool
 }
 
 // MARK: - Token Rotation

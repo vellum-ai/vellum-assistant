@@ -44,12 +44,20 @@ import {
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { getHookManager } from "../hooks/manager.js";
 import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
-import { updateConversationContextWindow } from "../memory/conversation-crud.js";
+import {
+  updateConversationContextWindow,
+  updateConversationHostAccess,
+} from "../memory/conversation-crud.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import { patternMatchesCandidate } from "../permissions/trust-store.js";
 import type { UserDecision } from "../permissions/types.js";
+import {
+  isConversationHostAccessDecision,
+  isConversationHostAccessEnabled,
+  isConversationHostAccessEnablePrompt,
+} from "../permissions/v2-consent-policy.js";
 import { resolvePersonaContext } from "../prompts/persona-resolver.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";
@@ -769,12 +777,35 @@ export class Conversation {
       return;
     }
 
+    const hostAccessEnablePrompt =
+      this.prompter.isHostAccessEnablePrompt(requestId) ||
+      isConversationHostAccessEnablePrompt(
+        pendingInteractions.get(requestId)?.confirmationDetails,
+      );
+    const effectiveDecision =
+      hostAccessEnablePrompt && !isConversationHostAccessDecision(decision)
+        ? "deny"
+        : decision;
+
+    if (
+      hostAccessEnablePrompt &&
+      effectiveDecision === "allow" &&
+      !isConversationHostAccessEnabled(this.conversationId)
+    ) {
+      updateConversationHostAccess(this.conversationId, true);
+      this.sendToClient({
+        type: "conversation_host_access_updated",
+        conversationId: this.conversationId,
+        hostAccess: true,
+      });
+    }
+
     // Capture toolUseId before resolving (resolution deletes the pending entry)
     const toolUseId = this.prompter.getToolUseId(requestId);
 
     this.prompter.resolveConfirmation(
       requestId,
-      decision,
+      effectiveDecision,
       selectedPattern,
       selectedScope,
       decisionContext,
@@ -788,7 +819,7 @@ export class Conversation {
     // so ALL callers (HTTP handlers, /v1/confirm, channel bridges) get
     // consistent events without duplicating emission logic.
     const resolvedState =
-      decision === "deny" || decision === "always_deny"
+      effectiveDecision === "deny" || effectiveDecision === "always_deny"
         ? ("denied" as const)
         : ("approved" as const);
     this.emitConfirmationStateChanged({
@@ -832,7 +863,12 @@ export class Conversation {
     }
 
     // Cascade to other pending confirmations that match this decision
-    this.cascadePendingApprovals(requestId, decision, selectedPattern);
+    this.cascadePendingApprovals(
+      requestId,
+      effectiveDecision,
+      selectedPattern,
+      hostAccessEnablePrompt,
+    );
   }
 
   /**
@@ -848,9 +884,14 @@ export class Conversation {
     primaryRequestId: string,
     decision: UserDecision,
     selectedPattern?: string,
+    hostAccessEnablePrompt = false,
   ): void {
     // Single-action decisions don't cascade
-    if (decision === "allow" || decision === "deny") return;
+    if (decision === "allow" || decision === "deny") {
+      if (!hostAccessEnablePrompt || decision !== "allow") {
+        return;
+      }
+    }
 
     const pendingRequestIds = this.prompter.getPendingRequestIds();
     if (pendingRequestIds.length === 0) return;
@@ -862,6 +903,28 @@ export class Conversation {
       if (!interaction) continue;
       if (interaction.conversationId !== this.conversationId) continue;
       if (interaction.kind !== "confirmation") continue;
+
+      if (
+        hostAccessEnablePrompt &&
+        (this.prompter.isHostAccessEnablePrompt(candidateId) ||
+          isConversationHostAccessEnablePrompt(interaction.confirmationDetails))
+      ) {
+        // Enabling computer access is conversation-scoped, so sibling host
+        // prompts should resolve immediately once the first approval lands.
+        pendingInteractions.resolve(candidateId);
+        this.handleConfirmationResponse(
+          candidateId,
+          "allow",
+          undefined,
+          undefined,
+          undefined,
+          {
+            source: "system",
+            causedByRequestId: primaryRequestId,
+          },
+        );
+        continue;
+      }
 
       const cascadeResult = this.shouldCascade(
         decision,
@@ -981,7 +1044,7 @@ export class Conversation {
 
   resolveHostFile(
     requestId: string,
-    response: { content: string; isError: boolean },
+    response: { content: string; isError: boolean; imageData?: string },
   ): void {
     this.hostFileProxy?.resolve(requestId, response);
   }

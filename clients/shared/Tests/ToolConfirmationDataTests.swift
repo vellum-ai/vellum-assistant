@@ -2,6 +2,39 @@ import XCTest
 @testable import VellumAssistantShared
 
 final class ToolConfirmationDataTests: XCTestCase {
+    func testConversationHostAccessPromptUsesComputerAccessLanguage() {
+        let confirmation = ToolConfirmationData(
+            requestId: "req-host-1",
+            toolName: "host_file_read",
+            input: [
+                "path": AnyCodable("/Users/example/Desktop/report.txt"),
+            ],
+            riskLevel: "medium",
+            persistentDecisionsAllowed: false
+        )
+
+        XCTAssertTrue(confirmation.isConversationHostAccessPrompt)
+        XCTAssertEqual(confirmation.detailsSummary, "The assistant needs computer access for this conversation")
+        XCTAssertEqual(
+            confirmation.humanDescription,
+            "Enable computer access for this conversation so the assistant can read report.txt?"
+        )
+    }
+
+    func testLegacyHostPromptDoesNotLookLikeConversationEnablement() {
+        let confirmation = ToolConfirmationData(
+            requestId: "req-host-2",
+            toolName: "host_bash",
+            input: [
+                "command": AnyCodable("ls ~/Desktop"),
+            ],
+            riskLevel: "medium"
+        )
+
+        XCTAssertFalse(confirmation.isConversationHostAccessPrompt)
+        XCTAssertEqual(confirmation.humanDescription, "Allow running a command on your computer?")
+    }
+
     func testFullInputPreviewDoesNotTruncateLongStrings() {
         let oldString = String(repeating: "old-", count: 80)
         let newString = String(repeating: "new-", count: 80)

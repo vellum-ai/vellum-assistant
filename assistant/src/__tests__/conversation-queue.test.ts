@@ -1,5 +1,13 @@
 import { rmSync, writeFileSync } from "node:fs";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 import type {
   AgentEvent,
@@ -95,6 +103,8 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
+const mockedConversationHostAccess = new Map<string, boolean>();
+
 mock.module("../prompts/system-prompt.js", () => ({
   buildSystemPrompt: () => "system prompt",
 }));
@@ -113,6 +123,7 @@ mock.module("../permissions/trust-store.js", () => ({
   addRule: () => {},
   findHighestPriorityRule: () => null,
   clearCache: () => {},
+  patternMatchesCandidate: () => false,
 }));
 
 mock.module("../security/secret-allowlist.js", () => ({
@@ -123,6 +134,14 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
+  getConversationHostAccess: (conversationId: string) =>
+    mockedConversationHostAccess.get(conversationId) ?? false,
+  updateConversationHostAccess: (
+    conversationId: string,
+    hostAccess: boolean,
+  ) => {
+    mockedConversationHostAccess.set(conversationId, hostAccess);
+  },
   deleteMessageById: () => {},
   provenanceFromTrustContext: () => ({
     source: "user",
@@ -1315,8 +1334,18 @@ describe("Terminal trace events on rejection/failure", () => {
 // ---------------------------------------------------------------------------
 
 describe("Conversation host attachment directives", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     pendingRuns = [];
+    mockedConversationHostAccess.clear();
+    const { _setOverridesForTesting } =
+      await import("../config/assistant-feature-flags.js");
+    _setOverridesForTesting({ "permission-controls-v2": true });
+  });
+
+  afterEach(async () => {
+    const { _setOverridesForTesting } =
+      await import("../config/assistant-feature-flags.js");
+    _setOverridesForTesting({});
   });
 
   test("host attachment prompts and resolves when user allows", async () => {
@@ -1364,6 +1393,19 @@ describe("Conversation host attachment directives", () => {
         (e) => e.type === "confirmation_request",
       );
       expect(confirmation).toBeDefined();
+      expect(
+        (confirmation as { persistentDecisionsAllowed?: boolean })
+          .persistentDecisionsAllowed,
+      ).toBe(false);
+      expect(
+        (
+          confirmation as {
+            temporaryOptionsAvailable?: Array<
+              "allow_10m" | "allow_conversation"
+            >;
+          }
+        ).temporaryOptionsAvailable ?? [],
+      ).toEqual([]);
       conversation.handleConfirmationResponse(
         (confirmation as { requestId: string }).requestId,
         "allow",
@@ -1371,6 +1413,7 @@ describe("Conversation host attachment directives", () => {
 
       await p1;
 
+      expect(mockedConversationHostAccess.get("conv-1")).toBe(true);
       expect(conversation.lastAssistantAttachments).toHaveLength(1);
       expect(conversation.lastAssistantAttachments[0].sourceType).toBe(
         "host_file",

@@ -139,6 +139,7 @@ extension AppDelegate {
                 queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
+                    self?.cachedMenuBarAvatar = nil
                     self?.updateMenuBarIcon()
                 }
             }
@@ -253,21 +254,21 @@ extension AppDelegate {
         let dotSize: CGFloat = 6
         let dotPadding: CGFloat = 0.5
 
-        let appIcon: NSImage = {
-            // Use the assistant's avatar (same image used for dock icon / chat),
-            // rendered as a circle at menu-bar size.
+        let appIcon: NSImage = cachedMenuBarAvatar ?? {
             let avatarManager = AvatarAppearanceManager.shared
             let avatar = avatarManager.customAvatarImage
                 ?? avatarManager.fullAvatarImage
 
             let size = iconSize
             let square = AvatarAppearanceManager.resizedImage(avatar, to: size)
-            return NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
+            let circular = NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
                 NSBezierPath(ovalIn: rect).addClip()
                 square.draw(in: rect, from: NSRect(origin: .zero, size: square.size),
                             operation: .copy, fraction: 1.0)
                 return true
             }
+            cachedMenuBarAvatar = circular
+            return circular
         }()
 
         let status = currentAssistantStatus
@@ -784,6 +785,16 @@ extension AppDelegate {
         guard success else {
             throw AssistantSwitcherError.lockfilePersistenceFailed
         }
+
+        Task {
+            try? await AuthService.shared.updateAssistant(
+                id: platformAssistant.id,
+                organizationId: organizationId,
+                name: name
+            )
+        }
+
+        IdentityInfo.seedCache(name: name, forAssistantId: platformAssistant.id)
     }
 
     /// Retire an assistant requested from the switcher. Today the switcher

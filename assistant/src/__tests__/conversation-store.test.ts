@@ -1,4 +1,7 @@
+import { Database } from "bun:sqlite";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { drizzle } from "drizzle-orm/bun-sqlite";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -19,15 +22,27 @@ import {
   createConversation,
   deleteLastExchange,
   getConversation,
+  getConversationHostAccess,
   getConversationMemoryScopeId,
   getConversationType,
   getMessages,
+  updateConversationHostAccess,
 } from "../memory/conversation-crud.js";
 import { isLastUserMessageToolResult } from "../memory/conversation-queries.js";
 import { getDb, initializeDb } from "../memory/db.js";
+import { getSqliteFrom } from "../memory/db-connection.js";
+import { migrateConversationHostAccess } from "../memory/migrations/217-conversation-host-access.js";
+import * as schema from "../memory/schema.js";
 
 // Initialize db once before all tests
 initializeDb();
+
+function createMigrationTestDb() {
+  const sqlite = new Database(":memory:");
+  sqlite.exec("PRAGMA journal_mode=WAL");
+  sqlite.exec("PRAGMA foreign_keys = ON");
+  return drizzle(sqlite, { schema });
+}
 
 describe("deleteLastExchange", () => {
   beforeEach(() => {
@@ -406,6 +421,7 @@ describe("conversation metadata defaults", () => {
     expect(loaded).not.toBeNull();
     expect(loaded!.conversationType).toBe("standard");
     expect(loaded!.memoryScopeId).toBe("default");
+    expect(loaded!.hostAccess).toBe(0);
   });
 
   test("existing conversations without explicit values get defaults via migration", () => {
@@ -422,6 +438,7 @@ describe("conversation metadata defaults", () => {
     expect(loaded).not.toBeNull();
     expect(loaded!.conversationType).toBe("standard");
     expect(loaded!.memoryScopeId).toBe("default");
+    expect(loaded!.hostAccess).toBe(0);
   });
 });
 
@@ -505,6 +522,184 @@ describe("conversation metadata read helpers", () => {
 
   test("getConversationMemoryScopeId returns default for missing conversation", () => {
     expect(getConversationMemoryScopeId("nonexistent-id")).toBe("default");
+  });
+
+  test("getConversationHostAccess returns false by default", () => {
+    const conv = createConversation("test");
+    expect(getConversationHostAccess(conv.id)).toBe(false);
+  });
+
+  test("getConversationHostAccess returns false for missing conversation", () => {
+    expect(getConversationHostAccess("nonexistent-id")).toBe(false);
+  });
+});
+
+describe("conversation host access persistence", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM messages`);
+    db.run(`DELETE FROM conversations`);
+  });
+
+  test("new conversations default host access to disabled", () => {
+    const conv = createConversation("test");
+    const loaded = getConversation(conv.id);
+
+    expect(conv.hostAccess).toBe(0);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.hostAccess).toBe(0);
+    expect(getConversationHostAccess(conv.id)).toBe(false);
+  });
+
+  test("updateConversationHostAccess persists mutations", () => {
+    const conv = createConversation("test");
+
+    updateConversationHostAccess(conv.id, true);
+    expect(getConversationHostAccess(conv.id)).toBe(true);
+    expect(getConversation(conv.id)?.hostAccess).toBe(1);
+
+    updateConversationHostAccess(conv.id, false);
+    expect(getConversationHostAccess(conv.id)).toBe(false);
+    expect(getConversation(conv.id)?.hostAccess).toBe(0);
+  });
+});
+
+describe("conversation host access migration", () => {
+  function bootstrapPreHostAccessConversations(raw: Database): void {
+    raw.exec(/*sql*/ `
+      CREATE TABLE memory_checkpoints (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+
+    raw.exec(/*sql*/ `
+      CREATE TABLE conversations (
+        id TEXT PRIMARY KEY,
+        title TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        total_input_tokens INTEGER NOT NULL DEFAULT 0,
+        total_output_tokens INTEGER NOT NULL DEFAULT 0,
+        total_estimated_cost REAL NOT NULL DEFAULT 0,
+        context_summary TEXT,
+        context_compacted_message_count INTEGER NOT NULL DEFAULT 0,
+        context_compacted_at INTEGER,
+        conversation_type TEXT NOT NULL DEFAULT 'standard',
+        source TEXT NOT NULL DEFAULT 'user',
+        memory_scope_id TEXT NOT NULL DEFAULT 'default',
+        origin_channel TEXT,
+        origin_interface TEXT,
+        fork_parent_conversation_id TEXT,
+        fork_parent_message_id TEXT,
+        is_auto_title INTEGER NOT NULL DEFAULT 1,
+        schedule_job_id TEXT,
+        last_message_at INTEGER
+      )
+    `);
+  }
+
+  test("migration adds host access with disabled default for existing rows", () => {
+    const db = createMigrationTestDb();
+    const raw = getSqliteFrom(db);
+    const now = Date.now();
+
+    bootstrapPreHostAccessConversations(raw);
+    raw.exec(/*sql*/ `
+      INSERT INTO conversations (
+        id,
+        title,
+        created_at,
+        updated_at,
+        conversation_type,
+        source,
+        memory_scope_id,
+        is_auto_title
+      ) VALUES (
+        'conv-upgrade',
+        'Existing conversation',
+        ${now},
+        ${now},
+        'standard',
+        'user',
+        'default',
+        1
+      )
+    `);
+
+    migrateConversationHostAccess(db);
+
+    const row = raw
+      .query(
+        `SELECT id, title, host_access FROM conversations WHERE id = 'conv-upgrade'`,
+      )
+      .get() as {
+      id: string;
+      title: string | null;
+      host_access: number;
+    } | null;
+
+    expect(row).toEqual({
+      id: "conv-upgrade",
+      title: "Existing conversation",
+      host_access: 0,
+    });
+
+    const checkpoint = raw
+      .query(
+        `SELECT value FROM memory_checkpoints WHERE key = 'migration_conversation_host_access_v1'`,
+      )
+      .get() as { value: string } | null;
+    expect(checkpoint?.value).toBe("1");
+  });
+
+  test("re-running the migration preserves existing host access values", () => {
+    const db = createMigrationTestDb();
+    const raw = getSqliteFrom(db);
+    const now = Date.now();
+
+    bootstrapPreHostAccessConversations(raw);
+    raw.exec(/*sql*/ `
+      INSERT INTO conversations (
+        id,
+        title,
+        created_at,
+        updated_at,
+        conversation_type,
+        source,
+        memory_scope_id,
+        is_auto_title
+      ) VALUES (
+        'conv-rerun',
+        'Existing conversation',
+        ${now},
+        ${now},
+        'standard',
+        'user',
+        'default',
+        1
+      )
+    `);
+
+    migrateConversationHostAccess(db);
+    raw.exec(
+      `UPDATE conversations SET host_access = 1 WHERE id = 'conv-rerun'`,
+    );
+
+    expect(() => migrateConversationHostAccess(db)).not.toThrow();
+
+    const row = raw
+      .query(`SELECT host_access FROM conversations WHERE id = 'conv-rerun'`)
+      .get() as { host_access: number } | null;
+    const checkpoint = raw
+      .query(
+        `SELECT value FROM memory_checkpoints WHERE key = 'migration_conversation_host_access_v1'`,
+      )
+      .get() as { value: string } | null;
+
+    expect(row).toEqual({ host_access: 1 });
+    expect(checkpoint?.value).toBe("1");
   });
 });
 

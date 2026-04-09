@@ -139,6 +139,10 @@ export interface ProcessConversationContext {
   restoreProxyAvailability(): void;
   /** Restore only the host browser proxy (used by chrome-extension drains). */
   restoreBrowserProxyAvailability(): void;
+  /** Replace or clear the conversation's host browser proxy. */
+  setHostBrowserProxy(
+    proxy: import("./host-browser-proxy.js").HostBrowserProxy | undefined,
+  ): void;
   emitActivityState(
     phase:
       | "idle"
@@ -352,6 +356,18 @@ export async function drainQueue(
     if (sourceInterface && supportsHostProxy(sourceInterface)) {
       conversation.restoreProxyAvailability();
       conversation.addPreactivatedSkillId("computer-use");
+    }
+    // Tear down a stale hostBrowserProxy inherited from a prior turn on a
+    // different interface (e.g. chrome-extension installed one, then a
+    // macos turn drains). Without this, restoreProxyAvailability() above
+    // would re-enable the proxy and getCdpClient() would route browser
+    // tools through host_browser_request and hang waiting for a client
+    // that this turn's interface can't service.
+    if (
+      sourceInterface &&
+      !supportsHostProxy(sourceInterface, "host_browser")
+    ) {
+      conversation.setHostBrowserProxy(undefined);
     }
   }
 

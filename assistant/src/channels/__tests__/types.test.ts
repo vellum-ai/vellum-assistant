@@ -58,7 +58,7 @@ describe("isInterfaceId", () => {
 });
 
 describe("supportsHostProxy", () => {
-  // ── macOS: supports every capability, and the no-arg form returns true. ──
+  // ── macOS: supports host_bash / host_file / host_cu, but NOT host_browser. ──
   test("macos returns true (no capability)", () => {
     expect(supportsHostProxy("macos")).toBe(true);
   });
@@ -75,8 +75,8 @@ describe("supportsHostProxy", () => {
     expect(supportsHostProxy("macos", "host_cu")).toBe(true);
   });
 
-  test("macos returns true for host_browser", () => {
-    expect(supportsHostProxy("macos", "host_browser")).toBe(true);
+  test("macos returns false for host_browser", () => {
+    expect(supportsHostProxy("macos", "host_browser")).toBe(false);
   });
 
   // ── chrome-extension: only host_browser. ──

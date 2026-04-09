@@ -58,6 +58,7 @@ import {
   migrateContactsRolePrincipal,
   migrateContactsUserFileColumn,
   migrateConversationForkLineage,
+  migrateConversationHostAccess,
   migrateConversationsLastMessageAt,
   migrateConversationsThreadTypeIndex,
   migrateCreateConversationGraphMemoryState,
@@ -361,6 +362,7 @@ export function initializeDb(): void {
     migrateOAuthProvidersRefreshUrl,
     migrateOAuthProvidersRevoke,
     migrateOAuthProvidersTokenAuthMethodDefault,
+    migrateConversationHostAccess,
     migrateOAuthProvidersLogoUrl,
   ];
 

@@ -45,7 +45,16 @@ final class SkillsManager {
     var selectedSkillFiles: SkillDetailFilesHTTPResponse?
     var isLoadingSkillFiles = false
     var skillFilesError: String?
+    var loadedFileContents: [String: String] = [:]
+    var loadingFilePaths: Set<String> = []
+    var fileContentErrors: [String: String] = [:]
     var installingSkillId: String?
+
+    /// Safety timeout that defensively clears `installingSkillId` if a
+    /// wedged `fetchSkills(force:)` response never lands. Without it, the
+    /// install spinner can be stuck indefinitely when the confirmation
+    /// refresh path is blocked or delayed.
+    @ObservationIgnored private var installWatchdogTask: Task<Void, Never>?
 
     // MARK: - Filter Inputs
 
@@ -105,9 +114,51 @@ final class SkillsManager {
                 self.selectedSkillFiles = self.skillsStore.selectedSkillFiles
                 self.isLoadingSkillFiles = self.skillsStore.isLoadingSkillFiles
                 self.skillFilesError = self.skillsStore.skillFilesError
+                self.loadedFileContents = self.skillsStore.loadedFileContents
+                self.loadingFilePaths = self.skillsStore.loadingFilePaths
+                self.fileContentErrors = self.skillsStore.fileContentErrors
                 if let result = self.skillsStore.installResult,
                    result.slug == self.installingSkillId {
+                    if !result.success {
+                        // Failure: release the spinner immediately so the
+                        // Install button returns and the user can retry.
+                        self.installingSkillId = nil
+                        self.installWatchdogTask?.cancel()
+                        self.installWatchdogTask = nil
+                    } else if self.skillsStore.skills
+                        .first(where: { $0.id == result.slug })?.kind != "catalog" {
+                        // Success confirmed: the refreshed skills list has
+                        // flipped the kind away from "catalog", so the
+                        // detail view will render the installed UI on the
+                        // next body pass without flicker.
+                        self.installingSkillId = nil
+                        self.installWatchdogTask?.cancel()
+                        self.installWatchdogTask = nil
+                    }
+                    // Otherwise: keep the spinner up until fetchSkills(force:)
+                    // lands — see `installSkill(slug:)` for the watchdog that
+                    // clears the spinner defensively if the refresh wedges.
+                }
+
+                // Independent skills-list-driven clear: `SkillsStore.installSkill`
+                // expires `installResult` after 3 seconds, so on a slow-network
+                // install where `fetchSkills(force:)` lands after the expiry
+                // the branch above will not fire — `installResult` is already
+                // nil by the time the refreshed list arrives. Clear the
+                // spinner here based solely on the skills list: if the
+                // currently-installing id is now a non-catalog entry, the
+                // install has confirmed and the spinner must come down.
+                // `installingSkillId` is only set by `installSkill(slug:)`
+                // for a catalog skill, so any transition away from "catalog"
+                // for that id is a legitimate success signal. Idempotent
+                // with the branch above: the `if let` guard short-circuits
+                // when the first branch has already cleared the id.
+                if let installingId = self.installingSkillId,
+                   self.skillsStore.skills
+                    .first(where: { $0.id == installingId })?.kind != "catalog" {
                     self.installingSkillId = nil
+                    self.installWatchdogTask?.cancel()
+                    self.installWatchdogTask = nil
                 }
                 self.recomputeFilteredData()
             }
@@ -235,10 +286,32 @@ final class SkillsManager {
     func installSkill(slug: String) {
         installingSkillId = slug
         skillsStore.installSkill(slug: slug)
+
+        // Defensive watchdog: a wedged `fetchSkills(force:)` response
+        // after install would otherwise leave the spinner stuck forever.
+        // Clear `installingSkillId` after 15 seconds if the confirmation
+        // path has not already cleared it.
+        installWatchdogTask?.cancel()
+        installWatchdogTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 15_000_000_000)
+            guard !Task.isCancelled else { return }
+            guard let self else { return }
+            if self.installingSkillId == slug {
+                self.installingSkillId = nil
+            }
+        }
     }
 
     func fetchSkillFiles(skillId: String) {
         skillsStore.fetchSkillFiles(skillId: skillId)
+    }
+
+    func loadSkillFileContent(skillId: String, path: String) {
+        skillsStore.loadSkillFileContent(skillId: skillId, path: path)
+    }
+
+    func clearLoadedFileContents() {
+        skillsStore.clearLoadedFileContents()
     }
 
     func clearSkillDetail() {

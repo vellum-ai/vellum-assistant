@@ -2,6 +2,12 @@ import { afterEach, describe, expect, jest, test } from "bun:test";
 
 const { HostFileProxy } = await import("../daemon/host-file-proxy.js");
 
+// Minimal PNG header
+const PNG_HEADER = Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49,
+  0x48, 0x44, 0x52,
+]);
+
 describe("HostFileProxy", () => {
   let proxy: InstanceType<typeof HostFileProxy>;
   let sentMessages: unknown[];
@@ -75,6 +81,39 @@ describe("HostFileProxy", () => {
       const result = await resultPromise;
       expect(result.isError).toBe(true);
       expect(result.content).toContain("ENOENT");
+    });
+
+    test("rebuilds image tool results from proxied image payloads", async () => {
+      setup();
+
+      const resultPromise = proxy.request(
+        {
+          operation: "read",
+          path: "/Users/test/Desktop/screenshot.png",
+        },
+        "session-1",
+      );
+
+      const sent = sentMessages[0] as Record<string, unknown>;
+      const requestId = sent.requestId as string;
+
+      proxy.resolve(requestId, {
+        content: "Image loaded on host",
+        isError: false,
+        imageData: PNG_HEADER.toString("base64"),
+      });
+
+      const result = await resultPromise;
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("Image loaded");
+      expect(result.content).toContain("/Users/test/Desktop/screenshot.png");
+      expect(result.contentBlocks).toHaveLength(1);
+      expect(result.contentBlocks?.[0]).toMatchObject({
+        type: "image",
+        source: {
+          media_type: "image/png",
+        },
+      });
     });
 
     test("handles write operations", async () => {
@@ -389,26 +428,26 @@ describe("HostFileProxy", () => {
     function spySignal(source: AbortSignal): Spied {
       const addCalls: string[] = [];
       const removeCalls: string[] = [];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const s = source as any;
       const origAdd = source.addEventListener.bind(source);
       const origRemove = source.removeEventListener.bind(source);
       s.addEventListener = (
         type: string,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         ...rest: any[]
       ) => {
         addCalls.push(type);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         return (origAdd as any)(type, ...rest);
       };
       s.removeEventListener = (
         type: string,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         ...rest: any[]
       ) => {
         removeCalls.push(type);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         return (origRemove as any)(type, ...rest);
       };
       return { signal: source, addCalls, removeCalls };

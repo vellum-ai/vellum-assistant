@@ -286,6 +286,72 @@ describe("streamExportVBundle round-trip", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Streaming config sanitization test
+// ---------------------------------------------------------------------------
+
+describe("streamExportVBundle config sanitization", () => {
+  test("exported config.json has environment-specific fields stripped", async () => {
+    // Write a config with environment-specific fields that should be stripped
+    const configWithEnvFields = {
+      provider: "anthropic",
+      model: "test-model",
+      ingress: {
+        publicBaseUrl: "https://my-tunnel.example.com",
+        enabled: true,
+        port: 8080,
+      },
+      daemon: {
+        autoStart: true,
+        logLevel: "debug",
+      },
+      skills: {
+        load: {
+          extraDirs: ["/home/user/custom-skills", "/opt/skills"],
+          autoReload: true,
+        },
+      },
+      memory: { enabled: true },
+    };
+    writeFileSync(testConfigPath, JSON.stringify(configWithEnvFields, null, 2));
+
+    const result = await streamExportVBundle({
+      workspaceDir: testDir,
+    });
+
+    try {
+      const archiveData = new Uint8Array(readFileSync(result.tempPath));
+      const entries = parseTarEntries(archiveData);
+
+      const configEntry = entries.find(
+        (e) => e.name === "workspace/config.json",
+      );
+      expect(configEntry).toBeDefined();
+
+      const parsedConfig = JSON.parse(
+        new TextDecoder().decode(configEntry!.data),
+      );
+
+      // Environment-specific fields should be stripped/reset
+      expect(parsedConfig.ingress.publicBaseUrl).toBe("");
+      expect(parsedConfig.ingress.enabled).toBeUndefined();
+      expect(parsedConfig.daemon).toBeUndefined();
+      expect(parsedConfig.skills.load.extraDirs).toEqual([]);
+
+      // Non-environment-specific fields should be preserved
+      expect(parsedConfig.provider).toBe("anthropic");
+      expect(parsedConfig.model).toBe("test-model");
+      expect(parsedConfig.ingress.port).toBe(8080);
+      expect(parsedConfig.skills.load.autoReload).toBe(true);
+      expect(parsedConfig.memory.enabled).toBe(true);
+    } finally {
+      // Restore original config for subsequent tests
+      writeFileSync(testConfigPath, JSON.stringify(TEST_CONFIG, null, 2));
+      await result.cleanup();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Cleanup idempotency test
 // ---------------------------------------------------------------------------
 

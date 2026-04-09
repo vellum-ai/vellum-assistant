@@ -399,7 +399,6 @@ struct AssistantProgressView: View {
         .buttonStyle(.plain)
         .environment(\.isEnabled, true)
         .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -460,7 +459,7 @@ struct AssistantProgressView: View {
             if phase == .processing {
                 processingLabel
             } else {
-                Text(headlineText)
+                Text(ToolCallData.displaySafe(headlineText))
                     .font(VFont.bodyMediumLighter)
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
@@ -736,7 +735,7 @@ private struct StepDetailRow: View {
                     }
 
                     // Title (reason-first, then skillLabel for skill_execute, then fallback)
-                    Text(stepTitle)
+                    Text(ToolCallData.displaySafe(stepTitle))
                         .font(VFont.labelDefault)
                         .foregroundStyle(stepTitleColor)
                         .lineLimit(1)
@@ -882,9 +881,12 @@ private struct StepDetailRow: View {
         isError: Bool = false
     ) -> some View {
         ZStack(alignment: .topTrailing) {
-            outputTextView(text: text, attributedText: attributedText, isError: isError)
+            // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+            HStack(spacing: 0) {
+                outputTextView(text: text, attributedText: attributedText, isError: isError)
+                Spacer(minLength: 0)
+            }
             .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.sm + VSpacing.xl))
-            .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.sm)
                     .fill(VColor.surfaceOverlay.opacity(0.6))
@@ -923,17 +925,22 @@ private struct StepDetailRow: View {
         attributedText: AttributedString?,
         isError: Bool = false
     ) -> some View {
+        // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
         if let attrText = attributedText {
-            Text(attrText)
-                .font(VFont.bodySmallDefault)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 0) {
+                Text(attrText)
+                    .font(VFont.bodySmallDefault)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
         } else if let plainText = text {
-            Text(plainText)
-                .font(VFont.bodySmallDefault)
-                .foregroundStyle(isError ? VColor.systemNegativeStrong : VColor.contentSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 0) {
+                Text(plainText)
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(isError ? VColor.systemNegativeStrong : VColor.contentSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
         }
     }
 

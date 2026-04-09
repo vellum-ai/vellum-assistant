@@ -5,11 +5,14 @@ extension transport that lets the assistant drive a browser on the user's
 machine via CDP (Chrome DevTools Protocol) JSON-RPC, without bundling a
 headful Chromium.
 
-Phase 2 replaces the legacy `ExtensionCommand` action dispatch
-(`evaluate`, `navigate`, `screenshot`, …) with a generic, future-proof
-`host_browser_request` / `host_browser_result` envelope pair that carries
-raw CDP method names and params. The action dispatch remains in place
-under a feature flag so existing installs continue to work unchanged.
+Phase 2 drives the browser through a generic, future-proof
+`host_browser_request` / `host_browser_result` envelope pair that
+carries raw CDP method names and params. The chrome-extension service
+worker attaches `chrome.debugger` to the active tab and forwards each
+CDP command via the `host_browser` host proxy, so the assistant's
+browser tools speak plain CDP end-to-end regardless of whether they
+are driving a local Playwright-managed Chromium or a user-attached
+browser reached over the extension relay.
 
 ## Overview
 
@@ -32,11 +35,12 @@ Phase 2 ships:
    chrome-extension interface can advertise `host_browser` without
    implying that bash / file / CU proxies are also available.
 
-Consumers of the new envelope (notably the `browser-execution.ts` tool
-code that drives live navigation) are scheduled for Phase 3 — Phase 2
-only ships the scaffold and the proxy plumbing, plus a feature-flagged
-CDP proxy in the extension so we can test it end-to-end against a
-real guardian.
+`browser-execution.ts` drives the live navigation surface through a
+per-invocation `BrowserSessionManager` obtained via `getCdpClient()`
+(see `assistant/src/tools/browser/cdp-client/factory.ts`). The
+manager picks an extension backend when the conversation has a host
+browser proxy bound to it and falls back to a local Playwright-backed
+backend otherwise, so tool code remains transport-agnostic.
 
 ## Architecture
 
@@ -67,7 +71,7 @@ and the handshake differ.
           │  http-server.ts open/close │
           │        │                   │
           │        ▼                   │
-          │  ChromeExtensionRegistry   │  (guardianId → ws)
+         │  ChromeExtensionRegistry   │  (guardianId, clientInstanceId → ws)
           │        │                   │
           │        ▼                   │
           │  HostBrowserProxy          │
@@ -81,10 +85,11 @@ and the handshake differ.
           └────────────────────────────┘
 ```
 
-Result envelopes flow back via `POST /v1/host-browser-result`, which
-resolves the pending interaction keyed by `requestId` and feeds the
-result into the current agent turn exactly like the macOS host proxies
-do.
+Result envelopes normally flow back over the same `/v1/browser-relay`
+WebSocket as `host_browser_result` frames (cloud + self-hosted). The
+runtime resolves these through the same shared resolver used by
+`POST /v1/host-browser-result`. The HTTP route remains as a self-hosted
+fallback when no relay socket is available.
 
 ## Cloud transport
 
@@ -103,7 +108,7 @@ Handshake:
 3. On success, the gateway returns a guardian-bound JWT and the
    extension persists it via `cloud-auth.ts::getStoredToken`.
 4. The extension opens `wss://api.vellum.ai/v1/browser-relay` with the
-   JWT as the `Authorization: Bearer …` header.
+   JWT on the `token=...` query parameter.
 5. The gateway verifies the JWT, extracts the guardian id, and forwards
    the upgrade to the assistant runtime. The runtime registers the
    connection under that guardian id in the `ChromeExtensionRegistry`.
@@ -132,8 +137,8 @@ Handshake:
       mint a scoped capability token bound to the caller's guardian.
    d. Writes a `token_response` frame to stdout and exits.
 4. The extension persists the token and opens
-   `ws://127.0.0.1:<port>/v1/browser-relay` with the token as a bearer
-   header.
+   `ws://127.0.0.1:<port>/v1/browser-relay` with the token on the
+   `token=...` query parameter.
 5. The daemon verifies the token via
    `verifyHostBrowserCapability`, registers the connection in the
    `ChromeExtensionRegistry`, and starts routing `host_browser_request`
@@ -150,8 +155,9 @@ The new modules that implement Phase 2:
 
 - **`assistant/src/runtime/chrome-extension-registry.ts`** — Singleton
   tracking active `chrome-extension` WebSocket connections keyed by
-  guardian id. Reconnects from the same guardian supersede the prior
-  entry, closing the older socket cleanly.
+  `(guardianId, clientInstanceId)`. Reconnects from the same instance
+  supersede only that instance's prior entry, leaving sibling installs
+  under the same guardian intact.
 - **`assistant/src/runtime/routes/browser-extension-pair-routes.ts`** —
   `POST /v1/browser-extension-pair` endpoint. Loopback-only. Mints a
   capability token bound to the caller's guardian id and the
@@ -161,15 +167,18 @@ The new modules that implement Phase 2:
   (`loadOrCreateCapabilityTokenSecret`, legacy workspace →
   protected-directory migration, mode enforcement on write,
   corruption-triggered regeneration, per-test injection).
-- **`assistant/src/browser-session/`** — Phase 3 `BrowserSessionManager`
-  scaffold (types, backends, manager). No consumers yet — the
-  in-turn browser-execution loop still uses the legacy path in Phase 2.
+- **`assistant/src/browser-session/`** — `BrowserSessionManager` and its
+  `extension` + `local` backends. The cdp-client factory constructs a
+  per-invocation manager for each browser tool call, which is the single
+  choke point for CDP backend selection, session lifetime, and future
+  session-invalidation handling.
 - **`clients/chrome-extension/background/cdp-proxy.ts`** — CDP JSON-RPC
   wrapper around `chrome.debugger`. Tracks attach state per target so
   concurrent commands don't double-attach.
 - **`clients/chrome-extension/background/host-browser-dispatcher.ts`** —
   Consumes `host_browser_request` envelopes, drives the `cdp-proxy`, and
-  hands results to the worker for POST-back.
+  hands results to the worker for relay-aware delivery (WS first, HTTP
+  fallback in self-hosted mode).
 - **`clients/chrome-extension/background/relay-connection.ts`** —
   WebSocket relay with heartbeat, reconnect-with-token-refresh, and
   mode-aware bearer injection.
@@ -193,21 +202,16 @@ Runtime wiring:
   only for `host_browser`; macOS returns `true` for all four (bash,
   file, cu, browser).
 
-## Phase 2 → Phase 3 hand-off
+## Open follow-ups
 
-Work explicitly deferred to Phase 3:
-
-- Migration of `browser-execution.ts` to consume `host_browser_request`
-  envelopes directly instead of the legacy `ExtensionCommand` dispatch.
-- Cloud-side `host_browser_result` inbound routing on the gateway
-  WebSocket (today the extension POSTs results directly to the runtime;
-  in cloud mode this goes through the gateway).
-- Deriving `x-guardian-id` from the edge JWT inside the gateway rather
-  than trusting it from the runtime headers.
-- Production extension allowlist: today the native messaging helper,
-  the assistant's pair endpoint, and the macOS `NativeMessagingInstaller`
-  all contain a dev placeholder extension id. A sync-guard unit test
-  exists to prevent these from drifting before release.
+- Production extension allowlist: the native messaging helper, the
+  assistant's pair endpoint, and the macOS `NativeMessagingInstaller`
+  all contain a dev placeholder extension id pending the first public
+  release of the extension. The sync-guard unit test at
+  `assistant/src/__tests__/extension-id-sync-guard.test.ts` fails CI
+  if any of the three drifts out of sync, so updating the placeholder
+  to the production id must touch all three files plus the test
+  constant in lockstep.
 
 ## Known UX considerations
 

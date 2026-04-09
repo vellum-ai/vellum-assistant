@@ -37,6 +37,13 @@ public final class SkillsStore: ObservableObject {
     @Published public var skillDetailError: String?
     @Published public var skillFilesError: String?
 
+    /// Per-file loaded content keyed by the file's relative path within the skill.
+    @Published public var loadedFileContents: [String: String] = [:]
+    /// Paths with an in-flight content fetch.
+    @Published public var loadingFilePaths: Set<String> = []
+    /// Per-path error messages from failed content fetches.
+    @Published public var fileContentErrors: [String: String] = [:]
+
     // MARK: - Result Types
 
     public struct InstallResult: Sendable {
@@ -89,6 +96,7 @@ public final class SkillsStore: ObservableObject {
     private var createTask: Task<Void, Never>?
     private var skillDetailTask: Task<Void, Never>?
     private var skillFilesTask: Task<Void, Never>?
+    private var fileContentTasks: [String: Task<Void, Never>] = [:]
     private var draftGeneration: Int = 0
     private var createGeneration: Int = 0
     private var currentDetailSkillId: String?
@@ -318,9 +326,15 @@ public final class SkillsStore: ObservableObject {
     // MARK: - Fetch Skill Files
 
     public func fetchSkillFiles(skillId: String) {
+        // Cancel any in-flight files task and start a new one. Intentionally do
+        // not early-return when `currentFilesSkillId == skillId`: a re-fetch
+        // for the same skill replaces stale (lazy/null) file content with
+        // fresh content after an install transition, so the store must always
+        // reissue the request rather than reuse the prior response.
         skillFilesTask?.cancel()
         if currentFilesSkillId != skillId {
             selectedSkillFiles = nil
+            clearLoadedFileContents()
         }
         currentFilesSkillId = skillId
         isLoadingSkillFiles = true
@@ -339,6 +353,52 @@ public final class SkillsStore: ObservableObject {
         }
     }
 
+    // MARK: - Lazy File Content
+
+    public func loadSkillFileContent(skillId: String, path: String) {
+        // Cancel any in-flight task for the same path so a second click
+        // replaces the first. The task body mirrors the structure of
+        // `fetchSkillDetail`/`fetchSkillFiles` above: a single
+        // `Task.isCancelled` check gates every state mutation, and the
+        // `SkillsStore` actor isolation (`@MainActor`) removes the need
+        // for an explicit `MainActor.run` hop.
+        fileContentTasks[path]?.cancel()
+        loadingFilePaths.insert(path)
+        fileContentErrors[path] = nil
+
+        let task = Task {
+            let result = await self.skillsClient.fetchSkillFileContent(skillId: skillId, path: path)
+            guard !Task.isCancelled else { return }
+            guard self.currentFilesSkillId == skillId else { return }
+
+            self.loadingFilePaths.remove(path)
+            if let result, let content = result.content {
+                self.loadedFileContents[path] = content
+            } else if let result, result.isBinary {
+                // Binary file: no preview available is expected, not an error.
+                self.loadedFileContents.removeValue(forKey: path)
+            } else if let result, result.content == nil {
+                // Oversized text file: the daemon returns `content: null`
+                // for text files above the inline-content size threshold.
+                // Treat this as "no preview available" rather than an
+                // error — the detail view falls through to its existing
+                // "Select a file to view" empty state.
+                self.loadedFileContents.removeValue(forKey: path)
+            } else {
+                self.fileContentErrors[path] = "Failed to load file content"
+            }
+        }
+        fileContentTasks[path] = task
+    }
+
+    public func clearLoadedFileContents() {
+        for task in fileContentTasks.values { task.cancel() }
+        fileContentTasks.removeAll()
+        loadedFileContents.removeAll()
+        loadingFilePaths.removeAll()
+        fileContentErrors.removeAll()
+    }
+
     // MARK: - Clear Skill Detail
 
     public func clearSkillDetail() {
@@ -354,6 +414,7 @@ public final class SkillsStore: ObservableObject {
         isLoadingSkillFiles = false
         skillDetailError = nil
         skillFilesError = nil
+        clearLoadedFileContents()
     }
 
     // MARK: - Reset Draft State

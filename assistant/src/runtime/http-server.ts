@@ -73,13 +73,17 @@ import { buildAssistantEvent } from "./assistant-event.js";
 import { assistantEventHub } from "./assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 // Auth
-import { authenticateRequest } from "./auth/middleware.js";
+import {
+  authenticateHostBrowserResultRequest,
+  authenticateRequest,
+} from "./auth/middleware.js";
 import { parseSub } from "./auth/subject.js";
 import {
   mintDaemonDeliveryToken,
   mintUiPageToken,
   verifyToken,
 } from "./auth/token-service.js";
+import { verifyHostBrowserCapability } from "./capability-tokens.js";
 import { sweepFailedEvents } from "./channel-retry-sweep.js";
 import { getChromeExtensionRegistry } from "./chrome-extension-registry.js";
 import { httpError } from "./http-errors.js";
@@ -157,7 +161,12 @@ import { handleGuardianBootstrap } from "./routes/guardian-bootstrap-routes.js";
 import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
 import { heartbeatRouteDefinitions } from "./routes/heartbeat-routes.js";
 import { hostBashRouteDefinitions } from "./routes/host-bash-routes.js";
-import { hostBrowserRouteDefinitions } from "./routes/host-browser-routes.js";
+import {
+  hostBrowserRouteDefinitions,
+  resolveHostBrowserEvent,
+  resolveHostBrowserResultByRequestId,
+  resolveHostBrowserSessionInvalidated,
+} from "./routes/host-browser-routes.js";
 import { hostCuRouteDefinitions } from "./routes/host-cu-routes.js";
 import { hostFileRouteDefinitions } from "./routes/host-file-routes.js";
 import {
@@ -241,9 +250,13 @@ const MAX_REQUEST_BODY_BYTES = 512 * 1024 * 1024;
 
 /**
  * WebSocket data attached to `/v1/browser-relay` connections. The route
- * is used exclusively by the chrome-extension CDP proxy — inbound frames
- * from the extension travel over HTTP (`/v1/host-browser-result`), and
- * outbound frames are pushed through the {@link ChromeExtensionRegistry}.
+ * is used exclusively by the chrome-extension CDP proxy — outbound
+ * `host_browser_request` frames are pushed through the
+ * {@link ChromeExtensionRegistry}, and inbound `host_browser_result`
+ * frames are dispatched through
+ * `resolveHostBrowserResultByRequestId`. The extension may also submit
+ * results via `POST /v1/host-browser-result` (both transports resolve
+ * through the same core function).
  */
 interface BrowserRelayWebSocketData {
   wsType: "browser-relay";
@@ -256,6 +269,17 @@ interface BrowserRelayWebSocketData {
    * parsed into an actor principal.
    */
   guardianId?: string;
+  /**
+   * Stable per-extension-install identifier supplied by the client on
+   * the WebSocket handshake (via the `clientInstanceId` query param or
+   * the `x-client-instance-id` header). Plumbed into the
+   * ChromeExtensionRegistry so multiple parallel installs for the same
+   * guardian (e.g. two Chrome profiles, two desktops) don't evict each
+   * other on register/unregister. Undefined on older extension builds
+   * — the registry synthesizes a connection-scoped fallback key in
+   * that case for backwards-compatible single-instance semantics.
+   */
+  clientInstanceId?: string;
 }
 
 export class RuntimeHttpServer {
@@ -363,11 +387,14 @@ export class RuntimeHttpServer {
             // time, register this connection with the chrome-extension
             // registry so host_browser_request frames can be routed to it.
             if (data.guardianId) {
+              const now = Date.now();
               getChromeExtensionRegistry().register({
                 id: data.connectionId,
                 guardianId: data.guardianId,
+                clientInstanceId: data.clientInstanceId,
                 ws,
-                connectedAt: Date.now(),
+                connectedAt: now,
+                lastActiveAt: now,
               });
             }
             return;
@@ -389,14 +416,119 @@ export class RuntimeHttpServer {
               ? message
               : new TextDecoder().decode(message);
           if ("wsType" in data && data.wsType === "browser-relay") {
-            // The /v1/browser-relay socket is one-way (server → extension).
-            // The extension POSTs results via /v1/host-browser-result;
-            // inbound frames are unexpected.
-            log.debug(
-              { connectionId: data.connectionId },
-              "Unexpected inbound browser-relay message",
-            );
-            return;
+            // Inbound frames on `/v1/browser-relay` carry one of:
+            //   - `host_browser_result` — paired response to an outbound
+            //     `host_browser_request` (see PR2).
+            //   - `host_browser_event` — unsolicited CDP event forwarded
+            //     from the extension's `chrome.debugger.onEvent`
+            //     subscription (PR10).
+            //   - `host_browser_session_invalidated` — detach
+            //     notification forwarded from the extension's
+            //     `chrome.debugger.onDetach` subscription (PR10).
+            //
+            // Every supported frame type delegates into a shared
+            // resolver exported from `host-browser-routes.ts` so the
+            // validation and resolution semantics stay in lockstep
+            // with the HTTP path. Malformed or unsupported frames are
+            // logged at debug and swallowed — we never throw out of a
+            // WebSocket `message` handler because an uncaught
+            // exception would tear down the whole socket for an
+            // attacker-controlled payload.
+            let parsed: unknown;
+            try {
+              parsed = JSON.parse(raw);
+            } catch (err) {
+              log.debug(
+                {
+                  connectionId: data.connectionId,
+                  error: err instanceof Error ? err.message : String(err),
+                },
+                "browser-relay: dropped non-JSON inbound frame",
+              );
+              return;
+            }
+            if (!parsed || typeof parsed !== "object") {
+              log.debug(
+                { connectionId: data.connectionId },
+                "browser-relay: dropped non-object inbound frame",
+              );
+              return;
+            }
+            const frame = parsed as Record<string, unknown>;
+            switch (frame.type) {
+              case "host_browser_result": {
+                const resolution = resolveHostBrowserResultByRequestId({
+                  requestId: frame.requestId,
+                  content: frame.content,
+                  isError: frame.isError,
+                });
+                if (!resolution.ok) {
+                  log.warn(
+                    {
+                      connectionId: data.connectionId,
+                      requestId:
+                        typeof frame.requestId === "string"
+                          ? frame.requestId
+                          : undefined,
+                      code: resolution.code,
+                      message: resolution.message,
+                    },
+                    "browser-relay: host_browser_result frame rejected",
+                  );
+                }
+                return;
+              }
+              case "host_browser_event": {
+                const resolution = resolveHostBrowserEvent({
+                  method: frame.method,
+                  params: frame.params,
+                  cdpSessionId: frame.cdpSessionId,
+                });
+                if (!resolution.ok) {
+                  log.warn(
+                    {
+                      connectionId: data.connectionId,
+                      method:
+                        typeof frame.method === "string"
+                          ? frame.method
+                          : undefined,
+                      code: resolution.code,
+                      message: resolution.message,
+                    },
+                    "browser-relay: host_browser_event frame rejected",
+                  );
+                }
+                return;
+              }
+              case "host_browser_session_invalidated": {
+                const resolution = resolveHostBrowserSessionInvalidated({
+                  targetId: frame.targetId,
+                  reason: frame.reason,
+                });
+                if (!resolution.ok) {
+                  log.warn(
+                    {
+                      connectionId: data.connectionId,
+                      targetId:
+                        typeof frame.targetId === "string"
+                          ? frame.targetId
+                          : undefined,
+                      code: resolution.code,
+                      message: resolution.message,
+                    },
+                    "browser-relay: host_browser_session_invalidated frame rejected",
+                  );
+                }
+                return;
+              }
+              default: {
+                log.debug(
+                  { connectionId: data.connectionId, type: frame.type },
+                  "browser-relay: dropped unsupported inbound frame type",
+                );
+                return;
+              }
+            }
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
           if (callSessionId) {
@@ -430,34 +562,7 @@ export class RuntimeHttpServer {
       },
     });
 
-    if (this.processMessage) {
-      const pm = this.processMessage;
-      const mintBt = () => mintDaemonDeliveryToken();
-      this.retrySweepTimer = setInterval(() => {
-        if (this.sweepInProgress) return;
-        this.sweepInProgress = true;
-        sweepFailedEvents(pm, mintBt).finally(() => {
-          this.sweepInProgress = false;
-        });
-      }, 30_000);
-    }
-
-    startGuardianExpirySweep(
-      getGatewayInternalBaseUrl(),
-      () => mintDaemonDeliveryToken(),
-      this.approvalCopyGenerator,
-    );
-    log.info("Guardian approval expiry sweep started");
-
-    startGuardianActionSweep(
-      getGatewayInternalBaseUrl(),
-      () => mintDaemonDeliveryToken(),
-      this.guardianActionCopyGenerator,
-    );
-    log.info("Guardian action expiry sweep started");
-
-    startCanonicalGuardianExpirySweep();
-    log.info("Canonical guardian request expiry sweep started");
+    this.startBackgroundSweeps();
 
     log.info(
       "Running in gateway-only ingress mode. Direct webhook routes disabled.",
@@ -493,6 +598,42 @@ export class RuntimeHttpServer {
     // runtime without inheriting the daemon's environment (e.g. the
     // chrome-extension native messaging helper, spawned by Chrome).
     this.writeRuntimePortFile(this.actualPort);
+  }
+
+  /**
+   * Start background sweep timers: retry sweep for failed channel events,
+   * guardian approval/action expiry sweeps, and canonical guardian expiry.
+   * Extracted from start() to allow future callers to defer sweep startup.
+   */
+  private startBackgroundSweeps(): void {
+    if (this.processMessage && !this.retrySweepTimer) {
+      const pm = this.processMessage;
+      const mintBt = () => mintDaemonDeliveryToken();
+      this.retrySweepTimer = setInterval(() => {
+        if (this.sweepInProgress) return;
+        this.sweepInProgress = true;
+        sweepFailedEvents(pm, mintBt).finally(() => {
+          this.sweepInProgress = false;
+        });
+      }, 30_000);
+    }
+
+    startGuardianExpirySweep(
+      getGatewayInternalBaseUrl(),
+      () => mintDaemonDeliveryToken(),
+      this.approvalCopyGenerator,
+    );
+    log.info("Guardian approval expiry sweep started");
+
+    startGuardianActionSweep(
+      getGatewayInternalBaseUrl(),
+      () => mintDaemonDeliveryToken(),
+      this.guardianActionCopyGenerator,
+    );
+    log.info("Guardian action expiry sweep started");
+
+    startCanonicalGuardianExpirySweep();
+    log.info("Canonical guardian request expiry sweep started");
   }
 
   /**
@@ -671,7 +812,19 @@ export class RuntimeHttpServer {
 
     // JWT bearer authentication — replaces the old shared-secret comparison.
     // authenticateRequest handles dev bypass (DISABLE_HTTP_AUTH) internally.
-    const authResult = authenticateRequest(req);
+    //
+    // Special-case: /v1/host-browser-result POST accepts either a
+    // daemon-minted JWT (legacy/cloud) or a host_browser capability
+    // token (self-hosted chrome extension). The chrome extension's
+    // HTTP fallback (`postHostBrowserResult`) hands over the same
+    // capability token it presented to `/v1/browser-relay`, so the
+    // POST route must understand both auth shapes. Every other route
+    // keeps the JWT-only flow via `authenticateRequest`.
+    const normalizedPath = path.endsWith("/") ? path.slice(0, -1) : path;
+    const authResult =
+      normalizedPath === "/v1/host-browser-result" && req.method === "POST"
+        ? authenticateHostBrowserResultRequest(req)
+        : authenticateRequest(req);
     if (!authResult.ok) {
       return authResult.response;
     }
@@ -759,23 +912,48 @@ export class RuntimeHttpServer {
       );
     }
 
-    // When auth is enabled we parse the JWT sub to extract the actor
-    // principal ID, which we use as the guardianId key for the
-    // ChromeExtensionRegistry. When auth is disabled (dev bypass),
-    // guardianId remains undefined and the registration is skipped —
-    // host_browser_request routing requires an authenticated guardian.
+    // When auth is enabled we accept two different kinds of token on the
+    // `/v1/browser-relay` handshake:
+    //
+    //   1. **Capability token** — a signed `host_browser_command`
+    //      capability minted by `mintHostBrowserCapability()` and handed
+    //      to the chrome extension by the native-messaging pair flow
+    //      (`/v1/browser-extension-pair`). This is the preferred,
+    //      self-hosted default: the extension never has to touch a
+    //      gateway JWT.
+    //   2. **JWT** (audience `vellum-daemon`) — the legacy path used by
+    //      the gateway-proxied cloud flow and by any compatibility
+    //      callers that still hold a daemon-bound JWT. In that case we
+    //      parse the JWT `sub` to extract the actor principal id and
+    //      fall back to the explicit `x-guardian-id` / `guardianId`
+    //      query param for service-token paths (see below).
+    //
+    // When auth is disabled (dev bypass), guardianId remains undefined
+    // and the registration is skipped — host_browser_request routing
+    // requires an authenticated guardian.
     //
     // Gateway path: when the WebSocket upgrade is proxied through the
     // gateway, the upstream token minted by `mintServiceToken()` has
-    // `sub=svc:gateway:self` with no actor principal id. In that case
-    // we fall back to an explicit `x-guardian-id` header / query param
-    // so the runtime can still register the connection under the real
-    // guardian. TODO(gateway-plumbing): the gateway's
-    // `browser-relay-websocket.ts` does not yet forward this header —
-    // once it does (resolving the actor from the downstream edge token
-    // at upgrade time), the service-token branch below will start
-    // picking up the guardianId. Until then, cloud-path registration
-    // silently no-ops, which is a known limitation tracked for Phase 3.
+    // `sub=svc:gateway:self` with no actor principal id. The gateway
+    // parses the downstream edge token's `actorPrincipalId` and forwards
+    // it as an explicit `guardianId` query parameter (and/or header) so
+    // we can register the connection under the real guardian. Missing
+    // guardian context on this path is rejected (fail closed).
+    // Read the client-supplied stable instance id off the handshake.
+    // The extension generates this on first run and persists it in
+    // chrome.storage so it survives service-worker restarts and
+    // browser restarts. The header form is preferred so gateway
+    // forwarding and proxy logs don't surface instance ids in the
+    // URL, but we also accept a query param for fetch-based clients
+    // that can't mutate headers. An empty string is treated as absent
+    // so sparse clients don't end up all sharing the same legacy key.
+    const rawInstanceHeader = req.headers.get("x-client-instance-id")?.trim();
+    const rawInstanceQuery = new URL(req.url).searchParams
+      .get("clientInstanceId")
+      ?.trim();
+    const clientInstanceId =
+      (rawInstanceHeader ?? "") || (rawInstanceQuery ?? "") || undefined;
+
     let guardianId: string | undefined;
     if (!isHttpAuthDisabled()) {
       const wsUrl = new URL(req.url);
@@ -783,25 +961,60 @@ export class RuntimeHttpServer {
       if (!token) {
         return httpError("UNAUTHORIZED", "Unauthorized", 401);
       }
-      const jwtResult = verifyToken(token, "vellum-daemon");
-      if (!jwtResult.ok) {
-        return httpError("UNAUTHORIZED", "Unauthorized", 401);
-      }
-      const subResult = parseSub(jwtResult.claims.sub);
-      if (subResult.ok && subResult.actorPrincipalId) {
-        // Direct actor principal — this is the loopback / desktop path.
-        guardianId = subResult.actorPrincipalId;
+      // 1) Capability-token path (self-hosted default). The chrome
+      //    extension presents the token it received from the native
+      //    messaging pair flow. We derive `guardianId` from the
+      //    capability claims directly — the claims are HMAC-signed by
+      //    the same daemon so there is no cross-tenant risk.
+      const capabilityClaims = verifyHostBrowserCapability(token);
+      if (capabilityClaims) {
+        guardianId = capabilityClaims.guardianId;
       } else {
-        // Service-token path (gateway-forwarded). Look for an explicit
-        // guardian id plumbed by the gateway as a header or query
-        // param. Header takes precedence because headers are easier
-        // for the gateway to forward without rewriting the URL.
-        const headerGuardianId = req.headers.get("x-guardian-id")?.trim() ?? "";
-        const queryGuardianId =
-          wsUrl.searchParams.get("guardianId")?.trim() ?? "";
-        const fallbackGuardianId = headerGuardianId || queryGuardianId;
-        if (fallbackGuardianId) {
-          guardianId = fallbackGuardianId;
+        // 2) JWT compatibility path (gateway / legacy). Fall back to the
+        //    existing verifyToken+parseSub flow so cloud callers and any
+        //    old self-hosted clients still holding a daemon JWT
+        //    continue to work during the cutover.
+        const jwtResult = verifyToken(token, "vellum-daemon");
+        if (!jwtResult.ok) {
+          return httpError("UNAUTHORIZED", "Unauthorized", 401);
+        }
+        const subResult = parseSub(jwtResult.claims.sub);
+        if (subResult.ok && subResult.actorPrincipalId) {
+          // Direct actor principal — this is the loopback / desktop path.
+          guardianId = subResult.actorPrincipalId;
+        } else {
+          // Service-token path (gateway-forwarded). The gateway must plumb
+          // the resolved actor principal as an explicit `x-guardian-id`
+          // header or `guardianId` query param. Header takes precedence
+          // because headers are easier for the gateway to forward without
+          // rewriting the URL.
+          const headerGuardianId =
+            req.headers.get("x-guardian-id")?.trim() ?? "";
+          const queryGuardianId =
+            wsUrl.searchParams.get("guardianId")?.trim() ?? "";
+          const fallbackGuardianId = headerGuardianId || queryGuardianId;
+          if (fallbackGuardianId) {
+            guardianId = fallbackGuardianId;
+          } else {
+            // Fail closed: a service-token relay upgrade without a
+            // guardian context cannot be routed safely. Allowing the
+            // upgrade to proceed creates an unscoped socket that never
+            // registers in the ChromeExtensionRegistry.
+            log.warn(
+              {
+                principalType: subResult.ok
+                  ? subResult.principalType
+                  : "unknown",
+                sub: jwtResult.claims.sub,
+              },
+              "Browser relay upgrade denied: missing guardian context on service-token path",
+            );
+            return httpError(
+              "UNAUTHORIZED",
+              "Browser relay requires guardian context",
+              401,
+            );
+          }
         }
       }
     }
@@ -812,6 +1025,7 @@ export class RuntimeHttpServer {
         wsType: "browser-relay",
         connectionId,
         guardianId,
+        clientInstanceId,
       } satisfies BrowserRelayWebSocketData,
     });
     if (!upgraded) {
@@ -994,6 +1208,7 @@ export class RuntimeHttpServer {
       lastMessageAt: conversation.lastMessageAt,
       conversationType: conversation.conversationType ?? "standard",
       source: conversation.source ?? "user",
+      hostAccess: conversation.hostAccess === 1,
       ...(conversation.scheduleJobId
         ? { scheduleJobId: conversation.scheduleJobId }
         : {}),

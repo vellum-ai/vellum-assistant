@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 
+import { readImageBase64 } from "../tools/shared/filesystem/image-read.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
@@ -23,6 +24,8 @@ interface PendingRequest {
   resolve: (result: ToolExecutionResult) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  operation: HostFileInput["operation"];
+  path: string;
   /** Detach the abort listener from the caller's signal. No-op when no signal was passed. */
   detachAbort: () => void;
 }
@@ -106,7 +109,14 @@ export class HostFileProxy {
         detachAbort = () => signal.removeEventListener("abort", onAbort);
       }
 
-      this.pending.set(requestId, { resolve, reject, timer, detachAbort });
+      this.pending.set(requestId, {
+        resolve,
+        reject,
+        timer,
+        operation: input.operation,
+        path: input.path,
+        detachAbort,
+      });
 
       try {
         this.sendToClient({
@@ -134,7 +144,7 @@ export class HostFileProxy {
 
   resolve(
     requestId: string,
-    response: { content: string; isError: boolean },
+    response: { content: string; isError: boolean; imageData?: string },
   ): void {
     const entry = this.pending.get(requestId);
     if (!entry) {
@@ -144,6 +154,15 @@ export class HostFileProxy {
     clearTimeout(entry.timer);
     entry.detachAbort();
     this.pending.delete(requestId);
+    if (
+      entry.operation === "read" &&
+      !response.isError &&
+      typeof response.imageData === "string" &&
+      response.imageData.length > 0
+    ) {
+      entry.resolve(readImageBase64(response.imageData, entry.path));
+      return;
+    }
     entry.resolve({ content: response.content, isError: response.isError });
   }
 

@@ -79,6 +79,13 @@ export const GUARDIAN_DECISION_ACTIONS = {
   reject: { action: "reject", label: "Reject", description: "Deny this call" },
 } as const satisfies Record<string, GuardianDecisionAction>;
 
+export function buildOneTimeDecisionActions(): GuardianDecisionAction[] {
+  return [
+    GUARDIAN_DECISION_ACTIONS.approve_once,
+    GUARDIAN_DECISION_ACTIONS.reject,
+  ];
+}
+
 /**
  * Build the set of `GuardianDecisionAction` items appropriate for a prompt,
  * respecting whether persistent decisions (approve_always) are allowed.

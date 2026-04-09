@@ -211,6 +211,7 @@ export interface ConversationInfo {
   title: string;
   correlationId?: string;
   conversationType?: ConversationType;
+  hostAccess: boolean;
 }
 
 export interface ConversationTitleUpdated {
@@ -252,6 +253,7 @@ export interface ConversationListResponse {
     updatedAt: number;
     conversationType?: ConversationType;
     source?: string;
+    hostAccess: boolean;
     scheduleJobId?: string;
     channelBinding?: ChannelBinding;
     conversationOriginChannel?: ChannelId;

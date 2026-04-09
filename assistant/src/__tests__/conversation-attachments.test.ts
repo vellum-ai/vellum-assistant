@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
+
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
@@ -25,15 +27,18 @@ mock.module("../daemon/video-thumbnail.js", () => ({
 }));
 
 // Stub out permission checker / trust store
+const checkSpy = mock(() => Promise.resolve({ decision: "allow" }));
+const addRuleSpy = mock(() => {});
+
 mock.module("../permissions/checker.js", () => ({
-  check: () => Promise.resolve({ decision: "allow" }),
+  check: checkSpy,
   classifyRisk: () => Promise.resolve("low"),
   generateAllowlistOptions: () => Promise.resolve([]),
   generateScopeOptions: () => [],
 }));
 
 mock.module("../permissions/trust-store.js", () => ({
-  addRule: () => {},
+  addRule: addRuleSpy,
 }));
 
 mock.module("../permissions/types.js", () => ({
@@ -47,7 +52,11 @@ mock.module("../permissions/types.js", () => ({
 
 import type { AssistantAttachmentDraft } from "../daemon/assistant-attachments.js";
 import { getFilePathForAttachment } from "../memory/attachments-store.js";
-import { addMessage, createConversation } from "../memory/conversation-crud.js";
+import {
+  addMessage,
+  createConversation,
+  updateConversationHostAccess,
+} from "../memory/conversation-crud.js";
 import { getDb, initializeDb } from "../memory/db.js";
 
 initializeDb();
@@ -73,7 +82,12 @@ function makeBase64(bytes: number): string {
 // ---------------------------------------------------------------------------
 
 describe("resolveAssistantAttachments", () => {
-  beforeEach(resetTables);
+  beforeEach(() => {
+    resetTables();
+    _setOverridesForTesting({});
+    checkSpy.mockClear();
+    addRuleSpy.mockClear();
+  });
 
   test("small attachments are stored on disk via uploadAttachment", async () => {
     const conv = createConversation("test-conv");
@@ -194,5 +208,67 @@ describe("resolveAssistantAttachments", () => {
 
     // fileBacked flag is always true now
     expect(emitted.fileBacked).toBe(true);
+  });
+});
+
+describe("approveHostAttachmentRead", () => {
+  beforeEach(() => {
+    resetTables();
+    _setOverridesForTesting({});
+    checkSpy.mockClear();
+    addRuleSpy.mockClear();
+  });
+
+  test("uses the conversation-scoped host-access prompt under v2", async () => {
+    _setOverridesForTesting({ "permission-controls-v2": true });
+    const conversation = createConversation("attachment-host-gate");
+    const promptSpy = mock(() =>
+      Promise.resolve({ decision: "allow" as const }),
+    );
+
+    const { approveHostAttachmentRead } =
+      await import("../daemon/conversation-attachments.js");
+
+    const allowed = await approveHostAttachmentRead(
+      "/tmp/example.txt",
+      "/tmp",
+      { prompt: promptSpy } as never,
+      conversation.id,
+      false,
+    );
+
+    expect(allowed).toBe(true);
+    expect(checkSpy).not.toHaveBeenCalled();
+    expect(addRuleSpy).not.toHaveBeenCalled();
+    const call = promptSpy.mock.calls[0] as unknown as unknown[];
+    expect(call[3]).toEqual([]);
+    expect(call[4]).toEqual([]);
+    expect(call[8]).toBe(false);
+    expect(call[10]).toBeUndefined();
+    expect(call[12]).toBe(true);
+  });
+
+  test("auto-allows host attachment reads when the conversation already has host access", async () => {
+    _setOverridesForTesting({ "permission-controls-v2": true });
+    const conversation = createConversation("attachment-host-allowed");
+    updateConversationHostAccess(conversation.id, true);
+    const promptSpy = mock(() =>
+      Promise.resolve({ decision: "deny" as const }),
+    );
+
+    const { approveHostAttachmentRead } =
+      await import("../daemon/conversation-attachments.js");
+
+    const allowed = await approveHostAttachmentRead(
+      "/tmp/example.txt",
+      "/tmp",
+      { prompt: promptSpy } as never,
+      conversation.id,
+      false,
+    );
+
+    expect(allowed).toBe(true);
+    expect(promptSpy).not.toHaveBeenCalled();
+    expect(checkSpy).not.toHaveBeenCalled();
   });
 });

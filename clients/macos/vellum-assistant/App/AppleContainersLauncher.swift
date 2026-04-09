@@ -1,3 +1,4 @@
+import Containerization
 import Foundation
 import os
 import Security
@@ -73,6 +74,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
         // spaces and duplicates, which makes it a poor filesystem/lockfile key.
         let assistantName = name ?? "apple-container-\(UUID().uuidString.prefix(8).lowercased())"
         let signingKey = Self.generateSigningKey()
+        let bootstrapSecret = Self.generateRandomHex(count: 32)
 
         let kernelStore = KataKernelStore()
         let instanceDir = Self.instanceDir(for: assistantName)
@@ -82,18 +84,25 @@ final class AppleContainersLauncher: AssistantManagementClient {
             uniqueKeysWithValues: imageRefs.map { ($0.key, $0.value.fullReference) }
         )
 
-        let platformURL: String
-        #if DEBUG
-        platformURL = "https://dev-platform.vellum.ai"
-        #else
-        platformURL = "https://platform.vellum.ai"
-        #endif
+        // In local builds, build images from local source instead of
+        // pulling from Docker Hub. The images are loaded into the shared
+        // ImageStore so PodRuntime finds them in cache via store.get().
+        if VellumEnvironment.current == .local {
+            await self.buildLocalImagesIfAvailable(
+                kernelStore: kernelStore,
+                imageRefs: imageRefs,
+                onProgress: onProgress
+            )
+        }
+
+        let platformURL = VellumEnvironment.current.platformURL
 
         let config = AppleContainersPodRuntime.Configuration(
             instanceName: assistantName,
             serviceImageRefs: serviceImageRefs,
             instanceDir: instanceDir,
             signingKey: signingKey,
+            bootstrapSecret: bootstrapSecret,
             platformURL: platformURL
         )
 
@@ -118,6 +127,30 @@ final class AppleContainersLauncher: AssistantManagementClient {
 
         self.podRuntime = runtime
 
+        // Lease a guardian token so the desktop app can authenticate with the
+        // gateway. The CLI does this in hatch-local.ts after the gateway starts;
+        // for apple containers we do it directly from Swift.
+        //
+        // This MUST succeed — the gateway is configured with a single
+        // GUARDIAN_BOOTSTRAP_SECRET that is consumed on the first successful
+        // call. If we fail here, the fallback path in performInitialBootstrap()
+        // generates a new random secret that the gateway will reject with 403.
+        if let gatewayURL = runtime.gatewayURL {
+            await onProgress?("Securing connection...")
+            let tokenLeased = await Self.leaseGuardianToken(
+                gatewayURL: gatewayURL,
+                assistantId: assistantName,
+                bootstrapSecret: bootstrapSecret
+            )
+            if !tokenLeased {
+                try? await runtime.stop()
+                self.podRuntime = nil
+                throw LauncherError.hatchFailed(
+                    "Failed to initialize guardian token — the gateway did not respond to bootstrap requests after \(Self.guardianInitMaxAttempts) attempts."
+                )
+            }
+        }
+
         let hatchedAt = ISO8601DateFormatter().string(from: Date())
         Self.writeLockfileEntry(
             assistantId: assistantName,
@@ -136,12 +169,175 @@ final class AppleContainersLauncher: AssistantManagementClient {
         try await runtime.stop()
     }
 
-    // MARK: - Signing Key
+    // MARK: - Local Image Building
+
+    /// Attempts to build service images from local source code using Docker.
+    /// Falls back silently to Docker Hub pull (via PodRuntime) if any step fails.
+    /// Only called when `VellumEnvironment.current == .local`.
+    private func buildLocalImagesIfAvailable(
+        kernelStore: KataKernelStore,
+        imageRefs: [VellumServiceName: VellumImageReference],
+        onProgress: (@MainActor (String) -> Void)?
+    ) async {
+        guard let repoRoot = LocalImageBuilder.findRepoRoot() else {
+            log.info("No repo root found — will pull images from registry")
+            return
+        }
+        guard LocalImageBuilder.hasFullSourceTree(at: repoRoot) else {
+            log.info("Repo root at \(repoRoot.path, privacy: .public) has no full source tree — will pull from registry")
+            return
+        }
+        guard await LocalImageBuilder.isDockerAvailable() else {
+            log.info("Docker not available — will pull images from registry")
+            return
+        }
+
+        log.info("Building images locally from \(repoRoot.path, privacy: .public)")
+        do {
+            let imageStore = try await kernelStore.makeImageStore()
+            try await LocalImageBuilder.buildAndLoadImages(
+                repoRoot: repoRoot,
+                imageRefs: imageRefs,
+                store: imageStore,
+                progress: { message in
+                    log.info("\(message, privacy: .public)")
+                    await onProgress?(message)
+                }
+            )
+        } catch {
+            log.warning("Local image build failed, falling back to registry pull: \(error.localizedDescription, privacy: .public)")
+            onProgress?("Local build failed — will pull images from registry")
+        }
+    }
+
+    // MARK: - Cryptographic Helpers
 
     private static func generateSigningKey() -> String {
-        var bytes = [UInt8](repeating: 0, count: 32)
+        generateRandomHex(count: 32)
+    }
+
+    private static func generateRandomHex(count: Int) -> String {
+        var bytes = [UInt8](repeating: 0, count: count)
         _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
         return bytes.map { String(format: "%02x", $0) }.joined()
+    }
+
+    // MARK: - Guardian Token
+
+    /// Calls `POST /v1/guardian/init` on the gateway to bootstrap a JWT
+    /// credential pair, then saves the token to the standard path so
+    /// `GuardianTokenFileReader.importIfAvailable()` finds it on connect.
+    ///
+    /// Mirrors the CLI's `leaseGuardianToken()` in `guardian-token.ts`.
+    private static let guardianInitMaxAttempts = 10
+    private static let guardianInitRetryDelay: UInt64 = 2_000_000_000 // 2 seconds
+
+    @discardableResult
+    private static func leaseGuardianToken(
+        gatewayURL: String,
+        assistantId: String,
+        bootstrapSecret: String
+    ) async -> Bool {
+        let deviceId = HostIdComputer.computeHostId()
+        let body: [String: Any] = [
+            "platform": "macos",
+            "deviceId": deviceId,
+        ]
+
+        guard let url = URL(string: "\(gatewayURL)/v1/guardian/init"),
+              let jsonData = try? JSONSerialization.data(withJSONObject: body) else {
+            log.error("Failed to construct guardian/init request")
+            return false
+        }
+
+        // The gateway may still be booting inside the container after
+        // PodRuntime.start() returns. Retry with back-off until it responds.
+        for attempt in 1...guardianInitMaxAttempts {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.httpBody = jsonData
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(bootstrapSecret, forHTTPHeaderField: "x-bootstrap-secret")
+            request.timeoutInterval = 10
+
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    log.error("Guardian token lease: non-HTTP response")
+                    return false
+                }
+                guard httpResponse.statusCode == 200 else {
+                    let body = String(data: data, encoding: .utf8) ?? ""
+                    log.warning("Guardian token lease attempt \(attempt) failed (HTTP \(httpResponse.statusCode)): \(body, privacy: .public)")
+                    if attempt < guardianInitMaxAttempts {
+                        try? await Task.sleep(nanoseconds: guardianInitRetryDelay)
+                        continue
+                    }
+                    log.error("Guardian token lease failed after \(guardianInitMaxAttempts) attempts")
+                    return false
+                }
+
+                // Parse the response and save to the standard guardian token path.
+                // Use try? to avoid falling into the catch block — the gateway
+                // already consumed the one-time bootstrap secret on 200, so
+                // retrying would fail with 403.
+                guard var json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+                    log.error("Guardian token lease: failed to parse response JSON")
+                    return false
+                }
+                json["deviceId"] = deviceId
+                json["leasedAt"] = ISO8601DateFormatter().string(from: Date())
+
+                do {
+                    try saveGuardianTokenFile(assistantId: assistantId, tokenData: json)
+                } catch {
+                    log.error("Guardian token leased but failed to save: \(error.localizedDescription, privacy: .public)")
+                    return false
+                }
+                log.info("Guardian token leased and saved for '\(assistantId, privacy: .public)'")
+                return true
+            } catch {
+                log.warning("Guardian token lease attempt \(attempt) error: \(error.localizedDescription, privacy: .public)")
+                if attempt < guardianInitMaxAttempts {
+                    try? await Task.sleep(nanoseconds: guardianInitRetryDelay)
+                } else {
+                    log.error("Guardian token lease failed after \(guardianInitMaxAttempts) attempts")
+                }
+            }
+        }
+        return false
+    }
+
+    /// Saves guardian token JSON to
+    /// `$XDG_CONFIG_HOME/vellum/assistants/<id>/guardian-token.json`,
+    /// matching the CLI's `saveGuardianToken()` path convention.
+    ///
+    /// Throws if the file cannot be written — the caller must treat this
+    /// as a fatal error because the bootstrap secret was already consumed.
+    private static func saveGuardianTokenFile(
+        assistantId: String,
+        tokenData: [String: Any]
+    ) throws {
+        let configHome: String
+        if let xdg = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !xdg.isEmpty {
+            configHome = xdg
+        } else {
+            configHome = NSHomeDirectory() + "/.config"
+        }
+        let dir = "\(configHome)/vellum/assistants/\(assistantId)"
+        let path = "\(dir)/guardian-token.json"
+
+        try FileManager.default.createDirectory(
+            atPath: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]
+        )
+        let data = try JSONSerialization.data(
+            withJSONObject: tokenData, options: [.prettyPrinted, .sortedKeys]
+        )
+        try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600], ofItemAtPath: path
+        )
     }
 
     // MARK: - Paths

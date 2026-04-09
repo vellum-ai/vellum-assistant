@@ -465,5 +465,6 @@ final class ConversationSelectionStore {
         ChatBubble.segmentCache.removeAllObjects()
         ChatBubble.lastStreamingSegments = nil
         MarkdownSegmentView.clearAttributedStringCache()
+        MarkdownRenderer.clearCaches()
     }
 }

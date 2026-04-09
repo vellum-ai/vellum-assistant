@@ -168,6 +168,14 @@ describe("enforcePolicy", () => {
     expect(policy!.requiredScopes).toContain("approval.write");
   });
 
+  test("conversation host-access write requires approval.write scope", () => {
+    authDisabled = false;
+    const policy = getPolicy("conversations/host-access");
+    expect(policy).toBeDefined();
+    expect(policy!.requiredScopes).toContain("approval.write");
+    expect(policy!.requiredScopes).not.toContain("chat.write");
+  });
+
   test("events endpoint requires chat.read scope", () => {
     authDisabled = false;
     const policy = getPolicy("events");

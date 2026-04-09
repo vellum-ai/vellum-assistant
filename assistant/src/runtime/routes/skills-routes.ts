@@ -19,6 +19,7 @@ import {
   draftSkill,
   enableSkill,
   getSkill,
+  getSkillFileContent,
   getSkillFiles,
   inspectSkill,
   installSkill,
@@ -151,6 +152,55 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       },
     },
 
+    // The router uses strict anchored-regex matching, so this route is never
+    // ambiguous with skills/:id/files.
+    {
+      endpoint: "skills/:id/files/content",
+      method: "GET",
+      policyKey: "skills",
+      summary: "Get skill file content",
+      description:
+        "Return the content of a single file belonging to an installed or catalog skill.",
+      tags: ["skills"],
+      queryParams: [
+        {
+          name: "path",
+          schema: { type: "string" },
+          required: true,
+          description: "Relative path of the file within the skill directory",
+        },
+      ],
+      responseBody: z.object({
+        path: z.string(),
+        name: z.string(),
+        size: z.number().int(),
+        mimeType: z.string(),
+        isBinary: z.boolean(),
+        content: z.string().nullable(),
+      }),
+      handler: async ({ params, url }) => {
+        const path = url.searchParams.get("path");
+        if (!path) {
+          return httpError(
+            "BAD_REQUEST",
+            "path query parameter is required",
+            400,
+          );
+        }
+        const result = await getSkillFileContent(params.id, path, ctx());
+        if ("error" in result) {
+          if (result.status === 400) {
+            return httpError("BAD_REQUEST", result.error, 400);
+          }
+          if (result.status === 404) {
+            return httpError("NOT_FOUND", result.error, 404);
+          }
+          return httpError("INTERNAL_ERROR", result.error, 500);
+        }
+        return Response.json(result);
+      },
+    },
+
     {
       endpoint: "skills/:id/files",
       method: "GET",
@@ -158,8 +208,8 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       summary: "Get skill files",
       description: "Return skill metadata and directory contents.",
       tags: ["skills"],
-      handler: ({ params }) => {
-        const result = getSkillFiles(params.id, ctx());
+      handler: async ({ params }) => {
+        const result = await getSkillFiles(params.id, ctx());
         if ("error" in result) {
           if (result.status === 404) {
             return httpError("NOT_FOUND", result.error, 404);

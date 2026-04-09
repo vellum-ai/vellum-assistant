@@ -13,69 +13,101 @@ struct ImproveExperienceStepView: View {
 
     @State private var showTitle = false
     @State private var showContent = false
+    @State private var showCharacters = false
+
+    private static let welcomeCharacters: NSImage? = {
+        guard let url = ResourceBundle.bundle.url(forResource: "welcome-characters", withExtension: "png") else { return nil }
+        return NSImage(contentsOf: url)
+    }()
     @AppStorage("collectUsageData") private var collectUsageData: Bool = true
     @AppStorage("sendDiagnostics") private var sendDiagnostics: Bool = true
     @AppStorage("tosAccepted") private var tosAccepted: Bool = false
 
     var body: some View {
         Text("Before You Start")
-            .font(VFont.displayLarge)
+            .font(VFont.titleLarge)
             .foregroundStyle(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
 
-        Text("Choose your privacy preferences.\nYou can update these anytime in Settings.")
-            .font(VFont.titleSmall)
+        Text("Choose your privacy preferences. You can update these anytime in the Settings.")
+            .font(VFont.bodyMediumLighter)
             .multilineTextAlignment(.center)
             .foregroundStyle(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
+            .padding(.horizontal, VSpacing.xxl)
             .padding(.bottom, VSpacing.xxl)
 
-        VStack(spacing: VSpacing.md) {
-            VStack(spacing: VSpacing.md) {
-                // Privacy toggles card
-                VCard {
-                    VStack(spacing: VSpacing.lg) {
-                        // Usage analytics toggle
-                        VToggle(
-                            isOn: $collectUsageData,
-                            label: "Share Analytics",
-                            helperText: "Send anonymous product usage data. Your conversations and personal data are never included."
+        VStack(spacing: 0) {
+            VStack(spacing: VSpacing.sm) {
+                // Usage analytics toggle
+                VToggle(
+                    isOn: $collectUsageData,
+                    label: "Share Analytics",
+                    helperText: "Send anonymous product usage data."
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(VSpacing.md)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .fill(VColor.surfaceLift)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.lg)
+                                .stroke(VColor.surfaceBase, lineWidth: 1)
                         )
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                )
 
-                        SettingsDivider()
-
-                        // Diagnostics toggle
-                        VToggle(
-                            isOn: $sendDiagnostics,
-                            label: "Share Diagnostics",
-                            helperText: "Send crash reports and performance metrics. Your conversations and personal data are never included."
+                // Diagnostics toggle
+                VToggle(
+                    isOn: $sendDiagnostics,
+                    label: "Share Diagnostics",
+                    helperText: "Send crash reports and performance metrics."
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(VSpacing.md)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .fill(VColor.surfaceLift)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.lg)
+                                .stroke(VColor.surfaceBase, lineWidth: 1)
                         )
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+                )
+
+                // Privacy note bar
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.eyeOff, size: 14)
+                        .foregroundStyle(VColor.contentTertiary)
+                    Text("Your conversations and personal data are never included.")
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
+                .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(VColor.surfaceBase)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .padding(.bottom, VSpacing.sm)
 
                 // ToS consent checkbox
-                VCard {
-                    HStack(spacing: VSpacing.md) {
-                        tosCheckbox
-                        tosConsentText
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: VSpacing.md) {
+                    tosCheckbox
+                    tosConsentText
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
-                VButton(label: "Accept and Start", style: .primary, isFullWidth: true, isDisabled: !tosAccepted) {
+            VStack(spacing: VSpacing.sm) {
+                VButton(label: "Start", style: .primary, isFullWidth: true, isDisabled: !tosAccepted) {
                     saveAndContinue()
                 }
 
-                VButton(label: "Back", style: .ghost) {
+                VButton(label: "Back", style: .outlined, isFullWidth: true) {
                     goBack()
                 }
-                .padding(.top, VSpacing.xs)
             }
+            .padding(.top, VSpacing.xxl)
         }
         .padding(.horizontal, VSpacing.xxl)
         .opacity(showContent ? 1 : 0)
@@ -87,6 +119,26 @@ struct ImproveExperienceStepView: View {
             withAnimation(.easeOut(duration: 0.5).delay(0.3)) {
                 showContent = true
             }
+        }
+
+        Spacer()
+
+        if let characters = Self.welcomeCharacters {
+            Image(nsImage: characters)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .clipShape(UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: VRadius.window,
+                    bottomTrailingRadius: VRadius.window,
+                    topTrailingRadius: 0
+                ))
+                .opacity(showCharacters ? 1 : 0)
+                .offset(y: showCharacters ? 0 : 30)
+                .animation(.easeOut(duration: 0.6).delay(0.5), value: showCharacters)
+                .onAppear { showCharacters = true }
+                .accessibilityHidden(true)
         }
     }
 

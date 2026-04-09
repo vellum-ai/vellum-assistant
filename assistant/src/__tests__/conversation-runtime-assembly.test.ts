@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type {
   ChannelCapabilities,
   UnifiedTurnContextOptions,
@@ -604,7 +605,7 @@ describe("applyRuntimeInjections — injection mode", () => {
       supportsVoiceInput: false,
     } as ChannelCapabilities,
     unifiedTurnContext:
-      "<turn_context>\ntimestamp: 2026-03-04 (Tue) 12:00:00 +00:00 (UTC)\ninterface: telegram\n</turn_context>",
+      "<turn_context>\ncurrent_time: 2026-03-04 (Tuesday) 12:00:00 +00:00 (UTC)\ninterface: telegram\n</turn_context>",
     nowScratchpad: "Current focus: shipping PR 3",
     pkbContext: "essentials content here",
     pkbActive: true,
@@ -898,7 +899,7 @@ describe("stripInjectionsForCompaction preserves persistent blocks", () => {
         content: [
           {
             type: "text",
-            text: "<turn_context>\ntimestamp: 2026-04-02 (Thu) 01:52:33 -05:00 (America/Chicago)\ninterface: macos\n</turn_context>",
+            text: "<turn_context>\ncurrent_time: 2026-04-02 (Thursday) 01:52:33 -05:00 (America/Chicago)\ninterface: macos\n</turn_context>",
           },
           { type: "text", text: "Hello" },
         ],
@@ -1087,7 +1088,7 @@ describe("buildUnifiedTurnContextBlock", () => {
     const text = buildUnifiedTurnContextBlock(options);
     const lines = text.split("\n");
     expect(lines[0]).toBe("<turn_context>");
-    expect(lines[1]).toBe("timestamp: 2026-04-02T12:00:00Z");
+    expect(lines[1]).toBe("current_time: 2026-04-02T12:00:00Z");
     expect(lines[2]).toBe("interface: macos");
     expect(lines[3]).toBe("</turn_context>");
     expect(lines).toHaveLength(4);
@@ -1098,46 +1099,89 @@ describe("buildUnifiedTurnContextBlock", () => {
   });
 
   test("non-guardian trusted_contact: all actor fields + behavioral guidance", () => {
-    const options: UnifiedTurnContextOptions = {
-      timestamp: "2026-04-02T12:00:00Z",
-      interfaceName: "telegram",
-      channelName: "telegram",
-      actorContext: {
-        sourceChannel: "telegram",
-        canonicalActorIdentity: "trusted-user-1",
-        actorIdentifier: "@jeff_handle",
-        actorDisplayName: "Jeff",
-        actorSenderDisplayName: "Jeffrey",
-        actorMemberDisplayName: "Jeff",
-        trustClass: "trusted_contact",
-        guardianIdentity: "guardian-user-1",
-        memberStatus: "active",
-        memberPolicy: "allow",
-      },
-    };
+    _setOverridesForTesting({ "permission-controls-v2": false });
+    try {
+      const options: UnifiedTurnContextOptions = {
+        timestamp: "2026-04-02T12:00:00Z",
+        interfaceName: "telegram",
+        channelName: "telegram",
+        actorContext: {
+          sourceChannel: "telegram",
+          canonicalActorIdentity: "trusted-user-1",
+          actorIdentifier: "@jeff_handle",
+          actorDisplayName: "Jeff",
+          actorSenderDisplayName: "Jeffrey",
+          actorMemberDisplayName: "Jeff",
+          trustClass: "trusted_contact",
+          guardianIdentity: "guardian-user-1",
+          memberStatus: "active",
+          memberPolicy: "allow",
+        },
+      };
 
-    const text = buildUnifiedTurnContextBlock(options);
-    expect(text).toContain("<turn_context>");
-    expect(text).toContain("timestamp: 2026-04-02T12:00:00Z");
-    expect(text).toContain("interface: telegram");
-    expect(text).toContain("source_channel: telegram");
-    expect(text).toContain("canonical_actor_identity: trusted-user-1");
-    expect(text).toContain("actor_identifier: @jeff_handle");
-    expect(text).toContain("actor_display_name: Jeff");
-    expect(text).toContain("actor_sender_display_name: Jeffrey");
-    expect(text).toContain("actor_member_display_name: Jeff");
-    expect(text).toContain("trust_class: trusted_contact");
-    expect(text).toContain("guardian_identity: guardian-user-1");
-    expect(text).toContain("member_status: active");
-    expect(text).toContain("member_policy: allow");
-    // Behavioral guidance
-    expect(text).toContain("trusted contact (non-guardian)");
-    expect(text).toContain("attempt to fulfill it normally");
-    expect(text).toContain(
-      "tool execution layer will automatically deny it and escalate",
-    );
-    expect(text).toContain('their name is "Jeff"');
-    expect(text).toContain("</turn_context>");
+      const text = buildUnifiedTurnContextBlock(options);
+      expect(text).toContain("<turn_context>");
+      expect(text).toContain("current_time: 2026-04-02T12:00:00Z");
+      expect(text).toContain("interface: telegram");
+      expect(text).toContain("source_channel: telegram");
+      expect(text).toContain("canonical_actor_identity: trusted-user-1");
+      expect(text).toContain("actor_identifier: @jeff_handle");
+      expect(text).toContain("actor_display_name: Jeff");
+      expect(text).toContain("actor_sender_display_name: Jeffrey");
+      expect(text).toContain("actor_member_display_name: Jeff");
+      expect(text).toContain("trust_class: trusted_contact");
+      expect(text).toContain("guardian_identity: guardian-user-1");
+      expect(text).toContain("member_status: active");
+      expect(text).toContain("member_policy: allow");
+      // Behavioral guidance
+      expect(text).toContain("trusted contact (non-guardian)");
+      expect(text).toContain("attempt to fulfill it normally");
+      expect(text).toContain(
+        "tool execution layer will automatically deny it and escalate",
+      );
+      expect(text).toContain('their name is "Jeff"');
+      expect(text).toContain("</turn_context>");
+    } finally {
+      _setOverridesForTesting({});
+    }
+  });
+
+  test("non-guardian trusted_contact under v2: guidance shifts to conversational guardian confirmation", () => {
+    _setOverridesForTesting({ "permission-controls-v2": true });
+
+    try {
+      const options: UnifiedTurnContextOptions = {
+        timestamp: "2026-04-02T12:00:00Z",
+        interfaceName: "telegram",
+        channelName: "telegram",
+        actorContext: {
+          sourceChannel: "telegram",
+          canonicalActorIdentity: "trusted-user-1",
+          actorIdentifier: "@jeff_handle",
+          actorDisplayName: "Jeff",
+          actorSenderDisplayName: "Jeffrey",
+          actorMemberDisplayName: "Jeff",
+          trustClass: "trusted_contact",
+          guardianIdentity: "guardian-user-1",
+          memberStatus: "active",
+          memberPolicy: "allow",
+        },
+      };
+
+      const text = buildUnifiedTurnContextBlock(options);
+      expect(text).toContain("trusted contact (non-guardian)");
+      expect(text).toContain(
+        "confirming the guardian's intent conversationally",
+      );
+      expect(text).toContain(
+        "ask the guardian to enable computer access for this conversation",
+      );
+      expect(text).not.toContain(
+        "tool execution layer will automatically deny it and escalate",
+      );
+    } finally {
+      _setOverridesForTesting({});
+    }
   });
 
   test("non-guardian unknown: all actor fields + unknown guidance", () => {
@@ -1154,7 +1198,7 @@ describe("buildUnifiedTurnContextBlock", () => {
 
     const text = buildUnifiedTurnContextBlock(options);
     expect(text).toContain("<turn_context>");
-    expect(text).toContain("timestamp: 2026-04-02T12:00:00Z");
+    expect(text).toContain("current_time: 2026-04-02T12:00:00Z");
     expect(text).toContain("canonical_actor_identity: unknown");
     expect(text).toContain("trust_class: unknown");
     expect(text).toContain("non-guardian account");
@@ -1315,7 +1359,7 @@ describe("buildUnifiedTurnContextBlock", () => {
     expect(text).not.toContain("interface:");
     const lines = text.split("\n");
     expect(lines[0]).toBe("<turn_context>");
-    expect(lines[1]).toBe("timestamp: 2026-04-02T12:00:00Z");
+    expect(lines[1]).toBe("current_time: 2026-04-02T12:00:00Z");
     expect(lines[2]).toBe("</turn_context>");
   });
 
@@ -1362,7 +1406,7 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
   ];
 
   const sampleBlock =
-    "<turn_context>\ntimestamp: 2026-04-02T12:00:00Z\ninterface: macos\n</turn_context>";
+    "<turn_context>\ncurrent_time: 2026-04-02T12:00:00Z\ninterface: macos\n</turn_context>";
 
   test("injects unifiedTurnContext when provided", () => {
     const result = applyRuntimeInjections(baseMessages, {
@@ -1526,7 +1570,11 @@ function makeSubagentState(
     startedAt: overrides.startedAt ?? Date.now() - 55_000,
     completedAt: overrides.completedAt,
     error: overrides.error,
-    usage: overrides.usage ?? { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
+    usage: overrides.usage ?? {
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCost: 0,
+    },
   };
 }
 
@@ -1537,7 +1585,11 @@ describe("buildSubagentStatusBlock", () => {
 
   test("formats running subagent with elapsed time", () => {
     const children = [
-      makeSubagentState({ id: "abc-123", label: "research-auth", status: "running" }),
+      makeSubagentState({
+        id: "abc-123",
+        label: "research-auth",
+        status: "running",
+      }),
     ];
     const block = buildSubagentStatusBlock(children)!;
     expect(block).toContain("<active_subagents>");
@@ -1579,7 +1631,12 @@ describe("buildSubagentStatusBlock", () => {
     const children = [
       makeSubagentState({ id: "a", label: "researcher", status: "running" }),
       makeSubagentState({ id: "b", label: "coder", status: "completed" }),
-      makeSubagentState({ id: "c", label: "planner", status: "failed", error: "timeout" }),
+      makeSubagentState({
+        id: "c",
+        label: "planner",
+        status: "failed",
+        error: "timeout",
+      }),
     ];
     const block = buildSubagentStatusBlock(children)!;
     expect(block).toContain('"researcher"');
@@ -1594,11 +1651,14 @@ describe("injectSubagentStatus", () => {
       role: "user",
       content: [{ type: "text", text: "hello" }],
     };
-    const result = injectSubagentStatus(msg, "<active_subagents>\ntest\n</active_subagents>");
-    expect(result.content).toHaveLength(2);
-    expect((result.content[1] as { type: string; text: string }).text).toContain(
-      "<active_subagents>",
+    const result = injectSubagentStatus(
+      msg,
+      "<active_subagents>\ntest\n</active_subagents>",
     );
+    expect(result.content).toHaveLength(2);
+    expect(
+      (result.content[1] as { type: string; text: string }).text,
+    ).toContain("<active_subagents>");
   });
 });
 
@@ -1610,7 +1670,8 @@ describe("applyRuntimeInjections — subagent status", () => {
 
   test("includes subagent status in full mode", () => {
     const result = applyRuntimeInjections([userMsg], {
-      subagentStatusBlock: "<active_subagents>\n- [running] test\n</active_subagents>",
+      subagentStatusBlock:
+        "<active_subagents>\n- [running] test\n</active_subagents>",
       mode: "full",
     });
     const tail = result[result.length - 1];
@@ -1622,7 +1683,8 @@ describe("applyRuntimeInjections — subagent status", () => {
 
   test("skips subagent status in minimal mode", () => {
     const result = applyRuntimeInjections([userMsg], {
-      subagentStatusBlock: "<active_subagents>\n- [running] test\n</active_subagents>",
+      subagentStatusBlock:
+        "<active_subagents>\n- [running] test\n</active_subagents>",
       mode: "minimal",
     });
     const tail = result[result.length - 1];

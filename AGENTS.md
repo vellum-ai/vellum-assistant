@@ -117,6 +117,8 @@ Feature flags use simple kebab-case keys (e.g., `browser`, `ces-tools`). Declare
 
 **Cross-repo requirement**: When adding a new flag, you must also open a PR in [`vellum-assistant-platform`](../vellum-assistant-platform) to add the flag to the LaunchDarkly Terraform configuration (`terraform/`). The CI Feature Flag Sync Check will fail on unrelated PRs if the flag exists in the registry here but is not provisioned on the platform. See `meta/feature-flags/AGENTS.md` for full steps.
 
+**Permission controls v2 rule**: Under `permission-controls-v2`, do not introduce new deterministic approval modes for assistant-owned actions beyond the conversation-scoped host computer access gate. That means no global toggles, no per-tool or per-command approvals, no 10-minute or conversation-wide approval verbs, no wildcard scopes, and no persistent trust-rule UI for v2 flows. If a new v2 path needs consent, prefer model-mediated conversation flow unless it is a true host-computer or identity-boundary enforcement case.
+
 ## LLM Provider Abstraction
 
 All LLM calls must go through the provider abstraction — use `getConfiguredProvider()` from `providers/provider-send-message.ts`. Never import `@anthropic-ai/sdk` directly (only `providers/anthropic/client.ts` may). Guard test: `no-direct-anthropic-sdk-imports.test.ts`.
@@ -194,6 +196,30 @@ When making changes that could affect the cloud platform, review the sibling `..
 - Stored file and directory structure changes (workspace paths, on-disk formats, exports/imports, migrations).
 - Dockerfile or container runtime/build changes.
 - **Feature flags**: Adding a flag to `meta/feature-flags/feature-flag-registry.json` requires a companion PR in `vellum-assistant-platform` to provision the flag in Terraform. See the [Assistant Feature Flags](#assistant-feature-flags) section.
+
+## Build Environment (`VELLUM_ENVIRONMENT`)
+
+The `VELLUM_ENVIRONMENT` environment variable identifies the runtime environment for all clients (macOS, iOS, CLI). It is embedded into the app bundle's `LSEnvironment` (Info.plist) at build time by each platform's `build.sh`.
+
+| Value | Use cases |
+|---|---|
+| `local` | Always built from local source code. Enable developer-only features (e.g. build container images from local source, verbose logging). |
+| `dev` | Artifacts generated from `main`. Connected to the dev platform; skip production guards. |
+| `test` | Stub external services, use test fixtures. |
+| `staging` | QA against staging platform before production rollout. Default for release branch builds. |
+| `production` | Full production behavior, no developer shortcuts. Set explicitly for final production releases. |
+
+**Defaults**: `build.sh` sets the value automatically based on the build command. CI and developers can override it by exporting `VELLUM_ENVIRONMENT` before invoking the build script — the explicit value takes precedence.
+
+**Reading the value at runtime** (Swift):
+```swift
+let env = ProcessInfo.processInfo.environment["VELLUM_ENVIRONMENT"] ?? "production"
+```
+
+**Guidelines**:
+- Use `VELLUM_ENVIRONMENT` for behavior that varies by deployment target (e.g. local image builds, telemetry sampling, API base URLs).
+- Do **not** use it as a substitute for feature flags — flags gate features per-user/org, environments gate per-deployment.
+- Do **not** check for `DEBUG` / `RELEASE` compiler flags (`#if DEBUG`) when the distinction is really about deployment environment. A debug build pointed at staging is still `staging`, not `local`.
 
 ## Sentry & Linear Integration
 

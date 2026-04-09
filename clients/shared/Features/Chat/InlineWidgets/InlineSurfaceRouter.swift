@@ -6,6 +6,43 @@ private let log = Logger(
     category: "InlineSurfaceRouter"
 )
 
+/// Caps proposed width at a maximum value using the Layout protocol (O(1)).
+/// Drop-in replacement for `.frame(maxWidth:, alignment: .leading)` that
+/// avoids `_FlexFrameLayout` and its O(n × depth) alignment cascade.
+private struct WidthCapLayout: Layout {
+    let cap: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let available = proposal.replacingUnspecifiedDimensions().width
+        let width = min(cap, available)
+        guard let child = subviews.first else { return CGSize(width: width, height: 0) }
+        let childSize = child.sizeThatFits(ProposedViewSize(width: width, height: proposal.height))
+        return CGSize(width: width, height: childSize.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let child = subviews.first else { return }
+        child.place(
+            at: bounds.origin,
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: bounds.width, height: bounds.height)
+        )
+    }
+}
+
+extension View {
+    /// Caps width at `cap` without creating `_FlexFrameLayout`.
+    /// When `cap` is nil, no constraint is applied.
+    @ViewBuilder
+    fileprivate func widthCap(_ cap: CGFloat?) -> some View {
+        if let cap {
+            WidthCapLayout(cap: cap) { self }
+        } else {
+            self
+        }
+    }
+}
+
 /// Routes an `InlineSurfaceData` to the correct inline widget view.
 public struct InlineSurfaceRouter: View {
     public let surface: InlineSurfaceData
@@ -84,10 +121,10 @@ public struct InlineSurfaceRouter: View {
             ConfirmationSurfaceView(data: data, actions: surface.actions, showCardChrome: true) { actionId in
                 onAction(surface.id, actionId, nil)
             }
-            .frame(maxWidth: 540, alignment: .leading)
+            .widthCap(540)
         } else if isChipOnlySurface || isAppCreated {
             surfaceContent
-                .frame(maxWidth: isAppCreated ? 400 : nil, alignment: .leading)
+                .widthCap(isAppCreated ? 400 : nil)
         } else {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             // Template cards and dynamic page previews handle their own header
@@ -103,7 +140,6 @@ public struct InlineSurfaceRouter: View {
                 actionButtons
             }
         }
-        .frame(maxWidth: isTableSurface ? nil : .infinity, alignment: .leading)
         .inlineWidgetCard(interactive: isDynamicPreview || isDocumentPreview)
         .overlay(alignment: .topTrailing) {
             if isDynamicPreview && !isAppCreated {
@@ -159,7 +195,7 @@ public struct InlineSurfaceRouter: View {
         .onHover { isCardHovered = $0 }
         #endif
         // Dynamic page/document previews stay compact; tables can grow to the chat bubble max width.
-        .frame(maxWidth: isAppCreated ? 400 : (isDynamicPreview || isDocumentPreview ? 350 : standardWidgetMaxWidth), alignment: .leading)
+        .widthCap(isAppCreated ? 400 : (isDynamicPreview || isDocumentPreview ? 350 : standardWidgetMaxWidth))
         }
         }
         .onChange(of: surface) { oldSurface, newSurface in
@@ -182,7 +218,7 @@ public struct InlineSurfaceRouter: View {
                 .foregroundStyle(VColor.contentSecondary)
         }
         .padding(VSpacing.md)
-        .frame(maxWidth: 540, alignment: .leading)
+        .widthCap(540)
         .inlineWidgetCard(interactive: false)
         .onAppear {
             guard let conversationId = surface.surfaceRef?.conversationId else {
@@ -204,7 +240,7 @@ public struct InlineSurfaceRouter: View {
                 .foregroundStyle(VColor.contentSecondary)
         }
         .padding(VSpacing.md)
-        .frame(maxWidth: 540, alignment: .leading)
+        .widthCap(540)
         .inlineWidgetCard(interactive: false)
     }
 

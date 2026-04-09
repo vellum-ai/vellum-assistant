@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Vellum Assistant Browser Relay",
   "version": "1.0.0",
-  "description": "Bridges the Vellum assistant to your live browser session — no CDP, no spoofing.",
+  "description": "Bridges the Vellum assistant to your live browser session via Chrome DevTools Protocol (CDP) through chrome.debugger.",
 
   "permissions": [
     "activeTab",

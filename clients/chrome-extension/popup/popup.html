@@ -53,8 +53,7 @@
       margin-bottom: 4px;
     }
 
-    input[type="text"],
-    input[type="password"] {
+    input[type="text"] {
       width: 100%;
       border: 1px solid #d1d5db;
       border-radius: 6px;
@@ -177,22 +176,6 @@
       line-height: 1.5;
     }
 
-    .manual-toggle {
-      font-size: 12px;
-      color: #6366f1;
-      cursor: pointer;
-      background: none;
-      border: none;
-      padding: 0;
-      margin-bottom: 8px;
-      text-decoration: underline;
-      display: inline-block;
-    }
-    .manual-toggle:hover { color: #4f46e5; }
-
-    .token-group { display: none; }
-    .token-group.visible { display: block; }
-
     .error-text {
       font-size: 12px;
       color: #ef4444;
@@ -224,18 +207,6 @@
     </div>
   </div>
 
-  <button class="manual-toggle" id="manual-toggle" type="button">Manual token entry</button>
-  <div class="token-group" id="token-group">
-    <label for="token-input">Bearer token</label>
-    <input
-      type="password"
-      id="token-input"
-      placeholder="Paste your JWT bearer token"
-      autocomplete="off"
-      spellcheck="false"
-    />
-  </div>
-
   <label for="port-input">Relay port</label>
   <input
     type="text"
@@ -250,7 +221,7 @@
     <button id="btn-disconnect" disabled>Disconnect</button>
   </div>
 
-  <p class="hint">Token is auto-fetched from the local gateway. Port defaults to 7830.</p>
+  <p class="hint">Self-hosted mode requires pairing. Relay port defaults to 7830.</p>
 
   <div class="divider"></div>
 

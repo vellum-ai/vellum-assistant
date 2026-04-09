@@ -36,6 +36,22 @@ final class RenderChurnTests: XCTestCase {
         XCTAssertTrue(events[0].content.contains("chunk-9"), "Final chunk should be present in accumulated text")
     }
 
+    // MARK: - ChatMessageManager message revisions
+
+    /// In-place transcript mutations must advance the shared message revision so
+    /// transcript caches invalidate even when message IDs and counts stay the same.
+    func testChatMessageManagerAdvancesRevisionForInPlaceMessageEdits() {
+        let manager = ChatMessageManager()
+
+        XCTAssertEqual(manager.messagesRevision, 0)
+
+        manager.messages.append(ChatMessage(role: .assistant, text: "Hello", isStreaming: true))
+        XCTAssertEqual(manager.messagesRevision, 1)
+
+        manager.messages[0].textSegments[0] += ", world"
+        XCTAssertEqual(manager.messagesRevision, 2)
+    }
+
     // MARK: - stripHeavyContent surface stripping
 
     /// Completed surfaces (non-nil completionState) should have their data replaced

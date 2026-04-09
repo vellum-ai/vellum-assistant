@@ -3,6 +3,15 @@ import os.signpost
 import SwiftUI
 import VellumAssistantShared
 
+// MARK: - Intrinsic Height Preference Key
+
+private struct IntrinsicHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 // MARK: - Bubble Max Width Environment
 
 /// The effective maximum width for chat bubble content, accounting for
@@ -69,6 +78,10 @@ struct ChatBubble: View, Equatable {
 
     var isLatestAssistantMessage: Bool = false
     var typographyGeneration: Int = 0
+    @State private var isUserMessageExpanded: Bool = false
+    @State private var userMessageIntrinsicHeight: CGFloat = 0
+    private let userMessageMaxCollapsedHeight: CGFloat = 150
+
     @State private var avatarBounceScale: CGFloat = 1.0
     /// When true, the assistant is still processing after tool calls completed.
     /// Renders an inline loading indicator in trailingStatus to avoid a separate
@@ -266,22 +279,21 @@ struct ChatBubble: View, Equatable {
     func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         let isPlainAssistant = !isUser && !message.isError
         if message.isError {
-            // Error: chrome padding + full-width inner expansion frame.
+            // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+            // .containerRelativeFrame resolves against the ScrollView for full-width error background.
             content()
                 .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.lg,
                                     bottom: VSpacing.md, trailing: VSpacing.lg))
-                .frame(maxWidth: .infinity)
+                .containerRelativeFrame(.horizontal)
                 .background {
                     bubbleChromeBackground
                 }
-                .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
         } else if isPlainAssistant {
             // Plain assistant: no chrome padding, no inner frame.
             content()
                 .background {
                     bubbleChromeBackground
                 }
-                .frame(maxWidth: bubbleMaxWidth, alignment: .leading)
         } else {
             // User messages (non-error): chrome padding, no inner frame.
             content()
@@ -290,7 +302,6 @@ struct ChatBubble: View, Equatable {
                 .background {
                     bubbleChromeBackground
                 }
-                .frame(maxWidth: bubbleMaxWidth, alignment: .trailing)
         }
     }
 
@@ -341,12 +352,15 @@ struct ChatBubble: View, Equatable {
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "chatBubbleBody",
                             "id=%{public}s streaming=%d", message.id.uuidString, message.isStreaming ? 1 : 0)
         #endif
-        // Outer VStack ensures a single resolved subview for the parent
-        // LazyVStack, avoiding duplicate .id(message.id) from MessageCellView
-        // that caused incorrect width proposals at narrow window sizes (LUM-688).
-        // The avatar sits outside the inner .compositingGroup() scope so
-        // CAShapeLayer animations (breathing, blink, twitch) are unaffected.
-        VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
+        // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+        HStack(spacing: 0) {
+            if isUser { Spacer(minLength: 0) }
+            // Outer VStack ensures a single resolved subview for the parent
+            // LazyVStack, avoiding duplicate .id(message.id) from MessageCellView
+            // that caused incorrect width proposals at narrow window sizes (LUM-688).
+            // The avatar sits outside the inner .compositingGroup() scope so
+            // CAShapeLayer animations (breathing, blink, twitch) are unaffected.
+            VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
             // --- Message content (composited) ---
             VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
                 if !isUser && cachedHasInterleavedContent {
@@ -425,8 +439,9 @@ struct ChatBubble: View, Equatable {
             if isLatestAssistantMessage && !isUser && !hideInlineAvatar {
                 inlineAvatar
             }
+            }
+            if !isUser { Spacer(minLength: 0) }
         }
-        .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
         .contentShape(Rectangle())
         .onChange(of: message.contentOrder) { _, _ in recomputeInterleavedContentCache() }
         .onChange(of: message.textSegments) { _, _ in recomputeInterleavedContentCache() }
@@ -521,9 +536,54 @@ struct ChatBubble: View, Equatable {
         !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    // MARK: - User Message Collapse / Expand
+    //
+    // .frame(maxHeight:) creates _FlexFrameLayout which recursively measures
+    // children and resolves explicitAlignment through the entire LazyVStack
+    // subtree — O(n × depth) per layout pass, causing 35 s+ hangs.
+    //
+    // Fix: .frame(height:) creates _FrameLayout — O(1), no alignment cascade.
+    // When height is nil (expanded / short), _FrameLayout passes through the
+    // child's natural height. Single view identity is preserved (no
+    // _ConditionalContent), so withAnimation still drives a smooth height
+    // transition on expand/collapse.
+
+    @ViewBuilder
+    private func userMessageHeightWrapper<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        let isCollapsible = userMessageIntrinsicHeight > userMessageMaxCollapsedHeight
+        let needsCollapse = isCollapsible && !isUserMessageExpanded
+        VStack(alignment: .trailing, spacing: VSpacing.xs) {
+            content()
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.preference(key: IntrinsicHeightKey.self, value: geo.size.height)
+                    }
+                )
+                .onPreferenceChange(IntrinsicHeightKey.self) { height in
+                    userMessageIntrinsicHeight = height
+                }
+                .frame(height: needsCollapse ? userMessageMaxCollapsedHeight : nil, alignment: .top)
+                .clipped()
+
+            if isCollapsible {
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isUserMessageExpanded.toggle()
+                    }
+                }) {
+                    Text(isUserMessageExpanded ? "Show less" : "Show more")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.primaryBase)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    @ViewBuilder
     private var bubbleContent: some View {
         let partitioned = partitionedAttachments
-        return bubbleChrome {
+        let chrome = bubbleChrome {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 if hasText {
                     let segments = resolveSegments(for: message.text, isStreaming: message.isStreaming)
@@ -594,6 +654,11 @@ struct ChatBubble: View, Equatable {
                     }
                 }
             }
+        }
+        if isUser {
+            userMessageHeightWrapper { chrome }
+        } else {
+            chrome
         }
         // NOTE: The per-segment .task(id:) in ChatBubbleTextContent handles
         // async parsing for each individual text segment. A prior whole-message

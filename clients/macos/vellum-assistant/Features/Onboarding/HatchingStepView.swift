@@ -27,6 +27,7 @@ struct HatchingStepView: View {
     private var managedSignInEnabled: Bool {
         MacOSClientFeatureFlagManager.shared.isEnabled("managed-sign-in")
     }
+    @State private var showFooterCharacters = false
     @State private var completionTask: Task<Void, Never>?
     @State private var isAnimatingProgress: Bool = false
     @State private var progressStartTime: CFAbsoluteTime?
@@ -35,12 +36,15 @@ struct HatchingStepView: View {
 
     var body: some View {
         VStack(spacing: VSpacing.lg) {
+            Color.clear.frame(height: VSpacing.xxl)
+
+            statusText
+
             Spacer()
 
             characterAnimation
-                .padding(.bottom, VSpacing.xl)
 
-            statusText
+            Spacer()
 
             if showProgressBar {
                 progressSection
@@ -50,7 +54,23 @@ struct HatchingStepView: View {
                 failureButtons
             }
 
-            Spacer()
+            if let characters = Self.welcomeCharacters {
+                Image(nsImage: characters)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(UnevenRoundedRectangle(
+                        topLeadingRadius: 0,
+                        bottomLeadingRadius: VRadius.window,
+                        bottomTrailingRadius: VRadius.window,
+                        topTrailingRadius: 0
+                    ))
+                    .opacity(showFooterCharacters ? 1 : 0)
+                    .offset(y: showFooterCharacters ? 0 : 30)
+                    .animation(.easeOut(duration: 0.6).delay(0.5), value: showFooterCharacters)
+                    .onAppear { showFooterCharacters = true }
+                    .accessibilityHidden(true)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .opacity(showContent ? 1 : 0)
@@ -106,14 +126,18 @@ struct HatchingStepView: View {
         }
         .onChange(of: state.hatchFailed) { _, failed in
             if failed {
-                // Stop the pulse animation and fade out the character
-                // so it doesn't keep pulsing behind the error text.
+                // Stop the pulse animation but keep the character visible.
                 withAnimation(.easeOut(duration: 0.3)) {
-                    showCharacter = false
+                    pulseScale = 1.0
                 }
             }
         }
     }
+
+    private static let welcomeCharacters: NSImage? = {
+        guard let url = ResourceBundle.bundle.url(forResource: "welcome-characters", withExtension: "png") else { return nil }
+        return NSImage(contentsOf: url)
+    }()
 
     // MARK: - Avatar
 
@@ -129,14 +153,14 @@ struct HatchingStepView: View {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: 100, height: 100)
+                    .frame(width: 122, height: 125)
                     .scaleEffect(characterAwake ? 1.1 : pulseScale)
                     .opacity(showCharacter ? (characterAwake ? 1.0 : 0.6) : 0)
                     .animation(.spring(duration: 0.6, bounce: 0.3), value: characterAwake)
                     .accessibilityHidden(true)
             }
         }
-        .frame(width: 120, height: 120)
+        .frame(width: 140, height: 140)
     }
 
     private func startPulse() {
@@ -184,9 +208,9 @@ struct HatchingStepView: View {
                 Text("Waking up...")
                     .font(VFont.titleLarge)
                     .foregroundStyle(VColor.contentDefault)
-                Text("Hang tight \u{2014} your assistant will have a few\nquestions for you once it\u{2019}s up.")
-                    .font(VFont.bodySmallDefault)
-                    .foregroundStyle(VColor.contentTertiary)
+                Text("Hang tight - your assistant will have a few questions for you once it's up.")
+                    .font(VFont.bodyMediumLighter)
+                    .foregroundStyle(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
             }
         }
@@ -202,16 +226,27 @@ struct HatchingStepView: View {
     }
 
     private var progressSection: some View {
-        VStack(spacing: VSpacing.xs) {
+        VStack(spacing: VSpacing.lg) {
             TimelineView(.animation) { context in
-                ProgressView(value: progressValue(at: context.date))
-                    .progressViewStyle(.linear)
-                    .tint(VColor.primaryBase)
-                    .frame(maxWidth: 240)
+                let progress = progressValue(at: context.date)
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(VColor.surfaceBase)
+                            .frame(height: 6)
+                        Capsule()
+                            .fill(VColor.primaryBase)
+                            .frame(width: geo.size.width * progress, height: 6)
+                    }
+                }
+                .frame(maxWidth: 200, maxHeight: 6)
+                .accessibilityElement()
+                .accessibilityValue("\(Int(progress * 100)) percent")
+                .accessibilityLabel("Setup progress")
             }
             if let label = state.hatchStepLabel {
                 Text(label)
-                    .font(VFont.bodySmallDefault)
+                    .font(VFont.labelSmall)
                     .foregroundStyle(VColor.contentTertiary)
             }
         }

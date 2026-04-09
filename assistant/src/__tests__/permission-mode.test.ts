@@ -6,51 +6,28 @@ import {
   PermissionModeSchema,
 } from "../permissions/permission-mode.js";
 
-// ---------------------------------------------------------------------------
-// Tests: PermissionModeSchema
-// ---------------------------------------------------------------------------
-
 describe("PermissionModeSchema", () => {
-  test("parses empty object with correct defaults", () => {
-    const result = PermissionModeSchema.parse({});
-    expect(result.askBeforeActing).toBe(true);
-    expect(result.hostAccess).toBe(false);
+  test("parses empty object with the host-access default", () => {
+    expect(PermissionModeSchema.parse({})).toEqual({ hostAccess: false });
   });
 
   test("DEFAULT_PERMISSION_MODE matches schema defaults", () => {
-    const parsed = PermissionModeSchema.parse({});
-    expect(parsed).toEqual(DEFAULT_PERMISSION_MODE);
+    expect(PermissionModeSchema.parse({})).toEqual(DEFAULT_PERMISSION_MODE);
   });
 
-  test("accepts explicit true/true", () => {
-    const result = PermissionModeSchema.parse({
-      askBeforeActing: true,
+  test("accepts explicit host access values", () => {
+    expect(PermissionModeSchema.parse({ hostAccess: true })).toEqual({
       hostAccess: true,
     });
-    expect(result.askBeforeActing).toBe(true);
-    expect(result.hostAccess).toBe(true);
-  });
-
-  test("accepts explicit false/false", () => {
-    const result = PermissionModeSchema.parse({
-      askBeforeActing: false,
+    expect(PermissionModeSchema.parse({ hostAccess: false })).toEqual({
       hostAccess: false,
     });
-    expect(result.askBeforeActing).toBe(false);
-    expect(result.hostAccess).toBe(false);
   });
 
   test("round-trips through JSON serialization", () => {
-    const original = { askBeforeActing: false, hostAccess: true };
+    const original = { hostAccess: true };
     const json = JSON.stringify(original);
-    const parsed = PermissionModeSchema.parse(JSON.parse(json));
-    expect(parsed).toEqual(original);
-  });
-
-  test("rejects non-boolean askBeforeActing", () => {
-    expect(() =>
-      PermissionModeSchema.parse({ askBeforeActing: "yes" }),
-    ).toThrow();
+    expect(PermissionModeSchema.parse(JSON.parse(json))).toEqual(original);
   });
 
   test("rejects non-boolean hostAccess", () => {
@@ -58,44 +35,39 @@ describe("PermissionModeSchema", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Tests: PermissionsConfigSchema (permissionMode fields)
-// ---------------------------------------------------------------------------
-
-describe("PermissionsConfigSchema permissionMode fields", () => {
-  test("defaults askBeforeActing to true and hostAccess to false", () => {
-    const result = PermissionsConfigSchema.parse({});
-    expect(result.askBeforeActing).toBe(true);
-    expect(result.hostAccess).toBe(false);
-  });
-
-  test("preserves existing mode field alongside new fields", () => {
-    const result = PermissionsConfigSchema.parse({ mode: "strict" });
-    expect(result.mode).toBe("strict");
-    expect(result.askBeforeActing).toBe(true);
-    expect(result.hostAccess).toBe(false);
-  });
-
-  test("accepts overridden values for new fields", () => {
-    const result = PermissionsConfigSchema.parse({
+describe("PermissionsConfigSchema", () => {
+  test("defaults to workspace mode with host access disabled", () => {
+    expect(PermissionsConfigSchema.parse({})).toEqual({
       mode: "workspace",
-      askBeforeActing: false,
+      hostAccess: false,
+    });
+  });
+
+  test("preserves the mode field alongside hostAccess", () => {
+    expect(PermissionsConfigSchema.parse({ mode: "strict" })).toEqual({
+      mode: "strict",
+      hostAccess: false,
+    });
+  });
+
+  test("accepts overridden hostAccess values", () => {
+    expect(
+      PermissionsConfigSchema.parse({
+        mode: "workspace",
+        hostAccess: true,
+      }),
+    ).toEqual({
+      mode: "workspace",
       hostAccess: true,
     });
-    expect(result.mode).toBe("workspace");
-    expect(result.askBeforeActing).toBe(false);
-    expect(result.hostAccess).toBe(true);
   });
 
-  test("round-trips new fields through JSON serialization", () => {
+  test("round-trips hostAccess through JSON serialization", () => {
     const input = {
       mode: "workspace" as const,
-      askBeforeActing: false,
       hostAccess: true,
     };
     const json = JSON.stringify(input);
-    const parsed = PermissionsConfigSchema.parse(JSON.parse(json));
-    expect(parsed.askBeforeActing).toBe(false);
-    expect(parsed.hostAccess).toBe(true);
+    expect(PermissionsConfigSchema.parse(JSON.parse(json))).toEqual(input);
   });
 });

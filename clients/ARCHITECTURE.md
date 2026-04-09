@@ -532,7 +532,7 @@ Each API surface gets a focused protocol + struct, instantiated inline on the co
 1. **Define a protocol** describing the operations (e.g. `ConversationClientProtocol`).
 2. **Implement a struct** that calls `GatewayHTTPClient.get/post/delete(path:timeout:)`.
 3. **Instantiate the struct** inline as a private property on the consuming type (e.g. `private let client: any SurfaceClientProtocol = SurfaceClient()`).
-4. Network client structs and protocols must be `nonisolated` (no `@MainActor`).
+4. Stateless network client structs and protocols (enums with static methods, request builders) are naturally `nonisolated`. Stateful managers that own mutable state should be `@MainActor`. See `clients/AGENTS.md` § "@MainActor Isolation Boundaries".
 
 ### Key Files
 

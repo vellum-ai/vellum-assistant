@@ -465,6 +465,7 @@ private struct WorkspaceFileSheet: View {
             // Content
             ScrollView {
                 MarkdownRenderer(text: fileContent)
+                    .equatable()
                     .padding(VSpacing.xl)
             }
         }

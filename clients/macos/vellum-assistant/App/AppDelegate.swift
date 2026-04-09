@@ -132,6 +132,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var galleryWindow: ComponentGalleryWindow?
     #endif
     var windowObserver: Any?
+    var sleepObserver: NSObjectProtocol?
+    var wakeObserver: NSObjectProtocol?
     /// Timestamp of the last `showMainWindow` call that performed work.
     /// Used by the debounce guard in `showMainWindow()`.
     var lastShowMainWindowTime: CFAbsoluteTime = 0
@@ -142,6 +144,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var connectionStatusCancellable: AnyCancellable?
     var quickInputAttachmentCancellable: AnyCancellable?
     var avatarChangeObserver: NSObjectProtocol?
+    /// Cached circular avatar image for the menu bar icon. Invalidated only
+    /// when `AvatarAppearanceManager.avatarDidChangeNotification` fires, so
+    /// connection-status changes, pulse ticks, and thinking-state toggles
+    /// reuse the cached image instead of re-resolving the avatar getter chain.
+    var cachedMenuBarAvatar: NSImage?
     var pulseTimer: Timer?
     var pulsePhase: CGFloat = 1.0
     var pulseDirection: CGFloat = -1.0
@@ -638,6 +645,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupToolConfirmationNotifications()
         setupSecretPromptManager()
         setupWindowObserver()
+        setupSleepWakeHandlers()
         setupNotifications()
         setupAutoUpdate()
 
@@ -823,6 +831,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if let observer = appMenuActivationObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        tearDownSleepWakeHandlers()
         NSApp.dockTile.badgeLabel = nil
         connectionStatusCancellable?.cancel()
         pulseTimer?.invalidate()
