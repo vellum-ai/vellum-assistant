@@ -175,6 +175,9 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         get { messageManager.messages }
         set { messageManager.messages = newValue }
     }
+    public var messagesRevision: UInt64 {
+        messageManager.messagesRevision
+    }
     public var inputText: String {
         get { messageManager.inputText }
         set { messageManager.inputText = newValue }

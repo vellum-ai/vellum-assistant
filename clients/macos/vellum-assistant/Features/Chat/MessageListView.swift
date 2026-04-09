@@ -8,6 +8,7 @@ import VellumAssistantShared
 struct MessageListView: View {
 
     let messages: [ChatMessage]
+    let messagesRevision: UInt64
     let isSending: Bool
     let isThinking: Bool
     let isCompacting: Bool

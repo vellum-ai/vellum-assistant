@@ -403,20 +403,12 @@ final class MessageListScrollStateTests: XCTestCase {
 
     func testResetClearsLayoutCache() {
         state.messageListVersion = 5
-        state.lastKnownRawMessageCount = 10
-        state.lastKnownVisibleMessageCount = 8
-        state.lastKnownLastMessageStreaming = true
-        state.lastKnownIncompleteToolCallCount = 3
-        state.lastKnownVisibleIdFingerprint = 42
+        state.lastKnownMessagesRevision = 10
 
         state.reset(for: UUID())
 
         XCTAssertEqual(state.messageListVersion, 0)
-        XCTAssertEqual(state.lastKnownRawMessageCount, 0)
-        XCTAssertEqual(state.lastKnownVisibleMessageCount, 0)
-        XCTAssertFalse(state.lastKnownLastMessageStreaming)
-        XCTAssertEqual(state.lastKnownIncompleteToolCallCount, 0)
-        XCTAssertEqual(state.lastKnownVisibleIdFingerprint, 0)
+        XCTAssertEqual(state.lastKnownMessagesRevision, 0)
         XCTAssertNil(state.cachedProjectionKey)
         XCTAssertNil(state.cachedProjection)
     }
