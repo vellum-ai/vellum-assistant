@@ -83,7 +83,7 @@ extension AppDelegate {
     private func endTextEditingOnAllWindows() {
         for window in NSApp.windows where window.isVisible {
             if window.firstResponder is NSTextView {
-                log.debug("[sleepWake] Resigning first responder on window: \(window.title, privacy: .public)")
+                log.debug("[sleepWake] Resigning first responder on window: \(window.title, privacy: .private)")
                 window.makeFirstResponder(nil)
             }
         }
