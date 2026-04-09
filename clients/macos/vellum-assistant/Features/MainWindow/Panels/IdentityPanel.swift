@@ -58,12 +58,12 @@ struct IdentityPanel: View {
                     VStack(spacing: 0) {
                         VStack(spacing: 0) {
                             // Intro heading — show daemon-generated text, fall back to static name
-                            ZStack(alignment: .topTrailing) {
+                            HStack(alignment: .firstTextBaseline, spacing: VSpacing.xs) {
+                                Spacer(minLength: 0)
                                 Text(introText ?? (hasRealName ? "I'm \(assistantDisplayName)!" : assistantDisplayName))
                                     .font(VFont.titleMedium)
                                     .foregroundStyle(VColor.contentDefault)
                                     .multilineTextAlignment(.center)
-                                    .frame(maxWidth: .infinity, alignment: .center)
                                 Button {
                                     onOpenThread?("I want to change your name")
                                 } label: {
@@ -73,6 +73,7 @@ struct IdentityPanel: View {
                                 .buttonStyle(.plain)
                                 .accessibilityLabel("Edit Name")
                                 .help("Edit Name")
+                                Spacer(minLength: 0)
                             }
                             .padding(.top, VSpacing.xxl)
                             .padding(.horizontal, VSpacing.lg)
