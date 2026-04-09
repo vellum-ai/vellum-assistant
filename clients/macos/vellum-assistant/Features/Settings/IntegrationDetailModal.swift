@@ -231,7 +231,7 @@ struct IntegrationDetailModal: View {
                 .font(VFont.bodyMediumDefault)
                 .foregroundStyle(VColor.contentSecondary)
 
-            VButton(label: buttonLabel, leftIcon: buttonIcon, style: .outlined) {
+            VButton(label: buttonLabel, leftIcon: buttonIcon, style: .primary) {
                 onConnect()
             }
         }
@@ -242,7 +242,7 @@ struct IntegrationDetailModal: View {
 
     private var managedConnectionCard: some View {
         VCard {
-            VStack(alignment: .leading, spacing: VSpacing.lg) {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
                 // Connection rows
                 if connections.isEmpty {
                     Text("No connected accounts")
@@ -251,7 +251,7 @@ struct IntegrationDetailModal: View {
                 } else {
                     ForEach(Array(connections.enumerated()), id: \.element.id) { index, entry in
                         if index > 0 {
-                            Divider()
+                            Divider().overlay(VColor.borderHover)
                         }
                         HStack(alignment: .center, spacing: VSpacing.lg) {
                             VIconView(.circleUser, size: 14)
@@ -274,7 +274,7 @@ struct IntegrationDetailModal: View {
                     }
                 }
 
-                Divider()
+                Divider().overlay(VColor.borderHover)
 
                 // Connect account button
                 if isConnecting {
@@ -285,7 +285,7 @@ struct IntegrationDetailModal: View {
                             .foregroundStyle(VColor.contentTertiary)
                     }
                 } else {
-                    VButton(label: "Connect account", leftIcon: "lucide-external-link", style: .outlined) {
+                    VButton(label: "Connect account", leftIcon: "lucide-external-link", style: .primary) {
                         store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
                     }
                 }
@@ -399,7 +399,7 @@ struct IntegrationDetailModal: View {
 
     private func yourOwnAppCard(for app: YourOwnOAuthApp) -> some View {
         VCard {
-            VStack(alignment: .leading, spacing: VSpacing.lg) {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
                 // Header: client ID, date, trash
                 HStack(alignment: .center, spacing: VSpacing.lg) {
                     Text(maskedClientId(app.client_id))
@@ -430,13 +430,13 @@ struct IntegrationDetailModal: View {
                 } else {
                     ForEach(Array(appConnections.enumerated()), id: \.element.id) { index, conn in
                         if index > 0 {
-                            Divider()
+                            Divider().overlay(VColor.borderHover)
                         }
                         yourOwnConnectionRow(for: conn, appId: app.id)
                     }
                 }
 
-                Divider()
+                Divider().overlay(VColor.borderHover)
 
                 // Connect button
                 if store.yourOwnOAuthConnectingAppId == app.id {
@@ -453,7 +453,7 @@ struct IntegrationDetailModal: View {
                     VButton(
                         label: "Connect account",
                         leftIcon: "lucide-external-link",
-                        style: .outlined,
+                        style: .primary,
                         isDisabled: store.yourOwnOAuthConnectingAppId != nil
                     ) {
                         store.startYourOwnOAuthConnect(appId: app.id)
