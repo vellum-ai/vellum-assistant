@@ -126,11 +126,8 @@ struct HatchingStepView: View {
         }
         .onChange(of: state.hatchFailed) { _, failed in
             if failed {
-                // Stop the pulse animation and fade out the character
-                // so it doesn't keep pulsing behind the error text.
-                withAnimation(.easeOut(duration: 0.3)) {
-                    showCharacter = false
-                }
+                // Stop the pulse animation but keep the character visible.
+                pulseScale = 1.0
             }
         }
     }
