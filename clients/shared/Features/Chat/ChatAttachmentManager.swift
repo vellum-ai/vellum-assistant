@@ -16,21 +16,47 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatA
 /// Async-compatible semaphore that suspends (not blocks) waiting tasks.
 /// Drop-in replacement for DispatchSemaphore in structured concurrency contexts,
 /// avoiding thread starvation on the cooperative thread pool.
+///
+/// Cancellation-safe: if a waiting task is cancelled, its continuation is
+/// removed from the queue and resumed with `false` (no slot consumed).
 private actor AsyncSemaphore {
     private var count: Int
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var nextID: UInt64 = 0
+    private var waiters: [(id: UInt64, continuation: CheckedContinuation<Bool, Never>)] = []
 
     init(value: Int) { self.count = value }
 
-    func wait() async {
-        if count > 0 { count -= 1; return }
-        await withCheckedContinuation { waiters.append($0) }
+    /// Waits for a slot. Returns `true` if a slot was acquired, `false` if the
+    /// task was cancelled while waiting (no slot consumed). The caller must only
+    /// call `signal()` when this returns `true`.
+    func wait() async -> Bool {
+        if count > 0 { count -= 1; return true }
+        let id = nextID
+        nextID += 1
+        let acquired = await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                waiters.append((id: id, continuation: continuation))
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id: id) }
+        }
+        return acquired
+    }
+
+    /// Removes a cancelled waiter from the queue (no slot consumed → resumes
+    /// with `false`). If signal() already resumed this waiter (slot consumed →
+    /// resumed with `true`), does nothing.
+    private func cancelWaiter(id: UInt64) {
+        if let idx = waiters.firstIndex(where: { $0.id == id }) {
+            let removed = waiters.remove(at: idx)
+            removed.continuation.resume(returning: false)
+        }
     }
 
     func signal() {
-        if let next = waiters.first {
+        if let waiter = waiters.first {
             waiters.removeFirst()
-            next.resume()
+            waiter.continuation.resume(returning: true)
         } else {
             count += 1
         }
@@ -204,7 +230,8 @@ public final class ChatAttachmentManager {
         let attachmentId = UUID().uuidString
         let filename = url.lastPathComponent
         log.debug("[Attachment] readStart id=\(attachmentId) source=fileURL filename=\(filename)")
-        await loadSemaphore.wait()
+        let acquired = await loadSemaphore.wait()
+        guard acquired else { return .failure(.message("Attachment load cancelled.")) }
         let taskResult: Result<ProcessedAttachmentData, AttachmentError> = await Task.detached(priority: .userInitiated) {
             if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
                let fileSize = attrs[.size] as? Int,
@@ -272,7 +299,7 @@ public final class ChatAttachmentManager {
                 filePath: url.path
             ))
         }.value
-        await loadSemaphore.signal()
+        Task { await loadSemaphore.signal() }
 
         switch taskResult {
         case .failure(let error):
@@ -304,7 +331,8 @@ public final class ChatAttachmentManager {
     private func loadAttachment(imageData: Data, filename: String) async -> Result<ChatAttachment, AttachmentError> {
         let attachmentId = UUID().uuidString
         log.debug("[Attachment] readStart id=\(attachmentId) source=imageData filename=\(filename) rawBytes=\(imageData.count)")
-        await loadSemaphore.wait()
+        let acquired = await loadSemaphore.wait()
+        guard acquired else { return .failure(.message("Attachment load cancelled.")) }
         let taskResult: Result<ProcessedAttachmentData, AttachmentError> = await Task.detached(priority: .userInitiated) {
             // Validate that ImageIO can decode the data.
             guard Self.loadCGImage(from: imageData) != nil else {
@@ -364,7 +392,7 @@ public final class ChatAttachmentManager {
                 filePath: nil
             ))
         }.value
-        await loadSemaphore.signal()
+        Task { await loadSemaphore.signal() }
 
         switch taskResult {
         case .failure(let error):

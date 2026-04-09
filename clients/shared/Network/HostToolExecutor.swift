@@ -13,7 +13,7 @@ public enum HostToolExecutor {
         ".gif",
         ".webp",
     ]
-    private static let maxImageSourceBytes = 100 * 1024 * 1024
+    private static let maxImageSourceBytes = 10 * 1024 * 1024
 
     // MARK: - Cancelled Request Tracking
 
@@ -491,7 +491,7 @@ public enum HostToolExecutor {
             case .notAFile(let path):
                 return "\(path) is not a file"
             case .imageTooLarge(let sizeMB):
-                return String(format: "image too large (%.1f MB). Maximum source file size is 100 MB.", sizeMB)
+                return String(format: "image too large (%.1f MB). Maximum source file size is 10 MB.", sizeMB)
             case .invalidImageFormat(let path):
                 return "could not detect image format for \(path). The file may be corrupt."
             }
