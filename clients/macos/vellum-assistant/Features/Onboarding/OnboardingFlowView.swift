@@ -67,7 +67,7 @@ struct OnboardingFlowView: View {
                                 .aspectRatio(contentMode: .fit)
                                 .frame(width: 80, height: 80)
                                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                                .shadow(color: .black.opacity(0.15), radius: 1, x: 0, y: 1)
+                                .shadow(color: VColor.auxBlack.opacity(0.15), radius: 1, x: 0, y: 1)
                                 .padding(.bottom, 78)
                         }
                     } else {
