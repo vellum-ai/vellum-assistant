@@ -333,10 +333,7 @@ public final class GatewayConnectionManager: ObservableObject {
                     assistantVersion = newVersion
                     #if os(macOS)
                     if let id = cachedAssistant?.assistantId, !id.isEmpty {
-                        let capturedId = id
-                        Task.detached {
-                            LockfilePaths.updateServiceGroupVersion(assistantId: capturedId, version: newVersion)
-                        }
+                        LockfilePaths.updateServiceGroupVersion(assistantId: id, version: newVersion)
                     }
                     #endif
                     handleDaemonVersionChanged(newVersion)
