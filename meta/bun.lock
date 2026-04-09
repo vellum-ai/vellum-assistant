@@ -5,10 +5,10 @@
     "": {
       "name": "vellum",
       "dependencies": {
-        "@vellumai/assistant": "0.6.1",
-        "@vellumai/cli": "0.6.1",
-        "@vellumai/credential-executor": "0.6.1",
-        "@vellumai/vellum-gateway": "0.6.1",
+        "@vellumai/assistant": "0.6.2",
+        "@vellumai/cli": "0.6.2",
+        "@vellumai/credential-executor": "0.6.2",
+        "@vellumai/vellum-gateway": "0.6.2",
       },
       "devDependencies": {
         "@types/bun": "^1.2.4",
@@ -188,13 +188,13 @@
 
     "@types/tedious": ["@types/tedious@4.0.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-KHPsfX/FoVbUGbyYvk1q9MMQHLPeRZhRJZdO45Q4YjvFkv4hMNghCWTvy7rdKessBsmtz4euWCWAB6/tVpI1Iw=="],
 
-    "@vellumai/assistant": ["@vellumai/assistant@0.6.1", "", { "dependencies": { "@agentclientprotocol/sdk": "^0.16.1", "@anthropic-ai/sdk": "^0.78.0", "@google/genai": "^1.40.0", "@modelcontextprotocol/sdk": "^1.15.1", "@qdrant/js-client-rest": "^1.16.2", "@resvg/resvg-js": "^2.6.2", "@sentry/node": "^10.38.0", "@vellumai/ces-contracts": "file:../packages/ces-contracts", "@vellumai/credential-storage": "file:../packages/credential-storage", "@vellumai/egress-proxy": "file:../packages/egress-proxy", "agentmail": "^0.1.0", "archiver": "^7.0.1", "commander": "^13.1.0", "croner": "^10.0.1", "dotenv": "^17.3.1", "drizzle-orm": "^0.38.4", "jszip": "^3.10.1", "minimatch": "^10.2.4", "openai": "^6.18.0", "pino": "^9.6.0", "pino-pretty": "^13.1.3", "playwright": "^1.58.2", "postgres": "^3.4.8", "qrcode": "^1.5.4", "react": "^19.2.4", "rrule": "^2.8.1", "tldts": "^7.0.23", "tree-sitter-bash": "0.25.1", "uuid": "^11.1.0", "web-tree-sitter": "0.26.5", "yaml": "^2.7.1", "zod": "^4.3.6" }, "bin": { "assistant": "src/index.ts" } }, "sha512-klmFYc+HOlPbkQJGJyZI4MrDTl9FQYrTKi1iMtPum8J7YMrQZqt/orfPMB/kZKbtIXjMc2wLIgGJrlA1POLokg=="],
+    "@vellumai/assistant": ["@vellumai/assistant@0.6.2", "", { "dependencies": { "@agentclientprotocol/sdk": "^0.16.1", "@anthropic-ai/sdk": "^0.78.0", "@google/genai": "^1.40.0", "@modelcontextprotocol/sdk": "^1.15.1", "@qdrant/js-client-rest": "^1.16.2", "@resvg/resvg-js": "^2.6.2", "@sentry/node": "^10.38.0", "@vellumai/ces-contracts": "file:../packages/ces-contracts", "@vellumai/credential-storage": "file:../packages/credential-storage", "@vellumai/egress-proxy": "file:../packages/egress-proxy", "agentmail": "^0.1.0", "archiver": "^7.0.1", "commander": "^13.1.0", "croner": "^10.0.1", "dotenv": "^17.3.1", "drizzle-orm": "^0.38.4", "jszip": "^3.10.1", "minimatch": "^10.2.4", "openai": "^6.18.0", "pino": "^9.6.0", "pino-pretty": "^13.1.3", "playwright": "^1.58.2", "postgres": "^3.4.8", "qrcode": "^1.5.4", "react": "^19.2.4", "rrule": "^2.8.1", "tldts": "^7.0.23", "tree-sitter-bash": "0.25.1", "uuid": "^11.1.0", "web-tree-sitter": "0.26.5", "yaml": "^2.7.1", "zod": "^4.3.6" }, "bin": { "assistant": "src/index.ts" } }, "sha512-UCB82cWhnbgWM162Vo52HzHcI+kUY40ZL4NRn/XfwKcpVQsLVsDl01dM7+amYsKBvQbeH9XVJiYFPlaHVvkOTA=="],
 
-    "@vellumai/cli": ["@vellumai/cli@0.6.1", "", { "dependencies": { "chalk": "^5.6.0", "ink": "^6.7.0", "jsqr": "^1.4.0", "nanoid": "^5.1.7", "pngjs": "^7.0.0", "qrcode-terminal": "^0.12.0", "react": "^19.2.4", "react-devtools-core": "^6.1.2" }, "bin": { "vellum": "src/index.ts" } }, "sha512-b0A1yCQRGN4pCz3+uAvRWdQg0TK0pz7hrg9oJT7/LydkjzZSjgKFAbZZnn1az3hvOH4OCYOIMwyV9yfq9/ZoiQ=="],
+    "@vellumai/cli": ["@vellumai/cli@0.6.2", "", { "dependencies": { "chalk": "^5.6.0", "ink": "^6.7.0", "jsqr": "^1.4.0", "nanoid": "^5.1.7", "pngjs": "^7.0.0", "qrcode-terminal": "^0.12.0", "react": "^19.2.4", "react-devtools-core": "^6.1.2" }, "bin": { "vellum": "src/index.ts" } }, "sha512-MG/4Y9dwpIRn1XOV3bsBBqvbCNJ9FzQayZfXLKnqyFSUXog8lRDZ808g+LPUcDC3cQHpnkNCQ1MYCAY5rZ+SxA=="],
 
-    "@vellumai/credential-executor": ["@vellumai/credential-executor@0.6.1", "", { "dependencies": { "@vellumai/ces-contracts": "file:../packages/ces-contracts", "@vellumai/credential-storage": "file:../packages/credential-storage", "@vellumai/egress-proxy": "file:../packages/egress-proxy", "pino": "^9.6.0", "pino-pretty": "^13.1.3" }, "bin": { "credential-executor": "src/main.ts", "credential-executor-managed": "src/managed-main.ts" } }, "sha512-KYQHa3+RS2gmFgpdzIqU+LcoKciAXmpl89G6hFP22eFdF4top1sserX9B27/fFDAWNdL7QALNJOnhfPE9bTUpg=="],
+    "@vellumai/credential-executor": ["@vellumai/credential-executor@0.6.2", "", { "dependencies": { "@vellumai/ces-contracts": "file:../packages/ces-contracts", "@vellumai/credential-storage": "file:../packages/credential-storage", "@vellumai/egress-proxy": "file:../packages/egress-proxy", "pino": "^9.6.0", "pino-pretty": "^13.1.3" }, "bin": { "credential-executor": "src/main.ts", "credential-executor-managed": "src/managed-main.ts" } }, "sha512-DqubS/tfBhqvjsW4jFCZToRHnl09luSRhgtvrFPuDVkldsGNX2dfESBTvNyAy4je09tenK+3/SBkhWJ0HRumiA=="],
 
-    "@vellumai/vellum-gateway": ["@vellumai/vellum-gateway@0.6.1", "", { "dependencies": { "file-type": "^21.3.0", "minimatch": "^10.2.4", "pino": "^9.6.0", "pino-pretty": "^13.1.3", "uuid": "^13.0.0" } }, "sha512-sDh8Io6bslEtlmruV5Wyaj4oewHF92h96rwkQNm86aRLbpZZNIBLvQupDIf2+9iyh7Z/nLrinZPVJJPou0uoYQ=="],
+    "@vellumai/vellum-gateway": ["@vellumai/vellum-gateway@0.6.2", "", { "dependencies": { "file-type": "^21.3.0", "minimatch": "^10.2.4", "pino": "^9.6.0", "pino-pretty": "^13.1.3", "uuid": "^13.0.0" } }, "sha512-trEjBAgItz5yRwXF4R1mWFmvl8AblzPeYGaKhTL2ld5rOh9TDMwXcwX7EtKtf/Z5qTe4p5MySlEe9Y6yDSVRsw=="],
 
     "abort-controller": ["abort-controller@3.0.0", "", { "dependencies": { "event-target-shim": "^5.0.0" } }, "sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg=="],
 
