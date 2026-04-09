@@ -129,6 +129,7 @@ struct APIKeyStepView: View {
                 .font(VFont.bodyMediumDefault)
                 .foregroundStyle(VColor.contentDefault)
                 .underline()
+                .accessibilityAddTraits(.isLink)
                 .onTapGesture {
                     NSWorkspace.shared.open(AppURLs.hostingOptionsDocs)
                 }
@@ -190,11 +191,14 @@ struct APIKeyStepView: View {
                     for: mode,
                     appleContainerEnabled: appleContainerEnabled
                 )
+                let requiresAccount = mode == .vellumCloud && (!isAuthenticated || state.skippedAuth)
                 hostingCard(
                     icon: iconForMode(mode),
                     title: title,
                     subtitle: subtitle,
-                    mode: mode
+                    mode: mode,
+                    isDisabled: requiresAccount,
+                    chipLabel: requiresAccount ? "Requires Account" : nil
                 )
             }
         }
@@ -215,11 +219,14 @@ struct APIKeyStepView: View {
         icon: VIcon,
         title: String,
         subtitle: String,
-        mode: OnboardingState.HostingMode
+        mode: OnboardingState.HostingMode,
+        isDisabled: Bool = false,
+        chipLabel: String? = nil
     ) -> some View {
-        let isSelected = state.selectedHostingMode == mode
+        let isSelected = state.selectedHostingMode == mode && !isDisabled
 
         return Button(action: {
+            guard !isDisabled else { return }
             state.selectedHostingMode = mode
         }) {
             HStack(spacing: VSpacing.sm) {
@@ -229,9 +236,20 @@ struct APIKeyStepView: View {
                         .frame(width: 20, height: 20)
 
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                        Text(title)
-                            .font(VFont.bodyMediumEmphasised)
-                            .foregroundStyle(VColor.contentEmphasized)
+                        HStack(spacing: VSpacing.sm) {
+                            Text(title)
+                                .font(VFont.bodyMediumEmphasised)
+                                .foregroundStyle(isDisabled ? VColor.contentTertiary : VColor.contentEmphasized)
+                            if let chipLabel {
+                                Text(chipLabel)
+                                    .font(VFont.labelDefault)
+                                    .foregroundStyle(VColor.contentTertiary)
+                                    .padding(.horizontal, VSpacing.sm)
+                                    .padding(.vertical, VSpacing.xxs)
+                                    .background(VColor.surfaceBase)
+                                    .clipShape(Capsule())
+                            }
+                        }
                         Text(subtitle)
                             .font(VFont.labelDefault)
                             .foregroundStyle(VColor.contentTertiary)
@@ -241,17 +259,19 @@ struct APIKeyStepView: View {
 
                 Spacer()
 
-                Circle()
-                    .fill(isSelected ? VColor.primaryBase : Color.clear)
-                    .overlay(
-                        Circle().stroke(isSelected ? VColor.primaryBase : VColor.borderElement, lineWidth: 1.5)
-                    )
-                    .overlay(
-                        isSelected
-                            ? Circle().fill(VColor.auxWhite).frame(width: 6, height: 6)
-                            : nil
-                    )
-                    .frame(width: 16, height: 16)
+                if !isDisabled {
+                    Circle()
+                        .fill(isSelected ? VColor.primaryBase : Color.clear)
+                        .overlay(
+                            Circle().stroke(isSelected ? VColor.primaryBase : VColor.borderElement, lineWidth: 1.5)
+                        )
+                        .overlay(
+                            isSelected
+                                ? Circle().fill(VColor.auxWhite).frame(width: 6, height: 6)
+                                : nil
+                        )
+                        .frame(width: 16, height: 16)
+                }
             }
             .padding(VSpacing.md)
             .frame(height: 72)
@@ -269,6 +289,8 @@ struct APIKeyStepView: View {
             )
         }
         .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.7 : 1.0)
         .pointerCursor()
     }
 

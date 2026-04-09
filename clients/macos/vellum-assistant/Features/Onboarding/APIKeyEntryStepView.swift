@@ -121,6 +121,7 @@ struct APIKeyEntryStepView: View {
                             .font(VFont.bodyMediumDefault)
                             .foregroundStyle(VColor.contentDefault)
                             .underline()
+                            .accessibilityAddTraits(.isLink)
                             .onTapGesture {
                                 NSWorkspace.shared.open(url)
                             }

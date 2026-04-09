@@ -41,7 +41,7 @@ final class OnboardingWindow {
         let hostingController = NSHostingController(rootView: flowView)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 740),
+            contentRect: NSRect(x: 0, y: 0, width: 440, height: 630),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false

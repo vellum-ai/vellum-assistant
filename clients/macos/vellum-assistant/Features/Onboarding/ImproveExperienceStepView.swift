@@ -84,8 +84,7 @@ struct ImproveExperienceStepView: View {
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentTertiary)
                 }
-                .padding(.horizontal, VSpacing.sm)
-                .padding(.vertical, VSpacing.xs)
+                .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(VColor.surfaceBase)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))

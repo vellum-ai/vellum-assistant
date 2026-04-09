@@ -127,7 +127,9 @@ struct HatchingStepView: View {
         .onChange(of: state.hatchFailed) { _, failed in
             if failed {
                 // Stop the pulse animation but keep the character visible.
-                pulseScale = 1.0
+                withAnimation(.easeOut(duration: 0.3)) {
+                    pulseScale = 1.0
+                }
             }
         }
     }
@@ -238,6 +240,9 @@ struct HatchingStepView: View {
                     }
                 }
                 .frame(maxWidth: 200, maxHeight: 6)
+                .accessibilityElement()
+                .accessibilityValue("\(Int(progress * 100)) percent")
+                .accessibilityLabel("Setup progress")
             }
             if let label = state.hatchStepLabel {
                 Text(label)
