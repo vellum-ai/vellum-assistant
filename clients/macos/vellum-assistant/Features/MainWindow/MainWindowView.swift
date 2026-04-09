@@ -585,7 +585,14 @@ struct MainWindowView: View {
     }
 
     private var coreLayoutDecoratedView: some View {
-        coreLayoutGeometryView
+        // Color.clear fills the parent's proposed size (greedy), so the
+        // min-frame reports the actual window dimensions to onGeometryChange
+        // even on the first layout pass when coreLayoutGeometryView's fixed
+        // frame still carries the initial 800×600. Using Color instead of
+        // .frame(maxWidth:maxHeight:) avoids _FlexFrameLayout which would
+        // cascade explicitAlignment queries into the LazyVStack.
+        Color.clear
+            .overlay { coreLayoutGeometryView }
             .frame(minWidth: 800, minHeight: 600)
             .onGeometryChange(for: CGSize.self) { proxy in
                 proxy.size
