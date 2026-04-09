@@ -462,10 +462,13 @@ struct ChatBubble: View, Equatable {
         let appearance = AvatarAppearanceManager.shared
         let avatarSize = ConversationAvatarFollower.avatarSize
 
+        // Ensure the tap-triggered bounce animation is preserved despite the
+        // parent LazyVStack's .transaction { $0.animation = nil } suppression.
         if appearance.customAvatarImage != nil {
             VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
                 .scaleEffect(avatarBounceScale)
                 .onTapGesture { triggerBounce() }
+                .animation(.spring(response: 0.3, dampingFraction: 0.5), value: avatarBounceScale)
         } else if let bodyShape = appearance.characterBodyShape,
                   let eyeStyle = appearance.characterEyeStyle,
                   let color = appearance.characterColor {
@@ -475,14 +478,13 @@ struct ChatBubble: View, Equatable {
                 .frame(width: avatarSize, height: avatarSize)
                 .scaleEffect(avatarBounceScale)
                 .onTapGesture { triggerBounce() }
+                .animation(.spring(response: 0.3, dampingFraction: 0.5), value: avatarBounceScale)
         } else {
             VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
                 .scaleEffect(avatarBounceScale)
                 .onTapGesture { triggerBounce() }
+                .animation(.spring(response: 0.3, dampingFraction: 0.5), value: avatarBounceScale)
         }
-        // Ensure the tap-triggered bounce animation is preserved despite the
-        // parent LazyVStack's .transaction { $0.animation = nil } suppression.
-        .animation(.spring(response: 0.3, dampingFraction: 0.5), value: avatarBounceScale)
     }
 
     private func triggerBounce() {

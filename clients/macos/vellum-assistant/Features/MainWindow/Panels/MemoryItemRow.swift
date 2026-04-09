@@ -6,8 +6,6 @@ struct MemoryItemRow: View {
     let onSelect: () -> Void
     let onDelete: () -> Void
 
-    @State private var isHovered = false
-
     private var memoryKind: MemoryKind? {
         MemoryKind(rawValue: item.kind)
     }
@@ -17,7 +15,7 @@ struct MemoryItemRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(alignment: .center, spacing: 0) {
             // Accent bar
             RoundedRectangle(cornerRadius: 2)
                 .fill(accentColor)
@@ -25,34 +23,14 @@ struct MemoryItemRow: View {
 
             // Content area
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                // Top row: subject + timestamp + delete
-                HStack(alignment: .center, spacing: VSpacing.sm) {
-                    Text(item.subject)
-                        .font(VFont.titleSmall)
-                        .foregroundStyle(VColor.contentEmphasized)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                // Subject
+                Text(item.subject)
+                    .font(VFont.titleSmall)
+                    .foregroundStyle(VColor.contentEmphasized)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
 
-                    Spacer()
-
-                    Text(item.relativeLastSeen)
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentTertiary)
-
-                    VButton(
-                        label: "Delete",
-                        iconOnly: VIcon.trash.rawValue,
-                        style: .dangerGhost,
-                        size: .compact,
-                        action: onDelete
-                    )
-                    .opacity(isHovered ? 1 : 0)
-                    .allowsHitTesting(isHovered)
-                    .accessibilityHidden(!isHovered)
-                    .accessibilityLabel("Delete memory")
-                }
-
-                // Metadata row: kind tag + confidence + source + importance dots
+                // Metadata row: kind tag + confidence + source + timestamp
                 HStack(alignment: .center, spacing: VSpacing.xs) {
                     VTag(
                         memoryKind?.label ?? item.kind.capitalized,
@@ -77,19 +55,30 @@ struct MemoryItemRow: View {
                             .foregroundStyle(VColor.contentTertiary)
                     }
 
+                    Text("\u{00B7}")
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                    Text(item.relativeLastSeen)
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+
                     Spacer()
                 }
             }
             .padding(.leading, VSpacing.md)
+
+            Spacer()
+
+            VButton(label: "Remove", leftIcon: VIcon.trash.rawValue, style: .dangerOutline, action: onDelete)
+                .padding(.trailing, VSpacing.md)
         }
         .padding(.vertical, VSpacing.xs)
         .background(
             RoundedRectangle(cornerRadius: VRadius.sm)
-                .fill(isHovered ? VColor.surfaceBase : (memoryKind?.backgroundTint ?? Color.clear))
+                .fill(memoryKind?.backgroundTint ?? Color.clear)
         )
         .contentShape(Rectangle())
         .onTapGesture { onSelect() }
-        .onHover { isHovered = $0 }
         .pointerCursor()
         .contextMenu {
             Button("Delete", role: .destructive, action: onDelete)

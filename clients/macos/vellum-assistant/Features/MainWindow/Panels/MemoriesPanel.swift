@@ -96,16 +96,9 @@ struct MemoriesPanel: View {
             filterBar
 
             // Active filter pills
-            let hasActiveFilters = selectedKind != nil || statusFilter != .active || !store.searchText.isEmpty
+            let hasActiveFilters = statusFilter != .active || !store.searchText.isEmpty
             if hasActiveFilters {
                 HStack(spacing: VSpacing.xs) {
-                    if let kind = selectedKind {
-                        filterPill(label: kind.label, color: kind.color) {
-                            withAnimation(VAnimation.fast) { selectedKind = nil }
-                            store.kindFilter = nil
-                            Task { await store.loadItems() }
-                        }
-                    }
                     if statusFilter != .active {
                         filterPill(label: statusFilter.rawValue, color: VColor.contentSecondary) {
                             statusFilter = .active
@@ -350,16 +343,12 @@ private struct KindFilterRowButton: View {
 
     @State private var isHovered = false
 
-    private var dotColor: Color {
-        kind?.color ?? VColor.contentTertiary
-    }
-
     private var activeBackground: Color {
         kind?.backgroundTint ?? VColor.surfaceActive
     }
 
     private var iconColor: Color {
-        isActive ? VColor.primaryActive : VColor.primaryBase
+        kind?.color ?? (isActive ? VColor.primaryActive : VColor.primaryBase)
     }
 
     private var textColor: Color {
@@ -368,10 +357,6 @@ private struct KindFilterRowButton: View {
 
     var body: some View {
         HStack(spacing: VSpacing.xs) {
-            Circle()
-                .fill(dotColor)
-                .frame(width: 8, height: 8)
-
             VIconView(.resolve(icon), size: VSize.iconDefault)
                 .foregroundStyle(iconColor)
                 .frame(width: VSize.iconSlot, height: VSize.iconSlot)
