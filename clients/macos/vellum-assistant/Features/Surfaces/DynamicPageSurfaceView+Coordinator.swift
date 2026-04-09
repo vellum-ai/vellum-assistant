@@ -104,6 +104,78 @@ extension DynamicPageSurfaceView {
                 return
             }
 
+            // Handle fetch_request messages from the native fetch bridge.
+            // Routes HTTP requests through URLSession to bypass WKWebView's
+            // mixed-content blocking (HTTPS page → HTTP localhost gateway).
+            if let type = body["type"] as? String, type == "fetch_request" {
+                guard let callId = body["callId"] as? String,
+                      let urlString = body["url"] as? String,
+                      let method = body["method"] as? String else {
+                    log.error("fetch_request: missing required fields: \(String(describing: body), privacy: .public)")
+                    return
+                }
+                let headers = body["headers"] as? [String: String] ?? [:]
+                let bodyString = body["body"] as? String
+
+                guard let url = URL(string: urlString) else {
+                    log.error("[vellum.fetch] Invalid URL: \(urlString, privacy: .public)")
+                    let safeCallId = callId
+                        .replacingOccurrences(of: "\\", with: "\\\\")
+                        .replacingOccurrences(of: "'", with: "\\'")
+                    webView?.evaluateJavaScript("window.vellum._rejectFetch('\(safeCallId)', 'Invalid URL')", completionHandler: nil)
+                    return
+                }
+
+                var request = URLRequest(url: url)
+                request.httpMethod = method
+                for (key, value) in headers {
+                    request.setValue(value, forHTTPHeaderField: key)
+                }
+                if let bodyString, !bodyString.isEmpty {
+                    request.httpBody = bodyString.data(using: .utf8)
+                }
+
+                let targetWebView = webView
+                Task.detached(priority: .userInitiated) {
+                    do {
+                        let (data, response) = try await URLSession.shared.data(for: request)
+                        let httpResponse = response as? HTTPURLResponse
+                        let statusCode = httpResponse?.statusCode ?? 0
+                        let statusText = HTTPURLResponse.localizedString(forStatusCode: statusCode)
+                        let responseBody = String(data: data, encoding: .utf8) ?? ""
+
+                        let escapedBody = responseBody
+                            .replacingOccurrences(of: "\\", with: "\\\\")
+                            .replacingOccurrences(of: "'", with: "\\'")
+                            .replacingOccurrences(of: "\n", with: "\\n")
+                            .replacingOccurrences(of: "\r", with: "\\r")
+                        let safeCallId = callId
+                            .replacingOccurrences(of: "\\", with: "\\\\")
+                            .replacingOccurrences(of: "'", with: "\\'")
+                        let safeStatusText = statusText
+                            .replacingOccurrences(of: "\\", with: "\\\\")
+                            .replacingOccurrences(of: "'", with: "\\'")
+
+                        let js = "window.vellum._resolveFetch('\(safeCallId)', \(statusCode), '\(safeStatusText)', '\(escapedBody)')"
+                        await MainActor.run {
+                            targetWebView?.evaluateJavaScript(js, completionHandler: nil)
+                        }
+                    } catch {
+                        let safeCallId = callId
+                            .replacingOccurrences(of: "\\", with: "\\\\")
+                            .replacingOccurrences(of: "'", with: "\\'")
+                        let errorMessage = error.localizedDescription
+                            .replacingOccurrences(of: "\\", with: "\\\\")
+                            .replacingOccurrences(of: "'", with: "\\'")
+                        let js = "window.vellum._rejectFetch('\(safeCallId)', '\(errorMessage)')"
+                        await MainActor.run {
+                            targetWebView?.evaluateJavaScript(js, completionHandler: nil)
+                        }
+                    }
+                }
+                return
+            }
+
             // Handle openExternal requests from the JS bridge.
             if let type = body["type"] as? String, type == "open_external" {
                 if sandboxMode {
