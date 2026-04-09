@@ -99,6 +99,18 @@ export async function handleGuardianActionDecision(
     return httpError("BAD_REQUEST", "action is required", 400);
   }
 
+  if (
+    isPermissionControlsV2Enabled() &&
+    action !== "approve_once" &&
+    action !== "reject"
+  ) {
+    return httpError(
+      "FORBIDDEN",
+      "permission-controls-v2 only accepts approve_once or reject for guardian actions",
+      403,
+    );
+  }
+
   // Resolve the actor's guardian principal ID. For JWT-verified actors this
   // comes from the token claims. For dev bypass (HTTP auth disabled) the
   // synthetic "dev-bypass" principal won't match the real guardian binding,

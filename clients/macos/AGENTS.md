@@ -105,7 +105,7 @@ CU execution dependencies are protocol-based for testability:
 ### Network Layer (`Network/`)
 
 All inference (both computer-use sessions and ambient analysis) goes through the assistant's HTTP API:
-- `GatewayHTTPClient` — stateless HTTP client (enum with static async methods). Must be `nonisolated`. See `clients/AGENTS.md` § "@MainActor Isolation Boundaries" and § "Networking: GatewayHTTPClient".
+- `GatewayHTTPClient` — stateless HTTP client (enum with static async methods). Naturally `nonisolated` since it has no mutable state. See `clients/AGENTS.md` § "Networking: GatewayHTTPClient".
 - `MessageTypes.swift` — Codable structs for HTTP request/response types: `host_cu_request`, `host_cu_result`, `cu_error`, `ambient_analyze`, `trace_event`, etc.
 - `Network/Generated/GeneratedAPITypes.swift` — Codable Swift types used for JSON serialization. Use these generated types directly in Swift code instead of hand-writing structs.
 
@@ -242,7 +242,7 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 
 ### Rules
 
-- **`@MainActor` on view models and UI state managers only** — see `clients/AGENTS.md` § "@MainActor Isolation Boundaries" for the full rule, reference links, and examples.
+- **`@MainActor` on stateful types (view models, managers, clients with mutable state)** — see `clients/AGENTS.md` § "@MainActor Isolation Boundaries" for the full rule, reference links, and examples.
 - **Nested ObservableObject**: When a view reads properties from a nested ObservableObject (e.g. `conversationManager.activeViewModel.messages`), the parent must subscribe to the child's `objectWillChange` and forward it. See `ConversationManager.subscribeToActiveViewModel()`.
 - **`@Observable` → `ObservableObject` bridge**: When an `@Observable` child is owned by an `ObservableObject` parent, use a recursive `withObservationTracking` loop to forward changes. See `MainWindowState.observeNavigationHistory()`.
 - **Dependency injection**: Pass dependencies through init parameters, not singletons. Session dependencies use protocols for testability.
@@ -252,6 +252,14 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
   - **Background**: Use a single `.background { }` with a `ZStack` inside instead of chaining multiple `.background()` calls.
   - **No-op backgrounds**: Never add invisible backgrounds like `.background(Capsule().fill(Color.clear))` — they create layout wrappers with zero visual effect.
 - **No animated insertions in chat `LazyVStack`**: ANY animated insertion/removal in a `LazyVStack` triggers `motionVectors` — an O(n) `sizeThatFits` measurement over ALL children that defeats lazy loading and causes multi-minute hangs. The chat message list uses `.transaction { $0.animation = nil }` to suppress all insertion animations. Do NOT remove that modifier or wrap content mutations in `withAnimation` that flows into the `LazyVStack`. See [`.transaction` docs](https://developer.apple.com/documentation/swiftui/view/transaction(_:)) and [WWDC23: Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/).
+- **No `.frame(maxWidth:, alignment:)` inside LazyVStack cell hierarchy**: `.frame(maxWidth:)` creates [`_FlexFrameLayout`](https://developer.apple.com/documentation/swiftui/view/frame(minwidth:idealwidth:maxwidth:minheight:idealheight:maxheight:alignment:)) whose `placement()` queries each child's explicit alignment via [`ViewDimensions.subscript`](https://developer.apple.com/documentation/swiftui/viewdimensions). Nested FlexFrames recurse O(depth × children) per layout pass. **This includes `.frame(maxWidth: X)` with no explicit alignment** — it defaults to `.center`, still triggering the query. See [WWDC23: Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/). Safe alternatives:
+  - `.frame(width: exactWidth)` — [`_FrameLayout`](https://developer.apple.com/documentation/swiftui/view/frame(width:height:alignment:)), no alignment query.
+  - `HStack { content; Spacer(minLength: 0) }` — leading alignment without queries.
+  - `HStack { Spacer(minLength: 0); content }` — trailing alignment without queries.
+  - [`.containerRelativeFrame(.horizontal)`](https://developer.apple.com/documentation/swiftui/view/containerrelativeframe(_:alignment:)) — width constraint without FlexFrame.
+  
+  Never trade `HStack+Spacer` for `.frame(alignment:)` in lazy containers — fewer layout nodes is not worth O(n) recursive alignment queries per node.
+- **Use `.frame(width:)` (not `.frame(maxWidth:)`) on ScrollView containers with LazyVStack**: `.frame(width:)` creates [`_FrameLayout`](https://developer.apple.com/documentation/swiftui/view/frame(width:height:alignment:)) which returns `bounds.midX` for alignment without querying children — the alignment cascade stops here. `.frame(maxWidth:)` creates [`_FlexFrameLayout`](https://developer.apple.com/documentation/swiftui/view/frame(minwidth:idealwidth:maxwidth:minheight:idealheight:maxheight:alignment:)) which queries `explicitAlignment` on children, cascading O(n) through the entire `LazyVStack` subtree on every layout pass. Use a computed width (e.g. `min(containerWidth, maxWidth)`) to get responsive behavior without `_FlexFrameLayout`. Do NOT use a custom `Layout` barrier — custom `Layout` containers between the outer modifier chain and the `ScrollView` disrupt SwiftUI's internal scroll infrastructure, causing intermittent cell materialization failures.
 - **Gallery**: When adding or modifying a design system primitive/component, update the corresponding Gallery section file (`Gallery/Sections/`) so the visual catalog stays current.
 - **Accessibility**: See `clients/AGENTS.md` § [Accessibility](../AGENTS.md#accessibility) for the full checklist (labels, hidden elements, custom interactions, AppKit panels). All rules there apply to macOS components.
 

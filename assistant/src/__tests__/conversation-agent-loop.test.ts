@@ -201,7 +201,7 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
 }));
 
 mock.module("../daemon/date-context.js", () => ({
-  formatTurnTimestamp: () => "2026-01-01 (Thu) 00:00:00 +00:00 (UTC)",
+  formatTurnTimestamp: () => "2026-01-01 (Thursday) 00:00:00 +00:00 (UTC)",
 }));
 
 mock.module("../daemon/history-repair.js", () => ({

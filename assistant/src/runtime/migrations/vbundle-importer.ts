@@ -24,6 +24,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 
+import { sanitizeConfigForTransfer } from "../../config/sanitize-for-transfer.js";
 import type { PathResolver } from "./vbundle-import-analyzer.js";
 import type { ManifestType, VBundleTarEntry } from "./vbundle-validator.js";
 import { validateVBundle } from "./vbundle-validator.js";
@@ -321,9 +322,20 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
       }
     }
 
+    // Sanitize config files to strip environment-specific fields (defense-in-depth)
+    let dataToWrite: Uint8Array = archiveEntry.data;
+    if (
+      fileEntry.path === "workspace/config.json" ||
+      fileEntry.path === "config/settings.json"
+    ) {
+      const configJson = new TextDecoder().decode(archiveEntry.data);
+      const sanitized = sanitizeConfigForTransfer(configJson);
+      dataToWrite = new TextEncoder().encode(sanitized);
+    }
+
     // Write the file
     try {
-      writeFileSync(diskPath, archiveEntry.data);
+      writeFileSync(diskPath, dataToWrite);
     } catch (err) {
       return {
         ok: false,
@@ -341,14 +353,17 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     }
 
     // Step 3: Post-write integrity check — verify the written file
+    // Use the SHA of the data we actually wrote (which may differ from the
+    // manifest SHA if the config was sanitized during import).
+    const expectedSha256 = sha256Hex(dataToWrite);
     try {
       const writtenData = new Uint8Array(readFileSync(diskPath));
       const writtenSha256 = sha256Hex(writtenData);
 
-      if (writtenSha256 !== fileEntry.sha256) {
+      if (writtenSha256 !== expectedSha256) {
         warnings.push(
           `Post-write integrity warning for "${fileEntry.path}": ` +
-            `expected SHA-256 ${fileEntry.sha256}, got ${writtenSha256}`,
+            `expected SHA-256 ${expectedSha256}, got ${writtenSha256}`,
         );
       }
     } catch {
@@ -361,8 +376,8 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
       path: fileEntry.path,
       disk_path: diskPath,
       action,
-      size: archiveEntry.size,
-      sha256: fileEntry.sha256,
+      size: dataToWrite.length,
+      sha256: expectedSha256,
       backup_path: backupPath,
     });
   }

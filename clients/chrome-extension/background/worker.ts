@@ -22,25 +22,38 @@
 
 import {
   signInCloud,
+  refreshCloudToken,
   getStoredToken as getStoredCloudToken,
+  getStoredTokenRaw as getStoredCloudTokenRaw,
+  CLOUD_AUTH_FAILURE_CLOSE_CODES,
   type CloudAuthConfig,
   type StoredCloudToken,
 } from './cloud-auth.js';
 import {
+  decideCloudReconnectAction,
+} from './cloud-reconnect-decision.js';
+import {
   bootstrapLocalToken,
+  getStoredLocalToken,
   type StoredLocalToken,
 } from './self-hosted-auth.js';
 import {
   createHostBrowserDispatcher,
   type HostBrowserDispatcher,
+  type HostBrowserEventEnvelope,
   type HostBrowserRequestEnvelope,
   type HostBrowserCancelEnvelope,
   type HostBrowserResultEnvelope,
+  type HostBrowserSessionInvalidatedEnvelope,
 } from './host-browser-dispatcher.js';
 import {
   RelayConnection,
+  postHostBrowserEvent,
   postHostBrowserResult,
+  postHostBrowserSessionInvalidated,
   type RelayMode,
+  type RelayReconnectContext,
+  type RelayReconnectDecision,
 } from './relay-connection.js';
 
 // Cloud OAuth defaults — kept here so the popup can stay a thin client and the
@@ -51,6 +64,74 @@ const CLOUD_GATEWAY_BASE_URL = 'https://api.vellum.ai';
 const CLOUD_OAUTH_CLIENT_ID = 'vellum-chrome-extension';
 
 const DEFAULT_RELAY_PORT = 7830;
+
+// ── Stable client instance id ──────────────────────────────────────
+//
+// Generated once per extension install and persisted in
+// chrome.storage.local so it survives service-worker teardown and
+// browser restarts. Sent on every WebSocket handshake against the
+// runtime's `/v1/browser-relay` endpoint as a `clientInstanceId` query
+// param. The runtime uses it to key its ChromeExtensionRegistry under
+// (guardianId, clientInstanceId) pairs so multiple parallel installs
+// for the same guardian (two Chrome profiles, two desktops) don't
+// evict each other on register/unregister.
+//
+// The value is a UUIDv4, generated via crypto.randomUUID() which is
+// available in MV3 service workers. The key is intentionally distinct
+// from any persisted auth token so the instance id survives re-pair
+// and re-sign-in flows.
+const CLIENT_INSTANCE_ID_KEY = 'vellum.clientInstanceId';
+
+/**
+ * Read-through cache for the stable client instance id. The value is
+ * lazily materialized on first access and persisted in
+ * chrome.storage.local; subsequent reads hit the in-memory cache so
+ * the hot connect path doesn't have to await storage.
+ */
+let cachedClientInstanceId: string | null = null;
+
+async function getOrCreateClientInstanceId(): Promise<string> {
+  if (cachedClientInstanceId) return cachedClientInstanceId;
+  const stored = await chrome.storage.local.get(CLIENT_INSTANCE_ID_KEY);
+  const existing = stored[CLIENT_INSTANCE_ID_KEY];
+  if (typeof existing === 'string' && existing.length > 0) {
+    cachedClientInstanceId = existing;
+    return existing;
+  }
+  const fresh = crypto.randomUUID();
+  await chrome.storage.local.set({ [CLIENT_INSTANCE_ID_KEY]: fresh });
+  cachedClientInstanceId = fresh;
+  console.log(`[vellum-relay] Generated stable clientInstanceId: ${fresh}`);
+  return fresh;
+}
+
+// Storage key used to surface the most recent auth-related relay error
+// to the popup. The popup reads this on open and shows it next to the
+// cloud sign-in button. Cleared on a successful connect so stale errors
+// don't linger after the user re-signs in.
+const RELAY_AUTH_ERROR_KEY = 'vellum.relayAuthError';
+
+interface RelayAuthError {
+  message: string;
+  mode: 'cloud' | 'self-hosted';
+  at: number;
+}
+
+async function setRelayAuthError(error: RelayAuthError): Promise<void> {
+  try {
+    await chrome.storage.local.set({ [RELAY_AUTH_ERROR_KEY]: error });
+  } catch (err) {
+    console.warn('[vellum-relay] Failed to persist relay auth error', err);
+  }
+}
+
+async function clearRelayAuthError(): Promise<void> {
+  try {
+    await chrome.storage.local.remove(RELAY_AUTH_ERROR_KEY);
+  } catch (err) {
+    console.warn('[vellum-relay] Failed to clear relay auth error', err);
+  }
+}
 
 // ── Mode selection ─────────────────────────────────────────────────
 //
@@ -134,7 +215,20 @@ async function dispatchHostBrowserResult(
   }
 
   // Self-hosted fallback: POST directly to the local daemon using live
-  // creds.
+  // creds. Prefer the capability token from the native-messaging pair
+  // flow; fall back to the bearer token stored under the gateway
+  // `/v1/browser-relay/token` path for installs that haven't been
+  // paired via native messaging yet.
+  const local = await getStoredLocalToken();
+  if (local) {
+    const fallbackPort = local.assistantPort ?? (await getRelayPort());
+    const fallbackMode: RelayMode = {
+      kind: 'self-hosted',
+      baseUrl: `http://127.0.0.1:${fallbackPort}`,
+      token: local.token,
+    };
+    return postHostBrowserResult(fallbackMode, null, result);
+  }
   const [token, port] = await Promise.all([getBearerToken(), getRelayPort()]);
   const fallbackMode: RelayMode = {
     kind: 'self-hosted',
@@ -144,9 +238,43 @@ async function dispatchHostBrowserResult(
   return postHostBrowserResult(fallbackMode, null, result);
 }
 
+/**
+ * Forward a `host_browser_event` envelope over the active relay
+ * WebSocket. Events are fire-and-forget: if no connection is open the
+ * envelope is dropped. The extension-side dispatcher calls this hook
+ * for every `chrome.debugger.onEvent` firing (see PR10); the runtime
+ * receives the frame via the WS handler in `http-server.ts` and fans
+ * it out through the module-level browser-session event bus.
+ *
+ * We intentionally do NOT fall back to a POST here because CDP events
+ * are lossy — Chrome will emit many more before the next reconnect,
+ * so queuing a POST during a WebSocket outage just piles up stale
+ * notifications that the runtime cannot act on.
+ */
+function dispatchHostBrowserEvent(envelope: HostBrowserEventEnvelope): void {
+  postHostBrowserEvent(relayConnection, envelope);
+}
+
+/**
+ * Forward a `host_browser_session_invalidated` envelope over the
+ * active relay WebSocket. Same fire-and-forget semantics as
+ * {@link dispatchHostBrowserEvent} — a dropped invalidation is
+ * recoverable because the extension's own attach cache is cleared
+ * in lockstep (see `host-browser-dispatcher.ts`), and the runtime's
+ * next command will fail fast with "Unknown browser session" when
+ * a stale session handle is reused after a reconnect.
+ */
+function dispatchHostBrowserSessionInvalidated(
+  envelope: HostBrowserSessionInvalidatedEnvelope,
+): void {
+  postHostBrowserSessionInvalidated(relayConnection, envelope);
+}
+
 const hostBrowserDispatcher: HostBrowserDispatcher = createHostBrowserDispatcher({
   resolveTarget: resolveHostBrowserTarget,
   postResult: dispatchHostBrowserResult,
+  forwardCdpEvent: dispatchHostBrowserEvent,
+  forwardSessionInvalidated: dispatchHostBrowserSessionInvalidated,
 });
 
 // ── Storage helpers ─────────────────────────────────────────────────
@@ -204,13 +332,134 @@ async function buildRelayModeConfig(kind: RelayModeKind): Promise<RelayMode> {
       token: stored?.token ?? null,
     };
   }
-  // Self-hosted: re-use the existing local-token flow. The plan explicitly
-  // defers the switch to PR 13's getStoredLocalToken() to a follow-up.
-  const [token, port] = await Promise.all([getBearerToken(), getRelayPort()]);
+
+  // Self-hosted: prefer the capability token the native-messaging pair
+  // flow persisted (see self-hosted-auth.ts). The stored token already
+  // carries the assistant runtime port the helper used when it
+  // pair-bootstrapped, so we target the runtime directly.
+  //
+  // Compatibility branch: if there is no stored capability token yet
+  // (e.g. a chrome profile that hasn't been paired via native
+  // messaging) we fall back to the `bearerToken` / `relayPort` storage
+  // keys so installs without a paired helper keep working.
+  const local = await getStoredLocalToken();
+  if (local) {
+    const port = local.assistantPort ?? (await getRelayPort());
+    return {
+      kind: 'self-hosted',
+      baseUrl: `http://127.0.0.1:${port}`,
+      token: local.token,
+    };
+  }
+  const [legacyToken, port] = await Promise.all([
+    getBearerToken(),
+    getRelayPort(),
+  ]);
   return {
     kind: 'self-hosted',
     baseUrl: `http://127.0.0.1:${port}`,
-    token,
+    token: legacyToken,
+  };
+}
+
+// WebSocket close code 1006 ("abnormal closure") is what browsers
+// report when a WebSocket connection drops without a clean close
+// frame. Both the gateway and the runtime reject invalid/expired
+// actor tokens with an HTTP 401 BEFORE the WebSocket upgrade, which
+// browsers surface to JS as 1006 — not 4001/4002/4003. So a cloud
+// client with a rotated/expired token sees 1006, not an entry in
+// CLOUD_AUTH_FAILURE_CLOSE_CODES. We can't unconditionally treat 1006
+// as an auth failure, though: it also fires for transient network
+// blips (cable unplugged, Chrome sleep/wake, flaky coffee-shop Wi-Fi).
+//
+// The heuristic below is:
+//   1. On the first 1006 close we haven't successfully recovered
+//      from, try a token refresh — if the token was the problem a
+//      fresh one will let the next connect succeed and the counter
+//      will reset.
+//   2. After CLOUD_REFRESH_ATTEMPT_CAP consecutive failed refresh
+//      attempts we stop reconnecting and abort with an actionable
+//      sign-in prompt instead of silently hammering the gateway.
+//   3. The counter resets to zero every time a socket successfully
+//      opens (see the `onOpen` wiring in `createRelayConnection`).
+//
+// The pure action-picker lives in `cloud-reconnect-decision.ts` so
+// unit tests can exercise the ordering without dragging in the
+// service worker surface. This module is responsible for the async
+// side effects (reading storage, calling refreshCloudToken, etc.).
+
+/**
+ * Count of consecutive refresh attempts made from
+ * {@link cloudReconnectHook} since the last successful WebSocket open.
+ * Reset to 0 on every `onOpen` callback so a short-lived successful
+ * connection effectively re-arms the 1006 recovery path. Exported via
+ * {@link resetCloudRefreshAttempts} for the worker's own wiring.
+ */
+let cloudRefreshAttempts = 0;
+
+function resetCloudRefreshAttempts(): void {
+  cloudRefreshAttempts = 0;
+}
+
+/**
+ * Reconnect hook for cloud mode. Called by {@link RelayConnection} when
+ * the WebSocket closes unexpectedly — responsible for deciding whether
+ * to reuse the existing token, swap in a freshly refreshed one, or
+ * abort the reconnect loop entirely so the popup can prompt the user
+ * to sign in again.
+ *
+ * The pure decision (keep / refresh / abort) is delegated to
+ * {@link decideCloudReconnectAction}, which is covered by a direct
+ * unit test. This function is the async side-effect wrapper that
+ * reads the stored token, consults the decision helper, fires the
+ * refresh network call on the `refresh` branch, and maps the
+ * outcomes onto a {@link RelayReconnectDecision} for
+ * {@link RelayConnection}.
+ */
+async function cloudReconnectHook(
+  ctx: RelayReconnectContext,
+): Promise<RelayReconnectDecision> {
+  const stored = await getStoredCloudTokenRaw();
+  const action = decideCloudReconnectAction({
+    ctx,
+    stored,
+    attempts: cloudRefreshAttempts,
+  });
+  if (action.kind === 'keep') {
+    // Transient network blip with a still-valid token. Keep the
+    // existing token and let the relay helper retry.
+    return { kind: 'keep' };
+  }
+  if (action.kind === 'abort') {
+    // Budget-exhausted short-circuit for repeated 1006 closes — the
+    // decision helper has already generated an actionable sign-in
+    // prompt message.
+    return { kind: 'abort', error: action.error };
+  }
+
+  // action.kind === 'refresh'
+  cloudRefreshAttempts += 1;
+  const refreshed = await refreshCloudToken({
+    gatewayBaseUrl: CLOUD_GATEWAY_BASE_URL,
+    clientId: CLOUD_OAUTH_CLIENT_ID,
+  });
+  if (refreshed) {
+    console.log('[vellum-relay] Cloud token refreshed after reconnect');
+    return { kind: 'refreshed', token: refreshed.token };
+  }
+
+  // Non-interactive refresh is impossible — user must sign in again.
+  const authFailure = CLOUD_AUTH_FAILURE_CLOSE_CODES.has(ctx.code);
+  const abnormal = ctx.code === 1006;
+  const reason = authFailure
+    ? 'Cloud relay closed with an auth-failure code'
+    : abnormal
+      ? 'Cloud relay closed abnormally (code 1006) and token refresh failed'
+      : 'Stored cloud token has expired';
+  return {
+    kind: 'abort',
+    error:
+      `${reason}. Please sign in with Vellum (cloud) again from the extension popup to reconnect.`,
   };
 }
 
@@ -218,11 +467,23 @@ async function buildRelayModeConfig(kind: RelayModeKind): Promise<RelayMode> {
  * Wire a RelayConnection up with the worker's message/open/close
  * callbacks. Does NOT start it.
  */
-function createRelayConnection(mode: RelayMode): RelayConnection {
+function createRelayConnection(
+  mode: RelayMode,
+  clientInstanceId: string,
+): RelayConnection {
   return new RelayConnection({
     mode,
+    clientInstanceId,
     onOpen: () => {
       console.log(`[vellum-relay] Connected (${mode.kind})`);
+      // A successful connect means any persisted auth-error is stale
+      // — clear it so the popup stops showing the sign-in prompt.
+      void clearRelayAuthError();
+      // Re-arm the 1006 recovery path. A short-lived successful
+      // connection counts as "we recovered" even if the socket drops
+      // seconds later; the next 1006 should try a fresh refresh
+      // instead of inheriting the previous chain's attempt count.
+      resetCloudRefreshAttempts();
     },
     onMessage: (data) => {
       // Fire-and-forget dispatch — wrap with .catch so a future refactor
@@ -232,20 +493,62 @@ function createRelayConnection(mode: RelayMode): RelayConnection {
         console.warn('[vellum-relay] handleServerMessage failed', err);
       });
     },
-    onClose: (code, reason) => {
-      console.log(`[vellum-relay] Disconnected (code=${code}, reason=${reason || 'n/a'})`);
-    },
-    onReconnect: async () => {
-      // Self-hosted: attempt to mint a fresh gateway token. Cloud: no-op
-      // for now — the cloud token is stored independently via OAuth and
-      // we'd rather surface the failure to the user than silently loop.
-      if (mode.kind === 'self-hosted') {
-        const ok = await refreshToken();
-        if (ok) {
-          const refreshed = await getBearerToken();
-          return refreshed;
-        }
+    onClose: (code, reason, authError) => {
+      console.log(
+        `[vellum-relay] Disconnected (code=${code}, reason=${reason || 'n/a'})`,
+      );
+      if (authError) {
+        // The reconnect hook decided refresh is impossible — persist
+        // the error so the popup can surface it, and mark ourselves
+        // as not-trying-to-connect. The user will press Connect again
+        // after re-signing in.
+        console.warn(`[vellum-relay] Auth refresh impossible: ${authError}`);
+        shouldConnect = false;
+        void setRelayAuthError({
+          message: authError,
+          // Read the live mode from the connection if it's still
+          // around — by the time onClose fires the connection will
+          // have already flipped its own closedByCaller flag, so the
+          // module-level `relayMode` is a safe fallback.
+          mode: relayMode === 'cloud' ? 'cloud' : 'self-hosted',
+          at: Date.now(),
+        });
+        // Clear the module-level reference so a subsequent
+        // connect() starts from a clean slate instead of trying to
+        // reuse a connection we've already marked dead.
+        relayConnection = null;
       }
+    },
+    onReconnect: async (ctx) => {
+      // Cloud mode: refresh the stored OAuth JWT non-interactively
+      // when it's stale or the server closed with an auth-failure
+      // code. If refresh is impossible we abort the reconnect loop
+      // and surface the error to the popup — see cloudReconnectHook.
+      //
+      // Self-hosted mode uses a two-step refresh ladder:
+      //  1. Re-read the stored capability token from
+      //     `self-hosted-auth.ts`. The token may have been rotated by
+      //     a re-pair in another tab, or it may simply still be valid
+      //     and the drop was a transient server bounce.
+      //  2. Fall back to the gateway `/v1/browser-relay/token`
+      //     refresh for installs without a paired native-messaging
+      //     helper.
+      //
+      // Pull the live mode through getCurrentMode so a setMode() that
+      // flipped us to cloud mid-reconnect still routes through the
+      // right branch — mirrors dispatchHostBrowserResult's pattern.
+      const liveMode = relayConnection?.getCurrentMode()?.kind ?? mode.kind;
+      if (liveMode === 'cloud') {
+        return cloudReconnectHook(ctx);
+      }
+      const local = await getStoredLocalToken();
+      if (local?.token) return local.token;
+      const ok = await refreshToken();
+      if (ok) {
+        const refreshed = await getBearerToken();
+        return refreshed;
+      }
+      return null;
     },
   });
 }
@@ -273,6 +576,19 @@ function missingTokenMessage(kind: RelayModeKind): string {
 
 async function connect(): Promise<void> {
   if (relayConnection && relayConnection.isOpen()) return;
+  // Defensive: a fresh connect() always starts the 1006 refresh
+  // budget from scratch. The counter is normally reset from onOpen,
+  // but if a previous session exhausted the cap (so onOpen never
+  // fired for the aborted attempt) and the user then signed in again
+  // and clicked Connect, the carried-over counter would cause the
+  // first 1006 in the new session to immediately land in the abort
+  // branch. Resetting here guarantees a fresh Connect gets the full
+  // refresh budget regardless of prior session state.
+  resetCloudRefreshAttempts();
+  // A fresh connect attempt supersedes any previously persisted
+  // auth-error — the user either just signed back in or is explicitly
+  // retrying, and we want the popup to stop nagging.
+  await clearRelayAuthError();
   // Re-read the live relay mode from storage at connect time. The
   // module-level `relayMode` variable is only refreshed asynchronously
   // via chrome.storage.onChanged, so trusting it races against a popup
@@ -296,7 +612,11 @@ async function connect(): Promise<void> {
   if (relayConnection) {
     relayConnection.close(1000, 'reconfigured');
   }
-  relayConnection = createRelayConnection(mode);
+  // Resolve the stable per-install id up front so every handshake
+  // (including reconnects on the freshly constructed RelayConnection)
+  // sends the same value. The call is cached after the first lookup.
+  const clientInstanceId = await getOrCreateClientInstanceId();
+  relayConnection = createRelayConnection(mode, clientInstanceId);
   relayConnection.start();
 }
 
@@ -433,7 +753,14 @@ async function bootstrap(): Promise<void> {
   if (autoConnect !== true) return;
   shouldConnect = true;
   if (relayMode === 'self-hosted') {
-    await refreshToken();
+    // Only mint a fresh gateway JWT if the capability-token path isn't
+    // usable yet. The capability token is the default auth for
+    // self-hosted installs with a paired native-messaging helper; the
+    // gateway refresh is only needed for installs without one.
+    const local = await getStoredLocalToken();
+    if (!local) {
+      await refreshToken();
+    }
   }
   try {
     await connect();

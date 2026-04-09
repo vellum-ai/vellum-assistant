@@ -45,13 +45,13 @@ If you use `send_notification` for any of these, the notification fires immediat
 
 ## Time Grounding Source
 
-Use the `timestamp:` field from the injected `<turn_context>` block as the authoritative clock source. The timestamp format is:
+Use the `current_time:` field from the injected `<turn_context>` block as the authoritative clock source. The format is:
 
 ```
-timestamp: 2026-04-02 (Wed) 14:30:00 -05:00 (America/Chicago)
+current_time: 2026-04-02 (Wednesday) 14:30:00 -05:00 (America/Chicago)
 ```
 
-It contains the date, abbreviated weekday, local time (HH:MM:SS), UTC offset, and IANA timezone name in parentheses.
+It contains the date, weekday name, local time (HH:MM:SS), UTC offset, and IANA timezone name in parentheses.
 
 **Timezone confidence check:** The timezone shown may be the assistant host's timezone rather than the user's actual timezone (this happens when the user hasn't configured `Settings → Appearance → User timezone`). If you have no prior confirmation of the user's timezone (from conversation history or memory) and the request is locale-specific (e.g. "at 3pm", "tomorrow morning", "tonight"), confirm the timezone once before scheduling. If the user confirms, suggest saving it in Settings → Appearance → User timezone so future requests resolve correctly without re-asking.
 
@@ -59,7 +59,7 @@ It contains the date, abbreviated weekday, local time (HH:MM:SS), UTC offset, an
 
 When the user says "in X minutes/hours", compute the ISO 8601 timestamp yourself:
 
-- Take the time and offset from the `timestamp:` field (e.g. `23:26:00 -05:00`)
+- Take the time and offset from the `current_time:` field (e.g. `23:26:00 -05:00`)
 - Add the requested offset
 - Format as ISO 8601 with timezone: `2025-03-15T09:05:00-05:00`
 - Pass to `reminder_create` as `fire_at`

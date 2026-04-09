@@ -25,6 +25,7 @@
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
+import { verifyHostBrowserCapability } from "../capability-tokens.js";
 import { extractBearerToken } from "../middleware/auth.js";
 import { buildAuthContext } from "./context.js";
 import { resolveScopeProfile } from "./scopes.js";
@@ -185,4 +186,101 @@ export function authenticateRequest(req: Request): AuthenticateResult {
   }
 
   return { ok: true, context: contextResult.context };
+}
+
+// ---------------------------------------------------------------------------
+// Capability-token-aware auth for /v1/host-browser-result
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a synthetic AuthContext from a verified host_browser capability
+ * claim. The resulting context is shaped to look like an
+ * `actor_client_v1` actor so downstream route policy (which requires
+ * `approval.write`) and `requireBoundGuardian` (which compares
+ * `actorPrincipalId` against the bound guardian) both accept it.
+ *
+ * The capability token already carries its own HMAC-checked expiry, so
+ * there is no policy-epoch gate to apply here — we pin `policyEpoch` to
+ * `Number.MAX_SAFE_INTEGER` the same way the dev-bypass context does.
+ */
+function buildCapabilityAuthContext(guardianId: string): AuthContext {
+  return {
+    subject: `actor:${DAEMON_INTERNAL_ASSISTANT_ID}:${guardianId}`,
+    principalType: "actor",
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+    actorPrincipalId: guardianId,
+    scopeProfile: "actor_client_v1",
+    scopes: resolveScopeProfile("actor_client_v1"),
+    policyEpoch: Number.MAX_SAFE_INTEGER,
+  };
+}
+
+/**
+ * Authenticate a request that is allowed to present either a JWT or a
+ * host_browser capability token. This is the auth entry point for
+ * `/v1/host-browser-result` POST specifically — the chrome extension
+ * stores a capability token (minted by the
+ * `/v1/browser-extension-pair` flow) rather than a daemon JWT, so the
+ * POST fallback used when the `/v1/browser-relay` WebSocket is
+ * unavailable would otherwise 401 through the JWT-only
+ * `authenticateRequest` path.
+ *
+ * Order of operations (mirrors `handleBrowserRelayUpgrade`):
+ *   1. Extract the bearer token. Missing header → 401.
+ *   2. Try `verifyHostBrowserCapability(token)` first. If it succeeds,
+ *      derive `guardianId` from the capability claims and synthesize an
+ *      AuthContext.
+ *   3. Otherwise fall through to the standard JWT path so daemon-minted
+ *      JWTs (gateway-proxied or direct) continue to work as a
+ *      regression-safe compatibility path.
+ *
+ * Dev bypass (`isHttpAuthDisabled()`) is honored the same way as
+ * `authenticateRequest` — we delegate to it directly to pick up the
+ * shared synthetic dev-bypass context.
+ */
+export function authenticateHostBrowserResultRequest(
+  req: Request,
+): AuthenticateResult {
+  if (isHttpAuthDisabled()) {
+    return { ok: true, context: buildDevBypassContext() };
+  }
+
+  const rawToken = extractBearerToken(req);
+  if (!rawToken) {
+    log.warn(
+      { reason: "missing_token", path: "/v1/host-browser-result" },
+      "Host browser result auth denied: missing Authorization header",
+    );
+    return {
+      ok: false,
+      response: Response.json(
+        {
+          error: {
+            code: "UNAUTHORIZED",
+            message: "Missing Authorization header",
+          },
+        },
+        { status: 401 },
+      ),
+    };
+  }
+
+  // 1) Capability-token path (self-hosted default). The chrome
+  //    extension presents the token it received from the native
+  //    messaging pair flow. We derive `actorPrincipalId` from the
+  //    capability claims directly — the claims are HMAC-signed by the
+  //    same daemon so there is no cross-tenant risk.
+  const capabilityClaims = verifyHostBrowserCapability(rawToken);
+  if (capabilityClaims) {
+    return {
+      ok: true,
+      context: buildCapabilityAuthContext(capabilityClaims.guardianId),
+    };
+  }
+
+  // 2) JWT compatibility path. Fall back to the existing daemon/gateway
+  //    JWT verification so cloud callers and any legacy self-hosted
+  //    clients still holding a daemon JWT continue to work. Any 401
+  //    emitted here already includes the JWT-specific reason.
+  return authenticateRequest(req);
 }

@@ -10,8 +10,13 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 
 import {
   getStoredToken,
+  getStoredTokenRaw,
   clearStoredToken,
   signInCloud,
+  refreshCloudToken,
+  isCloudTokenStale,
+  CLOUD_TOKEN_STALE_WINDOW_MS,
+  CLOUD_AUTH_FAILURE_CLOSE_CODES,
   type CloudAuthConfig,
   type StoredCloudToken,
 } from '../cloud-auth.js';
@@ -204,5 +209,144 @@ describe('clearStoredToken', () => {
   test('is a no-op when nothing is stored', async () => {
     await clearStoredToken();
     expect(fakeStorage.data[STORAGE_KEY]).toBeUndefined();
+  });
+});
+
+describe('getStoredTokenRaw', () => {
+  test('returns an expired token (unlike getStoredToken)', async () => {
+    const expired: StoredCloudToken = {
+      token: 'expired',
+      expiresAt: Date.now() - 1_000,
+      guardianId: 'g-1',
+    };
+    fakeStorage.data[STORAGE_KEY] = expired;
+
+    // getStoredToken hides expired tokens…
+    expect(await getStoredToken()).toBeNull();
+    // …but getStoredTokenRaw surfaces them so the reconnect path
+    // can tell "signed in but expired" apart from "never signed in".
+    expect(await getStoredTokenRaw()).toEqual(expired);
+  });
+
+  test('returns null when nothing is stored', async () => {
+    expect(await getStoredTokenRaw()).toBeNull();
+  });
+
+  test('returns null when the stored value is malformed', async () => {
+    fakeStorage.data[STORAGE_KEY] = { token: 42, expiresAt: 'soon' };
+    expect(await getStoredTokenRaw()).toBeNull();
+  });
+});
+
+describe('isCloudTokenStale', () => {
+  test('null token counts as stale', () => {
+    expect(isCloudTokenStale(null)).toBe(true);
+  });
+
+  test('token expiring inside the stale window counts as stale', () => {
+    const now = 1_000_000;
+    const token: StoredCloudToken = {
+      token: 't',
+      expiresAt: now + CLOUD_TOKEN_STALE_WINDOW_MS - 1,
+      guardianId: 'g-1',
+    };
+    expect(isCloudTokenStale(token, now)).toBe(true);
+  });
+
+  test('token expiring well after the stale window is fresh', () => {
+    const now = 1_000_000;
+    const token: StoredCloudToken = {
+      token: 't',
+      expiresAt: now + CLOUD_TOKEN_STALE_WINDOW_MS * 10,
+      guardianId: 'g-1',
+    };
+    expect(isCloudTokenStale(token, now)).toBe(false);
+  });
+
+  test('already-expired token counts as stale', () => {
+    const now = 1_000_000;
+    const token: StoredCloudToken = {
+      token: 't',
+      expiresAt: now - 1,
+      guardianId: 'g-1',
+    };
+    expect(isCloudTokenStale(token, now)).toBe(true);
+  });
+});
+
+describe('CLOUD_AUTH_FAILURE_CLOSE_CODES', () => {
+  test('covers the gateway auth-failure application codes', () => {
+    // Mirrors the codes emitted by the gateway's browser-relay
+    // handshake. Pinned here so a future refactor can't accidentally
+    // drop one without updating this invariant.
+    expect(CLOUD_AUTH_FAILURE_CLOSE_CODES.has(4001)).toBe(true);
+    expect(CLOUD_AUTH_FAILURE_CLOSE_CODES.has(4002)).toBe(true);
+    expect(CLOUD_AUTH_FAILURE_CLOSE_CODES.has(4003)).toBe(true);
+    // 1008 ("policy violation") is included for intermediaries that
+    // rewrite application codes back to the standard range.
+    expect(CLOUD_AUTH_FAILURE_CLOSE_CODES.has(1008)).toBe(true);
+    // Normal close codes are NOT in the set — they represent clean
+    // shutdowns, not auth failures.
+    expect(CLOUD_AUTH_FAILURE_CLOSE_CODES.has(1000)).toBe(false);
+    expect(CLOUD_AUTH_FAILURE_CLOSE_CODES.has(1006)).toBe(false);
+  });
+});
+
+describe('refreshCloudToken', () => {
+  test('happy path: non-interactive flow persists and returns the new token', async () => {
+    let seenInteractive: boolean | undefined;
+    launchWebAuthFlowImpl = async (details) => {
+      seenInteractive = details.interactive;
+      expect(details.url).toContain('https://api.vellum.ai/oauth/chrome-extension/start');
+      return 'https://fakeextid.chromiumapp.org/cloud-auth#token=fresh-jwt&expires_in=3600&guardian_id=g-99';
+    };
+
+    const before = Date.now();
+    const result = await refreshCloudToken(config);
+    expect(result).not.toBeNull();
+    const token = result as StoredCloudToken;
+
+    expect(seenInteractive).toBe(false);
+    expect(token.token).toBe('fresh-jwt');
+    expect(token.guardianId).toBe('g-99');
+    expect(token.expiresAt).toBeGreaterThanOrEqual(before + 3600 * 1000);
+
+    // Token was persisted to storage so future reads see the new one.
+    expect(fakeStorage.data[STORAGE_KEY]).toEqual(token);
+  });
+
+  test('returns null when Chrome rejects for interaction required', async () => {
+    launchWebAuthFlowImpl = async () => {
+      throw new Error('OAuth2 not granted or revoked.');
+    };
+
+    // Pre-seed a stale token so we can verify it isn't clobbered.
+    const stale: StoredCloudToken = {
+      token: 'stale-jwt',
+      expiresAt: Date.now() - 1_000,
+      guardianId: 'g-1',
+    };
+    fakeStorage.data[STORAGE_KEY] = stale;
+
+    const result = await refreshCloudToken(config);
+    expect(result).toBeNull();
+    // The stale token is left in place — the reconnect path uses this
+    // to decide whether to surface a sign-in prompt to the user.
+    expect(fakeStorage.data[STORAGE_KEY]).toEqual(stale);
+  });
+
+  test('returns null when launchWebAuthFlow resolves with undefined', async () => {
+    launchWebAuthFlowImpl = async () => undefined;
+    expect(await refreshCloudToken(config)).toBeNull();
+  });
+
+  test('throws when the gateway returns an incomplete payload', async () => {
+    // A malformed response from the gateway is an unexpected error and
+    // should bubble up to the service-worker logs — we only swallow
+    // the "interaction required" family of Chrome rejections.
+    launchWebAuthFlowImpl = async () =>
+      'https://fakeextid.chromiumapp.org/cloud-auth#guardian_id=g-42';
+
+    await expect(refreshCloudToken(config)).rejects.toThrow('incomplete payload');
   });
 });

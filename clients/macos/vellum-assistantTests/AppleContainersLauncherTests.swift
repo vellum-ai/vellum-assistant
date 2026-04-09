@@ -2,6 +2,7 @@ import XCTest
 @testable import VellumAssistantLib
 
 @MainActor
+@available(macOS 26.0, *)
 final class AppleContainersLauncherTests: XCTestCase {
 
     private var originalCheckAvailability: (() -> AppleContainersAvailabilityChecker.Availability)!

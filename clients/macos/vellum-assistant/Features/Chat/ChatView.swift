@@ -350,6 +350,7 @@ struct ChatView: View {
             MessageListView(
                 // -- TranscriptProjector inputs --
                 messages: viewModel.messages,
+                messagesRevision: viewModel.messagesRevision,
                 isSending: viewModel.isSending,
                 isThinking: viewModel.isThinking,
                 isCompacting: viewModel.isCompacting,

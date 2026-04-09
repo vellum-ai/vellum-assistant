@@ -364,7 +364,21 @@ describe("standalone approval endpoints — HTTP layer", () => {
     });
 
     test("returns 400 for invalid decision", async () => {
-      await startServer(() => makeIdleSession());
+      const session = makeIdleSession();
+      await startServer(() => session);
+
+      pendingInteractions.register("req-1", {
+        conversation: session,
+        conversationId: "conv-1",
+        kind: "confirmation",
+        confirmationDetails: {
+          toolName: "shell_command",
+          input: { command: "ls" },
+          riskLevel: "medium",
+          allowlistOptions: [],
+          scopeOptions: [],
+        },
+      });
 
       const res = await fetch(url("confirm"), {
         method: "POST",
@@ -420,23 +434,27 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await stopServer();
     });
 
-    test("rejects legacy approval verbs for confirmations under v2", async () => {
+    test("canonicalizes advertised legacy allow verbs to one-time allow under v2", async () => {
       _setOverridesForTesting({ "permission-controls-v2": true });
-      const session = makeIdleSession();
-      await startServer(() => session);
+      let handledDecision: string | undefined;
+      const handlingSession = makeIdleSession({
+        onConfirmation: (_requestId, decision) => {
+          handledDecision = decision;
+        },
+      });
+      await startServer(() => handlingSession);
 
       pendingInteractions.register("req-v2", {
-        conversation: session,
+        conversation: handlingSession,
         conversationId: "conv-1",
         kind: "confirmation",
         confirmationDetails: {
           toolName: "shell_command",
           input: { command: "ls" },
           riskLevel: "medium",
-          allowlistOptions: [
-            { label: "Allow ls", description: "test", pattern: "ls" },
-          ],
-          scopeOptions: [{ label: "Conversation", scope: "session" }],
+          allowlistOptions: [],
+          scopeOptions: [],
+          temporaryOptionsAvailable: ["allow_10m"],
         },
       });
 
@@ -448,11 +466,45 @@ describe("standalone approval endpoints — HTTP layer", () => {
           decision: "allow_10m",
         }),
       });
+
+      expect(res.status).toBe(200);
+      expect(handledDecision).toBe("allow");
+      expect(pendingInteractions.get("req-v2")).toBeUndefined();
+
+      await stopServer();
+    });
+
+    test("rejects unadvertised legacy approval verbs under v2", async () => {
+      _setOverridesForTesting({ "permission-controls-v2": true });
+      const session = makeIdleSession();
+      await startServer(() => session);
+
+      pendingInteractions.register("req-v2-invalid", {
+        conversation: session,
+        conversationId: "conv-1",
+        kind: "confirmation",
+        confirmationDetails: {
+          toolName: "shell_command",
+          input: { command: "ls" },
+          riskLevel: "medium",
+          allowlistOptions: [],
+          scopeOptions: [],
+        },
+      });
+
+      const res = await fetch(url("confirm"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+        body: JSON.stringify({
+          requestId: "req-v2-invalid",
+          decision: "allow_10m",
+        }),
+      });
       const body = (await res.json()) as { error?: { message?: string } };
 
       expect(res.status).toBe(400);
-      expect(body.error?.message).toContain("allow, deny");
-      expect(pendingInteractions.get("req-v2")).toBeDefined();
+      expect(body.error?.message).toContain("resolve to allow or deny");
+      expect(pendingInteractions.get("req-v2-invalid")).toBeDefined();
 
       await stopServer();
     });

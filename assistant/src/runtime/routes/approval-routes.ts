@@ -28,6 +28,39 @@ import * as pendingInteractions from "../pending-interactions.js";
 
 const log = getLogger("approval-routes");
 
+function canonicalizeV2ConfirmDecision(params: {
+  decision: string;
+  interaction: NonNullable<ReturnType<typeof pendingInteractions.get>>;
+}): UserDecision | null {
+  const { decision, interaction } = params;
+  if (decision === "allow" || decision === "deny") {
+    return decision;
+  }
+
+  const details = interaction.confirmationDetails;
+  if (!details || isConversationHostAccessEnablePrompt(details)) {
+    return null;
+  }
+
+  if (
+    (decision === "allow_10m" || decision === "allow_conversation") &&
+    details.temporaryOptionsAvailable?.includes(decision)
+  ) {
+    return "allow";
+  }
+
+  if (
+    (decision === "always_allow" ||
+      decision === "always_allow_high_risk" ||
+      decision === "always_deny") &&
+    details.persistentDecisionsAllowed
+  ) {
+    return decision === "always_deny" ? "deny" : "allow";
+  }
+
+  return null;
+}
+
 /**
  * POST /v1/confirm — resolve a pending confirmation by requestId.
  * Requires AuthContext with guardian-bound actor.
@@ -52,33 +85,6 @@ export async function handleConfirm(
     return httpError("BAD_REQUEST", "requestId is required", 400);
   }
 
-  const v2Enabled = isPermissionControlsV2Enabled();
-  const validConfirmDecisions = v2Enabled
-    ? ["allow", "deny"]
-    : [
-        "allow",
-        "allow_10m",
-        "allow_conversation",
-        "deny",
-        "always_allow",
-        "always_deny",
-        "always_allow_high_risk",
-      ];
-  if (
-    typeof decision !== "string" ||
-    !validConfirmDecisions.includes(decision)
-  ) {
-    return httpError(
-      "BAD_REQUEST",
-      v2Enabled
-        ? "decision must be one of: allow, deny"
-        : `decision must be one of: ${validConfirmDecisions.join(", ")}`,
-      400,
-    );
-  }
-
-  // Peek first (non-destructive) so validation failures don't consume the
-  // pending interaction — the client can retry with corrected values.
   const peeked = pendingInteractions.get(requestId);
   if (!peeked) {
     log.warn(
@@ -92,10 +98,40 @@ export async function handleConfirm(
     );
   }
 
+  const v2Enabled = isPermissionControlsV2Enabled();
+  const effectiveDecision = v2Enabled
+    ? typeof decision === "string"
+      ? canonicalizeV2ConfirmDecision({ decision, interaction: peeked })
+      : null
+    : decision;
+  const validConfirmDecisions = [
+    "allow",
+    "allow_10m",
+    "allow_conversation",
+    "deny",
+    "always_allow",
+    "always_deny",
+    "always_allow_high_risk",
+  ];
+  if (
+    (v2Enabled && effectiveDecision == null) ||
+    (!v2Enabled &&
+      (typeof decision !== "string" ||
+        !validConfirmDecisions.includes(decision)))
+  ) {
+    return httpError(
+      "BAD_REQUEST",
+      v2Enabled
+        ? "decision must resolve to allow or deny under permission-controls-v2"
+        : `decision must be one of: ${validConfirmDecisions.join(", ")}`,
+      400,
+    );
+  }
+
   if (
     peeked.confirmationDetails &&
     isConversationHostAccessEnablePrompt(peeked.confirmationDetails) &&
-    !isConversationHostAccessDecision(decision as UserDecision)
+    !isConversationHostAccessDecision(effectiveDecision as UserDecision)
   ) {
     return httpError(
       "FORBIDDEN",
@@ -168,7 +204,7 @@ export async function handleConfirm(
   log.info(
     {
       requestId,
-      decision,
+      decision: effectiveDecision,
       toolName: interaction.confirmationDetails?.toolName,
       conversationId: interaction.conversationId,
     },
@@ -177,13 +213,13 @@ export async function handleConfirm(
 
   // ACP permissions: resolve directly without a Conversation object.
   if (interaction.directResolve) {
-    interaction.directResolve(decision as UserDecision);
+    interaction.directResolve(effectiveDecision as UserDecision);
     return Response.json({ accepted: true });
   }
 
   interaction.conversation!.handleConfirmationResponse(
     requestId,
-    decision as UserDecision,
+    effectiveDecision as UserDecision,
     selectedPattern,
     selectedScope,
     undefined,

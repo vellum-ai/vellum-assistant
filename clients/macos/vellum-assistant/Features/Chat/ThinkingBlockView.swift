@@ -37,6 +37,7 @@ struct ThinkingBlockView: View {
                 Divider()
                     .padding(.horizontal, VSpacing.sm)
 
+                // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
                 MarkdownSegmentView(
                     segments: cachedSegments,
                     isStreaming: isStreaming,
@@ -49,7 +50,6 @@ struct ThinkingBlockView: View {
                     codeTextColor: VColor.contentDefault,
                     codeBackgroundColor: VColor.surfaceBase
                 )
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.sm)
                 .transition(.opacity)
             }

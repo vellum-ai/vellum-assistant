@@ -58,7 +58,11 @@ interface MockPairServer {
   server: ReturnType<typeof Bun.serve>;
   port: number;
   /** All requests received by the mock server, in order. */
-  requests: Array<{ pathname: string; body: unknown }>;
+  requests: Array<{
+    pathname: string;
+    body: unknown;
+    headers: Record<string, string>;
+  }>;
   /** Body the next pair request should return. */
   nextResponseBody: () => Record<string, unknown>;
   stop: () => void;
@@ -97,7 +101,13 @@ function startMockPairServer(): MockPairServer {
       } catch {
         body = null;
       }
-      state.requests.push({ pathname: url.pathname, body });
+      // Snapshot the headers as a plain object so the assertion
+      // surface stays stable across Headers iteration quirks.
+      const headers: Record<string, string> = {};
+      req.headers.forEach((value, key) => {
+        headers[key.toLowerCase()] = value;
+      });
+      state.requests.push({ pathname: url.pathname, body, headers });
 
       if (
         url.pathname !== "/v1/browser-extension-pair" ||
@@ -171,7 +181,9 @@ async function runHelper(options: {
   const exitCode = await proc.exited;
   clearTimeout(timer);
 
-  const stdoutBuffer = Buffer.from(await new Response(proc.stdout).arrayBuffer());
+  const stdoutBuffer = Buffer.from(
+    await new Response(proc.stdout).arrayBuffer(),
+  );
   const stderrText = await new Response(proc.stderr).text();
 
   if (timedOut) {
@@ -289,6 +301,42 @@ describe("native host — subprocess regression coverage", () => {
     expect(srv.requests).toHaveLength(1);
     expect(srv.requests[0]!.pathname).toBe("/v1/browser-extension-pair");
     expect(srv.requests[0]!.body).toEqual({ extensionOrigin: ALLOWED_ORIGIN });
+
+    // PR4 of the browser-use remediation plan: the helper MUST set
+    // the `x-vellum-native-host: 1` marker header on every pair
+    // request. The assistant rejects pair requests that omit it, so
+    // if this assertion fails the extension would stop pairing even
+    // though the rest of the flow looks healthy.
+    expect(srv.requests[0]!.headers["x-vellum-native-host"]).toBe("1");
+  });
+
+  test("native host helper sets the x-vellum-native-host marker header", async () => {
+    // Dedicated regression test that pins down the marker-header
+    // contract independent of the token/guardian assertions above.
+    // If a future refactor accidentally drops the header, this test
+    // fails in isolation rather than as a side effect of another
+    // assertion.
+    const srv = pair!;
+    srv.requests.length = 0;
+    srv.nextResponseBody = () => ({
+      token: "marker-test-token",
+      expiresAt: "2026-12-31T00:00:00Z",
+      guardianId: "marker-g-1",
+    });
+
+    const result = await runHelper({
+      extensionOrigin: ALLOWED_ORIGIN,
+      assistantPort: srv.port,
+      stdinBytes: encodeFrame({ type: "request_token" }),
+      timeoutMs: 2000,
+    });
+
+    expect(result.exitCode, `helper stderr: ${result.stderr}`).toBe(0);
+    expect(srv.requests).toHaveLength(1);
+    expect(srv.requests[0]!.headers["x-vellum-native-host"]).toBe("1");
+    expect(srv.requests[0]!.headers["content-type"]).toContain(
+      "application/json",
+    );
   });
 
   test("missing guardianId in the pair response is rejected with an error frame", async () => {

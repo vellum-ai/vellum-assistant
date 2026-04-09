@@ -566,7 +566,7 @@ The Anthropic provider places `cache_control: { type: 'ephemeral' }` on the **la
 
 The session injects a unified `<turn_context>` block into every user message, giving the model awareness of the current timestamp (with timezone), interface, channel, and actor identity. This replaces the former separate `<temporal_context>`, `<inbound_actor_context>`, and per-channel turn context blocks. The unified block persists in conversation history so the assistant retains temporal and actor grounding across turns. Legacy blocks from pre-change history are stripped for backward compatibility.
 
-The `timestamp:` field format is: `2026-04-02 (Wed) 14:30:00 -05:00 (America/Chicago)` — date, abbreviated weekday, local time, UTC offset, and IANA timezone name.
+The `current_time:` field format is: `2026-04-02 (Wednesday) 14:30:00 -05:00 (America/Chicago)` — date, weekday name, local time, UTC offset, and IANA timezone name.
 
 ### Per-turn flow
 

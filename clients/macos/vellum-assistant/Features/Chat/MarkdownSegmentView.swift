@@ -71,14 +71,17 @@ struct MarkdownSegmentView: View, Equatable {
                     )
                     #else
                     let attributed = buildCombinedAttributedString(from: runSegments)
-                    Text(attributed)
-                        .font(chatFont)
-                        .lineSpacing(4)
-                        .foregroundStyle(textColor)
-                        .tint(tintColor)
-                        .optionalMaxWidth(maxContentWidth)
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: false, vertical: true)
+                    // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+                    HStack(spacing: 0) {
+                        Text(attributed)
+                            .font(chatFont)
+                            .lineSpacing(4)
+                            .foregroundStyle(textColor)
+                            .tint(tintColor)
+                            .lineLimit(nil)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
                     #endif
 
                 case .codeBlock(let language, let code):
@@ -904,12 +907,13 @@ private extension AttributedString {
 // MARK: - Optional Max Width
 
 private extension View {
-    /// Applies `.frame(maxWidth:alignment:)` only when a width is provided.
+    /// Applies a definite `.frame(width:)` only when a width is provided.
     /// When `nil`, no frame is applied — the view shrink-wraps to its content.
+    /// ⚠️ No `.frame(maxWidth:)` — see AGENTS.md.
     @ViewBuilder
     func optionalMaxWidth(_ width: CGFloat?) -> some View {
         if let width {
-            self.frame(maxWidth: width, alignment: .leading)
+            self.frame(width: width, alignment: .leading)
         } else {
             self
         }

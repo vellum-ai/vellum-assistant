@@ -270,6 +270,12 @@ describe("permission-checker host-access gate (v2)", () => {
         );
 
         expect(promptSpy).toHaveBeenCalled();
+        const call = promptSpy.mock.calls[0] as unknown as unknown[];
+        expect(call[3]).toEqual([]);
+        expect(call[4]).toEqual([]);
+        expect(call[8]).toBe(false);
+        expect(call[10]).toBeUndefined();
+        expect(call[12]).toBe(false);
         expect(result.allowed).toBe(true);
         expect(result.decision).toBe("allow");
       });
@@ -295,6 +301,12 @@ describe("permission-checker host-access gate (v2)", () => {
         );
 
         expect(promptSpy).toHaveBeenCalled();
+        const call = promptSpy.mock.calls[0] as unknown as unknown[];
+        expect(call[3]).toEqual([]);
+        expect(call[4]).toEqual([]);
+        expect(call[8]).toBe(false);
+        expect(call[10]).toBeUndefined();
+        expect(call[12]).toBe(false);
         expect(result.allowed).toBe(true);
         expect(result.decision).toBe("allow");
       });

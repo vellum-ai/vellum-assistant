@@ -1175,6 +1175,14 @@ export async function handleSendMessage(
   // lookup is keyed by the JWT-derived actor principal id, which the
   // runtime captured at WebSocket upgrade time.
   //
+  // A single guardian may have multiple parallel extension installs
+  // connected at once (two Chrome profiles, two desktops). The registry
+  // tracks them under (guardianId, clientInstanceId) pairs and the
+  // default `send(guardianId, msg)` path routes to whichever instance
+  // has the most recent activity — typically the one the user is
+  // currently driving. Pinning to a specific instance can be done via
+  // `sendToInstance` if a caller ever needs it.
+  //
   // macOS (and any other interface that supports host_browser in the
   // future via the SSE hub) keeps using `onEvent` — see the else branch.
   const browserProxySendToClient: (msg: ServerMessage) => void =

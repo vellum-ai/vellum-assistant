@@ -3,6 +3,7 @@ import type { GatewayConfig } from "../config.js";
 import { initSigningKey, mintToken } from "../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
 import {
+  checkBrowserRelayAuth,
   createBrowserRelayWebsocketHandler,
   getBrowserRelayWebsocketHandlers,
   isLoopbackPeer,
@@ -11,12 +12,29 @@ import {
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
 
-/** Mint a valid edge JWT for browser relay auth. */
-function mintEdgeToken(): string {
+const TEST_ACTOR_PRINCIPAL = "guardian-actor-123";
+
+/** Mint a valid actor edge JWT for browser relay auth. */
+function mintEdgeToken(actorPrincipalId: string = "test-user"): string {
   return mintToken({
     aud: "vellum-gateway",
-    sub: "actor:test-assistant:test-user",
+    sub: `actor:test-assistant:${actorPrincipalId}`,
     scope_profile: "actor_client_v1",
+    policy_epoch: CURRENT_POLICY_EPOCH,
+    ttlSeconds: 300,
+  });
+}
+
+/**
+ * Mint a service-style browser-relay edge token (svc:browser-relay:self).
+ * This mirrors `mintBrowserRelayToken()` — the token is valid for the
+ * gateway audience but carries no actor principal in its sub claim.
+ */
+function mintServiceEdgeToken(): string {
+  return mintToken({
+    aud: "vellum-gateway",
+    sub: "svc:browser-relay:self",
+    scope_profile: "gateway_service_v1",
     policy_epoch: CURRENT_POLICY_EPOCH,
     ttlSeconds: 300,
   });
@@ -257,6 +275,7 @@ describe("getBrowserRelayWebsocketHandlers", () => {
       config: makeConfig({
         assistantRuntimeBaseUrl: "http://runtime.internal:7821",
       }),
+      auth: { authenticated: true, authBypassed: false },
     });
 
     handlers.open(ws as never);
@@ -274,6 +293,392 @@ describe("getBrowserRelayWebsocketHandlers", () => {
 
     fakeUpstream.emit("message", { data: "runtime-message" });
     expect(ws.sent).toEqual(["runtime-message"]);
+  });
+
+  test("open appends guardianId query param when auth context carries one", () => {
+    const ws = createFakeDownstreamWs({
+      wsType: "browser-relay",
+      config: makeConfig({
+        assistantRuntimeBaseUrl: "http://runtime.internal:7821",
+      }),
+      auth: {
+        authenticated: true,
+        authBypassed: false,
+        guardianId: TEST_ACTOR_PRINCIPAL,
+      },
+    });
+
+    handlers.open(ws as never);
+
+    const MockWS = globalThis.WebSocket as unknown as ReturnType<typeof mock>;
+    const calledUrl = (MockWS.mock.calls[0] as unknown[])[0] as string;
+    const parsed = new URL(calledUrl);
+    expect(parsed.protocol).toBe("ws:");
+    expect(parsed.host).toBe("runtime.internal:7821");
+    expect(parsed.pathname).toBe("/v1/browser-relay");
+    expect(parsed.searchParams.get("token")).toMatch(/^ey/);
+    expect(parsed.searchParams.get("guardianId")).toBe(TEST_ACTOR_PRINCIPAL);
+  });
+
+  test("open omits guardianId query param when auth context has none (service-token path)", () => {
+    const ws = createFakeDownstreamWs({
+      wsType: "browser-relay",
+      config: makeConfig({
+        assistantRuntimeBaseUrl: "http://runtime.internal:7821",
+      }),
+      auth: { authenticated: true, authBypassed: false },
+    });
+
+    handlers.open(ws as never);
+
+    const MockWS = globalThis.WebSocket as unknown as ReturnType<typeof mock>;
+    const calledUrl = (MockWS.mock.calls[0] as unknown[])[0] as string;
+    const parsed = new URL(calledUrl);
+    // When the edge token has no actor principal, the gateway
+    // propagates nothing for guardianId and the runtime accepts the
+    // upgrade with `guardianId = undefined`.
+    expect(parsed.searchParams.has("guardianId")).toBe(false);
+  });
+
+  test("open appends clientInstanceId query param when auth context carries one", () => {
+    const ws = createFakeDownstreamWs({
+      wsType: "browser-relay",
+      config: makeConfig({
+        assistantRuntimeBaseUrl: "http://runtime.internal:7821",
+      }),
+      auth: {
+        authenticated: true,
+        authBypassed: false,
+        guardianId: TEST_ACTOR_PRINCIPAL,
+        clientInstanceId: "install-ABC-123",
+      },
+    });
+
+    handlers.open(ws as never);
+
+    const MockWS = globalThis.WebSocket as unknown as ReturnType<typeof mock>;
+    const calledUrl = (MockWS.mock.calls[0] as unknown[])[0] as string;
+    const parsed = new URL(calledUrl);
+    expect(parsed.pathname).toBe("/v1/browser-relay");
+    // Both guardianId and clientInstanceId should ride alongside the
+    // upstream service token, matching the runtime's accepted query
+    // param names.
+    expect(parsed.searchParams.get("guardianId")).toBe(TEST_ACTOR_PRINCIPAL);
+    expect(parsed.searchParams.get("clientInstanceId")).toBe("install-ABC-123");
+  });
+
+  test("open forwards clientInstanceId even without a guardianId", () => {
+    // Auth-bypass / service-token paths can still carry a
+    // clientInstanceId lifted from the downstream handshake. The
+    // gateway must propagate it so the runtime's multi-instance
+    // registry keys the connection correctly.
+    const ws = createFakeDownstreamWs({
+      wsType: "browser-relay",
+      config: makeConfig({
+        assistantRuntimeBaseUrl: "http://runtime.internal:7821",
+      }),
+      auth: {
+        authenticated: true,
+        authBypassed: false,
+        clientInstanceId: "install-XYZ-789",
+      },
+    });
+
+    handlers.open(ws as never);
+
+    const MockWS = globalThis.WebSocket as unknown as ReturnType<typeof mock>;
+    const calledUrl = (MockWS.mock.calls[0] as unknown[])[0] as string;
+    const parsed = new URL(calledUrl);
+    expect(parsed.searchParams.has("guardianId")).toBe(false);
+    expect(parsed.searchParams.get("clientInstanceId")).toBe("install-XYZ-789");
+  });
+
+  test("open omits clientInstanceId query param when auth context has none", () => {
+    const ws = createFakeDownstreamWs({
+      wsType: "browser-relay",
+      config: makeConfig({
+        assistantRuntimeBaseUrl: "http://runtime.internal:7821",
+      }),
+      auth: {
+        authenticated: true,
+        authBypassed: false,
+        guardianId: TEST_ACTOR_PRINCIPAL,
+      },
+    });
+
+    handlers.open(ws as never);
+
+    const MockWS = globalThis.WebSocket as unknown as ReturnType<typeof mock>;
+    const calledUrl = (MockWS.mock.calls[0] as unknown[])[0] as string;
+    const parsed = new URL(calledUrl);
+    // Older extension builds (or dev bypass paths) do not emit a
+    // clientInstanceId — the gateway must not synthesize one or send
+    // an empty string, both of which would break the runtime's
+    // legacy-key fallback semantics.
+    expect(parsed.searchParams.has("clientInstanceId")).toBe(false);
+  });
+});
+
+describe("checkBrowserRelayAuth", () => {
+  test("returns structured auth context with guardianId for actor edge tokens", () => {
+    const token = mintEdgeToken(TEST_ACTOR_PRINCIPAL);
+    const config = makeConfig({});
+    const req = new Request(
+      `http://localhost:7830/v1/browser-relay?token=${token}`,
+      { headers: { upgrade: "websocket" } },
+    );
+    const url = new URL(req.url);
+
+    const result = checkBrowserRelayAuth(req, url, config);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok");
+    expect(result.context.authenticated).toBe(true);
+    expect(result.context.authBypassed).toBe(false);
+    expect(result.context.guardianId).toBe(TEST_ACTOR_PRINCIPAL);
+  });
+
+  test("returns ok with undefined guardianId for service-style edge tokens", () => {
+    // Reflects the `mintBrowserRelayToken()` path where the edge token
+    // sub is `svc:browser-relay:self`. The gateway accepts the token but
+    // cannot resolve an actor principal to propagate upstream.
+    const token = mintServiceEdgeToken();
+    const config = makeConfig({});
+    const req = new Request(
+      `http://localhost:7830/v1/browser-relay?token=${token}`,
+      { headers: { upgrade: "websocket" } },
+    );
+    const url = new URL(req.url);
+
+    const result = checkBrowserRelayAuth(req, url, config);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok");
+    expect(result.context.authenticated).toBe(true);
+    expect(result.context.guardianId).toBeUndefined();
+  });
+
+  test("returns error response when token is missing and auth is required", () => {
+    const config = makeConfig({});
+    const req = new Request("http://localhost:7830/v1/browser-relay", {
+      headers: { upgrade: "websocket" },
+    });
+    const url = new URL(req.url);
+
+    const result = checkBrowserRelayAuth(req, url, config);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected error");
+    expect(result.response.status).toBe(401);
+  });
+
+  test("returns bypassed context when runtimeProxyRequireAuth is disabled", () => {
+    const config = makeConfig({ runtimeProxyRequireAuth: false });
+    const req = new Request("http://localhost:7830/v1/browser-relay", {
+      headers: { upgrade: "websocket" },
+    });
+    const url = new URL(req.url);
+
+    const result = checkBrowserRelayAuth(req, url, config);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok");
+    expect(result.context.authBypassed).toBe(true);
+    expect(result.context.authenticated).toBe(false);
+    expect(result.context.guardianId).toBeUndefined();
+  });
+
+  test("lifts clientInstanceId from the query param on the downstream handshake", () => {
+    // Primary path: the Chrome extension sets clientInstanceId as a
+    // query param via `buildUrl`. The gateway must lift it off the
+    // handshake and expose it on the auth context so the open()
+    // handler can forward it to the runtime.
+    const token = mintEdgeToken(TEST_ACTOR_PRINCIPAL);
+    const config = makeConfig({});
+    const req = new Request(
+      `http://localhost:7830/v1/browser-relay?token=${token}&clientInstanceId=install-QUERY`,
+      { headers: { upgrade: "websocket" } },
+    );
+    const url = new URL(req.url);
+
+    const result = checkBrowserRelayAuth(req, url, config);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok");
+    expect(result.context.clientInstanceId).toBe("install-QUERY");
+    expect(result.context.guardianId).toBe(TEST_ACTOR_PRINCIPAL);
+  });
+
+  test("lifts clientInstanceId from the x-client-instance-id header", () => {
+    const token = mintEdgeToken(TEST_ACTOR_PRINCIPAL);
+    const config = makeConfig({});
+    const req = new Request(
+      `http://localhost:7830/v1/browser-relay?token=${token}`,
+      {
+        headers: {
+          upgrade: "websocket",
+          "x-client-instance-id": "install-HEADER",
+        },
+      },
+    );
+    const url = new URL(req.url);
+
+    const result = checkBrowserRelayAuth(req, url, config);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok");
+    expect(result.context.clientInstanceId).toBe("install-HEADER");
+  });
+
+  test("prefers x-client-instance-id header over query param when both are present", () => {
+    const token = mintEdgeToken(TEST_ACTOR_PRINCIPAL);
+    const config = makeConfig({});
+    const req = new Request(
+      `http://localhost:7830/v1/browser-relay?token=${token}&clientInstanceId=install-QUERY`,
+      {
+        headers: {
+          upgrade: "websocket",
+          "x-client-instance-id": "install-HEADER",
+        },
+      },
+    );
+    const url = new URL(req.url);
+
+    const result = checkBrowserRelayAuth(req, url, config);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok");
+    // The header form is considered the more explicit signal when
+    // both are set, matching the runtime's own precedence.
+    expect(result.context.clientInstanceId).toBe("install-HEADER");
+  });
+
+  test("treats an empty clientInstanceId query param as absent", () => {
+    const token = mintEdgeToken(TEST_ACTOR_PRINCIPAL);
+    const config = makeConfig({});
+    const req = new Request(
+      `http://localhost:7830/v1/browser-relay?token=${token}&clientInstanceId=`,
+      { headers: { upgrade: "websocket" } },
+    );
+    const url = new URL(req.url);
+
+    const result = checkBrowserRelayAuth(req, url, config);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok");
+    expect(result.context.clientInstanceId).toBeUndefined();
+  });
+
+  test("returns undefined clientInstanceId when neither form is present", () => {
+    const token = mintEdgeToken(TEST_ACTOR_PRINCIPAL);
+    const config = makeConfig({});
+    const req = new Request(
+      `http://localhost:7830/v1/browser-relay?token=${token}`,
+      { headers: { upgrade: "websocket" } },
+    );
+    const url = new URL(req.url);
+
+    const result = checkBrowserRelayAuth(req, url, config);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok");
+    expect(result.context.clientInstanceId).toBeUndefined();
+  });
+
+  test("lifts clientInstanceId even on the auth-bypass path", () => {
+    // When runtime proxy auth is disabled, the gateway still needs to
+    // propagate the per-install identifier so multi-instance routing
+    // continues to work in dev-bypass environments.
+    const config = makeConfig({ runtimeProxyRequireAuth: false });
+    const req = new Request(
+      "http://localhost:7830/v1/browser-relay?clientInstanceId=install-BYPASS",
+      { headers: { upgrade: "websocket" } },
+    );
+    const url = new URL(req.url);
+
+    const result = checkBrowserRelayAuth(req, url, config);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok");
+    expect(result.context.authBypassed).toBe(true);
+    expect(result.context.clientInstanceId).toBe("install-BYPASS");
+  });
+});
+
+describe("createBrowserRelayWebsocketHandler guardian propagation", () => {
+  test("upgrades with guardianId populated in auth context for actor edge tokens", () => {
+    const token = mintEdgeToken(TEST_ACTOR_PRINCIPAL);
+    const config = makeConfig({});
+    const handler = createBrowserRelayWebsocketHandler(config);
+    const req = new Request(
+      `http://localhost:7830/v1/browser-relay?token=${token}`,
+      { headers: { upgrade: "websocket" } },
+    );
+
+    let capturedData: unknown = null;
+    const fakeServer = {
+      requestIP: mock(() => ({
+        address: "127.0.0.1",
+        family: "IPv4",
+        port: 54000,
+      })),
+      upgrade: mock((_req: Request, opts?: { data?: unknown }) => {
+        capturedData = opts?.data;
+        return true;
+      }),
+    } as unknown as import("bun").Server<any>;
+
+    const res = handler(req, fakeServer);
+
+    expect(res).toBeUndefined();
+    expect(fakeServer.upgrade).toHaveBeenCalledTimes(1);
+    expect(capturedData).toMatchObject({
+      wsType: "browser-relay",
+      auth: {
+        authenticated: true,
+        authBypassed: false,
+        guardianId: TEST_ACTOR_PRINCIPAL,
+      },
+    });
+  });
+
+  test("upgrades with undefined guardianId for service-style edge tokens", () => {
+    const token = mintServiceEdgeToken();
+    const config = makeConfig({});
+    const handler = createBrowserRelayWebsocketHandler(config);
+    const req = new Request(
+      `http://localhost:7830/v1/browser-relay?token=${token}`,
+      { headers: { upgrade: "websocket" } },
+    );
+
+    let capturedData: unknown = null;
+    const fakeServer = {
+      requestIP: mock(() => ({
+        address: "127.0.0.1",
+        family: "IPv4",
+        port: 54000,
+      })),
+      upgrade: mock((_req: Request, opts?: { data?: unknown }) => {
+        capturedData = opts?.data;
+        return true;
+      }),
+    } as unknown as import("bun").Server<any>;
+
+    const res = handler(req, fakeServer);
+
+    expect(res).toBeUndefined();
+    expect(fakeServer.upgrade).toHaveBeenCalledTimes(1);
+    // The gateway still upgrades the connection, but propagates no
+    // guardianId. The runtime allows the upgrade to proceed with an
+    // unscoped connection when no fallback guardian context is
+    // available.
+    expect(capturedData).toMatchObject({
+      wsType: "browser-relay",
+      auth: { authenticated: true, authBypassed: false },
+    });
+    expect(
+      (capturedData as { auth: { guardianId?: string } }).auth.guardianId,
+    ).toBeUndefined();
   });
 });
 

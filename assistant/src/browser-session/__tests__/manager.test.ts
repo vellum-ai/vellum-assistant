@@ -6,6 +6,7 @@ import {
   type CdpCommand,
   type CdpResult,
   createExtensionBackend,
+  createLocalBackend,
 } from "../index.js";
 
 interface MockBackendState {
@@ -24,6 +25,21 @@ function createMockExtensionBackend(state: MockBackendState): BrowserBackend {
       state.lastSignal = signal;
       if (state.sendImpl) return state.sendImpl(command, signal);
       return { result: { ok: true } };
+    },
+    dispose: () => {
+      state.disposed = true;
+    },
+  });
+}
+
+function createMockLocalBackend(state: MockBackendState): BrowserBackend {
+  return createLocalBackend({
+    isAvailable: () => state.available,
+    sendCdp: async (command, signal) => {
+      state.lastCommand = command;
+      state.lastSignal = signal;
+      if (state.sendImpl) return state.sendImpl(command, signal);
+      return { result: { ok: true, kind: "local" } };
     },
     dispose: () => {
       state.disposed = true;
@@ -166,5 +182,116 @@ describe("BrowserSessionManager", () => {
       manager.send(session.id, { method: "Browser.getVersion" }),
     ).rejects.toThrow(`Unknown browser session: ${session.id}`);
     expect(state.lastCommand).toBeUndefined();
+  });
+
+  test("selectBackend returns a local backend when it is the only registration", () => {
+    const state: MockBackendState = { available: true, disposed: false };
+    const backend = createMockLocalBackend(state);
+    const manager = new BrowserSessionManager({ backends: [backend] });
+    const selected = manager.selectBackend();
+    expect(selected.kind).toBe("local");
+    expect(selected).toBe(backend);
+  });
+
+  test("createSession tags sessions with the local backend kind", () => {
+    const state: MockBackendState = { available: true, disposed: false };
+    const manager = new BrowserSessionManager({
+      backends: [createMockLocalBackend(state)],
+    });
+    const session = manager.createSession();
+    expect(session.backendKind).toBe("local");
+  });
+
+  test("send routes through local backend when its session is used", async () => {
+    const state: MockBackendState = { available: true, disposed: false };
+    const manager = new BrowserSessionManager({
+      backends: [createMockLocalBackend(state)],
+    });
+    const session = manager.createSession();
+    const result = await manager.send(session.id, {
+      method: "Runtime.evaluate",
+      params: { expression: "1+1" },
+    });
+    expect(result).toEqual({ result: { ok: true, kind: "local" } });
+    expect(state.lastCommand).toEqual({
+      method: "Runtime.evaluate",
+      params: { expression: "1+1" },
+    });
+  });
+
+  test("selectBackend falls back to the first available backend when earlier ones are unavailable", () => {
+    const extState: MockBackendState = { available: false, disposed: false };
+    const localState: MockBackendState = { available: true, disposed: false };
+    const ext = createMockExtensionBackend(extState);
+    const local = createMockLocalBackend(localState);
+    const manager = new BrowserSessionManager({ backends: [ext, local] });
+    const selected = manager.selectBackend();
+    expect(selected.kind).toBe("local");
+    expect(selected).toBe(local);
+  });
+
+  test("selectBackend prefers the first available backend", () => {
+    const extState: MockBackendState = { available: true, disposed: false };
+    const localState: MockBackendState = { available: true, disposed: false };
+    const ext = createMockExtensionBackend(extState);
+    const local = createMockLocalBackend(localState);
+    const manager = new BrowserSessionManager({ backends: [ext, local] });
+    const selected = manager.selectBackend();
+    expect(selected.kind).toBe("extension");
+    expect(selected).toBe(ext);
+  });
+
+  test("send routes to the backend matching the session's backendKind when multiple backends are registered", async () => {
+    const extState: MockBackendState = {
+      available: true,
+      disposed: false,
+      sendImpl: async () => ({ result: { from: "extension" } }),
+    };
+    const localState: MockBackendState = {
+      available: true,
+      disposed: false,
+      sendImpl: async () => ({ result: { from: "local" } }),
+    };
+    const ext = createMockExtensionBackend(extState);
+    const local = createMockLocalBackend(localState);
+    const manager = new BrowserSessionManager({ backends: [ext, local] });
+
+    // createSession picks the first available backend (extension), but we
+    // can also force the local one by passing a backendKind via direct
+    // session construction. To keep this test self-contained we verify the
+    // default path and then mark the extension unavailable to force the
+    // local backend for a new session.
+    const extSession = manager.createSession();
+    expect(extSession.backendKind).toBe("extension");
+    const extResult = await manager.send(extSession.id, {
+      method: "Browser.getVersion",
+    });
+    expect(extResult).toEqual({ result: { from: "extension" } });
+    expect(extState.lastCommand).toEqual({ method: "Browser.getVersion" });
+    expect(localState.lastCommand).toBeUndefined();
+
+    extState.available = false;
+    const localSession = manager.createSession();
+    expect(localSession.backendKind).toBe("local");
+    const localResult = await manager.send(localSession.id, {
+      method: "Runtime.evaluate",
+    });
+    expect(localResult).toEqual({ result: { from: "local" } });
+    expect(localState.lastCommand).toEqual({ method: "Runtime.evaluate" });
+  });
+
+  test("disposeAll disposes every registered backend", () => {
+    const extState: MockBackendState = { available: true, disposed: false };
+    const localState: MockBackendState = { available: true, disposed: false };
+    const manager = new BrowserSessionManager({
+      backends: [
+        createMockExtensionBackend(extState),
+        createMockLocalBackend(localState),
+      ],
+    });
+    manager.createSession();
+    manager.disposeAll();
+    expect(extState.disposed).toBe(true);
+    expect(localState.disposed).toBe(true);
   });
 });

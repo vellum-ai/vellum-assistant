@@ -1,5 +1,8 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+let authDisabled = true;
+let boundGuardianPrincipalId: string | null = null;
+
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
@@ -8,7 +11,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../config/env.js", () => ({
-  isHttpAuthDisabled: () => true,
+  isHttpAuthDisabled: () => authDisabled,
   hasUngatedHttpAuthDisabled: () => false,
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
   getGatewayPort: () => 7830,
@@ -17,6 +20,16 @@ mock.module("../config/env.js", () => ({
   getRuntimeGatewayOriginSecret: () => undefined,
   getIngressPublicBaseUrl: () => undefined,
   setIngressPublicBaseUrl: () => {},
+}));
+
+mock.module("../contacts/contact-store.js", () => ({
+  findGuardianForChannel: () =>
+    boundGuardianPrincipalId
+      ? {
+          channel: { externalUserId: undefined },
+          contact: { principalId: boundGuardianPrincipalId },
+        }
+      : null,
 }));
 
 mock.module("../config/loader.js", () => ({
@@ -85,6 +98,8 @@ describe("conversation host-access transport", () => {
   beforeEach(async () => {
     await server?.stop();
     server = null;
+    authDisabled = true;
+    boundGuardianPrincipalId = null;
     clearTables();
   });
 
@@ -187,5 +202,28 @@ describe("conversation host-access transport", () => {
 
     expect(body.conversation.id).toBe(conversation.id);
     expect(body.conversation.hostAccess).toBe(true);
+  });
+
+  test("PATCH /v1/conversations/:id/host-access rejects non-guardian actors when auth is enforced", async () => {
+    authDisabled = false;
+    boundGuardianPrincipalId = "guardian-principal";
+    const conversation = createConversation("Guarded host access");
+
+    const patchRoute = findRoute("PATCH", "conversations/:id/host-access");
+    const patchResponse = await patchRoute.handler({
+      req: new Request("http://localhost/v1/conversations/test/host-access", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hostAccess: true }),
+      }),
+      url: new URL("http://localhost/v1/conversations/test/host-access"),
+      server: null as never,
+      authContext: {
+        actorPrincipalId: "trusted-contact-principal",
+      } as never,
+      params: { id: conversation.id },
+    });
+
+    expect(patchResponse.status).toBe(403);
   });
 });

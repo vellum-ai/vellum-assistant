@@ -216,6 +216,50 @@ describe("host_browser cloud-hosted e2e round-trip", () => {
     await mockExt.stop();
   });
 
+  test("happy path (WS result transport): Browser.getVersion round-trips when the extension returns the result over the same WS", async () => {
+    const guardianId = `test-guardian-${crypto.randomUUID()}`;
+    const token = mintActorToken(guardianId);
+
+    const { createMockChromeExtension } =
+      await import("./fixtures/mock-chrome-extension.js");
+    // Same fixture as the HTTP happy path, but configured to return
+    // results over the /v1/browser-relay WebSocket instead of POSTing
+    // /v1/host-browser-result. This exercises the runtime WS
+    // `message` handler's host_browser_result dispatch path added in
+    // PR2 of the browser-use remediation plan.
+    const mockExt = createMockChromeExtension({
+      runtimeBaseUrl,
+      token,
+      resultTransport: "ws",
+    });
+    await mockExt.start();
+    await mockExt.waitForConnection();
+    await waitForRegistryEntry(guardianId);
+
+    const { proxy } = createBoundProxy(guardianId, "conv-happy-ws");
+
+    const result = await proxy.request(
+      { cdpMethod: "Browser.getVersion" },
+      "conv-happy-ws",
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Chrome/MockTest");
+
+    const received = mockExt.receivedRequests();
+    expect(received).toHaveLength(1);
+    expect(received[0].cdpMethod).toBe("Browser.getVersion");
+    expect(received[0].conversationId).toBe("conv-happy-ws");
+
+    // The pending interaction must be fully consumed — if the WS
+    // handler silently no-op'd, the entry would still be registered
+    // after the proxy resolves.
+    expect(pendingInteractions.get(received[0].requestId)).toBeUndefined();
+
+    proxy.dispose();
+    await mockExt.stop();
+  });
+
   test("abort: AbortSignal resolves to 'Aborted' and extension receives host_browser_cancel", async () => {
     const guardianId = `test-guardian-${crypto.randomUUID()}`;
     const token = mintActorToken(guardianId);
@@ -259,6 +303,90 @@ describe("host_browser cloud-hosted e2e round-trip", () => {
     const cancels = mockExt.receivedCancels();
     expect(cancels).toHaveLength(1);
     expect(cancels[0].requestId).toBe(mockExt.receivedRequests()[0].requestId);
+
+    proxy.dispose();
+    await mockExt.stop();
+  });
+
+  test("abort: late /v1/host-browser-result POST after cancel is ignored (no ghost completion)", async () => {
+    // Regression for PR6 of the browser-use remediation plan. The
+    // daemon-side proxy must treat a late result POST — arriving
+    // after the caller has already been resolved with "Aborted" —
+    // as a benign race, not a noisy false-positive timeout. It must
+    // also NOT resolve the caller a second time.
+    //
+    // We exercise this from the daemon's perspective by:
+    //   1. Starting a request with an AbortSignal.
+    //   2. Aborting the signal so the proxy resolves with "Aborted".
+    //   3. Manually POSTing a host_browser_result for the same
+    //      requestId straight to /v1/host-browser-result (bypassing
+    //      the compliant dispatcher's cancel-suppression).
+    //   4. Verifying the POST is accepted by the runtime (i.e. the
+    //      HTTP layer doesn't explode) and the caller's promise
+    //      never fulfils twice.
+    const guardianId = `test-guardian-${crypto.randomUUID()}`;
+    const token = mintActorToken(guardianId);
+
+    const { createMockChromeExtension } =
+      await import("./fixtures/mock-chrome-extension.js");
+    const mockExt = createMockChromeExtension({
+      runtimeBaseUrl,
+      token,
+      // Hang forever — same gating trick as the plain abort test,
+      // so we can cancel before the handler returns anything.
+      cdpHandler: () => new Promise(() => {}),
+    });
+    await mockExt.start();
+    await mockExt.waitForConnection();
+    await waitForRegistryEntry(guardianId);
+
+    const { proxy } = createBoundProxy(guardianId, "conv-abort-late");
+
+    let resolveCount = 0;
+    const controller = new AbortController();
+    const resultPromise = proxy
+      .request(
+        { cdpMethod: "Browser.getVersion" },
+        "conv-abort-late",
+        controller.signal,
+      )
+      .then((r) => {
+        resolveCount += 1;
+        return r;
+      });
+
+    await waitFor(() => mockExt.receivedRequests().length === 1);
+    const pendingRequestId = mockExt.receivedRequests()[0].requestId;
+
+    controller.abort();
+    const result = await resultPromise;
+    expect(result.content).toBe("Aborted");
+    expect(result.isError).toBe(true);
+    expect(resolveCount).toBe(1);
+
+    // Now manually submit a late result for the same requestId —
+    // simulating a non-compliant client that failed to honour the
+    // cancel envelope. The runtime must accept the POST without
+    // error and the proxy must NOT resolve the caller a second time.
+    const lateResp = await fetch(`${runtimeBaseUrl}/v1/host-browser-result`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        requestId: pendingRequestId,
+        content: JSON.stringify({ product: "Chrome/LateResult" }),
+        isError: false,
+      }),
+    });
+    await lateResp.body?.cancel();
+
+    // Give the runtime a few turns to process the POST and hit its
+    // "no pending request" debug branch. If the proxy resolved a
+    // second time, `resolveCount` would be 2 here.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(resolveCount).toBe(1);
 
     proxy.dispose();
     await mockExt.stop();

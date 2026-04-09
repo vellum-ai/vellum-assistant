@@ -413,11 +413,7 @@ final class MessageListScrollPerformanceTests: XCTestCase {
             highlightedMessageId: nil
         )
         cache.messageListVersion = 42
-        cache.lastKnownRawMessageCount = 50
-        cache.lastKnownVisibleMessageCount = 50
-        cache.lastKnownLastMessageStreaming = true
-        cache.lastKnownIncompleteToolCallCount = 3
-        cache.lastKnownVisibleIdFingerprint = 999
+        cache.lastKnownMessagesRevision = 99
         cache.cachedFirstVisibleMessageId = UUID()
         cache.isThrottled = true
 
@@ -428,11 +424,7 @@ final class MessageListScrollPerformanceTests: XCTestCase {
         XCTAssertNil(cache.cachedProjectionKey)
         XCTAssertNil(cache.cachedProjection)
         XCTAssertEqual(cache.messageListVersion, 0)
-        XCTAssertEqual(cache.lastKnownRawMessageCount, 0)
-        XCTAssertEqual(cache.lastKnownVisibleMessageCount, 0)
-        XCTAssertFalse(cache.lastKnownLastMessageStreaming)
-        XCTAssertEqual(cache.lastKnownIncompleteToolCallCount, 0)
-        XCTAssertEqual(cache.lastKnownVisibleIdFingerprint, 0)
+        XCTAssertEqual(cache.lastKnownMessagesRevision, 0)
         XCTAssertNil(cache.cachedFirstVisibleMessageId)
         XCTAssertFalse(cache.isThrottled)
     }

@@ -68,6 +68,18 @@ export interface MockChromeExtensionOptions {
    * actor principal id).
    */
   extraHandshakeHeaders?: Record<string, string>;
+  /**
+   * Transport used to submit the result back to the runtime.
+   *   - "http" (default): POST to `/v1/host-browser-result`.
+   *   - "ws": send a `host_browser_result` frame back over the same
+   *     `/v1/browser-relay` WebSocket that delivered the request.
+   *
+   * Both transports are expected to be fully functional in the runtime.
+   * The HTTP path is the legacy transport; the WS path was added so the
+   * extension can avoid an extra round-trip through the cloud ingress
+   * stack for each CDP command.
+   */
+  resultTransport?: "http" | "ws";
 }
 
 export interface MockChromeExtension {
@@ -91,6 +103,27 @@ export interface MockChromeExtension {
    * Simulates a flaky extension that drops the connection.
    */
   forceDisconnect(): void;
+  /**
+   * Send a `host_browser_event` frame over the active WebSocket,
+   * mirroring what the extension's host-browser-dispatcher does in
+   * response to `chrome.debugger.onEvent`. Used by PR10 acceptance
+   * tests to assert that the runtime's WS handler fans CDP events
+   * out through the browser-session event bus.
+   */
+  sendHostBrowserEvent(event: {
+    method: string;
+    params?: unknown;
+    cdpSessionId?: string;
+  }): void;
+  /**
+   * Send a `host_browser_session_invalidated` frame over the active
+   * WebSocket, mirroring what the extension's host-browser-dispatcher
+   * does in response to `chrome.debugger.onDetach`. Used by PR10
+   * acceptance tests to assert that the runtime-side session
+   * registry evicts stale sessions and forces reattach on the next
+   * command.
+   */
+  sendSessionInvalidated(event: { targetId?: string; reason?: string }): void;
 }
 
 // ── Defaults ────────────────────────────────────────────────────────
@@ -140,6 +173,7 @@ export function createMockChromeExtension(
   const receivedRequests: HostBrowserRequestFrame[] = [];
   const receivedCancels: HostBrowserCancelFrame[] = [];
   const inFlight = new Map<string, AbortController>();
+  const resultTransport = options.resultTransport ?? "http";
 
   async function handleRequestFrame(
     frame: HostBrowserRequestFrame,
@@ -167,6 +201,26 @@ export function createMockChromeExtension(
       content: result.content,
       isError: result.isError,
     };
+    if (resultTransport === "ws") {
+      // Send the result back over the same `/v1/browser-relay` socket
+      // that delivered the request. The runtime WS message handler
+      // parses `host_browser_result` frames and resolves the pending
+      // interaction via the same core resolver the HTTP endpoint uses.
+      const sock = ws;
+      if (sock && sock.readyState === WebSocket.OPEN) {
+        try {
+          sock.send(
+            JSON.stringify({
+              type: "host_browser_result",
+              ...body,
+            }),
+          );
+        } catch {
+          // Best-effort — mirrors the HTTP POST failure mode.
+        }
+      }
+      return;
+    }
     try {
       const res = await fetch(`${baseHttp}/v1/host-browser-result`, {
         method: "POST",
@@ -291,6 +345,31 @@ export function createMockChromeExtension(
           // best-effort
         }
       }
+    },
+    sendHostBrowserEvent(event) {
+      const sock = ws;
+      if (!sock || sock.readyState !== WebSocket.OPEN) return;
+      sock.send(
+        JSON.stringify({
+          type: "host_browser_event",
+          method: event.method,
+          ...(event.params !== undefined ? { params: event.params } : {}),
+          ...(event.cdpSessionId !== undefined
+            ? { cdpSessionId: event.cdpSessionId }
+            : {}),
+        }),
+      );
+    },
+    sendSessionInvalidated(event) {
+      const sock = ws;
+      if (!sock || sock.readyState !== WebSocket.OPEN) return;
+      sock.send(
+        JSON.stringify({
+          type: "host_browser_session_invalidated",
+          ...(event.targetId !== undefined ? { targetId: event.targetId } : {}),
+          ...(event.reason !== undefined ? { reason: event.reason } : {}),
+        }),
+      );
     },
   };
 }

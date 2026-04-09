@@ -41,6 +41,7 @@ import { getLogger } from "../../util/logger.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
+import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
@@ -300,7 +301,10 @@ export function conversationManagementRouteDefinitions(
         conversationId: z.string(),
         hostAccess: z.boolean(),
       }),
-      handler: async ({ req, params }) => {
+      handler: async ({ req, params, authContext }) => {
+        const guardianError = requireBoundGuardian(authContext);
+        if (guardianError) return guardianError;
+
         const rawBody = (await req.json()) as unknown;
         if (
           rawBody == null ||

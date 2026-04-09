@@ -115,7 +115,7 @@ describe("formatTurnTimestamp", () => {
       timeZone: "America/Chicago",
     });
     expect(result).toBe(
-      "2026-04-02 (Thu) 01:52:33 -05:00 (America/Chicago)",
+      "2026-04-02 (Thursday) 01:52:33 -05:00 (America/Chicago)",
     );
   });
 
@@ -124,7 +124,7 @@ describe("formatTurnTimestamp", () => {
       nowMs: THU_APR_02_0652,
       hostTimeZone: "UTC",
     });
-    expect(result).toBe("2026-04-02 (Thu) 06:52:33 +00:00 (UTC)");
+    expect(result).toBe("2026-04-02 (Thursday) 06:52:33 +00:00 (UTC)");
   });
 
   test("handles user timezone override", () => {
@@ -133,7 +133,7 @@ describe("formatTurnTimestamp", () => {
       hostTimeZone: "UTC",
       userTimeZone: "Asia/Tokyo",
     });
-    expect(result).toBe("2026-04-02 (Thu) 15:52:33 +09:00 (Asia/Tokyo)");
+    expect(result).toBe("2026-04-02 (Thursday) 15:52:33 +09:00 (Asia/Tokyo)");
   });
 
   test("handles DST correctly", () => {
@@ -144,7 +144,7 @@ describe("formatTurnTimestamp", () => {
       timeZone: "America/New_York",
     });
     expect(result).toBe(
-      "2026-07-01 (Wed) 08:00:30 -04:00 (America/New_York)",
+      "2026-07-01 (Wednesday) 08:00:30 -04:00 (America/New_York)",
     );
   });
 

@@ -1,4 +1,5 @@
 #if os(macOS)
+import Observation
 import XCTest
 @testable import VellumAssistantLib
 @preconcurrency import VellumAssistantShared
@@ -555,6 +556,31 @@ final class ComposerControllerTests: XCTestCase {
         let selected = controller.selectedEmojiEntry
         XCTAssertNotNil(selected)
         XCTAssertEqual(selected?.shortcode, "thumbsup")
+    }
+
+    @MainActor
+    func testEmojiSelectionNavigationTriggersObservation() {
+        let controller = makeController()
+        let text = ":thumbs"
+        controller.textChanged(text)
+        controller.cursorMoved(to: text.utf16.count)
+        controller.performMenuRefresh()
+
+        let didChangeSelection = expectation(description: "emoji selection change observed")
+        var observedIndex = -1
+
+        withObservationTracking {
+            observedIndex = controller.emojiSelectedIndex
+        } onChange: {
+            didChangeSelection.fulfill()
+        }
+
+        XCTAssertEqual(observedIndex, 0)
+
+        controller.handleEmojiNavigation(.down)
+
+        wait(for: [didChangeSelection], timeout: 1.0)
+        XCTAssertEqual(controller.emojiSelectedIndex, 1)
     }
 
     // MARK: - Emoji popup freeze regression

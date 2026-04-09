@@ -138,11 +138,14 @@ struct MessageCellView: View, Equatable {
 
     @ViewBuilder
     private func thinkingIndicatorRow() -> some View {
-        RunningIndicator(
-            label: anchoredThinkingLabel,
-            showIcon: false
-        )
-        .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+        // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+        HStack(spacing: 0) {
+            RunningIndicator(
+                label: anchoredThinkingLabel,
+                showIcon: false
+            )
+            Spacer(minLength: 0)
+        }
         .id("thinking-indicator")
     }
 
@@ -231,14 +234,16 @@ struct MessageCellView: View, Equatable {
         }
 
         ForEach(subagentsByParent[message.id] ?? []) { subagent in
-            SubagentEventsReader(
-                store: subagentDetailStore,
-                subagent: subagent,
-                onAbort: { onAbortSubagent?(subagent.id) },
-                onTap: { onSubagentTap?(subagent.id) }
-            )
-                .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
-                .id("subagent-\(subagent.id)")
+            HStack(spacing: 0) {
+                SubagentEventsReader(
+                    store: subagentDetailStore,
+                    subagent: subagent,
+                    onAbort: { onAbortSubagent?(subagent.id) },
+                    onTap: { onSubagentTap?(subagent.id) }
+                )
+                Spacer(minLength: 0)
+            }
+            .id("subagent-\(subagent.id)")
         }
 
         if showAnchoredThinkingIndicator {

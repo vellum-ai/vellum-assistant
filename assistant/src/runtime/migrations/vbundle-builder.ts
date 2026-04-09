@@ -28,6 +28,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGzip, gzipSync } from "node:zlib";
 
+import { sanitizeConfigForTransfer } from "../../config/sanitize-for-transfer.js";
 import type {
   ManifestFileEntryType,
   ManifestType,
@@ -506,6 +507,14 @@ export function buildExportVBundle(
     );
   }
 
+  // Sanitize workspace/config.json to strip environment-specific fields
+  const configEntry = files.find((f) => f.path === "workspace/config.json");
+  if (configEntry) {
+    const configJson = new TextDecoder().decode(configEntry.data);
+    const sanitized = sanitizeConfigForTransfer(configJson);
+    configEntry.data = new TextEncoder().encode(sanitized);
+  }
+
   // Include hooks directory if it exists (lives at ~/.vellum/hooks/, outside workspace).
   if (hooksDir && existsSync(hooksDir) && lstatSync(hooksDir).isDirectory()) {
     files.push(...walkDirectory(hooksDir, "hooks"));
@@ -853,6 +862,29 @@ export async function streamExportVBundle(
     }
   }
 
+  // Sanitize workspace/config.json: read from disk, sanitize, and replace the
+  // disk-backed metadata entry with an in-memory entry so the streaming tar
+  // writes sanitized content instead of the raw file.
+  const configMetadataIdx = allFileMetadata.findIndex(
+    (f) => f.archivePath === "workspace/config.json",
+  );
+
+  const sanitizedConfigEntries: InMemoryEntry[] = [];
+  if (configMetadataIdx !== -1) {
+    const configMeta = allFileMetadata[configMetadataIdx];
+    const rawConfigData = readFileSync(configMeta.diskPath, "utf8");
+    const sanitized = sanitizeConfigForTransfer(rawConfigData);
+    const sanitizedData = new TextEncoder().encode(sanitized);
+
+    // Remove the disk-backed entry and replace with an in-memory entry
+    allFileMetadata.splice(configMetadataIdx, 1);
+    sanitizedConfigEntries.push({
+      archivePath: "workspace/config.json",
+      data: sanitizedData,
+      size: sanitizedData.length,
+    });
+  }
+
   // Build in-memory entries for credentials (not disk-backed)
   const inMemoryEntries: InMemoryEntry[] = [];
   if (credentials?.length) {
@@ -880,8 +912,8 @@ export async function streamExportVBundle(
     });
   }
 
-  // Add in-memory credential entries to the manifest
-  for (const entry of inMemoryEntries) {
+  // Add in-memory entries (sanitized config, credentials) to the manifest
+  for (const entry of [...sanitizedConfigEntries, ...inMemoryEntries]) {
     const sha256 = sha256Hex(entry.data);
     fileEntries.push({
       path: entry.archivePath,
@@ -912,7 +944,11 @@ export async function streamExportVBundle(
 
   const tempPath = join(tmpdir(), `vbundle-export-${randomUUID()}.tmp`);
 
-  const allEntries: TarStreamEntry[] = [...allFileMetadata, ...inMemoryEntries];
+  const allEntries: TarStreamEntry[] = [
+    ...allFileMetadata,
+    ...sanitizedConfigEntries,
+    ...inMemoryEntries,
+  ];
   const tarGenerator = generateTarStream(manifestData, allEntries);
   const tarReadable = Readable.from(tarGenerator);
   const gzipStream = createGzip();

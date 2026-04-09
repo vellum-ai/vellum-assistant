@@ -62,7 +62,12 @@ interface MockPairServer {
   server: Server;
   port: number;
   /** Requests received by the mock server, in order. */
-  requests: Array<{ path: string; body: unknown; host: string | null }>;
+  requests: Array<{
+    path: string;
+    body: unknown;
+    host: string | null;
+    headers: Record<string, string>;
+  }>;
   /** Token value returned by the next successful pair request. */
   nextToken: { token: string; expiresAt: string };
   /** If set, the mock returns this HTTP status instead of 200 on pair. */
@@ -92,10 +97,19 @@ async function startMockPairServer(): Promise<MockPairServer> {
       } catch {
         body = raw;
       }
+      // Snapshot the headers as a plain object so tests can assert
+      // on a stable surface. node:http lowercases header names, so
+      // the keys are already the canonical wire form.
+      const headers: Record<string, string> = {};
+      for (const [key, value] of Object.entries(req.headers)) {
+        if (typeof value === "string") headers[key] = value;
+        else if (Array.isArray(value)) headers[key] = value.join(", ");
+      }
       state.requests.push({
         path: req.url ?? "",
         body,
         host: req.headers.host ?? null,
+        headers,
       });
 
       if (req.url !== "/v1/browser-extension-pair" || req.method !== "POST") {
@@ -264,17 +278,33 @@ describe("native host helper — subprocess integration", () => {
       type: string;
       token?: string;
       expiresAt?: string;
+      assistantPort?: number;
     };
     expect(frame.type).toBe("token_response");
     expect(frame.token).toBe("integration-test-token-value");
     expect(typeof frame.expiresAt).toBe("string");
     expect(frame.expiresAt!.length).toBeGreaterThan(0);
 
+    // PR 3 of the browser-use remediation plan: the helper MUST echo
+    // the assistant runtime port it used back to the chrome extension
+    // so the extension can pin its self-hosted relay socket to the
+    // same port (rather than falling back to the hard-coded
+    // DEFAULT_RELAY_PORT). The helper resolves the port from the
+    // `--assistant-port` CLI flag we passed above, so we assert it
+    // round-trips to the exact port the test spun up.
+    expect(frame.assistantPort).toBe(pair.port);
+
     // The mock server should have observed exactly one pair request
     // carrying the extension origin we passed on the command line.
     expect(pair.requests.length).toBe(1);
     expect(pair.requests[0]!.path).toBe("/v1/browser-extension-pair");
     expect(pair.requests[0]!.body).toEqual({ extensionOrigin: ALLOWED_ORIGIN });
+
+    // PR4 of the browser-use remediation plan: the helper must set
+    // the `x-vellum-native-host: 1` marker header on every pair
+    // request so the assistant's pre-auth endpoint can reject
+    // drive-by browser fetches.
+    expect(pair.requests[0]!.headers["x-vellum-native-host"]).toBe("1");
   });
 
   test("rejects disallowed extension origin with an error frame", async () => {

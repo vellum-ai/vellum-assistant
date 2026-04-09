@@ -142,6 +142,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var connectionStatusCancellable: AnyCancellable?
     var quickInputAttachmentCancellable: AnyCancellable?
     var avatarChangeObserver: NSObjectProtocol?
+    /// Cached circular avatar image for the menu bar icon. Invalidated only
+    /// when `AvatarAppearanceManager.avatarDidChangeNotification` fires, so
+    /// connection-status changes, pulse ticks, and thinking-state toggles
+    /// reuse the cached image instead of re-resolving the avatar getter chain.
+    var cachedMenuBarAvatar: NSImage?
     var pulseTimer: Timer?
     var pulsePhase: CGFloat = 1.0
     var pulseDirection: CGFloat = -1.0

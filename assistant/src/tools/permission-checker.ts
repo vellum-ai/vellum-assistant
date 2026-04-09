@@ -72,7 +72,11 @@ export class PermissionChecker {
   ): Promise<PermissionDecision> {
     let v2ForcePrompt = false;
     const cfg = getConfig();
-    if (isAssistantFeatureFlagEnabled("permission-controls-v2", cfg)) {
+    const v2Enabled = isAssistantFeatureFlagEnabled(
+      "permission-controls-v2",
+      cfg,
+    );
+    if (v2Enabled) {
       const v2Disposition = evaluateV2ConsentDisposition(name, input, context);
       if (v2Disposition === "auto_allow") {
         return {
@@ -282,22 +286,31 @@ export class PermissionChecker {
         const previewDiff = computePreviewDiff(name, input, context.workingDir);
         const promptOptions = v2ForcePrompt
           ? CONVERSATION_HOST_ACCESS_PROMPT
-          : {
-              allowlistOptions: await generateAllowlistOptions(
-                name,
-                input,
-                context.signal,
-              ),
-              scopeOptions: generateScopeOptions(context.workingDir, name),
-              persistentDecisionsAllowed: !context.requireFreshApproval,
-              temporaryOptionsAvailable:
-                context.trustClass === "guardian" &&
-                !context.requireFreshApproval
-                  ? (["allow_10m", "allow_conversation"] as Array<
-                      "allow_10m" | "allow_conversation"
-                    >)
-                  : undefined,
-            };
+          : v2Enabled
+            ? {
+                allowlistOptions: [] as Awaited<
+                  ReturnType<typeof generateAllowlistOptions>
+                >,
+                scopeOptions: [] as ReturnType<typeof generateScopeOptions>,
+                persistentDecisionsAllowed: false,
+                temporaryOptionsAvailable: undefined,
+              }
+            : {
+                allowlistOptions: await generateAllowlistOptions(
+                  name,
+                  input,
+                  context.signal,
+                ),
+                scopeOptions: generateScopeOptions(context.workingDir, name),
+                persistentDecisionsAllowed: !context.requireFreshApproval,
+                temporaryOptionsAvailable:
+                  context.trustClass === "guardian" &&
+                  !context.requireFreshApproval
+                    ? (["allow_10m", "allow_conversation"] as Array<
+                        "allow_10m" | "allow_conversation"
+                      >)
+                    : undefined,
+              };
 
         emitLifecycleEvent({
           type: "permission_prompt",
@@ -350,7 +363,7 @@ export class PermissionChecker {
           conversationId: context.conversationId,
         });
 
-        if (response.decision === "deny") {
+        if (decision === "deny") {
           const contextualDenial =
             typeof response.decisionContext === "string"
               ? response.decisionContext.trim()
@@ -385,7 +398,7 @@ export class PermissionChecker {
           };
         }
 
-        if (response.decision === "always_deny") {
+        if (decision === "always_deny") {
           // For non-scoped tools (empty scopeOptions), default to 'everywhere' since
           // the client has no scope picker and will send undefined.
           const effectiveDenyScope =

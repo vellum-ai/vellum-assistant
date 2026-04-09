@@ -63,10 +63,31 @@ const ALLOWED_EXTENSION_IDS: ReadonlySet<string> = new Set<string>([
 const DEFAULT_ASSISTANT_PORT = 7821;
 const RUNTIME_PORT_FILE = join(homedir(), ".vellum", "runtime-port");
 
+/**
+ * Marker header the pair endpoint requires on every request. The assistant
+ * rejects pair attempts without this header to rule out drive-by browser
+ * fetches (browsers cannot set custom headers on cross-origin requests
+ * without a CORS preflight, which the pair endpoint does not serve). Kept
+ * in sync with `NATIVE_HOST_MARKER_HEADER` /
+ * `NATIVE_HOST_MARKER_VALUE` in
+ * `assistant/src/runtime/routes/browser-extension-pair-routes.ts`.
+ */
+export const NATIVE_HOST_MARKER_HEADER = "x-vellum-native-host";
+export const NATIVE_HOST_MARKER_VALUE = "1";
+
 interface TokenResponse {
   token: string;
   expiresAt: string;
   guardianId: string;
+  /**
+   * Assistant runtime HTTP port the helper used to reach
+   * `/v1/browser-extension-pair`. Echoed in the native-messaging
+   * `token_response` frame so the extension can persist it and
+   * point its self-hosted relay WebSocket at the same port without
+   * relying on the well-known default. See PR3 of the
+   * browser-use-main-remediation-plan.
+   */
+  assistantPort: number;
 }
 
 /**
@@ -195,9 +216,7 @@ function writeFrameAndExitAsync(
     });
     const safety = setTimeout(() => {
       reject(
-        new Error(
-          "writeFrameAndExitAsync timed out waiting for stdout flush",
-        ),
+        new Error("writeFrameAndExitAsync timed out waiting for stdout flush"),
       );
     }, 5000);
     safety.unref?.();
@@ -241,7 +260,14 @@ async function requestToken(
   try {
     response = await fetch(url, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        // Required by the pair endpoint (PR4 of the browser-use
+        // remediation plan). The assistant rejects requests that
+        // omit or misspell this header so a drive-by browser fetch
+        // can't pair silently.
+        [NATIVE_HOST_MARKER_HEADER]: NATIVE_HOST_MARKER_VALUE,
+      },
       body: JSON.stringify({ extensionOrigin }),
     });
   } catch (err) {
@@ -276,7 +302,7 @@ async function requestToken(
   if (typeof guardianId !== "string" || guardianId.length === 0) {
     throw new Error("pair endpoint response missing guardianId");
   }
-  return { token, expiresAt, guardianId };
+  return { token, expiresAt, guardianId, assistantPort: port };
 }
 
 async function main(): Promise<void> {
@@ -348,12 +374,16 @@ async function main(): Promise<void> {
         }
 
         try {
-          const { token, expiresAt, guardianId } = await requestToken(
-            extensionOrigin!,
-            process.argv,
-          );
+          const { token, expiresAt, guardianId, assistantPort } =
+            await requestToken(extensionOrigin!, process.argv);
           await writeFrameAndExitAsync(
-            { type: "token_response", token, expiresAt, guardianId },
+            {
+              type: "token_response",
+              token,
+              expiresAt,
+              guardianId,
+              assistantPort,
+            },
             0,
           );
         } catch (err) {

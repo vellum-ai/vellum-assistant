@@ -280,8 +280,19 @@ extension MainWindowView {
             }
 
             let groupEntries = conversationManager.sidebarGroupEntries
-            ForEach(groupEntries) { entry in
+            let systemEntries = groupEntries.filter { $0.group.isSystemGroup }
+            let customEntries = groupEntries.filter { !$0.group.isSystemGroup }
+
+            ForEach(systemEntries) { entry in
                 makeSectionView(group: entry.group, conversations: entry.conversations)
+            }
+
+            if !customEntries.isEmpty {
+                sidebarLabeledDivider(label: "YOUR GROUPS")
+
+                ForEach(customEntries) { entry in
+                    makeSectionView(group: entry.group, conversations: entry.conversations)
+                }
             }
 
             // Pagination fallback sentinel: when every section fits within its
@@ -590,6 +601,25 @@ extension MainWindowView {
         VColor.surfaceActive
             .frame(height: 1)
             .padding(.vertical, SidebarLayoutMetrics.dividerVerticalPadding)
+    }
+
+    @ViewBuilder
+    func sidebarLabeledDivider(label: String) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            VColor.surfaceActive
+                .frame(height: 1)
+                .accessibilityHidden(true)
+            Text(label)
+                .font(VFont.labelSmall)
+                .foregroundStyle(VColor.contentTertiary)
+                .tracking(1.2)
+                .fixedSize()
+                .accessibilityAddTraits(.isHeader)
+            VColor.surfaceActive
+                .frame(height: 1)
+                .accessibilityHidden(true)
+        }
+        .padding(.vertical, VSpacing.sm)
     }
 
     // MARK: - App View Helpers

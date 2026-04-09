@@ -12,9 +12,11 @@ import { describe, test, expect, beforeEach } from 'bun:test';
 import {
   createHostBrowserDispatcher,
   type HostBrowserDispatcher,
+  type HostBrowserEventEnvelope,
   type HostBrowserRequestEnvelope,
   type HostBrowserCancelEnvelope,
   type HostBrowserResultEnvelope,
+  type HostBrowserSessionInvalidatedEnvelope,
 } from '../host-browser-dispatcher.js';
 import type {
   CdpProxy,
@@ -54,8 +56,15 @@ interface MockCdpProxy extends CdpProxy {
    * calling these directly via the `fireDetach` helper below.
    */
   detachHandlers: Set<(target: CdpDebuggee, reason: string) => void>;
+  /**
+   * Currently-registered onEvent handlers. Tests fire CDP events by
+   * calling these directly via the `fireEvent` helper below.
+   */
+  eventHandlers: Set<(event: CdpEventFrame) => void>;
   /** Synthetically dispatch a detach event to all registered handlers. */
   fireDetach(target: CdpDebuggee, reason?: string): void;
+  /** Synthetically dispatch a CDP event to all registered handlers. */
+  fireEvent(event: CdpEventFrame): void;
 }
 
 function createMockCdpProxy(options: MockCdpProxyOptions = {}): MockCdpProxy {
@@ -75,6 +84,7 @@ function createMockCdpProxy(options: MockCdpProxyOptions = {}): MockCdpProxy {
     sendCalls,
     detachCalls,
     detachHandlers,
+    eventHandlers,
     get disposeCalls() {
       return disposeCalls;
     },
@@ -107,6 +117,9 @@ function createMockCdpProxy(options: MockCdpProxyOptions = {}): MockCdpProxy {
     fireDetach(target, reason = 'target_closed') {
       for (const h of detachHandlers) h(target, reason);
     },
+    fireEvent(event) {
+      for (const h of eventHandlers) h(event);
+    },
     dispose() {
       disposeCalls += 1;
       eventHandlers.clear();
@@ -120,6 +133,8 @@ interface DispatcherTestHarness {
   dispatcher: HostBrowserDispatcher;
   proxy: MockCdpProxy;
   results: HostBrowserResultEnvelope[];
+  forwardedEvents: HostBrowserEventEnvelope[];
+  forwardedInvalidations: HostBrowserSessionInvalidatedEnvelope[];
   resolveTargetCalls: Array<string | undefined>;
   /** Override this to throw from resolveTarget. */
   resolveTargetImpl: (
@@ -127,17 +142,27 @@ interface DispatcherTestHarness {
   ) => Promise<{ tabId?: number; targetId?: string }>;
   /** Override this to throw from postResult. */
   postResultImpl: (result: HostBrowserResultEnvelope) => Promise<void>;
+  /** Optional override that lets a test simulate forwardCdpEvent throwing. */
+  forwardCdpEventImpl?: (event: HostBrowserEventEnvelope) => void;
+  /** Optional override that lets a test simulate forwardSessionInvalidated throwing. */
+  forwardSessionInvalidatedImpl?: (
+    event: HostBrowserSessionInvalidatedEnvelope,
+  ) => void;
 }
 
 function createHarness(options: MockCdpProxyOptions = {}): DispatcherTestHarness {
   const proxy = createMockCdpProxy(options);
   const results: HostBrowserResultEnvelope[] = [];
+  const forwardedEvents: HostBrowserEventEnvelope[] = [];
+  const forwardedInvalidations: HostBrowserSessionInvalidatedEnvelope[] = [];
   const resolveTargetCalls: Array<string | undefined> = [];
 
   const harness: DispatcherTestHarness = {
     dispatcher: null as unknown as HostBrowserDispatcher,
     proxy,
     results,
+    forwardedEvents,
+    forwardedInvalidations,
     resolveTargetCalls,
     resolveTargetImpl: async (cdpSessionId) => {
       if (cdpSessionId) return { targetId: cdpSessionId };
@@ -157,6 +182,20 @@ function createHarness(options: MockCdpProxyOptions = {}): DispatcherTestHarness
     postResult: async (result) => {
       await harness.postResultImpl(result);
     },
+    forwardCdpEvent: (event) => {
+      if (harness.forwardCdpEventImpl) {
+        harness.forwardCdpEventImpl(event);
+        return;
+      }
+      forwardedEvents.push(event);
+    },
+    forwardSessionInvalidated: (event) => {
+      if (harness.forwardSessionInvalidatedImpl) {
+        harness.forwardSessionInvalidatedImpl(event);
+        return;
+      }
+      forwardedInvalidations.push(event);
+    },
   });
 
   return harness;
@@ -169,6 +208,27 @@ const sampleRequest: HostBrowserRequestEnvelope = {
   cdpMethod: 'Browser.getVersion',
   cdpParams: { foo: 'bar' },
 };
+
+/**
+ * Poll-based wait helper used by the cancel-race tests to synchronise
+ * on dispatcher internals (e.g. "wait until proxy.send has been called")
+ * without reaching into private state. Falls back to a wall-clock
+ * deadline so a broken dispatcher can't hang the test suite forever.
+ */
+async function waitFor(
+  predicate: () => boolean,
+  timeoutMs = 1000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) {
+      throw new Error(
+        `waitFor: predicate did not become true within ${timeoutMs}ms`,
+      );
+    }
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
 
 // ── Tests ───────────────────────────────────────────────────────────
 
@@ -559,9 +619,14 @@ describe('createHostBrowserDispatcher', () => {
   });
 
   describe('cancel', () => {
-    test('aborts the in-flight controller for the matching request id', async () => {
-      // Gate resolveTarget on an externally-controllable promise so we can
-      // issue a cancel while the handler is still mid-flight.
+    test('suppresses late postResult delivery for a cancelled request (deterministic-cancel guarantee)', async () => {
+      // Regression: the dispatcher must NOT deliver a result envelope
+      // after the daemon has sent a host_browser_cancel. The daemon
+      // has already resolved the caller with "Aborted" — a late post
+      // would be a ghost completion and trip the daemon's "No pending
+      // host browser request" warning. Gate resolveTarget so we can
+      // issue the cancel mid-flight, then release the gate and verify
+      // that the handler runs to completion without posting anything.
       let releaseResolve: () => void = () => {};
       const gate = new Promise<void>((resolve) => {
         releaseResolve = resolve;
@@ -574,22 +639,420 @@ describe('createHostBrowserDispatcher', () => {
 
       const handlePromise = harness.dispatcher.handle(sampleRequest);
 
-      // Mid-flight cancel.
+      // Mid-flight cancel — arrives BEFORE resolveTarget settles, so the
+      // handler is still awaiting its first internal await.
       const cancelEnvelope: HostBrowserCancelEnvelope = {
         type: 'host_browser_cancel',
         requestId: 'req-1',
       };
       harness.dispatcher.cancel(cancelEnvelope);
 
-      // Release the gate so the handler can run to completion.
+      // Release the gate so the handler can finish its internal work
+      // (proxy.send will still be invoked because resolveTarget runs
+      // before the cancellation check at the postResult site).
       releaseResolve();
       await handlePromise;
 
-      // Handler still ran to completion and posted a result — the dispatcher
-      // does not early-return on cancel; instead it removes the abort
-      // controller from the in-flight map. This matches the plan's acceptance
-      // criteria for the "cancel aborts the in-flight controller" test.
+      // Critical assertion: no result envelope was posted. The cancelled
+      // request is dropped on the floor at the postResult site.
+      expect(harness.results.length).toBe(0);
+    });
+
+    test('suppresses late postResult when cancel races with proxy.send resolution', async () => {
+      // Simulates the window where proxy.send has already been called
+      // but hasn't resolved yet. The cancel lands between send() and
+      // the postResult call. This is the tightest race the dispatcher
+      // needs to handle deterministically.
+      let releaseSend: (frame: {
+        id: number;
+        result: unknown;
+      }) => void = () => {};
+      const sendGate = new Promise<{ id: number; result: unknown }>(
+        (resolve) => {
+          releaseSend = resolve;
+        },
+      );
+      const proxy = harness.proxy;
+      // Override send on the existing mock proxy so we can externally
+      // control when the CDP round-trip resolves.
+      proxy.send = async (target, frame) => {
+        proxy.sendCalls.push({ target, frame });
+        const result = await sendGate;
+        return { ...result, id: frame.id };
+      };
+
+      const handlePromise = harness.dispatcher.handle(sampleRequest);
+
+      // Wait for the handler to reach proxy.send before cancelling.
+      await waitFor(() => proxy.sendCalls.length === 1);
+
+      harness.dispatcher.cancel({
+        type: 'host_browser_cancel',
+        requestId: 'req-1',
+      });
+
+      // Resolve the CDP round-trip — the dispatcher must now notice
+      // the request was cancelled and drop the result instead of
+      // calling postResult.
+      releaseSend({ id: 0, result: { ok: true } });
+      await handlePromise;
+
+      expect(harness.results.length).toBe(0);
+    });
+
+    test('suppresses late postResult when cancel races with a send() that returned an error frame', async () => {
+      // Mirror the previous race test but with the CDP round-trip
+      // returning a JSON-RPC error envelope. The dispatcher must still
+      // drop the error envelope on the floor — both the success and
+      // the error branches of handle() route through the same
+      // postResult call site and must honour the cancellation check.
+      let releaseSend: (frame: {
+        id: number;
+        error: { code: number; message: string };
+      }) => void = () => {};
+      const sendGate = new Promise<{
+        id: number;
+        error: { code: number; message: string };
+      }>((resolve) => {
+        releaseSend = resolve;
+      });
+      const proxy = harness.proxy;
+      proxy.send = async (target, frame) => {
+        proxy.sendCalls.push({ target, frame });
+        const result = await sendGate;
+        return { ...result, id: frame.id };
+      };
+
+      const handlePromise = harness.dispatcher.handle(sampleRequest);
+      await waitFor(() => proxy.sendCalls.length === 1);
+
+      harness.dispatcher.cancel({
+        type: 'host_browser_cancel',
+        requestId: 'req-1',
+      });
+
+      releaseSend({
+        id: 0,
+        error: { code: -32000, message: 'cannot find context with specified id' },
+      });
+      await handlePromise;
+
+      expect(harness.results.length).toBe(0);
+    });
+
+    test('suppresses the error envelope when cancel races with a thrown send', async () => {
+      // Error path: the CDP send throws *after* cancel has arrived.
+      // The catch block in handle() must honour the cancelled set and
+      // skip its postResult call.
+      let rejectSend: (err: Error) => void = () => {};
+      const sendGate = new Promise<never>((_, reject) => {
+        rejectSend = reject;
+      });
+      const proxy = harness.proxy;
+      proxy.send = async (target, frame) => {
+        proxy.sendCalls.push({ target, frame });
+        return sendGate;
+      };
+
+      const handlePromise = harness.dispatcher.handle(sampleRequest);
+      await waitFor(() => proxy.sendCalls.length === 1);
+
+      harness.dispatcher.cancel({
+        type: 'host_browser_cancel',
+        requestId: 'req-1',
+      });
+
+      rejectSend(new Error('debugger detached mid-command'));
+      await handlePromise;
+
+      expect(harness.results.length).toBe(0);
+    });
+
+    test('cancel is idempotent: repeat cancels for the same request id are safe', async () => {
+      // Issue the same cancel twice, then a third time after the
+      // handler has already unwound. None of them must throw, and no
+      // result envelope must be posted for the original request.
+      let releaseResolve: () => void = () => {};
+      const gate = new Promise<void>((resolve) => {
+        releaseResolve = resolve;
+      });
+
+      harness.resolveTargetImpl = async () => {
+        await gate;
+        return { tabId: 7 };
+      };
+
+      const handlePromise = harness.dispatcher.handle(sampleRequest);
+
+      const cancelEnvelope: HostBrowserCancelEnvelope = {
+        type: 'host_browser_cancel',
+        requestId: 'req-1',
+      };
+      expect(() => harness.dispatcher.cancel(cancelEnvelope)).not.toThrow();
+      expect(() => harness.dispatcher.cancel(cancelEnvelope)).not.toThrow();
+
+      releaseResolve();
+      await handlePromise;
+
+      // Post-handler cancel must also be a no-op: cancel() only records
+      // markers for requests currently in `inFlight`, and the previous
+      // handler has already unwound and removed its entry, so this
+      // third cancel short-circuits without touching cancelledRequestIds.
+      expect(() => harness.dispatcher.cancel(cancelEnvelope)).not.toThrow();
+
+      expect(harness.results.length).toBe(0);
+    });
+
+    test('cancel for a finished request does not affect a subsequent request with the same id', async () => {
+      // A cancelled request marks its id in the internal cancelled set,
+      // and handle()'s finally block prunes the entry. A subsequent
+      // handle() call for the *same* requestId (e.g. a retry across a
+      // relay reconnect) must NOT inherit the cancelled flag from the
+      // previous invocation — otherwise the retry would silently drop
+      // its result.
+      harness = createHarness({
+        sendResult: { id: 1, result: { ok: true } },
+      });
+
+      // First invocation — cancel it mid-flight.
+      let releaseResolve: () => void = () => {};
+      const gate = new Promise<void>((resolve) => {
+        releaseResolve = resolve;
+      });
+      harness.resolveTargetImpl = async () => {
+        await gate;
+        return { tabId: 42 };
+      };
+
+      const firstPromise = harness.dispatcher.handle(sampleRequest);
+      harness.dispatcher.cancel({
+        type: 'host_browser_cancel',
+        requestId: 'req-1',
+      });
+      releaseResolve();
+      await firstPromise;
+      expect(harness.results.length).toBe(0);
+
+      // Second invocation with the same requestId — must run to
+      // completion and post its result.
+      harness.resolveTargetImpl = async () => ({ tabId: 42 });
+      await harness.dispatcher.handle(sampleRequest);
+
       expect(harness.results.length).toBe(1);
+      expect(harness.results[0].requestId).toBe('req-1');
+      expect(harness.results[0].isError).toBe(false);
+    });
+
+    test('overlap-retry: cancelled call A cannot suppress call B retrying the same requestId', async () => {
+      // Regression: there is a race where a cancelled-but-still-
+      // suspended call A can leak its cancel marker onto an overlapping
+      // retry (call B) for the same requestId. The ordering is:
+      //
+      //   1. handle("req-1") — call A, suspends inside proxy.send at gate_A
+      //   2. cancel("req-1") — marks req-1 cancelled, aborts A's
+      //      controller, removes A from inFlight (A is still suspended)
+      //   3. handle("req-1") — call B, retry arrives before A unwinds
+      //   4. B's proxy.send resolves first (gate_B released) — B must
+      //      deliver its legitimate result
+      //   5. A's proxy.send resolves later (gate_A released) — A must
+      //      still be suppressed (it was cancelled)
+      //
+      // Before the fix, A's cancel marker lived in `cancelledRequestIds`
+      // past the start of call B, so B's happy path would see the stale
+      // marker and silently drop the result. The fix:
+      //   (a) clears any stale marker at the top of handle(), so B's
+      //       post-send check sees a clean state
+      //   (b) uses the per-invocation AbortController signal to
+      //       authoritatively suppress call A without relying on a
+      //       shared-by-id flag that B would stomp on
+      harness = createHarness();
+
+      // Per-invocation send gates, one for call A and one for call B.
+      // The dispatcher's proxy.send override shifts the next gate off
+      // the FIFO queue each time it fires, so call A awaits gateA
+      // (index 0) and call B awaits gateB (index 1).
+      type SendFrame = { id: number; result: unknown };
+      let resolveGateA: (frame: SendFrame) => void = () => {};
+      let resolveGateB: (frame: SendFrame) => void = () => {};
+      const gateA = new Promise<SendFrame>((resolve) => {
+        resolveGateA = resolve;
+      });
+      const gateB = new Promise<SendFrame>((resolve) => {
+        resolveGateB = resolve;
+      });
+      const gates: Array<Promise<SendFrame>> = [gateA, gateB];
+
+      const proxy = harness.proxy;
+      proxy.send = async (target, frame) => {
+        proxy.sendCalls.push({ target, frame });
+        const gate = gates.shift();
+        if (!gate) {
+          throw new Error('unexpected additional proxy.send call');
+        }
+        const result = await gate;
+        return { ...result, id: frame.id };
+      };
+
+      // Start call A and wait for it to suspend inside proxy.send.
+      const callA = harness.dispatcher.handle(sampleRequest);
+      await waitFor(() => proxy.sendCalls.length === 1);
+
+      // Cancel call A. At this point A is still suspended at gateA.
+      harness.dispatcher.cancel({
+        type: 'host_browser_cancel',
+        requestId: 'req-1',
+      });
+
+      // Start call B with the SAME requestId. B is a retry that
+      // arrives before A has unwound through its finally block — the
+      // exact overlap the race test exercises.
+      const callB = harness.dispatcher.handle(sampleRequest);
+      await waitFor(() => proxy.sendCalls.length === 2);
+
+      // Resolve call B's proxy.send FIRST with a legitimate success
+      // frame. B must deliver this result via postResult.
+      resolveGateB({ id: 0, result: { fromRetry: true } });
+      await callB;
+
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].requestId).toBe('req-1');
+      expect(harness.results[0].isError).toBe(false);
+      expect(harness.results[0].content).toBe(
+        JSON.stringify({ fromRetry: true }),
+      );
+
+      // Now release call A's gate. A's happy path must notice its own
+      // AbortController is aborted and drop the result on the floor —
+      // i.e. we should still only have B's single result in the log.
+      resolveGateA({ id: 0, result: { fromCancelledA: true } });
+      await callA;
+
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].content).toBe(
+        JSON.stringify({ fromRetry: true }),
+      );
+    });
+
+    test('overlap-retry reverse ordering: cancelled call A unwinding does not evict call B from inFlight', async () => {
+      // Companion to the overlap-retry test above, exercising the
+      // reverse ordering: call A's proxy.send resolves BEFORE call
+      // B's, i.e. the cancelled invocation unwinds while the live
+      // retry is still suspended. The dispatcher's finally block
+      // guards `inFlight.delete` on identity: A must not evict B's
+      // controller from inFlight, otherwise a subsequent `cancel("req-1")`
+      // would find nothing and silently no-op, leaving B uncancellable.
+      //
+      // Ordering:
+      //   1. handle("req-1") — call A, suspends inside proxy.send at gateA
+      //   2. cancel("req-1") — marks req-1 cancelled, aborts A's
+      //      controller, removes A from inFlight (A still suspended)
+      //   3. handle("req-1") — call B, retry starts, inserts controllerB
+      //      into inFlight, suspends inside proxy.send at gateB
+      //   4. Release gateA FIRST — call A resumes, sees its own
+      //      AbortController is aborted, drops the result, and runs
+      //      its finally block while B is still suspended. The guard
+      //      must leave inFlight[req-1] pointing at controllerB.
+      //   5. cancel("req-1") — must find B's controller in inFlight
+      //      and abort it. B then unwinds and drops its (cancelled)
+      //      result on the floor.
+      harness = createHarness();
+
+      type SendFrame = { id: number; result: unknown };
+      let resolveGateA: (frame: SendFrame) => void = () => {};
+      let resolveGateB: (frame: SendFrame) => void = () => {};
+      const gateA = new Promise<SendFrame>((resolve) => {
+        resolveGateA = resolve;
+      });
+      const gateB = new Promise<SendFrame>((resolve) => {
+        resolveGateB = resolve;
+      });
+      const gates: Array<Promise<SendFrame>> = [gateA, gateB];
+
+      const proxy = harness.proxy;
+      proxy.send = async (target, frame) => {
+        proxy.sendCalls.push({ target, frame });
+        const gate = gates.shift();
+        if (!gate) {
+          throw new Error('unexpected additional proxy.send call');
+        }
+        const result = await gate;
+        return { ...result, id: frame.id };
+      };
+
+      // Start call A and wait for it to suspend inside proxy.send.
+      const callA = harness.dispatcher.handle(sampleRequest);
+      await waitFor(() => proxy.sendCalls.length === 1);
+
+      // Cancel call A while it is still suspended at gateA.
+      harness.dispatcher.cancel({
+        type: 'host_browser_cancel',
+        requestId: 'req-1',
+      });
+
+      // Start call B with the same requestId — the retry inserts its
+      // own controller into inFlight[req-1] and suspends at gateB.
+      const callB = harness.dispatcher.handle(sampleRequest);
+      await waitFor(() => proxy.sendCalls.length === 2);
+
+      // Release call A's gate FIRST so A unwinds while B is still
+      // suspended. A's finally runs against an inFlight entry that
+      // now belongs to B; the identity guard must leave it in place.
+      resolveGateA({ id: 0, result: { fromCancelledA: true } });
+      await callA;
+
+      // A dropped its result on the floor (cancelled-invocation
+      // suppression), so no envelope has been posted yet.
+      expect(harness.results.length).toBe(0);
+
+      // Issuing a cancel for B must still find B's controller live
+      // in inFlight — if A's finally had evicted B, this cancel
+      // would be a silent no-op and B would deliver its result on
+      // gateB release. We want the opposite: B must be cancelled.
+      harness.dispatcher.cancel({
+        type: 'host_browser_cancel',
+        requestId: 'req-1',
+      });
+
+      // Release B's gate. B's happy path must notice its own
+      // AbortController is aborted and drop the result instead of
+      // posting it — proving the cancel above reached B's live
+      // controller rather than no-oping against an evicted entry.
+      resolveGateB({ id: 0, result: { fromRetry: true } });
+      await callB;
+
+      expect(harness.results.length).toBe(0);
+    });
+
+    test('aborts the in-flight controller and removes it from the inFlight map', async () => {
+      // Sanity check on the cancel path's bookkeeping: after cancel()
+      // returns, the in-flight map no longer holds the cancelled entry,
+      // and disposing the dispatcher afterwards must not throw even
+      // though the cancelled handler is still technically awaiting its
+      // internal gate.
+      let releaseResolve: () => void = () => {};
+      const gate = new Promise<void>((resolve) => {
+        releaseResolve = resolve;
+      });
+      harness.resolveTargetImpl = async () => {
+        await gate;
+        return { tabId: 7 };
+      };
+
+      const handlePromise = harness.dispatcher.handle(sampleRequest);
+      harness.dispatcher.cancel({
+        type: 'host_browser_cancel',
+        requestId: 'req-1',
+      });
+
+      // Dispose while the cancelled handler is still in flight — this
+      // is the same path the service worker takes on shutdown.
+      harness.dispatcher.dispose();
+
+      // Release the gate so the promise can settle cleanly.
+      releaseResolve();
+      await handlePromise;
+
+      expect(harness.results.length).toBe(0);
     });
 
     test('is a no-op for unknown request ids', () => {
@@ -663,6 +1126,177 @@ describe('createHostBrowserDispatcher', () => {
       // the proxy isn't left holding a stale closure that references the
       // disposed dispatcher's `attachedTargets` set.
       expect(harness.proxy.detachHandlers.size).toBe(0);
+    });
+
+    test('unsubscribes the onEvent handler', async () => {
+      harness = createHarness({ sendResult: { id: 1, result: {} } });
+
+      // PR10: the dispatcher subscribes to proxy.onEvent so it can
+      // forward CDP events to the runtime. After dispose, the
+      // subscription must be released — otherwise the proxy keeps
+      // a stale closure referencing the disposed dispatcher's hooks.
+      expect(harness.proxy.eventHandlers.size).toBe(1);
+
+      harness.dispatcher.dispose();
+
+      expect(harness.proxy.eventHandlers.size).toBe(0);
+    });
+  });
+
+  // ── PR10: CDP event forwarding ─────────────────────────────────────
+
+  describe('forwardCdpEvent — chrome.debugger.onEvent forwarding', () => {
+    test('forwards CDP events to the worker hook with method, params, and sessionId', () => {
+      // Fire a flat-session event from chrome.debugger and assert
+      // that the dispatcher's `forwardCdpEvent` hook was invoked
+      // with a host_browser_event envelope carrying the same fields.
+      // The CdpEventFrame's `sessionId` field maps to the envelope's
+      // `cdpSessionId` field — see host-browser-dispatcher.ts for
+      // the rationale on the rename.
+      harness.proxy.fireEvent({
+        method: 'Page.frameNavigated',
+        params: { frame: { id: 'frame-1', url: 'https://example.com' } },
+        sessionId: 'flat-session-xyz',
+      });
+
+      expect(harness.forwardedEvents.length).toBe(1);
+      expect(harness.forwardedEvents[0]).toEqual({
+        type: 'host_browser_event',
+        method: 'Page.frameNavigated',
+        params: { frame: { id: 'frame-1', url: 'https://example.com' } },
+        cdpSessionId: 'flat-session-xyz',
+      });
+    });
+
+    test('forwards events with no params and no sessionId', () => {
+      harness.proxy.fireEvent({ method: 'Target.targetDestroyed' });
+
+      expect(harness.forwardedEvents.length).toBe(1);
+      expect(harness.forwardedEvents[0]).toEqual({
+        type: 'host_browser_event',
+        method: 'Target.targetDestroyed',
+        params: undefined,
+        cdpSessionId: undefined,
+      });
+    });
+
+    test('multiple events fired in sequence are forwarded in order', () => {
+      harness.proxy.fireEvent({ method: 'Page.loadEventFired' });
+      harness.proxy.fireEvent({ method: 'Network.responseReceived' });
+      harness.proxy.fireEvent({ method: 'Runtime.consoleAPICalled' });
+
+      expect(harness.forwardedEvents.length).toBe(3);
+      expect(harness.forwardedEvents.map((e) => e.method)).toEqual([
+        'Page.loadEventFired',
+        'Network.responseReceived',
+        'Runtime.consoleAPICalled',
+      ]);
+    });
+
+    test('a throwing forwardCdpEvent hook does not crash the dispatcher', () => {
+      harness.forwardCdpEventImpl = () => {
+        throw new Error('forwarder exploded');
+      };
+
+      // Must not throw out of the proxy's onEvent firing path —
+      // otherwise an unhandled exception in the worker's relay
+      // helper would tear down the chrome.debugger.onEvent listener
+      // and silently break event forwarding.
+      expect(() =>
+        harness.proxy.fireEvent({ method: 'Page.frameNavigated' }),
+      ).not.toThrow();
+    });
+
+    test('a dispatcher with no forwardCdpEvent hook still tolerates events', () => {
+      // Build a fresh dispatcher that omits the hook entirely. The
+      // proxy still notifies its event handlers (since the dispatcher
+      // subscribes unconditionally so unsubscribe is symmetric on
+      // dispose) — the handler must short-circuit when no hook is
+      // wired.
+      const proxy = createMockCdpProxy();
+      const dispatcher = createHostBrowserDispatcher({
+        cdpProxy: proxy,
+        resolveTarget: async () => ({ tabId: 1 }),
+        postResult: async () => {},
+      });
+      expect(() =>
+        proxy.fireEvent({ method: 'Page.frameNavigated' }),
+      ).not.toThrow();
+      dispatcher.dispose();
+    });
+  });
+
+  // ── PR10: detach → host_browser_session_invalidated forwarding ────
+
+  describe('forwardSessionInvalidated — chrome.debugger.onDetach forwarding', () => {
+    test('forwards a tabId detach as a stringified targetId envelope', () => {
+      // Sanity-check the runtime's expectation: the wire envelope
+      // always carries `targetId` as a string, even when the
+      // underlying detach was for a numeric tabId.
+      harness.proxy.fireDetach({ tabId: 42 }, 'target_closed');
+
+      expect(harness.forwardedInvalidations.length).toBe(1);
+      expect(harness.forwardedInvalidations[0]).toEqual({
+        type: 'host_browser_session_invalidated',
+        targetId: '42',
+        reason: 'target_closed',
+      });
+    });
+
+    test('forwards a targetId detach with the targetId preserved verbatim', () => {
+      harness.proxy.fireDetach(
+        { targetId: 'target-xyz' },
+        'canceled_by_user',
+      );
+
+      expect(harness.forwardedInvalidations.length).toBe(1);
+      expect(harness.forwardedInvalidations[0]).toEqual({
+        type: 'host_browser_session_invalidated',
+        targetId: 'target-xyz',
+        reason: 'canceled_by_user',
+      });
+    });
+
+    test('forwards detaches with neither tabId nor targetId as advisory envelopes', () => {
+      // The dispatcher tolerates this shape (e.g. an extensionId-only
+      // detach) and surfaces it without a targetId so the runtime
+      // logger has visibility into the signal.
+      harness.proxy.fireDetach({}, 'extension_unloaded');
+
+      expect(harness.forwardedInvalidations.length).toBe(1);
+      expect(harness.forwardedInvalidations[0]).toEqual({
+        type: 'host_browser_session_invalidated',
+        targetId: undefined,
+        reason: 'extension_unloaded',
+      });
+    });
+
+    test('still clears the local attach cache when forwarding fails', async () => {
+      // Wire a forwarder that throws to assert that local cache
+      // eviction on onDetach is unaffected by a broken runtime
+      // forwarder. The forward and the local bookkeeping must be
+      // independent.
+      harness = createHarness({ sendResult: { id: 1, result: {} } });
+      harness.forwardSessionInvalidatedImpl = () => {
+        throw new Error('forwarder exploded');
+      };
+
+      await harness.dispatcher.handle(sampleRequest);
+      expect(harness.proxy.attachCalls.length).toBe(1);
+
+      // The fire-detach call must NOT throw despite the forwarder
+      // exploding internally — the dispatcher catches and logs.
+      expect(() =>
+        harness.proxy.fireDetach({ tabId: 42 }, 'target_closed'),
+      ).not.toThrow();
+
+      // The next request should still re-attach because the local
+      // attachedTargets cache was cleared by onDetach.
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        requestId: 'req-2',
+      });
+      expect(harness.proxy.attachCalls.length).toBe(2);
     });
   });
 });

@@ -33,7 +33,7 @@ struct MessageListContentView: View, Equatable {
             && lhs.isLoadingMoreMessages == rhs.isLoadingMoreMessages
             && lhs.isCompacting == rhs.isCompacting
             && lhs.isInteractionEnabled == rhs.isInteractionEnabled
-            && lhs.containerWidth == rhs.containerWidth
+            && lhs.layoutMetrics == rhs.layoutMetrics
             && lhs.dismissedDocumentSurfaceIds == rhs.dismissedDocumentSurfaceIds
             && lhs.activeSurfaceId == rhs.activeSurfaceId
             && lhs.highlightedMessageId == rhs.highlightedMessageId
@@ -56,7 +56,7 @@ struct MessageListContentView: View, Equatable {
     let isLoadingMoreMessages: Bool
     let isCompacting: Bool
     let isInteractionEnabled: Bool
-    let containerWidth: CGFloat
+    let layoutMetrics: MessageListLayoutMetrics
     let dismissedDocumentSurfaceIds: Set<String>
     let activeSurfaceId: String?
     let highlightedMessageId: UUID?
@@ -93,6 +93,10 @@ struct MessageListContentView: View, Equatable {
 
     // MARK: - Thinking indicator helpers
 
+    private var effectiveBubbleMaxWidth: CGFloat {
+        layoutMetrics.bubbleMaxWidth
+    }
+
     @ViewBuilder
     private func thinkingIndicatorRow(hasUserMessage: Bool) -> some View {
         HStack(spacing: VSpacing.sm) {
@@ -107,7 +111,7 @@ struct MessageListContentView: View, Equatable {
             }
             Spacer()
         }
-        .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+        .frame(width: effectiveBubbleMaxWidth)
         .id("thinking-indicator")
         .transition(.opacity)
     }
@@ -118,7 +122,7 @@ struct MessageListContentView: View, Equatable {
             label: "Compacting context\u{2026}",
             showIcon: false
         )
-        .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+        .frame(width: effectiveBubbleMaxWidth)
         .id("compacting-indicator")
         .transition(.opacity)
     }
@@ -225,13 +229,16 @@ struct MessageListContentView: View, Equatable {
             }
 
             ForEach(state.orphanSubagents) { subagent in
-                SubagentEventsReader(
-                    store: subagentDetailStore,
-                    subagent: subagent,
-                    onAbort: { onAbortSubagent?(subagent.id) },
-                    onTap: { onSubagentTap?(subagent.id) }
-                )
-                    .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+                // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+                HStack(spacing: 0) {
+                    SubagentEventsReader(
+                        store: subagentDetailStore,
+                        subagent: subagent,
+                        onAbort: { onAbortSubagent?(subagent.id) },
+                        onTap: { onSubagentTap?(subagent.id) }
+                    )
+                    Spacer(minLength: 0)
+                }
                     .id("subagent-\(subagent.id)")
                     .transition(.opacity)
             }
@@ -248,7 +255,7 @@ struct MessageListContentView: View, Equatable {
                     TypingIndicatorView()
                     Spacer()
                 }
-                .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+                .frame(width: effectiveBubbleMaxWidth)
                 .id("streaming-without-text-indicator")
                 .transition(.opacity)
             } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
@@ -271,8 +278,6 @@ struct MessageListContentView: View, Equatable {
         .transaction { $0.animation = nil }
         .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.xl,
                             bottom: VSpacing.md, trailing: VSpacing.xl))
-        .environment(\.bubbleMaxWidth, containerWidth > 0
-            ? min(VSpacing.chatBubbleMaxWidth, max(containerWidth - 2 * VSpacing.xl, 0))
-            : VSpacing.chatBubbleMaxWidth)
+        .environment(\.bubbleMaxWidth, layoutMetrics.bubbleMaxWidth)
     }
 }

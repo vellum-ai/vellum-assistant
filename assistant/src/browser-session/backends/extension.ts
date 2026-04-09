@@ -1,10 +1,11 @@
 import type { BrowserBackend, CdpCommand, CdpResult } from "../types.js";
 
 /**
- * Extension backend stub. Phase 2 Wave 2 will wire this to the runtime's
- * chrome-extension WebSocket connection registry. For now this is a pure
- * interface implementation so BrowserSessionManager and its tests can be
- * written without depending on runtime internals.
+ * Extension backend for BrowserSessionManager. Wraps a caller-provided
+ * `sendCdp` transport that routes CDP commands through the daemon's
+ * HostBrowserProxy to an attached chrome extension. The factory in
+ * `assistant/src/tools/browser/cdp-client/factory.ts` constructs one
+ * per tool invocation using the conversation's `hostBrowserProxy`.
  */
 export interface ExtensionBackendDeps {
   /** Sends a CDP command to an attached chrome extension and returns the CDP result. */

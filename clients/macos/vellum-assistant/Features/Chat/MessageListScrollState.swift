@@ -201,8 +201,8 @@ final class MessageListScrollState {
     /// Captures the `assistantActivityPhase` at the moment `isSending` goes false.
     @ObservationIgnored var lastActivityPhaseWhenIdle: String = ""
 
-    /// Last container width that triggered a resize scroll handler.
-    @ObservationIgnored var lastHandledContainerWidth: CGFloat = 0
+    /// Last transcript column width that triggered a resize scroll handler.
+    @ObservationIgnored var lastHandledChatColumnWidth: CGFloat = 0
 
     /// Tracks the last pending confirmation request ID that triggered an
     /// auto-focus handoff.
@@ -279,29 +279,9 @@ final class MessageListScrollState {
         set { derivedStateCache.messageListVersion = newValue }
     }
 
-    @ObservationIgnored var lastKnownRawMessageCount: Int {
-        get { derivedStateCache.lastKnownRawMessageCount }
-        set { derivedStateCache.lastKnownRawMessageCount = newValue }
-    }
-
-    @ObservationIgnored var lastKnownVisibleMessageCount: Int {
-        get { derivedStateCache.lastKnownVisibleMessageCount }
-        set { derivedStateCache.lastKnownVisibleMessageCount = newValue }
-    }
-
-    @ObservationIgnored var lastKnownLastMessageStreaming: Bool {
-        get { derivedStateCache.lastKnownLastMessageStreaming }
-        set { derivedStateCache.lastKnownLastMessageStreaming = newValue }
-    }
-
-    @ObservationIgnored var lastKnownIncompleteToolCallCount: Int {
-        get { derivedStateCache.lastKnownIncompleteToolCallCount }
-        set { derivedStateCache.lastKnownIncompleteToolCallCount = newValue }
-    }
-
-    @ObservationIgnored var lastKnownVisibleIdFingerprint: Int {
-        get { derivedStateCache.lastKnownVisibleIdFingerprint }
-        set { derivedStateCache.lastKnownVisibleIdFingerprint = newValue }
+    @ObservationIgnored var lastKnownMessagesRevision: UInt64 {
+        get { derivedStateCache.lastKnownMessagesRevision }
+        set { derivedStateCache.lastKnownMessagesRevision = newValue }
     }
 
     @ObservationIgnored var cachedFirstVisibleMessageId: UUID? {
