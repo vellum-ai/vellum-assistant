@@ -97,10 +97,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     let computerUseClient: any ComputerUseClientProtocol = ComputerUseClient()
     let appsClient: any AppsClientProtocol = AppsClient()
     let toolConfirmationNotificationService = ToolConfirmationNotificationService()
-    /// Shared feature flag store — caches resolved flags in memory so that
-    /// hot paths (e.g. `SoundManager.play()`) avoid synchronous file I/O on
-    /// the main thread.
-    let featureFlagStore = AssistantFeatureFlagStore()
+    /// Shared feature flag store — owned by `AppServices` so `SettingsStore`
+    /// can depend on the same instance; forwarded here for backwards
+    /// compatibility with existing call sites.
+    var featureFlagStore: AssistantFeatureFlagStore { services.featureFlagStore }
 
     lazy var recordingManager: RecordingManager = RecordingManager(connectionManager: connectionManager)
     var recordingPickerWindow: RecordingSourcePickerWindow?
