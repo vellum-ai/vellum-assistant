@@ -286,18 +286,24 @@ extension ChatViewModel {
     }
 
     /// Ingest attachment warnings from a completion/handoff event into the
-    /// current or new assistant message.
-    func ingestAssistantAttachmentWarnings(_ warnings: [String]?) {
+    /// specified assistant message, or create a new one if no target is given.
+    ///
+    /// - Parameters:
+    ///   - warnings: Warning strings from the daemon event.
+    ///   - targetMessageId: The assistant message to receive the warnings.
+    ///     Pass `nil` to create a standalone warnings message.
+    func ingestAssistantAttachmentWarnings(_ warnings: [String]?, targetMessageId: UUID?) {
         guard let warnings, !warnings.isEmpty else { return }
 
-        if let existingId = currentAssistantMessageId,
+        if let existingId = targetMessageId,
            let index = messages.firstIndex(where: { $0.id == existingId }) {
             messages[index].attachmentWarnings.append(contentsOf: warnings)
-        } else {
+        } else if targetMessageId == nil {
             let msg = ChatMessage(role: .assistant, text: "", attachmentWarnings: warnings)
-            currentAssistantMessageId = msg.id
             messages.append(msg)
         }
+        // If targetMessageId was set but the message was not found, silently
+        // drop the warnings (same policy as ingestAssistantAttachments).
     }
 
     // MARK: - Permission & Tool Result Helpers
