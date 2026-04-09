@@ -119,6 +119,8 @@ extension DynamicPageSurfaceView {
                         let safeCallId = callId
                             .replacingOccurrences(of: "\\", with: "\\\\")
                             .replacingOccurrences(of: "'", with: "\\'")
+                            .replacingOccurrences(of: "\n", with: "\\n")
+                            .replacingOccurrences(of: "\r", with: "\\r")
                         webView?.evaluateJavaScript("window.vellum._rejectFetch('\(safeCallId)', 'Request blocked: sandbox mode')", completionHandler: nil)
                     }
                     return
@@ -137,6 +139,8 @@ extension DynamicPageSurfaceView {
                     let safeCallId = callId
                         .replacingOccurrences(of: "\\", with: "\\\\")
                         .replacingOccurrences(of: "'", with: "\\'")
+                        .replacingOccurrences(of: "\n", with: "\\n")
+                        .replacingOccurrences(of: "\r", with: "\\r")
                     webView?.evaluateJavaScript("window.vellum._rejectFetch('\(safeCallId)', 'Invalid URL')", completionHandler: nil)
                     return
                 }
@@ -148,6 +152,8 @@ extension DynamicPageSurfaceView {
                     let safeCallId = callId
                         .replacingOccurrences(of: "\\", with: "\\\\")
                         .replacingOccurrences(of: "'", with: "\\'")
+                        .replacingOccurrences(of: "\n", with: "\\n")
+                        .replacingOccurrences(of: "\r", with: "\\r")
                     webView?.evaluateJavaScript("window.vellum._rejectFetch('\(safeCallId)', 'Request blocked: disallowed origin')", completionHandler: nil)
                     return
                 }
@@ -180,9 +186,13 @@ extension DynamicPageSurfaceView {
                         let safeCallId = callId
                             .replacingOccurrences(of: "\\", with: "\\\\")
                             .replacingOccurrences(of: "'", with: "\\'")
+                            .replacingOccurrences(of: "\n", with: "\\n")
+                            .replacingOccurrences(of: "\r", with: "\\r")
                         let safeStatusText = statusText
                             .replacingOccurrences(of: "\\", with: "\\\\")
                             .replacingOccurrences(of: "'", with: "\\'")
+                            .replacingOccurrences(of: "\n", with: "\\n")
+                            .replacingOccurrences(of: "\r", with: "\\r")
 
                         let js = "window.vellum._resolveFetch('\(safeCallId)', \(statusCode), '\(safeStatusText)', '\(escapedBody)')"
                         await MainActor.run {
@@ -192,6 +202,8 @@ extension DynamicPageSurfaceView {
                         let safeCallId = callId
                             .replacingOccurrences(of: "\\", with: "\\\\")
                             .replacingOccurrences(of: "'", with: "\\'")
+                            .replacingOccurrences(of: "\n", with: "\\n")
+                            .replacingOccurrences(of: "\r", with: "\\r")
                         let errorMessage = error.localizedDescription
                             .replacingOccurrences(of: "\\", with: "\\\\")
                             .replacingOccurrences(of: "'", with: "\\'")
