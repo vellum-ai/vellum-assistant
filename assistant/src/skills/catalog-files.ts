@@ -3,15 +3,14 @@
  * skills, including ones that are NOT installed locally.
  *
  * This module is pure library code: it does NOT wire itself into any handler
- * or route. It is consumed by higher-level daemon handlers introduced in
- * later PRs of the `skill-files-preview` plan.
+ * or route. Higher-level daemon handlers consume it via the exported
+ * `readCatalogSkillFiles` / `readCatalogSkillFileContent` functions.
  *
  * Data sources:
  *   - In `VELLUM_DEV` mode, when `<repo>/skills/<id>/` exists on disk, we
  *     read the skill files directly from the repo checkout (matching the
  *     behavior of `getCatalog()` in dev).
- *   - Otherwise, we call the platform preview endpoints introduced by
- *     vellum-assistant-platform PR #4103:
+ *   - Otherwise, we call the platform preview endpoints:
  *       GET /v1/skills/{skill_id}/files/
  *       GET /v1/skills/{skill_id}/files/content/?path=...
  *
@@ -74,9 +73,9 @@ export interface SkillFileEntry {
 
 // ─── Platform response contracts ─────────────────────────────────────────────
 //
-// Wire format is snake_case (vellum-assistant-platform PR #4103). We map to
-// the daemon's camelCase shape inside this module so nothing downstream needs
-// to know about the platform contract.
+// The platform preview API uses snake_case on the wire. We map to the
+// daemon's camelCase shape inside this module so nothing downstream needs to
+// know about the platform contract.
 
 interface PlatformFileListResponse {
   skill_id: string;

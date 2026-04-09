@@ -1,6 +1,5 @@
 /**
- * Handler-level tests for `getSkillFileContent` (PR 3 of the
- * `skill-files-preview` plan).
+ * Handler-level tests for `getSkillFileContent`.
  *
  * Covers:
  *   - Installed skill, valid path → returns file content (text + binary).
@@ -454,12 +453,10 @@ describe("getSkillFileContent — skill not found", () => {
 // Hidden / SKIP_DIRS path rejection
 // ---------------------------------------------------------------------------
 //
-// Codex P1: the file-content endpoint previously read any path the caller
-// named, including dotfiles (`.env`) and files inside skipped dirs
-// (`node_modules`, `.git/`) — even though the file-listing endpoint hides
-// those entries. This created a data-exposure path and broke parity with
-// the visible file list. The daemon handler should now reject such paths
-// with a 400 "Invalid path" BEFORE any disk read or network round-trip,
+// The daemon handler rejects paths containing dotfile segments (`.env`,
+// `.git/`) or SKIP_DIRS segments (`node_modules`, `__pycache__`) with a
+// 400 "Invalid path" BEFORE any disk read or network round-trip, matching
+// the file-listing endpoint that hides these entries. This applies
 // regardless of whether the skill is installed locally or only available
 // via the catalog.
 

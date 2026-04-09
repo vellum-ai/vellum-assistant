@@ -222,9 +222,10 @@ describe("sanitizeRelativePath", () => {
   });
 
   test("rejects paths that become absolute after ./ stripping", () => {
-    // The leading `./` strip loop used to leave `/etc/passwd` behind, which
-    // posix.normalize then passed through as an absolute path. The
-    // post-normalization absolute-path check should reject each of these.
+    // `sanitizeRelativePath` performs a post-normalization absolute-path
+    // check so inputs like `.//etc/passwd` cannot reach the filesystem:
+    // the leading `./` strip loop leaves `/etc/passwd`, which
+    // `posix.normalize` would otherwise pass through as an absolute path.
     expect(sanitizeRelativePath(".//etc/passwd")).toBeNull();
     expect(sanitizeRelativePath("./././/etc/passwd")).toBeNull();
     // The backslash normalizes to `/`, so `.\\/etc/passwd` becomes
@@ -287,19 +288,20 @@ describe("readCatalogSkillFiles (dev mode)", () => {
   });
 
   test("rejects a symlinked skill root and falls through to platform mode", async () => {
-    // Reproduces the Codex P2 attack: an attacker (or a misconfigured dev)
-    // creates <repoSkillsDir>/my-skill as a symlink pointing at an external
-    // directory. Without the symlink-root check in `resolveCatalogSource`,
-    // the dev-mode branch would happily walk the external directory,
-    // because the realpath containment check downstream derives `realRoot`
-    // from the already-resolved symlink target.
+    // An attacker (or a misconfigured dev) creates
+    // <repoSkillsDir>/my-skill as a symlink pointing at an external
+    // directory. `resolveCatalogSource` rejects symlinked skill roots so
+    // the dev-mode branch never walks the external directory — the
+    // realpath containment check downstream would otherwise derive
+    // `realRoot` from the already-resolved symlink target and become a
+    // no-op.
     //
     // Expected behavior: the dev-mode shortcut is rejected up-front, and
     // we fall through to platform mode — which in this test is stubbed
-    // to return an empty file list. So `readCatalogSkillFiles` should
-    // return the empty platform response, and `fetch` MUST be called
-    // (proving the fall-through happened, rather than the dev-mode
-    // shortcut silently reading from the external directory).
+    // to return an empty file list. So `readCatalogSkillFiles` returns
+    // the empty platform response, and `fetch` MUST be called (proving
+    // the fall-through happened, rather than the dev-mode shortcut
+    // silently reading from the external directory).
     const root = makeTempSkillsDir();
     const externalRoot = mkdtempSync(join(tmpdir(), "catalog-files-ext-"));
     tempDirs.push(externalRoot);
