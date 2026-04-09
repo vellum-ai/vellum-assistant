@@ -174,7 +174,7 @@ enum TranscriptProjector {
             hasUserMessage: hasUserMessage,
             hasActiveToolCall: hasActiveToolCall,
             activePendingRequestId: activePendingRequestId,
-            isSending: isSending
+            isActiveTurn: isSending || isThinking || !["idle", ""].contains(assistantActivityPhase)
         )
     }
 
