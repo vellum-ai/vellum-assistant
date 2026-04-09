@@ -19,13 +19,14 @@ import {
   type CanonicalGuardianRequest,
   listPendingRequestsByConversationScope,
 } from "../../memory/canonical-guardian-store.js";
+import { isPermissionControlsV2Enabled } from "../../permissions/v2-consent-policy.js";
 import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { AuthContext } from "../auth/types.js";
 import { processGuardianDecision } from "../guardian-action-service.js";
 import type { GuardianDecisionPrompt } from "../guardian-decision-types.js";
 import {
   buildDecisionActions,
-  GUARDIAN_DECISION_ACTIONS,
+  buildOneTimeDecisionActions,
 } from "../guardian-decision-types.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
@@ -193,15 +194,17 @@ export function listGuardianDecisionPrompts(params: {
  * Map a canonical guardian request to the client-facing prompt format.
  *
  * Generates kind-specific questionText and action sets:
- * - `tool_approval`: temporal modes (approve_once, approve_10m, approve_conversation) + reject
+ * - `tool_approval`: temporal modes (approve_once, approve_10m, approve_conversation) + reject in legacy mode,
+ *   approve_once + reject only under v2
  * - `pending_question`: approve_once + reject only
  * - `access_request`: approve_once + reject only, with text fallback instructions
  *   (request code + "open invite flow")
  * - `tool_grant_request`: approve_once + reject only
  *
- * Only `tool_approval` receives temporal modes because time-scoped grants
- * are meaningful only for tool execution. All other kinds get a simple
- * approve_once/reject pair.
+ * Under permission-controls-v2 we collapse all deterministic guardian action
+ * prompts to approve_once + reject only. Outside v2, only `tool_approval`
+ * receives temporal modes because time-scoped grants are meaningful only for
+ * tool execution.
  */
 function mapCanonicalRequestToPrompt(
   req: CanonicalGuardianRequest,
@@ -209,15 +212,11 @@ function mapCanonicalRequestToPrompt(
 ): GuardianDecisionPrompt {
   const questionText = buildKindAwareQuestionText(req);
 
-  // Only tool_approval gets temporal modes (approve_10m, approve_conversation);
-  // all other kinds get a simple approve_once + reject pair.
-  const actions =
-    req.kind === "tool_approval"
+  const actions = isPermissionControlsV2Enabled()
+    ? buildOneTimeDecisionActions()
+    : req.kind === "tool_approval"
       ? buildDecisionActions({ forGuardianOnBehalf: true })
-      : [
-          GUARDIAN_DECISION_ACTIONS.approve_once,
-          GUARDIAN_DECISION_ACTIONS.reject,
-        ];
+      : buildOneTimeDecisionActions();
 
   const expiresAt = req.expiresAt
     ? new Date(req.expiresAt).getTime()
