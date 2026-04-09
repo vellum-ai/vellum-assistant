@@ -162,6 +162,7 @@ mock.module("../config/env.js", () => ({
 import { applyCanonicalGuardianDecision } from "../approvals/guardian-decision-primitive.js";
 import type { ActorContext } from "../approvals/guardian-request-resolvers.js";
 import { getResolver } from "../approvals/guardian-request-resolvers.js";
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import {
   createCanonicalGuardianRequest,
@@ -169,6 +170,10 @@ import {
   listCanonicalGuardianRequests,
   updateCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
+import {
+  createConversation,
+  updateConversationHostAccess,
+} from "../memory/conversation-crud.js";
 import { getDb, initializeDb } from "../memory/db.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
@@ -184,6 +189,8 @@ initializeDb();
 function resetTables(): void {
   const db = getDb();
   db.delete(scopedApprovalGrants).run();
+  db.run("DELETE FROM messages");
+  db.run("DELETE FROM conversations");
   db.run("DELETE FROM canonical_guardian_deliveries");
   db.run("DELETE FROM canonical_guardian_requests");
 }
@@ -246,6 +253,7 @@ describe("(a) target flow: trusted-contact inline guardian approval end-to-end",
     events.length = 0;
     emittedSignals.length = 0;
     deliveredReplies.length = 0;
+    _setOverridesForTesting({});
     mockGuardianBinding = {
       id: "binding-1",
       assistantId: "self",
@@ -1158,5 +1166,106 @@ describe("cross-milestone integration checks", () => {
     // After abort, followupState should be cleared so a later guardian
     // approval sends the retry notification
     expect(freshReq?.followupState).toBeNull();
+  });
+});
+
+describe("(g) v2 trusted-contact flow: model-mediated guardian consent", () => {
+  const handler = new ToolApprovalHandler({
+    inlineGrantWait: { maxWaitMs: 100, intervalMs: 20 },
+  });
+
+  beforeEach(() => {
+    resetTables();
+    events.length = 0;
+    emittedSignals.length = 0;
+    deliveredReplies.length = 0;
+    _setOverridesForTesting({ "permission-controls-v2": true });
+    mockGuardianBinding = {
+      id: "binding-1",
+      assistantId: "self",
+      channel: "telegram",
+      guardianExternalUserId: "guardian-1",
+      guardianDeliveryChatId: "guardian-chat-1",
+      guardianPrincipalId: "test-principal-id",
+      status: "active",
+    };
+  });
+
+  test("trusted-contact host tools do not create tool_grant_request rows under v2", async () => {
+    const conv = createConversation("trusted contact v2 host gate");
+    const result = await handler.checkPreExecutionGates(
+      "bash",
+      { command: "ls" },
+      makeToolContext({
+        trustClass: "trusted_contact",
+        conversationId: conv.id,
+      }),
+      "host",
+      "high",
+      Date.now(),
+      emitLifecycleEvent,
+    );
+
+    expect(result.allowed).toBe(false);
+    if (result.allowed) return;
+    expect(result.result.content).toContain(
+      "computer access is not enabled for this conversation",
+    );
+
+    const requests = listCanonicalGuardianRequests({
+      kind: "tool_grant_request",
+      status: "pending",
+    });
+    expect(requests).toHaveLength(0);
+    expect(emittedSignals).toHaveLength(0);
+  });
+
+  test("trusted-contact host tools run inline once the guardian has already enabled computer access for the conversation", async () => {
+    const conv = createConversation("trusted contact v2 host access enabled");
+    updateConversationHostAccess(conv.id, true);
+
+    const result = await handler.checkPreExecutionGates(
+      "bash",
+      { command: "ls" },
+      makeToolContext({
+        trustClass: "trusted_contact",
+        conversationId: conv.id,
+      }),
+      "host",
+      "high",
+      Date.now(),
+      emitLifecycleEvent,
+    );
+
+    expect(result.allowed).toBe(true);
+  });
+
+  test("confirmation_request guardian bridge is disabled for trusted contacts under v2", () => {
+    const canonicalRequest = createCanonicalGuardianRequest({
+      id: `req-v2-skip-${Date.now()}`,
+      kind: "tool_approval",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "conv-v2-skip",
+      requesterExternalUserId: "requester-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: "test-principal-id",
+      toolName: "bash",
+      status: "pending",
+      expiresAt: Date.now() + 5 * 60_000,
+    });
+
+    const result = bridgeConfirmationRequestToGuardian({
+      canonicalRequest,
+      trustContext: makeTrustedContactTrustContext(),
+      conversationId: "conv-v2-skip",
+      toolName: "bash",
+    });
+
+    expect("skipped" in result && result.skipped).toBe(true);
+    if ("skipped" in result) {
+      expect(result.reason).toBe("v2_model_mediated");
+    }
+    expect(emittedSignals).toHaveLength(0);
   });
 });
