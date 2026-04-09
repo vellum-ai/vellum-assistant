@@ -244,10 +244,14 @@ extension ChatViewModel {
         if let existingId = targetMessageId,
            let index = messages.firstIndex(where: { $0.id == existingId }) {
             messages[index].attachments.append(contentsOf: chatAttachments)
-        } else {
+        } else if targetMessageId == nil {
+            // No target — create a standalone attachment message (e.g. attachment-only completion)
             let msg = ChatMessage(role: .assistant, text: "", attachments: chatAttachments)
             messages.append(msg)
         }
+        // If targetMessageId was set but the message was not found (e.g. messages
+        // array replaced by a concurrent populateFromHistory), silently drop the
+        // attachments rather than creating an orphan message.
     }
 
     /// Ingest attachment warnings from a completion/handoff event into the

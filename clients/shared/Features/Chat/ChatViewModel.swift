@@ -1996,6 +1996,20 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         let spid = OSSignpostID(log: Self.poiLog)
         os_signpost(.begin, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "messages=%d isPagination=%d", historyMessages.count, isPaginationLoad ? 1 : 0)
 
+        // For non-pagination loads, set isLoadingHistory and discard in-flight
+        // streaming state BEFORE the await suspension point.  This ensures the
+        // isLoadingHistory guard in handleAssistantTextDelta is effective during
+        // the entire background reconstruction window, preventing SSE event
+        // interleaving that the previous synchronous code path never had.
+        if !isPaginationLoad {
+            self.isLoadingHistory = true
+            discardStreamingBuffer()
+            discardPartialOutputBuffer()
+            surfaceRefetchCoordinator.cancelRefetchTasks()
+            currentAssistantMessageId = nil
+            currentAssistantHasText = false
+        }
+
         // Reconstruct messages on a background thread via Task.detached.
         // The heavy work (JSON size estimation, tool input formatting, surface
         // mapping, image decoding/thumbnail generation) is isolated in a pure
@@ -2047,17 +2061,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             return
         }
 
-        self.isLoadingHistory = true
-
-        // Discard any in-flight streaming text that references the pre-replacement
-        // message array. Without this, a scheduled flushStreamingBuffer() can fire
-        // after the messages array is replaced, creating an orphan assistant message
-        // or appending text to a stale currentAssistantMessageId.
-        discardStreamingBuffer()
-        discardPartialOutputBuffer()
-        surfaceRefetchCoordinator.cancelRefetchTasks()
-        currentAssistantMessageId = nil
-        currentAssistantHasText = false
+        // isLoadingHistory and streaming state were already set/discarded
+        // before the await suspension point above.
 
         if needsReconnectCatchUp {
             // Reconnect catch-up: the SSE stream dropped while a run was
