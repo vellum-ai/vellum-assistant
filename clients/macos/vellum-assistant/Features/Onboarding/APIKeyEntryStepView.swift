@@ -103,8 +103,8 @@ struct APIKeyEntryStepView: View {
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.xxl)
 
-        VStack(spacing: VSpacing.md) {
-            VStack(spacing: VSpacing.md) {
+        VStack(spacing: 0) {
+            VStack(spacing: VSpacing.lg) {
                 providerPicker
 
                 if providerRequiresKey {
@@ -128,7 +128,9 @@ struct APIKeyEntryStepView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+            }
 
+            VStack(spacing: VSpacing.sm) {
                 VButton(label: "Continue", style: .primary, isFullWidth: true, isDisabled: providerRequiresKey && apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                     saveAndHatch()
                 }
@@ -137,6 +139,7 @@ struct APIKeyEntryStepView: View {
                     goBack()
                 }
             }
+            .padding(.top, VSpacing.xxl)
         }
         .padding(.horizontal, VSpacing.xxl)
         .opacity(showContent ? 1 : 0)
