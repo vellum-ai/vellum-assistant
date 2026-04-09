@@ -58,11 +58,13 @@ The conversation ID is the bare UUID from the conversation's DB record (e.g. `19
 ## Tools
 
 ### start_watch
+
 Initialize a watch session and provide the user the capture command.
 
 Parameters:
+
 - `show_name` (string, required) — Name of the show
-- `season` (number, required) — Season number  
+- `season` (number, required) — Season number
 - `episode` (number, required) — Episode number
 
 Implementation: Create session dir, copy episode state template, output the capture command for the user to run.
@@ -76,9 +78,11 @@ echo "$SESSION_DIR"
 ```
 
 ### process_chunk
+
 Process a single video file through the frame extraction pipeline.
 
 Parameters:
+
 - `chunk_path` (string, required) — Path to the .mp4 file
 - `output_dir` (string, required) — Directory to write extracted frames and audio
 
@@ -87,11 +91,13 @@ bash "$HOME/.vellum/workspace/watch-together/scripts/process-chunk.sh" "$chunk_p
 ```
 
 ### rewind
+
 Dense 720p frame extraction for a specific time range. Use when something catches your eye.
 
 Parameters:
+
 - `chunk_path` (string, required) — Path to the original .mp4 chunk
-- `output_dir` (string, required) — Where to save the dense frames  
+- `output_dir` (string, required) — Where to save the dense frames
 - `start_time` (number, required) — Start time in seconds
 - `end_time` (number, required) — End time in seconds
 
