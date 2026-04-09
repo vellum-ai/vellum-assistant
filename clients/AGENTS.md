@@ -215,7 +215,7 @@ See `MainWindowState.observeNavigationHistory()` for a production example.
 
 ### Concurrency and Task Management
 
-- **Prefer async/await and structured concurrency.** Use `Task {}` with proper cancellation over raw GCD. `Task.detached` is appropriate when you need to **escape actor isolation** for CPU-bound work (e.g., image resize, data encoding, file I/O from a `@MainActor` context). In Swift 6.2+, prefer [`@concurrent` functions](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0461-async-function-isolation.md) instead of `Task.detached` for this purpose — they achieve the same isolation escape with structured concurrency benefits. (Ref: [WWDC25 — Embracing Swift concurrency](https://developer.apple.com/videos/play/wwdc2025/232/))
+- **Prefer async/await and structured concurrency.** Use `Task {}` with proper cancellation over raw GCD. `Task.detached` is appropriate when you need to **escape actor isolation** for CPU-bound work (e.g., image resize, data encoding, file I/O from a `@MainActor` context). In Swift 6.2+, prefer [`@concurrent` functions](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0461-async-function-isolation.md) instead of `Task.detached` for this purpose — they achieve the same isolation escape with structured concurrency benefits. (Ref: [WWDC25 — Embracing Swift concurrency](https://developer.apple.com/videos/play/wwdc2025/268/))
 - **Always cancel subscriptions and tasks.** Store `AnyCancellable` tokens and cancel them in `deinit` or `onDisappear`. For `Task {}` started in `onAppear`, cancel in `onDisappear`. For `@StateObject` / `@ObservedObject` view models, cancel in `deinit`.
 - **Remove observers and listeners.** Unsubscribe from `NotificationCenter`, KVO, and any custom event systems when the owning object is deallocated or the view disappears. Prefer the `task {}` modifier with implicit cancellation over manual `NotificationCenter.addObserver`.
 <details>
@@ -232,17 +232,45 @@ See `MainWindowState.observeNavigationHistory()` for a production example.
 
 ### @MainActor Isolation Boundaries
 
-Apply `@MainActor` only to types whose stored properties drive SwiftUI view rendering (ViewModels, `ObservableObject` classes with `@Published` properties). Everything else — network clients, file I/O, CPU-bound work — should be `nonisolated`.
+**Default to `@MainActor`.** Following Apple's WWDC25 guidance, keep types on the main actor by default — this is the direction Swift 6.2 is heading with [default actor isolation (SE-0466)](https://avanderlee.com/concurrency/default-actor-isolation-in-swift-6-2). Only move work off main when you have a specific reason: CPU-bound computation blocking the UI.
 
-| Use `@MainActor` | Keep `nonisolated` |
-|---|---|
-| ViewModels (`@Observable` / `ObservableObject`) | Network clients (stateless protocols + structs) |
-| UI-facing managers with `@Published` properties | File I/O utilities |
-| Classes that mutate UI state | CPU-bound helpers (image resize, data encoding) |
+Use `@concurrent` functions ([SE-0461](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0461-async-function-isolation.md)) to escape `@MainActor` for CPU-bound methods while keeping the owning type on main. In **Swift 5 language mode** (which this project currently uses), `@concurrent` is not available — use `Task.detached(priority:)` instead, which achieves the same isolation escape. Mark only the smallest piece of work that needs to escape.
+
+```swift
+// Pattern: @MainActor class with CPU-bound work offloaded
+@MainActor
+final class MyClient {
+    func processData(_ data: Data) async {
+        // Light work stays on main (state access, cheap transforms)
+        let prepared = prepareData(data)
+
+        // CPU-bound work escapes to background
+        // Swift 6.2 language mode: use @concurrent method
+        // Swift 5 language mode: use Task.detached
+        let result = await Task.detached(priority: .userInitiated) {
+            HeavyDecoder().decode(prepared)
+        }.value
+
+        // Back on main for state updates / UI
+        self.handleResult(result)
+    }
+}
+```
+
+| Keep on `@MainActor` | Escape to background (`@concurrent` / `Task.detached`) | Use custom `actor` |
+|---|---|---|
+| ViewModels, `ObservableObject` classes | JSON/Plist decoding of large payloads | Data that needs its own isolation domain, independent of main |
+| Stateful managers (network, connection, session) | Image processing, resize, encoding | Long-lived background services with internal state accessed from multiple concurrent tasks |
+| Classes that access `@MainActor`-isolated callers | Hashing, compression, encryption | — |
+| UI-facing managers with `@Published` properties | File I/O from `@MainActor` context | — |
+
+> **Why not `nonisolated` classes with mutable state?** A `nonisolated` class has no actor isolation — concurrent access to its stored properties is a data race. Only use `nonisolated` for truly stateless types (protocols, structs, pure-function utilities). For stateful types, choose `@MainActor` (default) or a custom `actor`.
 
 For current best practices on Swift concurrency, actor isolation, and executor semantics, refer to:
+- [WWDC25 — Embracing Swift concurrency](https://developer.apple.com/videos/play/wwdc2025/268/) (main actor by default, `@concurrent` for CPU-bound escape)
+- [WWDC25 — Explore concurrency in SwiftUI](https://developer.apple.com/videos/play/wwdc2025/266) (SwiftUI main actor integration)
 - [Apple — Swift concurrency documentation](https://developer.apple.com/documentation/swift/concurrency)
-- [WWDC25 — Embracing Swift concurrency](https://developer.apple.com/videos/play/wwdc2025/232/)
+- [SE-0461 — Run nonisolated async functions on the caller's actor by default](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0461-async-function-isolation.md) (`@concurrent` attribute)
 - [WWDC21 — Protect mutable state with Swift actors](https://developer.apple.com/videos/play/wwdc2021/10133/) (actor reentrancy)
 - [SE-0338 — Clarify the Execution of Non-Actor-Isolated Async Functions](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0338-clarify-execution-non-actor-async.md) (executor semantics for nonisolated code)
 - [Apple — DispatchQueue.sync documentation](https://developer.apple.com/documentation/dispatch/dispatchqueue/sync(execute:)-3gef0) (`DispatchQueue.main.sync` deadlock risk)
