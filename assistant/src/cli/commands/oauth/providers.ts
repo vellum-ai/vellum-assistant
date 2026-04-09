@@ -48,9 +48,12 @@ function resolveLogoUrlFromFlags(opts: {
     return `https://cdn.simpleicons.org/${encodeURIComponent(slug)}`;
   }
   if (opts.logoUrl !== undefined) {
-    // Empty string clears the stored value (matches --revoke-url semantics
-    // documented in the `update` command help text).
-    return opts.logoUrl === "" ? null : opts.logoUrl;
+    // Trim whitespace so copy-paste-padded URLs don't fail to parse on the
+    // client. Empty string (after trimming) clears the stored value
+    // (matches --revoke-url semantics documented in the `update` command
+    // help text).
+    const trimmed = opts.logoUrl.trim();
+    return trimmed === "" ? null : trimmed;
   }
   return undefined;
 }

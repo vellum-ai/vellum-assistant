@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { PROVIDER_SEED_DATA } from "../seed-providers.js";
+import { PROVIDER_SEED_DATA } from "../oauth/seed-providers.js";
 
 describe("PROVIDER_SEED_DATA logo URLs", () => {
   test("every well-known provider has a Simple Icons CDN logoUrl", () => {

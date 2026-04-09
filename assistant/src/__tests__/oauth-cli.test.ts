@@ -196,6 +196,7 @@ mock.module("../oauth/oauth-store.js", () => ({
       displayLabel: params.displayLabel ?? null,
       description: params.description ?? null,
       dashboardUrl: params.dashboardUrl ?? null,
+      logoUrl: params.logoUrl ?? null,
       clientIdPlaceholder: params.clientIdPlaceholder ?? null,
       requiresClientSecret: params.requiresClientSecret ?? 1,
       loopbackPort: params.loopbackPort ?? null,
@@ -255,6 +256,9 @@ mock.module("../oauth/oauth-store.js", () => ({
     }
     if (params.displayLabel !== undefined) {
       updated.displayLabel = params.displayLabel;
+    }
+    if (params.logoUrl !== undefined) {
+      updated.logoUrl = params.logoUrl;
     }
     updated.updatedAt = Date.now();
     mockProviderStore.set(provider, updated);
