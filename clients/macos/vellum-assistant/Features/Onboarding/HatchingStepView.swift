@@ -36,12 +36,13 @@ struct HatchingStepView: View {
 
     var body: some View {
         VStack(spacing: VSpacing.lg) {
+            statusText
+
             Spacer()
 
             characterAnimation
-                .padding(.bottom, VSpacing.xl)
 
-            statusText
+            Spacer()
 
             if showProgressBar {
                 progressSection
@@ -50,8 +51,6 @@ struct HatchingStepView: View {
             if state.hatchFailed {
                 failureButtons
             }
-
-            Spacer()
 
             if let characters = Self.welcomeCharacters {
                 Image(nsImage: characters)
@@ -205,12 +204,12 @@ struct HatchingStepView: View {
                     .font(VFont.titleLarge)
                     .foregroundStyle(VColor.contentDefault)
             } else {
-                Text("Waking Up")
+                Text("Waking up...")
                     .font(VFont.titleLarge)
                     .foregroundStyle(VColor.contentDefault)
-                Text("Hang tight - your assistant will have a few questions once it's up.")
-                    .font(VFont.bodySmallDefault)
-                    .foregroundStyle(VColor.contentTertiary)
+                Text("Hang tight - your assistant will have a few questions for you once it's up.")
+                    .font(VFont.bodyMediumLighter)
+                    .foregroundStyle(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
             }
         }
