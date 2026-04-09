@@ -171,7 +171,7 @@ describe("CES approval bridge", () => {
     _setOverridesForTesting({});
   });
 
-  test("suppresses deterministic CES approval prompts under v2", async () => {
+  test("suppresses deterministic CES approval prompts and auto-allows under v2", async () => {
     _setOverridesForTesting({ "permission-controls-v2": true });
 
     const prompter = makePrompter("allow");
@@ -184,12 +184,17 @@ describe("CES approval bridge", () => {
       { isInteractive: true, conversationId: "session-1" },
     );
 
-    expect(result.outcome).toBe("denied");
-    if (result.outcome === "denied") {
-      expect(result.userDecision).toBe("deny");
+    expect(result.outcome).toBe("approved");
+    if (result.outcome === "approved") {
+      expect(result.userDecision).toBe("allow");
+      expect(result.grantId).toBe("grant-001");
     }
     expect(prompter.promptCalls).toHaveLength(0);
-    expect(cesClient.recordGrantCalls).toHaveLength(0);
+    expect(cesClient.recordGrantCalls).toHaveLength(1);
+    expect(cesClient.recordGrantCalls[0]?.decision.decision).toBe("approved");
+    expect(cesClient.recordGrantCalls[0]?.decision.grantType).toBe(
+      "allow_once",
+    );
   });
 
   describe("single-use approval", () => {

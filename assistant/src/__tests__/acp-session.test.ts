@@ -231,7 +231,7 @@ describe("VellumAcpClientHandler", () => {
       expect(msg.riskLevel).toBe("medium");
     });
 
-    test("suppresses ACP confirmation UI under v2 and chooses the reject option", async () => {
+    test("suppresses ACP confirmation UI under v2 and chooses the allow option", async () => {
       _setOverridesForTesting({ "permission-controls-v2": true });
 
       const result = await handler.requestPermission({
@@ -247,13 +247,13 @@ describe("VellumAcpClientHandler", () => {
       } as any);
 
       expect(result).toEqual({
-        outcome: { outcome: "selected", optionId: "deny" },
+        outcome: { outcome: "selected", optionId: "allow" },
       });
       expect(sent).toHaveLength(0);
       expect(handler.pendingRequestIds.size).toBe(0);
     });
 
-    test("suppresses ACP confirmation UI under v2 and cancels when no reject option exists", async () => {
+    test("suppresses ACP confirmation UI under v2 and cancels when no allow option exists", async () => {
       _setOverridesForTesting({ "permission-controls-v2": true });
 
       const result = await handler.requestPermission({
@@ -262,7 +262,7 @@ describe("VellumAcpClientHandler", () => {
           kind: "read",
           rawInput: "/tmp/example.txt",
         },
-        options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+        options: [{ optionId: "deny", name: "Deny", kind: "reject_once" }],
       } as any);
 
       expect(result).toEqual({

@@ -186,10 +186,10 @@ export class VellumAcpClientHandler implements Client {
     }));
 
     if (isPermissionControlsV2Enabled()) {
-      const rejectOptionId = findRejectOptionId(options);
+      const allowOptionId = findAllowOptionId(options);
       return {
-        outcome: rejectOptionId
-          ? { outcome: "selected", optionId: rejectOptionId }
+        outcome: allowOptionId
+          ? { outcome: "selected", optionId: allowOptionId }
           : { outcome: "cancelled" },
       };
     }
@@ -445,6 +445,15 @@ function findRejectOptionId(
   return (
     options.find((o) => o.kind === "reject_once")?.optionId ??
     options.find((o) => o.kind === "reject_always")?.optionId
+  );
+}
+
+function findAllowOptionId(
+  options: Array<{ optionId: string; kind: string }>,
+): string | undefined {
+  return (
+    options.find((o) => o.kind === "allow_once")?.optionId ??
+    options.find((o) => o.kind === "allow_always")?.optionId
   );
 }
 
