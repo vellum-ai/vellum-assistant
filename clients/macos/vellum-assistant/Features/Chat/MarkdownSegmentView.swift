@@ -79,7 +79,6 @@ struct MarkdownSegmentView: View, Equatable {
                             .foregroundStyle(textColor)
                             .tint(tintColor)
                             .lineLimit(nil)
-                            .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
                     }
                     #endif
