@@ -382,7 +382,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                         status: statusCode,
                         statusText: statusText,
                         _body: body,
-                        json: function() { return Promise.resolve(JSON.parse(body)); },
+                        json: function() { try { return Promise.resolve(JSON.parse(body)); } catch(e) { return Promise.reject(e); } },
                         text: function() { return Promise.resolve(body); }
                     });
                 };
