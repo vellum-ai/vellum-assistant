@@ -42,6 +42,14 @@ struct ComposerView: View, Equatable {
             && (lhs.onEndVoiceMode != nil) == (rhs.onEndVoiceMode != nil)
             && (lhs.onDictateToggle != nil) == (rhs.onDictateToggle != nil)
             && (lhs.onVoiceModeToggle != nil) == (rhs.onVoiceModeToggle != nil)
+            // ConversationHostAccessControlConfiguration contains a closure
+            // so it can't be Equatable; compare nil/non-nil plus the
+            // value-type fields that drive rendering.
+            && lhs.conversationHostAccessControl?.isEnabled == rhs.conversationHostAccessControl?.isEnabled
+            && lhs.conversationHostAccessControl?.canToggle == rhs.conversationHostAccessControl?.canToggle
+            && lhs.conversationHostAccessControl?.isUpdating == rhs.conversationHostAccessControl?.isUpdating
+            && lhs.conversationHostAccessControl?.subtitle == rhs.conversationHostAccessControl?.subtitle
+            && lhs.conversationHostAccessControl?.errorMessage == rhs.conversationHostAccessControl?.errorMessage
     }
     private let composerMaxHeight: CGFloat = 300
     private let composerActionButtonSize: CGFloat = 32
