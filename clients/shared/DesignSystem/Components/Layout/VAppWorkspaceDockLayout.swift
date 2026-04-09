@@ -31,7 +31,7 @@ public struct VAppWorkspaceDockLayout<Dock: View, Workspace: View>: View {
         // the final sidebar width while the layout still uses the animated
         // intermediate width).
         let effectiveDockWidth: CGFloat = {
-            guard showDock, availableWidth > 0 else { return CGFloat(dockWidth) }
+            guard showDock, availableWidth > 0, availableWidth.isFinite else { return CGFloat(dockWidth) }
             let maxAllowed = availableWidth - DockLayoutConstants.minWorkspaceWidth - DockLayoutConstants.dividerAndPadding
             return min(CGFloat(dockWidth), max(maxAllowed, 0))
         }()

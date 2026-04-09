@@ -138,6 +138,7 @@ struct ChatView: View {
                 .onGeometryChange(for: CGFloat.self) { proxy in
                     proxy.size.width
                 } action: { newWidth in
+                    guard newWidth.isFinite, newWidth > 0 else { return }
                     containerWidth = newWidth
                 }
 
