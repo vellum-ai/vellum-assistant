@@ -257,19 +257,30 @@ enum LocalImageBuilder {
 
         try process.run()
 
+        // Drain the pipe on a detached task so the buffer never fills up.
+        // Reading must happen concurrently with the process — if we wait
+        // until the terminationHandler, Docker build output (which easily
+        // exceeds the ~64 KB pipe buffer) would block the child process
+        // on write, preventing termination → deadlock.
+        let readTask = Task.detached { () -> Data in
+            pipe.fileHandleForReading.readDataToEndOfFile()
+        }
+
         return try await withCheckedThrowingContinuation { continuation in
             process.terminationHandler = { proc in
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                let output = String(data: data, encoding: .utf8) ?? ""
+                Task {
+                    let data = await readTask.value
+                    let output = String(data: data, encoding: .utf8) ?? ""
 
-                if proc.terminationStatus == 0 {
-                    continuation.resume(returning: output)
-                } else {
-                    continuation.resume(throwing: ShellCommandError(
-                        executable: executable,
-                        exitCode: proc.terminationStatus,
-                        output: output
-                    ))
+                    if proc.terminationStatus == 0 {
+                        continuation.resume(returning: output)
+                    } else {
+                        continuation.resume(throwing: ShellCommandError(
+                            executable: executable,
+                            exitCode: proc.terminationStatus,
+                            output: output
+                        ))
+                    }
                 }
             }
         }
