@@ -130,13 +130,25 @@ final class AppleContainersLauncher: AssistantManagementClient {
         // Lease a guardian token so the desktop app can authenticate with the
         // gateway. The CLI does this in hatch-local.ts after the gateway starts;
         // for apple containers we do it directly from Swift.
+        //
+        // This MUST succeed — the gateway is configured with a single
+        // GUARDIAN_BOOTSTRAP_SECRET that is consumed on the first successful
+        // call. If we fail here, the fallback path in performInitialBootstrap()
+        // generates a new random secret that the gateway will reject with 403.
         if let gatewayURL = runtime.gatewayURL {
             await onProgress?("Securing connection...")
-            await Self.leaseGuardianToken(
+            let tokenLeased = await Self.leaseGuardianToken(
                 gatewayURL: gatewayURL,
                 assistantId: assistantName,
                 bootstrapSecret: bootstrapSecret
             )
+            if !tokenLeased {
+                try? await runtime.stop()
+                self.podRuntime = nil
+                throw LauncherError.hatchFailed(
+                    "Failed to initialize guardian token — the gateway did not respond to bootstrap requests after \(Self.guardianInitMaxAttempts) attempts."
+                )
+            }
         }
 
         let hatchedAt = ISO8601DateFormatter().string(from: Date())
@@ -220,11 +232,12 @@ final class AppleContainersLauncher: AssistantManagementClient {
     private static let guardianInitMaxAttempts = 10
     private static let guardianInitRetryDelay: UInt64 = 2_000_000_000 // 2 seconds
 
+    @discardableResult
     private static func leaseGuardianToken(
         gatewayURL: String,
         assistantId: String,
         bootstrapSecret: String
-    ) async {
+    ) async -> Bool {
         let deviceId = HostIdComputer.computeHostId()
         let body: [String: Any] = [
             "platform": "macos",
@@ -234,7 +247,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
         guard let url = URL(string: "\(gatewayURL)/v1/guardian/init"),
               let jsonData = try? JSONSerialization.data(withJSONObject: body) else {
             log.error("Failed to construct guardian/init request")
-            return
+            return false
         }
 
         // The gateway may still be booting inside the container after
@@ -261,20 +274,23 @@ final class AppleContainersLauncher: AssistantManagementClient {
                         continue
                     }
                     log.error("Guardian token lease failed after \(guardianInitMaxAttempts) attempts")
-                    return
+                    return false
                 }
 
                 // Parse the response and save to the standard guardian token path.
-                guard var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                // Use try? to avoid falling into the catch block — the gateway
+                // already consumed the one-time bootstrap secret on 200, so
+                // retrying would fail with 403.
+                guard var json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
                     log.error("Guardian token lease: failed to parse response JSON")
-                    return
+                    return false
                 }
                 json["deviceId"] = deviceId
                 json["leasedAt"] = ISO8601DateFormatter().string(from: Date())
 
                 saveGuardianTokenFile(assistantId: assistantId, tokenData: json)
                 log.info("Guardian token leased and saved for '\(assistantId, privacy: .public)'")
-                return
+                return true
             } catch {
                 log.warning("Guardian token lease attempt \(attempt) error: \(error.localizedDescription, privacy: .public)")
                 if attempt < guardianInitMaxAttempts {
@@ -284,6 +300,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 }
             }
         }
+        return false
     }
 
     /// Saves guardian token JSON to
