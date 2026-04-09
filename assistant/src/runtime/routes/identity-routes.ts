@@ -324,6 +324,16 @@ setInterval(() => {
 
   const numCores = getContainerCpuCores();
 
+  // Always sample process-level CPU so the baseline stays fresh. This
+  // prevents a spike if the platform cgroup path later falls back to
+  // process.cpuUsage() after cgroup stats were previously available.
+  const newProcessUsage = process.cpuUsage();
+  const processDeltaUs =
+    newProcessUsage.user -
+    _lastProcessCpuUsage.user +
+    (newProcessUsage.system - _lastProcessCpuUsage.system);
+  _lastProcessCpuUsage = newProcessUsage;
+
   if (getIsPlatform()) {
     // In platform mode, prefer cgroup-level CPU usage so we see the full
     // container footprint, not just this process.
@@ -333,30 +343,18 @@ setInterval(() => {
       const deltaCpuMs = deltaCpuUs / 1000;
       _cachedCpuPercent =
         Math.round((deltaCpuMs / (elapsedMs * numCores)) * 10000) / 100;
-    } else if (cgroupUs === null) {
+    } else {
       // cgroup CPU stats unavailable (e.g. gVisor) – fall back to process-level.
-      const newUsage = process.cpuUsage();
-      const deltaCpuUs =
-        newUsage.user -
-        _lastProcessCpuUsage.user +
-        (newUsage.system - _lastProcessCpuUsage.system);
-      const deltaCpuMs = deltaCpuUs / 1000;
+      const deltaCpuMs = processDeltaUs / 1000;
       _cachedCpuPercent =
         Math.round((deltaCpuMs / (elapsedMs * numCores)) * 10000) / 100;
-      _lastProcessCpuUsage = newUsage;
     }
     _lastCgroupCpuUs = cgroupUs;
   } else {
     // Non-platform: use process.cpuUsage() (accurate for single-process mode).
-    const newUsage = process.cpuUsage();
-    const deltaCpuUs =
-      newUsage.user -
-      _lastProcessCpuUsage.user +
-      (newUsage.system - _lastProcessCpuUsage.system);
-    const deltaCpuMs = deltaCpuUs / 1000;
+    const deltaCpuMs = processDeltaUs / 1000;
     _cachedCpuPercent =
       Math.round((deltaCpuMs / (elapsedMs * numCores)) * 10000) / 100;
-    _lastProcessCpuUsage = newUsage;
   }
 
   _lastCpuTime = now;
