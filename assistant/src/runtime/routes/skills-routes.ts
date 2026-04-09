@@ -158,8 +158,8 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       summary: "Get skill files",
       description: "Return skill metadata and directory contents.",
       tags: ["skills"],
-      handler: ({ params }) => {
-        const result = getSkillFiles(params.id, ctx());
+      handler: async ({ params }) => {
+        const result = await getSkillFiles(params.id, ctx());
         if ("error" in result) {
           if (result.status === 404) {
             return httpError("NOT_FOUND", result.error, 404);
