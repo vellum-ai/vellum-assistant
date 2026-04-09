@@ -18,15 +18,12 @@ struct MemoryItemRow: View {
 
     var body: some View {
         VCard(action: onSelect) {
-            HStack(spacing: 0) {
-                // Accent bar
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(accentColor)
-                    .frame(width: 4)
+            HStack(alignment: .center, spacing: VSpacing.lg) {
+                // Kind icon (mirrors emoji slot in skill cards)
+                VIconView(.resolve(memoryKind?.icon ?? VIcon.brain.rawValue), size: 28)
+                    .foregroundStyle(accentColor)
 
-                // Content area
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    // Top row: subject + timestamp + delete
                     HStack(alignment: .center, spacing: VSpacing.sm) {
                         Text(item.subject)
                             .font(VFont.titleSmall)
@@ -34,31 +31,18 @@ struct MemoryItemRow: View {
                             .lineLimit(1)
                             .truncationMode(.tail)
 
-                        Spacer()
-
-                        Text(item.relativeLastSeen)
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.contentTertiary)
-
-                        VButton(
-                            label: "Delete",
-                            iconOnly: VIcon.trash.rawValue,
-                            style: .dangerGhost,
-                            size: .compact,
-                            action: onDelete
-                        )
-                        .opacity(isHovered ? 1 : 0)
-                        .allowsHitTesting(isHovered)
-                        .accessibilityHidden(!isHovered)
-                        .accessibilityLabel("Delete memory")
-                    }
-
-                    // Metadata row: kind tag + confidence + source + importance dots
-                    HStack(alignment: .center, spacing: VSpacing.xs) {
                         VTag(
                             memoryKind?.label ?? item.kind.capitalized,
                             color: accentColor
                         )
+
+                        Spacer()
+                    }
+
+                    HStack(alignment: .center, spacing: VSpacing.xs) {
+                        Text(item.relativeLastSeen)
+                            .font(VFont.bodySmallDefault)
+                            .foregroundStyle(VColor.contentTertiary)
 
                         if let confidence = item.confidence, confidence > 0 {
                             Text("\u{00B7}")
@@ -81,9 +65,19 @@ struct MemoryItemRow: View {
                         Spacer()
                     }
                 }
-                .padding(.leading, VSpacing.md)
+
+                VButton(
+                    label: "Delete",
+                    iconOnly: VIcon.trash.rawValue,
+                    style: .dangerGhost,
+                    size: .compact,
+                    action: onDelete
+                )
+                .opacity(isHovered ? 1 : 0)
+                .allowsHitTesting(isHovered)
+                .accessibilityHidden(!isHovered)
+                .accessibilityLabel("Delete memory")
             }
-            .background(memoryKind?.backgroundTint ?? Color.clear)
         }
         .onHover { isHovered = $0 }
         .contextMenu {

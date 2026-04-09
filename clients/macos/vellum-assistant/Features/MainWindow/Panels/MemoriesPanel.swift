@@ -79,20 +79,6 @@ struct MemoriesPanel: View {
     @State private var statusFilter: MemoryStatusFilter = .active
     @State private var sortOption: MemorySortOption = .newest
     @State private var searchDebounceTask: Task<Void, Never>?
-    @State private var viewMode: MemoryViewMode = .cards
-
-    private enum MemoryViewMode: String, CaseIterable {
-        case cards = "Cards"
-        case compact = "Compact"
-
-        var icon: String {
-            switch self {
-            case .cards: return VIcon.layoutGrid.rawValue
-            case .compact: return VIcon.list.rawValue
-            }
-        }
-    }
-
     init(connectionManager: GatewayConnectionManager, assistantName: String = "Your Assistant", onImportMemory: ((String) -> Void)? = nil, focusedMemoryId: Binding<String?> = .constant(nil)) {
         self.connectionManager = connectionManager
         self.assistantName = assistantName
@@ -250,11 +236,6 @@ struct MemoriesPanel: View {
                 }
             )
 
-            VSegmentControl(
-                items: MemoryViewMode.allCases.map { (label: $0.rawValue, tag: $0) },
-                selection: $viewMode
-            )
-
             VButton(label: "Import", icon: VIcon.arrowDownToLine.rawValue, style: .primary) {
                 showImportSheet = true
             }
@@ -337,35 +318,18 @@ struct MemoriesPanel: View {
             )
         } else {
             ScrollView {
-                LazyVStack(spacing: viewMode == .compact ? VSpacing.xxs : VSpacing.sm) {
-                    switch viewMode {
-                    case .cards:
-                        ForEach(store.items) { item in
-                            MemoryItemRow(
-                                item: item,
-                                onSelect: { withAnimation(VAnimation.panel) { selectedItem = item } },
-                                onDelete: {
-                                    if selectedItem?.id == item.id {
-                                        withAnimation(VAnimation.panel) { selectedItem = nil }
-                                    }
-                                    Task { _ = await store.deleteItem(id: item.id) }
+                LazyVStack(spacing: VSpacing.sm) {
+                    ForEach(store.items) { item in
+                        MemoryItemRow(
+                            item: item,
+                            onSelect: { withAnimation(VAnimation.panel) { selectedItem = item } },
+                            onDelete: {
+                                if selectedItem?.id == item.id {
+                                    withAnimation(VAnimation.panel) { selectedItem = nil }
                                 }
-                            )
-                        }
-                    case .compact:
-                        ForEach(store.items) { item in
-                            MemoryItemCompactRow(
-                                item: item,
-                                isSelected: selectedItem?.id == item.id,
-                                onSelect: { withAnimation(VAnimation.panel) { selectedItem = item } },
-                                onDelete: {
-                                    if selectedItem?.id == item.id {
-                                        withAnimation(VAnimation.panel) { selectedItem = nil }
-                                    }
-                                    Task { _ = await store.deleteItem(id: item.id) }
-                                }
-                            )
-                        }
+                                Task { _ = await store.deleteItem(id: item.id) }
+                            }
+                        )
                     }
                     if store.hasMore {
                         VLoadingIndicator()
