@@ -225,7 +225,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        let coordinator = Coordinator(onAction: onAction, onDataRequest: onDataRequest, onPageChanged: onPageChanged, onSnapshotCaptured: onSnapshotCaptured, onLinkOpen: onLinkOpen, currentHTML: data.html, sandboxMode: sandboxMode)
+        let fetchBaseURL = GatewayHTTPClient.resolveWebViewCredentials()?.baseURL
+        let coordinator = Coordinator(onAction: onAction, onDataRequest: onDataRequest, onPageChanged: onPageChanged, onSnapshotCaptured: onSnapshotCaptured, onLinkOpen: onLinkOpen, currentHTML: data.html, sandboxMode: sandboxMode, allowedFetchBaseURL: fetchBaseURL)
         coordinator.surfaceId = data.appId ?? "ephemeral"
         coordinator.appId = appId
         coordinator.loadStartTime = CFAbsoluteTimeGetCurrent()

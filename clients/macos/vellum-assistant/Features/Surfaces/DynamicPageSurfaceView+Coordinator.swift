@@ -17,6 +17,9 @@ extension DynamicPageSurfaceView {
         /// The page currently displayed in a multi-page app (e.g. "settings.html").
         var currentPage: String = "index.html"
         let sandboxMode: Bool
+        /// Allowed base URL for native fetch bridge requests (e.g. "http://127.0.0.1:7830").
+        /// Requests to other origins are rejected to prevent arbitrary network access.
+        let allowedFetchBaseURL: String?
         weak var webView: WKWebView?
         var lastTopInset: Int = 0
         var lastBottomInset: Int = 0
@@ -54,7 +57,8 @@ extension DynamicPageSurfaceView {
             onSnapshotCaptured: ((String) -> Void)?,
             onLinkOpen: ((String, [String: Any]?) -> Void)? = nil,
             currentHTML: String,
-            sandboxMode: Bool = false
+            sandboxMode: Bool = false,
+            allowedFetchBaseURL: String? = nil
         ) {
             self.onAction = onAction
             self.onDataRequest = onDataRequest
@@ -63,6 +67,7 @@ extension DynamicPageSurfaceView {
             self.onLinkOpen = onLinkOpen
             self.currentHTML = currentHTML
             self.sandboxMode = sandboxMode
+            self.allowedFetchBaseURL = allowedFetchBaseURL
         }
 
         func userContentController(
@@ -108,6 +113,10 @@ extension DynamicPageSurfaceView {
             // Routes HTTP requests through URLSession to bypass WKWebView's
             // mixed-content blocking (HTTPS page → HTTP localhost gateway).
             if let type = body["type"] as? String, type == "fetch_request" {
+                if sandboxMode {
+                    log.warning("fetch_request: blocked in sandbox mode")
+                    return
+                }
                 guard let callId = body["callId"] as? String,
                       let urlString = body["url"] as? String,
                       let method = body["method"] as? String else {
@@ -123,6 +132,16 @@ extension DynamicPageSurfaceView {
                         .replacingOccurrences(of: "\\", with: "\\\\")
                         .replacingOccurrences(of: "'", with: "\\'")
                     webView?.evaluateJavaScript("window.vellum._rejectFetch('\(safeCallId)', 'Invalid URL')", completionHandler: nil)
+                    return
+                }
+
+                // Validate that the URL targets the expected gateway origin.
+                if let allowed = allowedFetchBaseURL, !urlString.hasPrefix(allowed) {
+                    log.error("[vellum.fetch] Blocked request to disallowed origin: \(urlString, privacy: .public) (allowed: \(allowed, privacy: .public))")
+                    let safeCallId = callId
+                        .replacingOccurrences(of: "\\", with: "\\\\")
+                        .replacingOccurrences(of: "'", with: "\\'")
+                    webView?.evaluateJavaScript("window.vellum._rejectFetch('\(safeCallId)', 'Request blocked: disallowed origin')", completionHandler: nil)
                     return
                 }
 
@@ -149,6 +168,8 @@ extension DynamicPageSurfaceView {
                             .replacingOccurrences(of: "'", with: "\\'")
                             .replacingOccurrences(of: "\n", with: "\\n")
                             .replacingOccurrences(of: "\r", with: "\\r")
+                            .replacingOccurrences(of: "\u{2028}", with: "\\u2028")
+                            .replacingOccurrences(of: "\u{2029}", with: "\\u2029")
                         let safeCallId = callId
                             .replacingOccurrences(of: "\\", with: "\\\\")
                             .replacingOccurrences(of: "'", with: "\\'")
@@ -167,6 +188,8 @@ extension DynamicPageSurfaceView {
                         let errorMessage = error.localizedDescription
                             .replacingOccurrences(of: "\\", with: "\\\\")
                             .replacingOccurrences(of: "'", with: "\\'")
+                            .replacingOccurrences(of: "\n", with: "\\n")
+                            .replacingOccurrences(of: "\r", with: "\\r")
                         let js = "window.vellum._rejectFetch('\(safeCallId)', '\(errorMessage)')"
                         await MainActor.run {
                             targetWebView?.evaluateJavaScript(js, completionHandler: nil)
