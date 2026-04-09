@@ -31,6 +31,7 @@ struct ComposerSection: View {
     var contextWindowFillRatio: Double? = nil
     var contextWindowTokens: Int? = nil
     var contextWindowMaxTokens: Int? = nil
+    var containerWidth: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -69,7 +70,8 @@ struct ComposerSection: View {
                 isInteractionEnabled: isInteractionEnabled,
                 contextWindowFillRatio: contextWindowFillRatio,
                 contextWindowTokens: contextWindowTokens,
-                contextWindowMaxTokens: contextWindowMaxTokens
+                contextWindowMaxTokens: contextWindowMaxTokens,
+                containerWidth: containerWidth
             )
         }
         .background(

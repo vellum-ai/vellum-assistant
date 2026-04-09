@@ -65,6 +65,7 @@ struct ComposerView: View {
     var contextWindowFillRatio: Double? = nil
     var contextWindowTokens: Int? = nil
     var contextWindowMaxTokens: Int? = nil
+    var containerWidth: CGFloat = 0
 
     @Environment(\.cmdEnterToSend) private var cmdEnterToSend
     #if os(macOS)
@@ -134,8 +135,13 @@ struct ComposerView: View {
         .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, VSpacing.lg)
         .padding(.top, VSpacing.sm)
-        .frame(maxWidth: VSpacing.chatColumnMaxWidth)
-        .frame(maxWidth: .infinity)
+        // .frame(width:) creates _FrameLayout — no alignment queries.
+        // The old .frame(maxWidth:).frame(maxWidth: .infinity) created
+        // _FlexFrameLayout which cascaded explicitAlignment through the
+        // sibling LazyVStack in the parent VStack.
+        .frame(width: containerWidth > 0
+            ? min(containerWidth, VSpacing.chatColumnMaxWidth)
+            : VSpacing.chatColumnMaxWidth)
         .disabled(!isInteractionEnabled)
         .animation(VAnimation.fast, value: isComposerFocused)
         .task {

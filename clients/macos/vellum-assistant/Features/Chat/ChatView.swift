@@ -220,9 +220,13 @@ struct ChatView: View {
     private func mainContentStack(containerWidth: CGFloat) -> some View {
         VStack(spacing: 0) {
             if showSkeleton {
-                ChatLoadingSkeleton()
+                ChatLoadingSkeleton(containerWidth: containerWidth)
                     .padding(VSpacing.lg)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .frame(
+                        width: containerWidth > 0 ? containerWidth : nil,
+                        maxHeight: .infinity,
+                        alignment: .top
+                    )
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Loading chat history")
             } else if isEmptyState && isBootstrapping {
@@ -365,8 +369,14 @@ struct ChatView: View {
                 CreditsExhaustedBanner(
                     onAddFunds: { onAddFunds?() }
                 )
-                .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
-                .frame(maxWidth: .infinity)
+                // .frame(width:) creates _FrameLayout — no alignment queries.
+                // The old .frame(maxWidth:).frame(maxWidth: .infinity) created
+                // _FlexFrameLayout which cascaded explicitAlignment through the
+                // sibling LazyVStack. VStack default .center alignment centers
+                // the fixed-width child automatically.
+                .frame(width: containerWidth > 0
+                    ? min(containerWidth, VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
+                    : VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
                 .padding(.bottom, -VSpacing.sm)
             }
 
@@ -375,8 +385,9 @@ struct ChatView: View {
                     onOpenSettings: { onOpenModelsAndServices?() },
                     onDismiss: { viewModel.dismissConversationError() }
                 )
-                .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
-                .frame(maxWidth: .infinity)
+                .frame(width: containerWidth > 0
+                    ? min(containerWidth, VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
+                    : VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
                 .padding(.bottom, -VSpacing.sm)
             }
 
@@ -387,19 +398,21 @@ struct ChatView: View {
                     onOpenSSHSettings: { onOpenSSHSettings?() },
                     isExiting: isRecoveryModeExiting
                 )
-                .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
-                .frame(maxWidth: .infinity)
+                .frame(width: containerWidth > 0
+                    ? min(containerWidth, VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
+                    : VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
                 .padding(.bottom, -VSpacing.sm)
             }
 
             if isReadonly {
                 HStack(spacing: VSpacing.xs) {
+                    Spacer(minLength: 0)
                     VIconView(.eye, size: 14)
                     Text("Read-only conversation")
                         .font(VFont.bodySmallDefault)
+                    Spacer(minLength: 0)
                 }
                 .foregroundStyle(VColor.contentTertiary)
-                .frame(maxWidth: .infinity)
                 .padding(.vertical, VSpacing.md)
             } else {
                 ComposerSection(
@@ -435,7 +448,8 @@ struct ChatView: View {
                     isInteractionEnabled: isInteractionEnabled,
                     contextWindowFillRatio: viewModel.contextWindowFillRatio,
                     contextWindowTokens: viewModel.contextWindowTokens,
-                    contextWindowMaxTokens: viewModel.contextWindowMaxTokens
+                    contextWindowMaxTokens: viewModel.contextWindowMaxTokens,
+                    containerWidth: containerWidth
                 )
             }
         }
