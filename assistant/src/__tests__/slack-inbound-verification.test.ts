@@ -340,7 +340,7 @@ describe("Slack inbound trusted contact verification", () => {
     if (!releaseFirstFailure) {
       throw new Error("Expected first Slack denial delivery to block");
     }
-    const rejectFirstFailure = releaseFirstFailure;
+    const rejectFirstFailure: (reason?: unknown) => void = releaseFirstFailure;
 
     const req3 = buildSlackInboundRequest({
       replyCallbackUrl: threadReplyCallbackUrl,
