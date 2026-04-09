@@ -36,6 +36,8 @@ struct HatchingStepView: View {
 
     var body: some View {
         VStack(spacing: VSpacing.lg) {
+            Color.clear.frame(height: VSpacing.xxxl)
+
             statusText
 
             Spacer()
