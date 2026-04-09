@@ -13,20 +13,10 @@ struct ComposerView: View, Equatable {
     static func == (lhs: ComposerView, rhs: ComposerView) -> Bool {
         // VoiceModeManager is @MainActor ObservableObject, not @Observable,
         // so SwiftUI cannot track its internal state changes via struct ==.
-        // When voice mode is actively in use (state != .off), always
-        // re-evaluate so voice-mode transitions (listening → speaking, etc.)
-        // are never stale. When voice mode is off (the common text-entry
-        // case), we fall through to the normal property comparison.
-        //
-        // assumeIsolated is safe because SwiftUI calls == on the main thread
-        // during its view-diffing pass.
-        let lhsVoiceActive = lhs.voiceModeManager.map { mgr in
-            MainActor.assumeIsolated { mgr.state != .off }
-        } ?? false
-        let rhsVoiceActive = rhs.voiceModeManager.map { mgr in
-            MainActor.assumeIsolated { mgr.state != .off }
-        } ?? false
-        if lhsVoiceActive || rhsVoiceActive {
+        // voiceModeState is a snapshot captured at struct-creation time so
+        // lhs holds the previous state and rhs holds the current state,
+        // avoiding live reads from a shared mutable reference.
+        if lhs.voiceModeState != .off || rhs.voiceModeState != .off {
             return false
         }
 
@@ -96,6 +86,7 @@ struct ComposerView: View, Equatable {
     let onPaste: () -> Void
     let onMicrophoneToggle: () -> Void
     var voiceModeManager: VoiceModeManager? = nil
+    var voiceModeState: VoiceModeManager.State = .off
     var voiceService: OpenAIVoiceService? = nil
     var onEndVoiceMode: (() -> Void)? = nil
     var recordingAmplitude: Float = 0
