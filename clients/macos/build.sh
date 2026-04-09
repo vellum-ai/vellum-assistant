@@ -409,6 +409,21 @@ bundle_kata_kernel() {
     cp "$KATA_KERNEL_PATH" "$KATA_KERNEL_BUNDLE_DIR/vmlinux.container"
 }
 
+# Default VELLUM_ENVIRONMENT based on build command (overridable via env).
+# See AGENTS.md "Build Environment" for the full matrix.
+# This must run before the early-exit commands (test, lint, clean, binaries)
+# so that swift test inherits the correct value.
+if [ -z "${VELLUM_ENVIRONMENT:-}" ]; then
+    case "$CMD" in
+        test)                          VELLUM_ENVIRONMENT="test" ;;
+        run)                           VELLUM_ENVIRONMENT="dev" ;;
+        release|release-application)   VELLUM_ENVIRONMENT="production" ;;
+        *)                             VELLUM_ENVIRONMENT="local" ;;
+    esac
+fi
+export VELLUM_ENVIRONMENT
+echo "VELLUM_ENVIRONMENT=$VELLUM_ENVIRONMENT"
+
 case "$CMD" in
     test)
         echo "Running tests..."
@@ -883,19 +898,6 @@ done
 if [ "$CMD" = "run" ] && [ -z "${VELLUM_PLATFORM_URL:-}" ]; then
     export VELLUM_PLATFORM_URL="https://dev-platform.vellum.ai"
 fi
-
-# Default VELLUM_ENVIRONMENT based on build command (overridable via env).
-# See AGENTS.md "Build Environment" for the full matrix.
-if [ -z "${VELLUM_ENVIRONMENT:-}" ]; then
-    case "$CMD" in
-        test)                          VELLUM_ENVIRONMENT="test" ;;
-        run)                           VELLUM_ENVIRONMENT="dev" ;;
-        release|release-application)   VELLUM_ENVIRONMENT="production" ;;
-        *)                             VELLUM_ENVIRONMENT="local" ;;
-    esac
-fi
-export VELLUM_ENVIRONMENT
-echo "VELLUM_ENVIRONMENT=$VELLUM_ENVIRONMENT"
 
 # Always regenerate Info.plist (fast, depends on env vars like DISPLAY_VERSION)
 COMMIT_SHA_PLIST=""
