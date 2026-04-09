@@ -20,9 +20,14 @@ public struct VSplitView<Main: View, Panel: View>: View {
 
     public var body: some View {
         HStack(spacing: 0) {
-            // Main content - styled as panel
-            main
-                .background(mainBackground ?? VColor.surfaceBase)
+            // Main content - styled as panel.
+            // The background Color is the primary space-filling view so the
+            // main pane claims the HStack's remaining width even when `main`
+            // is EmptyView (degraded layout fallback). Using Color + overlay
+            // avoids _FlexFrameLayout, which would cascade explicitAlignment
+            // queries into any descendant LazyVStack.
+            (mainBackground ?? VColor.surfaceBase)
+                .overlay { main }
                 .clipShape(RoundedRectangle(cornerRadius: mainCornerRadius ?? VRadius.lg))
                 .padding([.bottom, .leading], VSpacing.xs)
                 .padding(.trailing, showPanel ? 0 : VSpacing.xs)
