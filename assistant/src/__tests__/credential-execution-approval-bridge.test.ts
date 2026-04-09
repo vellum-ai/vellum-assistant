@@ -12,7 +12,7 @@
  * 7. Error handling: record_grant RPC failure returns error outcome.
  */
 
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import type {
   ApprovalRequired,
@@ -22,6 +22,7 @@ import type {
   RecordGrantResponse,
 } from "@vellumai/ces-contracts";
 
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import { bridgeCesApproval } from "../credential-execution/approval-bridge.js";
 import type { CesClient } from "../credential-execution/client.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
@@ -166,6 +167,31 @@ function makeCesClient(
 // ---------------------------------------------------------------------------
 
 describe("CES approval bridge", () => {
+  beforeEach(() => {
+    _setOverridesForTesting({});
+  });
+
+  test("suppresses deterministic CES approval prompts under v2", async () => {
+    _setOverridesForTesting({ "permission-controls-v2": true });
+
+    const prompter = makePrompter("allow");
+    const cesClient = makeCesClient();
+
+    const result = await bridgeCesApproval(
+      makeApprovalRequired(),
+      prompter,
+      cesClient,
+      { isInteractive: true, conversationId: "session-1" },
+    );
+
+    expect(result.outcome).toBe("denied");
+    if (result.outcome === "denied") {
+      expect(result.userDecision).toBe("deny");
+    }
+    expect(prompter.promptCalls).toHaveLength(0);
+    expect(cesClient.recordGrantCalls).toHaveLength(0);
+  });
+
   describe("single-use approval", () => {
     test("allow decision commits grant to CES and returns grantId", async () => {
       const prompter = makePrompter("allow");

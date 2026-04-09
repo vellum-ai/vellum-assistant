@@ -27,6 +27,7 @@ import {
   findHighestPriorityRule,
 } from "../permissions/trust-store.js";
 import { isAllowDecision } from "../permissions/types.js";
+import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { coreAppProxyTools } from "../tools/apps/definitions.js";
@@ -319,6 +320,10 @@ export function createProxyApprovalCallback(
     const toolName = "network_request";
     const { scheme } = decision.target;
     const url = `${scheme}://${hostname}${port ? ":" + port : ""}${path}`;
+
+    if (isPermissionControlsV2Enabled()) {
+      return false;
+    }
 
     const input: Record<string, unknown> = {
       url,

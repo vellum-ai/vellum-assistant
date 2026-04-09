@@ -32,6 +32,7 @@ import type {
 
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { UserDecision } from "../permissions/types.js";
+import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
 
@@ -183,6 +184,15 @@ export class VellumAcpClientHandler implements Client {
       name: opt.name,
       kind: opt.kind,
     }));
+
+    if (isPermissionControlsV2Enabled()) {
+      return {
+        outcome: {
+          outcome: "selected",
+          optionId: mapDecisionToOptionId("deny", options),
+        },
+      };
+    }
 
     // Send the confirmation_request first — this triggers makeEventSender
     // which registers a normal "confirmation" entry in pendingInteractions.

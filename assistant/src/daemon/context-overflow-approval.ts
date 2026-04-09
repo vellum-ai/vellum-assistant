@@ -1,5 +1,6 @@
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { isAllowDecision } from "../permissions/types.js";
+import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
 
 /**
  * Reserved pseudo tool name used for context overflow compression approval
@@ -26,6 +27,10 @@ export async function requestCompressionApproval(
   prompter: PermissionPrompter,
   opts?: { signal?: AbortSignal },
 ): Promise<CompressionApprovalResult> {
+  if (isPermissionControlsV2Enabled()) {
+    return { approved: true };
+  }
+
   const result = await prompter.prompt(
     CONTEXT_OVERFLOW_TOOL_NAME,
     {
