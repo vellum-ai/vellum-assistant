@@ -77,9 +77,23 @@ export function isLoopbackPeer(
  * Service tokens — which intentionally do not carry a guardian — will have
  * `guardianId === undefined` and are expected to be rejected at upstream
  * upgrade time unless an alternate guardian-plumbing path is wired up.
+ *
+ * `clientInstanceId` is a stable per-extension-install identifier lifted
+ * off the downstream handshake and forwarded to the runtime verbatim so
+ * the multi-instance registry can key connections by (guardianId,
+ * clientInstanceId). Without this forwarding, cloud reconnects from the
+ * same extension install would each land in a fresh
+ * `legacy:<connectionId>` slot and fail to supersede the prior socket.
  */
 export interface BrowserRelayAuthContext {
   guardianId?: string;
+  /**
+   * Per-install identifier sourced from the downstream handshake — either
+   * the `clientInstanceId` query param (primary path, set by the Chrome
+   * extension via `buildUrl`) or the `x-client-instance-id` header.
+   * Propagated verbatim to the upstream runtime URL.
+   */
+  clientInstanceId?: string;
   /** True when auth was checked and succeeded. */
   authenticated: boolean;
   /** True when runtime proxy auth is globally disabled (dev bypass). */
@@ -156,10 +170,22 @@ export function checkBrowserRelayAuth(
   url: URL,
   config: GatewayConfig,
 ): AuthCheckResult {
+  // Lift the per-install identifier off the downstream handshake so we
+  // can propagate it to the runtime regardless of the auth path below.
+  // The Chrome extension sets it as a query param via `buildUrl`; we
+  // also accept the `x-client-instance-id` header for parity with the
+  // runtime's own accepted forms. Empty strings are treated as absent
+  // so sparse clients don't all collapse into the same key.
+  const clientInstanceId = extractClientInstanceId(req, url);
+
   if (!config.runtimeProxyRequireAuth) {
     return {
       ok: true,
-      context: { authenticated: false, authBypassed: true },
+      context: {
+        authenticated: false,
+        authBypassed: true,
+        clientInstanceId,
+      },
     };
   }
 
@@ -210,8 +236,28 @@ export function checkBrowserRelayAuth(
 
   return {
     ok: true,
-    context: { authenticated: true, authBypassed: false, guardianId },
+    context: {
+      authenticated: true,
+      authBypassed: false,
+      guardianId,
+      clientInstanceId,
+    },
   };
+}
+
+/**
+ * Extract the per-extension-install identifier from a downstream
+ * browser-relay WS handshake. Query param is the primary path (the
+ * Chrome extension sets it via `buildUrl` because WebSocket upgrades
+ * cannot set custom headers from the browser); the header form is
+ * accepted for completeness so non-browser clients have a consistent
+ * contract. Empty strings are normalized to `undefined`.
+ */
+function extractClientInstanceId(req: Request, url: URL): string | undefined {
+  const rawHeader = req.headers.get("x-client-instance-id")?.trim();
+  const rawQuery = url.searchParams.get("clientInstanceId")?.trim();
+  const picked = (rawHeader ?? "") || (rawQuery ?? "") || undefined;
+  return picked;
 }
 
 /**
@@ -231,13 +277,30 @@ export function getBrowserRelayWebsocketHandlers() {
       if (auth.guardianId) {
         query.set("guardianId", auth.guardianId);
       }
+      // Forward the per-install identifier so the runtime's
+      // multi-instance registry can key connections by
+      // (guardianId, clientInstanceId). Without this, cloud
+      // reconnects from the same extension install would each fall
+      // through to a fresh `legacy:<connectionId>` key and fail to
+      // supersede the prior socket, leaving stale entries as default
+      // send targets.
+      if (auth.clientInstanceId) {
+        query.set("clientInstanceId", auth.clientInstanceId);
+      }
       const upstreamUrl = `${runtimeBase}/v1/browser-relay?${query.toString()}`;
       const logSafeUpstreamUrl =
         `${runtimeBase}/v1/browser-relay?token=<redacted>` +
-        (auth.guardianId ? `&guardianId=${auth.guardianId}` : "");
+        (auth.guardianId ? `&guardianId=${auth.guardianId}` : "") +
+        (auth.clientInstanceId
+          ? `&clientInstanceId=${auth.clientInstanceId}`
+          : "");
 
       log.info(
-        { upstreamUrl: logSafeUpstreamUrl, guardianId: auth.guardianId },
+        {
+          upstreamUrl: logSafeUpstreamUrl,
+          guardianId: auth.guardianId,
+          clientInstanceId: auth.clientInstanceId,
+        },
         "Opening upstream browser relay WS to runtime",
       );
 

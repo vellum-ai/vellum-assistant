@@ -352,6 +352,116 @@ describe("ChromeExtensionRegistry", () => {
       expect(registry.get("guardian-alpha")).toBeUndefined();
       expect(registry.listInstances("guardian-alpha")).toHaveLength(0);
     });
+
+    test("ties on lastActiveAt are broken by registrationSeq (newest wins)", () => {
+      // Freeze Date.now so both instances stamp the exact same
+      // lastActiveAt. Without the registrationSeq tiebreaker, the
+      // strict `>` comparison in get() would keep whichever entry
+      // Map#values() yields first — i.e. the earlier-inserted one,
+      // which is the opposite of the "most recently registered"
+      // semantics a caller would expect.
+      const registry = new ChromeExtensionRegistry();
+      const { conn: connA, fakeWs: fakeWsA } = makeConnection(
+        "guardian-alpha",
+        "conn-A",
+        "install-A",
+      );
+      const { conn: connB, fakeWs: fakeWsB } = makeConnection(
+        "guardian-alpha",
+        "conn-B",
+        "install-B",
+      );
+      const originalNow = Date.now;
+      const frozenNow = originalNow();
+      Date.now = () => frozenNow;
+      try {
+        registry.register(connA);
+        registry.register(connB);
+        // Both should hold the same lastActiveAt because Date.now is frozen.
+        expect(connA.lastActiveAt).toBe(connB.lastActiveAt);
+        // connB registered second, so its registrationSeq must be higher.
+        expect(connB.registrationSeq).toBeGreaterThan(
+          connA.registrationSeq ?? 0,
+        );
+        const msg: ServerMessage = {
+          type: "host_browser_cancel",
+          requestId: "req-1",
+        } as ServerMessage;
+        expect(registry.send("guardian-alpha", msg)).toBe(true);
+      } finally {
+        Date.now = originalNow;
+      }
+      // Default send should have landed on the newer instance (B),
+      // not the older insertion-order winner (A).
+      expect(fakeWsA.sent).toHaveLength(0);
+      expect(fakeWsB.sent).toHaveLength(1);
+    });
+
+    test("registrationSeq is monotonically increasing across registrations", () => {
+      // Sanity check on the counter itself — new registrations should
+      // always stamp a strictly greater sequence number than anything
+      // that came before, including re-registrations of the same
+      // instance after a supersede.
+      const registry = new ChromeExtensionRegistry();
+      const { conn: connA } = makeConnection(
+        "guardian-alpha",
+        "conn-A",
+        "install-A",
+      );
+      const { conn: connB } = makeConnection(
+        "guardian-alpha",
+        "conn-B",
+        "install-B",
+      );
+      const { conn: connC } = makeConnection(
+        "guardian-alpha",
+        "conn-C",
+        "install-A",
+      );
+      registry.register(connA);
+      registry.register(connB);
+      registry.register(connC); // supersedes install-A → conn-A closes
+      expect(connA.registrationSeq).toBeDefined();
+      expect(connB.registrationSeq).toBeDefined();
+      expect(connC.registrationSeq).toBeDefined();
+      expect(connB.registrationSeq!).toBeGreaterThan(connA.registrationSeq!);
+      expect(connC.registrationSeq!).toBeGreaterThan(connB.registrationSeq!);
+    });
+
+    test("same-millisecond supersede leaves the new connection as default", () => {
+      // Re-registering the same install within the same millisecond
+      // window must still promote the new connection to the default
+      // target — the tie-breaker should apply to re-registrations of
+      // the same instance just as it applies to sibling instances.
+      const registry = new ChromeExtensionRegistry();
+      const { conn: old } = makeConnection(
+        "guardian-alpha",
+        "old-id",
+        "install-A",
+      );
+      const { conn: fresh, fakeWs: fakeWsFresh } = makeConnection(
+        "guardian-alpha",
+        "fresh-id",
+        "install-A",
+      );
+      const originalNow = Date.now;
+      const frozenNow = originalNow();
+      Date.now = () => frozenNow;
+      try {
+        registry.register(old);
+        registry.register(fresh);
+        const msg: ServerMessage = {
+          type: "host_browser_cancel",
+          requestId: "req-1",
+        } as ServerMessage;
+        expect(registry.send("guardian-alpha", msg)).toBe(true);
+      } finally {
+        Date.now = originalNow;
+      }
+      // The fresh connection must receive the default send even though
+      // both entries stamped the exact same lastActiveAt.
+      expect(fakeWsFresh.sent).toHaveLength(1);
+    });
   });
 
   // ── Backwards compatibility ─────────────────────────────────────────

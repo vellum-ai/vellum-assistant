@@ -67,6 +67,19 @@ export interface ChromeExtensionConnection {
    * active" instance when the caller does not pin a specific one.
    */
   lastActiveAt: number;
+  /**
+   * Monotonic registration sequence number assigned by the registry
+   * on each `register()` call. Used as a tuple-secondary tiebreaker
+   * after `lastActiveAt` when picking the default active instance, so
+   * two sibling instances that share the same millisecond timestamp
+   * deterministically resolve to the most recently registered entry.
+   *
+   * Not used when the registry routes to an explicit instance via
+   * `sendToInstance` / `getInstance`. Clients should treat this as an
+   * internal field — it's assigned by `register()` and callers don't
+   * need to populate it when constructing a connection.
+   */
+  registrationSeq?: number;
 }
 
 /**
@@ -81,6 +94,22 @@ export class ChromeExtensionRegistry {
     string,
     Map<string, ChromeExtensionConnection>
   >();
+  /**
+   * Monotonic counter stamped onto each registration as
+   * `registrationSeq`, used as a secondary tiebreaker after
+   * `lastActiveAt` in the default routing path. Starts at 0 and
+   * increments before stamping so the first registered connection has
+   * `registrationSeq === 1`.
+   *
+   * This exists because `lastActiveAt` is `Date.now()`, which has
+   * millisecond resolution at best; two sibling instances that
+   * register (or transmit) in the same millisecond would otherwise
+   * resolve ties via insertion order of `Map#values()`, which is
+   * technically well-defined but is not the "most recently registered"
+   * behavior a caller would expect. A monotonic counter fixes that
+   * deterministically.
+   */
+  private seqCounter = 0;
 
   /**
    * Resolve the effective instance key for a connection. Prefers the
@@ -118,14 +147,18 @@ export class ChromeExtensionRegistry {
     }
     // Stamp lastActiveAt on (re-)register so the "most recently active"
     // routing heuristic treats a fresh connection as the current default
-    // target for its guardian.
+    // target for its guardian. Stamp a monotonic registrationSeq
+    // alongside it so two registrations that land in the same
+    // millisecond resolve deterministically to the newer one.
     conn.lastActiveAt = Date.now();
+    conn.registrationSeq = ++this.seqCounter;
     instances.set(instanceKey, conn);
     log.info(
       {
         guardianId: conn.guardianId,
         connectionId: conn.id,
         clientInstanceId: conn.clientInstanceId,
+        registrationSeq: conn.registrationSeq,
         instanceCount: instances.size,
       },
       "chrome extension registered",
@@ -167,8 +200,12 @@ export class ChromeExtensionRegistry {
 
   /**
    * Return the default "active" connection for a guardian — the
-   * instance with the most recent `lastActiveAt` timestamp. Returns
-   * `undefined` when no instances are registered for the guardian.
+   * instance with the most recent `lastActiveAt` timestamp. Ties on
+   * `lastActiveAt` (common when two sibling instances register or
+   * transmit within the same millisecond) are broken by the monotonic
+   * `registrationSeq` counter, which deterministically prefers the
+   * most recently registered instance. Returns `undefined` when no
+   * instances are registered for the guardian.
    *
    * Callers that want to pin a specific instance should use
    * {@link getInstance} instead.
@@ -178,7 +215,16 @@ export class ChromeExtensionRegistry {
     if (!instances || instances.size === 0) return undefined;
     let best: ChromeExtensionConnection | undefined;
     for (const conn of instances.values()) {
-      if (!best || conn.lastActiveAt > best.lastActiveAt) {
+      if (!best) {
+        best = conn;
+        continue;
+      }
+      if (conn.lastActiveAt > best.lastActiveAt) {
+        best = conn;
+      } else if (
+        conn.lastActiveAt === best.lastActiveAt &&
+        (conn.registrationSeq ?? 0) > (best.registrationSeq ?? 0)
+      ) {
         best = conn;
       }
     }
