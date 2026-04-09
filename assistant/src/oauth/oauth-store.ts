@@ -58,7 +58,7 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
  * identityResponsePaths, identityFormat, identityOkField, featureFlag,
  * scopeSeparator)
  * and display metadata (displayLabel, description, dashboardUrl,
- * clientIdPlaceholder, requiresClientSecret) propagate to existing
+ * clientIdPlaceholder, logoUrl, requiresClientSecret) propagate to existing
  * installations on every startup, while user-customizable fields
  * (defaultScopes, scopePolicy) are only written on the
  * initial insert. baseUrl is backfilled from seed data when null
@@ -89,6 +89,7 @@ export function seedProviders(
     description?: string;
     dashboardUrl?: string | null;
     clientIdPlaceholder?: string | null;
+    logoUrl?: string | null;
     requiresClientSecret?: boolean;
     loopbackPort?: number;
     injectionTemplates?: Array<{
@@ -146,6 +147,7 @@ export function seedProviders(
     const description = p.description ?? null;
     const dashboardUrl = p.dashboardUrl ?? null;
     const clientIdPlaceholder = p.clientIdPlaceholder ?? null;
+    const logoUrl = p.logoUrl ?? null;
     const requiresClientSecret = p.requiresClientSecret !== false ? 1 : 0;
     const loopbackPort = p.loopbackPort ?? null;
     const injectionTemplates = p.injectionTemplates
@@ -191,6 +193,7 @@ export function seedProviders(
         description,
         dashboardUrl,
         clientIdPlaceholder,
+        logoUrl,
         requiresClientSecret,
         loopbackPort,
         injectionTemplates,
@@ -229,6 +232,7 @@ export function seedProviders(
           description,
           dashboardUrl,
           clientIdPlaceholder,
+          logoUrl,
           requiresClientSecret,
           loopbackPort,
           injectionTemplates,
@@ -292,6 +296,7 @@ export function registerProvider(params: {
   description?: string;
   dashboardUrl?: string;
   clientIdPlaceholder?: string;
+  logoUrl?: string | null;
   requiresClientSecret?: number;
   loopbackPort?: number;
   injectionTemplates?: Array<{
@@ -349,6 +354,7 @@ export function registerProvider(params: {
     description: params.description ?? null,
     dashboardUrl: params.dashboardUrl ?? null,
     clientIdPlaceholder: params.clientIdPlaceholder ?? null,
+    logoUrl: params.logoUrl ?? null,
     requiresClientSecret: params.requiresClientSecret ?? 1,
     loopbackPort: params.loopbackPort ?? null,
     injectionTemplates: params.injectionTemplates
@@ -412,6 +418,7 @@ export function updateProvider(
     description: string;
     dashboardUrl: string;
     clientIdPlaceholder: string;
+    logoUrl: string | null;
     requiresClientSecret: boolean;
     loopbackPort: number;
     injectionTemplates: Array<{
@@ -473,6 +480,7 @@ export function updateProvider(
   if (params.dashboardUrl !== undefined) set.dashboardUrl = params.dashboardUrl;
   if (params.clientIdPlaceholder !== undefined)
     set.clientIdPlaceholder = params.clientIdPlaceholder;
+  if (params.logoUrl !== undefined) set.logoUrl = params.logoUrl;
   if (params.requiresClientSecret !== undefined)
     set.requiresClientSecret = params.requiresClientSecret ? 1 : 0;
   if (params.loopbackPort !== undefined) set.loopbackPort = params.loopbackPort;

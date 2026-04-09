@@ -30,6 +30,7 @@ export interface SerializedProviderSummary {
   dashboard_url: string | null;
   client_id_placeholder: string | null;
   requires_client_secret: boolean;
+  logo_url: string | null;
   supports_managed_mode: boolean;
   feature_flag: string | null;
 }
@@ -81,6 +82,7 @@ function _serializeProvider(
     displayName: displayLabel ?? null,
     description: row.description ?? null,
     dashboardUrl: row.dashboardUrl ?? null,
+    logoUrl: row.logoUrl ?? null,
     clientIdPlaceholder: row.clientIdPlaceholder ?? null,
     requiresClientSecret: !!(row.requiresClientSecret ?? 1),
     supportsManagedMode: !!row.managedServiceConfigKey,
@@ -136,6 +138,7 @@ export function serializeProviderSummary(
     dashboard_url: row.dashboardUrl ?? null,
     client_id_placeholder: row.clientIdPlaceholder ?? null,
     requires_client_secret: !!(row.requiresClientSecret ?? 1),
+    logo_url: row.logoUrl ?? null,
     supports_managed_mode: !!row.managedServiceConfigKey,
     feature_flag: row.featureFlag ?? null,
   };

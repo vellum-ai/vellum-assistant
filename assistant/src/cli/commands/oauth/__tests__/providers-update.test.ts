@@ -40,6 +40,8 @@ mock.module("../../../../oauth/oauth-store.js", () => ({
   },
   listProviders: () => [],
   registerProvider: () => ({}),
+  deleteProvider: () => false,
+  disconnectOAuthProvider: async () => "ok",
   seedProviders: () => {},
   getConnection: () => undefined,
   getConnectionByProvider: () => undefined,
@@ -319,6 +321,104 @@ describe("assistant oauth providers update", () => {
       defaultScopes: ["read", "write"],
       authorizeUrl: "https://new.example.com/auth",
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // Successful update with injection templates, identity config, and setup metadata
+  // -------------------------------------------------------------------------
+
+  // -------------------------------------------------------------------------
+  // --logo-url
+  // -------------------------------------------------------------------------
+
+  test("update --logo-url sets params.logoUrl to the given string", async () => {
+    mockGetProvider = () => ({ ...sampleProviderRow });
+    mockUpdateProvider = (_key, _params) => ({
+      ...sampleProviderRow,
+      logoUrl: "https://example.com/logo.png",
+      updatedAt: Date.now(),
+    });
+
+    const { exitCode } = await runCommand([
+      "providers",
+      "update",
+      "custom-api",
+      "--logo-url",
+      "https://example.com/logo.png",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    expect(mockUpdateProviderCalls).toHaveLength(1);
+    expect(mockUpdateProviderCalls[0].key).toBe("custom-api");
+    expect(mockUpdateProviderCalls[0].params).toEqual({
+      logoUrl: "https://example.com/logo.png",
+    });
+  });
+
+  test("update --logo-simpleicons-slug expands to CDN URL and passes as params.logoUrl", async () => {
+    mockGetProvider = () => ({ ...sampleProviderRow });
+    mockUpdateProvider = (_key, _params) => ({
+      ...sampleProviderRow,
+      logoUrl: "https://cdn.simpleicons.org/notion",
+      updatedAt: Date.now(),
+    });
+
+    const { exitCode } = await runCommand([
+      "providers",
+      "update",
+      "custom-api",
+      "--logo-simpleicons-slug",
+      "notion",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    expect(mockUpdateProviderCalls).toHaveLength(1);
+    expect(mockUpdateProviderCalls[0].params).toEqual({
+      logoUrl: "https://cdn.simpleicons.org/notion",
+    });
+  });
+
+  test('update --logo-url "" clears params.logoUrl to null', async () => {
+    mockGetProvider = () => ({ ...sampleProviderRow });
+    mockUpdateProvider = (_key, _params) => ({
+      ...sampleProviderRow,
+      logoUrl: null,
+      updatedAt: Date.now(),
+    });
+
+    const { exitCode } = await runCommand([
+      "providers",
+      "update",
+      "custom-api",
+      "--logo-url",
+      "",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    expect(mockUpdateProviderCalls).toHaveLength(1);
+    expect(mockUpdateProviderCalls[0].params).toEqual({
+      logoUrl: null,
+    });
+  });
+
+  test("update rejects both --logo-url and --logo-simpleicons-slug simultaneously", async () => {
+    mockGetProvider = () => ({ ...sampleProviderRow });
+
+    const { exitCode, stdout } = await runCommand([
+      "providers",
+      "update",
+      "custom-api",
+      "--logo-url",
+      "https://example.com/logo.png",
+      "--logo-simpleicons-slug",
+      "notion",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("mutually exclusive");
+    expect(mockUpdateProviderCalls).toHaveLength(0);
   });
 
   // -------------------------------------------------------------------------

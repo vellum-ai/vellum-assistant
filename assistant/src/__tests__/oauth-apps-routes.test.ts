@@ -44,6 +44,7 @@ mock.module("../oauth/oauth-store.js", () => ({
           displayLabel: "Google",
           description: "Google OAuth provider",
           dashboardUrl: "https://console.cloud.google.com/apis/credentials",
+          logoUrl: null,
           clientIdPlaceholder: null,
           requiresClientSecret: 1,
           managedServiceConfigKey: "google-oauth",

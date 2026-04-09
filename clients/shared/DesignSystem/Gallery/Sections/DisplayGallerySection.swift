@@ -278,6 +278,77 @@ struct DisplayGallerySection: View {
 
             }
 
+            if filter == nil || filter == "vCachedRemoteImage" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - VCachedRemoteImage
+                GallerySectionHeader(
+                    title: "VCachedRemoteImage",
+                    description: "Loads remote images through a shared disk-backed URLCache. Renders the caller-provided placeholder while loading, on error, or when the URL is nil."
+                )
+
+                HStack(spacing: VSpacing.xl) {
+                    VStack(spacing: VSpacing.xs) {
+                        VCachedRemoteImage(
+                            url: URL(string: "https://cdn.simpleicons.org/swift"),
+                            content: { image in
+                                image
+                                    .resizable()
+                                    .scaledToFit()
+                            },
+                            placeholder: {
+                                VLoadingIndicator()
+                            }
+                        )
+                        .frame(width: 40, height: 40)
+                        Text("Loaded")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
+
+                    VStack(spacing: VSpacing.xs) {
+                        VCachedRemoteImage(
+                            url: URL(string: "https://cdn.simpleicons.org/github"),
+                            content: { image in
+                                image
+                                    .resizable()
+                                    .scaledToFit()
+                            },
+                            placeholder: {
+                                VLoadingIndicator()
+                            }
+                        )
+                        .frame(width: 40, height: 40)
+                        Text("Loaded (2)")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
+
+                    VStack(spacing: VSpacing.xs) {
+                        VCachedRemoteImage(
+                            url: nil,
+                            content: { image in
+                                image
+                                    .resizable()
+                                    .scaledToFit()
+                            },
+                            placeholder: {
+                                VIconView(.image, size: 20)
+                                    .foregroundStyle(VColor.contentTertiary)
+                                    .frame(width: 40, height: 40)
+                                    .background(VColor.surfaceActive)
+                                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                            }
+                        )
+                        Text("nil URL (placeholder)")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
+                }
+
+            }
+
             if filter == nil || filter == "vCodeView" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
@@ -628,6 +699,7 @@ extension DisplayGallerySection {
         case "vDisclosureSection": DisplayGallerySection(filter: "vDisclosureSection")
         case "vListRow": DisplayGallerySection(filter: "vListRow")
         case "vAvatarImage": DisplayGallerySection(filter: "vAvatarImage")
+        case "vCachedRemoteImage": DisplayGallerySection(filter: "vCachedRemoteImage")
         case "vCodeView": DisplayGallerySection(filter: "vCodeView")
         case "vSelectableTextView": DisplayGallerySection(filter: "vSelectableTextView")
         case "vDiffView": DisplayGallerySection(filter: "vDiffView")

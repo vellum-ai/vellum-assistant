@@ -111,6 +111,7 @@ import {
   migrateOAuthProvidersBehaviorColumns,
   migrateOAuthProvidersDisplayMetadata,
   migrateOAuthProvidersFeatureFlag,
+  migrateOAuthProvidersLogoUrl,
   migrateOAuthProvidersManagedServiceConfigKey,
   migrateOAuthProvidersPingConfig,
   migrateOAuthProvidersPingUrl,
@@ -362,6 +363,7 @@ export function initializeDb(): void {
     migrateOAuthProvidersRevoke,
     migrateOAuthProvidersTokenAuthMethodDefault,
     migrateConversationHostAccess,
+    migrateOAuthProvidersLogoUrl,
   ];
 
   // Run each migration step, catching and logging individual failures so one

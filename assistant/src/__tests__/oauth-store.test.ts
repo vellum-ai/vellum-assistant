@@ -452,6 +452,57 @@ describe("provider operations", () => {
       expect(row!.revokeBodyTemplate).toBeNull();
     });
 
+    test("writes logoUrl on insert", () => {
+      seedProviders([
+        {
+          provider: "google",
+          authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+          tokenExchangeUrl: "https://oauth2.googleapis.com/token",
+          defaultScopes: ["openid"],
+          scopePolicy: {},
+          logoUrl: "https://cdn.simpleicons.org/google",
+        },
+      ]);
+
+      const row = getProvider("google");
+      expect(row).toBeDefined();
+      expect(row!.logoUrl).toBe("https://cdn.simpleicons.org/google");
+    });
+
+    test("overwrites logoUrl on conflict", () => {
+      seedProviders([
+        {
+          provider: "google",
+          authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+          tokenExchangeUrl: "https://oauth2.googleapis.com/token",
+          defaultScopes: ["openid"],
+          scopePolicy: {},
+          logoUrl: "https://cdn.simpleicons.org/google",
+        },
+      ]);
+
+      expect(getProvider("google")!.logoUrl).toBe(
+        "https://cdn.simpleicons.org/google",
+      );
+
+      // Re-seed with a different logoUrl — it should be overwritten,
+      // proving logoUrl is in the onConflictDoUpdate set clause alongside
+      // the other display-metadata fields.
+      seedProviders([
+        {
+          provider: "google",
+          authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+          tokenExchangeUrl: "https://oauth2.googleapis.com/token",
+          defaultScopes: ["openid"],
+          scopePolicy: {},
+          logoUrl: "https://cdn.simpleicons.org/google-v2",
+        },
+      ]);
+
+      const row = getProvider("google");
+      expect(row!.logoUrl).toBe("https://cdn.simpleicons.org/google-v2");
+    });
+
     test("re-seeding with a changed revokeUrl overwrites the stored value", () => {
       seedProviders([
         {
@@ -761,6 +812,35 @@ describe("provider operations", () => {
       });
       expect(row.tokenEndpointAuthMethod).toBe("client_secret_basic");
     });
+
+    test("stores logoUrl when provided", () => {
+      registerProvider({
+        provider: "notion",
+        authorizeUrl: "https://api.notion.com/v1/oauth/authorize",
+        tokenExchangeUrl: "https://api.notion.com/v1/oauth/token",
+        defaultScopes: ["read"],
+        scopePolicy: {},
+        logoUrl: "https://cdn.simpleicons.org/notion",
+      });
+
+      const fetched = getProvider("notion");
+      expect(fetched).toBeDefined();
+      expect(fetched!.logoUrl).toBe("https://cdn.simpleicons.org/notion");
+    });
+
+    test("defaults logoUrl to null when omitted", () => {
+      registerProvider({
+        provider: "linear",
+        authorizeUrl: "https://linear.app/oauth/authorize",
+        tokenExchangeUrl: "https://api.linear.app/oauth/token",
+        defaultScopes: ["read"],
+        scopePolicy: {},
+      });
+
+      const fetched = getProvider("linear");
+      expect(fetched).toBeDefined();
+      expect(fetched!.logoUrl).toBeNull();
+    });
   });
 
   describe("updateProvider", () => {
@@ -977,6 +1057,71 @@ describe("provider operations", () => {
 
       const row = getProvider("update-empty-test");
       expect(row!.tokenEndpointAuthMethod).toBe("client_secret_post");
+    });
+
+    test("sets logoUrl on an existing row where it was previously null", () => {
+      registerProvider({
+        provider: "linear",
+        authorizeUrl: "https://linear.app/oauth/authorize",
+        tokenExchangeUrl: "https://api.linear.app/oauth/token",
+        defaultScopes: ["read"],
+        scopePolicy: {},
+      });
+
+      expect(getProvider("linear")!.logoUrl).toBeNull();
+
+      const updated = updateProvider("linear", {
+        logoUrl: "https://cdn.simpleicons.org/linear",
+      });
+      expect(updated).toBeDefined();
+      expect(updated!.logoUrl).toBe("https://cdn.simpleicons.org/linear");
+
+      const fetched = getProvider("linear");
+      expect(fetched!.logoUrl).toBe("https://cdn.simpleicons.org/linear");
+    });
+
+    test("clears logoUrl when passed null", () => {
+      registerProvider({
+        provider: "notion",
+        authorizeUrl: "https://api.notion.com/v1/oauth/authorize",
+        tokenExchangeUrl: "https://api.notion.com/v1/oauth/token",
+        defaultScopes: ["read"],
+        scopePolicy: {},
+        logoUrl: "https://cdn.simpleicons.org/notion",
+      });
+
+      expect(getProvider("notion")!.logoUrl).toBe(
+        "https://cdn.simpleicons.org/notion",
+      );
+
+      const updated = updateProvider("notion", { logoUrl: null });
+      expect(updated).toBeDefined();
+      expect(updated!.logoUrl).toBeNull();
+
+      expect(getProvider("notion")!.logoUrl).toBeNull();
+    });
+
+    test("leaves logoUrl unchanged when not passed to updateProvider", () => {
+      registerProvider({
+        provider: "notion",
+        authorizeUrl: "https://api.notion.com/v1/oauth/authorize",
+        tokenExchangeUrl: "https://api.notion.com/v1/oauth/token",
+        defaultScopes: ["read"],
+        scopePolicy: {},
+        logoUrl: "https://cdn.simpleicons.org/notion",
+      });
+
+      expect(getProvider("notion")!.logoUrl).toBe(
+        "https://cdn.simpleicons.org/notion",
+      );
+
+      // Update a different field — logoUrl should be left alone.
+      const updated = updateProvider("notion", {
+        displayLabel: "Notion (updated)",
+      });
+      expect(updated).toBeDefined();
+      expect(updated!.logoUrl).toBe("https://cdn.simpleicons.org/notion");
+      expect(updated!.displayLabel).toBe("Notion (updated)");
     });
   });
 
