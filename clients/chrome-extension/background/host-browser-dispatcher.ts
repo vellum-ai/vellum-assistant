@@ -186,12 +186,25 @@ export function createHostBrowserDispatcher(
   // to its caller.
   //
   // Invariant: entries are only added by `cancel()` when the requestId
-  // is currently present in `inFlight`, and they are always pruned in
-  // `handle()`'s finally block once the handler unwinds. Together these
-  // bound the set size to at most the current in-flight count, so the
-  // set cannot grow unbounded across long-running service-worker
-  // lifetimes even under duplicate/late cancel churn around relay
-  // reconnects.
+  // is currently present in `inFlight`. Entries are pruned in two
+  // places:
+  //   1. At the top of `handle()`, where a fresh invocation clears any
+  //      stale marker left behind by a prior invocation of the same
+  //      requestId — this prevents an overlap-retry from inheriting a
+  //      cancelled-by-a-previous-call flag that would silently drop its
+  //      legitimate result.
+  //   2. In `handle()`'s finally block, guarded on identity: the marker
+  //      is removed only when the unwinding invocation still owns the
+  //      `inFlight` entry for this requestId (or there is no entry at
+  //      all, i.e. the invocation was cancelled and no retry has
+  //      arrived). If a later invocation has overwritten the entry with
+  //      its own controller, the finally block leaves the marker alone
+  //      so that later invocation's cancel state is preserved.
+  //
+  // Together these bound the set size to at most the current in-flight
+  // count, so the set cannot grow unbounded across long-running
+  // service-worker lifetimes even under duplicate/late cancel churn
+  // around relay reconnects.
   const cancelledRequestIds = new Set<string>();
   // Track which targets we've already attached to so repeat commands
   // against the same tab/session don't unnecessarily call attach again.
@@ -292,7 +305,17 @@ export function createHostBrowserDispatcher(
     // to cover the non-overlapping case.
     cancelledRequestIds.delete(requestId);
     const abort = new AbortController();
-    inFlight.set(requestId, abort);
+    // Capture the controller created for THIS invocation so the
+    // finally block can tell its own `inFlight` entry apart from one
+    // written by a later overlapping invocation. When two calls for
+    // the same requestId overlap (call A is suspended at proxy.send
+    // while call B starts and overwrites `inFlight[requestId]` with
+    // its own controller), the finally block must leave B's live
+    // entry alone — otherwise a cancel() arriving after A unwinds
+    // would find nothing in `inFlight` and silently no-op, leaving
+    // B uncancellable.
+    const ownController = abort;
+    inFlight.set(requestId, ownController);
     try {
       const target = await deps.resolveTarget(envelope.cdpSessionId);
       const key = targetKey(target);
@@ -394,15 +417,43 @@ export function createHostBrowserDispatcher(
         );
       }
     } finally {
-      inFlight.delete(requestId);
-      // Prune the cancelled marker once the handle() call has fully
-      // unwound. Leaving the entry in place would silently drop the
-      // result of a *subsequent* handle() for the same requestId (e.g.
-      // a retry across a relay reconnect). Deleting it here is the
-      // symmetric counterpart to the `cancel()` guard that only adds
-      // markers for in-flight requests, and together they bound
-      // `cancelledRequestIds` by the current in-flight count.
-      cancelledRequestIds.delete(requestId);
+      // Identity-guarded cleanup: only prune `inFlight` and
+      // `cancelledRequestIds` when this invocation still owns the
+      // `inFlight` entry for the requestId (or there is no entry at
+      // all, which means this invocation was cancelled and no
+      // overlapping retry has taken the slot).
+      //
+      // The overlap-retry scenario is the one this guard exists for:
+      //
+      //   1. handle(req) — call A creates controllerA, puts it in
+      //      inFlight[req], suspends at proxy.send.
+      //   2. cancel(req) — aborts controllerA, removes the entry
+      //      from inFlight, marks req in cancelledRequestIds.
+      //   3. handle(req) — call B clears the marker at the top,
+      //      creates controllerB, puts it in inFlight[req], suspends
+      //      at its own proxy.send.
+      //   4. Call A's proxy.send resolves first (before B's) and A
+      //      begins unwinding. The finally block runs while B's
+      //      controllerB is the live `inFlight` entry. A unconditional
+      //      delete would evict B's entry, and a subsequent cancel(req)
+      //      would find nothing to cancel and silently no-op, leaving
+      //      B uncancellable.
+      //
+      // So: leave `inFlight` alone unless this invocation still owns
+      // it. And leave `cancelledRequestIds` alone when a later
+      // invocation owns the entry — that later invocation's cancel
+      // state belongs to it, not to the unwinding invocation. When
+      // there is no `inFlight` entry at all (cancel() already removed
+      // this invocation's entry and no retry has arrived), prune the
+      // marker so it does not leak into a future handle() that races
+      // the top-of-handle() cleanup.
+      const currentEntry = inFlight.get(requestId);
+      if (currentEntry === ownController) {
+        inFlight.delete(requestId);
+        cancelledRequestIds.delete(requestId);
+      } else if (currentEntry === undefined) {
+        cancelledRequestIds.delete(requestId);
+      }
     }
   }
 
