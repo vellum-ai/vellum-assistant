@@ -146,6 +146,11 @@ extension MessageListView {
                 )
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
                             "target=bottom reason=sendFollowingBottom")
+
+                // Also scroll the user message to top for Claude-style behavior
+                if let userMessage = messages.last(where: { $0.role == .user }) {
+                    scrollPosition.scrollTo(id: userMessage.id, anchor: .top)
+                }
             }
         } else {
             // Capture the activity phase at the moment sending stops.

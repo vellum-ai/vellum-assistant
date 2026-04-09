@@ -171,6 +171,9 @@ struct MessageListContentView: View, Equatable {
             }
 
             let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
+            // Min height for the active assistant turn — ensures the user message
+            // can reach the top of the viewport when content is short.
+            let turnMinHeight: CGFloat = max(0, scrollState.viewportHeight - 150)
             let isUnanchoredThinking = state.shouldShowThinkingIndicator && !state.rows.contains(where: \.isAnchoredThinkingRow)
             let thinkingLabel = !hasEverSentMessage && state.hasUserMessage
                 ? "Waking up..."
@@ -226,6 +229,14 @@ struct MessageListContentView: View, Equatable {
                     providerCatalogHash: providerCatalogHash
                 )
                 .equatable()
+                .frame(minHeight: 60, alignment: .top)
+                // Active assistant turn: wrap in VStack with minHeight so user
+                // message sits at top. Only applies when this is the last message
+                // (no user message sent after it).
+                .if(row.isLatestAssistant && row.message.id == state.rows.last?.message.id) { view in
+                    VStack(spacing: 0) { view }
+                        .frame(minHeight: turnMinHeight, alignment: .top)
+                }
             }
 
             ForEach(state.orphanSubagents) { subagent in
@@ -244,22 +255,29 @@ struct MessageListContentView: View, Equatable {
             }
 
             if isUnanchoredThinking {
-                if isCompacting {
-                    compactingIndicatorRow()
-                } else {
-                    thinkingIndicatorRow(hasUserMessage: state.hasUserMessage)
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    if isCompacting {
+                        compactingIndicatorRow()
+                    } else {
+                        thinkingIndicatorRow(hasUserMessage: state.hasUserMessage)
+                    }
+                    thinkingAvatarRow
                 }
-                thinkingAvatarRow
+                .frame(minHeight: turnMinHeight, alignment: .top)
             } else if state.isStreamingWithoutText && !state.canInlineProcessing {
-                HStack {
-                    TypingIndicatorView()
-                    Spacer()
+                VStack(spacing: 0) {
+                    HStack {
+                        TypingIndicatorView()
+                        Spacer()
+                    }
+                    .frame(width: effectiveBubbleMaxWidth)
                 }
-                .frame(width: effectiveBubbleMaxWidth)
+                .frame(minHeight: turnMinHeight, alignment: .top)
                 .id("streaming-without-text-indicator")
                 .transition(.opacity)
             } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
-                compactingIndicatorRow()
+                VStack(spacing: 0) { compactingIndicatorRow() }
+                    .frame(minHeight: turnMinHeight, alignment: .top)
             }
 
             Color.clear.frame(height: 1)

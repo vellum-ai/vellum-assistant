@@ -3,6 +3,15 @@ import os.signpost
 import SwiftUI
 import VellumAssistantShared
 
+// MARK: - Intrinsic Height Preference Key
+
+private struct IntrinsicHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 // MARK: - Bubble Max Width Environment
 
 /// The effective maximum width for chat bubble content, accounting for
@@ -69,6 +78,10 @@ struct ChatBubble: View, Equatable {
 
     var isLatestAssistantMessage: Bool = false
     var typographyGeneration: Int = 0
+    @State private var isUserMessageExpanded: Bool = false
+    @State private var userMessageIntrinsicHeight: CGFloat = 0
+    private let userMessageMaxCollapsedHeight: CGFloat = 150
+
     @State private var avatarBounceScale: CGFloat = 1.0
     /// When true, the assistant is still processing after tool calls completed.
     /// Renders an inline loading indicator in trailingStatus to avoid a separate
@@ -523,9 +536,41 @@ struct ChatBubble: View, Equatable {
         !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    @ViewBuilder
+    private func userMessageHeightWrapper<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        let needsCollapse = userMessageIntrinsicHeight > userMessageMaxCollapsedHeight && !isUserMessageExpanded
+        VStack(alignment: .trailing, spacing: VSpacing.xs) {
+            content()
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.preference(key: IntrinsicHeightKey.self, value: geo.size.height)
+                    }
+                )
+                .onPreferenceChange(IntrinsicHeightKey.self) { height in
+                    userMessageIntrinsicHeight = height
+                }
+                .frame(maxHeight: needsCollapse ? userMessageMaxCollapsedHeight : nil, alignment: .top)
+                .clipped()
+
+            if userMessageIntrinsicHeight > userMessageMaxCollapsedHeight {
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isUserMessageExpanded.toggle()
+                    }
+                }) {
+                    Text(isUserMessageExpanded ? "Show less" : "Show more")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.primaryBase)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    @ViewBuilder
     private var bubbleContent: some View {
         let partitioned = partitionedAttachments
-        return bubbleChrome {
+        let chrome = bubbleChrome {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 if hasText {
                     let segments = resolveSegments(for: message.text, isStreaming: message.isStreaming)
@@ -596,6 +641,11 @@ struct ChatBubble: View, Equatable {
                     }
                 }
             }
+        }
+        if isUser {
+            userMessageHeightWrapper { chrome }
+        } else {
+            chrome
         }
         // NOTE: The per-segment .task(id:) in ChatBubbleTextContent handles
         // async parsing for each individual text segment. A prior whole-message
