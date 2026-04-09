@@ -307,19 +307,19 @@ extension MessageListView {
         // Seed lastMessageId so executeScrollToBottom can target it.
         scrollState.lastMessageId = paginatedVisibleMessages.last?.id
         // Position at the content bottom for the new conversation.
-        // Use edge-based positioning — NOT ID-based ScrollPosition(id:anchor:).
-        // Edge-based scroll tells SwiftUI "go to the end" as a single value,
-        // while ID-based requires computing the cumulative estimated height of
-        // all preceding items. For conversations with variable-height messages,
-        // cumulative estimation errors across unmaterialized LazyVStack items
-        // can place the viewport in blank space.
-        // restoreScrollToBottom() (100ms fallback) fine-tunes via the recovery
-        // loop, which alternates between edge-based and ID-based strategies to
-        // break ScrollPosition value deduplication.
-        // https://developer.apple.com/documentation/swiftui/scrollposition/init(edge:)
+        // Use the imperative `.scrollTo(edge: .bottom)` method — Apple's
+        // recommended pattern for programmatic scrolling (see ScrollPosition
+        // docs). This is a command ("scroll to bottom now") rather than a
+        // state declaration. Edge-based because ID-based requires computing
+        // cumulative estimated heights of all preceding items, which for
+        // long conversations with variable-height messages places the
+        // viewport in blank LazyVStack space.
+        // restoreScrollToBottom() (100ms fallback) fine-tunes via the
+        // recovery loop.
+        // https://developer.apple.com/documentation/swiftui/scrollposition/scrollto(edge:)
         scrollState.scrollRestoreTask?.cancel()
         if anchorMessageId == nil {
-            scrollPosition = ScrollPosition(edge: .bottom)
+            scrollPosition.scrollTo(edge: .bottom)
         }
         restoreScrollToBottom()
     }

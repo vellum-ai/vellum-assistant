@@ -230,18 +230,17 @@ extension MessageListView {
         //   • "False at-bottom" — viewport at the estimated bottom but
         //     actual content is above (LazyVStack blank space)
         //
-        // Uses the alternating edge/ID scroll strategy via
-        // requestPinToBottom() → executeScrollToBottom(). Each call
-        // toggles recoveryAlternator, producing a structurally
-        // different ScrollPosition value (edge-based vs ID-based)
-        // that SwiftUI is guaranteed to process — breaking the
-        // silent dedup that occurs with repeated identical values.
-        // The two strategies use different estimation paths:
-        // edge-based computes a single total-content-height offset,
-        // ID-based sums per-item estimates. This may land the
-        // viewport at slightly different positions, helping
-        // LazyVStack materialize items in different areas and
-        // converge faster.
+        // Recovery uses the alternating edge/ID scroll strategy via
+        // requestPinToBottom(forRecovery: true) → executeScrollToBottom
+        // (forRecovery: true). Each call toggles recoveryAlternator,
+        // producing a structurally different scroll command (edge-based
+        // vs ID-based) that helps break potential deduplication. The
+        // two strategies use different estimation paths: edge-based
+        // computes a single total-content-height offset, ID-based sums
+        // per-item estimates. This may land the viewport at slightly
+        // different positions, helping LazyVStack converge faster.
+        // Auto-follow (content-height changes) uses ID-based only —
+        // edge-based can overshoot into blank space on long conversations.
         //
         // The repeated 100ms recovery cycle handles convergence —
         // each attempt materializes views near the actual bottom,
@@ -302,7 +301,7 @@ extension MessageListView {
             let now = Date()
             if now.timeIntervalSince(scrollState.lastRecoveryAttempt) >= 0.1 {
                 scrollState.lastRecoveryAttempt = now
-                scrollState.requestPinToBottom()
+                scrollState.requestPinToBottom(forRecovery: true)
             }
         }
 
@@ -436,31 +435,30 @@ extension MessageListView {
     /// perform programmatic scrolls via the view-owned ScrollPosition.
     func configureScrollCallbacks() {
         let binding = $scrollPosition
-        // Replace the entire ScrollPosition value instead of calling the
-        // mutating `.scrollTo(id:anchor:)` method. Value replacement
-        // forces SwiftUI to process a fresh scroll command every time.
-        // The `.scrollTo()` method can be silently deduped when the
-        // position was previously set to the same ID — even after the
-        // user has scrolled away, the internal state may still consider
-        // itself "at" that ID.
+        // Use the imperative `.scrollTo()` mutating methods on the
+        // binding's wrappedValue. This is Apple's recommended pattern
+        // for programmatic scrolling (see ScrollPosition docs example:
+        // `position.scrollTo(edge: .bottom)`). The mutating method
+        // modifies the ScrollPosition through the binding's inout
+        // accessor, triggering the @State setter. This pattern is
+        // already used elsewhere in the codebase (handleAppear anchor
+        // scroll, handleSendingChanged user-message scroll).
+        //
+        // The previous approach used value replacement
+        // (`binding.wrappedValue = ScrollPosition(edge:)`) which was
+        // empirically unreliable — repeated writes of the same struct
+        // value were silently deduped by SwiftUI's binding update
+        // mechanism. The imperative method is a command ("scroll to X
+        // now") rather than a state declaration ("scroll state is X").
         scrollState.scrollTo = { id, anchor in
             if let uuidId = id as? UUID {
-                binding.wrappedValue = ScrollPosition(id: uuidId, anchor: anchor)
+                binding.wrappedValue.scrollTo(id: uuidId, anchor: anchor)
             } else if let stringId = id as? String {
-                binding.wrappedValue = ScrollPosition(id: stringId, anchor: anchor)
+                binding.wrappedValue.scrollTo(id: stringId, anchor: anchor)
             }
         }
-        // Replace the entire ScrollPosition value (same as the ID-based
-        // closure above) instead of calling the mutating `.scrollTo(edge:)`
-        // method. Value replacement forces SwiftUI to process a fresh
-        // scroll command every time. The mutating method can be silently
-        // deduped when SwiftUI considers the position "already at that
-        // edge" — the same class of bug that affected `.scrollTo(id:)`.
-        // After SwiftUI processes the edge scroll, it updates the binding
-        // to the actual content offset, so the next value replacement
-        // with ScrollPosition(edge:) is always a new value.
         scrollState.scrollToEdge = { edge in
-            binding.wrappedValue = ScrollPosition(edge: edge)
+            binding.wrappedValue.scrollTo(edge: edge)
         }
         // Cancel in-flight spring animations on the scroll position.
         //

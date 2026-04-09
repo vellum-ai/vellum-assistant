@@ -627,7 +627,7 @@ final class MessageListScrollState {
     ///
     /// `userInitiated: true` bypasses mode checks — user intent always wins.
     @discardableResult
-    func requestPinToBottom(animated: Bool = false, userInitiated: Bool = false) -> Bool {
+    func requestPinToBottom(animated: Bool = false, userInitiated: Bool = false, forRecovery: Bool = false) -> Bool {
         if userInitiated {
             transition(to: .followingBottom)
             // Sync UI immediately so showScrollToLatest is updated within
@@ -649,70 +649,76 @@ final class MessageListScrollState {
         }
 
         guard mode.allowsAutoScroll else { return false }
-        executeScrollToBottom(animated: animated)
+        executeScrollToBottom(animated: animated, forRecovery: forRecovery)
         return true
     }
 
     /// Low-level scroll-to-bottom execution. Does not check mode.
     ///
-    /// **Deduplication problem:** `ScrollPosition` is a value type.
-    /// Repeated writes of the same value (e.g. `ScrollPosition(id: X,
-    /// anchor: .bottom)`) are silently deduped by SwiftUI's binding
-    /// update mechanism — only the first write fires. This breaks
-    /// recovery (20 attempts over 2s, but only #1 processes) and CTA
-    /// taps (ignored if the previous position targeted the same ID).
+    /// All scroll closures (`scrollToEdge`, `scrollTo`) use the
+    /// imperative `.scrollTo()` mutating methods on the ScrollPosition
+    /// binding — Apple's recommended pattern for programmatic scrolling.
     ///
-    /// **Solution:** Alternate between two structurally different
-    /// `ScrollPosition` values on each call:
-    ///   • Edge-based: `ScrollPosition(edge: .bottom)` — "go to end"
-    ///   • ID-based: `ScrollPosition(id: lastMessageId, anchor: .bottom)`
-    ///     — "go to this item"
-    /// Each produces a different struct value, so SwiftUI processes
-    /// every attempt. The two strategies also use different estimation
-    /// paths — edge-based computes a single total-content-height offset,
-    /// while ID-based sums per-item estimates — which may land the
-    /// viewport at slightly different positions, helping LazyVStack
-    /// materialize items in different areas and converge faster.
+    /// **Three paths:**
     ///
     /// **User-initiated (CTA tap):** Edge-based scroll first (breaks
     /// any stale position), then ID-based for precision. The recovery
     /// window (set in `requestPinToBottom`) handles the remaining gap.
     /// Animation is provided by the caller's `withAnimation` wrapper.
     ///
+    /// **Auto-follow (content-height changes, new messages):** Always
+    /// ID-based — targets a real ForEach item that SwiftUI can locate
+    /// even when not materialized. Never uses edge-based scroll, which
+    /// can overshoot into blank LazyVStack estimated space on long
+    /// conversations. Falls back to edge-based only for empty
+    /// conversations (`lastMessageId == nil`).
+    ///
+    /// **Recovery (persistent bottom-recovery window):** Alternates
+    /// between edge-based and ID-based strategies via
+    /// `recoveryAlternator` to break potential deduplication. The two
+    /// strategies use different estimation paths — edge-based computes
+    /// a single total-content-height offset, ID-based sums per-item
+    /// estimates — which may land the viewport at slightly different
+    /// positions, helping LazyVStack converge faster.
+    ///
     /// - SeeAlso: https://stackoverflow.com/q/79884780 (ScrollPosition unreliable with variable heights)
     /// - SeeAlso: https://developer.apple.com/documentation/swiftui/scrollposition/scrollto(edge:)
-    private func executeScrollToBottom(animated: Bool, userInitiated: Bool = false) {
+    private func executeScrollToBottom(animated: Bool, userInitiated: Bool = false, forRecovery: Bool = false) {
         if userInitiated {
-            // Two-step scroll: edge first to break any stale position
-            // value, then ID-based for precise targeting. The edge
-            // scroll produces ScrollPosition(edge: .bottom) which is
-            // structurally different from any previous ID-based position,
-            // guaranteeing SwiftUI processes it. The immediate ID-based
-            // follow-up then refines to the actual last message. SwiftUI
-            // coalesces both writes in the same transaction — the user
-            // sees one smooth animated scroll to the final position.
-            // The recovery window (set in requestPinToBottom) handles
-            // the small gap between lastMessageId and the absolute
-            // content bottom (padding/anchor below). Recovery is gated
-            // by phaseAllowsAutoFollow (.idle only), so it waits until
-            // the spring completes, then fires clean corrections.
+            // Two-step scroll: edge first to break any stale position,
+            // then ID-based for precise targeting. The recovery window
+            // (set in requestPinToBottom) handles the small gap between
+            // lastMessageId and the absolute content bottom.
             scrollToEdge?(.bottom)
             let target: any Hashable = lastMessageId ?? ("scroll-bottom-anchor" as any Hashable)
             scrollTo?(target, .bottom)
             return
         }
 
-        // Auto-follow / recovery: alternate between edge-based and
-        // ID-based strategies to break ScrollPosition value dedup.
-        // Each call toggles recoveryAlternator, producing a different
-        // ScrollPosition struct value every time. Synchronous — no
-        // deferred Task that could be cancelled by the next recovery
-        // call before it executes.
-        recoveryAlternator.toggle()
-        if let target = lastMessageId {
-            if recoveryAlternator {
-                // Edge-based: "go to the end of content" as a single
-                // value. Different struct from the ID-based alternative.
+        if forRecovery {
+            // Recovery: alternate between edge-based and ID-based to
+            // break potential dedup and converge from different
+            // estimation paths. Each call toggles recoveryAlternator.
+            recoveryAlternator.toggle()
+            if let target = lastMessageId {
+                if recoveryAlternator {
+                    if animated {
+                        withAnimation(VAnimation.fast) {
+                            scrollToEdge?(.bottom)
+                        }
+                    } else {
+                        scrollToEdge?(.bottom)
+                    }
+                } else {
+                    if animated {
+                        withAnimation(VAnimation.fast) {
+                            scrollTo?(target, .bottom)
+                        }
+                    } else {
+                        scrollTo?(target, .bottom)
+                    }
+                }
+            } else {
                 if animated {
                     withAnimation(VAnimation.fast) {
                         scrollToEdge?(.bottom)
@@ -720,20 +726,25 @@ final class MessageListScrollState {
                 } else {
                     scrollToEdge?(.bottom)
                 }
-            } else {
-                // ID-based: targets a real ForEach item that SwiftUI
-                // can always locate (even when not materialized).
-                if animated {
-                    withAnimation(VAnimation.fast) {
-                        scrollTo?(target, .bottom)
-                    }
-                } else {
+            }
+            return
+        }
+
+        // Auto-follow: always ID-based. Targets a real ForEach item
+        // that SwiftUI can locate even when not materialized. Never
+        // uses edge-based scroll here — edge-based can overshoot into
+        // blank LazyVStack estimated space on long conversations.
+        if let target = lastMessageId {
+            if animated {
+                withAnimation(VAnimation.fast) {
                     scrollTo?(target, .bottom)
                 }
+            } else {
+                scrollTo?(target, .bottom)
             }
         } else {
             // No ForEach items to target (empty conversation).
-            // Always use edge-based scroll.
+            // Fall back to edge-based scroll.
             if animated {
                 withAnimation(VAnimation.fast) {
                     scrollToEdge?(.bottom)
