@@ -486,12 +486,19 @@ struct ChatView: View {
     private func toggleConversationHostAccess() {
         guard let conversationManager, let conversationId, !isUpdatingConversationHostAccess else { return }
 
+        let requestConversationId = conversationId
         let nextEnabled = !(currentConversation?.hostAccess ?? false)
         isUpdatingConversationHostAccess = true
         conversationHostAccessError = nil
 
         Task { @MainActor in
-            let success = await conversationManager.setConversationHostAccess(id: conversationId, enabled: nextEnabled)
+            let success = await conversationManager.setConversationHostAccess(
+                id: requestConversationId,
+                enabled: nextEnabled
+            )
+
+            guard conversationId == requestConversationId else { return }
+
             isUpdatingConversationHostAccess = false
             if !success {
                 conversationHostAccessError = "Couldn't update computer access for this conversation."
