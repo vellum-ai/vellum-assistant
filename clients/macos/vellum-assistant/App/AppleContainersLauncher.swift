@@ -206,7 +206,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
             )
         } catch {
             log.warning("Local image build failed, falling back to registry pull: \(error.localizedDescription, privacy: .public)")
-            await onProgress?("Local build failed — will pull images from registry")
+            onProgress?("Local build failed — will pull images from registry")
         }
     }
 
