@@ -278,6 +278,7 @@ jobs:
           BUNDLE_DISPLAY_NAME="$APP_DISPLAY_NAME" \
           DISPLAY_VERSION="${{ steps.version.outputs.dev_version }}" \
           COMMIT_SHA="${{ github.sha }}" \
+          VELLUM_ENVIRONMENT=dev \
           ./build.sh release 2>&1 | while IFS= read -r line; do
             echo "[$(date -u '+%H:%M:%S')] $line"
           done
