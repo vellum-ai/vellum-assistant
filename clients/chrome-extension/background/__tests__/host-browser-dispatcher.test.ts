@@ -1187,6 +1187,167 @@ describe('createHostBrowserDispatcher', () => {
     });
   });
 
+  // ── resolveHostBrowserTarget: numeric tab ID vs CDP targetId routing ──
+
+  describe('handle — resolveHostBrowserTarget numeric vs non-numeric routing', () => {
+    /**
+     * These tests wire a resolveTarget that mirrors the real
+     * resolveHostBrowserTarget logic from worker.ts: numeric strings
+     * (positive integers) route as { tabId }, non-numeric strings
+     * route as { targetId }, and undefined falls back to the active
+     * tab (simulated as tabId 42 here).
+     */
+    function createHarnessWithRealResolveTarget(
+      options: MockCdpProxyOptions = {},
+    ): DispatcherTestHarness {
+      const h = createHarness(options);
+      h.resolveTargetImpl = async (cdpSessionId) => {
+        if (cdpSessionId) {
+          const asNumber = Number(cdpSessionId);
+          if (Number.isInteger(asNumber) && asNumber > 0) {
+            return { tabId: asNumber };
+          }
+          return { targetId: cdpSessionId };
+        }
+        // Simulate active-tab fallback.
+        return { tabId: 42 };
+      };
+      return h;
+    }
+
+    test('numeric cdpSessionId "12345" resolves to { tabId: 12345 }', async () => {
+      harness = createHarnessWithRealResolveTarget({
+        sendResult: { id: 1, result: {} },
+      });
+
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        cdpSessionId: '12345',
+      });
+
+      // resolveTarget was called with the numeric string.
+      expect(harness.resolveTargetCalls).toEqual(['12345']);
+
+      // The proxy should have attached using tabId, not targetId.
+      expect(harness.proxy.attachCalls.length).toBe(1);
+      expect(harness.proxy.attachCalls[0].target).toEqual({ tabId: 12345 });
+
+      // send also uses the tabId target.
+      expect(harness.proxy.sendCalls.length).toBe(1);
+      expect(harness.proxy.sendCalls[0].target).toEqual({ tabId: 12345 });
+
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].isError).toBe(false);
+    });
+
+    test('non-numeric cdpSessionId "ABC123DEF456" resolves to { targetId: "ABC123DEF456" }', async () => {
+      harness = createHarnessWithRealResolveTarget({
+        sendResult: { id: 1, result: {} },
+      });
+
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        cdpSessionId: 'ABC123DEF456',
+      });
+
+      expect(harness.resolveTargetCalls).toEqual(['ABC123DEF456']);
+
+      // Non-numeric strings route through the CDP targetId path.
+      expect(harness.proxy.attachCalls.length).toBe(1);
+      expect(harness.proxy.attachCalls[0].target).toEqual({
+        targetId: 'ABC123DEF456',
+      });
+
+      expect(harness.proxy.sendCalls.length).toBe(1);
+      expect(harness.proxy.sendCalls[0].target).toEqual({
+        targetId: 'ABC123DEF456',
+      });
+
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].isError).toBe(false);
+    });
+
+    test('UUID-style cdpSessionId routes as targetId', async () => {
+      harness = createHarnessWithRealResolveTarget({
+        sendResult: { id: 1, result: {} },
+      });
+
+      const uuidTarget = '550e8400-e29b-41d4-a716-446655440000';
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        cdpSessionId: uuidTarget,
+      });
+
+      expect(harness.resolveTargetCalls).toEqual([uuidTarget]);
+      expect(harness.proxy.attachCalls[0].target).toEqual({
+        targetId: uuidTarget,
+      });
+    });
+
+    test('undefined cdpSessionId falls back to active tab (tabId: 42)', async () => {
+      harness = createHarnessWithRealResolveTarget({
+        sendResult: { id: 1, result: {} },
+      });
+
+      await harness.dispatcher.handle(sampleRequest);
+
+      // sampleRequest has no cdpSessionId → undefined.
+      expect(harness.resolveTargetCalls).toEqual([undefined]);
+
+      // Falls back to the simulated active tab.
+      expect(harness.proxy.attachCalls.length).toBe(1);
+      expect(harness.proxy.attachCalls[0].target).toEqual({ tabId: 42 });
+
+      expect(harness.proxy.sendCalls.length).toBe(1);
+      expect(harness.proxy.sendCalls[0].target).toEqual({ tabId: 42 });
+
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].isError).toBe(false);
+    });
+
+    test('"0" is not a valid Chrome tab ID and routes as targetId', async () => {
+      harness = createHarnessWithRealResolveTarget({
+        sendResult: { id: 1, result: {} },
+      });
+
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        cdpSessionId: '0',
+      });
+
+      // 0 is not a positive integer, so it routes as targetId.
+      expect(harness.proxy.attachCalls[0].target).toEqual({ targetId: '0' });
+    });
+
+    test('negative number string routes as targetId', async () => {
+      harness = createHarnessWithRealResolveTarget({
+        sendResult: { id: 1, result: {} },
+      });
+
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        cdpSessionId: '-5',
+      });
+
+      expect(harness.proxy.attachCalls[0].target).toEqual({ targetId: '-5' });
+    });
+
+    test('floating point string routes as targetId', async () => {
+      harness = createHarnessWithRealResolveTarget({
+        sendResult: { id: 1, result: {} },
+      });
+
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        cdpSessionId: '12.5',
+      });
+
+      expect(harness.proxy.attachCalls[0].target).toEqual({
+        targetId: '12.5',
+      });
+    });
+  });
+
   // ── PR10: CDP event forwarding ─────────────────────────────────────
 
   describe('forwardCdpEvent — chrome.debugger.onEvent forwarding', () => {

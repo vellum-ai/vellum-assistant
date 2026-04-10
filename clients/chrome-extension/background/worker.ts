@@ -159,11 +159,16 @@ let shouldConnect = false;
 async function resolveHostBrowserTarget(
   cdpSessionId: string | undefined,
 ): Promise<{ tabId?: number; targetId?: string }> {
-  // When the daemon side has an explicit session id (e.g. a flat child
-  // session returned from a prior Target.attachToTarget) we route the
-  // command by targetId. Otherwise fall back to the most recently
-  // active tab in the focused window.
   if (cdpSessionId) {
+    // Chrome tab IDs are positive integers. CDP targetIds are opaque
+    // non-numeric strings (hex, UUIDs, etc.). Route numeric strings
+    // as tabId for chrome.debugger.attach({ tabId }) which is the
+    // standard path; route non-numeric strings as targetId for the
+    // CDP flat-session path.
+    const asNumber = Number(cdpSessionId);
+    if (Number.isInteger(asNumber) && asNumber > 0) {
+      return { tabId: asNumber };
+    }
     return { targetId: cdpSessionId };
   }
   const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
