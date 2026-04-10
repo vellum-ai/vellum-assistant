@@ -19,46 +19,15 @@ describe("onboarding template contracts", () => {
 
     test("contains identity discovery prompts", () => {
       const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("your name");
-      expect(lower).toContain("personality");
+      expect(lower).toContain("identity");
+      expect(lower).toContain("infer");
     });
 
-    test("leads with personality-first emotional arc", () => {
-      const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("personality");
-      expect(lower).toContain("vibe");
-      // Personality arc should come before usefulness arc
-      const personalityIdx = lower.indexOf("oh, this has personality");
-      const usefulIdx = lower.indexOf("oh, this is useful");
-      expect(personalityIdx).toBeGreaterThan(-1);
-      expect(usefulIdx).toBeGreaterThan(-1);
-      expect(personalityIdx).toBeLessThan(usefulIdx);
-    });
-
-    test("contains name selection with change-later instruction", () => {
-      const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("what they want to call you");
-      expect(lower).toContain("change it later");
-    });
-
-    test("name exchange happens before personality quiz", () => {
-      const nameIdx = bootstrap.indexOf("Step 1: Name Exchange");
-      const quizIdx = bootstrap.indexOf("Step 2: Personality Quiz");
-      expect(nameIdx).toBeGreaterThan(-1);
-      expect(quizIdx).toBeGreaterThan(-1);
-      expect(nameIdx).toBeLessThan(quizIdx);
-    });
-
-    test("gathers user context: work role, hobbies, daily tools", () => {
+    test("gathers user context", () => {
       const lower = bootstrap.toLowerCase();
       expect(lower).toContain("work role");
-      expect(lower).toContain("hobbies");
+      expect(lower).toContain("goals");
       expect(lower).toContain("tools");
-    });
-
-    test("references ui_show payloads from BOOTSTRAP-REFERENCE.md", () => {
-      expect(bootstrap).toContain("ui_show");
-      expect(bootstrap).toContain("BOOTSTRAP-REFERENCE.md");
     });
 
     test("contains wrapping-up criteria with deletion instructions", () => {
@@ -70,15 +39,12 @@ describe("onboarding template contracts", () => {
 
     test("contains refusal policy", () => {
       const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("hard-required");
-      expect(lower).toContain("best-effort");
       expect(lower).toContain("declined");
-      expect(lower).toContain("not interrogation");
+      expect(lower).toContain("constraints");
     });
 
-    test("defines resolved as provided, inferred, or declined", () => {
+    test("defines field states as inferred or declined", () => {
       const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("resolved");
       expect(lower).toContain("inferred");
       expect(lower).toContain("declined");
     });
@@ -91,6 +57,7 @@ describe("onboarding template contracts", () => {
     });
 
     test("includes budget constraint", () => {
+      expect(bootstrap).toContain("$2");
       expect(bootstrap).toContain("$5");
     });
 
@@ -98,30 +65,73 @@ describe("onboarding template contracts", () => {
       expect(bootstrap).toContain("new colleague");
     });
 
-    test("instructs checking Connected Services for email task variant", () => {
-      expect(bootstrap).toContain("Connected Services");
-      expect(bootstrap).toContain("Connect my email");
-      expect(bootstrap).toContain("Check my email");
+    test("contains numbered goals", () => {
+      const lower = bootstrap.toLowerCase();
+      expect(lower).toContain("establish mutual identity");
+      expect(lower).toContain("prove value fast");
+      expect(lower).toContain("infer, don't interrogate");
+      expect(lower).toContain("surface what you learned");
+      expect(lower).toContain("offer the next level");
+      expect(lower).toContain("write everything immediately");
+      expect(lower).toContain("clean up");
     });
 
-    test("keeps momentum by chaining off the first task", () => {
+    test("contains constraints section", () => {
+      expect(bootstrap).toContain("## Constraints");
+      expect(bootstrap).toContain("$2");
+      expect(bootstrap).toContain("2 questions");
+      expect(bootstrap.toLowerCase()).toContain("don't block on setup");
+      expect(bootstrap).toContain("One-shot");
+    });
+
+    test("contains 'what you own' section", () => {
       const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("keep the momentum");
-      expect(lower).toContain("don't pivot to setup");
-      expect(lower).toContain("chain off the task");
-      expect(lower).toContain("while we're at it");
+      expect(lower).toContain("sequencing");
+      expect(lower).toContain("pacing");
+    });
+
+    test("contains technical contract", () => {
+      expect(bootstrap).toContain("Technical Contract");
+      expect(bootstrap).toContain("prescribed");
+    });
+
+    test("contains capability unlock pattern", () => {
+      const lower = bootstrap.toLowerCase();
+      expect(lower).toContain("email");
+      expect(lower).toContain("voice");
+      expect(lower).toContain("slack");
+    });
+
+    test("contains tone guidance", () => {
+      expect(bootstrap).toContain("Not servile");
+      expect(bootstrap.toLowerCase()).toContain("match");
+      expect(bootstrap.toLowerCase()).toContain("energy");
+    });
+
+    test("contains pre-chat onboarding context section", () => {
+      const lower = bootstrap.toLowerCase();
+      expect(lower).toContain("onboarding");
+      expect(lower).toContain("json");
+      expect(lower).toContain("context");
+    });
+
+    test("does not contain personality quiz references", () => {
+      // BOOTSTRAP.md says "No personality quiz" as part of goal 3,
+      // but should NOT contain instructions TO USE or SHOW a personality quiz
+      expect(bootstrap).not.toMatch(/show.*personality quiz/i);
+      expect(bootstrap).not.toMatch(/present.*personality quiz/i);
+      // "dropdown" only appears in "No dropdown forms" — that's a prohibition, not an instruction
+      expect(bootstrap).not.toMatch(/show.*dropdown/i);
+    });
+
+    test("does not contain rigid step sequence", () => {
+      expect(bootstrap).not.toMatch(/Step 1:/);
+      expect(bootstrap).not.toMatch(/Step 2:/);
+      expect(bootstrap).not.toMatch(/Step 3:/);
     });
   });
 
   describe("BOOTSTRAP-REFERENCE.md", () => {
-    test("contains personality form with 4 dropdowns", () => {
-      expect(bootstrapRef).toContain('surface_type: "form"');
-      expect(bootstrapRef).toContain("communication_style");
-      expect(bootstrapRef).toContain("task_style");
-      expect(bootstrapRef).toContain("humor");
-      expect(bootstrapRef).toContain("depth");
-    });
-
     test("contains email-not-connected task card variant", () => {
       expect(bootstrapRef).toContain("Email Not Connected");
       expect(bootstrapRef).toContain("Connect my email");
@@ -131,6 +141,14 @@ describe("onboarding template contracts", () => {
     test("contains email-already-connected task card variant", () => {
       expect(bootstrapRef).toContain("Email Already Connected");
       expect(bootstrapRef).toContain("Check my email");
+    });
+
+    test("does not contain personality form", () => {
+      expect(bootstrapRef).not.toContain('surface_type: "form"');
+      expect(bootstrapRef).not.toContain("communication_style");
+      expect(bootstrapRef).not.toContain("task_style");
+      expect(bootstrapRef).not.toContain("humor");
+      expect(bootstrapRef).not.toContain("depth");
     });
   });
 
