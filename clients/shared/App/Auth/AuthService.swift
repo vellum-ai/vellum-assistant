@@ -43,7 +43,7 @@ public final class AuthService {
             return override
         }
         #endif
-        return VellumEnvironment.resolve(from: environment).authBaseURL
+        return VellumEnvironment.resolve(from: environment).platformURL
     }
 
     nonisolated private static func normalizedBaseURL(_ raw: String?) -> String? {

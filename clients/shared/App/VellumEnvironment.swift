@@ -38,36 +38,18 @@ public enum VellumEnvironment: String {
     }
 
     /// The Vellum platform API base URL for this environment.
-    /// Used by Apple Containers and other platform-facing services.
-    /// Note: `local` and `dev` both target the dev platform.
     public var platformURL: String {
-        switch self {
-        case .production:
-            return "https://platform.vellum.ai"
-        case .staging:
-            return "https://staging-platform.vellum.ai"
-        case .test:
-            return "https://test-platform.vellum.ai"
-        case .local, .dev:
-            return "https://dev-platform.vellum.ai"
-        }
-    }
-
-    /// The auth/sign-in base URL for this environment.
-    /// Differs from `platformURL` for `local` — auth targets localhost
-    /// so the simulator and local dev builds use the local sign-up flow.
-    public var authBaseURL: String {
         switch self {
         case .local:
             return "http://localhost:8000"
-        case .production:
-            return "https://platform.vellum.ai"
-        case .staging:
-            return "https://staging-platform.vellum.ai"
-        case .test:
-            return "https://test-platform.vellum.ai"
         case .dev:
             return "https://dev-platform.vellum.ai"
+        case .test:
+            return "https://test-platform.vellum.ai"
+        case .staging:
+            return "https://staging-platform.vellum.ai"
+        case .production:
+            return "https://platform.vellum.ai"
         }
     }
 }
