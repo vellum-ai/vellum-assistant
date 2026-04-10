@@ -283,6 +283,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
                     await onProgress?("Waiting for gateway to start (attempt \(attempt)/\(gatewayReadyMaxAttempts))...")
                 }
                 try? await Task.sleep(nanoseconds: gatewayReadyRetryDelay)
+                guard !Task.isCancelled else { return false }
             }
         }
 
@@ -359,6 +360,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
                             await onProgress?("Waiting for assistant runtime (attempt \(attempt)/\(guardianInitMaxAttempts))...")
                         }
                         try? await Task.sleep(nanoseconds: currentDelay)
+                        guard !Task.isCancelled else { return false }
                         currentDelay = min(currentDelay * 2, guardianInitMaxDelay)
                         continue
                     }
@@ -394,6 +396,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
                         await onProgress?("Waiting for assistant runtime (attempt \(attempt)/\(guardianInitMaxAttempts))...")
                     }
                     try? await Task.sleep(nanoseconds: currentDelay)
+                    guard !Task.isCancelled else { return false }
                     currentDelay = min(currentDelay * 2, guardianInitMaxDelay)
                 } else {
                     log.error("Guardian token lease failed after \(guardianInitMaxAttempts) attempts (\(elapsed, privacy: .public))")
