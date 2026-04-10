@@ -208,7 +208,7 @@ struct LogsTabContent: View {
     @ViewBuilder
     private func metricsCard(conversationId: String) -> some View {
         SettingsCard(title: "Session Metrics") {
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: VSpacing.md) {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: VSpacing.md) {
                 metricStatCard(
                     label: "Requests",
                     value: "\(traceStore.requestCount(conversationId: conversationId))"
