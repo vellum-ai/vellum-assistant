@@ -3,15 +3,6 @@ import os.signpost
 import SwiftUI
 import VellumAssistantShared
 
-// MARK: - Intrinsic Height Preference Key
-
-private struct IntrinsicHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
-}
-
 // MARK: - Bubble Max Width Environment
 
 /// The effective maximum width for chat bubble content, accounting for
@@ -554,12 +545,9 @@ struct ChatBubble: View, Equatable {
         let needsCollapse = isCollapsible && !isUserMessageExpanded
         VStack(alignment: .trailing, spacing: VSpacing.xs) {
             content()
-                .background(
-                    GeometryReader { geo in
-                        Color.clear.preference(key: IntrinsicHeightKey.self, value: geo.size.height)
-                    }
-                )
-                .onPreferenceChange(IntrinsicHeightKey.self) { height in
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.height
+                } action: { height in
                     userMessageIntrinsicHeight = height
                 }
                 .frame(height: needsCollapse ? userMessageMaxCollapsedHeight : nil, alignment: .top)

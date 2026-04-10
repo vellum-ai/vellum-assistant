@@ -234,7 +234,6 @@ struct MessageListContentView: View, Equatable {
                     providerCatalogHash: providerCatalogHash
                 )
                 .equatable()
-                .frame(minHeight: 60, alignment: .top)
                 // Active assistant turn: wrap in VStack with minHeight so user
                 // message sits at top. Only applies while the assistant has an
                 // active turn (sending, thinking, streaming, tool running).
