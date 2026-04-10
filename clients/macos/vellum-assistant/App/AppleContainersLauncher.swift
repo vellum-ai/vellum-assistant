@@ -69,6 +69,8 @@ final class AppleContainersLauncher: AssistantManagementClient {
             throw LauncherError.unavailable(reason)
         }
 
+        await onProgress?("Preparing environment...")
+
         let assistantName = RandomNameGenerator.generateInstanceName(
             species: "vellum",
             explicitName: name
@@ -112,6 +114,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
         )
 
         log.info("Hatching apple-container '\(assistantName, privacy: .public)'")
+        await onProgress?("Starting container...")
 
         do {
             try await runtime.start { message in
@@ -126,6 +129,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
         }
 
         self.podRuntime = runtime
+        await onProgress?("Container started")
 
         // Lease a guardian token so the desktop app can authenticate with the
         // gateway. The CLI does this in hatch-local.ts after the gateway starts;
@@ -150,6 +154,8 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 )
             }
         }
+
+        await onProgress?("Finalizing setup...")
 
         let hatchedAt = ISO8601DateFormatter().string(from: Date())
         Self.writeLockfileEntry(
