@@ -280,7 +280,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
 
             if attempt < gatewayReadyMaxAttempts {
                 if attempt % 5 == 0 {
-                    await onProgress?("Waiting for gateway to start (\(attempt)s)...")
+                    await onProgress?("Waiting for gateway to start (attempt \(attempt)/\(gatewayReadyMaxAttempts))...")
                 }
                 try? await Task.sleep(nanoseconds: gatewayReadyRetryDelay)
             }
