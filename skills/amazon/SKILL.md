@@ -1,6 +1,6 @@
 ---
 name: amazon
-description: Shop on Amazon and Amazon Fresh with browser automation plus deterministic parsing helpers
+description: Shop on Amazon and Amazon Fresh through your browser
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🛒"

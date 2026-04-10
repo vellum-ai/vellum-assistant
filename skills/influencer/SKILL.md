@@ -1,6 +1,6 @@
 ---
 name: influencer
-description: Research influencers on Instagram, TikTok, and X/Twitter with browser automation plus deterministic scoring helpers
+description: Research influencers on Instagram, TikTok, and X/Twitter through your browser
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔍"
