@@ -119,7 +119,10 @@ async function resolveRefreshConfig(
       return { error: `No OAuth provider found for "${conn.provider_key}"` };
     }
 
-    if (!provider.token_url || !app.client_id) {
+    // Resolve the effective token URL: prefer refresh_url, fall back to token_url
+    const tokenUrl = provider.refresh_url || provider.token_url;
+
+    if (!tokenUrl || !app.client_id) {
       return { error: `Missing OAuth2 refresh config for "${conn.provider_key}"` };
     }
 
@@ -132,7 +135,7 @@ async function resolveRefreshConfig(
     const bodyFormat = (provider.token_exchange_body_format as "form" | "json" | null) ?? "form";
 
     return {
-      tokenUrl: provider.refresh_url || provider.token_url,
+      tokenUrl,
       clientId: app.client_id,
       clientSecret,
       authMethod,
