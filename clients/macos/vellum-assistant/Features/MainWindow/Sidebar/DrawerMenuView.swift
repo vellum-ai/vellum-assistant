@@ -106,7 +106,7 @@ struct DrawerMenuView: View {
     /// used for sections that should sit tight against neighboring rows.
     private var tightDividerLine: some View {
         Rectangle()
-            .fill(VColor.surfaceBase)
+            .fill(VColor.borderBase)
             .frame(height: 1)
     }
 
