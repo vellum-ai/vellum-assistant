@@ -60,10 +60,12 @@ swift_with_retry() {
         if [ "$_cmd_exit" -eq 0 ]; then
             return 0
         fi
-        # Auto-clean stale PCH module cache (happens when switching between
-        # worktrees that share the same .build directory via symlink).
-        if [ "$_pch_cleaned" -eq 0 ] && grep -q "PCH was compiled with module cache path" "$_stderr_log" 2>/dev/null; then
-            echo "warning: stale module cache detected, cleaning and retrying..."
+        # Auto-clean stale module caches when switching between worktrees that
+        # share a .build directory via symlink. Swift surfaces this as either:
+        # - "PCH was compiled with module cache path ..."
+        # - "module 'X' is defined in both ..."
+        if [ "$_pch_cleaned" -eq 0 ] && grep -Eq "PCH was compiled with module cache path|is defined in both" "$_stderr_log" 2>/dev/null; then
+            echo "warning: stale module cache detected (path mismatch or duplicate module), cleaning and retrying..."
             find -L "$SCRIPT_DIR/../.build" -type d -name "ModuleCache" -exec rm -rf {} + 2>/dev/null || true
             [ -d "$SPM_MODULE_CACHE" ] && rm -rf "$SPM_MODULE_CACHE"
             _pch_cleaned=1
@@ -127,7 +129,7 @@ fi
 
 _cache_slug="$(printf '%s' "$_repo_root" | md5 -q 2>/dev/null || printf '%s' "$_repo_root" | md5sum | cut -d' ' -f1)"
 SPM_MODULE_CACHE="/tmp/spm-module-cache/${_cache_slug}"
-MODULE_CACHE_FLAGS="-Xswiftc -module-cache-path -Xswiftc $SPM_MODULE_CACHE"
+MODULE_CACHE_FLAGS="-Xswiftc -module-cache-path -Xswiftc $SPM_MODULE_CACHE -Xcc -fmodules-cache-path=$SPM_MODULE_CACHE -Xcxx -fmodules-cache-path=$SPM_MODULE_CACHE"
 
 BUNDLE_ID="com.vellum.vellum-assistant"
 APP_NAME="vellum-assistant"
