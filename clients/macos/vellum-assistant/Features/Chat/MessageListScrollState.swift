@@ -51,7 +51,7 @@ enum ScrollMode: Equatable, CustomStringConvertible {
     /// until the layout mutation completes.
     var allowsAutoScroll: Bool {
         switch self {
-        case .initialLoad, .followingBottom: true
+        case .followingBottom: true
         default: false
         }
     }
