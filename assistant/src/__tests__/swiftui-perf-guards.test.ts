@@ -86,7 +86,7 @@ describe("SwiftUI LazyVStack performance guards", () => {
     // Search for .frame(maxWidth: and .frame(maxHeight: in Swift files.
     // Uses hardcoded grep patterns — no user input, safe from injection.
     const raw = execSync(
-      'grep -rn "\\.frame(maxWidth:\\|\\.frame(maxHeight:" clients/macos/ clients/shared/ --include="*.swift" || true',
+      'grep -rn -E "\\.frame\\(maxWidth:|\\.frame\\(maxHeight:" clients/macos/ clients/shared/ --include="*.swift" || true',
       { encoding: "utf-8", cwd: repoRoot },
     );
 
