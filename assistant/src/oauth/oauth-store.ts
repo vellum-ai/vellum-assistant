@@ -335,6 +335,7 @@ export function registerProvider(params: {
     refreshUrl: params.refreshUrl ?? null,
     tokenEndpointAuthMethod:
       params.tokenEndpointAuthMethod || "client_secret_post",
+    tokenExchangeBodyFormat: "form",
     userinfoUrl: params.userinfoUrl ?? null,
     baseUrl: params.baseUrl ?? null,
     defaultScopes: JSON.stringify(params.defaultScopes),
