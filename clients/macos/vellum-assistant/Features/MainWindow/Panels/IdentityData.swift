@@ -192,6 +192,15 @@ struct IdentityInfo: Codable, Equatable {
         return cachedByAssistantId[activeId]
     }
 
+    /// Reads the persisted identity for the currently active assistant
+    /// directly from disk. Safe to call from any isolation context (e.g.
+    /// SwiftUI view initializers and default property values) because it
+    /// bypasses the `@MainActor`-isolated in-memory cache.
+    static func loadFromDiskCache() -> IdentityInfo? {
+        guard let activeId = LockfileAssistant.loadActiveAssistantId() else { return nil }
+        return IdentityInfoStore.load()[activeId]
+    }
+
     /// Look up the cached identity for an arbitrary assistant id. Used by
     /// the menu-bar switcher to render names for non-active rows.
     @MainActor static func cached(for assistantId: String) -> IdentityInfo? {

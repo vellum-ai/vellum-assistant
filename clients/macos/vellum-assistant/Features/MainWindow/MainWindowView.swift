@@ -108,7 +108,7 @@ struct MainWindowView: View {
         self.voiceModeManager = voiceModeManager
         self.updateManager = updateManager
         self.onSendWakeUp = onSendWakeUp
-        let cached = IdentityInfo.current
+        let cached = IdentityInfo.loadFromDiskCache()
         self._cachedAssistantName = State(initialValue: AssistantDisplayName.resolve(cached?.name, fallback: "Your Assistant"))
         self._assistantNameResolved = State(initialValue: cached != nil)
         self._showComingAlive = State(initialValue: onSendWakeUp != nil)
