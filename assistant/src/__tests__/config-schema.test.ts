@@ -177,33 +177,21 @@ describe("AssistantConfigSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  test("accepts memory.cleanup.llmRequestLogRetentionMs at the 365-day boundary", () => {
-    const max = 365 * 24 * 60 * 60 * 1000;
+  test("accepts memory.cleanup.llmRequestLogRetentionMs above 365 days", () => {
+    // The daemon schema intentionally has no upper bound — existing configs
+    // may have large values set manually, and rejecting them at the Zod layer
+    // would cause validation failure on startup, silently falling back to
+    // 1-day retention and deleting logs the user intended to keep. The 365-day
+    // cap is enforced at the gateway API boundary (PATCH rejects, GET clamps).
+    const tenYears = 10 * 365 * 24 * 60 * 60 * 1000;
     const result = AssistantConfigSchema.safeParse({
-      memory: { cleanup: { llmRequestLogRetentionMs: max } },
+      memory: { cleanup: { llmRequestLogRetentionMs: tenYears } },
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.memory.cleanup.llmRequestLogRetentionMs).toBe(max);
-    }
-  });
-
-  test("rejects memory.cleanup.llmRequestLogRetentionMs above 365 days", () => {
-    // This must match the gateway's MAX_LLM_REQUEST_LOG_RETENTION_MS. Without
-    // the Zod .max(), a manually edited config.json with a large value would
-    // be silently accepted by the daemon and then truncated by the macOS
-    // picker on the next PATCH — a quiet data-loss bug.
-    const overMax = 365 * 24 * 60 * 60 * 1000 + 1;
-    const result = AssistantConfigSchema.safeParse({
-      memory: { cleanup: { llmRequestLogRetentionMs: overMax } },
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(
-        result.error.issues.some((i) =>
-          i.path.includes("llmRequestLogRetentionMs"),
-        ),
-      ).toBe(true);
+      expect(result.data.memory.cleanup.llmRequestLogRetentionMs).toBe(
+        tenYears,
+      );
     }
   });
 
