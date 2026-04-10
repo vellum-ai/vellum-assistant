@@ -67,6 +67,7 @@ import type { AuthContext } from "../runtime/auth/types.js";
 import * as approvalOverrides from "../runtime/conversation-approval-overrides.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { ToolExecutor } from "../tools/executor.js";
+import type { OnboardingContext } from "../types/onboarding-context.js";
 import { getLogger } from "../util/logger.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import { runAgentLoopImpl } from "./conversation-agent-loop.js";
@@ -297,6 +298,14 @@ export class Conversation {
   /** @internal */ turnCount = 0;
   public lastAssistantAttachments: AssistantAttachmentDraft[] = [];
   public lastAttachmentWarnings: string[] = [];
+  /**
+   * Pre-chat onboarding context provided by the native client.
+   * In-memory only — not persisted to the DB. Only relevant for the first
+   * turn of a brand-new conversation so the system prompt can personalize
+   * the opener and skip redundant discovery.
+   * @internal
+   */
+  private onboardingContext?: OnboardingContext;
   /** @internal */ currentTurnChannelContext: TurnChannelContext | null = null;
   /** @internal */ currentTurnInterfaceContext: TurnInterfaceContext | null =
     null;
@@ -440,6 +449,7 @@ export class Conversation {
                 userPersona: persona.userPersona,
                 channelPersona: persona.channelPersona,
                 userSlug: persona.userSlug,
+                onboardingContext: this.getOnboardingContext(),
               });
             })(),
         maxTokens: configuredMaxTokens,
@@ -479,6 +489,16 @@ export class Conversation {
       conversationId: this.conversationId,
       workingDir: this.workingDir,
     });
+  }
+
+  // ── Onboarding context ───────────────────────────────────────────
+
+  setOnboardingContext(ctx: OnboardingContext): void {
+    this.onboardingContext = ctx;
+  }
+
+  getOnboardingContext(): OnboardingContext | undefined {
+    return this.onboardingContext;
   }
 
   // ── Lifecycle ────────────────────────────────────────────────────
