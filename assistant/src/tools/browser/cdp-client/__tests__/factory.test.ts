@@ -5,7 +5,7 @@ import type { ToolContext } from "../../../types.js";
 import { CdpError } from "../errors.js";
 
 type FakeClient = {
-  kind: "extension" | "local";
+  kind: "extension" | "local" | "cdp-inspect";
   conversationId: string;
   send: ReturnType<typeof mock>;
   dispose: ReturnType<typeof mock>;
@@ -29,8 +29,18 @@ function makeFakeLocalClient(conversationId: string): FakeClient {
   };
 }
 
+function makeFakeCdpInspectClient(conversationId: string): FakeClient {
+  return {
+    kind: "cdp-inspect",
+    conversationId,
+    send: mock(async () => ({ ok: true, via: "cdp-inspect" })),
+    dispose: mock(() => {}),
+  };
+}
+
 let lastExtensionClient: FakeClient | undefined;
 let lastLocalClient: FakeClient | undefined;
+let lastCdpInspectClient: FakeClient | undefined;
 
 const createExtensionCdpClientMock = mock(
   (_proxy: HostBrowserProxy, conversationId: string) => {
@@ -46,11 +56,41 @@ const createLocalCdpClientMock = mock((conversationId: string) => {
   return client;
 });
 
+const createCdpInspectClientMock = mock(
+  (conversationId: string, _options: unknown) => {
+    const client = makeFakeCdpInspectClient(conversationId);
+    lastCdpInspectClient = client;
+    return client;
+  },
+);
+
+/**
+ * Mutable config state. Tests flip `cdpInspectEnabled` to control
+ * the factory's config-based selection without needing a real config
+ * file.
+ */
+let cdpInspectEnabled = false;
+
 mock.module("../extension-cdp-client.js", () => ({
   createExtensionCdpClient: createExtensionCdpClientMock,
 }));
 mock.module("../local-cdp-client.js", () => ({
   createLocalCdpClient: createLocalCdpClientMock,
+}));
+mock.module("../cdp-inspect-client.js", () => ({
+  createCdpInspectClient: createCdpInspectClientMock,
+}));
+mock.module("../../../../config/loader.js", () => ({
+  getConfig: () => ({
+    hostBrowser: {
+      cdpInspect: {
+        enabled: cdpInspectEnabled,
+        host: "localhost",
+        port: 9222,
+        probeTimeoutMs: 500,
+      },
+    },
+  }),
 }));
 
 // Import under test AFTER mock.module calls so that the factory's
@@ -72,8 +112,11 @@ describe("getCdpClient", () => {
   beforeEach(() => {
     createExtensionCdpClientMock.mockClear();
     createLocalCdpClientMock.mockClear();
+    createCdpInspectClientMock.mockClear();
     lastExtensionClient = undefined;
     lastLocalClient = undefined;
+    lastCdpInspectClient = undefined;
+    cdpInspectEnabled = false;
   });
 
   test("routes to ExtensionCdpClient when hostBrowserProxy is set", () => {
@@ -95,21 +138,63 @@ describe("getCdpClient", () => {
       "test-convo",
     );
     expect(createLocalCdpClientMock).not.toHaveBeenCalled();
+    expect(createCdpInspectClientMock).not.toHaveBeenCalled();
   });
 
-  test("routes to LocalCdpClient when hostBrowserProxy is undefined", () => {
+  test("extension wins even when cdpInspect is enabled", () => {
+    cdpInspectEnabled = true;
+    const fakeProxy = {
+      request: mock(async () => ({})),
+    } as unknown as HostBrowserProxy;
     const ctx = makeContext({
-      conversationId: "test-convo",
+      conversationId: "ext-wins",
+      hostBrowserProxy: fakeProxy,
+    });
+
+    const client = getCdpClient(ctx);
+
+    expect(client.kind).toBe("extension");
+    expect(createExtensionCdpClientMock).toHaveBeenCalledTimes(1);
+    expect(createCdpInspectClientMock).not.toHaveBeenCalled();
+    expect(createLocalCdpClientMock).not.toHaveBeenCalled();
+  });
+
+  test("routes to CdpInspectClient when cdpInspect is enabled and extension is absent", () => {
+    cdpInspectEnabled = true;
+    const ctx = makeContext({
+      conversationId: "inspect-convo",
+      hostBrowserProxy: undefined,
+    });
+
+    const client = getCdpClient(ctx);
+
+    expect(client.kind).toBe("cdp-inspect");
+    expect(client.conversationId).toBe("inspect-convo");
+    expect(createCdpInspectClientMock).toHaveBeenCalledTimes(1);
+    expect(createCdpInspectClientMock).toHaveBeenCalledWith("inspect-convo", {
+      host: "localhost",
+      port: 9222,
+      discoveryTimeoutMs: 500,
+    });
+    expect(createExtensionCdpClientMock).not.toHaveBeenCalled();
+    expect(createLocalCdpClientMock).not.toHaveBeenCalled();
+  });
+
+  test("routes to LocalCdpClient when cdpInspect is disabled and extension is absent", () => {
+    cdpInspectEnabled = false;
+    const ctx = makeContext({
+      conversationId: "local-convo",
       hostBrowserProxy: undefined,
     });
 
     const client = getCdpClient(ctx);
 
     expect(client.kind).toBe("local");
-    expect(client.conversationId).toBe("test-convo");
+    expect(client.conversationId).toBe("local-convo");
     expect(createLocalCdpClientMock).toHaveBeenCalledTimes(1);
-    expect(createLocalCdpClientMock).toHaveBeenCalledWith("test-convo");
+    expect(createLocalCdpClientMock).toHaveBeenCalledWith("local-convo");
     expect(createExtensionCdpClientMock).not.toHaveBeenCalled();
+    expect(createCdpInspectClientMock).not.toHaveBeenCalled();
   });
 
   test("routes to LocalCdpClient when hostBrowserProxy key is omitted", () => {
@@ -122,6 +207,7 @@ describe("getCdpClient", () => {
     expect(createLocalCdpClientMock).toHaveBeenCalledTimes(1);
     expect(createLocalCdpClientMock).toHaveBeenCalledWith("another-convo");
     expect(createExtensionCdpClientMock).not.toHaveBeenCalled();
+    expect(createCdpInspectClientMock).not.toHaveBeenCalled();
   });
 
   test("forwards send() through the manager to the extension-backed client", async () => {
@@ -147,6 +233,7 @@ describe("getCdpClient", () => {
       undefined,
     );
     expect(lastLocalClient).toBeUndefined();
+    expect(lastCdpInspectClient).toBeUndefined();
   });
 
   test("forwards send() through the manager to the local-backed client", async () => {
@@ -166,6 +253,28 @@ describe("getCdpClient", () => {
       undefined,
     );
     expect(lastExtensionClient).toBeUndefined();
+    expect(lastCdpInspectClient).toBeUndefined();
+  });
+
+  test("forwards send() through the manager to the cdp-inspect-backed client", async () => {
+    cdpInspectEnabled = true;
+    const ctx = makeContext({ conversationId: "send-inspect" });
+
+    const client = getCdpClient(ctx);
+    const result = await client.send<{ ok: boolean; via: string }>(
+      "Page.navigate",
+      { url: "https://example.com" },
+    );
+
+    expect(result).toEqual({ ok: true, via: "cdp-inspect" });
+    expect(lastCdpInspectClient?.send).toHaveBeenCalledTimes(1);
+    expect(lastCdpInspectClient?.send).toHaveBeenCalledWith(
+      "Page.navigate",
+      { url: "https://example.com" },
+      undefined,
+    );
+    expect(lastExtensionClient).toBeUndefined();
+    expect(lastLocalClient).toBeUndefined();
   });
 
   test("propagates CdpError thrown by the underlying client", async () => {
@@ -238,5 +347,31 @@ describe("getCdpClient", () => {
     client.dispose();
 
     expect(lastExtensionClient?.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  test("dispose() on a cdp-inspect-backed client tears down the inspect client", () => {
+    cdpInspectEnabled = true;
+    const ctx = makeContext({ conversationId: "dispose-inspect" });
+
+    const client = getCdpClient(ctx);
+    client.dispose();
+
+    expect(lastCdpInspectClient?.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  test("send() after dispose() on a cdp-inspect-backed client rejects with disposed", async () => {
+    cdpInspectEnabled = true;
+    const ctx = makeContext({ conversationId: "post-dispose-inspect" });
+
+    const client = getCdpClient(ctx);
+    client.dispose();
+
+    // Double dispose is a no-op.
+    client.dispose();
+    expect(lastCdpInspectClient?.dispose).toHaveBeenCalledTimes(1);
+
+    await expect(client.send("Page.navigate")).rejects.toMatchObject({
+      code: "disposed",
+    });
   });
 });
