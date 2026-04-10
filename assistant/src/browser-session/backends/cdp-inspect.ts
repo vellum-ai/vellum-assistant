@@ -7,8 +7,8 @@ import type { BrowserBackend, CdpCommand, CdpResult } from "../types.js";
  * (see `assistant/src/tools/browser/cdp-client/cdp-inspect-client.ts`).
  *
  * The factory in
- * `assistant/src/tools/browser/cdp-client/factory.ts` will construct
- * one per tool invocation in PR 5, paralleling the existing extension
+ * `assistant/src/tools/browser/cdp-client/factory.ts` constructs
+ * one per tool invocation, paralleling the existing extension
  * and local backend wiring.
  */
 export interface CdpInspectBackendDeps {
