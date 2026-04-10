@@ -37,7 +37,7 @@ const __dirname = dirname(__filename);
 
 const HELPER_BINARY = resolve(__dirname, "../../dist/index.js");
 const HELPER_EXISTS = existsSync(HELPER_BINARY);
-const REPO_ROOT = resolve(__dirname, "../../../../");
+const REPO_ROOT = resolve(__dirname, "../../../../../");
 
 const SKIP_REASON =
   "clients/chrome-extension/native-host/dist/index.js is missing — run `bun run build` in clients/chrome-extension/native-host to enable these tests.";

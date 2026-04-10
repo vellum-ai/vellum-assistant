@@ -40,7 +40,7 @@ const __dirname = dirname(__filename);
  * `bun run build` hasn't been invoked in the native-host package yet.
  */
 const HELPER_BINARY = resolve(__dirname, "../../dist/index.js");
-const REPO_ROOT = resolve(__dirname, "../../../../");
+const REPO_ROOT = resolve(__dirname, "../../../../../");
 
 const HELPER_EXISTS = existsSync(HELPER_BINARY);
 
