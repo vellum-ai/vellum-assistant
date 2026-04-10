@@ -272,7 +272,7 @@ describe('createHostBrowserDispatcher', () => {
       );
     });
 
-    test('routes via targetId when cdpSessionId is provided', async () => {
+    test('routes via targetId when cdpSessionId is provided but does not forward it as frame.sessionId', async () => {
       harness = createHarness({
         sendResult: { id: 1, result: {} },
       });
@@ -285,7 +285,51 @@ describe('createHostBrowserDispatcher', () => {
 
       expect(harness.resolveTargetCalls).toEqual(['target-xyz']);
       expect(harness.proxy.attachCalls[0].target).toEqual({ targetId: 'target-xyz' });
-      expect(harness.proxy.sendCalls[0].frame.sessionId).toBe('target-xyz');
+      // cdpSessionId must NOT be forwarded as frame.sessionId — it is used
+      // only for target resolution. Forwarding it would cause
+      // chrome.debugger.sendCommand to look up a non-existent flat session.
+      expect(harness.proxy.sendCalls[0].frame.sessionId).toBeUndefined();
+    });
+  });
+
+  describe('handle — cdpSessionId target resolution vs flat-session separation', () => {
+    test('cdpSessionId is passed to resolveTarget but NOT forwarded as frame.sessionId', async () => {
+      harness = createHarness({
+        sendResult: { id: 1, result: {} },
+      });
+      // Override resolveTarget to record calls and return a targetId.
+      harness.resolveTargetImpl = async (cdpSessionId) => {
+        return { targetId: 'test-target-id' };
+      };
+
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        cdpSessionId: 'test-target-id',
+      });
+
+      // resolveTarget was called with the cdpSessionId.
+      expect(harness.resolveTargetCalls).toEqual(['test-target-id']);
+
+      // The proxy.send() call's frame must NOT carry sessionId — cdpSessionId
+      // is used only for target resolution, not as a CDP flat-session qualifier.
+      expect(harness.proxy.sendCalls.length).toBe(1);
+      expect(harness.proxy.sendCalls[0].frame.sessionId).toBeUndefined();
+    });
+
+    test('when cdpSessionId is omitted, resolveTarget receives undefined and frame.sessionId is also undefined', async () => {
+      harness = createHarness({
+        sendResult: { id: 1, result: {} },
+      });
+
+      await harness.dispatcher.handle(sampleRequest);
+
+      // resolveTarget was called with undefined (active-tab fallback path).
+      expect(harness.resolveTargetCalls).toEqual([undefined]);
+
+      // frame.sessionId is also undefined — the active-tab path never sets
+      // a flat-session qualifier.
+      expect(harness.proxy.sendCalls.length).toBe(1);
+      expect(harness.proxy.sendCalls[0].frame.sessionId).toBeUndefined();
     });
   });
 

@@ -345,7 +345,12 @@ export function createHostBrowserDispatcher(
         id: nextCdpId++,
         method: envelope.cdpMethod,
         params: envelope.cdpParams,
-        sessionId: envelope.cdpSessionId,
+        // cdpSessionId is used only for target resolution (resolveTarget above).
+        // It must NOT be forwarded as a CDP flat-session sessionId — doing so
+        // causes chrome.debugger.sendCommand to look up a non-existent session
+        // and fail with "Session with given id not found". Flat sessions are
+        // only valid when obtained from Target.attachToTarget with flatten:true,
+        // which this code path does not use.
       });
       // Recovery hint: if the CDP send returned an error indicating the
       // target is no longer attached (tab closed mid-flight, navigated
