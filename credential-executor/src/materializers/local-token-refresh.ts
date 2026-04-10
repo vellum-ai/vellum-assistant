@@ -46,6 +46,7 @@ interface OAuthAppRow {
 interface OAuthProviderRow {
   provider_key: string;
   token_url: string;
+  refresh_url: string | null;
   token_endpoint_auth_method: string | null;
   token_exchange_body_format: string | null;
 }
@@ -110,7 +111,7 @@ async function resolveRefreshConfig(
     // 3. Look up the provider to get token_url and auth method
     const provider = db
       .query<OAuthProviderRow, [string]>(
-        `SELECT provider_key, token_url, token_endpoint_auth_method, token_exchange_body_format FROM oauth_providers WHERE provider_key = ? LIMIT 1`,
+        `SELECT provider_key, token_url, refresh_url, token_endpoint_auth_method, token_exchange_body_format FROM oauth_providers WHERE provider_key = ? LIMIT 1`,
       )
       .get(conn.provider_key);
 
@@ -131,7 +132,7 @@ async function resolveRefreshConfig(
     const bodyFormat = (provider.token_exchange_body_format as "form" | "json" | null) ?? "form";
 
     return {
-      tokenUrl: provider.token_url,
+      tokenUrl: provider.refresh_url || provider.token_url,
       clientId: app.client_id,
       clientSecret,
       authMethod,
