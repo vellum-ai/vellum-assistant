@@ -385,8 +385,9 @@ struct MarkdownTableView: View {
     }
 
     var body: some View {
-        let hash = contentHash
-        let cachedHeight = Self.heightCache[hash]
+        let usableWidth = maxWidth.isFinite
+        let hash = usableWidth ? contentHash : 0
+        let cachedHeight = usableWidth ? Self.heightCache[hash] : nil
 
         // Default alignment (.center) avoids explicitAlignment(.leading)
         // queries during sizing. Rows are full-width HStacks with
@@ -435,7 +436,9 @@ struct MarkdownTableView: View {
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.height
         } action: { newHeight in
-            Self.heightCache[hash] = newHeight
+            if usableWidth {
+                Self.heightCache[hash] = newHeight
+            }
         }
         // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
         // Both width AND height are set (after first render) so _FrameLayout
