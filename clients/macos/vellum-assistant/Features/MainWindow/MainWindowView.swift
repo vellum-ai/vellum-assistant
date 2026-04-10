@@ -14,8 +14,8 @@ struct MainWindowView: View {
     let appListManager: AppListManager
     let zoomManager: ZoomManager
     /// Plain `let` instead of `@ObservedObject` so SwiftUI doesn't observe
-    /// TraceStore mutations when the DebugPanel isn't visible. DebugPanel
-    /// itself uses `@ObservedObject` and is only instantiated when shown.
+    /// TraceStore mutations when the LogsAndUsagePanel isn't visible.
+    /// LogsTabContent itself uses `@ObservedObject` and is only instantiated when shown.
     let traceStore: TraceStore
     let usageDashboardStore: UsageDashboardStore
     @ObservedObject var windowState: MainWindowState

@@ -249,6 +249,19 @@ struct LogsTabContent: View {
                             : memoryDegraded ? VColor.systemMidStrong
                             : VColor.systemPositiveStrong
                     )
+                    if let provider = memory.provider {
+                        metricStatCard(
+                            label: "Embed Provider",
+                            value: memory.model.map { "\(provider)/\($0)" } ?? provider
+                        )
+                    }
+                    if memoryDegraded, let reason = memory.reason {
+                        metricStatCard(
+                            label: "Degradation Reason",
+                            value: reason,
+                            valueColor: VColor.systemMidStrong
+                        )
+                    }
                 }
             }
         }
