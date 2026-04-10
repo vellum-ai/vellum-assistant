@@ -92,7 +92,7 @@ struct AboutVellumView: View {
                 Text("Local Development Build")
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.systemMidStrong)
-                Text(Bundle.main.bundlePath)
+                Text(Bundle.main.bundlePath.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentTertiary)
                     .lineLimit(2)
