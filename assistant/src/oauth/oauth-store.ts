@@ -283,6 +283,7 @@ export function registerProvider(params: {
   tokenExchangeUrl: string;
   refreshUrl?: string;
   tokenEndpointAuthMethod?: string;
+  tokenExchangeBodyFormat?: string;
   userinfoUrl?: string;
   pingUrl?: string;
   pingMethod?: string;
@@ -335,7 +336,7 @@ export function registerProvider(params: {
     refreshUrl: params.refreshUrl ?? null,
     tokenEndpointAuthMethod:
       params.tokenEndpointAuthMethod || "client_secret_post",
-    tokenExchangeBodyFormat: "form",
+    tokenExchangeBodyFormat: params.tokenExchangeBodyFormat || "form",
     userinfoUrl: params.userinfoUrl ?? null,
     baseUrl: params.baseUrl ?? null,
     defaultScopes: JSON.stringify(params.defaultScopes),
@@ -407,6 +408,7 @@ export function updateProvider(
     tokenExchangeUrl: string;
     refreshUrl: string;
     tokenEndpointAuthMethod: string;
+    tokenExchangeBodyFormat: string;
     userinfoUrl: string;
     pingUrl: string;
     pingMethod: string;
@@ -457,6 +459,8 @@ export function updateProvider(
   if (params.tokenEndpointAuthMethod !== undefined)
     set.tokenEndpointAuthMethod =
       params.tokenEndpointAuthMethod || "client_secret_post";
+  if (params.tokenExchangeBodyFormat !== undefined)
+    set.tokenExchangeBodyFormat = params.tokenExchangeBodyFormat || "form";
   if (params.userinfoUrl !== undefined) set.userinfoUrl = params.userinfoUrl;
   if (params.pingUrl !== undefined) set.pingUrl = params.pingUrl;
   if (params.pingMethod !== undefined) set.pingMethod = params.pingMethod;
