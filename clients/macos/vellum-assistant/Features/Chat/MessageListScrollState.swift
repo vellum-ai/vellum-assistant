@@ -268,18 +268,6 @@ final class MessageListScrollState {
     /// `.followingBottom` and creating a "scroll lock" effect.
     @ObservationIgnored var lastUserInitiatedPinTime: Date?
 
-    /// Alternates between edge-based and ID-based scroll strategies in
-    /// `executeScrollToBottom()` during the recovery window. Even though
-    /// the scroll closures use imperative `.scrollTo()` methods (which are
-    /// commands, not state declarations), alternating between edge-based
-    /// and ID-based strategies provides two benefits:
-    ///   1. Defense-in-depth against potential deduplication by SwiftUI.
-    ///   2. The two strategies use different estimation paths — edge-based
-    ///      computes a single total-content-height offset, ID-based sums
-    ///      per-item estimates — which may land the viewport at slightly
-    ///      different positions, helping LazyVStack converge faster.
-    @ObservationIgnored var recoveryAlternator: Bool = false
-
     // MARK: - Layout Cache Fields
 
     /// Memoization state intentionally lives outside the observed object so
@@ -854,7 +842,6 @@ final class MessageListScrollState {
         lastRecoveryAttempt = .distantPast
         lastAutoFollowAttempt = .distantPast
         lastUserInitiatedPinTime = nil
-        recoveryAlternator = false
         // Mark that a recovery window is active. Recovery fires
         // unconditionally until bottomAnchorAppeared becomes true.
         recoveryDeadline = Date().addingTimeInterval(2.0)
@@ -905,7 +892,6 @@ final class MessageListScrollState {
         lastRecoveryAttempt = .distantPast
         lastAutoFollowAttempt = .distantPast
         lastUserInitiatedPinTime = nil
-        recoveryAlternator = false
         lastMessageId = nil
         isAtBottom = false
         lastContentOffsetY = 0
