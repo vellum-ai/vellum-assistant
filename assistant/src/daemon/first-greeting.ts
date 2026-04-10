@@ -5,10 +5,11 @@ import { getWorkspacePromptPath } from "../util/platform.js";
 /**
  * The canned assistant response for the wake-up greeting on a fresh workspace.
  * Warm, non-presumptuous greeting that communicates "I'm new," "I improve over
- * time," "I'm ready to be useful," and "you're in control."
+ * time," and invites the user to lead with whatever they want — a task, a
+ * question, or getting to know each other.
  */
 export const CANNED_FIRST_GREETING =
-  "Hey, I'm brand new. No name, no memories, nothing yet. Think of me like a new colleague on their first day: I'll get better the more we work together. First things first, let's figure out how we work best. What should I call you?";
+  "Hey — I'm brand new. No name, no memories, no idea who you are yet. I'll get sharper the more we work together. What can I do for you?";
 
 /**
  * Returns `true` when all of the following are true:
