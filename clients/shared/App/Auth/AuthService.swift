@@ -12,6 +12,8 @@ private let _authServiceBaseURLDefaultsName = "authServiceBaseURL"
 private let _defaultBaseURL: String = {
     #if DEBUG && os(macOS)
     return "http://localhost:8000"
+    #elseif DEBUG && os(iOS)
+    return "https://dev-platform.vellum.ai"
     #else
     return "https://platform.vellum.ai"
     #endif

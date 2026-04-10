@@ -3,11 +3,12 @@ import SwiftUI
 import VellumAssistantShared
 
 // Onboarding step identifiers. The path branches at ChoosePath:
-//   Welcome → ChoosePath → (LoginView | DaemonSetup) → Permissions → Ready
+//   Welcome → ChoosePath → (LoginView | AssistantPicker | DaemonSetup) → Permissions → Ready
 private enum OnboardingStep: Hashable {
     case welcome
     case choosePath
     case login
+    case assistantPicker
     case daemonSetup
     case permissions
     case ready
@@ -40,7 +41,16 @@ struct OnboardingView: View {
                 case .login:
                     LoginView(
                         authManager: authManager,
-                        onContinue: {
+                        onContinue: { currentStep = .assistantPicker },
+                        onCancel: { currentStep = .choosePath }
+                    )
+                    .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
+                case .assistantPicker:
+                    AssistantPickerStep(
+                        onSelected: { assistant in
+                            connectToAssistant(assistant)
+                        },
+                        onHatchNew: {
                             Task { await performManagedBootstrap() }
                         },
                         onCancel: { currentStep = .choosePath }
@@ -109,6 +119,17 @@ struct OnboardingView: View {
         .padding(VSpacing.xl)
     }
 
+    private func connectToAssistant(_ assistant: PlatformAssistant) {
+        let platformBaseURL = AuthService.shared.baseURL
+
+        UserDefaults.standard.set(assistant.id, forKey: UserDefaultsKeys.managedAssistantId)
+        UserDefaults.standard.set(platformBaseURL, forKey: UserDefaultsKeys.managedPlatformBaseURL)
+        UserDefaults.standard.set(assistant.id, forKey: "connectedAssistantId")
+
+        clientProvider.rebuildClient()
+        currentStep = .permissions
+    }
+
     private func performManagedBootstrap() async {
         isBootstrappingManaged = true
         managedBootstrapError = nil
@@ -142,6 +163,143 @@ struct OnboardingView: View {
             currentStep = .permissions
         } catch {
             managedBootstrapError = error.localizedDescription
+        }
+    }
+}
+
+// MARK: - AssistantPickerStep
+
+struct AssistantPickerStep: View {
+    var onSelected: (PlatformAssistant) -> Void
+    var onHatchNew: () -> Void
+    var onCancel: () -> Void
+
+    @State private var assistants: [PlatformAssistant] = []
+    @State private var isLoading = true
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(spacing: VSpacing.xl) {
+            Spacer()
+
+            Text("Choose an Assistant")
+                .font(VFont.titleMedium)
+                .foregroundStyle(VColor.contentDefault)
+                .multilineTextAlignment(.center)
+
+            if isLoading {
+                ProgressView()
+                    .controlSize(.large)
+                Text("Loading assistants...")
+                    .font(VFont.bodyMediumLighter)
+                    .foregroundStyle(VColor.contentSecondary)
+            } else if let error = errorMessage {
+                VIconView(.triangleAlert, size: 48)
+                    .foregroundStyle(VColor.systemNegativeStrong)
+                Text(error)
+                    .font(VFont.bodyMediumLighter)
+                    .foregroundStyle(VColor.contentSecondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, VSpacing.xl)
+                Button("Try Again") {
+                    Task { await loadAssistants() }
+                }
+                .buttonStyle(.borderedProminent)
+            } else {
+                Text("Select an existing assistant or create a new one")
+                    .font(VFont.bodyMediumLighter)
+                    .foregroundStyle(VColor.contentSecondary)
+                    .multilineTextAlignment(.center)
+
+                VStack(spacing: VSpacing.md) {
+                    ForEach(assistants, id: \.id) { assistant in
+                        Button(action: { onSelected(assistant) }) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                    Text(assistant.name ?? "Unnamed Assistant")
+                                        .font(VFont.bodyMediumEmphasised)
+                                        .foregroundStyle(VColor.contentDefault)
+                                    Text(assistant.id)
+                                        .font(VFont.labelDefault)
+                                        .foregroundStyle(VColor.contentSecondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                                if let status = assistant.status {
+                                    Text(status)
+                                        .font(VFont.labelDefault)
+                                        .foregroundStyle(status == "active" ? VColor.systemPositiveStrong : VColor.contentSecondary)
+                                }
+                            }
+                            .padding(VSpacing.lg)
+                            .background(VColor.surfaceBase)
+                            .cornerRadius(VRadius.md)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: VRadius.md)
+                                    .stroke(VColor.borderBase, lineWidth: 1)
+                            )
+                        }
+                    }
+
+                    Button(action: onHatchNew) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                Text("Create New Assistant")
+                                    .font(VFont.bodyMediumEmphasised)
+                                    .foregroundStyle(VColor.contentDefault)
+                                Text("Set up a new cloud assistant")
+                                    .font(VFont.labelDefault)
+                                    .foregroundStyle(VColor.contentSecondary)
+                            }
+                            Spacer()
+                            VIconView(.plus, size: 20)
+                                .foregroundStyle(VColor.primaryBase)
+                        }
+                        .padding(VSpacing.lg)
+                        .background(VColor.surfaceBase)
+                        .cornerRadius(VRadius.md)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.borderBase, lineWidth: 1)
+                        )
+                    }
+                }
+                .padding(.horizontal, VSpacing.xl)
+            }
+
+            Spacer()
+
+            Button("Cancel") { onCancel() }
+                .foregroundStyle(VColor.contentSecondary)
+                .padding(.bottom, VSpacing.xxl)
+        }
+        .padding(VSpacing.xl)
+        .task { await loadAssistants() }
+    }
+
+    private func loadAssistants() async {
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            let orgs = try await AuthService.shared.getOrganizations()
+            guard let org = orgs.first else {
+                errorMessage = "No organizations found for this account"
+                isLoading = false
+                return
+            }
+            UserDefaults.standard.set(org.id, forKey: "connectedOrganizationId")
+            let list = try await AuthService.shared.listAssistants(organizationId: org.id)
+            assistants = list
+            isLoading = false
+
+            // If no existing assistants, go straight to hatch
+            if list.isEmpty {
+                onHatchNew()
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+            isLoading = false
         }
     }
 }
