@@ -13,7 +13,7 @@ struct ToolSelectionView: View {
 
     private static let allItems: [ToolItem] = {
         var items = ToolItem.allTools
-        items.append(ToolItem(id: "other", label: "Something else", assetName: "tool-other"))
+        items.append(ToolItem(id: "other", label: "Something else", logoKey: "other"))
         return items
     }()
 
@@ -106,11 +106,7 @@ struct ToolSelectionView: View {
         } label: {
             VStack(spacing: VSpacing.xs) {
                 ZStack(alignment: .topTrailing) {
-                    Image(item.assetName)
-                        .resizable()
-                        .renderingMode(.original)
-                        .interpolation(.high)
-                        .frame(width: 32, height: 32)
+                    toolIcon(item, size: 32)
 
                     if isSelected {
                         ZStack {
@@ -151,5 +147,27 @@ struct ToolSelectionView: View {
         .accessibilityLabel(item.label)
         .accessibilityValue(isSelected ? "Selected" : "Not selected")
         .accessibilityAddTraits(.isToggle)
+    }
+
+    @ViewBuilder
+    private func toolIcon(_ item: ToolItem, size: CGFloat) -> some View {
+        if let nsImage = IntegrationLogoBundle.bundledImage(providerKey: item.logoKey) {
+            Image(nsImage: nsImage)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size)
+        } else {
+            // Initials fallback for providers without bundled PDFs
+            let initials = String(item.label.prefix(2)).uppercased()
+            ZStack {
+                Circle()
+                    .fill(VColor.contentTertiary.opacity(0.3))
+                Text(initials)
+                    .font(.system(size: size * 0.4, weight: .semibold, design: .rounded))
+                    .foregroundStyle(VColor.contentDefault)
+            }
+            .frame(width: size, height: size)
+        }
     }
 }
