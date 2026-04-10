@@ -275,7 +275,7 @@ Before merging any PR that modifies files in `Features/Chat/`:
 - [ ] No `.fixedSize()` inside LazyVStack cells — use explicit `.frame(height:)` instead
 - [ ] No nested ScrollView inside LazyVStack cells without explicit `.frame(height:)`
 - [ ] Equatable conformance updated if new properties added to cell views
-- [ ] CI guard tests pass (`bun test src/__tests__/swiftui-perf-guards.test.ts`)
+- [ ] CI guard tests pass (`cd assistant && bun test src/__tests__/swiftui-perf-guards.test.ts`)
 
 ### Naming & File Placement
 
