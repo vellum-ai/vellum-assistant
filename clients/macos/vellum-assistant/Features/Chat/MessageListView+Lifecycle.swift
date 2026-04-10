@@ -96,11 +96,7 @@ extension MessageListView {
             // yanked again by the imperative call, potentially overshooting
             // into blank LazyVStack estimated space.
             //
-            // The delayed `restoreScrollToBottom()` (100ms) acts as a safety
-            // net: if `.defaultScrollAnchor` didn't fully resolve (e.g. very
-            // long conversation with unreliable height estimates), the
-            // recovery window + restore fallback will catch it.
-            restoreScrollToBottom()
+            // Let .defaultScrollAnchor handle it — no fallback needed.
         }
     }
 
@@ -313,17 +309,8 @@ extension MessageListView {
         // "scroll-bottom-anchor" (outside ForEach) is only locatable when materialized.
         // https://developer.apple.com/documentation/swiftui/scrollposition
         scrollState.scrollRestoreTask?.cancel()
-        if anchorMessageId == nil {
-            if let lastId = paginatedVisibleMessages.last?.id {
-                scrollPosition = ScrollPosition(id: lastId, anchor: .bottom)
-            } else {
-                // Empty conversation — no ForEach items to target.
-                // Use edge-based position; the standalone "scroll-bottom-anchor"
-                // is outside ForEach and only locatable when materialized.
-                scrollPosition = ScrollPosition(edge: .bottom)
-            }
-        }
-        restoreScrollToBottom()
+        // Let .defaultScrollAnchor(.bottom, for: .initialOffset) handle
+        // initial positioning — no explicit scroll needed.
     }
 
     func handleAnchorMessageTask() async {

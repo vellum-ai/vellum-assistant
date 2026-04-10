@@ -146,7 +146,7 @@ struct MessageListView: View {
             // user has entered freeBrowsing. Our explicit content-height
             // auto-follow handles streaming growth with proper mode checks.
             // https://developer.apple.com/documentation/swiftui/view/defaultscrollanchor(_:for:)
-            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            .defaultScrollAnchor(.top, for: .initialOffset)
             .scrollPosition($scrollPosition)
             .environment(\.suppressAutoScroll, { [self] in
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=manualExpansionDetach")
