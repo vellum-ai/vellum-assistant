@@ -53,7 +53,7 @@ or visible indicator in the browser chrome.
 ### Loopback-only by policy
 
 The discovery layer (`probeDevToolsJsonVersion`) refuses to connect to
-any host that is not `localhost` or `127.0.0.1`. Remote attach is
+any host that is not `localhost`, `127.0.0.1`, `::1`, or `[::1]`. Remote attach is
 rejected with a `non_loopback` error before any network I/O occurs.
 
 **Warning:** The Chrome DevTools HTTP/WebSocket port has **no
@@ -90,7 +90,7 @@ Add or update the following keys in your assistant config
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `hostBrowser.cdpInspect.enabled` | boolean | `false` | Enable the cdp-inspect backend. |
-| `hostBrowser.cdpInspect.host` | string | `"localhost"` | Loopback host for the DevTools endpoint. Must be `localhost` or `127.0.0.1`. |
+| `hostBrowser.cdpInspect.host` | string | `"localhost"` | Loopback host for the DevTools endpoint. Must be `localhost`, `127.0.0.1`, `::1`, or `[::1]`. |
 | `hostBrowser.cdpInspect.port` | number | `9222` | TCP port matching `--remote-debugging-port`. |
 | `hostBrowser.cdpInspect.probeTimeoutMs` | number | `500` | Timeout (ms) for the discovery probe. Increase if Chrome is slow to respond. |
 
@@ -149,7 +149,7 @@ cdp-inspect backend cannot reach or identify the DevTools endpoint.
 | Error code | Likely cause | Fix |
 |---|---|---|
 | `unreachable` | Chrome is not running with `--remote-debugging-port`, or the configured port is wrong. | Launch Chrome with `--remote-debugging-port=9222` and verify with `curl http://localhost:9222/json/version`. |
-| `non_loopback` | The configured `host` is not `localhost` or `127.0.0.1`. | Set `hostBrowser.cdpInspect.host` to `"localhost"`. Remote attach is refused by policy. |
+| `non_loopback` | The configured `host` is not `localhost`, `127.0.0.1`, `::1`, or `[::1]`. | Set `hostBrowser.cdpInspect.host` to `"localhost"`. Remote attach is refused by policy. |
 | `non_chrome` | Something other than Chrome is bound to port 9222. | Check what process is using the port (`lsof -i :9222` on macOS/Linux) and either stop it or change the configured port. |
 | `invalid_response` | The port responds but is not speaking the DevTools protocol. | Verify with `curl http://localhost:9222/json/version`. If the response is not valid JSON with a `Browser` field, another service is using the port. |
 | `no_targets` | Chrome is running but has no open tabs or pages. | Open at least one tab in Chrome before using browser tools. |
