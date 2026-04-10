@@ -27,6 +27,7 @@ export const PROVIDER_SEED_DATA: Record<
     tokenExchangeUrl: string;
     refreshUrl?: string;
     tokenEndpointAuthMethod?: string;
+    tokenExchangeBodyFormat?: string;
     userinfoUrl?: string;
     pingUrl?: string;
     pingMethod?: string;
