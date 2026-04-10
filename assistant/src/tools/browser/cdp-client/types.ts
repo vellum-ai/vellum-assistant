@@ -1,10 +1,11 @@
 /**
  * Minimal typed surface over Chrome DevTools Protocol. Implemented by
- * LocalCdpClient (Playwright-backed, same-process Chromium) and by
+ * LocalCdpClient (Playwright-backed, same-process Chromium),
  * ExtensionCdpClient (routes through HostBrowserProxy to the user's
- * Chrome via chrome.debugger). Tools call `send(method, params)` with
- * a CDP method name and return the raw CDP result object; errors are
- * thrown as {@link CdpError}.
+ * Chrome via chrome.debugger), and CdpInspectClient (connects to a
+ * remote browser over a raw CDP WebSocket URL). Tools call
+ * `send(method, params)` with a CDP method name and return the raw
+ * CDP result object; errors are thrown as {@link CdpError}.
  */
 export interface CdpClient {
   /**
