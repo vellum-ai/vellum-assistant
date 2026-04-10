@@ -6,7 +6,8 @@ protocol ManagedAssistantBootstrapProviding {
     func ensureManagedAssistant(
         name: String?,
         description: String?,
-        anthropicApiKey: String?
+        anthropicApiKey: String?,
+        multiAssistantEnabled: Bool
     ) async throws -> ManagedBootstrapOutcome
 }
 
@@ -116,7 +117,8 @@ final class ManagedAssistantConnectionCoordinator {
         let outcome = try await bootstrapService.ensureManagedAssistant(
             name: nil,
             description: nil,
-            anthropicApiKey: nil
+            anthropicApiKey: nil,
+            multiAssistantEnabled: multiAssistantEnabledProvider()
         )
         return try persistManagedAssistant(
             outcome.assistant,

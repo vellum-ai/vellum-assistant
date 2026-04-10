@@ -179,6 +179,19 @@ public struct PlatformAssistant: Codable, Sendable {
     }
 }
 
+/// Response wrapper for the paginated `GET /v1/assistants/` endpoint.
+///
+/// Only `results` is decoded — the platform caps each org at 5 managed
+/// assistants, which always fits in a single page, so `count`/`next` are
+/// unused. If that cap is ever raised, add the fields and walk `next` here.
+public struct PaginatedPlatformAssistantsResponse: Codable, Sendable {
+    public let results: [PlatformAssistant]
+
+    public init(results: [PlatformAssistant]) {
+        self.results = results
+    }
+}
+
 public struct HatchAssistantRequest: Codable, Sendable {
     public let name: String?
     public let description: String?
