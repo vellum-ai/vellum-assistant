@@ -141,7 +141,11 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 // Import module under test AFTER mocks are in place
 // ---------------------------------------------------------------------------
 
-import { type OAuth2Config, startOAuth2Flow } from "../security/oauth2.js";
+import {
+  type OAuth2Config,
+  refreshOAuth2Token,
+  startOAuth2Flow,
+} from "../security/oauth2.js";
 
 const BASE_OAUTH_CONFIG: OAuth2Config = {
   authorizeUrl: "https://provider.example.com/authorize",
@@ -990,6 +994,93 @@ describe("OAuth2 gateway transport", () => {
       expect(parsed.client_id).toBeUndefined();
       expect(parsed.client_secret).toBeUndefined();
       expect(parsed.code_verifier).toBeTruthy();
+    });
+  });
+
+  describe("refreshOAuth2Token", () => {
+    test("sends JSON body when tokenExchangeBodyFormat is 'json'", async () => {
+      const result = await refreshOAuth2Token(
+        "https://provider.example.com/token",
+        "test-client-id",
+        "test-refresh-token",
+        "test-client-secret",
+        undefined, // tokenEndpointAuthMethod defaults to client_secret_post
+        "json",
+      );
+
+      // Content-Type should be application/json
+      expect(lastTokenRequestHeaders["Content-Type"]).toBe("application/json");
+
+      // Body should be valid JSON with refresh_token grant
+      expect(lastTokenRequestRawBody).not.toBeNull();
+      const parsed = JSON.parse(lastTokenRequestRawBody!);
+      expect(parsed.grant_type).toBe("refresh_token");
+      expect(parsed.refresh_token).toBe("test-refresh-token");
+      expect(parsed.client_id).toBe("test-client-id");
+      expect(parsed.client_secret).toBe("test-client-secret");
+
+      // Result should contain the tokens
+      expect(result.accessToken).toBe("test-access-token");
+      expect(result.refreshToken).toBe("test-refresh-token");
+    });
+
+    test("sends form-encoded body by default", async () => {
+      const result = await refreshOAuth2Token(
+        "https://provider.example.com/token",
+        "test-client-id",
+        "test-refresh-token",
+        "test-client-secret",
+      );
+
+      // Content-Type should be form-encoded
+      expect(lastTokenRequestHeaders["Content-Type"]).toBe(
+        "application/x-www-form-urlencoded",
+      );
+
+      // Body should be parseable as URLSearchParams
+      expect(lastTokenRequestBody).not.toBeNull();
+      expect(lastTokenRequestBody!.get("grant_type")).toBe("refresh_token");
+      expect(lastTokenRequestBody!.get("refresh_token")).toBe(
+        "test-refresh-token",
+      );
+      expect(lastTokenRequestBody!.get("client_id")).toBe("test-client-id");
+      expect(lastTokenRequestBody!.get("client_secret")).toBe(
+        "test-client-secret",
+      );
+
+      expect(result.accessToken).toBe("test-access-token");
+    });
+
+    test("JSON body format works with client_secret_basic auth method", async () => {
+      const result = await refreshOAuth2Token(
+        "https://provider.example.com/token",
+        "test-client-id",
+        "test-refresh-token",
+        "test-client-secret",
+        "client_secret_basic",
+        "json",
+      );
+
+      // Content-Type should be application/json
+      expect(lastTokenRequestHeaders["Content-Type"]).toBe("application/json");
+
+      // Should have Basic Auth header
+      const expectedCredentials = Buffer.from(
+        "test-client-id:test-client-secret",
+      ).toString("base64");
+      expect(lastTokenRequestHeaders["Authorization"]).toBe(
+        `Basic ${expectedCredentials}`,
+      );
+
+      // Body should be valid JSON without client_id/client_secret (basic auth puts them in header)
+      expect(lastTokenRequestRawBody).not.toBeNull();
+      const parsed = JSON.parse(lastTokenRequestRawBody!);
+      expect(parsed.grant_type).toBe("refresh_token");
+      expect(parsed.refresh_token).toBe("test-refresh-token");
+      expect(parsed.client_id).toBeUndefined();
+      expect(parsed.client_secret).toBeUndefined();
+
+      expect(result.accessToken).toBe("test-access-token");
     });
   });
 });
