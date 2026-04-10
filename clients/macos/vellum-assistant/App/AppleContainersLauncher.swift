@@ -300,7 +300,8 @@ final class AppleContainersLauncher: AssistantManagementClient {
     /// The gateway proxies this request to the assistant runtime, which may
     /// still be booting after the gateway becomes healthy. We retry with
     /// exponential backoff (2s → 4s → 8s, capped at 8s) for up to 30
-    /// attempts (~120s total) to accommodate slow runtime startup.
+    /// attempts (~222s of sleep time, plus request timeouts) to
+    /// accommodate slow runtime startup.
     private static let guardianInitMaxAttempts = 30
     private static let guardianInitBaseDelay: UInt64 = 2_000_000_000 // 2 seconds
     private static let guardianInitMaxDelay: UInt64 = 8_000_000_000  // 8 seconds
