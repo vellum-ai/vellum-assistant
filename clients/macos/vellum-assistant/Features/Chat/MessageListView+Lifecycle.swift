@@ -157,18 +157,17 @@ extension MessageListView {
                 // same SwiftUI update cycle after the user sends a message;
                 // issuing immediate `ScrollPosition` writes here can trip
                 // SwiftUI's "Modifying state during view update" guard.
+                // Use edge-based scroll for the initial send so it
+                // reaches past the thinking indicator's minHeight,
+                // pushing the user message to the top immediately.
+                scrollState.pendingEdgeScrollOnSend = true
                 scrollState.scheduleDeferredBottomPin(
                     animated: true,
                     forceFollowingBottom: true,
                     refreshRecoveryWindow: true
                 )
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
-                            "target=bottom reason=sendFollowingBottom")
-
-                // Also scroll the user message to top for Claude-style behavior
-                if let userMessage = messages.last(where: { $0.role == .user }) {
-                    scrollPosition.scrollTo(id: userMessage.id, anchor: .top)
-                }
+                            "target=edgeBottom reason=sendPushToTop")
             }
         } else {
             // Capture the activity phase at the moment sending stops.

@@ -283,6 +283,14 @@ final class MessageListScrollState {
     /// Cleared in `reset()` and when the active turn ends.
     @ObservationIgnored var hasCompletedInitialPushToTop: Bool = false
 
+    /// When set, the next `executeScrollToBottom` uses `scrollToEdge(.bottom)`
+    /// to reach the actual content bottom (including the thinking indicator's
+    /// `minHeight`) rather than `scrollTo(lastMessageId, .bottom)` which only
+    /// reaches the last ForEach item. Consumed on first use. Set by
+    /// `handleSendingChanged` so the initial send immediately pushes the
+    /// user message to the top without waiting for the assistant message.
+    @ObservationIgnored var pendingEdgeScrollOnSend: Bool = false
+
     // MARK: - Layout Cache Fields
 
     /// Memoization state intentionally lives outside the observed object so
@@ -718,14 +726,28 @@ final class MessageListScrollState {
         //   - Subsequent pins: use the content-bottom marker — its .bottom
         //     lands on real content, avoiding the minHeight white space.
         // Target selection:
-        //   - User-initiated (CTA): always use lastMessageId for reliable
-        //     bottom reach. Recovery + auto-follow correct any transient
-        //     white space from the minHeight frame.
+        //   - Initial send (pendingEdgeScroll): use scrollToEdge(.bottom)
+        //     to reach past the thinking indicator's minHeight. scrollTo
+        //     (lastMessageId, .bottom) only reaches the last ForEach item
+        //     (the user message), missing the thinking indicator below it.
+        //   - User-initiated (CTA): use scrollToEdge for reliability.
         //   - First auto-follow pin with minHeight: use lastMessageId to
         //     push the user message to the top via the minHeight frame.
         //   - Subsequent auto-follow pins with minHeight: use the content-
         //     bottom marker so .bottom lands on real content.
         //   - No minHeight: use lastMessageId (normal behavior).
+        if pendingEdgeScrollOnSend {
+            pendingEdgeScrollOnSend = false
+            scrollDiag.debug("executeScrollToBottom: using scrollToEdge(.bottom) for initial send push-to-top")
+            if animated {
+                withAnimation(VAnimation.fast) {
+                    scrollToEdge?(.bottom)
+                }
+            } else {
+                scrollToEdge?(.bottom)
+            }
+            return
+        }
         let target: (any Hashable)?
         let targetName: String
         if userInitiated {
@@ -891,6 +913,7 @@ final class MessageListScrollState {
         lastMessageId = nil
         isActiveTurnMinHeightApplied = false
         hasCompletedInitialPushToTop = false
+        pendingEdgeScrollOnSend = false
         mode = .initialLoad
         activeStabilizationCount = 0
         // False: scroll geometry hasn't updated for the new content yet.
