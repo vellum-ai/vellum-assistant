@@ -463,6 +463,10 @@ extension AppDelegate {
             // read the randomly-generated avatar traits and sync them to the daemon.
             self?.onboardingState = state
 
+            // Store pre-chat onboarding context (if collected) so it can be
+            // forwarded to the first conversation's message POST.
+            self?.pendingPreChatContext = state.preChatContext
+
             // By this point the user has either entered an API key (steps 0→1→2)
             // or authenticated via Vellum Account (WorkOS). Proceed directly —
             // don't re-check auth, which would show the auth gate again.
@@ -498,6 +502,12 @@ extension AppDelegate {
             assistantFeatureFlagStore: featureFlagStore,
             isFirstLaunch: isFirstLaunch
         )
+        // Forward pending pre-chat onboarding context to the conversation
+        // manager so the first draft conversation includes it in its POST.
+        if let context = pendingPreChatContext {
+            main.conversationManager.preChatContext = context
+            pendingPreChatContext = nil
+        }
         main.onMicrophoneToggle = { [weak self] in
             self?.voiceInput?.toggleRecording()
         }
