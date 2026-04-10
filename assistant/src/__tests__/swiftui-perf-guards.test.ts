@@ -13,8 +13,7 @@
  * 3. `withAnimation` wrapping state mutations that flow into LazyVStack
  *    content, triggering motionVectors cascade.
  *
- * These were fixed in PRs #24321, #24375, #24411, #24446, #24530, #24570,
- * #24589. These guard tests prevent regression.
+ * All three anti-patterns have been fixed. These guard tests prevent regression.
  *
  * See `clients/macos/AGENTS.md` for the full rationale and safe alternatives.
  */
@@ -37,12 +36,22 @@ const LAZY_VSTACK_CELL_FILES = [
   "ChatBubbleTextContent.swift",
   "ChatBubbleInterleavedContent.swift",
   "ChatBubbleToolStatusView.swift",
+  "ChatBubbleAttachmentContent.swift",
+  "ChatBubbleOverflowMenu.swift",
+  "ChatWidgetViews.swift",
+  "AnimatedImageView.swift",
   "MarkdownSegmentView.swift",
   "ThinkingBlockView.swift",
   // The LazyVStack container itself
   "MessageListContentView.swift",
   // Shared cell files (under clients/shared/Features/Chat/)
   "ToolConfirmationBubble.swift",
+  "ToolCallChip.swift",
+  "ToolCallProgressBar.swift",
+  "GuardianDecisionBubble.swift",
+  "CommandListBubble.swift",
+  "ModelListBubble.swift",
+  "InlineChatErrorAlert.swift",
   "InlineSurfaceRouter.swift",
   "InlineDocumentPreview.swift",
   "InlineTableWidget.swift",
