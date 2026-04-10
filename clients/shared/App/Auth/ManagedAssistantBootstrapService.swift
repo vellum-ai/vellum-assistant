@@ -45,6 +45,7 @@ public enum ManagedBootstrapError: LocalizedError, Sendable {
 public protocol ManagedAssistantBootstrapAuthServicing: AnyObject {
     func getOrganizations() async throws -> [PlatformOrganization]
     func getAssistant(id: String, organizationId: String?) async throws -> PlatformAssistantResult
+    func getActiveAssistant(organizationId: String?) async throws -> PlatformAssistantResult
     func listAssistants(organizationId: String?) async throws -> [PlatformAssistant]
     func hatchAssistant(
         organizationId: String?,
@@ -82,13 +83,16 @@ public final class LockfileActiveAssistantIdStore: ActiveAssistantIdStoring {
 /// Orchestrates discovery or creation of a managed assistant on the platform.
 ///
 /// The bootstrap flow:
-/// 1. If a `connectedAssistantId` exists, fetch that specific assistant via GET /assistants/{id}/.
+/// 1. (macOS only) If a `connectedAssistantId` exists in the lockfile, fetch
+///    that specific assistant via GET /assistants/{id}/.
 ///    - 404 (deleted): clear the stale ID and fall through to step 2.
 ///    - 403 (access revoked): surface an `accessRevoked` error so the user knows.
-/// 2. With `multiAssistantEnabled == true` and the stale ID just cleared via a 404,
-///    call GET /assistants/ first and reuse the most recently created assistant when
-///    one exists. Only fall through to hatch when the list is empty (first-run UX).
-/// 3. Call POST /assistants/hatch/ (idempotent — returns existing or creates new).
+/// 2. Call GET /assistants/active/ to ask the platform for the user's active
+///    assistant. The platform resolves this server-side via
+///    `get_presumably_unique_assistant()`, so the client doesn't need to
+///    enumerate or pick.
+/// 3. If 404 (no active assistant), call POST /assistants/hatch/ (idempotent —
+///    returns existing or creates new) as a first-run UX fallback.
 /// 4. Any other error is surfaced as a typed `ManagedBootstrapError`.
 @MainActor
 public final class ManagedAssistantBootstrapService {
@@ -137,30 +141,9 @@ public final class ManagedAssistantBootstrapService {
                 log.info("Retrieved connected assistant: \(assistant.id, privacy: .public)")
                 return .reusedExisting(assistant)
             case .notFound:
-                // Clear the stale ID. When the multi-assistant flag is on, try to
-                // reuse an existing assistant from the org's list before falling
-                // through to hatch — we don't want to silently create a second
-                // assistant when the user already has one.
                 log.warning("Connected assistant \(connectedId, privacy: .public) not found — clearing stale ID")
                 activeAssistantIdStore.clearActiveAssistantId()
-                if multiAssistantEnabled {
-                    do {
-                        // Assumes the platform returns assistants newest-first.
-                        // With the 5-assistant-per-org cap, a wrong order would
-                        // at worst reuse a slightly-older-but-still-valid
-                        // assistant instead of the newest — acceptable.
-                        let existing = try await authService.listAssistants(organizationId: organizationId)
-                        if let first = existing.first {
-                            log.info("multi-assistant flag on: reusing first assistant \(first.id, privacy: .public) from list")
-                            return .reusedExisting(first)
-                        }
-                        log.info("multi-assistant flag on: list returned empty, falling through to hatch (first-run UX)")
-                    } catch let error as PlatformAPIError {
-                        throw mapPlatformError(error)
-                    }
-                } else {
-                    log.info("multi-assistant flag off: falling through to hatch")
-                }
+                // Fall through to the active-assistant lookup below.
             case .accessDenied:
                 log.error("Access to connected assistant \(connectedId, privacy: .public) has been revoked")
                 activeAssistantIdStore.clearActiveAssistantId()
@@ -169,9 +152,29 @@ public final class ManagedAssistantBootstrapService {
         }
         #endif
 
-        // No selected assistant (or stale one was cleared) — hatch is idempotent
-        // and will return the existing assistant if one exists.
-        log.info("No stored assistant ID — calling idempotent hatch")
+        // Ask the platform for the user's active assistant. The server resolves
+        // this via get_presumably_unique_assistant(), so the client doesn't need
+        // to enumerate or pick. Returns 404 when the user has no active assistant
+        // yet, in which case we fall through to hatch as a first-run UX.
+        log.info("Querying GET /v1/assistants/active/ for user's active assistant")
+        let activeResult: PlatformAssistantResult
+        do {
+            activeResult = try await authService.getActiveAssistant(organizationId: organizationId)
+        } catch let error as PlatformAPIError {
+            throw mapPlatformError(error)
+        }
+
+        switch activeResult {
+        case .found(let assistant):
+            log.info("Resolved active assistant from platform: \(assistant.id, privacy: .public)")
+            return .reusedExisting(assistant)
+        case .notFound:
+            log.info("No active assistant found — falling through to hatch")
+        case .accessDenied:
+            throw ManagedBootstrapError.hatchFailed("Access denied when querying active assistant")
+        }
+
+        log.info("Calling idempotent hatch endpoint")
         let hatchResult: HatchAssistantResult
         do {
             hatchResult = try await authService.hatchAssistant(
