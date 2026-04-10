@@ -676,83 +676,29 @@ final class MessageListScrollState {
     /// imperative `.scrollTo()` mutating methods on the ScrollPosition
     /// binding — Apple's recommended pattern for programmatic scrolling.
     ///
-    /// **Three paths:**
+    /// **ID-only strategy:** All paths use ID-based scroll targeting
+    /// real ForEach items. Edge-based scroll (`scrollToEdge(.bottom)`)
+    /// is NEVER used when `lastMessageId` is available — it computes
+    /// total content height from LazyVStack estimates, which overshoot
+    /// into blank space for long conversations with unmaterialized
+    /// items. ID-based scroll targets a specific item that SwiftUI can
+    /// locate even when not materialized, so it lands short (showing
+    /// messages) rather than overshooting (showing blank space).
+    /// Each recovery attempt materializes views near the target,
+    /// improving LazyVStack estimates for the next attempt —
+    /// converging monotonically to the actual bottom.
     ///
-    /// **User-initiated (CTA tap):** Edge-based scroll first (breaks
-    /// any stale position), then ID-based for precision. The recovery
-    /// window (set in `requestPinToBottom`) handles the remaining gap.
-    /// Animation is provided by the caller's `withAnimation` wrapper.
-    ///
-    /// **Auto-follow (content-height changes, new messages):** Always
-    /// ID-based — targets a real ForEach item that SwiftUI can locate
-    /// even when not materialized. Never uses edge-based scroll, which
-    /// can overshoot into blank LazyVStack estimated space on long
-    /// conversations. Falls back to edge-based only for empty
-    /// conversations (`lastMessageId == nil`).
-    ///
-    /// **Recovery (persistent bottom-recovery window):** Alternates
-    /// between edge-based and ID-based strategies via
-    /// `recoveryAlternator` to break potential deduplication. The two
-    /// strategies use different estimation paths — edge-based computes
-    /// a single total-content-height offset, ID-based sums per-item
-    /// estimates — which may land the viewport at slightly different
-    /// positions, helping LazyVStack converge faster.
+    /// Edge-based scroll is only used as a fallback for empty
+    /// conversations where `lastMessageId == nil`.
     ///
     /// - SeeAlso: https://stackoverflow.com/q/79884780 (ScrollPosition unreliable with variable heights)
     /// - SeeAlso: https://developer.apple.com/documentation/swiftui/scrollposition/scrollto(edge:)
     private func executeScrollToBottom(animated: Bool, userInitiated: Bool = false, forRecovery: Bool = false) {
         let path = userInitiated ? "userInitiated" : (forRecovery ? "recovery" : "autoFollow")
-        scrollDiag.debug("executeScrollToBottom: path=\(path, privacy: .public) animated=\(animated, privacy: .public) lastMsgId=\(self.lastMessageId?.uuidString ?? "nil", privacy: .public) alternator=\(self.recoveryAlternator, privacy: .public)")
-        if userInitiated {
-            // Two-step scroll: edge first to break any stale position,
-            // then ID-based for precise targeting. The recovery window
-            // (set in requestPinToBottom) handles the small gap between
-            // lastMessageId and the absolute content bottom.
-            scrollToEdge?(.bottom)
-            let target: any Hashable = lastMessageId ?? ("scroll-bottom-anchor" as any Hashable)
-            scrollTo?(target, .bottom)
-            return
-        }
+        scrollDiag.debug("executeScrollToBottom: path=\(path, privacy: .public) animated=\(animated, privacy: .public) lastMsgId=\(self.lastMessageId?.uuidString ?? "nil", privacy: .public)")
 
-        if forRecovery {
-            // Recovery: alternate between edge-based and ID-based to
-            // break potential dedup and converge from different
-            // estimation paths. Each call toggles recoveryAlternator.
-            recoveryAlternator.toggle()
-            if let target = lastMessageId {
-                if recoveryAlternator {
-                    if animated {
-                        withAnimation(VAnimation.fast) {
-                            scrollToEdge?(.bottom)
-                        }
-                    } else {
-                        scrollToEdge?(.bottom)
-                    }
-                } else {
-                    if animated {
-                        withAnimation(VAnimation.fast) {
-                            scrollTo?(target, .bottom)
-                        }
-                    } else {
-                        scrollTo?(target, .bottom)
-                    }
-                }
-            } else {
-                if animated {
-                    withAnimation(VAnimation.fast) {
-                        scrollToEdge?(.bottom)
-                    }
-                } else {
-                    scrollToEdge?(.bottom)
-                }
-            }
-            return
-        }
-
-        // Auto-follow: always ID-based. Targets a real ForEach item
-        // that SwiftUI can locate even when not materialized. Never
-        // uses edge-based scroll here — edge-based can overshoot into
-        // blank LazyVStack estimated space on long conversations.
+        // ID-based scroll: targets a real ForEach item. Falls back to
+        // edge-based only for empty conversations (lastMessageId == nil).
         if let target = lastMessageId {
             if animated {
                 withAnimation(VAnimation.fast) {
@@ -796,7 +742,7 @@ final class MessageListScrollState {
             break
         }
         // Cancel the active recovery window. Without this, recovery
-        // fires `scrollToEdge(.bottom)` in the brief `.idle` gap between
+        // fires `scrollTo(id:)` in the brief `.idle` gap between
         // user scroll gestures (trackpad lift → re-touch), yanking the
         // viewport back to bottom and creating a "scroll lock" effect.
         // User intent to scroll away always takes priority over recovery.

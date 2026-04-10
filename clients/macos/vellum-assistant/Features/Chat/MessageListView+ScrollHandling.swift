@@ -225,7 +225,7 @@ extension MessageListView {
         // which changes content height by >0.5pt, which triggers another
         // geometry callback — creating an infinite feedback loop at
         // ~250/sec that never converges. The 50ms gap also prevents
-        // auto-follow from overriding recovery edge scrolls within
+        // auto-follow from overriding recovery scrolls within
         // the same layout cycle (recovery fires at 100ms intervals).
         if abs(effectiveContentHeight - previousContentHeight) > 0.5,
            scrollState.mode.allowsAutoScroll,
@@ -250,22 +250,20 @@ extension MessageListView {
         //   • "False at-bottom" — viewport at the estimated bottom but
         //     actual content is above (LazyVStack blank space)
         //
-        // Recovery uses the alternating edge/ID scroll strategy via
-        // requestPinToBottom(forRecovery: true) → executeScrollToBottom
-        // (forRecovery: true). Each call toggles recoveryAlternator,
-        // producing a structurally different scroll command (edge-based
-        // vs ID-based) that helps break potential deduplication. The
-        // two strategies use different estimation paths: edge-based
-        // computes a single total-content-height offset, ID-based sums
-        // per-item estimates. This may land the viewport at slightly
-        // different positions, helping LazyVStack converge faster.
-        // Auto-follow (content-height changes) uses ID-based only —
-        // edge-based can overshoot into blank space on long conversations.
+        // Recovery uses ID-based scroll only via
+        // requestPinToBottom(forRecovery: true) → executeScrollToBottom.
+        // Edge-based scroll (scrollToEdge(.bottom)) is NEVER used —
+        // it computes total content height from LazyVStack estimates,
+        // which overshoot into blank space for long conversations with
+        // unmaterialized items. ID-based scroll targets a real ForEach
+        // item, so it lands short (showing messages) rather than
+        // overshooting (showing blank space).
         //
         // The repeated 100ms recovery cycle handles convergence —
-        // each attempt materializes views near the actual bottom,
-        // correcting estimates, until the bottom anchor materializes
-        // and recovery stops.
+        // each attempt materializes views near the target, improving
+        // LazyVStack height estimates for the next attempt. This
+        // converges monotonically to the actual bottom, until the
+        // bottom anchor materializes and recovery stops.
         //
         // Recovery fires only within the recovery window — defined as
         // the period before the bottom anchor view has appeared AND
