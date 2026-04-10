@@ -136,7 +136,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
         // call. If we fail here, the fallback path in performInitialBootstrap()
         // generates a new random secret that the gateway will reject with 403.
         if let gatewayURL = runtime.gatewayURL {
-            await onProgress?("Securing connection...")
+            onProgress?("Securing connection...")
             let tokenLeased = await Self.leaseGuardianToken(
                 gatewayURL: gatewayURL,
                 assistantId: assistantName,
