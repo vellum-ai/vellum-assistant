@@ -73,6 +73,10 @@ function resolveRuntimePort(): number {
  * Mirrors `mintDaemonDeliveryToken` (sub=svc:daemon:self,
  * scope_profile=gateway_service_v1, aud=vellum-daemon) but is minted
  * out-of-process by the CLI using the on-disk signing key.
+ *
+ * Relies on the daemon's `resolveSigningKey()` having synced the
+ * env-resolved signing key to the canonical disk path so the key
+ * loaded here matches the daemon's verifier key.
  */
 function mintCliToken(): string {
   if (!isSigningKeyInitialized()) {
