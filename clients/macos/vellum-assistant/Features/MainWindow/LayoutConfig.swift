@@ -70,6 +70,9 @@ extension SlotContent: Codable {
             // Legacy threadList panel — renamed to conversationList
             case "threadList":
                 self = .native(.conversationList)
+            // Legacy separate panels — merged into unified Logs & Usage
+            case "debug", "usageDashboard":
+                self = .native(.logsAndUsage)
             default:
                 if let panel = NativePanelId(rawValue: rawPanel) {
                     self = .native(panel)
@@ -166,6 +169,9 @@ extension SlotContent {
             // Legacy threadList panel — renamed to conversationList
             case "threadList":
                 id = .conversationList
+            // Legacy separate panels — merged into unified Logs & Usage
+            case "debug", "usageDashboard":
+                id = .logsAndUsage
             default:
                 guard let parsed = NativePanelId(rawValue: panel) else { return nil }
                 id = parsed

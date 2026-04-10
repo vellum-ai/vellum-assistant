@@ -375,6 +375,7 @@ struct MainWindowView: View {
 
     private var isSettingsOpen: Bool {
         if case .panel(.settings) = windowState.selection { return true }
+        if case .panel(.logsAndUsage) = windowState.selection { return true }
         return false
     }
 
