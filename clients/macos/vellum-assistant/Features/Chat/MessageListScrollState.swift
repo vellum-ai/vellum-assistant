@@ -743,8 +743,19 @@ final class MessageListScrollState {
             }
         }
         scrollDiag.debug("executeScrollToBottom: target=\(targetName, privacy: .public) minHeightApplied=\(self.isActiveTurnMinHeightApplied, privacy: .public) pushToTopDone=\(self.hasCompletedInitialPushToTop, privacy: .public) path=\(path, privacy: .public) userInit=\(userInitiated, privacy: .public)")
+        // User-initiated (CTA): use edge-based scroll to reliably reach
+        // the bottom even when LazyVStack hasn't materialized the target
+        // message. May overshoot into blank estimated space, but the
+        // recovery window fires immediately after and converges with
+        // ID-based scrolls. ID-based scroll alone can fail silently
+        // when the target is unmaterialized (seen as distBottom=3000+).
+        if userInitiated {
+            scrollDiag.debug("executeScrollToBottom: using scrollToEdge(.bottom) for CTA reliability")
+            scrollToEdge?(.bottom)
+            return
+        }
         if let target {
-            if animated && !userInitiated {
+            if animated {
                 withAnimation(VAnimation.fast) {
                     scrollTo?(target, .bottom)
                 }
@@ -754,7 +765,7 @@ final class MessageListScrollState {
         } else {
             // No ForEach items to target (empty conversation).
             // Fall back to edge-based scroll.
-            if animated && !userInitiated {
+            if animated {
                 withAnimation(VAnimation.fast) {
                     scrollToEdge?(.bottom)
                 }
