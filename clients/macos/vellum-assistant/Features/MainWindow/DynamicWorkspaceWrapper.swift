@@ -81,7 +81,11 @@ struct DynamicWorkspaceWrapper: View {
                                     .frame(height: 32)
                             } else {
                                 VButton(label: "Share", iconOnly: VIcon.share.rawValue, style: .outlined, iconSize: 32, tooltip: "Share") {
-                                    showShareDrawer.toggle()
+                                    if isDeployToVercelEnabled {
+                                        showShareDrawer.toggle()
+                                    } else if let appId = data.appId {
+                                        onBundleAndShare(appId)
+                                    }
                                 }
                                 .onGeometryChange(for: CGRect.self) { proxy in
                                     proxy.frame(in: .named("appPageContainer"))
