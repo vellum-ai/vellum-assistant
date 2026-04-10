@@ -71,15 +71,10 @@ struct SettingsDeveloperTab: View {
     @State private var featureFlagSearchText: String = ""
     @State private var featureFlagScopeFilter: String = "all"
 
-    @State private var platformUrlText: String = ""
-    @FocusState private var isPlatformUrlFocused: Bool
-
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            // Platform URL (dev mode only)
-            if devModeManager.isDevMode {
-                platformUrlSection
-            }
+            // Platform URL (inferred from environment)
+            platformUrlSection
             // Assistant Info
             assistantInfoSection
             // Switch Assistant
@@ -252,27 +247,10 @@ struct SettingsDeveloperTab: View {
 
     private var platformUrlSection: some View {
         SettingsCard(title: "Platform URL") {
-            HStack(spacing: VSpacing.sm) {
-                VTextField(
-                    placeholder: "https://platform.vellum.ai",
-                    text: $platformUrlText,
-                    isFocused: $isPlatformUrlFocused
-                )
-
-                VButton(label: "Save", style: .primary, isDisabled: platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
-                    store.savePlatformBaseUrl(platformUrlText)
-                    isPlatformUrlFocused = false
-                }
-            }
-        }
-        .onAppear {
-            store.refreshPlatformConfig()
-            platformUrlText = store.platformBaseUrl
-        }
-        .onChange(of: store.platformBaseUrl) { _, newValue in
-            if !isPlatformUrlFocused {
-                platformUrlText = newValue
-            }
+            Text(VellumEnvironment.current.platformURL)
+                .font(VFont.bodyMediumDefault)
+                .foregroundStyle(VColor.contentDefault)
+                .textSelection(.enabled)
         }
     }
 
