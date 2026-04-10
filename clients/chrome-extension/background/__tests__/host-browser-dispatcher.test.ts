@@ -1346,6 +1346,45 @@ describe('createHostBrowserDispatcher', () => {
         targetId: '12.5',
       });
     });
+
+    test('exponential notation "1e3" routes as targetId, not tabId 1000', async () => {
+      harness = createHarnessWithRealResolveTarget({
+        sendResult: { id: 1, result: {} },
+      });
+
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        cdpSessionId: '1e3',
+      });
+
+      expect(harness.proxy.attachCalls[0].target).toEqual({ targetId: '1e3' });
+    });
+
+    test('hex literal "0x10" routes as targetId, not tabId 16', async () => {
+      harness = createHarnessWithRealResolveTarget({
+        sendResult: { id: 1, result: {} },
+      });
+
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        cdpSessionId: '0x10',
+      });
+
+      expect(harness.proxy.attachCalls[0].target).toEqual({ targetId: '0x10' });
+    });
+
+    test('whitespace-padded " 42 " routes as targetId', async () => {
+      harness = createHarnessWithRealResolveTarget({
+        sendResult: { id: 1, result: {} },
+      });
+
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        cdpSessionId: ' 42 ',
+      });
+
+      expect(harness.proxy.attachCalls[0].target).toEqual({ targetId: ' 42 ' });
+    });
   });
 
   // ── PR10: CDP event forwarding ─────────────────────────────────────

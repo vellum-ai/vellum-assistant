@@ -161,13 +161,16 @@ async function resolveHostBrowserTarget(
 ): Promise<{ tabId?: number; targetId?: string }> {
   if (cdpSessionId) {
     // Chrome tab IDs are positive integers. CDP targetIds are opaque
-    // non-numeric strings (hex, UUIDs, etc.). Route numeric strings
-    // as tabId for chrome.debugger.attach({ tabId }) which is the
-    // standard path; route non-numeric strings as targetId for the
-    // CDP flat-session path.
-    const asNumber = Number(cdpSessionId);
-    if (Number.isInteger(asNumber) && asNumber > 0) {
-      return { tabId: asNumber };
+    // non-numeric strings (hex, UUIDs, etc.). Route canonical decimal
+    // digit strings as tabId for chrome.debugger.attach({ tabId });
+    // route everything else as targetId. The regex guard rejects hex
+    // literals ("0x10"), exponential notation ("1e3"), and whitespace-
+    // padded values that Number() would silently coerce to integers.
+    if (/^\d+$/.test(cdpSessionId)) {
+      const asNumber = Number(cdpSessionId);
+      if (asNumber > 0 && Number.isSafeInteger(asNumber)) {
+        return { tabId: asNumber };
+      }
     }
     return { targetId: cdpSessionId };
   }
