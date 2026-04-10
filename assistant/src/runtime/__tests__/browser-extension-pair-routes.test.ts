@@ -26,6 +26,7 @@ import {
   verifyHostBrowserCapability,
 } from "../capability-tokens.js";
 import {
+  ALLOWED_EXTENSION_ORIGINS,
   handleBrowserExtensionPair,
   NATIVE_HOST_MARKER_HEADER,
   NATIVE_HOST_MARKER_VALUE,
@@ -53,7 +54,18 @@ const loopbackServer = mockServer("127.0.0.1");
 const lanPeerServer = mockServer("192.168.1.10");
 const publicPeerServer = mockServer("203.0.113.50");
 
-const ALLOWED_ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/";
+const ALLOWED_ORIGIN = (() => {
+  const first = Array.from(ALLOWED_EXTENSION_ORIGINS)[0];
+  if (!first) {
+    throw new Error(
+      "ALLOWED_EXTENSION_ORIGINS must contain at least one extension origin for tests",
+    );
+  }
+  return first;
+})();
+const ALLOWED_ORIGIN_BARE = ALLOWED_ORIGIN.endsWith("/")
+  ? ALLOWED_ORIGIN.slice(0, -1)
+  : ALLOWED_ORIGIN;
 
 /**
  * Build a pair request. By default includes the native-host marker
@@ -265,7 +277,7 @@ describe("handleBrowserExtensionPair", () => {
 
     const reqBare = buildRequest({
       body: { extensionOrigin: ALLOWED_ORIGIN },
-      origin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      origin: ALLOWED_ORIGIN_BARE,
     });
     expect(
       (await handleBrowserExtensionPair(reqBare, loopbackServer)).status,

@@ -20,7 +20,7 @@
  * checkouts don't break CI.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -37,16 +37,32 @@ const __dirname = dirname(__filename);
 
 const HELPER_BINARY = resolve(__dirname, "../../dist/index.js");
 const HELPER_EXISTS = existsSync(HELPER_BINARY);
+const REPO_ROOT = resolve(__dirname, "../../../../");
 
 const SKIP_REASON =
   "clients/chrome-extension-native-host/dist/index.js is missing — run `bun run build` in clients/chrome-extension-native-host to enable these tests.";
 
-// The native helper hard-codes a placeholder allowlist with this single
-// dev id. The companion route in
-// `assistant/src/runtime/routes/browser-extension-pair-routes.ts` mirrors
-// it; if either side ever diverges, both these tests and the e2e
-// self-hosted test in `assistant/src/__tests__/` will fail loudly.
-const ALLOWED_ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/";
+function getAllowedOriginFromCanonicalConfig(): string {
+  const raw = readFileSync(
+    resolve(
+      REPO_ROOT,
+      "meta/browser-extension/chrome-extension-allowlist.json",
+    ),
+    "utf8",
+  );
+  const parsed = JSON.parse(raw) as {
+    allowedExtensionIds?: string[];
+  };
+  const firstId = parsed.allowedExtensionIds?.[0];
+  if (!firstId) {
+    throw new Error(
+      "chrome-extension-allowlist.json must include at least one extension id for tests",
+    );
+  }
+  return `chrome-extension://${firstId}/`;
+}
+
+const ALLOWED_ORIGIN = getAllowedOriginFromCanonicalConfig();
 const DISALLOWED_ORIGIN =
   "chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/";
 

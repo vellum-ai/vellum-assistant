@@ -95,7 +95,7 @@ all user-visible strings refer to the local process as the "assistant".
 ## Origin allowlist
 
 Chrome appends the calling extension's origin (e.g.
-`chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/`) as the first
+`chrome-extension://<extension-id>/`) as the first
 positional argument when launching the host. The helper parses this,
 extracts the bare extension ID, and rejects anything not in
 `ALLOWED_EXTENSION_IDS` in `src/index.ts` before reading any stdin
@@ -208,9 +208,9 @@ extension-side bootstrap flow is wired up.
 
 Once the assistant is running and exposing `/v1/browser-extension-pair`
 (PR 11), you can exercise the helper end-to-end without Chrome by piping
-a framed request to it on stdin. Add the extension ID you want to test
-to `ALLOWED_EXTENSION_IDS` in `src/index.ts` (or use the existing dev
-placeholder), then:
+a framed request to it on stdin. If you need to rotate the extension ID,
+edit `meta/browser-extension/chrome-extension-allowlist.json`.
+Then run:
 
 ```bash
 node --input-type=module -e "

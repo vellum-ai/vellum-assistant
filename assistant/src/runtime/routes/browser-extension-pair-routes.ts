@@ -41,6 +41,9 @@
  *                 messaging helper validates.
  */
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { findGuardianForChannel } from "../../contacts/contact-store.js";
 import { getLogger } from "../../util/logger.js";
 import { mintHostBrowserCapability } from "../capability-tokens.js";
@@ -91,25 +94,56 @@ export type PairServerContext = {
   ): { address: string; family: string; port: number } | null;
 };
 
+const EXTENSION_ID_REGEX = /^[a-p]{32}$/;
+const ALLOWLIST_CONFIG_PATH = resolve(
+  import.meta.dir,
+  "..",
+  "..",
+  "..",
+  "..",
+  "meta",
+  "browser-extension",
+  "chrome-extension-allowlist.json",
+);
+
+type ChromeExtensionAllowlistConfig = {
+  version: number;
+  allowedExtensionIds: string[];
+};
+
+function loadAllowedExtensionOrigins(): ReadonlySet<string> {
+  try {
+    const raw = readFileSync(ALLOWLIST_CONFIG_PATH, "utf8");
+    const parsed = JSON.parse(raw) as Partial<ChromeExtensionAllowlistConfig>;
+    if (!Array.isArray(parsed.allowedExtensionIds)) {
+      throw new Error("allowedExtensionIds is not an array");
+    }
+    const origins = parsed.allowedExtensionIds
+      .filter((id): id is string => typeof id === "string")
+      .filter((id) => EXTENSION_ID_REGEX.test(id))
+      .map((id) => `chrome-extension://${id}/`);
+    if (origins.length === 0) {
+      throw new Error("allowedExtensionIds has no valid extension ids");
+    }
+    return new Set<string>(origins);
+  } catch (err) {
+    log.error(
+      {
+        err,
+        allowlistConfigPath: ALLOWLIST_CONFIG_PATH,
+      },
+      "Failed to load Chrome extension allowlist config; pairing will reject all origins",
+    );
+    return new Set<string>();
+  }
+}
+
 /**
- * Hard-coded allowlist of chrome extension origins permitted to request a
- * capability token. Mirrors the placeholder id used by the native messaging
- * helper at `clients/chrome-extension-native-host/src/index.ts`
- * (`ALLOWED_EXTENSION_IDS`) and the macOS installer at
- * `clients/macos/vellum-assistant/App/AppDelegate+NativeMessaging.swift`
- * (`devPlaceholderId`). All three must agree for the dev pair flow to work
- * end-to-end — the
- * `assistant/src/__tests__/extension-id-sync-guard.test.ts` sync guard
- * will fail if any of the three drifts out of sync, so update them
- * together before release.
+ * Allowlist of chrome extension origins permitted to request a capability
+ * token. Loaded from the canonical config at
+ * `meta/browser-extension/chrome-extension-allowlist.json`.
  */
-export const ALLOWED_EXTENSION_ORIGINS: ReadonlySet<string> = new Set<string>([
-  // Dev placeholder — replaced when the unpacked extension is loaded locally.
-  // SYNC: update alongside the native host and macOS installer constants
-  // (see extension-id-sync-guard.test.ts). TODO: production chrome extension
-  // id before release.
-  "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
-]);
+export const ALLOWED_EXTENSION_ORIGINS = loadAllowedExtensionOrigins();
 
 /**
  * Reset the dedicated pair-endpoint rate limiter. Exported for tests

@@ -15,6 +15,11 @@ import XCTest
 /// exercise the internal testable overloads that accept both the
 /// home directory and the file manager explicitly.
 final class NativeMessagingInstallerTests: XCTestCase {
+    private let placeholderExtensionId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    private var placeholderAllowedOrigin: String {
+        "chrome-extension://\(placeholderExtensionId)/"
+    }
+
     private var tempDir: URL!
     private var mockHome: URL!
     private var helperBinaryUrl: URL!
@@ -55,7 +60,7 @@ final class NativeMessagingInstallerTests: XCTestCase {
     func testInstallWritesManifestWithExpectedStructure() throws {
         try NativeMessagingInstaller.installChromeManifest(
             helperBinaryPath: helperBinaryUrl,
-            extensionId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            extensionId: placeholderExtensionId,
             homeDirectory: mockHome,
             fileManager: .default
         )
@@ -80,13 +85,13 @@ final class NativeMessagingInstallerTests: XCTestCase {
         XCTAssertEqual(parsed["path"] as? String, helperBinaryUrl.path)
 
         let origins = try XCTUnwrap(parsed["allowed_origins"] as? [String])
-        XCTAssertEqual(origins, ["chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"])
+        XCTAssertEqual(origins, [placeholderAllowedOrigin])
     }
 
     func testInstallSetsManifestPermissionsTo0o644() throws {
         try NativeMessagingInstaller.installChromeManifest(
             helperBinaryPath: helperBinaryUrl,
-            extensionId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            extensionId: placeholderExtensionId,
             homeDirectory: mockHome,
             fileManager: .default
         )
@@ -110,7 +115,7 @@ final class NativeMessagingInstallerTests: XCTestCase {
 
         try NativeMessagingInstaller.installChromeManifest(
             helperBinaryPath: helperBinaryUrl,
-            extensionId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            extensionId: placeholderExtensionId,
             homeDirectory: mockHome,
             fileManager: .default
         )
@@ -141,7 +146,7 @@ final class NativeMessagingInstallerTests: XCTestCase {
         // Re-install with the canonical helper binary and placeholder id.
         try NativeMessagingInstaller.installChromeManifest(
             helperBinaryPath: helperBinaryUrl,
-            extensionId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            extensionId: placeholderExtensionId,
             homeDirectory: mockHome,
             fileManager: .default
         )
@@ -161,7 +166,7 @@ final class NativeMessagingInstallerTests: XCTestCase {
         )
         XCTAssertEqual(
             parsed["allowed_origins"] as? [String],
-            ["chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"],
+            [placeholderAllowedOrigin],
             "second install should overwrite the stale allowed_origins"
         )
     }
@@ -172,7 +177,7 @@ final class NativeMessagingInstallerTests: XCTestCase {
         XCTAssertThrowsError(
             try NativeMessagingInstaller.installChromeManifest(
                 helperBinaryPath: missingBinary,
-                extensionId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                extensionId: placeholderExtensionId,
                 homeDirectory: mockHome,
                 fileManager: .default
             )
@@ -200,7 +205,7 @@ final class NativeMessagingInstallerTests: XCTestCase {
     func testUninstallRemovesManifest() throws {
         try NativeMessagingInstaller.installChromeManifest(
             helperBinaryPath: helperBinaryUrl,
-            extensionId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            extensionId: placeholderExtensionId,
             homeDirectory: mockHome,
             fileManager: .default
         )

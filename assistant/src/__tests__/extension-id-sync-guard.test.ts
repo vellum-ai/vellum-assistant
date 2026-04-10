@@ -1,115 +1,155 @@
 /**
- * Sync guard: the dev placeholder chrome extension id is referenced
- * from three coupled files that MUST be updated in lockstep:
+ * Guard tests for Chrome extension allowlist configuration.
  *
- *   - assistant/src/runtime/routes/browser-extension-pair-routes.ts
- *     (`ALLOWED_EXTENSION_ORIGINS`)
- *   - clients/chrome-extension-native-host/src/index.ts
- *     (`ALLOWED_EXTENSION_IDS`)
- *   - clients/macos/vellum-assistant/App/AppDelegate+NativeMessaging.swift
- *     (`ChromeExtensionAllowlist.devPlaceholderId`)
+ * Single source of truth:
+ *   meta/browser-extension/chrome-extension-allowlist.json
  *
- * If any single file is updated without the other two, the self-hosted
- * pair flow breaks silently: the native host rejects the extension
- * origin, the assistant's pair route rejects the request, or the macOS
- * installer writes a stale `allowed_origins` entry to the native
- * messaging manifest.
- *
- * Before releasing the extension publicly, all three references must
- * flip from the dev placeholder (`aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`) to
- * the real production id at the same time. This test fails the moment
- * any single reference drifts out of sync, forcing the update to span
- * all three files (and catches accidental divergence between them).
+ * This guard ensures:
+ *   1) Canonical config has a valid shape and valid extension IDs.
+ *   2) Assistant runtime allowlist mirrors canonical config.
+ *   3) The concrete extension ID literal appears only in canonical config
+ *      (not duplicated across runtime/tests/docs).
  */
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { describe, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
+
+import { ALLOWED_EXTENSION_ORIGINS } from "../runtime/routes/browser-extension-pair-routes.js";
 
 const repoRoot = resolve(__dirname, "..", "..", "..");
+const CANONICAL_CONFIG_REL_PATH =
+  "meta/browser-extension/chrome-extension-allowlist.json";
+const CANONICAL_CONFIG_ABS_PATH = join(repoRoot, CANONICAL_CONFIG_REL_PATH);
 
-const COUPLED_FILES: ReadonlyArray<string> = [
-  "assistant/src/runtime/routes/browser-extension-pair-routes.ts",
-  "clients/chrome-extension-native-host/src/index.ts",
-  "clients/macos/vellum-assistant/App/AppDelegate+NativeMessaging.swift",
-];
+const EXTENSION_ID_REGEX = /^[a-p]{32}$/;
 
-/**
- * The shared dev placeholder extension id. Must match the literal
- * embedded in each of the coupled files above.
- */
-const DEV_PLACEHOLDER_ID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+type AllowlistConfig = {
+  version: number;
+  allowedExtensionIds: string[];
+};
 
-describe("dev extension ID sync guard", () => {
-  test("all three coupled files reference the same dev placeholder id", () => {
-    const mismatches: Array<{ file: string; reason: string }> = [];
+function parseCanonicalConfig(): AllowlistConfig {
+  const raw = readFileSync(CANONICAL_CONFIG_ABS_PATH, "utf8");
+  const parsed = JSON.parse(raw) as Partial<AllowlistConfig>;
 
-    for (const relPath of COUPLED_FILES) {
-      const absPath = join(repoRoot, relPath);
-      let content: string;
-      try {
-        content = readFileSync(absPath, "utf8");
-      } catch (err) {
-        mismatches.push({
-          file: relPath,
-          reason: `could not read: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        });
+  if (!Number.isInteger(parsed.version) || (parsed.version ?? 0) <= 0) {
+    throw new Error("Invalid canonical config: version must be a positive integer");
+  }
+
+  if (!Array.isArray(parsed.allowedExtensionIds)) {
+    throw new Error("Invalid canonical config: allowedExtensionIds must be an array");
+  }
+
+  if (parsed.allowedExtensionIds.length === 0) {
+    throw new Error(
+      "Invalid canonical config: allowedExtensionIds must contain at least one id",
+    );
+  }
+
+  const seen = new Set<string>();
+  for (const id of parsed.allowedExtensionIds) {
+    if (typeof id !== "string" || !EXTENSION_ID_REGEX.test(id)) {
+      throw new Error(`Invalid canonical extension id: ${String(id)}`);
+    }
+    if (seen.has(id)) {
+      throw new Error(`Duplicate canonical extension id: ${id}`);
+    }
+    seen.add(id);
+  }
+
+  return {
+    version: parsed.version as number,
+    allowedExtensionIds: parsed.allowedExtensionIds as string[],
+  };
+}
+
+function listTextFilesRecursively(root: string): string[] {
+  const ignoredDirs = new Set([
+    ".git",
+    "node_modules",
+    "dist",
+    "build",
+    "coverage",
+    ".next",
+    ".turbo",
+    ".idea",
+    ".vscode",
+  ]);
+
+  const allowedExtensions = new Set([
+    ".ts",
+    ".tsx",
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".cjs",
+    ".json",
+    ".md",
+    ".swift",
+    ".sh",
+    ".toml",
+    ".yml",
+    ".yaml",
+    ".txt",
+  ]);
+
+  const out: string[] = [];
+
+  function walk(dir: string): void {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name.startsWith(".DS_Store")) continue;
+      const absPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (ignoredDirs.has(entry.name)) continue;
+        walk(absPath);
         continue;
       }
-      if (!content.includes(DEV_PLACEHOLDER_ID)) {
-        mismatches.push({
-          file: relPath,
-          reason: `does not contain the dev placeholder id '${DEV_PLACEHOLDER_ID}'`,
-        });
-      }
-    }
+      if (!entry.isFile()) continue;
 
-    if (mismatches.length > 0) {
-      const lines = mismatches
-        .map((m) => `  - ${m.file}: ${m.reason}`)
-        .join("\n");
-      throw new Error(
-        `Dev chrome extension id sync guard failed. All of ${JSON.stringify(
-          COUPLED_FILES,
-        )} must contain the shared id '${DEV_PLACEHOLDER_ID}':\n${lines}\n\n` +
-          `If you are rotating to the production extension id, update all three files ` +
-          `AND update DEV_PLACEHOLDER_ID in this test at the same time.`,
-      );
+      const ext = entry.name.slice(entry.name.lastIndexOf("."));
+      if (!allowedExtensions.has(ext)) continue;
+
+      // Skip large files to keep this guard lightweight.
+      const size = statSync(absPath).size;
+      if (size > 1_000_000) continue;
+      out.push(absPath);
     }
+  }
+
+  walk(root);
+  return out;
+}
+
+describe("Chrome extension allowlist guard", () => {
+  test("canonical allowlist config is valid", () => {
+    const config = parseCanonicalConfig();
+    expect(config.version).toBeGreaterThan(0);
+    expect(config.allowedExtensionIds.length).toBeGreaterThan(0);
   });
 
-  test("the shared id is referenced at least once in each file (not just in a comment)", () => {
-    // Stronger assertion: make sure the id appears as part of a string
-    // literal (not purely in a stale comment). We look for common
-    // string-literal quoting markers adjacent to the id.
-    const quotingRegexes: ReadonlyArray<RegExp> = [
-      new RegExp(`"${DEV_PLACEHOLDER_ID}"`),
-      new RegExp(`'${DEV_PLACEHOLDER_ID}'`),
-      new RegExp(`\`${DEV_PLACEHOLDER_ID}\``),
-      // Allow it to appear inside a chrome-extension URL literal too.
-      new RegExp(`"chrome-extension://${DEV_PLACEHOLDER_ID}/"`),
-      new RegExp(`'chrome-extension://${DEV_PLACEHOLDER_ID}/'`),
-    ];
+  test("assistant runtime allowlist mirrors canonical config", () => {
+    const config = parseCanonicalConfig();
+    const expectedOrigins = new Set(
+      config.allowedExtensionIds.map((id) => `chrome-extension://${id}/`),
+    );
+    expect(ALLOWED_EXTENSION_ORIGINS).toEqual(expectedOrigins);
+  });
 
-    const missing: string[] = [];
-    for (const relPath of COUPLED_FILES) {
-      const absPath = join(repoRoot, relPath);
-      const content = readFileSync(absPath, "utf8");
-      const hasStringLiteral = quotingRegexes.some((re) => re.test(content));
-      if (!hasStringLiteral) {
-        missing.push(relPath);
+  test("concrete extension IDs appear only in canonical config", () => {
+    const config = parseCanonicalConfig();
+    const allFiles = listTextFilesRecursively(repoRoot);
+
+    for (const extensionId of config.allowedExtensionIds) {
+      const matches: string[] = [];
+      for (const absPath of allFiles) {
+        const relPath = absPath.replace(`${repoRoot}/`, "");
+        const content = readFileSync(absPath, "utf8");
+        if (content.includes(extensionId)) {
+          matches.push(relPath);
+        }
       }
-    }
-
-    if (missing.length > 0) {
-      throw new Error(
-        `The following files reference the dev placeholder id only in ` +
-          `comments — it should appear as a live string literal ` +
-          `(the runtime allowlist entry), not just in documentation: ` +
-          `${JSON.stringify(missing)}`,
-      );
+      expect(matches).toEqual([CANONICAL_CONFIG_REL_PATH]);
     }
   });
 });

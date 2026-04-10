@@ -17,7 +17,7 @@
  */
 
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { AddressInfo } from "node:net";
 import { dirname, resolve } from "node:path";
@@ -40,10 +40,31 @@ const __dirname = dirname(__filename);
  * `bun run build` hasn't been invoked in the native-host package yet.
  */
 const HELPER_BINARY = resolve(__dirname, "../../dist/index.js");
+const REPO_ROOT = resolve(__dirname, "../../../../");
 
 const HELPER_EXISTS = existsSync(HELPER_BINARY);
 
-const ALLOWED_ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/";
+function getAllowedOriginFromCanonicalConfig(): string {
+  const raw = readFileSync(
+    resolve(
+      REPO_ROOT,
+      "meta/browser-extension/chrome-extension-allowlist.json",
+    ),
+    "utf8",
+  );
+  const parsed = JSON.parse(raw) as {
+    allowedExtensionIds?: string[];
+  };
+  const firstId = parsed.allowedExtensionIds?.[0];
+  if (!firstId) {
+    throw new Error(
+      "chrome-extension-allowlist.json must include at least one extension id for tests",
+    );
+  }
+  return `chrome-extension://${firstId}/`;
+}
+
+const ALLOWED_ORIGIN = getAllowedOriginFromCanonicalConfig();
 const DISALLOWED_ORIGIN =
   "chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/";
 

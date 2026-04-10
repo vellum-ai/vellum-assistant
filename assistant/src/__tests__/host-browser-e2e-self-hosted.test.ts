@@ -45,7 +45,10 @@ import {
   setCapabilityTokenSecretForTests,
   verifyHostBrowserCapability,
 } from "../runtime/capability-tokens.js";
-import { handleBrowserExtensionPair } from "../runtime/routes/browser-extension-pair-routes.js";
+import {
+  ALLOWED_EXTENSION_ORIGINS,
+  handleBrowserExtensionPair,
+} from "../runtime/routes/browser-extension-pair-routes.js";
 
 // ---------------------------------------------------------------------------
 // Native helper binary discovery + skip guard
@@ -76,7 +79,15 @@ function resolveHelperBinary(): string {
 const HELPER_BINARY = resolveHelperBinary();
 const HELPER_EXISTS = existsSync(HELPER_BINARY);
 
-const ALLOWED_ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/";
+const ALLOWED_ORIGIN = (() => {
+  const first = Array.from(ALLOWED_EXTENSION_ORIGINS)[0];
+  if (!first) {
+    throw new Error(
+      "ALLOWED_EXTENSION_ORIGINS must contain at least one extension origin for tests",
+    );
+  }
+  return first;
+})();
 
 const SKIP_REASON =
   "clients/chrome-extension-native-host/dist/index.js is missing — run `bun run build` in that package to enable the E2E smoke test.";

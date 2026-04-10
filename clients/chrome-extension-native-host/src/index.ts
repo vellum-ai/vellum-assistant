@@ -34,7 +34,8 @@
 
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { decodeFrames, encodeFrame, FrameDecodeError } from "./protocol.js";
 
@@ -42,23 +43,52 @@ import { decodeFrames, encodeFrame, FrameDecodeError } from "./protocol.js";
  * Allowlist of Chrome extension IDs that are permitted to spawn this helper.
  *
  * Chrome passes the calling extension's origin as the first positional
- * argument, e.g. `chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/`.
+ * argument, e.g. `chrome-extension://<extension-id>/`.
  * Anything not on this list is rejected before any further processing.
  *
- * Must agree with `ALLOWED_EXTENSION_ORIGINS` in
- * `assistant/src/runtime/routes/browser-extension-pair-routes.ts` and
- * `devPlaceholderId` in
- * `clients/macos/vellum-assistant/App/AppDelegate+NativeMessaging.swift`.
- * The sync guard at `assistant/src/__tests__/extension-id-sync-guard.test.ts`
- * fails CI if any of the three drifts out of sync.
+ * Loaded from the canonical config at
+ * `meta/browser-extension/chrome-extension-allowlist.json`.
  */
-const ALLOWED_EXTENSION_IDS: ReadonlySet<string> = new Set<string>([
-  // Dev placeholder — replaced when the unpacked extension is loaded locally.
-  // SYNC: update alongside the assistant pair route and macOS installer
-  // constants (see extension-id-sync-guard.test.ts).
-  // TODO: production id before release
-  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-]);
+const EXTENSION_ID_REGEX = /^[a-p]{32}$/;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const ALLOWLIST_CONFIG_PATH = resolve(
+  __dirname,
+  "..",
+  "..",
+  "..",
+  "meta",
+  "browser-extension",
+  "chrome-extension-allowlist.json",
+);
+
+function loadAllowedExtensionIds(): ReadonlySet<string> {
+  try {
+    const raw = readFileSync(ALLOWLIST_CONFIG_PATH, "utf8");
+    const parsed = JSON.parse(raw) as {
+      allowedExtensionIds?: unknown;
+    };
+    if (!Array.isArray(parsed.allowedExtensionIds)) {
+      throw new Error("allowedExtensionIds is not an array");
+    }
+    const ids = parsed.allowedExtensionIds
+      .filter((id): id is string => typeof id === "string")
+      .filter((id) => EXTENSION_ID_REGEX.test(id));
+    if (ids.length === 0) {
+      throw new Error("allowedExtensionIds has no valid extension ids");
+    }
+    return new Set<string>(ids);
+  } catch (err) {
+    process.stderr.write(
+      `vellum-chrome-native-host: failed to load allowlist config at ${ALLOWLIST_CONFIG_PATH}: ${
+        err instanceof Error ? err.message : String(err)
+      }\n`,
+    );
+    return new Set<string>();
+  }
+}
+
+const ALLOWED_EXTENSION_IDS: ReadonlySet<string> = loadAllowedExtensionIds();
 
 const DEFAULT_ASSISTANT_PORT = 7821;
 const RUNTIME_PORT_FILE = join(homedir(), ".vellum", "runtime-port");
@@ -307,7 +337,7 @@ async function requestToken(
 
 async function main(): Promise<void> {
   // Chrome passes the calling extension's origin (e.g.
-  // `chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/`) as the first
+  // `chrome-extension://<extension-id>/`) as the first
   // positional argument when it spawns the native messaging host.
   //
   // Where that lands in `process.argv` depends on how the manifest's `path`

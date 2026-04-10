@@ -46,7 +46,7 @@ extension AppDelegate {
         do {
             try NativeMessagingInstaller.installChromeManifest(
                 helperBinaryPath: helperBinaryUrl,
-                extensionId: ChromeExtensionAllowlist.devPlaceholderId
+                extensionId: ChromeExtensionAllowlist.primaryId
             )
         } catch {
             // Best-effort: a failing manifest install must not crash
@@ -91,25 +91,72 @@ extension AppDelegate {
     }
 }
 
-/// Hard-coded allowlist of Chrome extension IDs the installer pins
-/// into the manifest's `allowed_origins`. Must stay in lockstep with
-/// `ALLOWED_EXTENSION_IDS` in
-/// `clients/chrome-extension-native-host/src/index.ts` and
-/// `ALLOWED_EXTENSION_ORIGINS` in
-/// `assistant/src/runtime/routes/browser-extension-pair-routes.ts`.
-/// The sync guard at
-/// `assistant/src/__tests__/extension-id-sync-guard.test.ts` fails CI
-/// if any of the three drifts out of sync.
+/// Chrome extension id used when writing the native messaging manifest's
+/// `allowed_origins` entry. Resolved from the canonical config at
+/// `meta/browser-extension/chrome-extension-allowlist.json` when available.
 ///
 /// Kept in a standalone enum so unit tests can reference it without
 /// instantiating `AppDelegate`.
 enum ChromeExtensionAllowlist {
-    /// Dev placeholder id. Matches the single entry currently present
-    /// in the helper binary's allowlist and the assistant's pair route
-    /// allowlist. Replaced before release with the production extension
-    /// id — see the `TODO: production id before release` comment in
-    /// `clients/chrome-extension-native-host/src/index.ts`.
-    // SYNC: update alongside the assistant pair route and native host
-    // constants (see extension-id-sync-guard.test.ts).
-    static let devPlaceholderId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    private static let fallbackPlaceholderId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    private static let extensionIdRegex = try! NSRegularExpression(pattern: "^[a-p]{32}$")
+
+    static var primaryId: String {
+        if let fromEnv = ProcessInfo.processInfo.environment["VELLUM_CHROME_EXTENSION_ID"],
+           isValidExtensionId(fromEnv)
+        {
+            return fromEnv
+        }
+
+        if let fromCanonicalConfig = loadPrimaryIdFromCanonicalConfig() {
+            return fromCanonicalConfig
+        }
+
+        return fallbackPlaceholderId
+    }
+
+    private static func isValidExtensionId(_ value: String) -> Bool {
+        let fullRange = NSRange(value.startIndex..<value.endIndex, in: value)
+        let match = extensionIdRegex.firstMatch(in: value, options: [], range: fullRange)
+        return match != nil
+    }
+
+    private static func loadPrimaryIdFromCanonicalConfig() -> String? {
+        for candidate in canonicalConfigPathCandidates() {
+            guard let data = try? Data(contentsOf: candidate),
+                  let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let ids = raw["allowedExtensionIds"] as? [String],
+                  let first = ids.first,
+                  isValidExtensionId(first)
+            else {
+                continue
+            }
+            return first
+        }
+        return nil
+    }
+
+    private static func canonicalConfigPathCandidates() -> [URL] {
+        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+        let fromCwd = cwd
+            .appendingPathComponent("meta", isDirectory: true)
+            .appendingPathComponent("browser-extension", isDirectory: true)
+            .appendingPathComponent("chrome-extension-allowlist.json", isDirectory: false)
+
+        let sourceFile = URL(fileURLWithPath: #filePath, isDirectory: false)
+        // #filePath points at:
+        // .../clients/macos/vellum-assistant/App/AppDelegate+NativeMessaging.swift
+        // so climbing 5 levels lands at repo root.
+        let fromSource = sourceFile
+            .deletingLastPathComponent() // App
+            .deletingLastPathComponent() // vellum-assistant
+            .deletingLastPathComponent() // macos
+            .deletingLastPathComponent() // clients
+            .deletingLastPathComponent() // repo root
+            .appendingPathComponent("meta", isDirectory: true)
+            .appendingPathComponent("browser-extension", isDirectory: true)
+            .appendingPathComponent("chrome-extension-allowlist.json", isDirectory: false)
+
+        return [fromCwd, fromSource]
+    }
 }
