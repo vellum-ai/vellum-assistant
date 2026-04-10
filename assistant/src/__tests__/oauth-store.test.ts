@@ -592,6 +592,38 @@ describe("provider operations", () => {
       expect(row!.tokenEndpointAuthMethod).toBe("client_secret_post");
     });
 
+    test("defaults tokenExchangeBodyFormat to 'form' when omitted from seed", () => {
+      seedProviders([
+        {
+          provider: "no-body-format-provider",
+          authorizeUrl: "https://example.com/authorize",
+          tokenExchangeUrl: "https://example.com/token",
+          defaultScopes: [],
+          scopePolicy: {},
+          // Note: tokenExchangeBodyFormat intentionally omitted
+        },
+      ]);
+      const row = getProvider("no-body-format-provider");
+      expect(row).toBeDefined();
+      expect(row!.tokenExchangeBodyFormat).toBe("form");
+    });
+
+    test("persists explicit tokenExchangeBodyFormat value on seed", () => {
+      seedProviders([
+        {
+          provider: "json-body-format-provider",
+          authorizeUrl: "https://example.com/authorize",
+          tokenExchangeUrl: "https://example.com/token",
+          defaultScopes: [],
+          scopePolicy: {},
+          tokenExchangeBodyFormat: "json",
+        },
+      ]);
+      const row = getProvider("json-body-format-provider");
+      expect(row).toBeDefined();
+      expect(row!.tokenExchangeBodyFormat).toBe("json");
+    });
+
     test("migration 216 backfills NULL token_endpoint_auth_method to client_secret_post", () => {
       // Use raw SQLite to bypass Drizzle's NOT NULL enforcement and insert
       // a legacy-shaped row with NULL token_endpoint_auth_method.
@@ -811,6 +843,33 @@ describe("provider operations", () => {
         tokenEndpointAuthMethod: "client_secret_basic",
       });
       expect(row.tokenEndpointAuthMethod).toBe("client_secret_basic");
+    });
+
+    test("defaults tokenExchangeBodyFormat to 'form' when omitted", () => {
+      const row = registerProvider({
+        provider: "no-body-format-test",
+        authorizeUrl: "https://example.com/authorize",
+        tokenExchangeUrl: "https://example.com/token",
+        defaultScopes: [],
+        scopePolicy: {},
+        // Note: tokenExchangeBodyFormat intentionally omitted
+      });
+      expect(row.tokenExchangeBodyFormat).toBe("form");
+
+      const fetched = getProvider("no-body-format-test");
+      expect(fetched!.tokenExchangeBodyFormat).toBe("form");
+    });
+
+    test("persists explicit tokenExchangeBodyFormat 'json' when registering a provider", () => {
+      const row = registerProvider({
+        provider: "json-body-format-test",
+        authorizeUrl: "https://example.com/authorize",
+        tokenExchangeUrl: "https://example.com/token",
+        defaultScopes: [],
+        scopePolicy: {},
+        tokenExchangeBodyFormat: "json",
+      });
+      expect(row.tokenExchangeBodyFormat).toBe("json");
     });
 
     test("stores logoUrl when provided", () => {
@@ -1057,6 +1116,32 @@ describe("provider operations", () => {
 
       const row = getProvider("update-empty-test");
       expect(row!.tokenEndpointAuthMethod).toBe("client_secret_post");
+    });
+
+    test("coerces empty string tokenExchangeBodyFormat to 'form'", () => {
+      seedProviders([
+        {
+          provider: "update-empty-body-format-test",
+          authorizeUrl: "https://example.com/authorize",
+          tokenExchangeUrl: "https://example.com/token",
+          tokenExchangeBodyFormat: "json",
+          defaultScopes: [],
+          scopePolicy: {},
+        },
+      ]);
+
+      expect(
+        getProvider("update-empty-body-format-test")!.tokenExchangeBodyFormat,
+      ).toBe("json");
+
+      const updated = updateProvider("update-empty-body-format-test", {
+        tokenExchangeBodyFormat: "",
+      });
+      expect(updated).toBeDefined();
+      expect(updated!.tokenExchangeBodyFormat).toBe("form");
+
+      const row = getProvider("update-empty-body-format-test");
+      expect(row!.tokenExchangeBodyFormat).toBe("form");
     });
 
     test("sets logoUrl on an existing row where it was previously null", () => {
