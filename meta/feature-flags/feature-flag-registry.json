@@ -312,6 +312,14 @@
       "label": "Managed Gemini Embeddings Enabled",
       "description": "Route embedding requests through the platform runtime proxy using Vellum-managed Gemini credentials when available",
       "defaultEnabled": false
+    },
+    {
+      "id": "fork-from-message",
+      "scope": "macos",
+      "key": "fork-from-message",
+      "label": "Fork from Message",
+      "description": "Show the 'Fork from here' option in message overflow menus",
+      "defaultEnabled": false
     }
   ]
 }
