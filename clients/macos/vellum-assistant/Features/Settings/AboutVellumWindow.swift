@@ -86,19 +86,19 @@ struct AboutVellumView: View {
             // Metadata: commit SHA + architecture in a compact single line
             metadataRow
 
-            // Debug build info
-            #if DEBUG
-            VStack(spacing: VSpacing.xs) {
-                Text("Local Development Build")
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.systemMidStrong)
-                Text(Bundle.main.bundlePath.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentTertiary)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
+            // Environment label (omitted in production)
+            if let envLabel = VellumEnvironment.current.displayLabel {
+                VStack(spacing: VSpacing.xs) {
+                    Text(envLabel)
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.systemMidStrong)
+                    Text(Bundle.main.bundlePath.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                }
             }
-            #endif
 
             // Check for Updates button — handles check in-place
             VButton(

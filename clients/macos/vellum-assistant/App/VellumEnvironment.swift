@@ -19,6 +19,18 @@ enum VellumEnvironment: String {
         return VellumEnvironment(rawValue: raw) ?? .production
     }()
 
+    /// Human-readable label for display in the About panel.
+    /// Returns `nil` for production so callers can omit the label entirely.
+    var displayLabel: String? {
+        switch self {
+        case .local: return "Local"
+        case .dev: return "Dev"
+        case .test: return "Test"
+        case .staging: return "Staging"
+        case .production: return nil
+        }
+    }
+
     /// The Vellum platform API base URL for this environment.
     var platformURL: String {
         switch self {
