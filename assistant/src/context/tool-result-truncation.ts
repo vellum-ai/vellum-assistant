@@ -3,6 +3,7 @@ import type {
   Message,
   ToolResultContent,
 } from "../providers/types.js";
+import { safeStringSlice } from "../util/unicode.js";
 
 /**
  * Maximum share of the context window that a single tool result may occupy.
@@ -53,7 +54,7 @@ export function truncateToolResultText(text: string, maxChars: number): string {
     return text;
   }
 
-  return text.slice(0, sliceEnd) + TRUNCATION_SUFFIX;
+  return safeStringSlice(text, 0, sliceEnd) + TRUNCATION_SUFFIX;
 }
 
 /**

@@ -294,3 +294,50 @@ describe("derefToolResultReReads", () => {
     expect(b2.content).toBe("normal read content"); // unchanged
   });
 });
+
+function hasOrphanedSurrogate(str: string): boolean {
+  for (let i = 0; i < str.length; i++) {
+    const code = str.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = i + 1 < str.length ? str.charCodeAt(i + 1) : 0;
+      if (next < 0xdc00 || next > 0xdfff) return true;
+      i++;
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      return true;
+    }
+  }
+  return false;
+}
+
+describe("buildTruncatedContent surrogate-pair safety", () => {
+  const EMOJI = "\uD83C\uDF89";
+  const half = Math.floor(TARGET_CHARS / 2);
+
+  test("does not orphan a surrogate pair at the prefix cut boundary", () => {
+    // Put the emoji so its high surrogate lands exactly at position half - 1.
+    // The naive slice(0, half) would cut the pair in half.
+    const prefix = "a".repeat(half - 1);
+    const filler = "b".repeat(10_000);
+    const original = prefix + EMOJI + filler;
+    const result = buildTruncatedContent(original, "/tmp/fake");
+    expect(hasOrphanedSurrogate(result)).toBe(false);
+    expect(() => JSON.stringify(result)).not.toThrow();
+  });
+
+  test("does not orphan a surrogate pair at the suffix cut boundary", () => {
+    // Put the emoji so its low surrogate lands exactly at position
+    // original.length - half (the start of the suffix slice). Naive
+    // slice(-half) would start mid-pair and leave a lone low surrogate.
+    const head = "a".repeat(10_000);
+    const suffixTail = "b".repeat(half - 1);
+    // head + EMOJI (2 code units) + suffixTail has length
+    // 10_000 + 2 + (half - 1). The suffix starts at length - half, which
+    // equals 10_000 + 2 + (half - 1) - half = 10_001. That lands on the
+    // low surrogate of the emoji (emoji starts at position 10_000, high at
+    // 10_000, low at 10_001). Exactly the orphan case.
+    const original = head + EMOJI + suffixTail;
+    const result = buildTruncatedContent(original, "/tmp/fake");
+    expect(hasOrphanedSurrogate(result)).toBe(false);
+    expect(() => JSON.stringify(result)).not.toThrow();
+  });
+});

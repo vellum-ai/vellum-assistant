@@ -6,6 +6,7 @@ import type {
   Provider,
 } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
+import { safeStringSlice } from "../util/unicode.js";
 import {
   estimateContentBlockTokens,
   estimatePromptTokens,
@@ -752,7 +753,7 @@ export class ContextWindowManager {
     // Budget in tokens → approximate char limit (4 chars ≈ 1 token).
     const maxChars = this.summaryMaxTokens * 4;
     if (summary.length <= maxChars) return summary;
-    return `${summary.slice(0, maxChars)}...`;
+    return `${safeStringSlice(summary, 0, maxChars)}...`;
   }
 }
 
@@ -1025,7 +1026,7 @@ function serializeBlock(block: ContentBlock): string {
 
 function clampText(text: string): string {
   if (text.length <= MAX_BLOCK_PREVIEW_CHARS) return text;
-  return `${text.slice(0, MAX_BLOCK_PREVIEW_CHARS)}... [truncated ${
+  return `${safeStringSlice(text, 0, MAX_BLOCK_PREVIEW_CHARS)}... [truncated ${
     text.length - MAX_BLOCK_PREVIEW_CHARS
   } chars]`;
 }

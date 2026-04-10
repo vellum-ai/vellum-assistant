@@ -11,6 +11,20 @@ import {
 } from "../context/tool-result-truncation.js";
 import type { ContentBlock, ToolResultContent } from "../providers/types.js";
 
+function hasOrphanedSurrogate(str: string): boolean {
+  for (let i = 0; i < str.length; i++) {
+    const code = str.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = i + 1 < str.length ? str.charCodeAt(i + 1) : 0;
+      if (next < 0xdc00 || next > 0xdfff) return true;
+      i++;
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -99,6 +113,28 @@ describe("truncateToolResultText", () => {
     // Should return original text unchanged — no suffix appended
     expect(result).toBe(text);
     expect(result).not.toContain(TRUNCATION_SUFFIX);
+  });
+
+  test("does not orphan a UTF-16 surrogate pair at the cut boundary", () => {
+    // Regression for the "no low surrogate in string" Anthropic 400 error.
+    // Build a string where the cut point lands inside a surrogate pair:
+    // 4999 padding chars, then an emoji (2 code units), then enough filler
+    // to push the cut inside the pair.
+    const EMOJI = "\uD83C\uDF89";
+    // maxChars = 5_000, so cutPoint = 5_000 - TRUNCATION_SUFFIX.length.
+    // Put the emoji so its high surrogate lands exactly at cutPoint - 1.
+    const maxChars = 5_000;
+    const cutPoint = maxChars - TRUNCATION_SUFFIX.length;
+    // Fill up to cutPoint - 1 with "a"s, then place the emoji so the high
+    // surrogate is the character at cutPoint - 1 and the low is at cutPoint.
+    const prefix = "a".repeat(cutPoint - 1);
+    const text = prefix + EMOJI + "b".repeat(100);
+    // Use a long filler with no newlines so lastIndexOf("\n", cutPoint) === -1
+    // and the function falls back to cutPoint itself.
+    const result = truncateToolResultText(text, maxChars);
+    expect(hasOrphanedSurrogate(result)).toBe(false);
+    // JSON.stringify must not throw on the result.
+    expect(() => JSON.stringify(result)).not.toThrow();
   });
 });
 
