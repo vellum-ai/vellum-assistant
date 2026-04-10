@@ -98,6 +98,35 @@ function assertLoopback(host: string): void {
 }
 
 /**
+ * Validate that a `webSocketDebuggerUrl` points to a loopback host.
+ *
+ * Chrome returns this URL in `/json/version` and `/json/list` responses.
+ * A rogue responder on the loopback port could return a ws:// URL
+ * pointing to an attacker-controlled host, tricking the client into
+ * opening a cross-origin WebSocket. This check ensures the hostname
+ * extracted from the URL is in the {@link LOOPBACK_HOSTS} allowlist.
+ */
+function assertWsUrlLoopback(wsUrl: string): void {
+  let url: URL;
+  try {
+    url = new URL(wsUrl);
+  } catch {
+    throw new DevToolsDiscoveryError(
+      "invalid_response",
+      `webSocketDebuggerUrl is not a valid URL: ${wsUrl}`,
+    );
+  }
+
+  const hostname = url.hostname.toLowerCase();
+  if (!LOOPBACK_HOSTS.has(hostname)) {
+    throw new DevToolsDiscoveryError(
+      "non_loopback",
+      `webSocketDebuggerUrl host "${url.hostname}" is not loopback. A rogue responder may be redirecting the connection.`,
+    );
+  }
+}
+
+/**
  * Build a fetch-ready loopback URL. `host` is assumed to have already
  * been validated by {@link assertLoopback}. IPv6 bare form (`::1`) is
  * wrapped in square brackets for URL correctness.
@@ -396,6 +425,8 @@ export async function probeDevToolsJsonVersion(opts: {
     );
   }
 
+  assertWsUrlLoopback(webSocketDebuggerUrl);
+
   return { browser, protocolVersion, webSocketDebuggerUrl };
 }
 
@@ -486,6 +517,12 @@ export async function listDevToolsTargets(opts: {
       "webSocketDebuggerUrl",
     );
     if (!webSocketDebuggerUrl) continue;
+
+    try {
+      assertWsUrlLoopback(webSocketDebuggerUrl);
+    } catch {
+      continue;
+    }
 
     const id = readStringField(record, "id") ?? "";
     const title = readStringField(record, "title") ?? "";

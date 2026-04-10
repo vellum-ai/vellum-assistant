@@ -297,6 +297,59 @@ describe("probeDevToolsJsonVersion — parsing", () => {
 });
 
 // ---------------------------------------------------------------------------
+// probeDevToolsJsonVersion — webSocketDebuggerUrl loopback validation.
+// ---------------------------------------------------------------------------
+
+describe("probeDevToolsJsonVersion — webSocketDebuggerUrl loopback", () => {
+  let fake: FakeDevTools;
+
+  beforeEach(() => {
+    fake = startFakeDevTools();
+  });
+
+  afterEach(() => {
+    fake.stop();
+  });
+
+  test("rejects when webSocketDebuggerUrl host is not loopback", async () => {
+    fake.setHandler(() =>
+      chromeVersionResponse({
+        webSocketDebuggerUrl: "ws://evil.com/devtools/browser/abc",
+      }),
+    );
+
+    const error = await probeDevToolsJsonVersion({
+      host: "127.0.0.1",
+      port: fake.port,
+      timeoutMs: 2000,
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(DevToolsDiscoveryError);
+    expect((error as DevToolsDiscoveryError).code).toBe("non_loopback");
+    expect((error as DevToolsDiscoveryError).message).toContain("evil.com");
+  });
+
+  test("accepts loopback webSocketDebuggerUrl", async () => {
+    fake.setHandler(() =>
+      chromeVersionResponse({
+        webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser/abc",
+      }),
+    );
+
+    const info = await probeDevToolsJsonVersion({
+      host: "127.0.0.1",
+      port: fake.port,
+      timeoutMs: 2000,
+    });
+
+    expect(info.browser).toContain("Chrome");
+    expect(info.webSocketDebuggerUrl).toBe(
+      "ws://127.0.0.1:9222/devtools/browser/abc",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // probeDevToolsJsonVersion — network-level error paths.
 // ---------------------------------------------------------------------------
 
@@ -573,6 +626,59 @@ describe("listDevToolsTargets", () => {
 
     expect(error).toBeInstanceOf(DevToolsDiscoveryError);
     expect((error as DevToolsDiscoveryError).code).toBe("invalid_response");
+  });
+
+  test("filters out targets with non-loopback webSocketDebuggerUrl", async () => {
+    fake.setHandler(() =>
+      Response.json([
+        {
+          id: "evil",
+          type: "page",
+          title: "Evil Target",
+          url: "https://example.com/evil",
+          webSocketDebuggerUrl: "ws://evil.com/devtools/page/evil",
+        },
+        {
+          id: "good",
+          type: "page",
+          title: "Good Target",
+          url: "https://example.com/good",
+          webSocketDebuggerUrl: "ws://localhost:9222/devtools/page/good",
+        },
+      ]),
+    );
+
+    const targets = await listDevToolsTargets({
+      host: "127.0.0.1",
+      port: fake.port,
+      timeoutMs: 2000,
+    });
+
+    expect(targets).toHaveLength(1);
+    expect(targets[0]!.id).toBe("good");
+  });
+
+  test("throws no_targets when all targets have non-loopback webSocketDebuggerUrl", async () => {
+    fake.setHandler(() =>
+      Response.json([
+        {
+          id: "evil",
+          type: "page",
+          title: "Evil Target",
+          url: "https://example.com/evil",
+          webSocketDebuggerUrl: "ws://evil.com/devtools/page/evil",
+        },
+      ]),
+    );
+
+    const error = await listDevToolsTargets({
+      host: "127.0.0.1",
+      port: fake.port,
+      timeoutMs: 2000,
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(DevToolsDiscoveryError);
+    expect((error as DevToolsDiscoveryError).code).toBe("no_targets");
   });
 });
 
