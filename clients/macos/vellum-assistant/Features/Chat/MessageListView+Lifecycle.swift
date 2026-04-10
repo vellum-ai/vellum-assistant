@@ -155,10 +155,15 @@ extension MessageListView {
         anchorTimeoutTask = nil
         lastAutoFocusedRequestId = nil
         anchorSetTime = nil
+        projectionCache.reset()
         // Position at the content bottom for the new conversation.
-        // .defaultScrollAnchor(.bottom, for: .initialOffset) combined with
-        // .id(conversationId) handles this declaratively — the ScrollView is
-        // destroyed and recreated, starting at the bottom.
+        // .id(conversationId) destroys and recreates the ScrollView.
+        // .defaultScrollAnchor(.bottom, for: .initialOffset) positions
+        // the new instance at the bottom. As a safety net, also issue an
+        // explicit imperative scroll in case the @State ScrollPosition
+        // retains a stale target from the previous conversation that
+        // interferes with the declarative anchor.
+        scrollPosition.scrollTo(edge: .bottom)
     }
 
     func handleAnchorMessageTask() async {

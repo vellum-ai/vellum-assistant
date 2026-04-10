@@ -179,7 +179,9 @@ struct MessageListView: View {
                     - geo.visibleRect.height
                 return dist < 30
             } action: { _, atBottom in
-                isAtBottom = atBottom
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isAtBottom = atBottom
+                }
             }
             // --- Viewport height tracking ---
             .onScrollGeometryChange(for: CGFloat.self) { geo in
