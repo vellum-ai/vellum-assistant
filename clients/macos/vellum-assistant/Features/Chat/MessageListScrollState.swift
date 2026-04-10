@@ -268,6 +268,26 @@ final class MessageListScrollState {
     /// `.followingBottom` and creating a "scroll lock" effect.
     @ObservationIgnored var lastUserInitiatedPinTime: Date?
 
+    /// True when the active assistant turn's `minHeight` frame is applied
+    /// to the last message cell. When set, `executeScrollToBottom` targets
+    /// the `"active-turn-content-bottom"` marker (real content edge) instead
+    /// of `lastMessageId` (whose `.bottom` includes the minHeight padding) —
+    /// but only after the initial push-to-top has completed.
+    @ObservationIgnored var isActiveTurnMinHeightApplied: Bool = false
+
+    /// Set after the first `executeScrollToBottom` fires with `lastMessageId`
+    /// during an active turn. The initial pin uses `lastMessageId` (whose
+    /// `.bottom` includes the minHeight frame) to push the user message to
+    /// the top. Subsequent auto-follow calls use the content-bottom marker
+    /// so `.bottom` targets real content, avoiding visible white space.
+    /// Cleared in `reset()` and when the active turn ends.
+    @ObservationIgnored var hasCompletedInitialPushToTop: Bool = false
+
+    /// Generation counter for `scheduleDeferredEdgeScroll`. Uses its own
+    /// counter (separate from `deferredBottomPinGeneration`) so the two
+    /// deferred mechanisms don't interfere with each other.
+    @ObservationIgnored private var deferredEdgeScrollGeneration: UInt64 = 0
+
     // MARK: - Layout Cache Fields
 
     /// Memoization state intentionally lives outside the observed object so
@@ -621,6 +641,29 @@ final class MessageListScrollState {
         deferredBottomPinGeneration &+= 1
     }
 
+    /// Schedules an edge-based scroll-to-bottom for the next main-queue
+    /// turn. Uses its own generation counter so intervening
+    /// `scheduleDeferredBottomPin` calls (e.g. from `handleMessagesCountChanged`)
+    /// don't consume or cancel it. The edge-based scroll reaches past the
+    /// thinking indicator's `minHeight` to push the user message to the top.
+    func scheduleDeferredEdgeScroll(animated: Bool) {
+        deferredEdgeScrollGeneration &+= 1
+        let generation = deferredEdgeScrollGeneration
+        DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.deferredEdgeScrollGeneration == generation else { return }
+                scrollDiag.debug("scheduleDeferredEdgeScroll: firing (generation matched)")
+                if animated {
+                    withAnimation(VAnimation.fast) {
+                        self.scrollToEdge?(.bottom)
+                    }
+                } else {
+                    self.scrollToEdge?(.bottom)
+                }
+            }
+        }
+    }
+
     // MARK: - Scroll Execution
 
     /// Executes a bottom-pin scroll if the current mode allows it.
@@ -664,20 +707,22 @@ final class MessageListScrollState {
     /// imperative `.scrollTo()` mutating methods on the ScrollPosition
     /// binding — Apple's recommended pattern for programmatic scrolling.
     ///
-    /// **ID-only strategy:** All paths use ID-based scroll targeting
-    /// real ForEach items. Edge-based scroll (`scrollToEdge(.bottom)`)
-    /// is NEVER used when `lastMessageId` is available — it computes
-    /// total content height from LazyVStack estimates, which overshoot
-    /// into blank space for long conversations with unmaterialized
-    /// items. ID-based scroll targets a specific item that SwiftUI can
-    /// locate even when not materialized, so it lands short (showing
-    /// messages) rather than overshooting (showing blank space).
-    /// Each recovery attempt materializes views near the target,
-    /// improving LazyVStack estimates for the next attempt —
-    /// converging monotonically to the actual bottom.
-    ///
-    /// Edge-based scroll is only used as a fallback for empty
-    /// conversations where `lastMessageId == nil`.
+    /// **Scroll target strategy:**
+    /// - **Auto-follow / recovery:** ID-based scroll targeting real
+    ///   ForEach items (`lastMessageId` or the `active-turn-content-bottom`
+    ///   marker). Lands short rather than overshooting; recovery
+    ///   converges monotonically as LazyVStack materializes views.
+    /// - **Initial send (`scheduleDeferredEdgeScroll`):** Edge-based scroll
+    ///   (`scrollToEdge(.bottom)`) to reach past the thinking indicator's
+    ///   `minHeight` — the thinking indicator is outside the ForEach and
+    ///   unreachable by ID-based scroll on `lastMessageId`. Uses its own
+    ///   generation counter so it can't be consumed by intervening
+    ///   `scheduleDeferredBottomPin` calls.
+    /// - **User-initiated CTA:** Edge-based scroll for reliability when
+    ///   the target message is unmaterialized (observed as distBottom=3000+
+    ///   with ID-based scroll on long conversations).
+    /// - **Empty conversation:** Edge-based scroll as fallback when
+    ///   `lastMessageId == nil`.
     ///
     /// - SeeAlso: https://stackoverflow.com/q/79884780 (ScrollPosition unreliable with variable heights)
     /// - SeeAlso: https://developer.apple.com/documentation/swiftui/scrollposition/scrollto(edge:)
@@ -685,8 +730,9 @@ final class MessageListScrollState {
         let path = userInitiated ? "userInitiated" : (forRecovery ? "recovery" : "autoFollow")
         scrollDiag.debug("executeScrollToBottom: path=\(path, privacy: .public) animated=\(animated, privacy: .public) lastMsgId=\(self.lastMessageId?.uuidString ?? "nil", privacy: .public)")
 
-        // ID-based scroll: targets a real ForEach item. Falls back to
-        // edge-based only for empty conversations (lastMessageId == nil).
+        // ID-based scroll for auto-follow/recovery. Edge-based scroll
+        // for CTA (reliability) and empty conversations (no lastMessageId).
+        // Initial send uses scheduleDeferredEdgeScroll (separate path).
         //
         // Animation handling:
         //   - userInitiated (CTA): caller wraps in withAnimation(VAnimation.spring),
@@ -695,8 +741,52 @@ final class MessageListScrollState {
         //     would override the spring with VAnimation.fast.
         //   - auto-follow / recovery: no outer withAnimation, so we wrap
         //     in VAnimation.fast when animated == true.
-        if let target = lastMessageId {
-            if animated && !userInitiated {
+        // When the active turn's minHeight frame is applied, choose the
+        // scroll target based on whether the initial push-to-top has fired:
+        //   - First pin: use lastMessageId — its .bottom includes the
+        //     minHeight frame, which fills the viewport and pushes the
+        //     user message to the top.
+        //   - Subsequent pins: use the content-bottom marker — its .bottom
+        //     lands on real content, avoiding the minHeight white space.
+        // Target selection:
+        //   - Initial send: handled by scheduleDeferredEdgeScroll
+        //     (separate deferred path, not in executeScrollToBottom).
+        //   - User-initiated (CTA): use scrollToEdge for reliability.
+        //   - First auto-follow pin with minHeight: use lastMessageId to
+        //     push the user message to the top via the minHeight frame.
+        //   - Subsequent auto-follow pins with minHeight: use the content-
+        //     bottom marker so .bottom lands on real content.
+        //   - No minHeight: use lastMessageId (normal behavior).
+        let target: (any Hashable)?
+        let targetName: String
+        if userInitiated {
+            target = lastMessageId
+            targetName = "lastMessageId(userInitiated)"
+        } else if isActiveTurnMinHeightApplied && hasCompletedInitialPushToTop {
+            target = "active-turn-content-bottom" as String
+            targetName = "marker"
+        } else {
+            target = lastMessageId
+            targetName = "lastMessageId"
+            if isActiveTurnMinHeightApplied {
+                hasCompletedInitialPushToTop = true
+                scrollDiag.debug("executeScrollToBottom: initial push-to-top completed, subsequent calls will use marker")
+            }
+        }
+        scrollDiag.debug("executeScrollToBottom: target=\(targetName, privacy: .public) minHeightApplied=\(self.isActiveTurnMinHeightApplied, privacy: .public) pushToTopDone=\(self.hasCompletedInitialPushToTop, privacy: .public) path=\(path, privacy: .public) userInit=\(userInitiated, privacy: .public)")
+        // User-initiated (CTA): use edge-based scroll to reliably reach
+        // the bottom even when LazyVStack hasn't materialized the target
+        // message. May overshoot into blank estimated space, but the
+        // recovery window fires immediately after and converges with
+        // ID-based scrolls. ID-based scroll alone can fail silently
+        // when the target is unmaterialized (seen as distBottom=3000+).
+        if userInitiated {
+            scrollDiag.debug("executeScrollToBottom: using scrollToEdge(.bottom) for CTA reliability")
+            scrollToEdge?(.bottom)
+            return
+        }
+        if let target {
+            if animated {
                 withAnimation(VAnimation.fast) {
                     scrollTo?(target, .bottom)
                 }
@@ -706,7 +796,7 @@ final class MessageListScrollState {
         } else {
             // No ForEach items to target (empty conversation).
             // Fall back to edge-based scroll.
-            if animated && !userInitiated {
+            if animated {
                 withAnimation(VAnimation.fast) {
                     scrollToEdge?(.bottom)
                 }
@@ -830,6 +920,9 @@ final class MessageListScrollState {
         derivedStateCache.reset()
         currentConversationId = newConversationId
         lastMessageId = nil
+        isActiveTurnMinHeightApplied = false
+        hasCompletedInitialPushToTop = false
+        deferredEdgeScrollGeneration &+= 1
         mode = .initialLoad
         activeStabilizationCount = 0
         // False: scroll geometry hasn't updated for the new content yet.
@@ -901,6 +994,9 @@ final class MessageListScrollState {
         lastAutoFollowAttempt = .distantPast
         lastUserInitiatedPinTime = nil
         lastMessageId = nil
+        isActiveTurnMinHeightApplied = false
+        hasCompletedInitialPushToTop = false
+        deferredEdgeScrollGeneration &+= 1
         isAtBottom = false
         lastContentOffsetY = 0
         scrollContentHeight = 0

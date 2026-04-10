@@ -131,6 +131,7 @@ extension MessageListView {
         // hasn't run yet). Animated pins targeting stale content
         // accumulate and corrupt SwiftUI's scroll position.
         guard conversationId == scrollState.currentConversationId else { return }
+        scrollDiag.debug("handleSendingChanged: isSending=\(self.isSending, privacy: .public) phase=\(self.assistantActivityPhase, privacy: .public) minHeightApplied=\(self.scrollState.isActiveTurnMinHeightApplied, privacy: .public) pushToTopDone=\(self.scrollState.hasCompletedInitialPushToTop, privacy: .public)")
         if isSending {
             // Clear stale confirmation marker: if the phase left "awaiting_confirmation"
             // while not sending, the marker is stale.
@@ -151,23 +152,20 @@ extension MessageListView {
             if isDaemonConfirmationResume && !scrollState.isFollowingBottom {
                 // Daemon resumed from confirmation while user was scrolled up.
             } else {
-                // Defer the actual bottom-pin to the next main-queue turn.
-                // Both `isSending` and `messages.count` can change in the
-                // same SwiftUI update cycle after the user sends a message;
-                // issuing immediate `ScrollPosition` writes here can trip
-                // SwiftUI's "Modifying state during view update" guard.
-                scrollState.scheduleDeferredBottomPin(
-                    animated: true,
-                    forceFollowingBottom: true,
-                    refreshRecoveryWindow: true
-                )
+                // Apply mode transition and recovery window inline so
+                // they can't be lost by generation coalescing when
+                // handleMessagesCountChanged's deferred pin supersedes
+                // this one in the same SwiftUI update cycle.
+                scrollState.transition(to: .followingBottom)
+                scrollState.bottomAnchorAppeared = false
+                scrollState.recoveryDeadline = Date().addingTimeInterval(2.0)
+                // Defer the actual scroll to the next main-queue turn.
+                // Use edge-based scroll to reach past the thinking
+                // indicator's minHeight, pushing the user message to
+                // the top immediately.
+                scrollState.scheduleDeferredEdgeScroll(animated: true)
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
-                            "target=bottom reason=sendFollowingBottom")
-
-                // Also scroll the user message to top for Claude-style behavior
-                if let userMessage = messages.last(where: { $0.role == .user }) {
-                    scrollPosition.scrollTo(id: userMessage.id, anchor: .top)
-                }
+                            "target=edgeBottom reason=sendPushToTop")
             }
         } else {
             // Capture the activity phase at the moment sending stops.
