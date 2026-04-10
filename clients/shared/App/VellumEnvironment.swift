@@ -52,4 +52,16 @@ public enum VellumEnvironment: String {
             return "https://platform.vellum.ai"
         }
     }
+
+    /// The platform URL to inject into containers (Docker, Apple Containers).
+    /// For `local`, containers can't reach `localhost` on the host, so we
+    /// fall back to the remote dev platform.
+    public var containerPlatformURL: String {
+        switch self {
+        case .local:
+            return "https://dev-platform.vellum.ai"
+        default:
+            return platformURL
+        }
+    }
 }

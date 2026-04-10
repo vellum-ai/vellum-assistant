@@ -580,11 +580,7 @@ final class VellumCli: AssistantManagementClient {
         var env = Self.makeBaseEnvironment()
 
         if env["VELLUM_PLATFORM_URL"] == nil {
-            #if DEBUG
-            env["VELLUM_PLATFORM_URL"] = "https://dev-platform.vellum.ai"
-            #else
-            env["VELLUM_PLATFORM_URL"] = "https://platform.vellum.ai"
-            #endif
+            env["VELLUM_PLATFORM_URL"] = VellumEnvironment.current.containerPlatformURL
         }
 
         for (envVar, value) in config.providerApiKeys where !value.isEmpty {
