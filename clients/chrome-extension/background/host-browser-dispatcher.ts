@@ -328,7 +328,7 @@ export function createHostBrowserDispatcher(
         if (!urlPattern) {
           await deps.postResult({
             requestId,
-            content: JSON.stringify({ error: { code: -32602, message: 'urlPattern is required' } }),
+            content: JSON.stringify({ code: -32602, message: 'urlPattern is required' }),
             isError: true,
           });
           return;
@@ -338,14 +338,14 @@ export function createHostBrowserDispatcher(
         if (!tab?.id) {
           await deps.postResult({
             requestId,
-            content: JSON.stringify({ error: { code: -32000, message: `No tab matched URL pattern: ${urlPattern}` } }),
+            content: JSON.stringify({ code: -32000, message: `No tab matched URL pattern: ${urlPattern}` }),
             isError: true,
           });
           return;
         }
         await deps.postResult({
           requestId,
-          content: JSON.stringify({ result: { tabId: String(tab.id), url: tab.url, title: tab.title } }),
+          content: JSON.stringify({ tabId: String(tab.id), url: tab.url, title: tab.title }),
           isError: false,
         });
         return;
