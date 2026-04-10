@@ -95,47 +95,88 @@ export type PairServerContext = {
 };
 
 const EXTENSION_ID_REGEX = /^[a-p]{32}$/;
-const ALLOWLIST_CONFIG_PATH = resolve(
-  import.meta.dir,
-  "..",
-  "..",
-  "..",
-  "..",
-  "meta",
-  "browser-extension",
-  "chrome-extension-allowlist.json",
-);
+const ALLOWLIST_CONFIG_PATH_CANDIDATES = [
+  // Source-checkout / test path (works when running from repo).
+  resolve(
+    import.meta.dir,
+    "..",
+    "..",
+    "..",
+    "..",
+    "meta",
+    "browser-extension",
+    "chrome-extension-allowlist.json",
+  ),
+  // Repo-root current-working-directory fallback.
+  resolve(
+    process.cwd(),
+    "meta",
+    "browser-extension",
+    "chrome-extension-allowlist.json",
+  ),
+];
 
 type ChromeExtensionAllowlistConfig = {
   version: number;
   allowedExtensionIds: string[];
 };
 
-function loadAllowedExtensionOrigins(): ReadonlySet<string> {
-  try {
-    const raw = readFileSync(ALLOWLIST_CONFIG_PATH, "utf8");
-    const parsed = JSON.parse(raw) as Partial<ChromeExtensionAllowlistConfig>;
-    if (!Array.isArray(parsed.allowedExtensionIds)) {
-      throw new Error("allowedExtensionIds is not an array");
-    }
-    const origins = parsed.allowedExtensionIds
-      .filter((id): id is string => typeof id === "string")
-      .filter((id) => EXTENSION_ID_REGEX.test(id))
-      .map((id) => `chrome-extension://${id}/`);
-    if (origins.length === 0) {
-      throw new Error("allowedExtensionIds has no valid extension ids");
-    }
-    return new Set<string>(origins);
-  } catch (err) {
-    log.error(
-      {
-        err,
-        allowlistConfigPath: ALLOWLIST_CONFIG_PATH,
-      },
-      "Failed to load Chrome extension allowlist config; pairing will reject all origins",
-    );
-    return new Set<string>();
+function parseAllowedExtensionIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error("allowedExtensionIds is not an array");
   }
+  const ids = value
+    .filter((id): id is string => typeof id === "string")
+    .filter((id) => EXTENSION_ID_REGEX.test(id));
+  if (ids.length === 0) {
+    throw new Error("allowedExtensionIds has no valid extension ids");
+  }
+  return ids;
+}
+
+function loadAllowedExtensionIdsFromEnv(): string[] {
+  const raw =
+    process.env.VELLUM_CHROME_EXTENSION_IDS ??
+    process.env.VELLUM_CHROME_EXTENSION_ID;
+  if (!raw) return [];
+  const ids = raw
+    .split(/[,\s]+/)
+    .map((id) => id.trim())
+    .filter((id) => id.length > 0)
+    .filter((id) => EXTENSION_ID_REGEX.test(id));
+  return Array.from(new Set(ids));
+}
+
+function loadAllowedExtensionOrigins(): ReadonlySet<string> {
+  const loadErrors: string[] = [];
+  for (const configPath of ALLOWLIST_CONFIG_PATH_CANDIDATES) {
+    try {
+      const raw = readFileSync(configPath, "utf8");
+      const parsed = JSON.parse(raw) as Partial<ChromeExtensionAllowlistConfig>;
+      const ids = parseAllowedExtensionIds(parsed.allowedExtensionIds);
+      return new Set<string>(ids.map((id) => `chrome-extension://${id}/`));
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      loadErrors.push(`${configPath}: ${detail}`);
+    }
+  }
+
+  // Compiled Bun binaries run from a virtual FS root (import.meta.dir is
+  // usually `/$bunfs/root`), so repo-relative config paths can disappear in
+  // packaged builds. In that case, allow a build-time injected env fallback.
+  const envIds = loadAllowedExtensionIdsFromEnv();
+  if (envIds.length > 0) {
+    return new Set<string>(envIds.map((id) => `chrome-extension://${id}/`));
+  }
+
+  log.error(
+    {
+      allowlistConfigPathCandidates: ALLOWLIST_CONFIG_PATH_CANDIDATES,
+      loadErrors,
+    },
+    "Failed to load Chrome extension allowlist config; pairing will reject all origins",
+  );
+  return new Set<string>();
 }
 
 /**

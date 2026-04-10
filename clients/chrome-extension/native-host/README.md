@@ -192,6 +192,19 @@ The canonical manifest shape is checked in at
 humans reading the checked-in file — the actual install never
 performs template substitution.
 
+### Allowlist resolution in compiled builds
+
+The helper enforces its own extension-ID allowlist before it calls the
+assistant pair endpoint. It resolves IDs in this order:
+
+1. `meta/browser-extension/chrome-extension-allowlist.json` (repo checkout paths)
+2. `VELLUM_CHROME_EXTENSION_IDS` (comma/space-separated)
+3. `VELLUM_CHROME_EXTENSION_ID` (single ID)
+
+`clients/macos/build.sh` injects `VELLUM_CHROME_EXTENSION_IDS` at compile
+time from the canonical JSON allowlist so packaged binaries continue to work
+even when repo-relative paths are unavailable.
+
 ## Testing
 
 ```bash

@@ -52,41 +52,81 @@ import { decodeFrames, encodeFrame, FrameDecodeError } from "./protocol.js";
 const EXTENSION_ID_REGEX = /^[a-p]{32}$/;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const ALLOWLIST_CONFIG_PATH = resolve(
-  __dirname,
-  "..",
-  "..",
-  "..",
-  "..",
-  "meta",
-  "browser-extension",
-  "chrome-extension-allowlist.json",
-);
+const ALLOWLIST_CONFIG_PATH_CANDIDATES = [
+  // Source-checkout / test path (works when running from repo).
+  resolve(
+    __dirname,
+    "..",
+    "..",
+    "..",
+    "..",
+    "meta",
+    "browser-extension",
+    "chrome-extension-allowlist.json",
+  ),
+  // Repo-root current-working-directory fallback.
+  resolve(
+    process.cwd(),
+    "meta",
+    "browser-extension",
+    "chrome-extension-allowlist.json",
+  ),
+];
+
+function parseAllowedExtensionIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error("allowedExtensionIds is not an array");
+  }
+  const ids = value
+    .filter((id): id is string => typeof id === "string")
+    .filter((id) => EXTENSION_ID_REGEX.test(id));
+  if (ids.length === 0) {
+    throw new Error("allowedExtensionIds has no valid extension ids");
+  }
+  return ids;
+}
+
+function loadAllowedExtensionIdsFromEnv(): string[] {
+  const raw =
+    process.env.VELLUM_CHROME_EXTENSION_IDS ??
+    process.env.VELLUM_CHROME_EXTENSION_ID;
+  if (!raw) return [];
+  const ids = raw
+    .split(/[,\s]+/)
+    .map((id) => id.trim())
+    .filter((id) => id.length > 0)
+    .filter((id) => EXTENSION_ID_REGEX.test(id));
+  return Array.from(new Set(ids));
+}
 
 function loadAllowedExtensionIds(): ReadonlySet<string> {
-  try {
-    const raw = readFileSync(ALLOWLIST_CONFIG_PATH, "utf8");
-    const parsed = JSON.parse(raw) as {
-      allowedExtensionIds?: unknown;
-    };
-    if (!Array.isArray(parsed.allowedExtensionIds)) {
-      throw new Error("allowedExtensionIds is not an array");
+  const loadErrors: string[] = [];
+  for (const configPath of ALLOWLIST_CONFIG_PATH_CANDIDATES) {
+    try {
+      const raw = readFileSync(configPath, "utf8");
+      const parsed = JSON.parse(raw) as {
+        allowedExtensionIds?: unknown;
+      };
+      return new Set<string>(parseAllowedExtensionIds(parsed.allowedExtensionIds));
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      loadErrors.push(`${configPath}: ${detail}`);
     }
-    const ids = parsed.allowedExtensionIds
-      .filter((id): id is string => typeof id === "string")
-      .filter((id) => EXTENSION_ID_REGEX.test(id));
-    if (ids.length === 0) {
-      throw new Error("allowedExtensionIds has no valid extension ids");
-    }
-    return new Set<string>(ids);
-  } catch (err) {
-    process.stderr.write(
-      `vellum-chrome-native-host: failed to load allowlist config at ${ALLOWLIST_CONFIG_PATH}: ${
-        err instanceof Error ? err.message : String(err)
-      }\n`,
-    );
-    return new Set<string>();
   }
+
+  // Compiled Bun binaries run from a virtual FS root (import.meta.dir is
+  // usually `/$bunfs/root`), so repo-relative config paths can disappear in
+  // packaged builds. In that case, allow a build-time injected env fallback.
+  const envIds = loadAllowedExtensionIdsFromEnv();
+  if (envIds.length > 0) {
+    return new Set<string>(envIds);
+  }
+
+  process.stderr.write(
+    "vellum-chrome-native-host: failed to load allowlist config from any candidate path " +
+      `(${ALLOWLIST_CONFIG_PATH_CANDIDATES.join(", ")}); details: ${loadErrors.join(" | ")}\n`,
+  );
+  return new Set<string>();
 }
 
 const ALLOWED_EXTENSION_IDS: ReadonlySet<string> = loadAllowedExtensionIds();
