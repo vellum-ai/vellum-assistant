@@ -46,7 +46,6 @@ public protocol ManagedAssistantBootstrapAuthServicing: AnyObject {
     func getOrganizations() async throws -> [PlatformOrganization]
     func getAssistant(id: String, organizationId: String?) async throws -> PlatformAssistantResult
     func getActiveAssistant(organizationId: String?) async throws -> PlatformAssistantResult
-    func listAssistants(organizationId: String?) async throws -> [PlatformAssistant]
     func hatchAssistant(
         organizationId: String?,
         name: String?,
@@ -120,8 +119,7 @@ public final class ManagedAssistantBootstrapService {
     public func ensureManagedAssistant(
         name: String? = nil,
         description: String? = nil,
-        anthropicApiKey: String? = nil,
-        multiAssistantEnabled: Bool = false
+        anthropicApiKey: String? = nil
     ) async throws -> ManagedBootstrapOutcome {
         let organizationId = try await resolveOrganizationId()
 

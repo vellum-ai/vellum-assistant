@@ -168,23 +168,19 @@ private final class MockBootstrapAuthService: ManagedAssistantBootstrapAuthServi
     let organizations: [PlatformOrganization]
     let getAssistantResult: PlatformAssistantResult
     let getActiveAssistantResult: PlatformAssistantResult
-    let listAssistantsResult: [PlatformAssistant]
 
     private(set) var getAssistantCallCount = 0
     private(set) var getActiveAssistantCallCount = 0
-    private(set) var listAssistantsCallCount = 0
     private(set) var hatchCallCount = 0
 
     init(
         organizations: [PlatformOrganization],
         getAssistantResult: PlatformAssistantResult = .notFound,
-        getActiveAssistantResult: PlatformAssistantResult = .notFound,
-        listAssistantsResult: [PlatformAssistant] = []
+        getActiveAssistantResult: PlatformAssistantResult = .notFound
     ) {
         self.organizations = organizations
         self.getAssistantResult = getAssistantResult
         self.getActiveAssistantResult = getActiveAssistantResult
-        self.listAssistantsResult = listAssistantsResult
     }
 
     func getOrganizations() async throws -> [PlatformOrganization] {
@@ -199,11 +195,6 @@ private final class MockBootstrapAuthService: ManagedAssistantBootstrapAuthServi
     func getActiveAssistant(organizationId: String?) async throws -> PlatformAssistantResult {
         getActiveAssistantCallCount += 1
         return getActiveAssistantResult
-    }
-
-    func listAssistants(organizationId: String?) async throws -> [PlatformAssistant] {
-        listAssistantsCallCount += 1
-        return listAssistantsResult
     }
 
     func hatchAssistant(
