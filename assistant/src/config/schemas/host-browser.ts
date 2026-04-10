@@ -3,9 +3,9 @@ import { z } from "zod";
 /**
  * Configuration for the `cdp-inspect` browser backend — connects directly
  * to a host Chrome instance that was launched with `--remote-debugging-port`
- * (e.g. `chrome://inspect`-style remote debugging). Serves as a fallback
- * between the extension backend (user's Chrome via chrome.debugger) and the
- * local Playwright-backed backend.
+ * (e.g. `chrome://inspect`-style remote debugging). Connects directly to a
+ * host Chrome instance as an alternative to the extension or local Playwright
+ * backend.
  */
 export const HostBrowserCdpInspectConfigSchema = z
   .object({
@@ -13,7 +13,7 @@ export const HostBrowserCdpInspectConfigSchema = z
       .boolean({ error: "hostBrowser.cdpInspect.enabled must be a boolean" })
       .default(false)
       .describe(
-        "Whether the cdp-inspect backend is enabled. When true, the browser-session manager will probe the configured host/port before falling back to the local Playwright backend.",
+        "Whether the cdp-inspect backend is enabled. When true, the factory will route browser tool calls through the configured host/port instead of the local Playwright backend.",
       ),
     host: z
       .string({ error: "hostBrowser.cdpInspect.host must be a string" })
@@ -40,7 +40,7 @@ export const HostBrowserCdpInspectConfigSchema = z
       .max(5000, "hostBrowser.cdpInspect.probeTimeoutMs must be <= 5000")
       .default(500)
       .describe(
-        "Timeout (in milliseconds) for the backend availability probe. Kept small so the fallback to the local backend stays snappy.",
+        "Timeout (in milliseconds) for the backend availability probe. Kept small so browser tool calls fail fast when the endpoint is unreachable.",
       ),
   })
   .describe(

@@ -15,7 +15,7 @@ session-level access.
 | Debugger infobar | Yes (per tab) | No | No (dedicated profile) |
 | Tab scope | Single active tab | Any open tab | Dedicated browser |
 | Auth/session access | Active tab only | All tabs, all cookies | Isolated profile |
-| Selection priority | 1st (highest) | 2nd (when enabled) | 3rd (default fallback) |
+| Selection priority | 1st (highest) | 2nd (when enabled) | 3rd (default) |
 
 ## When to use this backend
 
