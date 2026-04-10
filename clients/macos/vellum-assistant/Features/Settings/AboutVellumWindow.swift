@@ -67,12 +67,7 @@ struct AboutVellumView: View {
 
             // Client Version
             if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
-                let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
-                // Suppress build number when the version already contains a
-                // prerelease suffix (e.g. "-local.123.abc" or "-dev.7272.9a1"),
-                // since the suffix already provides identifying information.
-                let showBuild = !version.contains("-")
-                Text("Version \(version)" + (showBuild ? (build.map { " (\($0))" } ?? "") : ""))
+                Text("Version \(version)")
                     .font(VFont.bodyMediumLighter)
                     .foregroundStyle(VColor.contentSecondary)
             }

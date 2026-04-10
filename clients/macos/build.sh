@@ -186,12 +186,13 @@ done
 if [ -z "${DISPLAY_VERSION:-}" ]; then
     DISPLAY_VERSION=$(sed -n 's/^let appVersion = "\(.*\)"/\1/p' "$SCRIPT_DIR/../Package.swift" 2>/dev/null | head -1)
     DISPLAY_VERSION="${DISPLAY_VERSION:-0.1.0}"
-    # For local dev builds (build/run), append a -local.N.SHA suffix so
-    # versions are distinguishable, similar to CI's -dev.N.SHA format.
+    # For local dev builds (build/run), append a -local.TIMESTAMP suffix so
+    # each hot-reload produces a distinguishable version string, similar to
+    # CI's -dev.N.SHA format.
     if [ "$CMD" = "build" ] || [ "$CMD" = "run" ]; then
-        _local_count=$(git -C "$SCRIPT_DIR" rev-list --count HEAD 2>/dev/null || echo "0")
+        _local_ts=$(date +"%Y%m%d%H%M%S")
         _local_sha=$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
-        DISPLAY_VERSION="${DISPLAY_VERSION}-local.${_local_count}.${_local_sha}"
+        DISPLAY_VERSION="${DISPLAY_VERSION}-local.${_local_ts}.${_local_sha}"
     fi
 fi
 BUILD_VERSION="${BUILD_VERSION:-1}"
