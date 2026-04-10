@@ -3,9 +3,8 @@ import { z } from "zod";
 /**
  * Configuration for the `cdp-inspect` browser backend — connects directly
  * to a host Chrome instance that was launched with `--remote-debugging-port`
- * (e.g. `chrome://inspect`-style remote debugging). Connects directly to a
- * host Chrome instance as an alternative to the extension or local Playwright
- * backend.
+ * (e.g. `chrome://inspect`-style remote debugging) as an alternative to the
+ * extension or local Playwright backend.
  */
 export const HostBrowserCdpInspectConfigSchema = z
   .object({
