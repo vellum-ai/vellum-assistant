@@ -40,7 +40,7 @@ const HELPER_EXISTS = existsSync(HELPER_BINARY);
 const REPO_ROOT = resolve(__dirname, "../../../../");
 
 const SKIP_REASON =
-  "clients/chrome-extension-native-host/dist/index.js is missing — run `bun run build` in clients/chrome-extension-native-host to enable these tests.";
+  "clients/chrome-extension/native-host/dist/index.js is missing — run `bun run build` in clients/chrome-extension/native-host to enable these tests.";
 
 function getAllowedOriginFromCanonicalConfig(): string {
   const raw = readFileSync(

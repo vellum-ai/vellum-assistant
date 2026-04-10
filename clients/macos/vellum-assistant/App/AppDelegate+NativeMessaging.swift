@@ -8,7 +8,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDe
 /// Install-time hook for the Chrome native messaging host manifest.
 ///
 /// See `NativeMessagingInstaller` and
-/// `clients/chrome-extension-native-host/` for the full flow:
+/// `clients/chrome-extension/native-host/` for the full flow:
 /// this extension is responsible for (1) locating the bundled
 /// `vellum-chrome-native-host` helper binary inside the `.app`
 /// bundle at launch time, and (2) writing the
@@ -35,7 +35,7 @@ extension AppDelegate {
     nonisolated static func installChromeNativeMessagingHostIfNeeded() {
         guard let helperBinaryUrl = resolveBundledNativeMessagingHelper() else {
             // Normal for dev builds where the helper binary hasn't
-            // been built yet (see `clients/chrome-extension-native-host`
+            // been built yet (see `clients/chrome-extension/native-host`
             // and the build.sh wiring). Not an error — the self-hosted
             // Chrome extension pairing flow (PR 13) is optional, and
             // everything else in the assistant continues to work.

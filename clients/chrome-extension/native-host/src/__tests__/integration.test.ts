@@ -73,7 +73,7 @@ const DISALLOWED_ORIGIN =
  * explanation when the helper binary hasn't been built.
  */
 const SKIP_REASON =
-  "clients/chrome-extension-native-host/dist/index.js is missing — run `bun run build` in clients/chrome-extension-native-host to enable these tests.";
+  "clients/chrome-extension/native-host/dist/index.js is missing — run `bun run build` in clients/chrome-extension/native-host to enable these tests.";
 
 // ---------------------------------------------------------------------------
 // Mock pair-endpoint HTTP server

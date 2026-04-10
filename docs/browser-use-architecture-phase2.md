@@ -125,7 +125,7 @@ Handshake:
    popup.
 2. The service worker calls
    `chrome.runtime.connectNative("com.vellum.daemon")`, which spawns
-   `clients/chrome-extension-native-host/` (a tiny CLI helper bundled
+   `clients/chrome-extension/native-host/` (a tiny CLI helper bundled
    into the macOS `.app` at
    `Contents/MacOS/vellum-chrome-native-host`).
 3. The helper:
@@ -182,7 +182,7 @@ The new modules that implement Phase 2:
 - **`clients/chrome-extension/background/relay-connection.ts`** —
   WebSocket relay with heartbeat, reconnect-with-token-refresh, and
   mode-aware bearer injection.
-- **`clients/chrome-extension-native-host/`** — Native messaging helper
+- **`clients/chrome-extension/native-host/`** — Native messaging helper
   binary that bootstraps the self-hosted capability token.
 
 Runtime wiring:

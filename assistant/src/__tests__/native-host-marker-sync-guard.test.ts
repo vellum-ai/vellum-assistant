@@ -5,7 +5,7 @@
  *
  *   - assistant/src/runtime/routes/browser-extension-pair-routes.ts
  *     (the runtime side that rejects unmarked pair requests with 403)
- *   - clients/chrome-extension-native-host/src/index.ts
+ *   - clients/chrome-extension/native-host/src/index.ts
  *     (the native messaging helper that stamps the marker on every
  *     pair POST before forwarding to the assistant)
  *
@@ -34,7 +34,7 @@ const repoRoot = resolve(__dirname, "..", "..", "..");
 const ASSISTANT_PAIR_ROUTE_PATH =
   "assistant/src/runtime/routes/browser-extension-pair-routes.ts";
 const NATIVE_HOST_INDEX_PATH =
-  "clients/chrome-extension-native-host/src/index.ts";
+  "clients/chrome-extension/native-host/src/index.ts";
 
 /**
  * Extract the string literal value of an exported const from raw
