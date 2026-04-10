@@ -137,10 +137,7 @@ enum LogExporter {
     /// Maps `LogReportReason` to the platform API's `FeedbackClassification` values.
     static func feedbackClassification(for reason: LogReportReason) -> String {
         switch reason {
-        case .somethingBroken: return "something_broken"
-        case .appCrash: return "app_crash"
-        case .performanceIssue: return "performance"
-        case .connectionIssue: return "connection"
+        case .bugReport: return "bug_report"
         case .featureRequest: return "feature_request"
         case .other: return "other"
         }

@@ -421,6 +421,13 @@ extension AppDelegate {
             restartItem.target = self
             restartItem.image = VIcon.refreshCw.nsImage(size: 16)
             menu.addItem(restartItem)
+
+            menu.addItem(NSMenuItem.separator())
+
+            let feedbackItem = NSMenuItem(title: "Submit Feedback", action: #selector(sendFeedback), keyEquivalent: "")
+            feedbackItem.target = self
+            feedbackItem.image = VIcon.send.nsImage(size: 16)
+            menu.addItem(feedbackItem)
         }
 
         if multiAssistantSwitcherEnabled, onboardingWindow == nil, let switcherVM = assistantSwitcherViewModel {

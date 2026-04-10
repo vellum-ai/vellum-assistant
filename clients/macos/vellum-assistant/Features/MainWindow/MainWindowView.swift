@@ -396,7 +396,7 @@ struct MainWindowView: View {
                     settingsStore.pendingSettingsTab = .general
                     windowState.selection = .panel(.settings)
                 },
-                onSendLogs: { AppDelegate.shared?.showLogReportWindow(reason: .appCrash) }
+                onSendLogs: { AppDelegate.shared?.showLogReportWindow(reason: .bugReport) }
             )
             .transition(.identity)
         }
