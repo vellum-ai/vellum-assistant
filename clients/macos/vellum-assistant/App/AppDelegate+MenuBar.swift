@@ -421,6 +421,13 @@ extension AppDelegate {
             restartItem.target = self
             restartItem.image = VIcon.refreshCw.nsImage(size: 16)
             menu.addItem(restartItem)
+
+            menu.addItem(NSMenuItem.separator())
+
+            let feedbackItem = NSMenuItem(title: "Share Feedback", action: #selector(sendFeedback), keyEquivalent: "")
+            feedbackItem.target = self
+            feedbackItem.image = VIcon.messageCircle.nsImage(size: 16)
+            menu.addItem(feedbackItem)
         }
 
         if multiAssistantSwitcherEnabled, onboardingWindow == nil, let switcherVM = assistantSwitcherViewModel {
@@ -492,6 +499,12 @@ extension AppDelegate {
         )
         markAllSeenItem.target = self
         menu.addItem(markAllSeenItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        let feedbackItem = NSMenuItem(title: "Share Feedback", action: #selector(sendFeedback), keyEquivalent: "")
+        feedbackItem.target = self
+        menu.addItem(feedbackItem)
 
         return menu
     }

@@ -44,7 +44,7 @@ struct LogReportFormView: View {
         self.initialReason = initialReason
         self.onSend = onSend
         self.onCancel = onCancel
-        let effectiveReason = initialReason ?? .somethingBroken
+        let effectiveReason = initialReason ?? .bugReport
         self._selectedReason = State(initialValue: effectiveReason)
         self._includeLogs = State(initialValue: effectiveReason.isErrorCategory)
     }
