@@ -59,6 +59,7 @@ extension MessageListView {
     /// state changes.
     var derivedState: TranscriptRenderModel {
         os_signpost(.begin, log: stallLog, name: "DerivedState.resolve")
+        projectionCache.recordBodyEvaluation()
 
         if projectionCache.isThrottled, let cached = projectionCache.cachedProjection {
             os_signpost(.end, log: stallLog, name: "DerivedState.resolve")

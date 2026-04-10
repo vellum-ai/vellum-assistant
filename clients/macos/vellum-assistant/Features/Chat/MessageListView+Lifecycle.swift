@@ -165,6 +165,7 @@ extension MessageListView {
         paginationTask = nil
         isPaginationInFlight = false
         wasPaginationTriggerInRange = false
+        lastPaginationCompletedAt = .distantPast
         scrollRestoreTask?.cancel()
         if anchorMessageId == nil {
             scrollDiag.debug("handleConversationSwitched: calling scrollTo(edge: .bottom), conv=\(conversationId?.uuidString ?? "nil", privacy: .public)")

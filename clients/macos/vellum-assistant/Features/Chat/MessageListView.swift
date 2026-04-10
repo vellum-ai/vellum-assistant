@@ -178,9 +178,13 @@ struct MessageListView: View {
                 )
             } action: { _, detection in
                 if isAtBottom {
-                    if !detection.nearBottom { isAtBottom = false }
+                    if !detection.nearBottom {
+                        withAnimation(VAnimation.spring) { isAtBottom = false }
+                    }
                 } else {
-                    if detection.atBottom { isAtBottom = true }
+                    if detection.atBottom {
+                        withAnimation(VAnimation.spring) { isAtBottom = true }
+                    }
                 }
             }
             // --- Viewport height tracking ---

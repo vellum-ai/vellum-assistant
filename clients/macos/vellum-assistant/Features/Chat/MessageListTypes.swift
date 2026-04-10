@@ -59,6 +59,29 @@ final class ProjectionCache {
     var isThrottled = false
     var throttleRecoveryTask: Task<Void, Never>?
 
+    /// Tracks body evaluation frequency and trips `isThrottled` when
+    /// >100 evaluations occur in 2 seconds. This caps layout cost
+    /// regardless of the re-evaluation source.
+    func recordBodyEvaluation() {
+        let now = CFAbsoluteTimeGetCurrent()
+        bodyEvalTimestamps.append(now)
+        let cutoff = now - 2.0
+        if let firstValid = bodyEvalTimestamps.firstIndex(where: { $0 >= cutoff }) {
+            bodyEvalTimestamps.removeFirst(firstValid)
+        }
+        if bodyEvalTimestamps.count > 100 && !isThrottled {
+            isThrottled = true
+            throttleRecoveryTask?.cancel()
+            throttleRecoveryTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard !Task.isCancelled else { return }
+                isThrottled = false
+                bodyEvalTimestamps.removeAll()
+                throttleRecoveryTask = nil
+            }
+        }
+    }
+
     func reset() {
         cachedProjectionKey = nil
         cachedProjection = nil
