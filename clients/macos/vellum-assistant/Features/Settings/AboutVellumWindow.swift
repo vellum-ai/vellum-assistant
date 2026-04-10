@@ -67,8 +67,7 @@ struct AboutVellumView: View {
 
             // Client Version
             if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
-                let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
-                Text("Version \(version)" + (build.map { " (\($0))" } ?? ""))
+                Text("Version \(version)")
                     .font(VFont.bodyMediumLighter)
                     .foregroundStyle(VColor.contentSecondary)
             }
