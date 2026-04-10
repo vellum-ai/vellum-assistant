@@ -263,10 +263,35 @@ public final class AuthService {
     /// Callers handle status codes themselves because endpoints disagree on
     /// semantics (e.g. `getAssistant` returns `.notFound` on 404 as a value,
     /// `refreshAssistant` throws on 404).
+    /// Resolves the user's organization ID, fetching from the platform if not
+    /// already persisted. The resolved ID is cached in UserDefaults so subsequent
+    /// platform API calls can use it without an extra round-trip.
+    ///
+    /// Callers that need to make platform requests don't need to call this
+    /// directly — `performPlatformRequest` auto-injects the persisted org ID.
+    /// This method is useful during bootstrap or when callers need the org ID
+    /// for non-AuthService purposes.
+    public func resolveOrganizationId() async throws -> String {
+        if let persisted = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !persisted.isEmpty {
+            return persisted
+        }
+
+        let orgs = try await getOrganizations()
+        guard let org = orgs.first else {
+            throw PlatformAPIError.serverError(statusCode: 0, detail: "No organizations found for this account")
+        }
+        if orgs.count > 1 {
+            // Multi-org not yet supported; surface a clear error.
+            throw PlatformAPIError.serverError(statusCode: 0, detail: "Multiple organizations found. Multi-org support is not yet available.")
+        }
+        UserDefaults.standard.set(org.id, forKey: "connectedOrganizationId")
+        return org.id
+    }
+
     private func performPlatformRequest(
         path: String,
         method: String,
-        organizationId: String?,
+        organizationId: String? = nil,
         body: Data? = nil,
         timeoutInterval: TimeInterval? = nil
     ) async throws -> PlatformResponse {
@@ -275,6 +300,9 @@ public final class AuthService {
             throw PlatformAPIError.invalidURL
         }
 
+        // Use the explicitly passed org ID, or fall back to the persisted one.
+        let resolvedOrgId = organizationId ?? UserDefaults.standard.string(forKey: "connectedOrganizationId")
+
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = method
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -282,8 +310,8 @@ public final class AuthService {
             urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
             urlRequest.httpBody = body
         }
-        if let organizationId {
-            urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
+        if let resolvedOrgId {
+            urlRequest.setValue(resolvedOrgId, forHTTPHeaderField: "Vellum-Organization-Id")
         }
         if let timeoutInterval {
             urlRequest.timeoutInterval = timeoutInterval
@@ -311,7 +339,7 @@ public final class AuthService {
     // MARK: - Platform Assistant API
 
     /// Retrieve a specific managed assistant by ID.
-    public func getAssistant(id: String, organizationId: String) async throws -> PlatformAssistantResult {
+    public func getAssistant(id: String, organizationId: String? = nil) async throws -> PlatformAssistantResult {
         let response = try await performPlatformRequest(
             path: "v1/assistants/\(id)/",
             method: "GET",
@@ -346,7 +374,7 @@ public final class AuthService {
     /// platform caps each org at 5 managed assistants, which always fits in a
     /// single page, so pagination is not needed. Callers assume the platform
     /// returns newest-first and take `results.first`.
-    public func listAssistants(organizationId: String) async throws -> [PlatformAssistant] {
+    public func listAssistants(organizationId: String? = nil) async throws -> [PlatformAssistant] {
         let response = try await performPlatformRequest(
             path: "v1/assistants/",
             method: "GET",
@@ -358,7 +386,7 @@ public final class AuthService {
     /// Create or retrieve a managed assistant via the idempotent hatch endpoint.
     /// Returns `.reusedExisting` on 200 (assistant already exists) or `.createdNew` on 201.
     public func hatchAssistant(
-        organizationId: String,
+        organizationId: String? = nil,
         name: String? = nil,
         description: String? = nil,
         anthropicApiKey: String? = nil
@@ -415,7 +443,7 @@ public final class AuthService {
     @discardableResult
     public func updateAssistant(
         id: String,
-        organizationId: String,
+        organizationId: String? = nil,
         name: String? = nil,
         description: String? = nil
     ) async throws -> PlatformAssistant {
@@ -445,7 +473,7 @@ public final class AuthService {
     /// get the authoritative updated state.
     public func enterRecoveryMode(
         assistantId: String,
-        organizationId: String
+        organizationId: String? = nil
     ) async throws -> PlatformAssistant {
         try await postRecoveryModeTransition(
             path: "maintenance-mode/enter",
@@ -465,7 +493,7 @@ public final class AuthService {
     /// trigger the transition and then re-fetch the assistant to get the authoritative updated state.
     public func exitRecoveryMode(
         assistantId: String,
-        organizationId: String
+        organizationId: String? = nil
     ) async throws -> PlatformAssistant {
         try await postRecoveryModeTransition(
             path: "maintenance-mode/exit",
@@ -481,19 +509,23 @@ public final class AuthService {
     private func postRecoveryModeTransition(
         path: String,
         assistantId: String,
-        organizationId: String
+        organizationId: String? = nil
     ) async throws {
         let urlString = "\(baseURL)/v1/assistants/\(assistantId)/\(path)/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
 
+        let resolvedOrgId = organizationId ?? UserDefaults.standard.string(forKey: "connectedOrganizationId")
+
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.httpBody = Data("{}".utf8)
-        urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
+        if let resolvedOrgId {
+            urlRequest.setValue(resolvedOrgId, forHTTPHeaderField: "Vellum-Organization-Id")
+        }
 
         if let token = await SessionTokenManager.getTokenAsync() {
             urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
@@ -532,7 +564,7 @@ public final class AuthService {
     /// found, and `PlatformAPIError.authenticationRequired` on 403/401.
     public func refreshAssistant(
         id: String,
-        organizationId: String
+        organizationId: String? = nil
     ) async throws -> PlatformAssistant {
         let result = try await getAssistant(id: id, organizationId: organizationId)
         switch result {

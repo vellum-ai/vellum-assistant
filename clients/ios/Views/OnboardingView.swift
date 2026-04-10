@@ -282,14 +282,9 @@ struct AssistantPickerStep: View {
         errorMessage = nil
 
         do {
-            let orgs = try await AuthService.shared.getOrganizations()
-            guard let org = orgs.first else {
-                errorMessage = "No organizations found for this account"
-                isLoading = false
-                return
-            }
-            UserDefaults.standard.set(org.id, forKey: "connectedOrganizationId")
-            let list = try await AuthService.shared.listAssistants(organizationId: org.id)
+            // Ensure the org ID is resolved and persisted before listing.
+            _ = try await AuthService.shared.resolveOrganizationId()
+            let list = try await AuthService.shared.listAssistants()
             assistants = list
             isLoading = false
 

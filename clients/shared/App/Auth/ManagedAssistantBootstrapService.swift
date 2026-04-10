@@ -44,10 +44,10 @@ public enum ManagedBootstrapError: LocalizedError, Sendable {
 @MainActor
 public protocol ManagedAssistantBootstrapAuthServicing: AnyObject {
     func getOrganizations() async throws -> [PlatformOrganization]
-    func getAssistant(id: String, organizationId: String) async throws -> PlatformAssistantResult
-    func listAssistants(organizationId: String) async throws -> [PlatformAssistant]
+    func getAssistant(id: String, organizationId: String?) async throws -> PlatformAssistantResult
+    func listAssistants(organizationId: String?) async throws -> [PlatformAssistant]
     func hatchAssistant(
-        organizationId: String,
+        organizationId: String?,
         name: String?,
         description: String?,
         anthropicApiKey: String?

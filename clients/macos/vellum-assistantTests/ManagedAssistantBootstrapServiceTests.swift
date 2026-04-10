@@ -214,18 +214,18 @@ private final class MockBootstrapAuthService: ManagedAssistantBootstrapAuthServi
         organizations
     }
 
-    func getAssistant(id: String, organizationId: String) async throws -> PlatformAssistantResult {
+    func getAssistant(id: String, organizationId: String?) async throws -> PlatformAssistantResult {
         getAssistantCallCount += 1
         return getAssistantResult
     }
 
-    func listAssistants(organizationId: String) async throws -> [PlatformAssistant] {
+    func listAssistants(organizationId: String?) async throws -> [PlatformAssistant] {
         listAssistantsCallCount += 1
         return listAssistantsResult
     }
 
     func hatchAssistant(
-        organizationId: String,
+        organizationId: String?,
         name: String?,
         description: String?,
         anthropicApiKey: String?
