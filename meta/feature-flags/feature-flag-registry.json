@@ -320,7 +320,14 @@
       "label": "Fork from Message",
       "description": "Show the 'Fork from here' option in message overflow menus",
       "defaultEnabled": false
+    },
+    {
+      "id": "fork-from-message",
+      "scope": "macos",
+      "key": "fork-from-message",
+      "label": "Fork from Message",
+      "description": "Show the Fork from here option in message overflow menus",
+      "defaultEnabled": false
     }
   ]
 }
-
