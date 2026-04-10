@@ -317,6 +317,40 @@ export function createHostBrowserDispatcher(
     const ownController = abort;
     inFlight.set(requestId, ownController);
     try {
+      // Handle synthetic Vellum.* methods that use chrome extension APIs
+      // directly instead of routing through chrome.debugger. These methods
+      // do not require a resolved CDP target, so they must be dispatched
+      // BEFORE `resolveTarget()` — otherwise `resolveTarget(undefined)`
+      // falls back to querying for the active tab, which throws when no
+      // focused window/tab exists (minimized, no active tab, etc.).
+      if (envelope.cdpMethod === 'Vellum.findTab') {
+        const urlPattern = (envelope.cdpParams as { urlPattern?: string } | undefined)?.urlPattern;
+        if (!urlPattern) {
+          await deps.postResult({
+            requestId,
+            content: JSON.stringify({ error: { code: -32602, message: 'urlPattern is required' } }),
+            isError: true,
+          });
+          return;
+        }
+        const tabs = await chrome.tabs.query({ url: urlPattern });
+        const tab = tabs[0];
+        if (!tab?.id) {
+          await deps.postResult({
+            requestId,
+            content: JSON.stringify({ error: { code: -32000, message: `No tab matched URL pattern: ${urlPattern}` } }),
+            isError: true,
+          });
+          return;
+        }
+        await deps.postResult({
+          requestId,
+          content: JSON.stringify({ result: { tabId: String(tab.id), url: tab.url, title: tab.title } }),
+          isError: false,
+        });
+        return;
+      }
+
       const target = await deps.resolveTarget(envelope.cdpSessionId);
       const key = targetKey(target);
       if (!attachedTargets.has(key)) {
