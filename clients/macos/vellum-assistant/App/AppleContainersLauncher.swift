@@ -141,16 +141,30 @@ final class AppleContainersLauncher: AssistantManagementClient {
         // generates a new random secret that the gateway will reject with 403.
         if let gatewayURL = runtime.gatewayURL {
             await onProgress?("Securing connection...")
+
+            let gatewayReady = await Self.waitForGatewayReady(
+                gatewayURL: gatewayURL,
+                onProgress: onProgress
+            )
+            if !gatewayReady {
+                try? await runtime.stop()
+                self.podRuntime = nil
+                throw LauncherError.hatchFailed(
+                    "Gateway did not become reachable after \(Self.gatewayReadyMaxAttempts) attempts — the container may have failed to start."
+                )
+            }
+
             let tokenLeased = await Self.leaseGuardianToken(
                 gatewayURL: gatewayURL,
                 assistantId: assistantName,
-                bootstrapSecret: bootstrapSecret
+                bootstrapSecret: bootstrapSecret,
+                onProgress: onProgress
             )
             if !tokenLeased {
                 try? await runtime.stop()
                 self.podRuntime = nil
                 throw LauncherError.hatchFailed(
-                    "Failed to initialize guardian token — the gateway did not respond to bootstrap requests after \(Self.guardianInitMaxAttempts) attempts."
+                    "Failed to initialize guardian token — the assistant runtime did not respond to bootstrap requests after \(Self.guardianInitMaxAttempts) attempts."
                 )
             }
         }
@@ -230,19 +244,73 @@ final class AppleContainersLauncher: AssistantManagementClient {
 
     // MARK: - Guardian Token
 
+    /// Polls the gateway's `/healthz` endpoint until it returns HTTP 200,
+    /// indicating the gateway process is accepting connections. This avoids
+    /// wasting guardian init attempts while the gateway is still binding its
+    /// port (which manifests as "Internet connection appears to be offline").
+    private static let gatewayReadyMaxAttempts = 30
+    private static let gatewayReadyRetryDelay: UInt64 = 2_000_000_000 // 2 seconds
+
+    private static func waitForGatewayReady(
+        gatewayURL: String,
+        onProgress: (@MainActor (String) -> Void)?
+    ) async -> Bool {
+        guard let healthURL = URL(string: "\(gatewayURL)/healthz") else {
+            log.error("Failed to construct gateway healthz URL")
+            return false
+        }
+
+        let startTime = ContinuousClock.now
+        for attempt in 1...gatewayReadyMaxAttempts {
+            var request = URLRequest(url: healthURL)
+            request.httpMethod = "GET"
+            request.timeoutInterval = 5
+
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                if let http = response as? HTTPURLResponse, http.statusCode == 200 {
+                    let elapsed = ContinuousClock.now - startTime
+                    log.info("Gateway ready after \(attempt) attempt(s) (\(elapsed, privacy: .public))")
+                    return true
+                }
+                log.info("Gateway not ready yet (attempt \(attempt)) — non-200 response")
+            } catch {
+                log.info("Gateway not ready yet (attempt \(attempt)): \(error.localizedDescription, privacy: .public)")
+            }
+
+            if attempt < gatewayReadyMaxAttempts {
+                if attempt % 5 == 0 {
+                    await onProgress?("Waiting for gateway to start (\(attempt)s)...")
+                }
+                try? await Task.sleep(nanoseconds: gatewayReadyRetryDelay)
+            }
+        }
+
+        let elapsed = ContinuousClock.now - startTime
+        log.error("Gateway did not become ready after \(gatewayReadyMaxAttempts) attempts (\(elapsed, privacy: .public))")
+        return false
+    }
+
     /// Calls `POST /v1/guardian/init` on the gateway to bootstrap a JWT
     /// credential pair, then saves the token to the standard path so
     /// `GuardianTokenFileReader.importIfAvailable()` finds it on connect.
     ///
     /// Mirrors the CLI's `leaseGuardianToken()` in `guardian-token.ts`.
-    private static let guardianInitMaxAttempts = 10
-    private static let guardianInitRetryDelay: UInt64 = 2_000_000_000 // 2 seconds
+    ///
+    /// The gateway proxies this request to the assistant runtime, which may
+    /// still be booting after the gateway becomes healthy. We retry with
+    /// exponential backoff (2s → 4s → 8s, capped at 8s) for up to 30
+    /// attempts (~120s total) to accommodate slow runtime startup.
+    private static let guardianInitMaxAttempts = 30
+    private static let guardianInitBaseDelay: UInt64 = 2_000_000_000 // 2 seconds
+    private static let guardianInitMaxDelay: UInt64 = 8_000_000_000  // 8 seconds
 
     @discardableResult
     private static func leaseGuardianToken(
         gatewayURL: String,
         assistantId: String,
-        bootstrapSecret: String
+        bootstrapSecret: String,
+        onProgress: (@MainActor (String) -> Void)?
     ) async -> Bool {
         let deviceId = HostIdComputer.computeHostId()
         let body: [String: Any] = [
@@ -256,8 +324,9 @@ final class AppleContainersLauncher: AssistantManagementClient {
             return false
         }
 
-        // The gateway may still be booting inside the container after
-        // PodRuntime.start() returns. Retry with back-off until it responds.
+        let startTime = ContinuousClock.now
+        var currentDelay = guardianInitBaseDelay
+
         for attempt in 1...guardianInitMaxAttempts {
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
@@ -273,13 +342,26 @@ final class AppleContainersLauncher: AssistantManagementClient {
                     return false
                 }
                 guard httpResponse.statusCode == 200 else {
-                    let body = String(data: data, encoding: .utf8) ?? ""
-                    log.warning("Guardian token lease attempt \(attempt) failed (HTTP \(httpResponse.statusCode)): \(body, privacy: .public)")
+                    let elapsed = ContinuousClock.now - startTime
+                    let responseBody = String(data: data, encoding: .utf8) ?? ""
+                    log.warning("Guardian token lease attempt \(attempt)/\(guardianInitMaxAttempts) failed (HTTP \(httpResponse.statusCode), \(elapsed, privacy: .public)): \(responseBody, privacy: .public)")
+
+                    // A 403 means the bootstrap secret was already consumed or
+                    // is invalid — retrying won't help.
+                    if httpResponse.statusCode == 403 {
+                        log.error("Guardian token lease rejected with 403 — bootstrap secret consumed or invalid")
+                        return false
+                    }
+
                     if attempt < guardianInitMaxAttempts {
-                        try? await Task.sleep(nanoseconds: guardianInitRetryDelay)
+                        if attempt % 5 == 0 {
+                            await onProgress?("Waiting for assistant runtime (attempt \(attempt)/\(guardianInitMaxAttempts))...")
+                        }
+                        try? await Task.sleep(nanoseconds: currentDelay)
+                        currentDelay = min(currentDelay * 2, guardianInitMaxDelay)
                         continue
                     }
-                    log.error("Guardian token lease failed after \(guardianInitMaxAttempts) attempts")
+                    log.error("Guardian token lease failed after \(guardianInitMaxAttempts) attempts (\(elapsed, privacy: .public))")
                     return false
                 }
 
@@ -300,14 +382,20 @@ final class AppleContainersLauncher: AssistantManagementClient {
                     log.error("Guardian token leased but failed to save: \(error.localizedDescription, privacy: .public)")
                     return false
                 }
-                log.info("Guardian token leased and saved for '\(assistantId, privacy: .public)'")
+                let elapsed = ContinuousClock.now - startTime
+                log.info("Guardian token leased and saved for '\(assistantId, privacy: .public)' after \(attempt) attempt(s) (\(elapsed, privacy: .public))")
                 return true
             } catch {
-                log.warning("Guardian token lease attempt \(attempt) error: \(error.localizedDescription, privacy: .public)")
+                let elapsed = ContinuousClock.now - startTime
+                log.warning("Guardian token lease attempt \(attempt)/\(guardianInitMaxAttempts) error (\(elapsed, privacy: .public)): \(error.localizedDescription, privacy: .public)")
                 if attempt < guardianInitMaxAttempts {
-                    try? await Task.sleep(nanoseconds: guardianInitRetryDelay)
+                    if attempt % 5 == 0 {
+                        await onProgress?("Waiting for assistant runtime (attempt \(attempt)/\(guardianInitMaxAttempts))...")
+                    }
+                    try? await Task.sleep(nanoseconds: currentDelay)
+                    currentDelay = min(currentDelay * 2, guardianInitMaxDelay)
                 } else {
-                    log.error("Guardian token lease failed after \(guardianInitMaxAttempts) attempts")
+                    log.error("Guardian token lease failed after \(guardianInitMaxAttempts) attempts (\(elapsed, privacy: .public))")
                 }
             }
         }
