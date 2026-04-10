@@ -314,8 +314,7 @@ extension MessageListView {
         if scrollState.mode.allowsAutoScroll,
            phaseAllowsAutoFollow,
            effectiveContentHeight > newState.visibleRectHeight,
-           isInRecoveryWindow,
-           !nowAtBottom {
+           isInRecoveryWindow {
             // Throttle recovery to at most once per 100ms. Without this,
             // geometry updates at ~60fps fire requestPinToBottom every
             // ~16ms. LazyVStack needs time between scroll attempts to
