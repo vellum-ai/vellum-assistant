@@ -28,7 +28,7 @@ import type { CdpClient, CdpClientKind, ScopedCdpClient } from "./types.js";
  *     `hostBrowser.cdpInspect.enabled` is `true` in config, construct
  *     a `CdpInspectClient` that attaches to an already-running Chrome
  *     via the DevTools JSON protocol (`--remote-debugging-port`).
- *  3. **Local** — Default fallback. Drives Playwright's CDPSession
+ *  3. **Local** — Default. Drives Playwright's CDPSession
  *     against the sacrificial-profile browser managed by
  *     browserManager.
  *
@@ -77,7 +77,7 @@ export function getCdpClient(context: ToolContext): ScopedCdpClient {
     return buildManagedClient("cdp-inspect", conversationId, backend);
   }
 
-  // 3. Local backend — default fallback (Playwright-backed Chromium).
+  // 3. Local backend — default (Playwright-backed Chromium).
   const client = createLocalCdpClient(conversationId);
   const backend = createLocalBackend({
     isAvailable: () => true,

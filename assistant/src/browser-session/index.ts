@@ -12,7 +12,7 @@
  *  2. **cdp-inspect** — selected when the extension is absent and
  *     `hostBrowser.cdpInspect.enabled` is `true` in config. Attaches to
  *     an already-running Chrome via `--remote-debugging-port`.
- *  3. **Local** — default fallback when neither of the above applies.
+ *  3. **Local** — default when neither of the above applies.
  *     Drives a Playwright-backed sacrificial-profile Chromium.
  *
  * The factory exposes a `ScopedCdpClient` that routes `send()` through
