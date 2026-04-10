@@ -413,6 +413,7 @@ struct HatchingStepView: View {
                     configValues: configValues,
                     progress: { message in
                         self.state.hatchLogLines.append(message)
+                        self.state.hatchStepLabel = message
                     }
                 )
                 log.info("Apple container hatch succeeded")
