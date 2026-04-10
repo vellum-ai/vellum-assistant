@@ -121,7 +121,7 @@ We're not accepting external contributions yet. See the [Contributing](https://g
 
 ## License
 
-MIT — see [License](https://github.com/vellum-ai/vellum-assistant?tab=MIT-1-ov-file).
+MIT — see [License](https://github.com/vellum-ai/vellum-assistant?tab=MIT-1-ov-file). Integration logos are sourced from [Simple Icons](https://github.com/simple-icons/simple-icons) and licensed under [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/).
 
 Vellum Assistant is open-source software built by [Vellum AI](https://vellum.ai), a for-profit company. We also offer a managed product — the [Vellum Platform](https://vellum.ai/platform) — which sustains the business. This project is free to use and modify under the MIT license, and we're committed to keeping it that way.
 
