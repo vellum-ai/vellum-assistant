@@ -267,11 +267,10 @@ public final class AuthService {
     /// already persisted. The resolved ID is cached in UserDefaults so subsequent
     /// platform API calls can use it without an extra round-trip.
     ///
-    /// Callers that need to make platform requests don't need to call this
-    /// directly — `performPlatformRequest` auto-injects the persisted org ID.
-    /// This method is useful during bootstrap or when callers need the org ID
-    /// for non-AuthService purposes.
-    public func resolveOrganizationId() async throws -> String {
+    /// Called automatically at the end of login so the org ID is available
+    /// before any platform API calls are made.
+    @discardableResult
+    func resolveOrganizationId() async throws -> String {
         if let persisted = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !persisted.isEmpty {
             return persisted
         }

@@ -282,8 +282,6 @@ struct AssistantPickerStep: View {
         errorMessage = nil
 
         do {
-            // Ensure the org ID is resolved and persisted before listing.
-            _ = try await AuthService.shared.resolveOrganizationId()
             let list = try await AuthService.shared.listAssistants()
             assistants = list
             isLoading = false
