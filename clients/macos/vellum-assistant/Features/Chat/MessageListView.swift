@@ -262,26 +262,4 @@ struct MessageListView: View {
             }
     }
 
-    // MARK: - Pagination
-
-    func handlePaginationTrigger() {
-        guard hasMoreMessages, !isLoadingMore else { return }
-        let startConversationId = conversationId
-        topVisibleMessageId = paginatedVisibleMessages.first?.id
-        isLoadingMore = true
-        paginationTask?.cancel()
-        paginationTask = Task {
-            _ = await loadPreviousMessagePage?()
-            guard !Task.isCancelled, conversationId == startConversationId else {
-                isLoadingMore = false
-                return
-            }
-            isLoadingMore = false
-            if let anchorId = topVisibleMessageId {
-                try? await Task.sleep(nanoseconds: 100_000_000)
-                guard !Task.isCancelled, conversationId == startConversationId else { return }
-                scrollPosition.scrollTo(id: anchorId, anchor: .top)
-            }
-        }
-    }
 }
