@@ -9,25 +9,6 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AuthS
 // into @MainActor isolation — which is an error in Swift 6 language mode.
 private let _platformURLOverrideEnvironmentKey = "VELLUM_PLATFORM_URL"
 private let _authServiceBaseURLDefaultsName = "authServiceBaseURL"
-/// Maps `VELLUM_ENVIRONMENT` to the auth/platform API base URL.
-/// Note: The `local` case intentionally differs from `VellumEnvironment.platformURL` —
-/// auth targets localhost for local dev, while Apple Containers use the remote dev platform.
-/// See `VellumEnvironment.swift` for the macOS-specific mapping.
-private func _defaultBaseURL(for environment: [String: String]) -> String {
-    let env = environment["VELLUM_ENVIRONMENT"] ?? "production"
-    switch env {
-    case "local":
-        return "http://localhost:8000"
-    case "dev":
-        return "https://dev-platform.vellum.ai"
-    case "test":
-        return "https://test-platform.vellum.ai"
-    case "staging":
-        return "https://staging-platform.vellum.ai"
-    default:
-        return "https://platform.vellum.ai"
-    }
-}
 
 @MainActor
 public final class AuthService {
@@ -48,7 +29,7 @@ public final class AuthService {
     /// Resolution order:
     /// 1. `VELLUM_PLATFORM_URL` environment variable (explicit override)
     /// 2. `authServiceBaseURL` UserDefaults key (DEBUG builds only)
-    /// 3. `VELLUM_ENVIRONMENT`-based default (local → localhost, dev/test/staging/production → corresponding platform URL)
+    /// 3. `VELLUM_ENVIRONMENT`-based default
     nonisolated static func resolveBaseURL(
         environment: [String: String],
         userDefaults: UserDefaults
@@ -62,7 +43,7 @@ public final class AuthService {
             return override
         }
         #endif
-        return _defaultBaseURL(for: environment)
+        return VellumEnvironment.resolve(from: environment).authBaseURL
     }
 
     nonisolated private static func normalizedBaseURL(_ raw: String?) -> String? {
