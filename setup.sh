@@ -30,23 +30,6 @@ info "Configuring git hooks"
 git config core.hooksPath .githooks
 
 # ---------------------------------------------------------------------------
-# iOS: ensure xcodegen is installed and generate the Xcode project
-# ---------------------------------------------------------------------------
-if command -v brew &>/dev/null; then
-  if ! command -v xcodegen &>/dev/null; then
-    info "Installing xcodegen via Homebrew"
-    brew install xcodegen
-  else
-    info "xcodegen already installed"
-  fi
-
-  info "Generating iOS Xcode project"
-  (cd "${REPO_ROOT}/clients/ios" && xcodegen generate)
-else
-  info "Skipping xcodegen (Homebrew not available — not on macOS?)"
-fi
-
-# ---------------------------------------------------------------------------
 # Install dependencies and register local packages as linkable
 # ---------------------------------------------------------------------------
 for dir in cli gateway assistant credential-executor; do
