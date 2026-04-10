@@ -121,6 +121,10 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       return proxyToRuntime(req, "/v1/contacts/merge", "");
     },
 
+    async handleAddGuardianChannel(req: Request): Promise<Response> {
+      return proxyToRuntime(req, "/v1/contacts/guardian/channel", "");
+    },
+
     async handleUpdateContactChannel(
       req: Request,
       contactChannelId: string,

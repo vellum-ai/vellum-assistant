@@ -829,6 +829,22 @@ export function findContactChannel(params: {
 }
 
 /**
+ * Find the guardian contact regardless of channel.
+ * Returns the first contact with role='guardian', or null if none exists.
+ */
+export function findGuardianContact(): ContactWithChannels | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(contacts)
+    .where(eq(contacts.role, "guardian"))
+    .limit(1)
+    .get();
+  if (!row) return null;
+  return withChannels(parseContact(row));
+}
+
+/**
  * Find the guardian contact and their specific channel entry for a given channel type.
  * This is the contacts-based equivalent of getGuardianBinding(assistantId, channel).
  * Returns null if no guardian contact has a channel of the specified type.
