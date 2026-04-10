@@ -237,12 +237,15 @@ async function actionNewTab(url: string): Promise<void> {
   }
 }
 
-async function actionNavigate(tabId: string, url: string): Promise<void> {
+async function actionNavigate(
+  tabId: string | undefined,
+  url: string,
+): Promise<void> {
   try {
     await postBrowserCdp({
       cdpMethod: "Page.navigate",
       cdpParams: { url },
-      cdpSessionId: tabId,
+      ...(tabId !== undefined ? { cdpSessionId: tabId } : {}),
     });
     emitOk({});
   } catch (err) {
@@ -250,7 +253,10 @@ async function actionNavigate(tabId: string, url: string): Promise<void> {
   }
 }
 
-async function actionEvaluate(tabId: string, code: string): Promise<void> {
+async function actionEvaluate(
+  tabId: string | undefined,
+  code: string,
+): Promise<void> {
   try {
     const resp = await postBrowserCdp({
       cdpMethod: "Runtime.evaluate",
@@ -259,7 +265,7 @@ async function actionEvaluate(tabId: string, code: string): Promise<void> {
         returnByValue: true,
         awaitPromise: true,
       },
-      cdpSessionId: tabId,
+      ...(tabId !== undefined ? { cdpSessionId: tabId } : {}),
     });
     // CDP Runtime.evaluate returns { result: { type, value }, exceptionDetails? }.
     // Surface exceptions as relay errors so callers don't silently get undefined.
@@ -402,9 +408,9 @@ Examples:
   relay
     .command("navigate")
     .description("Navigate an existing tab to a new URL")
-    .requiredOption("--tab-id <id>", "Target tab ID")
+    .option("--tab-id <id>", "Target tab ID (defaults to active tab)")
     .requiredOption("--url <url>", "URL to navigate to")
-    .action(async (opts: { tabId: string; url: string }) => {
+    .action(async (opts: { tabId?: string; url: string }) => {
       await actionNavigate(opts.tabId, opts.url);
     });
 
@@ -413,12 +419,12 @@ Examples:
   relay
     .command("evaluate")
     .description("Execute JavaScript in a Chrome tab")
-    .requiredOption("--tab-id <id>", "Target tab ID")
+    .option("--tab-id <id>", "Target tab ID (defaults to active tab)")
     .option(
       "--code <script>",
       "JavaScript code to evaluate (or read from stdin)",
     )
-    .action(async (opts: { tabId: string; code?: string }) => {
+    .action(async (opts: { tabId?: string; code?: string }) => {
       let code: string;
       if (opts.code) {
         code = opts.code;
