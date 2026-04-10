@@ -62,11 +62,6 @@ extension MessageListView {
         os_signpost(.begin, log: stallLog, name: "DerivedState.resolve")
         let cache = projectionCache
 
-        if cache.isThrottled, let cached = cache.cachedProjection {
-            os_signpost(.end, log: stallLog, name: "DerivedState.resolve")
-            return cached
-        }
-
         // Compute visible messages first so version tracking and projection
         // both operate on the same filtered set.
         let liveMessages = visibleMessages

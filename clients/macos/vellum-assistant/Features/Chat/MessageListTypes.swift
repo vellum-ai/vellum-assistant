@@ -48,8 +48,7 @@ struct PrecomputedCacheKey: Equatable {
 ///
 /// All derived transcript state flows through `TranscriptProjector` which
 /// produces a `TranscriptRenderModel`. This cache gates re-projection with
-/// an O(1) `PrecomputedCacheKey` and stores the circuit-breaker state that
-/// protects against runaway body evaluations.
+/// an O(1) `PrecomputedCacheKey`.
 @MainActor
 final class ProjectionCache {
     var cachedProjectionKey: PrecomputedCacheKey?
@@ -57,9 +56,6 @@ final class ProjectionCache {
     var messageListVersion = 0
     var lastKnownMessagesRevision: UInt64 = 0
     var cachedFirstVisibleMessageId: UUID?
-    var bodyEvalTimestamps: [CFAbsoluteTime] = []
-    var isThrottled = false
-    var throttleRecoveryTask: Task<Void, Never>?
 
     func reset() {
         cachedProjectionKey = nil
@@ -67,9 +63,5 @@ final class ProjectionCache {
         messageListVersion = 0
         lastKnownMessagesRevision = 0
         cachedFirstVisibleMessageId = nil
-        bodyEvalTimestamps.removeAll()
-        throttleRecoveryTask?.cancel()
-        throttleRecoveryTask = nil
-        isThrottled = false
     }
 }

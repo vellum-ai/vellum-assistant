@@ -139,6 +139,11 @@ extension MessageListView {
         // Reset view-local state.
         resizeScrollTask?.cancel()
         resizeScrollTask = nil
+        paginationTask?.cancel()
+        paginationTask = nil
+        isLoadingMore = false
+        isAtBottom = true
+        topVisibleMessageId = nil
         highlightedMessageId = nil
         highlightDismissTask?.cancel()
         highlightDismissTask = nil

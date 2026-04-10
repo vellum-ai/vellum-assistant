@@ -6,17 +6,13 @@ import XCTest
 // MARK: - Chat Surface Stability Regression Tests
 //
 // Deterministic regression tests for the five field-observed freeze
-// families in the chat surface. Each scenario exercises the final
-// projected/controller/coordinator architecture end-to-end to ensure
-// the interaction produces valid, non-degenerate state.
+// families in the chat surface. Each scenario exercises the
+// projector/controller architecture end-to-end to ensure the
+// interaction produces valid, non-degenerate state.
 //
 // All data flows through:
 //   TranscriptProjector  — transcript render model
 //   ComposerController   — popup state machine
-//   ScrollCoordinator    — scroll policy decisions
-//
-// No legacy compatibility layers (MessageListDerivedState alias,
-// cachedDerivedState field, or dispatcher wrappers) are involved.
 //
 // Run with:
 //   cd clients/macos && ./build.sh test --filter ChatSurfaceStabilityRegressionTests
@@ -105,14 +101,6 @@ final class ChatSurfaceStabilityRegressionTests: XCTestCase {
                        "New user message must appear in projection")
         XCTAssertTrue(model2.hasUserMessage)
 
-        // The scroll coordinator must handle the send event without panic.
-        let coordinator = ScrollCoordinator()
-        let intents = coordinator.handle(.sendingChanged(isSending: true))
-        XCTAssertTrue(coordinator.isFollowingBottom,
-                      "Send must reattach to bottom")
-        XCTAssertTrue(intents.contains(.scrollToBottom(animated: true)),
-                      "Send must scroll to bottom")
-
         // The projector must produce equal results for identical inputs
         // (idempotency — no hidden mutation).
         let model3 = project(messages: messages, isSending: true, isThinking: true)
@@ -127,38 +115,7 @@ final class ChatSurfaceStabilityRegressionTests: XCTestCase {
     // fight-back or mode oscillation.
 
     func testScrollDuringStreamingResponse() {
-        let coordinator = ScrollCoordinator()
-
-        // Simulate initial load and sending.
-        coordinator.handle(.appeared)
-        coordinator.handle(.sendingChanged(isSending: true))
-        XCTAssertTrue(coordinator.isFollowingBottom)
-
-        // New messages arrive during streaming.
-        coordinator.handle(.messageCountChanged)
-        coordinator.handle(.messageCountChanged)
-        coordinator.handle(.messageCountChanged)
-
-        // User starts scrolling — enters interacting phase.
-        let _ = coordinator.handle(.scrollPhaseChanged(phase: .interacting))
-
-        // User scrolls up — manual browse intent.
-        let browseIntents = coordinator.handle(.manualBrowseIntent)
-        XCTAssertEqual(coordinator.mode, .freeBrowsing,
-                       "Manual scroll must enter free browsing")
-        XCTAssertTrue(browseIntents.contains(.cancelRecoveryWindow),
-                      "Must cancel recovery on manual browse")
-        XCTAssertTrue(browseIntents.contains(.showScrollToLatest),
-                      "Must show CTA in free browsing")
-
-        // More messages arrive while in free browsing.
-        let msgIntents = coordinator.handle(.messageCountChanged)
-        XCTAssertEqual(coordinator.mode, .freeBrowsing,
-                       "New messages must not reattach in free browsing")
-        XCTAssertFalse(msgIntents.contains(.scrollToBottom(animated: true)),
-                       "Must not auto-scroll in free browsing")
-
-        // The projector must still produce valid state during free browsing.
+        // The projector must produce valid state during free browsing.
         var messages = buildMessages(count: 20)
         appendStreamingAssistantMessage(to: &messages, text: "Streaming text")
         let model = project(messages: messages, isSending: true)
@@ -173,25 +130,6 @@ final class ChatSurfaceStabilityRegressionTests: XCTestCase {
     // enter stabilization and detach from follow-bottom.
 
     func testExpandToolBlockDuringStreaming() {
-        let coordinator = ScrollCoordinator()
-        coordinator.handle(.appeared)
-        coordinator.handle(.sendingChanged(isSending: true))
-        XCTAssertTrue(coordinator.isFollowingBottom)
-
-        // User expands a tool block.
-        let expandIntents = coordinator.handle(.manualExpansion)
-        XCTAssertEqual(coordinator.mode, .freeBrowsing,
-                       "Manual expansion must detach to free browsing")
-        XCTAssertTrue(expandIntents.contains(.cancelRecoveryWindow),
-                      "Must cancel recovery on expansion")
-        XCTAssertTrue(expandIntents.contains(.showScrollToLatest),
-                      "Must show CTA after expansion")
-
-        // New streaming content arrives — must not fight back.
-        let msgIntents = coordinator.handle(.messageCountChanged)
-        XCTAssertEqual(coordinator.mode, .freeBrowsing)
-        XCTAssertFalse(msgIntents.contains(.scrollToBottom(animated: true)))
-
         // Verify the projector handles tool calls correctly.
         var messages = buildMessages(count: 6)
         // Add a message with an incomplete tool call.
@@ -349,18 +287,6 @@ final class ChatSurfaceStabilityRegressionTests: XCTestCase {
         XCTAssertEqual(model1, model2,
                        "Re-projection with identical inputs must be stable during typing")
 
-        // The scroll coordinator must be in a stable state.
-        let coordinator = ScrollCoordinator()
-        coordinator.handle(.appeared)
-        // Simulate that the user has been reading (not at bottom).
-        coordinator.handle(.manualBrowseIntent)
-        XCTAssertEqual(coordinator.mode, .freeBrowsing)
-
-        // Message count hasn't changed — no scroll events.
-        let intents = coordinator.handle(.messageCountChanged)
-        XCTAssertFalse(intents.contains(.scrollToBottom(animated: true)),
-                       "Must not auto-scroll in free browsing during typing")
-
         // Verify the ComposerController handles typing cleanly
         // without affecting the transcript state.
         let controller = ComposerController(
@@ -388,10 +314,6 @@ final class ChatSurfaceStabilityRegressionTests: XCTestCase {
         var messages = buildMessages(count: 10)
         appendStreamingAssistantMessage(to: &messages, text: "Streaming...")
 
-        let coordinator = ScrollCoordinator()
-        coordinator.handle(.appeared)
-        coordinator.handle(.sendingChanged(isSending: true))
-
         let controller = ComposerController(
             slashCommandProvider: StubSlashCommandProvider(commands: []),
             emojiSearchProvider: StubEmojiSearchProvider(entries: [
@@ -409,14 +331,10 @@ final class ChatSurfaceStabilityRegressionTests: XCTestCase {
         controller.performMenuRefresh()
         XCTAssertTrue(controller.showEmojiMenu)
 
-        // Operate the coordinator.
-        coordinator.handle(.messageCountChanged)
-        XCTAssertTrue(coordinator.isFollowingBottom)
-
-        // Re-project — must be unaffected by controller/coordinator state.
+        // Re-project — must be unaffected by controller state.
         let model2 = project(messages: messages, isSending: true)
         XCTAssertEqual(model, model2,
-                       "Projector output must be independent of controller/coordinator state")
+                       "Projector output must be independent of controller state")
     }
 }
 

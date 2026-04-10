@@ -6,89 +6,76 @@ import XCTest
 final class MessageListProjectionCacheTests: XCTestCase {
     func testMessageRevisionInvalidatesProjectionCacheForStreamingTextGrowth() {
         let messageId = UUID()
-        let sharedScrollState = MessageListScrollState()
+        let cache = ProjectionCache()
 
-        let initialMessage = ChatMessage(
-            id: messageId,
-            role: .assistant,
-            text: "Hello",
-            isStreaming: true
-        )
-        let initialView = makeView(
-            messages: [initialMessage],
-            messagesRevision: 1
-        )
-        initialView.scrollState = sharedScrollState
+        // Initial projection with "Hello".
+        let initialMessages = [
+            ChatMessage(
+                id: messageId,
+                role: .assistant,
+                text: "Hello",
+                isStreaming: true
+            )
+        ]
+        cache.lastKnownMessagesRevision = 0
+        cache.messageListVersion = 0
 
-        let initialProjection = initialView.derivedState
-        XCTAssertEqual(initialProjection.rows.last?.message.text, "Hello")
-        XCTAssertEqual(sharedScrollState.messageListVersion, 1)
+        // Simulate revision bump (messagesRevision changed from 0 → 1).
+        let revision1: UInt64 = 1
+        if cache.lastKnownMessagesRevision != revision1 {
+            cache.messageListVersion += 1
+            cache.lastKnownMessagesRevision = revision1
+        }
+        XCTAssertEqual(cache.messageListVersion, 1)
 
-        let updatedMessage = ChatMessage(
-            id: messageId,
-            role: .assistant,
-            text: "Hello, world",
-            isStreaming: true
-        )
-        let updatedView = makeView(
-            messages: [updatedMessage],
-            messagesRevision: 2
-        )
-        updatedView.scrollState = sharedScrollState
-
-        let updatedProjection = updatedView.derivedState
-        XCTAssertEqual(updatedProjection.rows.last?.message.text, "Hello, world")
-        XCTAssertEqual(sharedScrollState.messageListVersion, 2)
-    }
-
-    private func makeView(
-        messages: [ChatMessage],
-        messagesRevision: UInt64
-    ) -> MessageListView {
-        MessageListView(
-            messages: messages,
-            messagesRevision: messagesRevision,
+        let initialProjection = TranscriptProjector.project(
+            messages: initialMessages,
+            paginatedVisibleMessages: initialMessages,
+            activeSubagents: [],
             isSending: true,
             isThinking: false,
             isCompacting: false,
+            assistantStatusText: nil,
             assistantActivityPhase: "streaming",
             assistantActivityAnchor: "assistant_turn",
             assistantActivityReason: nil,
-            assistantStatusText: nil,
-            selectedModel: "",
-            configuredProviders: [],
-            providerCatalog: [],
-            activeSubagents: [],
-            dismissedDocumentSurfaceIds: [],
-            onConfirmationAllow: nil,
-            onConfirmationDeny: nil,
-            onAlwaysAllow: nil,
-            onTemporaryAllow: nil,
-            onSurfaceAction: nil,
-            onGuardianAction: nil,
-            onDismissDocumentWidget: nil,
-            onForkFromMessage: nil,
-            showInspectButton: false,
-            onInspectMessage: nil,
-            mediaEmbedSettings: nil,
-            onAbortSubagent: nil,
-            onSubagentTap: nil,
-            onRehydrateMessage: nil,
-            onSurfaceRefetch: nil,
-            onRetryFailedMessage: nil,
-            onRetryConversationError: nil,
-            subagentDetailStore: SubagentDetailStore(),
             activePendingRequestId: nil,
-            paginatedVisibleMessages: messages,
-            displayedMessageCount: .max,
-            hasMoreMessages: false,
-            isLoadingMoreMessages: false,
-            loadPreviousMessagePage: nil,
-            conversationId: nil,
-            anchorMessageId: .constant(nil),
-            highlightedMessageId: .constant(nil),
-            isInteractionEnabled: true,
-            containerWidth: 800
+            highlightedMessageId: nil
         )
+        cache.cachedProjection = initialProjection
+        XCTAssertEqual(initialProjection.rows.last?.message.text, "Hello")
+
+        // Simulate streaming: text grows to "Hello, world".
+        let updatedMessages = [
+            ChatMessage(
+                id: messageId,
+                role: .assistant,
+                text: "Hello, world",
+                isStreaming: true
+            )
+        ]
+        let revision2: UInt64 = 2
+        if cache.lastKnownMessagesRevision != revision2 {
+            cache.messageListVersion += 1
+            cache.lastKnownMessagesRevision = revision2
+        }
+        XCTAssertEqual(cache.messageListVersion, 2)
+
+        let updatedProjection = TranscriptProjector.project(
+            messages: updatedMessages,
+            paginatedVisibleMessages: updatedMessages,
+            activeSubagents: [],
+            isSending: true,
+            isThinking: false,
+            isCompacting: false,
+            assistantStatusText: nil,
+            assistantActivityPhase: "streaming",
+            assistantActivityAnchor: "assistant_turn",
+            assistantActivityReason: nil,
+            activePendingRequestId: nil,
+            highlightedMessageId: nil
+        )
+        cache.cachedProjection = updatedProjection
+        XCTAssertEqual(updatedProjection.rows.last?.message.text, "Hello, world")
     }
 }

@@ -8,9 +8,8 @@ import XCTest
 // projected/controller/coordinator architecture.
 //
 // All transcript derivation flows through `TranscriptProjector`, gated by
-// `ProjectionCache`. Scroll policy flows through `ScrollCoordinator`. These
-// tests assert that the measured hot paths stay on these implementations
-// rather than any removed compatibility layer.
+// `ProjectionCache`. These tests assert that the measured hot paths stay on
+// these implementations.
 //
 // All tests use `measure {}` with XCTest baselines — no hard-coded timing
 // thresholds. CI detects regressions as statistical deviations from the
@@ -109,34 +108,6 @@ final class MessageListScrollPerformanceTests: XCTestCase {
                 lastKey = key
             }
             XCTAssertNotNil(lastKey)
-        }
-    }
-
-    // MARK: - Test 3: requestPinToBottom Hot Path
-
-    /// Measures the synchronous hot path of requestPinToBottom on the scroll
-    /// state: request a pin, transition back to followingBottom — repeated 100 times.
-    @MainActor
-    func testPinToBottomPerformance() {
-        measure(metrics: [XCTClockMetric()]) {
-            let scrollState = MessageListScrollState()
-            var scrollCallCount = 0
-
-            scrollState.scrollTo = { _, _ in
-                scrollCallCount += 1
-            }
-
-            // Ensure we start in followingBottom mode.
-            scrollState.transition(to: .followingBottom)
-
-            // Run 100 pin request cycles to get a stable measurement.
-            for _ in 0..<100 {
-                scrollState.requestPinToBottom()
-                scrollState.transition(to: .followingBottom)
-            }
-
-            XCTAssertGreaterThan(scrollCallCount, 0)
-            scrollState.cancelAll()
         }
     }
 
@@ -421,7 +392,6 @@ final class MessageListScrollPerformanceTests: XCTestCase {
         cache.messageListVersion = 42
         cache.lastKnownMessagesRevision = 99
         cache.cachedFirstVisibleMessageId = UUID()
-        cache.isThrottled = true
 
         // Reset.
         cache.reset()
@@ -432,46 +402,13 @@ final class MessageListScrollPerformanceTests: XCTestCase {
         XCTAssertEqual(cache.messageListVersion, 0)
         XCTAssertEqual(cache.lastKnownMessagesRevision, 0)
         XCTAssertNil(cache.cachedFirstVisibleMessageId)
-        XCTAssertFalse(cache.isThrottled)
     }
 
-    // MARK: - Test 12: ScrollCoordinator Policy Hot Path
-
-    /// Measures the synchronous hot path of ScrollCoordinator event handling.
-    /// All scroll policy decisions now flow through the coordinator's
-    /// `handle(_:)` method — this test establishes the baseline cost.
-    @MainActor
-    func testScrollCoordinatorPolicyHotPath() {
-        measure(metrics: [XCTClockMetric()]) {
-            let coordinator = ScrollCoordinator()
-
-            // Simulate a realistic event sequence: appear, send, stream,
-            // scroll, reattach — repeated 100 times.
-            for _ in 0..<100 {
-                coordinator.handle(.appeared)
-                coordinator.handle(.sendingChanged(isSending: true))
-                coordinator.handle(.messageCountChanged)
-                coordinator.handle(.messageCountChanged)
-                coordinator.handle(.scrollPhaseChanged(phase: .interacting))
-                coordinator.handle(.manualBrowseIntent)
-                coordinator.handle(.scrollPhaseChanged(phase: .idle))
-                let _ = coordinator.requestUserInitiatedPin()
-                coordinator.handle(.messageCountChanged)
-                coordinator.handle(.sendingChanged(isSending: false))
-                coordinator.reset()
-            }
-
-            // Prevent optimizer from eliding.
-            XCTAssertEqual(coordinator.mode, .initialLoad)
-        }
-    }
-
-    // MARK: - Test 13: Projector Produces Stable Output for Coordinator Inputs
+    // MARK: - Test 12: Projector Produces Stable Output
 
     /// Verifies that the projector produces identical output when called
-    /// with the same inputs, proving that scroll coordinator decisions
-    /// can safely cache on projector output equality.
-    func testProjectorOutputStableForCoordinatorCaching() {
+    /// with the same inputs.
+    func testProjectorOutputStableForIdenticalInputs() {
         let messages = buildMessages(count: 100)
 
         let model1 = TranscriptProjector.project(

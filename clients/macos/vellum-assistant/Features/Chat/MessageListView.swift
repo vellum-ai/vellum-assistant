@@ -129,6 +129,8 @@ struct MessageListView: View {
     @State var lastHandledChatColumnWidth: CGFloat = 0
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State var resizeScrollTask: Task<Void, Never>?
+    /// In-flight pagination load task; cancelled on conversation switch.
+    @State var paginationTask: Task<Void, Never>?
     /// Tracks the viewport height for the turnMinHeight calculation.
     @State var viewportHeight: CGFloat = .infinity
 
@@ -219,6 +221,8 @@ struct MessageListView: View {
                 // position.
                 resizeScrollTask?.cancel()
                 resizeScrollTask = nil
+                paginationTask?.cancel()
+                paginationTask = nil
                 highlightedMessageId = nil
             }
             .onChange(of: isSending) {
@@ -259,18 +263,17 @@ struct MessageListView: View {
         let startConversationId = conversationId
         topVisibleMessageId = paginatedVisibleMessages.first?.id
         isLoadingMore = true
-        Task {
+        paginationTask?.cancel()
+        paginationTask = Task {
             _ = await loadPreviousMessagePage?()
-            // Discard stale results if the user switched conversations
-            // while the page load was in flight.
-            guard conversationId == startConversationId else {
+            guard !Task.isCancelled, conversationId == startConversationId else {
                 isLoadingMore = false
                 return
             }
             isLoadingMore = false
             if let anchorId = topVisibleMessageId {
                 try? await Task.sleep(nanoseconds: 100_000_000)
-                guard conversationId == startConversationId else { return }
+                guard !Task.isCancelled, conversationId == startConversationId else { return }
                 scrollPosition.scrollTo(id: anchorId, anchor: .top)
             }
         }
