@@ -11,8 +11,8 @@ enum LogReportReason: String, CaseIterable, Identifiable, Sendable {
 
     var displayName: String {
         switch self {
-        case .bugReport: return "Bug report"
-        case .featureRequest: return "Feature request"
+        case .bugReport: return "Bug Report"
+        case .featureRequest: return "Feature Request"
         case .other: return "Other"
         }
     }
