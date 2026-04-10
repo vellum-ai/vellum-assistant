@@ -1,3 +1,9 @@
+export {
+  CdpInspectClient,
+  type CdpInspectClientOptions,
+  type CdpInspectHelpers,
+  createCdpInspectClient,
+} from "./cdp-inspect-client.js";
 export { CdpError, type CdpErrorCode } from "./errors.js";
 export {
   createExtensionCdpClient,

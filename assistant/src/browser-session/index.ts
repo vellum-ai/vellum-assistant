@@ -9,6 +9,7 @@
  * routes `send()` through the manager. This gives every call site a single
  * choke point for session invalidation and future multi-tab routing.
  */
+export * from "./backends/cdp-inspect.js";
 export * from "./backends/extension.js";
 export * from "./backends/local.js";
 export * from "./events.js";

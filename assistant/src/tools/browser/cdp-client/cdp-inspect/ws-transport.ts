@@ -184,14 +184,20 @@ const DEFAULT_CONNECT_TIMEOUT_MS = 5_000;
 /**
  * Open a raw CDP WebSocket transport against `url`. Resolves only
  * after the socket has reached `OPEN`; rejects with
- * `CdpWsTransportError("timeout")` if the connect-timeout expires or
+ * `CdpWsTransportError("timeout")` if the connect-timeout expires,
+ * `CdpWsTransportError("aborted")` if `opts.signal` fires, or
  * `transport_error` if the socket errors or closes before opening.
  */
 export async function connectCdpWsTransport(
   url: string,
-  opts?: { connectTimeoutMs?: number },
+  opts?: { connectTimeoutMs?: number; signal?: AbortSignal },
 ): Promise<CdpWsTransport> {
   const connectTimeoutMs = opts?.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
+  const callerSignal = opts?.signal;
+
+  if (callerSignal?.aborted) {
+    throw new CdpWsTransportError("aborted", "aborted before connect");
+  }
 
   // bun's global `WebSocket` is API-compatible with the browser one.
   const WebSocketCtor: new (url: string) => WsLike = (
@@ -222,6 +228,7 @@ export async function connectCdpWsTransport(
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
+      cleanupAbort();
       try {
         ws.close();
       } catch {
@@ -234,12 +241,14 @@ export async function connectCdpWsTransport(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      cleanupAbort();
       resolve();
     };
     const onError = (ev: unknown) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      cleanupAbort();
       try {
         ws.close();
       } catch {
@@ -257,6 +266,7 @@ export async function connectCdpWsTransport(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      cleanupAbort();
       reject(
         new CdpWsTransportError(
           "transport_error",
@@ -264,10 +274,30 @@ export async function connectCdpWsTransport(
         ),
       );
     };
+    const onCallerAbort = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      cleanupAbort();
+      try {
+        ws.close();
+      } catch {
+        // best effort
+      }
+      reject(new CdpWsTransportError("aborted", "aborted during connect"));
+    };
+    const cleanupAbort = () => {
+      if (callerSignal) {
+        callerSignal.removeEventListener("abort", onCallerAbort);
+      }
+    };
 
     ws.addEventListener("open", onOpen);
     ws.addEventListener("error", onError);
     ws.addEventListener("close", onCloseBeforeOpen);
+    if (callerSignal) {
+      callerSignal.addEventListener("abort", onCallerAbort, { once: true });
+    }
   });
 
   return createTransport(ws);
