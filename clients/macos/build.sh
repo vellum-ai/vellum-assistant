@@ -237,6 +237,27 @@ CLI_SRC_DIR="$SCRIPT_DIR/../../cli"
 GATEWAY_SRC_DIR="$SCRIPT_DIR/../../gateway"
 NATIVE_HOST_SRC_DIR="$SCRIPT_DIR/../chrome-extension/native-host"
 
+# Chrome extension allowlist IDs injected into compiled binaries as a fallback
+# for packaged runs where repo-relative `meta/browser-extension/...` paths are
+# unavailable (Bun compiled binaries often resolve import.meta.dir to /$bunfs/root).
+CHROME_EXTENSION_ALLOWLIST_PATH="$_repo_root/meta/browser-extension/chrome-extension-allowlist.json"
+CHROME_EXTENSION_IDS_CSV=""
+if [ -f "$CHROME_EXTENSION_ALLOWLIST_PATH" ] && command -v bun &>/dev/null; then
+    CHROME_EXTENSION_IDS_CSV=$(
+        CHROME_ALLOWLIST_PATH="$CHROME_EXTENSION_ALLOWLIST_PATH" bun --eval '
+            const fs = require("node:fs");
+            const raw = fs.readFileSync(process.env.CHROME_ALLOWLIST_PATH, "utf8");
+            const parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed.allowedExtensionIds)) process.exit(1);
+            const ids = parsed.allowedExtensionIds.filter(
+              (id) => typeof id === "string" && /^[a-p]{32}$/.test(id),
+            );
+            if (ids.length === 0) process.exit(1);
+            process.stdout.write(ids.join(","));
+        ' 2>/dev/null || true
+    )
+fi
+
 # Packages that must stay external in compiled Bun binaries.
 # playwright-core has optional requires (electron, chromium-bidi) that cannot
 # be resolved at bundle time.  Mark them external so bun --compile skips them.
@@ -287,10 +308,11 @@ build_bun_binary() {
 }
 
 # ---------------------------------------------------------------------------
-# build_binaries — build all Bun binaries (daemon, CLI, gateway).
+# build_binaries — build all Bun binaries (daemon, assistant CLI, CLI, gateway,
+# and chrome native host helper).
 #
 # Installs dependencies once per source directory upfront, then compiles all
-# four binaries in parallel to reduce wall-clock time.
+# all binaries in parallel to reduce wall-clock time.
 # ---------------------------------------------------------------------------
 build_binaries() {
     command -v bun &>/dev/null || { echo "ERROR: bun is required but not found"; exit 1; }
@@ -313,6 +335,9 @@ build_binaries() {
     if [ -n "${COMMIT_SHA:-}" ]; then
         daemon_flags+=(--define "process.env.COMMIT_SHA='$COMMIT_SHA'")
     fi
+    if [ -n "${CHROME_EXTENSION_IDS_CSV:-}" ]; then
+        daemon_flags+=(--define "process.env.VELLUM_CHROME_EXTENSION_IDS='$CHROME_EXTENSION_IDS_CSV'")
+    fi
 
     local cli_flags=("${BUN_EXTERNAL_FLAGS[@]}")
     if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
@@ -321,8 +346,16 @@ build_binaries() {
     if [ -n "${COMMIT_SHA:-}" ]; then
         cli_flags+=(--define "process.env.COMMIT_SHA='$COMMIT_SHA'")
     fi
+    if [ -n "${CHROME_EXTENSION_IDS_CSV:-}" ]; then
+        cli_flags+=(--define "process.env.VELLUM_CHROME_EXTENSION_IDS='$CHROME_EXTENSION_IDS_CSV'")
+    fi
 
-    # Build all four binaries in parallel. Each writes to its own output
+    local native_host_flags=()
+    if [ -n "${CHROME_EXTENSION_IDS_CSV:-}" ]; then
+        native_host_flags+=(--define "process.env.VELLUM_CHROME_EXTENSION_IDS='$CHROME_EXTENSION_IDS_CSV'")
+    fi
+
+    # Build binaries in parallel. Each writes to its own output
     # directory so there are no filesystem conflicts. SKIP_BUN_INSTALL=1
     # tells build_bun_binary to skip `bun install` (already done above).
     echo "Building binaries in parallel..."
@@ -346,7 +379,7 @@ build_binaries() {
 
     if [ -d "$NATIVE_HOST_SRC_DIR/src" ]; then
         SKIP_BUN_INSTALL=1 build_bun_binary "$NATIVE_HOST_SRC_DIR" "$NATIVE_HOST_SRC_DIR/src/index.ts" \
-            "$SCRIPT_DIR/native-host-bin" "vellum-chrome-native-host" &
+            "$SCRIPT_DIR/native-host-bin" "vellum-chrome-native-host" "${native_host_flags[@]}" &
         pids+=($!)
     fi
 
@@ -606,6 +639,9 @@ if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
     if [ -n "${COMMIT_SHA:-}" ]; then
         local_daemon_flags+=(--define "process.env.COMMIT_SHA='$COMMIT_SHA'")
     fi
+    if [ -n "${CHROME_EXTENSION_IDS_CSV:-}" ]; then
+        local_daemon_flags+=(--define "process.env.VELLUM_CHROME_EXTENSION_IDS='$CHROME_EXTENSION_IDS_CSV'")
+    fi
     build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/daemon/main.ts" \
         "$SCRIPT_DIR/daemon-bin" "vellum-daemon" "${local_daemon_flags[@]}"
     cp "$ASSISTANT_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" "$SCRIPT_DIR/daemon-bin/"
@@ -660,8 +696,12 @@ if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$ASSISTANT_SRC_DIR/src" ] && comm
     fi
 fi
 if [ "$ASSISTANT_CLI_BIN_NEEDS_BUILD" = true ]; then
+    local_assistant_flags=("${BUN_EXTERNAL_FLAGS[@]}")
+    if [ -n "${CHROME_EXTENSION_IDS_CSV:-}" ]; then
+        local_assistant_flags+=(--define "process.env.VELLUM_CHROME_EXTENSION_IDS='$CHROME_EXTENSION_IDS_CSV'")
+    fi
     build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/assistant-bin" "vellum-assistant" "${BUN_EXTERNAL_FLAGS[@]}"
+        "$SCRIPT_DIR/assistant-bin" "vellum-assistant" "${local_assistant_flags[@]}"
 fi
 
 # Also rebuild if assistant CLI binary changed or newly added
@@ -737,8 +777,12 @@ if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$NATIVE_HOST_SRC_DIR/src" ] && co
     fi
 fi
 if [ "$NATIVE_HOST_BIN_NEEDS_BUILD" = true ]; then
+    local_native_host_flags=()
+    if [ -n "${CHROME_EXTENSION_IDS_CSV:-}" ]; then
+        local_native_host_flags+=(--define "process.env.VELLUM_CHROME_EXTENSION_IDS='$CHROME_EXTENSION_IDS_CSV'")
+    fi
     build_bun_binary "$NATIVE_HOST_SRC_DIR" "$NATIVE_HOST_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/native-host-bin" "vellum-chrome-native-host"
+        "$SCRIPT_DIR/native-host-bin" "vellum-chrome-native-host" "${local_native_host_flags[@]}"
 fi
 
 # Also rebuild if native host binary changed or newly added

@@ -65,11 +65,23 @@ chmod +x dist/index.js
 
 ```bash
 mkdir -p "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
+NODE_BIN="$(command -v node)"
+if [ -z "$NODE_BIN" ]; then
+  echo "node not found on PATH"
+  exit 1
+fi
+cat > "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.vellum.daemon.sh" <<'BASH'
+#!/bin/bash
+exec "__NODE_BIN__" "/ABSOLUTE/PATH/TO/clients/chrome-extension/native-host/dist/index.js" "$@"
+BASH
+sed -i '' "s|__NODE_BIN__|$NODE_BIN|g" "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.vellum.daemon.sh"
+chmod 755 "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.vellum.daemon.sh"
+
 cat > "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.vellum.daemon.json" <<'JSON'
 {
   "name": "com.vellum.daemon",
   "description": "Vellum assistant native messaging host",
-  "path": "/ABSOLUTE/PATH/TO/clients/chrome-extension/native-host/dist/index.js",
+  "path": "/Users/<you>/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.vellum.daemon.sh",
   "type": "stdio",
   "allowed_origins": ["chrome-extension://YOUR_EXTENSION_ID/"]
 }
@@ -77,7 +89,9 @@ JSON
 chmod 644 "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.vellum.daemon.json"
 ```
 
-Note: the `dist/index.js` host path uses `#!/usr/bin/env node`, so `node` must be installed and on `PATH`.
+Note: prefer a wrapper script with an absolute Node path (above). Chrome launches
+native hosts with a minimal environment, so `#!/usr/bin/env node` often fails even
+when `node` works in your terminal.
 
 5. Fully quit and relaunch Chrome.
 
@@ -108,6 +122,10 @@ Then in `chrome://extensions`, click **Reload** on the unpacked extension.
 Common failures:
 - `Access to the specified native messaging host is forbidden`
   - Manifest missing/invalid, `allowed_origins` mismatch, or extension ID not allowlisted in `meta/browser-extension/chrome-extension-allowlist.json`
+- `Native host has exited`
+  - Chrome could not launch Node for a `dist/index.js` host path. Use a wrapper script with an absolute Node path in the manifest `path`.
+- `assistant pair request failed with HTTP 401`
+  - The pair endpoint rejected `extensionOrigin`. Verify your extension ID is in `meta/browser-extension/chrome-extension-allowlist.json`, then restart the assistant so it reloads allowlist config.
 - `Self-hosted relay is not paired yet`
   - Click **Pair with local assistant** first
 - `failed to reach assistant at http://127.0.0.1:<port>/v1/browser-extension-pair`
