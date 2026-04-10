@@ -184,7 +184,7 @@ struct MessageListContentView: View, Equatable {
             // executeScrollToBottom can target the content-bottom marker.
             let minHeightApplied: Bool = {
                 guard state.isActiveTurn, let lastRow = state.rows.last else { return false }
-                return lastRow.isLatestAssistant && lastRow.message.id == state.rows.last?.message.id
+                return lastRow.isLatestAssistant
             }()
             let _ = {
                 let wasApplied = scrollState.isActiveTurnMinHeightApplied
