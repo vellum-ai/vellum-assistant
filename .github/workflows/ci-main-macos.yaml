@@ -117,7 +117,7 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.bundled == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 30
     env:
       APP_DISPLAY_NAME: Vellum
       KEYCHAIN_NAME: ci-build.keychain
@@ -302,77 +302,6 @@ jobs:
             "vellum-assistant-${DEV_VERSION}.dmg"
           ls -lh "vellum-assistant-${DEV_VERSION}.dmg"
 
-      - name: Notarize DMG
-        env:
-          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-        working-directory: clients/macos
-        run: |
-          DEV_VERSION="${{ steps.version.outputs.dev_version }}"
-          DMG_PATH="vellum-assistant-${DEV_VERSION}.dmg"
-
-          mkdir -p ~/.private_keys
-          echo "$ASC_KEY_P8" > ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8
-
-          echo "Submitting DMG for notarization..."
-          NOTARIZE_OUTPUT=$(xcrun notarytool submit "$DMG_PATH" \
-            --key ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8 \
-            --key-id "$ASC_KEY_ID" \
-            --issuer "$ASC_ISSUER_ID" \
-            --wait \
-            --timeout 30m \
-            2>&1) || NOTARIZE_FAILED=true
-
-          echo "$NOTARIZE_OUTPUT"
-
-          SUBMISSION_ID=$(echo "$NOTARIZE_OUTPUT" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
-
-          if [ "$NOTARIZE_FAILED" = "true" ] || echo "$NOTARIZE_OUTPUT" | grep -q "status: Invalid"; then
-            echo "::error::Notarization failed (status: Invalid or command error)"
-            if [ -n "$SUBMISSION_ID" ]; then
-              echo "Fetching notarization log for submission $SUBMISSION_ID..."
-              xcrun notarytool log "$SUBMISSION_ID" \
-                --key ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8 \
-                --key-id "$ASC_KEY_ID" \
-                --issuer "$ASC_ISSUER_ID" \
-                || echo "::warning::Could not fetch notarization log"
-            fi
-            exit 1
-          fi
-
-          echo "Notarization succeeded (status: Accepted)"
-
-      - name: Staple notarization ticket
-        working-directory: clients/macos
-        run: |
-          DEV_VERSION="${{ steps.version.outputs.dev_version }}"
-          DMG_PATH="vellum-assistant-${DEV_VERSION}.dmg"
-
-          MAX_ATTEMPTS=15
-          WAIT_SECS=60
-          for i in $(seq 1 $MAX_ATTEMPTS); do
-            STAPLE_OUTPUT=$(xcrun stapler staple "$DMG_PATH" 2>&1)
-            STAPLE_EXIT=$?
-            if [ $STAPLE_EXIT -eq 0 ]; then
-              echo "Stapling succeeded on attempt $i"
-              echo "$STAPLE_OUTPUT"
-              break
-            fi
-            echo "::warning::Stapling attempt $i/$MAX_ATTEMPTS failed (exit code $STAPLE_EXIT):"
-            echo "$STAPLE_OUTPUT"
-            if [ "$i" -eq "$MAX_ATTEMPTS" ]; then
-              echo "::error::Stapling failed after $MAX_ATTEMPTS attempts"
-              exit 1
-            fi
-            echo "Waiting ${WAIT_SECS}s for CDN propagation..."
-            sleep $WAIT_SECS
-            WAIT_SECS=$((WAIT_SECS + 15))
-          done
-
-          xcrun stapler validate "$DMG_PATH"
-          echo "Notarization ticket stapled and validated"
-
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
@@ -381,12 +310,11 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-      - name: Cleanup keychain and keys
+      - name: Cleanup keychain
         if: always()
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
-          rm -rf ~/.private_keys 2>/dev/null || true
 
 
   notify-macos:
