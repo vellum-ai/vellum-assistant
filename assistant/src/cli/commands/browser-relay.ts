@@ -408,7 +408,10 @@ Examples:
   relay
     .command("navigate")
     .description("Navigate an existing tab to a new URL")
-    .option("--tab-id <id>", "Target tab ID (defaults to active tab)")
+    .option(
+      "--tab-id <id>",
+      "Target tab ID (defaults to active tab) — run 'assistant browser chrome relay find-tab --url <pattern>' to find it",
+    )
     .requiredOption("--url <url>", "URL to navigate to")
     .action(async (opts: { tabId?: string; url: string }) => {
       await actionNavigate(opts.tabId, opts.url);
@@ -419,7 +422,10 @@ Examples:
   relay
     .command("evaluate")
     .description("Execute JavaScript in a Chrome tab")
-    .option("--tab-id <id>", "Target tab ID (defaults to active tab)")
+    .option(
+      "--tab-id <id>",
+      "Target tab ID (defaults to active tab) — run 'assistant browser chrome relay find-tab --url <pattern>' to find it",
+    )
     .option(
       "--code <script>",
       "JavaScript code to evaluate (or read from stdin)",
