@@ -168,52 +168,21 @@ async function readStdin(): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-// URL glob matching for find-tab
-// ---------------------------------------------------------------------------
-
-/**
- * Convert a Chrome match-pattern style glob (e.g. `*://*.amazon.com/*`)
- * into a regular expression. Matches the chrome.tabs.query semantics
- * the legacy relay CLI exposed:
- *
- *   - `*` is a wildcard that matches any sequence (including `/` in
- *     the path component, mirroring the legacy minimatch behaviour).
- *   - All other regex metacharacters are escaped.
- */
-function globToRegex(glob: string): RegExp {
-  const escaped = glob.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = "^" + escaped.replace(/\*/g, ".*") + "$";
-  return new RegExp(pattern);
-}
-
-// ---------------------------------------------------------------------------
 // Action handlers — translate legacy actions into CDP commands
 // ---------------------------------------------------------------------------
 
-interface CdpTarget {
-  targetId: string;
-  type: string;
-  url: string;
-  title?: string;
-  attached?: boolean;
-}
-
-interface CdpTargetsResult {
-  targetInfos: CdpTarget[];
-}
-
 async function actionFindTab(urlPattern: string): Promise<void> {
   try {
-    const resp = await postBrowserCdp({ cdpMethod: "Target.getTargets" });
-    const targets =
-      (resp.result as CdpTargetsResult | undefined)?.targetInfos ?? [];
-    const re = globToRegex(urlPattern);
-    const match = targets.find((t) => t.type === "page" && re.test(t.url));
-    if (!match) {
+    const resp = await postBrowserCdp({
+      cdpMethod: "Vellum.findTab",
+      cdpParams: { urlPattern },
+    });
+    const tab = resp.result as { tabId?: string; url?: string } | undefined;
+    if (!tab?.tabId) {
       emitError(`No tab matched URL pattern: ${urlPattern}`);
       return;
     }
-    emitOk({ tabId: match.targetId });
+    emitOk({ tabId: tab.tabId });
   } catch (err) {
     emitError(err instanceof Error ? err.message : String(err));
   }
@@ -237,12 +206,15 @@ async function actionNewTab(url: string): Promise<void> {
   }
 }
 
-async function actionNavigate(tabId: string, url: string): Promise<void> {
+async function actionNavigate(
+  tabId: string | undefined,
+  url: string,
+): Promise<void> {
   try {
     await postBrowserCdp({
       cdpMethod: "Page.navigate",
       cdpParams: { url },
-      cdpSessionId: tabId,
+      ...(tabId !== undefined ? { cdpSessionId: tabId } : {}),
     });
     emitOk({});
   } catch (err) {
@@ -250,7 +222,10 @@ async function actionNavigate(tabId: string, url: string): Promise<void> {
   }
 }
 
-async function actionEvaluate(tabId: string, code: string): Promise<void> {
+async function actionEvaluate(
+  tabId: string | undefined,
+  code: string,
+): Promise<void> {
   try {
     const resp = await postBrowserCdp({
       cdpMethod: "Runtime.evaluate",
@@ -259,7 +234,7 @@ async function actionEvaluate(tabId: string, code: string): Promise<void> {
         returnByValue: true,
         awaitPromise: true,
       },
-      cdpSessionId: tabId,
+      ...(tabId !== undefined ? { cdpSessionId: tabId } : {}),
     });
     // CDP Runtime.evaluate returns { result: { type, value }, exceptionDetails? }.
     // Surface exceptions as relay errors so callers don't silently get undefined.
@@ -402,9 +377,12 @@ Examples:
   relay
     .command("navigate")
     .description("Navigate an existing tab to a new URL")
-    .requiredOption("--tab-id <id>", "Target tab ID")
+    .option(
+      "--tab-id <id>",
+      "Target tab ID (defaults to active tab) — run 'assistant browser chrome relay find-tab --url <pattern>' to find it",
+    )
     .requiredOption("--url <url>", "URL to navigate to")
-    .action(async (opts: { tabId: string; url: string }) => {
+    .action(async (opts: { tabId?: string; url: string }) => {
       await actionNavigate(opts.tabId, opts.url);
     });
 
@@ -413,12 +391,15 @@ Examples:
   relay
     .command("evaluate")
     .description("Execute JavaScript in a Chrome tab")
-    .requiredOption("--tab-id <id>", "Target tab ID")
+    .option(
+      "--tab-id <id>",
+      "Target tab ID (defaults to active tab) — run 'assistant browser chrome relay find-tab --url <pattern>' to find it",
+    )
     .option(
       "--code <script>",
       "JavaScript code to evaluate (or read from stdin)",
     )
-    .action(async (opts: { tabId: string; code?: string }) => {
+    .action(async (opts: { tabId?: string; code?: string }) => {
       let code: string;
       if (opts.code) {
         code = opts.code;

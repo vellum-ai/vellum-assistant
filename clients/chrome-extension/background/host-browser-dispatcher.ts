@@ -317,6 +317,41 @@ export function createHostBrowserDispatcher(
     const ownController = abort;
     inFlight.set(requestId, ownController);
     try {
+      // Handle synthetic Vellum.* methods that use chrome extension APIs
+      // directly instead of routing through chrome.debugger. These methods
+      // do not require a resolved CDP target, so they must be dispatched
+      // BEFORE `resolveTarget()` — otherwise `resolveTarget(undefined)`
+      // falls back to querying for the active tab, which throws when no
+      // focused window/tab exists (minimized, no active tab, etc.).
+      if (envelope.cdpMethod === 'Vellum.findTab') {
+        const urlPattern = (envelope.cdpParams as { urlPattern?: string } | undefined)?.urlPattern;
+        if (!urlPattern) {
+          await deps.postResult({
+            requestId,
+            content: JSON.stringify({ code: -32602, message: 'urlPattern is required' }),
+            isError: true,
+          });
+          return;
+        }
+        const tabs = await chrome.tabs.query({ url: urlPattern });
+        if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
+        const tab = tabs[0];
+        if (!tab?.id) {
+          await deps.postResult({
+            requestId,
+            content: JSON.stringify({ code: -32000, message: `No tab matched URL pattern: ${urlPattern}` }),
+            isError: true,
+          });
+          return;
+        }
+        await deps.postResult({
+          requestId,
+          content: JSON.stringify({ tabId: String(tab.id), url: tab.url, title: tab.title }),
+          isError: false,
+        });
+        return;
+      }
+
       const target = await deps.resolveTarget(envelope.cdpSessionId);
       const key = targetKey(target);
       if (!attachedTargets.has(key)) {
@@ -345,7 +380,12 @@ export function createHostBrowserDispatcher(
         id: nextCdpId++,
         method: envelope.cdpMethod,
         params: envelope.cdpParams,
-        sessionId: envelope.cdpSessionId,
+        // cdpSessionId is used only for target resolution (resolveTarget above).
+        // It must NOT be forwarded as a CDP flat-session sessionId — doing so
+        // causes chrome.debugger.sendCommand to look up a non-existent session
+        // and fail with "Session with given id not found". Flat sessions are
+        // only valid when obtained from Target.attachToTarget with flatten:true,
+        // which this code path does not use.
       });
       // Recovery hint: if the CDP send returned an error indicating the
       // target is no longer attached (tab closed mid-flight, navigated
