@@ -101,6 +101,29 @@ const ANTHROPIC_SUPPORTED_IMAGE_TYPES = new Set([
   "image/webp",
 ]);
 
+/**
+ * Adaptive thinking is currently limited to Anthropic's newest Claude 4.6
+ * models plus Mythos Preview. Older Claude models still require manual
+ * thinking budgets or no thinking parameter at all.
+ */
+function supportsAdaptiveThinkingModel(model: string): boolean {
+  const normalized = model.trim().toLowerCase();
+  return (
+    /claude-(?:opus|sonnet)-4-6(?:-|@|$)/i.test(normalized) ||
+    /claude-mythos-preview(?:-|@|$)/i.test(normalized)
+  );
+}
+
+function isAdaptiveThinkingConfig(
+  value: unknown,
+): value is { type: "adaptive" } & Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { type?: unknown }).type === "adaptive"
+  );
+}
+
 function isTextBasedMimeType(mediaType: string): boolean {
   return (
     mediaType.startsWith("text/") ||
@@ -609,7 +632,10 @@ export class AnthropicProvider implements Provider {
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
     const { config, onEvent, signal } = options ?? {};
-    const cacheTtl: "5m" | "1h" = ((config as Record<string, unknown> | undefined)?.cacheTtl as "5m" | "1h") ?? "1h";
+    const cacheTtl: "5m" | "1h" =
+      ((config as Record<string, unknown> | undefined)?.cacheTtl as
+        | "5m"
+        | "1h") ?? "1h";
     let sentMessages: Anthropic.MessageParam[] | undefined;
     try {
       const formatted = messages
@@ -719,11 +745,18 @@ export class AnthropicProvider implements Provider {
       // — the API accepts them. No provider-side stripping needed.
 
       sentMessages = ensureToolPairing(repairOrphanedServerToolUse(formatted));
-      const { effort, speed, output_config, cacheTtl: _cacheTtl, ...restConfig } = (config ??
-        {}) as Record<string, unknown> & {
+      const {
+        effort,
+        speed,
+        output_config,
+        cacheTtl: _cacheTtl,
+        thinking,
+        ...restConfig
+      } = (config ?? {}) as Record<string, unknown> & {
         effort?: Anthropic.OutputConfig["effort"];
         speed?: "standard" | "fast";
         output_config?: Record<string, unknown>;
+        thinking?: Anthropic.MessageStreamParams["thinking"];
       };
       // Haiku does not support the effort / output_config parameter.
       // Determine the effective model (per-call override or provider default)
@@ -731,6 +764,15 @@ export class AnthropicProvider implements Provider {
       const effectiveModel =
         (restConfig as Record<string, unknown>).model?.toString() ?? this.model;
       const supportsEffort = !effectiveModel.includes("haiku");
+      const adaptiveThinkingUnsupported =
+        isAdaptiveThinkingConfig(thinking) &&
+        !supportsAdaptiveThinkingModel(effectiveModel);
+      if (adaptiveThinkingUnsupported) {
+        log.debug(
+          { model: effectiveModel },
+          "Skipping adaptive thinking for unsupported Anthropic model",
+        );
+      }
       const mergedOutputConfig = {
         ...(output_config ?? {}),
         ...(effort && supportsEffort ? { effort } : {}),
@@ -740,6 +782,9 @@ export class AnthropicProvider implements Provider {
         max_tokens: 64000,
         messages: sentMessages,
         ...restConfig,
+        ...(thinking !== undefined && !adaptiveThinkingUnsupported
+          ? { thinking }
+          : {}),
         ...(Object.keys(mergedOutputConfig).length > 0
           ? { output_config: mergedOutputConfig }
           : {}),
@@ -862,7 +907,10 @@ export class AnthropicProvider implements Provider {
       if (turnStartIdx >= 0 && turnStartIdx < sentMessages.length - 1) {
         const lastMsg = sentMessages[sentMessages.length - 1];
         if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
-          const NON_CACHEABLE_TYPES = new Set(["thinking", "redacted_thinking"]);
+          const NON_CACHEABLE_TYPES = new Set([
+            "thinking",
+            "redacted_thinking",
+          ]);
           let tailBlock: (typeof lastMsg.content)[number] | undefined;
           for (let j = lastMsg.content.length - 1; j >= 0; j--) {
             const block = lastMsg.content[j];
@@ -902,7 +950,8 @@ export class AnthropicProvider implements Provider {
         params.system.length === 2 &&
         hasToolCacheBreakpoint
       ) {
-        delete (params.system[0] as unknown as Record<string, unknown>).cache_control;
+        delete (params.system[0] as unknown as Record<string, unknown>)
+          .cache_control;
       }
 
       // Strip orphaned UTF-16 surrogates so the Anthropic JSON parser never
@@ -1021,7 +1070,9 @@ export class AnthropicProvider implements Provider {
               type: "server_tool_complete",
               toolUseId: block.tool_use_id,
               isError: !!isError,
-              ...(Array.isArray(block.content) ? { content: block.content } : {}),
+              ...(Array.isArray(block.content)
+                ? { content: block.content }
+                : {}),
             });
           }
           if (event.type === "content_block_stop") {

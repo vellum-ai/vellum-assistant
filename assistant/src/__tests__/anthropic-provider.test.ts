@@ -147,6 +147,28 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     provider = new AnthropicProvider("sk-ant-test", "claude-sonnet-4-6");
   });
 
+  test("passes adaptive thinking through for supported Anthropic models", async () => {
+    await provider.sendMessage([userMsg("Hi")], undefined, undefined, {
+      config: {
+        thinking: { type: "adaptive" },
+      },
+    });
+
+    expect(lastStreamParams!.thinking).toEqual({ type: "adaptive" });
+  });
+
+  test("strips adaptive thinking for older Anthropic models", async () => {
+    provider = new AnthropicProvider("sk-ant-test", "claude-sonnet-4-20250514");
+
+    await provider.sendMessage([userMsg("Hi")], undefined, undefined, {
+      config: {
+        thinking: { type: "adaptive" },
+      },
+    });
+
+    expect(lastStreamParams!.thinking).toBeUndefined();
+  });
+
   // -----------------------------------------------------------------------
   // System prompt cache control
   // -----------------------------------------------------------------------
@@ -307,7 +329,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     // Turn-starting user message (first) keeps 1h
     const turnStart = sent[0];
     const turnStartLast = turnStart.content[turnStart.content.length - 1];
-    expect(turnStartLast.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(turnStartLast.cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
 
     // Last message (tool_result) gets 5m advancing tail
     const lastMessage = sent[sent.length - 1];
@@ -398,7 +423,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     }>;
     const user = sent[0];
     expect(user.content[0].cache_control).toBeUndefined();
-    expect(user.content[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(user.content[1].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -442,7 +470,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     // Workspace block (first): no cache_control
     expect(user.content[0].cache_control).toBeUndefined();
     // User text (last): cache_control with 1h TTL
-    expect(user.content[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(user.content[1].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
   });
 
   test("workspace + multi-block single user message: cache on last block only", async () => {
@@ -476,7 +507,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     // Only last block gets cache_control
     expect(user.content[0].cache_control).toBeUndefined();
     expect(user.content[1].cache_control).toBeUndefined();
-    expect(user.content[2].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(user.content[2].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -1408,7 +1442,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     // Last user message (turn 3): 1h cache on last block only
     const lastUser = userMsgs[userMsgs.length - 1];
     expect(lastUser.content[0].cache_control).toBeUndefined();
-    expect(lastUser.content[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(lastUser.content[1].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
 
     // No top-level cache_control — breakpoints are set directly on blocks
     expect(
@@ -1437,14 +1474,19 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 
     // First message is the turn-starting user text — gets 1h cache
     expect(sent[0].role).toBe("user");
-    expect(sent[0].content[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(sent[0].content[0].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
 
     // Non-last tool result messages do NOT get cache_control
     const toolResultMsgs = sent.filter(
       (m) =>
         m.role === "user" &&
         Array.isArray(m.content) &&
-        m.content.every((b) => typeof b !== "string" && b.type === "tool_result"),
+        m.content.every(
+          (b) => typeof b !== "string" && b.type === "tool_result",
+        ),
     );
     expect(toolResultMsgs.length).toBeGreaterThan(0);
     for (const tr of toolResultMsgs.slice(0, -1)) {
