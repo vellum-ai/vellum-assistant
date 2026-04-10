@@ -57,6 +57,7 @@ const ALLOWLIST_CONFIG_PATH = resolve(
   "..",
   "..",
   "..",
+  "..",
   "meta",
   "browser-extension",
   "chrome-extension-allowlist.json",
