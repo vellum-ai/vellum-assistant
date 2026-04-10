@@ -11,7 +11,7 @@ private let _platformURLOverrideEnvironmentKey = "VELLUM_PLATFORM_URL"
 private let _authServiceBaseURLDefaultsName = "authServiceBaseURL"
 private let _defaultBaseURL: String = {
     #if DEBUG
-    return "https://dev-platform.vellum.ai"
+    return "http://localhost:8000"
     #else
     return "https://platform.vellum.ai"
     #endif
@@ -36,7 +36,7 @@ public final class AuthService {
     /// Resolution order:
     /// 1. `VELLUM_PLATFORM_URL` environment variable
     /// 2. `authServiceBaseURL` UserDefaults key (DEBUG builds only)
-    /// 3. Build-time default (`https://dev-platform.vellum.ai` for DEBUG, `https://platform.vellum.ai` for RELEASE)
+    /// 3. Build-time default (`http://localhost:8000` for DEBUG, `https://platform.vellum.ai` for RELEASE)
     nonisolated static func resolveBaseURL(
         environment: [String: String],
         userDefaults: UserDefaults
@@ -221,49 +221,6 @@ public final class AuthService {
         }
     }
 
-    public enum OrganizationResolutionError: LocalizedError, Sendable {
-        case noOrganizations
-        case multipleOrganizations
-
-        public var errorDescription: String? {
-            switch self {
-            case .noOrganizations:
-                return "No organizations found for this account"
-            case .multipleOrganizations:
-                return "Multiple organizations found. Multi-org support is not yet available — please contact support."
-            }
-        }
-    }
-
-    /// Resolve the caller's organization ID, persisting it under
-    /// `connectedOrganizationId` in UserDefaults for synchronous readers.
-    ///
-    /// A persisted value is re-validated against the current org list on
-    /// every call so stale cross-environment IDs don't leak through.
-    @discardableResult
-    public func resolveOrganizationId() async throws -> String {
-        let orgs = try await getOrganizations()
-        let persistedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
-        if let persistedOrgId, orgs.contains(where: { $0.id == persistedOrgId }) {
-            log.info("Validated persisted organization: \(persistedOrgId, privacy: .public)")
-            return persistedOrgId
-        }
-        if persistedOrgId != nil {
-            log.warning("Persisted organization ID not found in user's orgs — re-resolving")
-        }
-        switch orgs.count {
-        case 0:
-            throw OrganizationResolutionError.noOrganizations
-        case 1:
-            let orgId = orgs[0].id
-            UserDefaults.standard.set(orgId, forKey: "connectedOrganizationId")
-            log.info("Resolved organization: \(orgId, privacy: .public)")
-            return orgId
-        default:
-            throw OrganizationResolutionError.multipleOrganizations
-        }
-    }
-
     // MARK: - Platform Request Helper
 
     /// Raw result of a platform HTTP request — status code + body data.
@@ -351,14 +308,14 @@ public final class AuthService {
 
     // MARK: - Platform Assistant API
 
-    /// Map a platform assistant `GET` response into a `PlatformAssistantResult`.
-    ///
-    /// Shared by single-assistant lookup endpoints (`getAssistant`,
-    /// `getActiveAssistant`) that all use the same `.found` / `.notFound` /
-    /// `.accessDenied` status-code contract.
-    private func decodeAssistantResult(
-        _ response: PlatformResponse
-    ) throws -> PlatformAssistantResult {
+    /// Retrieve a specific managed assistant by ID.
+    public func getAssistant(id: String, organizationId: String) async throws -> PlatformAssistantResult {
+        let response = try await performPlatformRequest(
+            path: "v1/assistants/\(id)/",
+            method: "GET",
+            organizationId: organizationId
+        )
+
         switch response.statusCode {
         case 404:
             return .notFound
@@ -378,26 +335,6 @@ public final class AuthService {
                 detail: String(data: response.data, encoding: .utf8)
             )
         }
-    }
-
-    /// Retrieve a specific managed assistant by ID.
-    public func getAssistant(id: String, organizationId: String) async throws -> PlatformAssistantResult {
-        let response = try await performPlatformRequest(
-            path: "v1/assistants/\(id)/",
-            method: "GET",
-            organizationId: organizationId
-        )
-        return try decodeAssistantResult(response)
-    }
-
-    /// Retrieve the user's currently active managed assistant.
-    public func getActiveAssistant(organizationId: String) async throws -> PlatformAssistantResult {
-        let response = try await performPlatformRequest(
-            path: "v1/assistants/active/",
-            method: "GET",
-            organizationId: organizationId
-        )
-        return try decodeAssistantResult(response)
     }
 
     /// List managed assistants visible to the caller in the given organization.
