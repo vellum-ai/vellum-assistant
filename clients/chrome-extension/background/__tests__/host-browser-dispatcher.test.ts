@@ -1203,9 +1203,11 @@ describe('createHostBrowserDispatcher', () => {
       const h = createHarness(options);
       h.resolveTargetImpl = async (cdpSessionId) => {
         if (cdpSessionId) {
-          const asNumber = Number(cdpSessionId);
-          if (Number.isInteger(asNumber) && asNumber > 0) {
-            return { tabId: asNumber };
+          if (/^\d+$/.test(cdpSessionId)) {
+            const asNumber = Number(cdpSessionId);
+            if (asNumber > 0 && Number.isSafeInteger(asNumber)) {
+              return { tabId: asNumber };
+            }
           }
           return { targetId: cdpSessionId };
         }

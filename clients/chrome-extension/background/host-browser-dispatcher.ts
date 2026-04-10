@@ -334,6 +334,7 @@ export function createHostBrowserDispatcher(
           return;
         }
         const tabs = await chrome.tabs.query({ url: urlPattern });
+        if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
         const tab = tabs[0];
         if (!tab?.id) {
           await deps.postResult({
