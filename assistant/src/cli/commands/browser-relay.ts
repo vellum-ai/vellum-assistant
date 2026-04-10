@@ -168,52 +168,21 @@ async function readStdin(): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-// URL glob matching for find-tab
-// ---------------------------------------------------------------------------
-
-/**
- * Convert a Chrome match-pattern style glob (e.g. `*://*.amazon.com/*`)
- * into a regular expression. Matches the chrome.tabs.query semantics
- * the legacy relay CLI exposed:
- *
- *   - `*` is a wildcard that matches any sequence (including `/` in
- *     the path component, mirroring the legacy minimatch behaviour).
- *   - All other regex metacharacters are escaped.
- */
-function globToRegex(glob: string): RegExp {
-  const escaped = glob.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = "^" + escaped.replace(/\*/g, ".*") + "$";
-  return new RegExp(pattern);
-}
-
-// ---------------------------------------------------------------------------
 // Action handlers — translate legacy actions into CDP commands
 // ---------------------------------------------------------------------------
 
-interface CdpTarget {
-  targetId: string;
-  type: string;
-  url: string;
-  title?: string;
-  attached?: boolean;
-}
-
-interface CdpTargetsResult {
-  targetInfos: CdpTarget[];
-}
-
 async function actionFindTab(urlPattern: string): Promise<void> {
   try {
-    const resp = await postBrowserCdp({ cdpMethod: "Target.getTargets" });
-    const targets =
-      (resp.result as CdpTargetsResult | undefined)?.targetInfos ?? [];
-    const re = globToRegex(urlPattern);
-    const match = targets.find((t) => t.type === "page" && re.test(t.url));
-    if (!match) {
+    const resp = await postBrowserCdp({
+      cdpMethod: "Vellum.findTab",
+      cdpParams: { urlPattern },
+    });
+    const tab = resp.result as { tabId?: string; url?: string } | undefined;
+    if (!tab?.tabId) {
       emitError(`No tab matched URL pattern: ${urlPattern}`);
       return;
     }
-    emitOk({ tabId: match.targetId });
+    emitOk({ tabId: tab.tabId });
   } catch (err) {
     emitError(err instanceof Error ? err.message : String(err));
   }
