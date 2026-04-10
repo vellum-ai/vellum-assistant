@@ -3,10 +3,13 @@ import {
   BrowserSessionManager,
   type CdpCommand,
   type CdpResult,
+  createCdpInspectBackend,
   createExtensionBackend,
   createLocalBackend,
 } from "../../../browser-session/index.js";
+import { getConfig } from "../../../config/loader.js";
 import type { ToolContext } from "../../types.js";
+import { createCdpInspectClient } from "./cdp-inspect-client.js";
 import { CdpError } from "./errors.js";
 import { createExtensionCdpClient } from "./extension-cdp-client.js";
 import { createLocalCdpClient } from "./local-cdp-client.js";
@@ -14,19 +17,23 @@ import type { CdpClient, CdpClientKind, ScopedCdpClient } from "./types.js";
 
 /**
  * Select the appropriate CdpClient implementation for a tool
- * invocation based on the ToolContext:
+ * invocation based on the ToolContext and config. Three backends are
+ * considered in priority order:
  *
- *  - When `context.hostBrowserProxy` is set (macOS desktop / cloud-
- *    hosted with a chrome-extension bound to the conversation),
- *    register an extension backend so CDP commands ride the
- *    host_browser_request / host_browser_result round-trip.
- *  - Otherwise (CLI, tests, headless Chromium launched in-process),
- *    register a local backend that drives Playwright's CDPSession
- *    against the sacrificial-profile browser managed by
- *    browserManager.
+ *  1. **Extension** — When `context.hostBrowserProxy` is set (macOS
+ *     desktop / cloud-hosted with a chrome-extension bound to the
+ *     conversation), register an extension backend so CDP commands
+ *     ride the host_browser_request / host_browser_result round-trip.
+ *  2. **cdp-inspect** — When the extension is absent and
+ *     `hostBrowser.cdpInspect.enabled` is `true` in config, construct
+ *     a `CdpInspectClient` that attaches to an already-running Chrome
+ *     via the DevTools JSON protocol (`--remote-debugging-port`).
+ *  3. **Local** — Default fallback. Drives Playwright's CDPSession
+ *     against the sacrificial-profile browser managed by
+ *     browserManager.
  *
- * Both paths go through a per-invocation `BrowserSessionManager` so
- * the manager is the single choke point for CDP routing, session
+ * All three paths go through a per-invocation `BrowserSessionManager`
+ * so the manager is the single choke point for CDP routing, session
  * lifetime, and (future) session invalidation handling. The returned
  * client is `kind`-tagged so tools can branch on transport — e.g.
  * browser_navigate skips Playwright-specific screencast and handoff
@@ -40,6 +47,8 @@ import type { CdpClient, CdpClientKind, ScopedCdpClient } from "./types.js";
  */
 export function getCdpClient(context: ToolContext): ScopedCdpClient {
   const { conversationId, hostBrowserProxy } = context;
+
+  // 1. Extension backend — preferred when a chrome-extension is bound.
   if (hostBrowserProxy) {
     const client = createExtensionCdpClient(hostBrowserProxy, conversationId);
     const backend = createExtensionBackend({
@@ -50,6 +59,25 @@ export function getCdpClient(context: ToolContext): ScopedCdpClient {
     });
     return buildManagedClient("extension", conversationId, backend);
   }
+
+  // 2. cdp-inspect backend — opt-in via config when the extension is absent.
+  const cdpInspectConfig = getConfig().hostBrowser.cdpInspect;
+  if (cdpInspectConfig.enabled) {
+    const client = createCdpInspectClient(conversationId, {
+      host: cdpInspectConfig.host,
+      port: cdpInspectConfig.port,
+      discoveryTimeoutMs: cdpInspectConfig.probeTimeoutMs,
+    });
+    const backend = createCdpInspectBackend({
+      isAvailable: () => true,
+      sendCdp: (command, signal) =>
+        dispatchThroughClient(client, command, signal),
+      dispose: () => client.dispose(),
+    });
+    return buildManagedClient("cdp-inspect", conversationId, backend);
+  }
+
+  // 3. Local backend — default fallback (Playwright-backed Chromium).
   const client = createLocalCdpClient(conversationId);
   const backend = createLocalBackend({
     isAvailable: () => true,
@@ -85,11 +113,16 @@ function buildManagedClient(
       signal?: AbortSignal,
     ): Promise<T> {
       if (disposed) {
-        throw new CdpError(
-          "disposed",
-          `${kind === "extension" ? "ExtensionCdpClient" : "LocalCdpClient"} already disposed`,
-          { cdpMethod: method, cdpParams: params },
-        );
+        const clientName =
+          kind === "extension"
+            ? "ExtensionCdpClient"
+            : kind === "cdp-inspect"
+              ? "CdpInspectClient"
+              : "LocalCdpClient";
+        throw new CdpError("disposed", `${clientName} already disposed`, {
+          cdpMethod: method,
+          cdpParams: params,
+        });
       }
       const command: CdpCommand = { method, params };
       const envelope = await manager.send(session.id, command, signal);

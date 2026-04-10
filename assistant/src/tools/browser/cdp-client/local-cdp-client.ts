@@ -179,7 +179,7 @@ export class LocalCdpClient implements ScopedCdpClient {
 /**
  * Factory for a fresh {@link LocalCdpClient} bound to a conversation.
  * Keeping the constructor + factory split lets the cdp-client factory
- * (PR 6) branch between local and extension transports without
+ * branch between local and extension transports without
  * exposing the class directly to callers.
  */
 export function createLocalCdpClient(conversationId: string): LocalCdpClient {
