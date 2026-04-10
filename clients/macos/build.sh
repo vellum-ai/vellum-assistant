@@ -235,7 +235,7 @@ export SIGN_IDENTITY
 ASSISTANT_SRC_DIR="$SCRIPT_DIR/../../assistant"
 CLI_SRC_DIR="$SCRIPT_DIR/../../cli"
 GATEWAY_SRC_DIR="$SCRIPT_DIR/../../gateway"
-NATIVE_HOST_SRC_DIR="$SCRIPT_DIR/../chrome-extension-native-host"
+NATIVE_HOST_SRC_DIR="$SCRIPT_DIR/../chrome-extension/native-host"
 
 # Packages that must stay external in compiled Bun binaries.
 # playwright-core has optional requires (electron, chromium-bidi) that cannot
@@ -722,7 +722,7 @@ fi
 # Auto-build Chrome native messaging helper binary if missing or stale
 # and bun is available. This is the binary Chrome spawns via
 # chrome.runtime.connectNative("com.vellum.daemon") — see
-# clients/chrome-extension-native-host/ for the source and
+# clients/chrome-extension/native-host/ for the source and
 # clients/macos/vellum-assistant/Features/Installer/NativeMessagingInstaller.swift
 # for the manifest that points at the bundled copy.
 NATIVE_HOST_BIN_NEEDS_BUILD=false

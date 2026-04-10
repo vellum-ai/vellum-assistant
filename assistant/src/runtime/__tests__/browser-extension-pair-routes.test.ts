@@ -434,7 +434,7 @@ describe("handleBrowserExtensionPair", () => {
     expect(payload.token.length).toBeGreaterThan(0);
 
     // expiresAt must be an ISO 8601 string (matching what the
-    // chrome-extension-native-host helper validates) and must be in
+    // chrome-extension/native-host helper validates) and must be in
     // the future.
     expect(typeof payload.expiresAt).toBe("string");
     expect(payload.expiresAt).toMatch(

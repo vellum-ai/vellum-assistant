@@ -7,7 +7,7 @@
  *   1. A minimal Bun HTTP server mounts the real
  *      `handleBrowserExtensionPair` route from the assistant runtime.
  *   2. The compiled native helper binary
- *      (`clients/chrome-extension-native-host/dist/index.js`) is spawned as
+ *      (`clients/chrome-extension/native-host/dist/index.js`) is spawned as
  *      a child process and pointed at that server via the `--assistant-port`
  *      CLI flag.
  *   3. The test writes a Chrome-native-messaging-framed
@@ -21,7 +21,7 @@
  *      shortcuts.
  *
  * The test **skips gracefully** if the native helper hasn't been built
- * (`clients/chrome-extension-native-host/dist/index.js` missing). Run
+ * (`clients/chrome-extension/native-host/dist/index.js` missing). Run
  * `bun run build` in that package first to enable the full path.
  */
 
@@ -53,21 +53,22 @@ import { handleBrowserExtensionPair } from "../runtime/routes/browser-extension-
 
 /**
  * Resolve the path to the compiled native helper. The helper lives in a
- * sibling package under `clients/chrome-extension-native-host/`, so we
+ * sibling package under `clients/chrome-extension/native-host/`, so we
  * walk up from `assistant/src/__tests__/` to the repo root and then back
  * down into the native-host package.
  */
 function resolveHelperBinary(): string {
   // `import.meta.dir` gives us `.../assistant/src/__tests__`. The repo
   // root is three levels up. Past that, the native host lives at
-  // `clients/chrome-extension-native-host/dist/index.js`.
+  // `clients/chrome-extension/native-host/dist/index.js`.
   return resolve(
     import.meta.dir,
     "..",
     "..",
     "..",
     "clients",
-    "chrome-extension-native-host",
+    "chrome-extension",
+    "native-host",
     "dist",
     "index.js",
   );
@@ -79,7 +80,7 @@ const HELPER_EXISTS = existsSync(HELPER_BINARY);
 const ALLOWED_ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/";
 
 const SKIP_REASON =
-  "clients/chrome-extension-native-host/dist/index.js is missing — run `bun run build` in that package to enable the E2E smoke test.";
+  "clients/chrome-extension/native-host/dist/index.js is missing — run `bun run build` in that package to enable the E2E smoke test.";
 
 // ---------------------------------------------------------------------------
 // Chrome native messaging framing (4-byte LE length prefix + UTF-8 JSON)

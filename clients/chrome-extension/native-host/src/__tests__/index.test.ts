@@ -39,7 +39,7 @@ const HELPER_BINARY = resolve(__dirname, "../../dist/index.js");
 const HELPER_EXISTS = existsSync(HELPER_BINARY);
 
 const SKIP_REASON =
-  "clients/chrome-extension-native-host/dist/index.js is missing — run `bun run build` in clients/chrome-extension-native-host to enable these tests.";
+  "clients/chrome-extension/native-host/dist/index.js is missing — run `bun run build` in clients/chrome-extension/native-host to enable these tests.";
 
 // The native helper hard-codes a placeholder allowlist with this single
 // dev id. The companion route in

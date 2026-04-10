@@ -94,7 +94,7 @@ export type PairServerContext = {
 /**
  * Hard-coded allowlist of chrome extension origins permitted to request a
  * capability token. Mirrors the placeholder id used by the native messaging
- * helper at `clients/chrome-extension-native-host/src/index.ts`
+ * helper at `clients/chrome-extension/native-host/src/index.ts`
  * (`ALLOWED_EXTENSION_IDS`) and the macOS installer at
  * `clients/macos/vellum-assistant/App/AppDelegate+NativeMessaging.swift`
  * (`devPlaceholderId`). All three must agree for the dev pair flow to work

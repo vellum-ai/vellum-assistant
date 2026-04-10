@@ -37,7 +37,7 @@ const ALLOWLIST = new Set([
   "clients/chrome-extension/background/worker.ts",
   "clients/chrome-extension/popup/popup.ts",
   // --- Chrome extension native messaging helper (local daemon pair endpoint, by design) ---
-  "clients/chrome-extension-native-host/src/index.ts",
+  "clients/chrome-extension/native-host/src/index.ts",
 
   // --- Documentation and comments that mention the port for explanatory purposes ---
   "AGENTS.md", // documents the gateway-only rule itself
