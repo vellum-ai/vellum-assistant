@@ -121,6 +121,13 @@ export function loadOrCreateSigningKey(): Buffer {
  * path so out-of-process CLI commands (e.g. browser relay) that load from
  * disk converge on the same key the daemon uses.
  *
+ * Security note: this does NOT expand the signing key's exposure surface.
+ * `loadOrCreateSigningKey()` already writes a signing key to the exact same
+ * disk path (getSigningKeyPath()) with the same mode (0600). A signing key
+ * is always on disk for CLI subprocesses to read — this function just
+ * ensures the disk key matches the env-provided key so those subprocesses
+ * mint tokens the daemon will actually accept.
+ *
  * Skipped in containerized mode where disk key files are not used.
  * Uses atomic write (tmp + rename) with mode 0600 for safe persistence.
  * Never throws -- logs a warning on write failure and continues with
