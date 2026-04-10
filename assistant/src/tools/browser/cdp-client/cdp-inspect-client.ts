@@ -26,7 +26,7 @@ const DEFAULT_DISCOVERY_TIMEOUT_MS = 2_000;
 
 /**
  * Subset of DevTools endpoint config the CdpInspectClient needs. The
- * higher-level factory (PR 5) is responsible for feeding these values
+ * higher-level factory is responsible for feeding these values
  * from the user's settings. Everything else — connect timeouts, ws
  * retries, abort plumbing — is controlled locally here so we don't
  * leak transport knobs into tool call sites.
@@ -46,7 +46,7 @@ export interface CdpInspectClientOptions {
   /**
    * Test seam: override the discovery / transport helpers so unit
    * tests don't need a real Chrome or a Bun.serve-backed fake peer.
-   * The factory (PR 5) does not use this path.
+   * The factory does not use this path.
    */
   helpers?: CdpInspectHelpers;
 }
@@ -624,7 +624,7 @@ function extractSessionId(result: unknown): string | null {
 /**
  * Factory for a fresh {@link CdpInspectClient} bound to a
  * conversation. Keeping the constructor + factory split lets the
- * cdp-client factory (PR 5) wire this up alongside local / extension
+ * cdp-client factory wires this up alongside local / extension
  * without exposing the class directly to callers.
  */
 export function createCdpInspectClient(

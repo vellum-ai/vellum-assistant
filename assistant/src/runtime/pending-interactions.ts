@@ -96,7 +96,7 @@ export function get(requestId: string): PendingInteraction | undefined {
 
 /**
  * Return all pending interactions for a given conversation.
- * Needed by channel approval migration (PR 3).
+ * Needed by channel approval migration.
  */
 export function getByConversation(
   conversationId: string,

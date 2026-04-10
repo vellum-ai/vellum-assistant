@@ -301,6 +301,30 @@ final class SettingsStoreBrowserBackendTests: XCTestCase {
         XCTAssertEqual(store.hostBrowserCdpInspectPort, 9222)
     }
 
+    func testApplyDaemonConfigRejectsFractionalPortDouble() {
+        store.hostBrowserCdpInspectPort = 9333
+        // A fractional Double (e.g. 9222.5) must be rejected rather than
+        // silently truncated to 9222. The store should fall back to the
+        // default port and patch the sanitized value back to the daemon.
+        let config: [String: Any] = [
+            "hostBrowser": [
+                "cdpInspect": [
+                    "port": 9222.5,
+                ]
+            ]
+        ]
+        SettingsStore.applyHostBrowserCdpInspectConfig(config, into: store)
+
+        XCTAssertEqual(store.hostBrowserCdpInspectPort, SettingsStore.defaultHostBrowserCdpInspectPort)
+        XCTAssertEqual(store.hostBrowserCdpInspectPort, 9222)
+
+        // A sanitize-and-patch-back Task should have been fired.
+        waitForPatchCount(1)
+        let patch = lastCdpInspectPatch()
+        XCTAssertNotNil(patch, "expected a hostBrowser.cdpInspect patch payload for fractional port rejection")
+        XCTAssertEqual(patch?["port"] as? Int, 9222)
+    }
+
     func testApplyDaemonConfigRejectsBothInvalidHostAndPort() {
         store.hostBrowserCdpInspectHost = "127.0.0.1"
         store.hostBrowserCdpInspectPort = 9333

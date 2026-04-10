@@ -3431,7 +3431,22 @@ public final class SettingsStore: ObservableObject {
         if let port = cdpInspect["port"] as? Int {
             rawPort = port
         } else if let portDouble = cdpInspect["port"] as? Double {
-            rawPort = Int(portDouble)
+            if portDouble.truncatingRemainder(dividingBy: 1) == 0 {
+                rawPort = Int(portDouble)
+            } else {
+                log.warning("Ignoring fractional hostBrowser.cdpInspect.port value \(portDouble) from daemon config; falling back to default")
+                rawPort = nil
+                store.hostBrowserCdpInspectPort = defaultHostBrowserCdpInspectPort
+                let settingsClient = store.settingsClient
+                Task {
+                    let success = await settingsClient.patchConfig([
+                        "hostBrowser": ["cdpInspect": ["port": defaultHostBrowserCdpInspectPort]]
+                    ])
+                    if !success {
+                        log.error("Failed to patch sanitized hostBrowser.cdpInspect.port back to daemon config")
+                    }
+                }
+            }
         } else {
             rawPort = nil
         }
