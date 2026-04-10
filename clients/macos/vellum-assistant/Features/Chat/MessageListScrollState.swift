@@ -687,8 +687,16 @@ final class MessageListScrollState {
 
         // ID-based scroll: targets a real ForEach item. Falls back to
         // edge-based only for empty conversations (lastMessageId == nil).
+        //
+        // Animation handling:
+        //   - userInitiated (CTA): caller wraps in withAnimation(VAnimation.spring),
+        //     so we must NOT add an inner withAnimation — SwiftUI's nested
+        //     withAnimation gives precedence to the innermost call, which
+        //     would override the spring with VAnimation.fast.
+        //   - auto-follow / recovery: no outer withAnimation, so we wrap
+        //     in VAnimation.fast when animated == true.
         if let target = lastMessageId {
-            if animated {
+            if animated && !userInitiated {
                 withAnimation(VAnimation.fast) {
                     scrollTo?(target, .bottom)
                 }
@@ -698,7 +706,7 @@ final class MessageListScrollState {
         } else {
             // No ForEach items to target (empty conversation).
             // Fall back to edge-based scroll.
-            if animated {
+            if animated && !userInitiated {
                 withAnimation(VAnimation.fast) {
                     scrollToEdge?(.bottom)
                 }
