@@ -152,20 +152,18 @@ extension MessageListView {
             if isDaemonConfirmationResume && !scrollState.isFollowingBottom {
                 // Daemon resumed from confirmation while user was scrolled up.
             } else {
-                // Defer the actual bottom-pin to the next main-queue turn.
-                // Both `isSending` and `messages.count` can change in the
-                // same SwiftUI update cycle after the user sends a message;
-                // issuing immediate `ScrollPosition` writes here can trip
-                // SwiftUI's "Modifying state during view update" guard.
-                // Use edge-based scroll for the initial send so it
-                // reaches past the thinking indicator's minHeight,
-                // pushing the user message to the top immediately.
-                scrollState.pendingEdgeScrollOnSend = true
-                scrollState.scheduleDeferredBottomPin(
-                    animated: true,
-                    forceFollowingBottom: true,
-                    refreshRecoveryWindow: true
-                )
+                // Apply mode transition and recovery window inline so
+                // they can't be lost by generation coalescing when
+                // handleMessagesCountChanged's deferred pin supersedes
+                // this one in the same SwiftUI update cycle.
+                scrollState.transition(to: .followingBottom)
+                scrollState.bottomAnchorAppeared = false
+                scrollState.recoveryDeadline = Date().addingTimeInterval(2.0)
+                // Defer the actual scroll to the next main-queue turn.
+                // Use edge-based scroll to reach past the thinking
+                // indicator's minHeight, pushing the user message to
+                // the top immediately.
+                scrollState.scheduleDeferredEdgeScroll(animated: true)
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
                             "target=edgeBottom reason=sendPushToTop")
             }

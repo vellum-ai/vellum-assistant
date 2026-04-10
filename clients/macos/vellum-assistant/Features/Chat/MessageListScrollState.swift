@@ -283,13 +283,10 @@ final class MessageListScrollState {
     /// Cleared in `reset()` and when the active turn ends.
     @ObservationIgnored var hasCompletedInitialPushToTop: Bool = false
 
-    /// When set, the next `executeScrollToBottom` uses `scrollToEdge(.bottom)`
-    /// to reach the actual content bottom (including the thinking indicator's
-    /// `minHeight`) rather than `scrollTo(lastMessageId, .bottom)` which only
-    /// reaches the last ForEach item. Consumed on first use. Set by
-    /// `handleSendingChanged` so the initial send immediately pushes the
-    /// user message to the top without waiting for the assistant message.
-    @ObservationIgnored var pendingEdgeScrollOnSend: Bool = false
+    /// Generation counter for `scheduleDeferredEdgeScroll`. Uses its own
+    /// counter (separate from `deferredBottomPinGeneration`) so the two
+    /// deferred mechanisms don't interfere with each other.
+    @ObservationIgnored private var deferredEdgeScrollGeneration: UInt64 = 0
 
     // MARK: - Layout Cache Fields
 
@@ -644,6 +641,29 @@ final class MessageListScrollState {
         deferredBottomPinGeneration &+= 1
     }
 
+    /// Schedules an edge-based scroll-to-bottom for the next main-queue
+    /// turn. Uses its own generation counter so intervening
+    /// `scheduleDeferredBottomPin` calls (e.g. from `handleMessagesCountChanged`)
+    /// don't consume or cancel it. The edge-based scroll reaches past the
+    /// thinking indicator's `minHeight` to push the user message to the top.
+    func scheduleDeferredEdgeScroll(animated: Bool) {
+        deferredEdgeScrollGeneration &+= 1
+        let generation = deferredEdgeScrollGeneration
+        DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.deferredEdgeScrollGeneration == generation else { return }
+                scrollDiag.debug("scheduleDeferredEdgeScroll: firing (generation matched)")
+                if animated {
+                    withAnimation(VAnimation.fast) {
+                        self.scrollToEdge?(.bottom)
+                    }
+                } else {
+                    self.scrollToEdge?(.bottom)
+                }
+            }
+        }
+    }
+
     // MARK: - Scroll Execution
 
     /// Executes a bottom-pin scroll if the current mode allows it.
@@ -692,10 +712,12 @@ final class MessageListScrollState {
     ///   ForEach items (`lastMessageId` or the `active-turn-content-bottom`
     ///   marker). Lands short rather than overshooting; recovery
     ///   converges monotonically as LazyVStack materializes views.
-    /// - **Initial send (`pendingEdgeScrollOnSend`):** Edge-based scroll
+    /// - **Initial send (`scheduleDeferredEdgeScroll`):** Edge-based scroll
     ///   (`scrollToEdge(.bottom)`) to reach past the thinking indicator's
     ///   `minHeight` — the thinking indicator is outside the ForEach and
-    ///   unreachable by ID-based scroll on `lastMessageId`.
+    ///   unreachable by ID-based scroll on `lastMessageId`. Uses its own
+    ///   generation counter so it can't be consumed by intervening
+    ///   `scheduleDeferredBottomPin` calls.
     /// - **User-initiated CTA:** Edge-based scroll for reliability when
     ///   the target message is unmaterialized (observed as distBottom=3000+
     ///   with ID-based scroll on long conversations).
@@ -726,28 +748,14 @@ final class MessageListScrollState {
         //   - Subsequent pins: use the content-bottom marker — its .bottom
         //     lands on real content, avoiding the minHeight white space.
         // Target selection:
-        //   - Initial send (pendingEdgeScroll): use scrollToEdge(.bottom)
-        //     to reach past the thinking indicator's minHeight. scrollTo
-        //     (lastMessageId, .bottom) only reaches the last ForEach item
-        //     (the user message), missing the thinking indicator below it.
+        //   - Initial send: handled by scheduleDeferredEdgeScroll
+        //     (separate deferred path, not in executeScrollToBottom).
         //   - User-initiated (CTA): use scrollToEdge for reliability.
         //   - First auto-follow pin with minHeight: use lastMessageId to
         //     push the user message to the top via the minHeight frame.
         //   - Subsequent auto-follow pins with minHeight: use the content-
         //     bottom marker so .bottom lands on real content.
         //   - No minHeight: use lastMessageId (normal behavior).
-        if pendingEdgeScrollOnSend {
-            pendingEdgeScrollOnSend = false
-            scrollDiag.debug("executeScrollToBottom: using scrollToEdge(.bottom) for initial send push-to-top")
-            if animated {
-                withAnimation(VAnimation.fast) {
-                    scrollToEdge?(.bottom)
-                }
-            } else {
-                scrollToEdge?(.bottom)
-            }
-            return
-        }
         let target: (any Hashable)?
         let targetName: String
         if userInitiated {
@@ -913,7 +921,7 @@ final class MessageListScrollState {
         lastMessageId = nil
         isActiveTurnMinHeightApplied = false
         hasCompletedInitialPushToTop = false
-        pendingEdgeScrollOnSend = false
+        deferredEdgeScrollGeneration &+= 1
         mode = .initialLoad
         activeStabilizationCount = 0
         // False: scroll geometry hasn't updated for the new content yet.
@@ -987,7 +995,7 @@ final class MessageListScrollState {
         lastMessageId = nil
         isActiveTurnMinHeightApplied = false
         hasCompletedInitialPushToTop = false
-        pendingEdgeScrollOnSend = false
+        deferredEdgeScrollGeneration &+= 1
         isAtBottom = false
         lastContentOffsetY = 0
         scrollContentHeight = 0
