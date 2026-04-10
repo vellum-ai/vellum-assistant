@@ -32,13 +32,9 @@ extension MainWindowView {
                     sidebar.showPreferencesDrawer = false
                     windowState.selection = .panel(.settings)
                 },
-                onUsage: {
+                onLogsAndUsage: {
                     sidebar.showPreferencesDrawer = false
-                    windowState.selection = .panel(.usageDashboard)
-                },
-                onDebug: {
-                    sidebar.showPreferencesDrawer = false
-                    windowState.selection = .panel(.debug)
+                    windowState.selection = .panel(.logsAndUsage)
                 },
                 onLogOut: {
                     sidebar.showPreferencesDrawer = false
