@@ -326,7 +326,7 @@ Do NOT clear `scrollPosition` in `onDisappear` — the old ScrollView's `onDisap
 
 ### Resize Handling
 
-`handleContainerWidthChanged()` debounces with a 100ms `Task.sleep`, then re-pins to bottom via `scrollPosition.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)` when `isAtBottom && anchorMessageId == nil`.
+`handleContainerWidthChanged()` debounces with a 100ms `Task.sleep`, then re-pins to bottom via `scrollPosition.scrollTo(edge: .bottom)` when `isAtBottom && anchorMessageId == nil`.
 
 ### Rules
 

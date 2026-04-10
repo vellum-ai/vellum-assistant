@@ -230,7 +230,6 @@ extension MessageListView {
         paginationTask = Task {
             _ = await loadPreviousMessagePage?()
             guard !Task.isCancelled, conversationId == startConversationId else {
-                isLoadingMore = false
                 return
             }
             isLoadingMore = false
