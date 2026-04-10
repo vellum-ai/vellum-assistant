@@ -47,6 +47,7 @@ protocol MessageSendCoordinatorDelegate: AnyObject {
     var needsOfflineFlush: Bool { get set }
     var preactivatedSkillIds: [String]? { get set }
     var pendingSuggestionRequestId: String? { get set }
+    var pendingOnboardingContext: PreChatOnboardingContext? { get set }
     var hasIncompleteToolCalls: Bool { get }
     var isAssistantBusy: Bool { get }
 
@@ -467,13 +468,22 @@ final class MessageSendCoordinator {
             delegate.startMessageLoop()
         }
 
+        // Consume pending onboarding context on the first send so it's
+        // included in the POST body. Nil it out immediately so subsequent
+        // messages do not include the onboarding payload.
+        let onboarding = delegate.pendingOnboardingContext
+        if onboarding != nil {
+            delegate.pendingOnboardingContext = nil
+        }
+
         delegate.eventStreamClient.sendUserMessage(
             content: text,
             conversationId: conversationId,
             attachments: attachments,
             conversationType: nil,
             automated: automated ? true : nil,
-            bypassSecretCheck: bypassSecretCheck ? true : nil
+            bypassSecretCheck: bypassSecretCheck ? true : nil,
+            onboarding: onboarding
         )
     }
 

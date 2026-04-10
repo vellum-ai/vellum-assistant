@@ -623,6 +623,9 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// Skill IDs to pre-activate in the conversation. Included in the
     /// `conversation_create` request for deterministic skill activation.
     public var preactivatedSkillIds: [String]?
+    /// Pre-chat onboarding context to include in the first message POST.
+    /// Consumed (nilled out) by MessageSendCoordinator on the first send.
+    public var pendingOnboardingContext: PreChatOnboardingContext?
     /// Whether this view model is currently bootstrapping a new conversation
     /// (conversation_create sent, awaiting conversation_info). Used by ConversationManager
     /// to decide whether it's safe to release the VM on archive.

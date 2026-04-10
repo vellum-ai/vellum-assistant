@@ -96,7 +96,7 @@ struct TaskToneSelectionView: View {
                 }
 
                 Text(toneLabel)
-                    .font(VFont.labelStrong)
+                    .font(VFont.bodySmallEmphasised)
                     .foregroundStyle(VColor.contentDefault)
                     .frame(maxWidth: .infinity, alignment: .center)
             }

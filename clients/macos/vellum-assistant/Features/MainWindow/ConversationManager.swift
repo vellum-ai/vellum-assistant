@@ -60,6 +60,13 @@ final class ConversationManager: ConversationRestorerDelegate {
     private let conversationAnalysisClient: ConversationAnalysisClientProtocol
     private let conversationRestorer: ConversationRestorer
 
+    // MARK: - Pre-Chat Onboarding
+
+    /// Pre-chat onboarding context from the onboarding flow. Set by AppDelegate
+    /// on first launch; consumed by the first draft ChatViewModel so the first
+    /// message POST includes it for assistant personalization.
+    var preChatContext: PreChatOnboardingContext?
+
     // MARK: - Notification Catch-Up
 
     /// Daemon conversation IDs that need a notification catch-up (history fetch)
@@ -489,6 +496,13 @@ final class ConversationManager: ConversationRestorerDelegate {
         }
         let viewModel = makeViewModel()
         viewModel.isHistoryLoaded = true
+        // Forward pending pre-chat onboarding context to the draft VM so
+        // the first message POST includes it. Consume from the manager so
+        // only the first draft conversation gets the context.
+        if let context = preChatContext {
+            viewModel.pendingOnboardingContext = context
+            preChatContext = nil
+        }
         viewModel.onUserMessageSent = { [weak self] in
             self?.promoteDraft(fromUserSend: true)
         }
