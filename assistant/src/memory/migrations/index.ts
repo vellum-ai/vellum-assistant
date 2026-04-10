@@ -160,6 +160,7 @@ export { migrateOAuthProvidersRevoke } from "./215-oauth-providers-revoke.js";
 export { migrateOAuthProvidersTokenAuthMethodDefault } from "./216-oauth-providers-token-auth-method.js";
 export { migrateConversationHostAccess } from "./217-conversation-host-access.js";
 export { migrateOAuthProvidersLogoUrl } from "./218-oauth-providers-logo-url.js";
+export { migrateOAuthProvidersTokenExchangeBodyFormat } from "./219-oauth-providers-token-exchange-body-format.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

@@ -101,6 +101,7 @@ interface RefreshConfig {
   secret?: string;
   refreshToken?: string;
   authMethod?: TokenEndpointAuthMethod;
+  tokenExchangeBodyFormat?: "form" | "json";
   connId: string;
 }
 
@@ -166,6 +167,10 @@ async function resolveRefreshConfig(
     | TokenEndpointAuthMethod
     | undefined;
 
+  const tokenExchangeBodyFormat =
+    (provider.tokenExchangeBodyFormat as "form" | "json" | undefined) ??
+    undefined;
+
   return {
     connId: conn.id,
     tokenExchangeUrl,
@@ -173,6 +178,7 @@ async function resolveRefreshConfig(
     secret,
     refreshToken,
     authMethod,
+    tokenExchangeBodyFormat,
   };
 }
 
@@ -192,6 +198,7 @@ async function doRefresh(service: string, connId: string): Promise<string> {
     clientId: resolvedClientId,
     secret,
     authMethod,
+    tokenExchangeBodyFormat,
     refreshToken,
   } = refreshConfig;
 
@@ -222,6 +229,7 @@ async function doRefresh(service: string, connId: string): Promise<string> {
       refreshToken,
       secret,
       authMethod,
+      tokenExchangeBodyFormat,
     );
   } catch (err) {
     circuitBreaker.recordFailure(connId);

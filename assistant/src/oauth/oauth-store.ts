@@ -72,6 +72,7 @@ export function seedProviders(
     tokenExchangeUrl: string;
     refreshUrl?: string;
     tokenEndpointAuthMethod?: string;
+    tokenExchangeBodyFormat?: string;
     userinfoUrl?: string;
     pingUrl?: string;
     pingMethod?: string;
@@ -122,6 +123,7 @@ export function seedProviders(
     // token endpoint auth method.
     const tokenEndpointAuthMethod =
       p.tokenEndpointAuthMethod || "client_secret_post";
+    const tokenExchangeBodyFormat = p.tokenExchangeBodyFormat || "form";
     const userinfoUrl = p.userinfoUrl ?? null;
     const pingUrl = p.pingUrl ?? null;
     const pingMethod = p.pingMethod ?? null;
@@ -176,6 +178,7 @@ export function seedProviders(
         tokenExchangeUrl,
         refreshUrl,
         tokenEndpointAuthMethod,
+        tokenExchangeBodyFormat,
         userinfoUrl,
         baseUrl,
         defaultScopes,
@@ -217,6 +220,7 @@ export function seedProviders(
           tokenExchangeUrl,
           refreshUrl,
           tokenEndpointAuthMethod,
+          tokenExchangeBodyFormat,
           userinfoUrl,
           baseUrl: sql`COALESCE(${oauthProviders.baseUrl}, ${baseUrl})`,
           scopeSeparator,
