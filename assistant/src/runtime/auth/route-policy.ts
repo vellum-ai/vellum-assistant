@@ -480,10 +480,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Tools
   { endpoint: "tools", scopes: ["settings.read"] },
   { endpoint: "tools/simulate-permission", scopes: ["settings.read"] },
-
-  // Browser CDP shim — backs the `assistant browser chrome relay` CLI used
-  // by the in-tree Amazon and Influencer skills.
-  { endpoint: "browser-cdp", scopes: ["settings.write"] },
 ];
 
 for (const { endpoint, scopes } of ACTOR_ENDPOINTS) {

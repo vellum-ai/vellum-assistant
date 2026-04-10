@@ -212,7 +212,6 @@ async function collectRoutesFromModules(): Promise<RouteEntry[]> {
  * here if openapi.yaml is also stale. Plan items B2/C2 address this gap.
  */
 const INLINE_ROUTES: RouteEntry[] = [
-  { endpoint: "browser-cdp", method: "POST" },
   { endpoint: "conversations", method: "GET" },
   { endpoint: "conversations/seen", method: "POST" },
   { endpoint: "conversations/unread", method: "POST" },

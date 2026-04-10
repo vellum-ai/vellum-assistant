@@ -1169,12 +1169,6 @@ paths:
       responses:
         "200":
           description: Successful response
-  /v1/browser-cdp:
-    post:
-      operationId: browsercdp_post
-      responses:
-        "200":
-          description: Successful response
   /v1/btw:
     post:
       operationId: btw_post
