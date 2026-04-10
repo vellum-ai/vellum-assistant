@@ -11,7 +11,7 @@ public protocol FeatureFlagClientProtocol {
     func setPrivacyConfig(
         collectUsageData: Bool?,
         sendDiagnostics: Bool?,
-        llmRequestLogRetentionMs: Int64?
+        llmRequestLogRetentionMs: Int64??
     ) async throws
 }
 
@@ -21,16 +21,16 @@ public protocol FeatureFlagClientProtocol {
 ///
 /// Mirrors the `{assistantId}/config/privacy` response shape and carries the
 /// three user-facing privacy toggles: usage data, diagnostics, and LLM request
-/// log retention (in milliseconds).
+/// log retention (in milliseconds). `null` means "keep forever".
 public struct PrivacyConfig: Decodable, Sendable, Equatable {
     public let collectUsageData: Bool
     public let sendDiagnostics: Bool
-    public let llmRequestLogRetentionMs: Int64
+    public let llmRequestLogRetentionMs: Int64?
 
     public init(
         collectUsageData: Bool,
         sendDiagnostics: Bool,
-        llmRequestLogRetentionMs: Int64
+        llmRequestLogRetentionMs: Int64?
     ) {
         self.collectUsageData = collectUsageData
         self.sendDiagnostics = sendDiagnostics
@@ -162,13 +162,17 @@ public struct FeatureFlagClient: FeatureFlagClientProtocol {
     public func setPrivacyConfig(
         collectUsageData: Bool? = nil,
         sendDiagnostics: Bool? = nil,
-        llmRequestLogRetentionMs: Int64? = nil
+        llmRequestLogRetentionMs: Int64?? = nil
     ) async throws {
         var body: [String: Any] = [:]
         if let collectUsageData { body["collectUsageData"] = collectUsageData }
         if let sendDiagnostics { body["sendDiagnostics"] = sendDiagnostics }
-        if let llmRequestLogRetentionMs {
-            body["llmRequestLogRetentionMs"] = llmRequestLogRetentionMs
+        if let retentionOuter = llmRequestLogRetentionMs {
+            if let value = retentionOuter {
+                body["llmRequestLogRetentionMs"] = value
+            } else {
+                body["llmRequestLogRetentionMs"] = NSNull()
+            }
         }
 
         let response = try await GatewayHTTPClient.patch(

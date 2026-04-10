@@ -142,7 +142,7 @@ describe("GET /v1/config/privacy handler", () => {
     expect(body.llmRequestLogRetentionMs).toBe(DEFAULT_RETENTION_MS);
   });
 
-  test("returns 0 verbatim when llmRequestLogRetentionMs is 0 (never prune)", async () => {
+  test("returns 0 verbatim when llmRequestLogRetentionMs is 0 (prune immediately)", async () => {
     writeFileSync(
       configPath,
       JSON.stringify({
@@ -303,10 +303,33 @@ describe("GET /v1/config/privacy handler", () => {
     expect(body.sendDiagnostics).toBe(false);
     expect(body.llmRequestLogRetentionMs).toBe(DEFAULT_RETENTION_MS);
   });
+  test("returns null when config has llmRequestLogRetentionMs: null (keep forever)", async () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        memory: {
+          cleanup: {
+            llmRequestLogRetentionMs: null,
+          },
+        },
+      }),
+    );
+
+    const handler = createPrivacyConfigGetHandler();
+    const res = await handler(
+      new Request("http://gateway.test/v1/config/privacy"),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.llmRequestLogRetentionMs).toBeNull();
+    expect(body.collectUsageData).toBe(true);
+    expect(body.sendDiagnostics).toBe(true);
+  });
 });
 
 describe("PATCH /v1/config/privacy handler — llmRequestLogRetentionMs", () => {
-  test("persists llmRequestLogRetentionMs: 0 (never prune) to memory.cleanup.llmRequestLogRetentionMs", async () => {
+  test("persists llmRequestLogRetentionMs: 0 (prune immediately) to memory.cleanup.llmRequestLogRetentionMs", async () => {
     const handler = createPrivacyConfigPatchHandler();
     const res = await handler(makePatch({ llmRequestLogRetentionMs: 0 }));
 
@@ -486,18 +509,25 @@ describe("PATCH /v1/config/privacy handler — llmRequestLogRetentionMs", () => 
     expect(body.error).toContain("llmRequestLogRetentionMs");
   });
 
-  test("rejects NaN and Infinity with 400", async () => {
+  test("NaN and Infinity serialize to null in JSON, which is now accepted as 'keep forever'", async () => {
+    // JSON.stringify(NaN) = "null" and JSON.stringify(Infinity) = "null",
+    // so these values are received as null by the handler. Under the new
+    // semantics null is a valid value meaning "keep forever".
     const handler = createPrivacyConfigPatchHandler();
 
     const res1 = await handler(
       makePatch({ llmRequestLogRetentionMs: Number.NaN }),
     );
-    expect(res1.status).toBe(400);
+    expect(res1.status).toBe(200);
+    const body1 = await res1.json();
+    expect(body1.llmRequestLogRetentionMs).toBeNull();
 
     const res2 = await handler(
       makePatch({ llmRequestLogRetentionMs: Number.POSITIVE_INFINITY }),
     );
-    expect(res2.status).toBe(400);
+    expect(res2.status).toBe(200);
+    const body2 = await res2.json();
+    expect(body2.llmRequestLogRetentionMs).toBeNull();
   });
 
   test("when only llmRequestLogRetentionMs is provided, existing collectUsageData/sendDiagnostics are unchanged", async () => {
@@ -517,6 +547,36 @@ describe("PATCH /v1/config/privacy handler — llmRequestLogRetentionMs", () => 
     const cleanup = (config.memory as Record<string, unknown>)
       .cleanup as Record<string, unknown>;
     expect(cleanup.llmRequestLogRetentionMs).toBe(60_000);
+  });
+  test("persists llmRequestLogRetentionMs: null (keep forever) and returns null in response", async () => {
+    const handler = createPrivacyConfigPatchHandler();
+    const res = await handler(makePatch({ llmRequestLogRetentionMs: null }));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.llmRequestLogRetentionMs).toBeNull();
+
+    expect(existsSync(configPath)).toBe(true);
+    const config = readConfig();
+    const cleanup = (config.memory as Record<string, unknown>)
+      .cleanup as Record<string, unknown>;
+    expect(cleanup.llmRequestLogRetentionMs).toBeNull();
+  });
+
+  test("PATCH null then GET returns null", async () => {
+    const patchHandler = createPrivacyConfigPatchHandler();
+    const patchRes = await patchHandler(
+      makePatch({ llmRequestLogRetentionMs: null }),
+    );
+    expect(patchRes.status).toBe(200);
+
+    const getHandler = createPrivacyConfigGetHandler();
+    const getRes = await getHandler(
+      new Request("http://gateway.test/v1/config/privacy"),
+    );
+    expect(getRes.status).toBe(200);
+    const body = await getRes.json();
+    expect(body.llmRequestLogRetentionMs).toBeNull();
   });
 });
 

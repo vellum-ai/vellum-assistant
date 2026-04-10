@@ -84,6 +84,25 @@ describe("cleanupSettingsChanged", () => {
       }),
     ).toBe(false);
   });
+
+  test("returns true when llmRequestLogRetentionMs changes from number to null", () => {
+    expect(
+      cleanupSettingsChanged(base, {
+        ...base,
+        llmRequestLogRetentionMs: null,
+      }),
+    ).toBe(true);
+  });
+
+  test("returns true when llmRequestLogRetentionMs changes from null to number", () => {
+    const nullBase = { ...base, llmRequestLogRetentionMs: null };
+    expect(
+      cleanupSettingsChanged(nullBase, {
+        ...nullBase,
+        llmRequestLogRetentionMs: 86_400_000,
+      }),
+    ).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -122,7 +141,7 @@ interface TestConfig {
       enqueueIntervalMs: number;
       supersededItemRetentionMs: number;
       conversationRetentionDays: number;
-      llmRequestLogRetentionMs: number;
+      llmRequestLogRetentionMs: number | null;
     };
   };
 }
@@ -269,6 +288,18 @@ describe("ConfigWatcher.refreshConfigFromSources cleanup throttle reset", () => 
     primeConfigCache();
 
     diskConfig = makeConfig({ conversationRetentionDays: 30 });
+
+    const changed = await watcher.refreshConfigFromSources();
+    expect(changed).toBe(true);
+    expect(resetCleanupScheduleThrottleCalls).toBe(1);
+  });
+
+  test("resets throttle when llmRequestLogRetentionMs changes from number to null", async () => {
+    const watcher = new ConfigWatcher();
+    watcher.initFingerprint(diskConfig as never);
+    primeConfigCache();
+
+    diskConfig = makeConfig({ llmRequestLogRetentionMs: null });
 
     const changed = await watcher.refreshConfigFromSources();
     expect(changed).toBe(true);

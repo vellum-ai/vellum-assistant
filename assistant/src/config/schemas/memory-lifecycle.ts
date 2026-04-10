@@ -91,9 +91,10 @@ export const MemoryCleanupConfigSchema = z
         365 * 24 * 60 * 60 * 1000,
         "memory.cleanup.llmRequestLogRetentionMs must be <= 365 days in ms",
       )
+      .nullable()
       .default(1 * 24 * 60 * 60 * 1000)
       .describe(
-        "Retention period for LLM request/response logs in milliseconds (0 disables pruning, max 365 days)",
+        "Retention period for LLM request/response logs in milliseconds (null keeps forever, 0 prunes immediately)",
       ),
   })
   .describe("Automatic memory cleanup and garbage collection settings");

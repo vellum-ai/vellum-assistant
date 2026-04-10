@@ -151,10 +151,10 @@ struct SettingsPrivacyTab: View {
     /// just-made selection. The `Binding(get:set:)` on the picker handles the
     /// inverse race (programmatic assignments do not trigger `syncRetention`).
     private func loadPrivacyConfig() async {
-        // Seed from UserDefaults for instant render.
-        if let cachedMs = readCachedRetentionMs() {
-            retentionSelection = LlmLogRetentionOption.closest(toMs: cachedMs)
-        }
+        // Seed from UserDefaults for instant render. When UserDefaults has
+        // no entry (key removed for .keepForever), readCachedRetentionMs()
+        // returns nil, mapping through closest(toMs: nil) -> .keepForever.
+        retentionSelection = LlmLogRetentionOption.closest(toMs: readCachedRetentionMs())
 
         retentionLoadTask?.cancel()
         let task = Task { @MainActor in
@@ -169,10 +169,11 @@ struct SettingsPrivacyTab: View {
                 retentionSelection = LlmLogRetentionOption.closest(
                     toMs: config.llmRequestLogRetentionMs
                 )
-                UserDefaults.standard.set(
-                    config.llmRequestLogRetentionMs,
-                    forKey: llmRequestLogRetentionMsDefaultsKey
-                )
+                if let ms = config.llmRequestLogRetentionMs {
+                    UserDefaults.standard.set(ms, forKey: llmRequestLogRetentionMsDefaultsKey)
+                } else {
+                    UserDefaults.standard.removeObject(forKey: llmRequestLogRetentionMsDefaultsKey)
+                }
             } catch {
                 privacyTabLog.error(
                     "getPrivacyConfig failed: \(error.localizedDescription, privacy: .public)"
@@ -193,17 +194,18 @@ struct SettingsPrivacyTab: View {
     /// the user's attempted value forever while the daemon still holds the
     /// old value, and closing/reopening the Settings tab wouldn't recover.
     private func syncRetention(_ option: LlmLogRetentionOption) {
-        UserDefaults.standard.set(
-            option.rawValue,
-            forKey: llmRequestLogRetentionMsDefaultsKey
-        )
+        if let ms = option.retentionMs {
+            UserDefaults.standard.set(ms, forKey: llmRequestLogRetentionMsDefaultsKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: llmRequestLogRetentionMsDefaultsKey)
+        }
         retentionSyncTask?.cancel()
         retentionSyncTask = Task {
             do {
                 try await featureFlagClient.setPrivacyConfig(
                     collectUsageData: nil,
                     sendDiagnostics: nil,
-                    llmRequestLogRetentionMs: option.rawValue
+                    llmRequestLogRetentionMs: .some(option.retentionMs)
                 )
             } catch {
                 // If this task was cancelled (e.g. by a newer user-initiated
