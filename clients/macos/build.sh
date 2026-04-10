@@ -163,20 +163,6 @@ KATA_KERNEL_ARCHIVE_PATH="$KATA_KERNEL_CACHE_DIR/kata.tar.xz"
 KATA_KERNEL_PATH="$KATA_KERNEL_CACHE_DIR/vmlinux.container"
 KATA_KERNEL_BUNDLE_DIR="$RESOURCES_DIR/DeveloperVM"
 
-# Version (overridable via env for CI, defaults to Package.swift)
-if [ -z "${DISPLAY_VERSION:-}" ]; then
-    DISPLAY_VERSION=$(sed -n 's/^let appVersion = "\(.*\)"/\1/p' "$SCRIPT_DIR/../Package.swift" 2>/dev/null | head -1)
-    DISPLAY_VERSION="${DISPLAY_VERSION:-0.1.0}"
-    # For local dev builds (build/run), append a -local.N.SHA suffix so
-    # versions are distinguishable, similar to CI's -dev.N.SHA format.
-    if [ "$CMD" = "build" ] || [ "$CMD" = "run" ]; then
-        _local_count=$(git -C "$SCRIPT_DIR" rev-list --count HEAD 2>/dev/null || echo "0")
-        _local_sha=$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
-        DISPLAY_VERSION="${DISPLAY_VERSION}-local.${_local_count}.${_local_sha}"
-    fi
-fi
-BUILD_VERSION="${BUILD_VERSION:-1}"
-
 # Parse arguments: command + optional flags
 UNIVERSAL_BUILD=false
 CMD="build"
@@ -195,6 +181,20 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+# Version (overridable via env for CI, defaults to Package.swift)
+if [ -z "${DISPLAY_VERSION:-}" ]; then
+    DISPLAY_VERSION=$(sed -n 's/^let appVersion = "\(.*\)"/\1/p' "$SCRIPT_DIR/../Package.swift" 2>/dev/null | head -1)
+    DISPLAY_VERSION="${DISPLAY_VERSION:-0.1.0}"
+    # For local dev builds (build/run), append a -local.N.SHA suffix so
+    # versions are distinguishable, similar to CI's -dev.N.SHA format.
+    if [ "$CMD" = "build" ] || [ "$CMD" = "run" ]; then
+        _local_count=$(git -C "$SCRIPT_DIR" rev-list --count HEAD 2>/dev/null || echo "0")
+        _local_sha=$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        DISPLAY_VERSION="${DISPLAY_VERSION}-local.${_local_count}.${_local_sha}"
+    fi
+fi
+BUILD_VERSION="${BUILD_VERSION:-1}"
 
 # Signing identity (overridable via env for CI)
 # Auto-detect any valid code signing certificate in keychain
