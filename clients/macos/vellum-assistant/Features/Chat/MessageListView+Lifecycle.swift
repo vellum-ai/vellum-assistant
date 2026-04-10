@@ -40,7 +40,7 @@ extension MessageListView {
                     anchorSetTime = nil
                     anchorTimeoutTask = nil
                     withAnimation(.easeInOut(duration: 0.3)) {
-                        scrollPosition.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
+                        scrollPosition.scrollTo(edge: .bottom)
                     }
                 }
             }
@@ -97,7 +97,7 @@ extension MessageListView {
                 anchorTimeoutTask?.cancel()
                 anchorTimeoutTask = nil
                 withAnimation(.easeInOut(duration: 0.3)) {
-                    scrollPosition.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
+                    scrollPosition.scrollTo(edge: .bottom)
                 }
                 return
             }
@@ -130,7 +130,7 @@ extension MessageListView {
             if isAtBottom && anchorMessageId == nil {
                 // Re-pin to bottom after width change since LazyVStack
                 // re-estimates content heights.
-                scrollPosition.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
+                scrollPosition.scrollTo(edge: .bottom)
             }
         }
     }
@@ -198,7 +198,7 @@ extension MessageListView {
                 anchorSetTime = nil
                 anchorTimeoutTask = nil
                 withAnimation(.easeInOut(duration: 0.3)) {
-                    scrollPosition.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
+                    scrollPosition.scrollTo(edge: .bottom)
                 }
             }
         }

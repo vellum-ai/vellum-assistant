@@ -184,8 +184,11 @@ struct MessageListView: View {
                 }
             }
             // --- Viewport height tracking ---
+            // Round to whole points so sub-pixel changes during resize
+            // animation don't each trigger MessageListContentView.== failure
+            // and expensive LazyVStack body re-evaluation.
             .onScrollGeometryChange(for: CGFloat.self) { geo in
-                geo.visibleRect.height
+                geo.visibleRect.height.rounded()
             } action: { _, newHeight in
                 viewportHeight = newHeight
             }
@@ -206,7 +209,7 @@ struct MessageListView: View {
                     isAtBottom: isAtBottom,
                     onScrollToLatest: {
                         withAnimation(.easeInOut(duration: 0.3)) {
-                            scrollPosition.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
+                            scrollPosition.scrollTo(edge: .bottom)
                         }
                     }
                 )
