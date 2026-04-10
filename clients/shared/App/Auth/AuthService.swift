@@ -263,6 +263,7 @@ public final class AuthService {
     /// Callers handle status codes themselves because endpoints disagree on
     /// semantics (e.g. `getAssistant` returns `.notFound` on 404 as a value,
     /// `refreshAssistant` throws on 404).
+
     /// Resolves the user's organization ID, fetching from the platform if not
     /// already persisted. The resolved ID is cached in UserDefaults so subsequent
     /// platform API calls can use it without an extra round-trip.

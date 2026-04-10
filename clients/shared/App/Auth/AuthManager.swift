@@ -165,14 +165,22 @@ public final class AuthManager {
                     state = .authenticated(user)
                     log.info("WorkOS login completed from provider-token response for user \(user.id ?? user.email ?? "unknown", privacy: .public)")
                     // Resolve and persist the org ID so platform API calls don't need to.
-                    try? await authService.resolveOrganizationId()
+                    do {
+                        try await authService.resolveOrganizationId()
+                    } catch {
+                        log.error("Failed to resolve organization ID after login: \(error.localizedDescription, privacy: .public)")
+                    }
                 } else {
                     log.info("Provider-token auth returned no user payload; validating session via auth/session")
                     let session = try await authService.getSession()
                     if session.status == 200, session.meta?.is_authenticated != false, let user = session.data?.user {
                         state = .authenticated(user)
                         log.info("WorkOS login completed after session revalidation for user \(user.id ?? user.email ?? "unknown", privacy: .public)")
-                        try? await authService.resolveOrganizationId()
+                        do {
+                            try await authService.resolveOrganizationId()
+                        } catch {
+                            log.error("Failed to resolve organization ID after login: \(error.localizedDescription, privacy: .public)")
+                        }
                     } else {
                         log.error(
                             "Session revalidation after provider-token auth did not return an authenticated user. status=\(session.status, privacy: .public) isAuthenticated=\(session.meta?.is_authenticated == true, privacy: .public) hasUser=\(session.data?.user != nil, privacy: .public)"

@@ -48,7 +48,7 @@ struct OnboardingView: View {
                 case .assistantPicker:
                     AssistantPickerStep(
                         onSelected: { assistant in
-                            connectToAssistant(assistant)
+                            finalizeAssistantSelection(assistant)
                         },
                         onHatchNew: {
                             Task { await performManagedBootstrap() }
@@ -119,11 +119,15 @@ struct OnboardingView: View {
         .padding(VSpacing.xl)
     }
 
-    private func connectToAssistant(_ assistant: PlatformAssistant) {
+    /// Persist the selected assistant's config, rebuild the daemon client,
+    /// and advance to the permissions step.
+    private func finalizeAssistantSelection(_ assistant: PlatformAssistant) {
         let platformBaseURL = AuthService.shared.baseURL
 
         UserDefaults.standard.set(assistant.id, forKey: UserDefaultsKeys.managedAssistantId)
         UserDefaults.standard.set(platformBaseURL, forKey: UserDefaultsKeys.managedPlatformBaseURL)
+        // TODO: Migrate to LockfileAssistant.setActiveAssistantId() when
+        // LockfileAssistant is available on iOS (currently macOS-only).
         UserDefaults.standard.set(assistant.id, forKey: "connectedAssistantId")
 
         clientProvider.rebuildClient()
@@ -145,22 +149,8 @@ struct OnboardingView: View {
                 assistant = created
             }
 
-            let platformBaseURL = AuthService.shared.baseURL
-
-            // Persist managed assistant config so DaemonConfig.fromUserDefaults() picks it up.
-            UserDefaults.standard.set(assistant.id, forKey: UserDefaultsKeys.managedAssistantId)
-            UserDefaults.standard.set(platformBaseURL, forKey: UserDefaultsKeys.managedPlatformBaseURL)
-            // TODO: Migrate to LockfileAssistant.setActiveAssistantId() when
-            // LockfileAssistant is available on iOS (currently macOS-only).
-            UserDefaults.standard.set(assistant.id, forKey: "connectedAssistantId")
-
-            // Rebuild the daemon client with managed transport config.
-            // ContentView.attemptInitialConnection() handles connecting with
-            // proper retries and timeout once onboarding completes.
-            clientProvider.rebuildClient()
-
             isBootstrappingManaged = false
-            currentStep = .permissions
+            finalizeAssistantSelection(assistant)
         } catch {
             managedBootstrapError = error.localizedDescription
         }
