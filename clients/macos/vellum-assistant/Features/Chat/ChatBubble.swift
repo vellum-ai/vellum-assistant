@@ -364,7 +364,13 @@ struct ChatBubble: View, Equatable {
                             onRetry: onRetryConversationError
                         )
                     } else if shouldShowBubble {
-                        bubbleContent
+                        if !isUser,
+                           containsInlineThinkingTag(message.text),
+                           MacOSClientFeatureFlagManager.shared.isEnabled("show-thinking-blocks") {
+                            bubbleContentWithInlineThinking
+                        } else {
+                            bubbleContent
+                        }
                     }
 
                     // Inline surfaces render below the bubble as full-width cards
@@ -570,11 +576,52 @@ struct ChatBubble: View, Equatable {
 
     @ViewBuilder
     private var bubbleContent: some View {
+        bubbleContent(renderingText: message.text, hasRenderedText: hasText)
+    }
+
+    /// Assistant-only wrapper that lifts inline `<thinking>...</thinking>`
+    /// tags out of `message.text` into collapsible `ThinkingBlockView`s
+    /// rendered alongside a bubble that contains the remaining content.
+    /// This keeps the transformation at the presentation layer — the
+    /// streaming pipeline and `ChatMessage` data model are unchanged.
+    @ViewBuilder
+    private var bubbleContentWithInlineThinking: some View {
+        let chunks = parseInlineThinkingTags(message.text)
+        let thinkingChunks: [String] = chunks.compactMap { chunk in
+            if case .thinking(let body) = chunk { return body }
+            return nil
+        }
+        let textChunks: [String] = chunks.compactMap { chunk in
+            if case .text(let body) = chunk { return body }
+            return nil
+        }
+        let joinedText = textChunks
+            .joined(separator: "\n\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasRenderedText = !joinedText.isEmpty
+        let hasAttachments = !message.attachments.isEmpty
+
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            ForEach(Array(thinkingChunks.enumerated()), id: \.offset) { _, content in
+                ThinkingBlockView(
+                    content: content,
+                    isStreaming: message.isStreaming,
+                    typographyGeneration: typographyGeneration
+                )
+            }
+            if hasRenderedText || hasAttachments {
+                bubbleContent(renderingText: joinedText, hasRenderedText: hasRenderedText)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func bubbleContent(renderingText: String, hasRenderedText: Bool) -> some View {
         let partitioned = partitionedAttachments
         let chrome = bubbleChrome {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
-                if hasText {
-                    let segments = resolveSegments(for: message.text, isStreaming: message.isStreaming)
+                if hasRenderedText {
+                    let segments = resolveSegments(for: renderingText, isStreaming: message.isStreaming)
                     // Always render through MarkdownSegmentView to keep view
                     // identity stable across async segment parsing transitions.
                     // When a large message first renders, resolveSegments returns
