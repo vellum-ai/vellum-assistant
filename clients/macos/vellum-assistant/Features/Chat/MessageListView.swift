@@ -256,13 +256,21 @@ struct MessageListView: View {
 
     func handlePaginationTrigger() {
         guard hasMoreMessages, !isLoadingMore else { return }
+        let startConversationId = conversationId
         topVisibleMessageId = paginatedVisibleMessages.first?.id
         isLoadingMore = true
         Task {
             _ = await loadPreviousMessagePage?()
+            // Discard stale results if the user switched conversations
+            // while the page load was in flight.
+            guard conversationId == startConversationId else {
+                isLoadingMore = false
+                return
+            }
             isLoadingMore = false
             if let anchorId = topVisibleMessageId {
                 try? await Task.sleep(nanoseconds: 100_000_000)
+                guard conversationId == startConversationId else { return }
                 scrollPosition.scrollTo(id: anchorId, anchor: .top)
             }
         }

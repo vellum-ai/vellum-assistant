@@ -43,6 +43,7 @@ struct MessageListContentView: View, Equatable {
             && lhs.configuredProviders == rhs.configuredProviders
             && lhs.subagentDetailStore === rhs.subagentDetailStore
             && lhs.assistantStatusText == rhs.assistantStatusText
+            && lhs.viewportHeight == rhs.viewportHeight
     }
 
     // MARK: - Data properties (compared in ==)
@@ -66,8 +67,6 @@ struct MessageListContentView: View, Equatable {
     let configuredProviders: Set<String>
     let subagentDetailStore: SubagentDetailStore
     let assistantStatusText: String?
-
-    // MARK: - Plain value properties (not compared in ==; passed through from parent)
 
     let viewportHeight: CGFloat
 
