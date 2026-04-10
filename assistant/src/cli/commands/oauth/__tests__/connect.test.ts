@@ -267,6 +267,7 @@ describe("assistant oauth connect", () => {
       provider: "google",
       authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenExchangeUrl: "https://oauth2.googleapis.com/token",
+      tokenExchangeBodyFormat: "form",
       managedServiceConfigKey: "google-oauth",
     });
     mockIsManagedMode = () => true;
@@ -304,6 +305,7 @@ describe("assistant oauth connect", () => {
       provider: "google",
       authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenExchangeUrl: "https://oauth2.googleapis.com/token",
+      tokenExchangeBodyFormat: "form",
       managedServiceConfigKey: "google-oauth",
     });
     mockIsManagedMode = () => true;
@@ -360,6 +362,7 @@ describe("assistant oauth connect", () => {
       provider: "google",
       authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenExchangeUrl: "https://oauth2.googleapis.com/token",
+      tokenExchangeBodyFormat: "form",
       managedServiceConfigKey: null,
     });
     mockIsManagedMode = () => false;
@@ -406,6 +409,7 @@ describe("assistant oauth connect", () => {
       provider: "google",
       authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenExchangeUrl: "https://oauth2.googleapis.com/token",
+      tokenExchangeBodyFormat: "form",
       managedServiceConfigKey: null,
     });
     mockIsManagedMode = () => false;
@@ -458,6 +462,7 @@ describe("assistant oauth connect", () => {
       provider: "google",
       authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenExchangeUrl: "https://oauth2.googleapis.com/token",
+      tokenExchangeBodyFormat: "form",
       managedServiceConfigKey: null,
     });
     mockIsManagedMode = () => false;
@@ -486,6 +491,7 @@ describe("assistant oauth connect", () => {
       provider: "google",
       authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenExchangeUrl: "https://oauth2.googleapis.com/token",
+      tokenExchangeBodyFormat: "form",
       managedServiceConfigKey: null,
     });
     mockIsManagedMode = () => false;
@@ -512,6 +518,7 @@ describe("assistant oauth connect", () => {
       provider: "google",
       authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenExchangeUrl: "https://oauth2.googleapis.com/token",
+      tokenExchangeBodyFormat: "form",
       managedServiceConfigKey: "google-oauth",
     });
     mockIsManagedMode = () => true;
@@ -550,6 +557,7 @@ describe("assistant oauth connect", () => {
       provider: "slack",
       authorizeUrl: "https://slack.com/oauth/v2/authorize",
       tokenExchangeUrl: "https://slack.com/api/oauth.v2.access",
+      tokenExchangeBodyFormat: "form",
       managedServiceConfigKey: null,
     });
     mockIsManagedMode = () => false;
@@ -594,6 +602,7 @@ describe("assistant oauth connect", () => {
       provider: "google",
       authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenExchangeUrl: "https://oauth2.googleapis.com/token",
+      tokenExchangeBodyFormat: "form",
       managedServiceConfigKey: null,
     });
     mockIsManagedMode = () => false;
@@ -638,6 +647,7 @@ describe("assistant oauth connect", () => {
       provider: "google",
       authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenExchangeUrl: "https://oauth2.googleapis.com/token",
+      tokenExchangeBodyFormat: "form",
       tokenEndpointAuthMethod: "client_secret_post",
       managedServiceConfigKey: null,
       requiresClientSecret: 1,
@@ -677,6 +687,7 @@ describe("assistant oauth connect", () => {
       provider: "slack_channel",
       authorizeUrl: "urn:manual-token",
       tokenExchangeUrl: "urn:manual-token",
+      tokenExchangeBodyFormat: "form",
       managedServiceConfigKey: null,
     });
     mockIsManagedMode = () => false;
@@ -704,6 +715,7 @@ describe("assistant oauth connect", () => {
       provider: "google",
       authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenExchangeUrl: "https://oauth2.googleapis.com/token",
+      tokenExchangeBodyFormat: "form",
       managedServiceConfigKey: null,
     });
     mockIsManagedMode = () => false;
