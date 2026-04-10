@@ -48,7 +48,7 @@ struct BrowserBackendCard: View {
                     }
                 ),
                 label: "Enable cdp-inspect backend",
-                helperText: "When on, the assistant probes the host/port below before falling back to the managed browser."
+                helperText: "When on, the assistant connects to Chrome at the host/port below instead of using the managed browser."
             )
             .accessibilityLabel("Enable cdp-inspect backend")
 
