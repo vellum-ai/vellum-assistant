@@ -131,6 +131,7 @@ extension MessageListView {
         // hasn't run yet). Animated pins targeting stale content
         // accumulate and corrupt SwiftUI's scroll position.
         guard conversationId == scrollState.currentConversationId else { return }
+        scrollDiag.debug("handleSendingChanged: isSending=\(self.isSending, privacy: .public) phase=\(self.assistantActivityPhase, privacy: .public) minHeightApplied=\(self.scrollState.isActiveTurnMinHeightApplied, privacy: .public) pushToTopDone=\(self.scrollState.hasCompletedInitialPushToTop, privacy: .public)")
         if isSending {
             // Clear stale confirmation marker: if the phase left "awaiting_confirmation"
             // while not sending, the marker is stale.

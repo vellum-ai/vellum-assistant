@@ -268,6 +268,21 @@ final class MessageListScrollState {
     /// `.followingBottom` and creating a "scroll lock" effect.
     @ObservationIgnored var lastUserInitiatedPinTime: Date?
 
+    /// True when the active assistant turn's `minHeight` frame is applied
+    /// to the last message cell. When set, `executeScrollToBottom` targets
+    /// the `"active-turn-content-bottom"` marker (real content edge) instead
+    /// of `lastMessageId` (whose `.bottom` includes the minHeight padding) —
+    /// but only after the initial push-to-top has completed.
+    @ObservationIgnored var isActiveTurnMinHeightApplied: Bool = false
+
+    /// Set after the first `executeScrollToBottom` fires with `lastMessageId`
+    /// during an active turn. The initial pin uses `lastMessageId` (whose
+    /// `.bottom` includes the minHeight frame) to push the user message to
+    /// the top. Subsequent auto-follow calls use the content-bottom marker
+    /// so `.bottom` targets real content, avoiding visible white space.
+    /// Cleared in `reset()` and when the active turn ends.
+    @ObservationIgnored var hasCompletedInitialPushToTop: Bool = false
+
     // MARK: - Layout Cache Fields
 
     /// Memoization state intentionally lives outside the observed object so
@@ -695,7 +710,28 @@ final class MessageListScrollState {
         //     would override the spring with VAnimation.fast.
         //   - auto-follow / recovery: no outer withAnimation, so we wrap
         //     in VAnimation.fast when animated == true.
-        if let target = lastMessageId {
+        // When the active turn's minHeight frame is applied, choose the
+        // scroll target based on whether the initial push-to-top has fired:
+        //   - First pin: use lastMessageId — its .bottom includes the
+        //     minHeight frame, which fills the viewport and pushes the
+        //     user message to the top.
+        //   - Subsequent pins: use the content-bottom marker — its .bottom
+        //     lands on real content, avoiding the minHeight white space.
+        let target: (any Hashable)?
+        let targetName: String
+        if isActiveTurnMinHeightApplied && hasCompletedInitialPushToTop {
+            target = "active-turn-content-bottom" as String
+            targetName = "marker"
+        } else {
+            target = lastMessageId
+            targetName = "lastMessageId"
+            if isActiveTurnMinHeightApplied {
+                hasCompletedInitialPushToTop = true
+                scrollDiag.debug("executeScrollToBottom: initial push-to-top completed, subsequent calls will use marker")
+            }
+        }
+        scrollDiag.debug("executeScrollToBottom: target=\(targetName, privacy: .public) minHeightApplied=\(self.isActiveTurnMinHeightApplied, privacy: .public) pushToTopDone=\(self.hasCompletedInitialPushToTop, privacy: .public) path=\(path, privacy: .public) userInit=\(userInitiated, privacy: .public)")
+        if let target {
             if animated && !userInitiated {
                 withAnimation(VAnimation.fast) {
                     scrollTo?(target, .bottom)
@@ -830,6 +866,8 @@ final class MessageListScrollState {
         derivedStateCache.reset()
         currentConversationId = newConversationId
         lastMessageId = nil
+        isActiveTurnMinHeightApplied = false
+        hasCompletedInitialPushToTop = false
         mode = .initialLoad
         activeStabilizationCount = 0
         // False: scroll geometry hasn't updated for the new content yet.
