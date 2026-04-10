@@ -2158,6 +2158,10 @@ public final class SettingsStore: ObservableObject {
            let mode = githubOAuth["mode"] as? String {
             self.managedOAuthMode["github"] = mode
         }
+        if let notionOAuth = services["notion-oauth"] as? [String: Any],
+           let mode = notionOAuth["mode"] as? String {
+            self.managedOAuthMode["notion"] = mode
+        }
     }
 
     @discardableResult
