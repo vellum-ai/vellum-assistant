@@ -717,9 +717,21 @@ final class MessageListScrollState {
         //     user message to the top.
         //   - Subsequent pins: use the content-bottom marker — its .bottom
         //     lands on real content, avoiding the minHeight white space.
+        // Target selection:
+        //   - User-initiated (CTA): always use lastMessageId for reliable
+        //     bottom reach. Recovery + auto-follow correct any transient
+        //     white space from the minHeight frame.
+        //   - First auto-follow pin with minHeight: use lastMessageId to
+        //     push the user message to the top via the minHeight frame.
+        //   - Subsequent auto-follow pins with minHeight: use the content-
+        //     bottom marker so .bottom lands on real content.
+        //   - No minHeight: use lastMessageId (normal behavior).
         let target: (any Hashable)?
         let targetName: String
-        if isActiveTurnMinHeightApplied && hasCompletedInitialPushToTop {
+        if userInitiated {
+            target = lastMessageId
+            targetName = "lastMessageId(userInitiated)"
+        } else if isActiveTurnMinHeightApplied && hasCompletedInitialPushToTop {
             target = "active-turn-content-bottom" as String
             targetName = "marker"
         } else {
