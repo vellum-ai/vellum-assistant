@@ -225,6 +225,10 @@ struct MessageListView: View {
                 resizeScrollTask = nil
                 paginationTask?.cancel()
                 paginationTask = nil
+                highlightDismissTask?.cancel()
+                highlightDismissTask = nil
+                anchorTimeoutTask?.cancel()
+                anchorTimeoutTask = nil
                 highlightedMessageId = nil
             }
             .onChange(of: isSending) {
