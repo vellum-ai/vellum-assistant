@@ -1,9 +1,306 @@
 import SwiftUI
 import VellumAssistantShared
 
-struct UsageDashboardPanel: View {
-    let store: UsageDashboardStore
+enum LogsAndUsageTab: String {
+    case logs = "Logs"
+    case usage = "Usage"
+
+    var icon: VIcon {
+        switch self {
+        case .logs: return .scrollText
+        case .usage: return .barChart
+        }
+    }
+
+    static var allTabs: [LogsAndUsageTab] { [.logs, .usage] }
+}
+
+@MainActor
+struct LogsAndUsagePanel: View {
+    @ObservedObject var traceStore: TraceStore
+    @ObservedObject var connectionManager: GatewayConnectionManager
+    let activeSessionId: String?
+    let usageDashboardStore: UsageDashboardStore
     var onClose: () -> Void
+
+    @State private var selectedTab: LogsAndUsageTab = .logs
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header: back chevron + title
+            HStack(spacing: VSpacing.md) {
+                VButton(
+                    label: "Back",
+                    iconOnly: VIcon.chevronLeft.rawValue,
+                    style: .ghost,
+                    tooltip: "Back"
+                ) {
+                    onClose()
+                }
+
+                Text("Logs & Usage")
+                    .font(VFont.titleLarge)
+                    .foregroundStyle(VColor.contentEmphasized)
+
+                Spacer()
+            }
+            .padding(.trailing, VSpacing.xl)
+            .padding(.bottom, VSpacing.md)
+
+            VColor.borderDisabled.frame(height: 1)
+                .padding(.trailing, VSpacing.xl)
+
+            // Body: nav pinned left + content area (each tab manages its own scrolling)
+            HStack(alignment: .top, spacing: 0) {
+                tabNav
+                    .frame(width: 200)
+
+                selectedTabContent
+                    .padding(.top, VSpacing.lg)
+                    .padding(.trailing, VSpacing.xl)
+                    .padding(.bottom, VSpacing.xl)
+                    .frame(maxWidth: .infinity)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .padding(.top, VSpacing.xl)
+        .padding(.leading, VSpacing.xl)
+        .background(VColor.surfaceOverlay)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+    }
+
+    // MARK: - Nav Sidebar
+
+    private var tabNav: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            ForEach(LogsAndUsageTab.allTabs, id: \.self) { tab in
+                VNavItem(icon: tab.icon.rawValue, label: tab.rawValue, isActive: selectedTab == tab) {
+                    selectedTab = tab
+                }
+            }
+            Spacer()
+        }
+        .padding(.top, VSpacing.lg)
+        .padding(.bottom, VSpacing.xl)
+        .padding(.trailing, VSpacing.sm)
+    }
+
+    // MARK: - Tab Content Router
+
+    @ViewBuilder
+    private var selectedTabContent: some View {
+        switch selectedTab {
+        case .logs:
+            LogsTabContent(
+                traceStore: traceStore,
+                connectionManager: connectionManager,
+                activeSessionId: activeSessionId
+            )
+        case .usage:
+            UsageTabContent(store: usageDashboardStore)
+        }
+    }
+}
+
+// MARK: - Logs Tab Content
+
+@MainActor
+struct LogsTabContent: View {
+    @ObservedObject var traceStore: TraceStore
+    @ObservedObject var connectionManager: GatewayConnectionManager
+    let activeSessionId: String?
+
+    @State private var loadingConversationId: String?
+    @State private var hydrationTask: Task<Void, Never>?
+    private let traceEventClient: any TraceEventClientProtocol = TraceEventClient()
+
+    private var isLoadingHistory: Bool {
+        loadingConversationId != nil && loadingConversationId == activeSessionId
+    }
+
+    private var hasEvents: Bool {
+        guard let conversationId = activeSessionId else { return false }
+        return !(traceStore.eventsByConversation[conversationId] ?? []).isEmpty
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            if let conversationId = activeSessionId {
+                metricsCard(conversationId: conversationId)
+
+                if hasEvents {
+                    TraceTimelineView(traceStore: traceStore, conversationId: conversationId)
+                }
+            }
+
+            if !hasEvents {
+                Spacer()
+                if activeSessionId != nil {
+                    if isLoadingHistory {
+                        VEmptyState(
+                            title: "Loading trace history...",
+                            subtitle: "Fetching persisted events from the assistant",
+                            icon: "waveform.path"
+                        )
+                    } else {
+                        VEmptyState(
+                            title: "No trace events yet",
+                            subtitle: "Events will appear as the session runs",
+                            icon: "waveform.path"
+                        )
+                    }
+                } else {
+                    VEmptyState(
+                        title: "No session selected",
+                        subtitle: "Start a conversation to see trace events",
+                        icon: "ant"
+                    )
+                }
+                Spacer()
+            }
+        }
+        .frame(maxWidth: 900, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            traceStore.isObserved = true
+            hydrateIfNeeded()
+        }
+        .onDisappear { traceStore.isObserved = false }
+        .onChange(of: activeSessionId) { _, _ in
+            hydrationTask?.cancel()
+            hydrationTask = nil
+            loadingConversationId = nil
+            hydrateIfNeeded()
+        }
+    }
+
+    // MARK: - History Hydration
+
+    private func hydrateIfNeeded() {
+        guard let conversationId = activeSessionId else { return }
+        guard loadingConversationId != conversationId else { return }
+        loadingConversationId = conversationId
+        hydrationTask = Task {
+            defer {
+                if !Task.isCancelled {
+                    loadingConversationId = nil
+                    hydrationTask = nil
+                }
+            }
+            do {
+                let events = try await traceEventClient.fetchHistory(conversationId: conversationId)
+                guard !Task.isCancelled else { return }
+                traceStore.loadHistory(events)
+            } catch {
+                // Fetch failed — fall back to the existing empty state
+            }
+        }
+    }
+
+    // MARK: - Metrics Card
+
+    @ViewBuilder
+    private func metricsCard(conversationId: String) -> some View {
+        SettingsCard(title: "Session Metrics") {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: VSpacing.md) {
+                metricStatCard(
+                    label: "Requests",
+                    value: "\(traceStore.requestCount(conversationId: conversationId))"
+                )
+                metricStatCard(
+                    label: "LLM Calls",
+                    value: "\(traceStore.llmCallCount(conversationId: conversationId))"
+                )
+                metricStatCard(
+                    label: "Tokens",
+                    value: formatTokens(
+                        input: traceStore.totalInputTokens(conversationId: conversationId),
+                        output: traceStore.totalOutputTokens(conversationId: conversationId)
+                    )
+                )
+                metricStatCard(
+                    label: "Avg Latency",
+                    value: formatLatency(traceStore.averageLlmLatencyMs(conversationId: conversationId))
+                )
+
+                let failures = traceStore.toolFailureCount(conversationId: conversationId)
+                if failures > 0 {
+                    metricStatCard(
+                        label: "Failures",
+                        value: "\(failures)",
+                        valueColor: VColor.systemNegativeStrong
+                    )
+                }
+
+                if let memory = connectionManager.latestMemoryStatus {
+                    let memoryDegraded = memory.enabled && memory.degraded
+                    metricStatCard(
+                        label: "Memory",
+                        value: !memory.enabled ? "Disabled"
+                            : memoryDegraded ? "Degraded"
+                            : "Healthy",
+                        valueColor: !memory.enabled ? VColor.contentTertiary
+                            : memoryDegraded ? VColor.systemMidStrong
+                            : VColor.systemPositiveStrong
+                    )
+                    if let provider = memory.provider {
+                        metricStatCard(
+                            label: "Embed Provider",
+                            value: memory.model.map { "\(provider)/\($0)" } ?? provider
+                        )
+                    }
+                    if memoryDegraded, let reason = memory.reason {
+                        metricStatCard(
+                            label: "Degradation Reason",
+                            value: reason,
+                            valueColor: VColor.systemMidStrong
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func metricStatCard(label: String, value: String, valueColor: Color = VColor.contentDefault) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.xxs) {
+            Text(value)
+                .font(VFont.bodyMediumEmphasised)
+                .foregroundStyle(valueColor)
+            Text(label)
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentTertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(VSpacing.sm)
+        .background(VColor.borderBase.opacity(0.15))
+        .cornerRadius(8)
+    }
+
+    // MARK: - Formatters
+
+    private func formatTokens(input: Int, output: Int) -> String {
+        let total = input + output
+        if total >= 1000 {
+            return String(format: "%.1fk", Double(total) / 1000)
+        }
+        return "\(total)"
+    }
+
+    private func formatLatency(_ ms: Double) -> String {
+        if ms <= 0 { return "--" }
+        if ms >= 1000 {
+            return String(format: "%.1fs", ms / 1000)
+        }
+        return String(format: "%.0fms", ms)
+    }
+}
+
+// MARK: - Usage Tab Content
+
+@MainActor
+struct UsageTabContent: View {
+    let store: UsageDashboardStore
 
     @State private var refreshTask: Task<Void, Never>?
     @State private var breakdownTask: Task<Void, Never>?
@@ -13,18 +310,10 @@ struct UsageDashboardPanel: View {
     }
 
     var body: some View {
-        VPageContainer(title: "Usage") {
+        ScrollView {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             timeRangeStrip(store: store)
 
-            ScrollView {
-                if !allFailed {
-                    contentView(store: store)
-                        .padding(.bottom, VSpacing.lg)
-                }
-            }
-            .layoutPriority(-1)
-        }
-        .overlay {
             if allFailed {
                 VStack(spacing: VSpacing.lg) {
                     VIconView(.circleAlert, size: 32)
@@ -40,16 +329,25 @@ struct UsageDashboardPanel: View {
                         refreshTask = Task { await store.refresh() }
                     }
                 }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, VSpacing.xl)
+            } else {
+                totalsSection(store: store)
+                dailySection(store: store)
+                breakdownSection(store: store)
             }
         }
+        .frame(maxWidth: 900, alignment: .top)
+        .frame(maxWidth: .infinity)
+        .background { OverlayScrollerStyle() }
+        }
+        .scrollContentBackground(.hidden)
         .onAppear {
             refreshTask = Task {
                 await store.refresh()
             }
         }
         .onChange(of: store.needsRefresh) {
-            // Only auto-refresh for idle states, not failed — failed states
-            // have retry buttons and shouldn't trigger an automatic retry loop.
             let hasIdle = store.totalsState == .idle || store.dailyState == .idle || store.breakdownState == .idle
             if hasIdle {
                 refreshTask?.cancel()
@@ -88,21 +386,6 @@ struct UsageDashboardPanel: View {
         }
     }
 
-    // MARK: - Content
-
-    @ViewBuilder
-    func contentView(store: UsageDashboardStore) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
-            totalsSection(store: store)
-            dailySection(store: store)
-            breakdownSection(store: store)
-        }
-        .frame(maxWidth: 900)
-        .frame(maxWidth: .infinity)
-    }
-
-
-
     // MARK: - Totals Section
 
     @ViewBuilder
@@ -110,7 +393,6 @@ struct UsageDashboardPanel: View {
         SettingsCard(title: "Totals") {
             switch store.totalsState {
             case .idle, .loading:
-                // Skeleton matching 2x3 stat card grid
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: VSpacing.md) {
                     ForEach(0..<6, id: \.self) { _ in
                         VStack(alignment: .leading, spacing: VSpacing.xxs) {
@@ -147,7 +429,6 @@ struct UsageDashboardPanel: View {
         SettingsCard(title: isHourly ? "Hourly Trend" : "Daily Trend") {
             switch store.dailyState {
             case .idle, .loading:
-                // Skeleton matching bar chart layout
                 HStack(alignment: .bottom, spacing: VSpacing.xs) {
                     ForEach(0..<7, id: \.self) { index in
                         VStack(spacing: VSpacing.xxs) {
@@ -186,7 +467,6 @@ struct UsageDashboardPanel: View {
 
         ScrollView(.horizontal, showsIndicators: false) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                // Bar chart — left-aligned
                 HStack(alignment: .bottom, spacing: VSpacing.xs) {
                     ForEach(sorted, id: \.date) { bucket in
                         let fraction = maxCost > 0 ? bucket.totalEstimatedCostUsd / maxCost : 0
@@ -200,7 +480,6 @@ struct UsageDashboardPanel: View {
                 }
                 .frame(height: barChartHeight)
 
-                // Cost + date/time labels — left-aligned
                 HStack(alignment: .top, spacing: VSpacing.xs) {
                     ForEach(sorted, id: \.date) { bucket in
                         VStack(spacing: VSpacing.xxs) {
@@ -222,8 +501,6 @@ struct UsageDashboardPanel: View {
     private static let shortDateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "MMM d"
-        // Use UTC for both parse and display since these are calendar dates,
-        // not timestamps — "2026-03-15" should always show as "Mar 15".
         f.timeZone = TimeZone(identifier: "UTC")!
         return f
     }()
@@ -271,7 +548,6 @@ struct UsageDashboardPanel: View {
 
             switch store.breakdownState {
             case .idle, .loading:
-                // Skeleton matching breakdown table rows
                 VStack(spacing: 0) {
                     HStack(spacing: VSpacing.sm) {
                         VSkeletonBone(width: 50, height: 12)
@@ -334,7 +610,6 @@ struct UsageDashboardPanel: View {
     @ViewBuilder
     private func breakdownTable(_ entries: [UsageGroupBreakdownEntry]) -> some View {
         VStack(spacing: 0) {
-            // Header row
             HStack(alignment: .center, spacing: VSpacing.sm) {
                 Text("Group")
                     .font(VFont.labelDefault)
@@ -352,7 +627,7 @@ struct UsageDashboardPanel: View {
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
 
-            ForEach(Array(entries.enumerated()), id: \.offset) { index, entry in
+            ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
                 Divider().background(VColor.borderBase)
                 breakdownRow(entry)
             }

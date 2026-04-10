@@ -1,6 +1,7 @@
 import type { ImageContent } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
+import { safeStringSlice } from "../../util/unicode.js";
 import { credentialBroker } from "../credentials/broker.js";
 import {
   isPrivateOrLocalHost,
@@ -1257,7 +1258,7 @@ export async function executeBrowserExtract(
 
     if (textContent.length > MAX_EXTRACT_LENGTH) {
       textContent =
-        textContent.slice(0, MAX_EXTRACT_LENGTH) + "\n... (truncated)";
+        safeStringSlice(textContent, 0, MAX_EXTRACT_LENGTH) + "\n... (truncated)";
     }
 
     const lines: string[] = [

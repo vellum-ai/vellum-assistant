@@ -57,7 +57,7 @@ All UI and feature code lives in `Features/`, organized by domain:
 | `Contacts/` | Contact management |
 | `ChannelVerification/` | Channel verification flow |
 | `MainWindow/` | MainWindowView shell, ConversationSwitcherDrawer, NavigationToolbar, ConversationManager, side panels |
-| `MainWindow/Panels/` | Side panels including DebugPanel (real-time trace viewer with metrics + timeline) |
+| `MainWindow/Panels/` | Side panels including LogsAndUsagePanel (combined logs + usage dashboard with settings-like sidebar layout) |
 | `Onboarding/` | Multi-step first-launch flow (OnboardingFlowView → OnboardingState) |
 | `QuickInput/` | Quick task input popover and screen selection |
 | `Session/` | Session overlay UI for computer-use task execution |
