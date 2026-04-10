@@ -687,20 +687,20 @@ final class MessageListScrollState {
     /// imperative `.scrollTo()` mutating methods on the ScrollPosition
     /// binding — Apple's recommended pattern for programmatic scrolling.
     ///
-    /// **ID-only strategy:** All paths use ID-based scroll targeting
-    /// real ForEach items. Edge-based scroll (`scrollToEdge(.bottom)`)
-    /// is NEVER used when `lastMessageId` is available — it computes
-    /// total content height from LazyVStack estimates, which overshoot
-    /// into blank space for long conversations with unmaterialized
-    /// items. ID-based scroll targets a specific item that SwiftUI can
-    /// locate even when not materialized, so it lands short (showing
-    /// messages) rather than overshooting (showing blank space).
-    /// Each recovery attempt materializes views near the target,
-    /// improving LazyVStack estimates for the next attempt —
-    /// converging monotonically to the actual bottom.
-    ///
-    /// Edge-based scroll is only used as a fallback for empty
-    /// conversations where `lastMessageId == nil`.
+    /// **Scroll target strategy:**
+    /// - **Auto-follow / recovery:** ID-based scroll targeting real
+    ///   ForEach items (`lastMessageId` or the `active-turn-content-bottom`
+    ///   marker). Lands short rather than overshooting; recovery
+    ///   converges monotonically as LazyVStack materializes views.
+    /// - **Initial send (`pendingEdgeScrollOnSend`):** Edge-based scroll
+    ///   (`scrollToEdge(.bottom)`) to reach past the thinking indicator's
+    ///   `minHeight` — the thinking indicator is outside the ForEach and
+    ///   unreachable by ID-based scroll on `lastMessageId`.
+    /// - **User-initiated CTA:** Edge-based scroll for reliability when
+    ///   the target message is unmaterialized (observed as distBottom=3000+
+    ///   with ID-based scroll on long conversations).
+    /// - **Empty conversation:** Edge-based scroll as fallback when
+    ///   `lastMessageId == nil`.
     ///
     /// - SeeAlso: https://stackoverflow.com/q/79884780 (ScrollPosition unreliable with variable heights)
     /// - SeeAlso: https://developer.apple.com/documentation/swiftui/scrollposition/scrollto(edge:)
@@ -985,6 +985,9 @@ final class MessageListScrollState {
         lastAutoFollowAttempt = .distantPast
         lastUserInitiatedPinTime = nil
         lastMessageId = nil
+        isActiveTurnMinHeightApplied = false
+        hasCompletedInitialPushToTop = false
+        pendingEdgeScrollOnSend = false
         isAtBottom = false
         lastContentOffsetY = 0
         scrollContentHeight = 0
