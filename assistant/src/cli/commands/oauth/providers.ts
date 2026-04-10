@@ -274,6 +274,11 @@ Examples:
       'How the client authenticates at the token endpoint: "client_secret_post" or "client_secret_basic"',
     )
     .option(
+      "--token-exchange-body-format <format>",
+      'Body encoding for the token exchange request: "form" (application/x-www-form-urlencoded, default) or "json" (application/json)',
+      "form",
+    )
+    .option(
       "--ping-url <url>",
       'Health-check endpoint URL for token validation (e.g. "https://api.example.com/user"). Used by "assistant oauth ping" to verify a stored token.',
     )
@@ -428,6 +433,7 @@ Examples:
       --provider-key notion-custom \\
       --auth-url https://api.notion.com/v1/oauth/authorize \\
       --token-url https://api.notion.com/v1/oauth/token \\
+      --token-exchange-body-format json \\
       --logo-simpleicons-slug notion`,
     )
     .action(
@@ -442,6 +448,7 @@ Examples:
           scopes?: string;
           scopeSeparator?: string;
           tokenAuthMethod?: string;
+          tokenExchangeBodyFormat?: string;
           pingUrl?: string;
           pingMethod?: string;
           pingHeaders?: string;
@@ -488,6 +495,7 @@ Examples:
             scopePolicy: {},
             scopeSeparator: opts.scopeSeparator,
             tokenEndpointAuthMethod: opts.tokenAuthMethod,
+            tokenExchangeBodyFormat: opts.tokenExchangeBodyFormat,
             pingUrl: opts.pingUrl,
             pingMethod: opts.pingMethod,
             pingHeaders: opts.pingHeaders
@@ -573,6 +581,10 @@ Examples:
     .option(
       "--token-auth-method <method>",
       'How the client authenticates at the token endpoint: "client_secret_post" or "client_secret_basic"',
+    )
+    .option(
+      "--token-exchange-body-format <format>",
+      'Body encoding for the token exchange request: "form" (application/x-www-form-urlencoded, default) or "json" (application/json)',
     )
     .option(
       "--ping-url <url>",
@@ -712,6 +724,7 @@ Examples:
           scopes?: string;
           scopeSeparator?: string;
           tokenAuthMethod?: string;
+          tokenExchangeBodyFormat?: string;
           pingUrl?: string;
           pingMethod?: string;
           pingHeaders?: string;
@@ -787,6 +800,8 @@ Examples:
             params.scopeSeparator = opts.scopeSeparator;
           if (opts.tokenAuthMethod !== undefined)
             params.tokenEndpointAuthMethod = opts.tokenAuthMethod;
+          if (opts.tokenExchangeBodyFormat !== undefined)
+            params.tokenExchangeBodyFormat = opts.tokenExchangeBodyFormat;
           if (opts.pingUrl !== undefined) params.pingUrl = opts.pingUrl;
           if (opts.pingMethod !== undefined)
             params.pingMethod = opts.pingMethod;
