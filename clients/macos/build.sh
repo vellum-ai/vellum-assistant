@@ -1,4 +1,11 @@
 #!/bin/bash
+
+# Ensure bash semantics even when invoked through another shell (e.g. `sh`).
+# The script uses bash arrays and other bash-specific features.
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec /bin/bash "$0" "$@"
+fi
+
 set -euo pipefail
 
 # Single-command build script for vellum-assistant.
