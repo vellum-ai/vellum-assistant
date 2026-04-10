@@ -327,6 +327,11 @@ function writeDefaultConfig(
   }
 
   const tempPath = writeInitialConfig(configValues);
+  if (!tempPath) {
+    throw new Error(
+      "Expected writeInitialConfig() to return a config path for non-empty config values",
+    );
+  }
   const configPath = join(paths.defaultConfigDir, "config.json");
   writeFileSync(configPath, readFileSync(tempPath));
   chmodSync(configPath, 0o644);
