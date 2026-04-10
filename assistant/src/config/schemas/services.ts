@@ -66,6 +66,11 @@ export const GitHubOAuthServiceSchema = BaseServiceSchema.extend({
 });
 export type GitHubOAuthService = z.infer<typeof GitHubOAuthServiceSchema>;
 
+export const NotionOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+export type NotionOAuthService = z.infer<typeof NotionOAuthServiceSchema>;
+
 export const ServicesSchema = z.object({
   inference: InferenceServiceSchema.default(InferenceServiceSchema.parse({})),
   "image-generation": ImageGenerationServiceSchema.default(
@@ -85,6 +90,9 @@ export const ServicesSchema = z.object({
   ),
   "github-oauth": GitHubOAuthServiceSchema.default(
     GitHubOAuthServiceSchema.parse({}),
+  ),
+  "notion-oauth": NotionOAuthServiceSchema.default(
+    NotionOAuthServiceSchema.parse({}),
   ),
 });
 export type Services = z.infer<typeof ServicesSchema>;

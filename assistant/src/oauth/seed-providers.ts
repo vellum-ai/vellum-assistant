@@ -200,6 +200,8 @@ export const PROVIDER_SEED_DATA: Record<
     },
     authorizeParams: { owner: "user" },
     tokenEndpointAuthMethod: "client_secret_basic",
+    tokenExchangeBodyFormat: "json",
+    managedServiceConfigKey: "notion-oauth",
     loopbackPort: 17323,
     injectionTemplates: [
       {
