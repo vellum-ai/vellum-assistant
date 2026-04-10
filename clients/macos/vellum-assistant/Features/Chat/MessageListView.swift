@@ -5,8 +5,6 @@ import os.signpost
 import SwiftUI
 import VellumAssistantShared
 
-private let scrollDiag = Logger(subsystem: Bundle.appBundleIdentifier, category: "ScrollDiag")
-
 struct MessageListView: View {
 
     let messages: [ChatMessage]
@@ -93,22 +91,46 @@ struct MessageListView: View {
     /// With @Observable fine-grained tracking, reading only `activeSurfaceId`
     /// won't trigger re-renders on frequent `data` progress ticks.
     var taskProgressManager = TaskProgressOverlayManager.shared
-    /// Consolidates all scroll-related state with `@Observable` fine-grained
-    /// per-property tracking. Each UI-facing property (`showScrollToLatest`,
-    /// `scrollIndicatorsHidden`) is individually tracked, so SwiftUI only
-    /// re-evaluates views that read the specific property that changed.
-    /// See `MessageListScrollState.swift` for details.
-    @State var scrollState = MessageListScrollState()
-    /// Pure policy coordinator that models scroll decisions. All scroll
-    /// policy flows through this coordinator's `handle(_:)` method; the
-    /// resulting output intents are translated into concrete `scrollState`
-    /// / `ScrollPosition` mutations by the view layer.
-    @State var scrollCoordinator = ScrollCoordinator()
+    // MARK: - Scroll State
+
+    /// Native SwiftUI scroll position. Initialized to `.bottom` so the first
+    /// layout starts at the bottom of the content.
+    /// https://developer.apple.com/documentation/swiftui/scrollposition
+    @State var scrollPosition = ScrollPosition(edge: .bottom)
+    /// Tracks whether the viewport is within 30pt of the content bottom.
+    /// Updated by `onScrollGeometryChange` — fires only on Bool transitions,
+    /// not every geometry tick (~2 fires per scroll session vs ~120fps).
+    /// https://developer.apple.com/documentation/swiftui/view/onscrollgeometrychange(for:of:action:)
+    @State var isAtBottom: Bool = true
+    /// Captures the first visible message ID before a pagination load so
+    /// position can be restored after new items are prepended.
+    @State var topVisibleMessageId: UUID? = nil
+    /// True while a previous-page pagination load is in flight.
+    @State var isLoadingMore: Bool = false
+
+    // MARK: - Auxiliary State
+
+    /// Non-observable projection cache for derived transcript state.
+    /// Kept off the SwiftUI observation graph to avoid "Modifying state
+    /// during view update" warnings during body evaluation memoization.
+    @State var projectionCache = ProjectionCache()
+    /// Tracks the last conversation ID to detect conversation switches.
+    @State var lastConversationId: UUID? = nil
+    /// Tracks the last auto-focused confirmation request ID to avoid
+    /// re-focusing the same confirmation bubble.
+    @State var lastAutoFocusedRequestId: String? = nil
+    /// In-flight highlight dismiss task; cancelled on conversation switch.
+    @State var highlightDismissTask: Task<Void, Never>? = nil
+    /// In-flight anchor timeout task.
+    @State var anchorTimeoutTask: Task<Void, Never>? = nil
+    /// Timestamp when the anchor was set (for pagination exhaustion guard).
+    @State var anchorSetTime: Date? = nil
+    /// Tracks the last chat column width to detect real resizes.
+    @State var lastHandledChatColumnWidth: CGFloat = 0
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State var resizeScrollTask: Task<Void, Never>?
-    /// Native SwiftUI scroll position struct (macOS 15+). Replaces
-    /// `ScrollViewReader` + `proxy.scrollTo()` and distance-from-bottom math.
-    @State var scrollPosition = ScrollPosition()
+    /// Tracks the viewport height for the turnMinHeight calculation.
+    @State var viewportHeight: CGFloat = .infinity
 
     // MARK: - Body
 
@@ -121,17 +143,12 @@ struct MessageListView: View {
             // returns bounds.midX for alignment without querying children, stopping the
             // alignment cascade. The old .frame(maxWidth:) pattern created FlexFrameLayout
             // which queried explicitAlignment on the entire LazyVStack subtree — O(n) per
-            // layout pass, causing 34-70s hangs. See AGENTS.md.
+            // layout pass, causing 34-70s hangs.
             ScrollView {
                 HStack(spacing: 0) {
                     Spacer(minLength: 0)
                     scrollViewContent
                         .frame(width: widths.chatColumnWidth)
-                        .background(
-                            MessageListScrollObserver { newState in
-                                enqueueScrollGeometryUpdate(newState)
-                            }
-                        )
                     Spacer(minLength: 0)
                 }
                 .frame(width: widths.scrollSurfaceWidth)
@@ -141,94 +158,79 @@ struct MessageListView: View {
             // Apply only to .initialOffset — where the scroll view starts
             // when first displayed (including .id() recreation on switch).
             // Deliberately NOT using the all-roles overload (.sizeChanges)
-            // because it fights user scroll-up during streaming: SwiftUI's
-            // definition of "at bottom" for anchor purposes can differ from
-            // our hysteresis-based isAtBottom, causing the viewport to snap
-            // back to bottom on every content-height change even after the
-            // user has entered freeBrowsing. Our explicit content-height
-            // auto-follow handles streaming growth with proper mode checks.
+            // because it would auto-scroll on every content height change
+            // during streaming — the exact behavior this redesign removes.
             // https://developer.apple.com/documentation/swiftui/view/defaultscrollanchor(_:for:)
             .defaultScrollAnchor(.bottom, for: .initialOffset)
             .scrollPosition($scrollPosition)
-            .environment(\.suppressAutoScroll, { [self] in
-                os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=manualExpansionDetach")
-                let intents = scrollCoordinator.handle(.manualExpansion)
-                executeCoordinatorIntents(intents)
-                // Keep scrollState in sync as runtime executor.
-                scrollState.handleManualExpansionInteraction()
+            .environment(\.suppressAutoScroll, {
+                // No-op: auto-scroll has been removed. Child views
+                // (AssistantProgressView) still call this environment
+                // action during manual expansion; the call is harmless.
             })
-            .onScrollPhaseChange { oldPhase, newPhase in
-                let coordinatorPhase = ScrollCoordinator.Phase.from(newPhase)
-                let intents = scrollCoordinator.handle(.scrollPhaseChanged(phase: coordinatorPhase))
-                executeCoordinatorIntents(intents)
-                // Keep scrollState in sync as runtime executor.
-                scrollState.scrollPhase = newPhase
-                if newPhase == .idle && oldPhase != .idle && scrollState.isAtBottom {
-                    scrollState.handleReachedBottom()
+            // --- Bottom detection ---
+            // Returns Bool so the action fires only on enter/leave transitions
+            // (~2 fires per scroll session), not on every geometry tick (~120fps).
+            .onScrollGeometryChange(for: Bool.self) { geo in
+                let dist = geo.contentSize.height
+                    - geo.contentOffset.y
+                    - geo.visibleRect.height
+                return dist < 30
+            } action: { _, atBottom in
+                isAtBottom = atBottom
+            }
+            // --- Viewport height tracking ---
+            .onScrollGeometryChange(for: CGFloat.self) { geo in
+                geo.visibleRect.height
+            } action: { _, newHeight in
+                viewportHeight = newHeight
+            }
+            // --- Pagination trigger ---
+            // Rising-edge detection: fires only on transition from
+            // not-near-top to near-top, preventing repeated loads.
+            .onScrollGeometryChange(for: Bool.self) { geo in
+                geo.contentOffset.y < 200
+            } action: { wasNearTop, isNearTop in
+                if isNearTop && !wasNearTop {
+                    handlePaginationTrigger()
                 }
             }
-            .scrollIndicators(scrollState.scrollIndicatorsHidden ? .hidden : .automatic)
             .id(conversationId)
             .frame(width: widths.scrollSurfaceWidth)
             .overlay(alignment: .bottom) {
-                ScrollToLatestOverlayView(scrollState: scrollState)
+                ScrollToLatestOverlayView(
+                    isAtBottom: isAtBottom,
+                    onScrollToLatest: {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            scrollPosition.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
+                        }
+                    }
+                )
             }
             .onAppear {
-                let intents = scrollCoordinator.handle(.appeared)
-                executeCoordinatorIntents(intents)
                 handleAppear()
             }
             .onDisappear {
-                scrollCoordinator.reset()
-                scrollState.cancelAll()
                 // Do NOT clear scrollPosition here. The old ScrollView's
-                // onDisappear fires AFTER the new ScrollView's onAppear
-                // (confirmed by diagnostic logs: 10-225ms delay). Since
-                // both share the same @State var scrollPosition (the .id()
-                // modifier is on ScrollView, not MessageListView), clearing
-                // here overwrites the scrollTo(edge: .bottom) that
-                // handleConversationSwitched() just issued — leaving the
-                // viewport stranded in blank space.
-                //
-                // The stale-dedup concern (old edge:.bottom deduping with
-                // new edge:.bottom) is addressed by:
-                //   1. Imperative .scrollTo() methods (commands, not state)
-                //   2. restoreScrollToBottom() 100ms fallback
-                //   3. Content-height auto-follow on message load
-                //   4. Recovery window convergence
-                let convStr = conversationId?.uuidString ?? "nil"
-                scrollDiag.debug("onDisappear: leaving conv=\(convStr, privacy: .public)")
+                // onDisappear fires AFTER the new ScrollView's onAppear.
+                // Since both share the same @State var scrollPosition (the
+                // .id() modifier is on ScrollView, not MessageListView),
+                // clearing here overwrites the new ScrollView's initial
+                // position.
                 resizeScrollTask?.cancel()
                 resizeScrollTask = nil
                 highlightedMessageId = nil
             }
             .onChange(of: isSending) {
-                let intents = scrollCoordinator.handle(.sendingChanged(isSending: isSending))
-                executeCoordinatorIntents(intents)
                 handleSendingChanged()
             }
             .onChange(of: messages.count) {
-                let intents = scrollCoordinator.handle(.messageCountChanged)
-                executeCoordinatorIntents(intents)
                 handleMessagesCountChanged()
             }
             .onChange(of: containerWidth) { handleContainerWidthChanged() }
             .onChange(of: conversationId) {
-                // Safety net for rapid conversation switching. When the
-                // user switches conversations faster than SwiftUI can
-                // complete .id() lifecycle events, intermediate onAppear/
-                // onDisappear pairs are coalesced — handleConversationSwitched()
-                // never runs, leaving scrollState with stale data (wrong
-                // lastMessageId, expired recoveryDeadline). This onChange
-                // fires synchronously on every conversationId change,
-                // guaranteeing handleConversationSwitched() runs even when
-                // lifecycle events are dropped.
-                if scrollState.currentConversationId != conversationId,
+                if lastConversationId != conversationId,
                    conversationId != nil {
-                    let oldConv = scrollState.currentConversationId?.uuidString ?? "nil"
-                    let newConv = conversationId?.uuidString ?? "nil"
-                    scrollDiag.debug("onChange(conversationId): detected switch old=\(oldConv, privacy: .public) new=\(newConv, privacy: .public)")
-                    configureScrollCallbacks()
                     handleConversationSwitched()
                 }
             }
@@ -239,14 +241,30 @@ struct MessageListView: View {
             }
             .task(id: anchorMessageId) { await handleAnchorMessageTask() }
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
-                if let requestId = activePendingRequestId, scrollState.lastAutoFocusedRequestId != requestId,
+                if let requestId = activePendingRequestId, lastAutoFocusedRequestId != requestId,
                    let window = notification.object as? NSWindow,
                    window === NSApp.keyWindow,
                    let responder = window.firstResponder as? NSTextView,
                    responder.isEditable {
                     window.makeFirstResponder(nil)
-                    scrollState.lastAutoFocusedRequestId = requestId
+                    lastAutoFocusedRequestId = requestId
                 }
             }
+    }
+
+    // MARK: - Pagination
+
+    func handlePaginationTrigger() {
+        guard hasMoreMessages, !isLoadingMore else { return }
+        topVisibleMessageId = paginatedVisibleMessages.first?.id
+        isLoadingMore = true
+        Task {
+            _ = await loadPreviousMessagePage?()
+            isLoadingMore = false
+            if let anchorId = topVisibleMessageId {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                scrollPosition.scrollTo(id: anchorId, anchor: .top)
+            }
+        }
     }
 }

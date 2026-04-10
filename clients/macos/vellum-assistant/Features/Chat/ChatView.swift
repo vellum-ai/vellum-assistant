@@ -332,14 +332,11 @@ struct ChatView: View {
 
     /// Active conversation content stack.
     ///
-    /// Data flow is narrowed to the three stabilized subsystems:
+    /// Data flow is narrowed to the two stabilized subsystems:
     /// - **TranscriptProjector** — `MessageListView` calls `TranscriptProjector.project()`
     ///   to produce an immutable `TranscriptRenderModel` from the raw messages.
     /// - **ComposerController** — popup state (slash/emoji) and focus intents flow
     ///   through the controller's event-driven state machine, not raw bindings.
-    /// - **ScrollCoordinator** — scroll policy decisions (follow-bottom, anchor jumps,
-    ///   stabilization) flow through the coordinator's `handle(_:)` method and are
-    ///   translated into concrete `ScrollPosition` mutations by the view layer.
     ///
     /// The raw viewModel properties passed here (`messages`, `isSending`, etc.)
     /// are the projector's inputs — `MessageListView` does not observe them
@@ -397,7 +394,7 @@ struct ChatView: View {
                 hasMoreMessages: viewModel.hasMoreMessages,
                 isLoadingMoreMessages: viewModel.isLoadingMoreMessages,
                 loadPreviousMessagePage: { await viewModel.loadPreviousMessagePage() },
-                // -- ScrollCoordinator inputs --
+                // -- Scroll & navigation inputs --
                 conversationId: conversationId,
                 anchorMessageId: $anchorMessageId,
                 highlightedMessageId: $highlightedMessageId,

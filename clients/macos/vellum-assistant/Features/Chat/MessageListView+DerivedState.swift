@@ -25,7 +25,7 @@ extension MessageListView {
     /// version. This exact signal covers content-only edits to an already-
     /// streaming message, which count/ID heuristics can miss.
     func refreshMessageListVersionIfNeeded(messagesRevision: UInt64) {
-        let cache = scrollState.derivedStateCache
+        let cache = projectionCache
         if messagesRevision != cache.lastKnownMessagesRevision {
             cache.lastKnownMessagesRevision = messagesRevision
             cache.messageListVersion += 1
@@ -60,8 +60,7 @@ extension MessageListView {
     /// state changes.
     var derivedState: TranscriptRenderModel {
         os_signpost(.begin, log: stallLog, name: "DerivedState.resolve")
-        scrollState.recordBodyEvaluation()
-        let cache = scrollState.derivedStateCache
+        let cache = projectionCache
 
         if cache.isThrottled, let cached = cache.cachedProjection {
             os_signpost(.end, log: stallLog, name: "DerivedState.resolve")
@@ -170,7 +169,7 @@ extension MessageListView {
             configuredProviders: configuredProviders,
             subagentDetailStore: subagentDetailStore,
             assistantStatusText: assistantStatusText,
-            scrollState: scrollState,
+            viewportHeight: viewportHeight,
             onConfirmationAllow: onConfirmationAllow,
             onConfirmationDeny: onConfirmationDeny,
             onAlwaysAllow: onAlwaysAllow,
