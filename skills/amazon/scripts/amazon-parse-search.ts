@@ -51,12 +51,16 @@ function isLikelyTitle(line: string): boolean {
   if (/^[a-z0-9]{10}$/i.test(line)) return false;
   if (lower.includes("results") || lower.includes("sort by")) return false;
   if (lower.includes("delivery") || lower.includes("sponsored")) return false;
-  if (lower.includes("customer reviews") || lower.includes("stars")) return false;
+  if (lower.includes("customer reviews") || lower.includes("stars"))
+    return false;
   if (line.includes("$")) return false;
   return true;
 }
 
-function firstPriceInWindow(lines: string[], index: number): { text: string; value: number } | null {
+function firstPriceInWindow(
+  lines: string[],
+  index: number,
+): { text: string; value: number } | null {
   const start = Math.max(0, index - 2);
   const end = Math.min(lines.length - 1, index + 3);
   for (let i = start; i <= end; i += 1) {
@@ -84,8 +88,7 @@ export function parseAmazonSearchCandidates(
   input: AmazonSearchParseInput,
 ): AmazonSearchCandidate[] {
   const query = normalizeWhitespace(input.query ?? "");
-  const text =
-    input.text ?? input.extracted?.text ?? "";
+  const text = input.text ?? input.extracted?.text ?? "";
   const links = safeArrayOfStrings(input.links ?? input.extracted?.links ?? []);
   const lines = toLines(text);
 
@@ -178,7 +181,8 @@ async function main(): Promise<void> {
     );
 
     const query =
-      (typeof args.query === "string" ? args.query : undefined) ?? payload.query;
+      (typeof args.query === "string" ? args.query : undefined) ??
+      payload.query;
 
     const text =
       (typeof args.text === "string" ? args.text : undefined) ?? payload.text;

@@ -15,7 +15,9 @@ describe("parseAmazonProduct", () => {
     expect(result.asin).toBe("B0CDE12345");
     expect(result.title).toContain("Trail Running Shoes");
     expect(result.priceValue).toBe(79.99);
-    expect(result.variationHints.some((hint) => hint.dimension === "color")).toBe(true);
+    expect(
+      result.variationHints.some((hint) => hint.dimension === "color"),
+    ).toBe(true);
     expect(result.warnings).toHaveLength(0);
   });
 

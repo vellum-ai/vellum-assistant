@@ -122,8 +122,11 @@ Present results grouped by platform with:
 ```json
 {
   "phase": "discover",
-  "context": {"platform": "instagram"},
-  "extracted": {"text": "...", "links": ["https://www.instagram.com/example/"]},
+  "context": { "platform": "instagram" },
+  "extracted": {
+    "text": "...",
+    "links": ["https://www.instagram.com/example/"]
+  },
   "userIntent": "find fitness creators"
 }
 ```

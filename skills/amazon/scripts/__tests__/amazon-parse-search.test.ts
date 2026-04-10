@@ -21,11 +21,7 @@ describe("parseAmazonSearchCandidates", () => {
   });
 
   test("falls back to title+price candidates when asin is missing", () => {
-    const text = [
-      "Energizer AA Max 24 Count",
-      "$18.99",
-      "Prime",
-    ].join("\n");
+    const text = ["Energizer AA Max 24 Count", "$18.99", "Prime"].join("\n");
 
     const results = parseAmazonSearchCandidates({
       query: "energizer aa",

@@ -56,7 +56,8 @@ function isCandidateTitle(line: string): boolean {
   if (line.includes("$")) return false;
   if (lower.includes("visit the") || lower.includes("store")) return false;
   if (lower.includes("delivery") || lower.includes("returns")) return false;
-  if (lower.includes("customer reviews") || lower.includes("ratings")) return false;
+  if (lower.includes("customer reviews") || lower.includes("ratings"))
+    return false;
   return true;
 }
 
@@ -107,22 +108,31 @@ function parseVariationHints(lines: string[]): VariationHint[] {
   }));
 }
 
-export function parseAmazonProduct(input: AmazonProductParseInput): ParsedAmazonProduct {
+export function parseAmazonProduct(
+  input: AmazonProductParseInput,
+): ParsedAmazonProduct {
   const text = input.text ?? input.extracted?.text ?? "";
   const links = safeArrayOfStrings(input.links ?? input.extracted?.links ?? []);
   const lines = toLines(text);
   const warnings: string[] = [];
 
   const asin = extractAsins(text)[0] ?? extractAsinsFromLinks(links)[0];
-  if (!asin) warnings.push("No ASIN-like token found in extracted product content.");
+  if (!asin)
+    warnings.push("No ASIN-like token found in extracted product content.");
 
   let title = lines.find((line) => isCandidateTitle(line));
   if (!title) warnings.push("Could not confidently identify a product title.");
 
   const firstPriceLine = lines.find((line) => parsePrice(line) !== null);
-  const priceValue = firstPriceLine ? parsePrice(firstPriceLine) ?? undefined : undefined;
-  const priceTextMatch = firstPriceLine?.match(/\$\s*[0-9][0-9,]*(?:\.[0-9]{2})?/);
-  const priceText = priceTextMatch ? normalizeWhitespace(priceTextMatch[0]) : undefined;
+  const priceValue = firstPriceLine
+    ? (parsePrice(firstPriceLine) ?? undefined)
+    : undefined;
+  const priceTextMatch = firstPriceLine?.match(
+    /\$\s*[0-9][0-9,]*(?:\.[0-9]{2})?/,
+  );
+  const priceText = priceTextMatch
+    ? normalizeWhitespace(priceTextMatch[0])
+    : undefined;
 
   if (!priceText) warnings.push("No price found on product page extract.");
 

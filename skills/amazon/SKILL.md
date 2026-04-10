@@ -136,8 +136,11 @@ Immediately before clicking final submit button:
 ```json
 {
   "phase": "search",
-  "context": {"checkoutReviewed": false, "hasCartItems": false},
-  "extracted": {"text": "...", "links": ["https://www.amazon.com/dp/B08XGDN3TZ"]},
+  "context": { "checkoutReviewed": false, "hasCartItems": false },
+  "extracted": {
+    "text": "...",
+    "links": ["https://www.amazon.com/dp/B08XGDN3TZ"]
+  },
   "userIntent": "order aa batteries"
 }
 ```

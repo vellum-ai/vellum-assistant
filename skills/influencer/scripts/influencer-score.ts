@@ -1,6 +1,11 @@
 #!/usr/bin/env bun
 
-import { parseCliInput, parseFollowerCount, printError, printJson } from "./lib/common.js";
+import {
+  parseCliInput,
+  parseFollowerCount,
+  printError,
+  printJson,
+} from "./lib/common.js";
 import { extractThemes } from "./influencer-theme-extract.js";
 
 export type InfluencerPlatform = "instagram" | "tiktok" | "twitter";
@@ -37,10 +42,15 @@ export interface ScoreInput {
   criteria?: InfluencerCriteria;
 }
 
-function normalizeProfile(profile: InfluencerProfile, query: string): InfluencerProfile {
+function normalizeProfile(
+  profile: InfluencerProfile,
+  query: string,
+): InfluencerProfile {
   const followers =
     profile.followers ??
-    (profile.followersDisplay ? parseFollowerCount(profile.followersDisplay) : undefined);
+    (profile.followersDisplay
+      ? parseFollowerCount(profile.followersDisplay)
+      : undefined);
 
   const bio = profile.bio ?? "";
   const themes = profile.contentThemes ?? extractThemes(bio, query);
@@ -157,11 +167,15 @@ async function main(): Promise<void> {
         ? { maxFollowers: Number.parseInt(args["max-followers"], 10) }
         : {}),
       ...(args["verified-only"] !== undefined
-        ? { verifiedOnly: String(args["verified-only"]).toLowerCase() === "true" }
+        ? {
+            verifiedOnly:
+              String(args["verified-only"]).toLowerCase() === "true",
+          }
         : {}),
     };
 
-    const profiles = payload.profiles ?? (payload.profile ? [payload.profile] : []);
+    const profiles =
+      payload.profiles ?? (payload.profile ? [payload.profile] : []);
     const scored = scoreProfiles(profiles, criteria);
 
     printJson({ ok: true, data: scored });

@@ -40,9 +40,14 @@ async function main(): Promise<void> {
       {},
     );
 
-    const bio = (typeof args.bio === "string" ? args.bio : undefined) ?? payload.bio ?? "";
+    const bio =
+      (typeof args.bio === "string" ? args.bio : undefined) ??
+      payload.bio ??
+      "";
     const query =
-      (typeof args.query === "string" ? args.query : undefined) ?? payload.query ?? "";
+      (typeof args.query === "string" ? args.query : undefined) ??
+      payload.query ??
+      "";
 
     const data = extractThemes(bio, query);
     printJson({ ok: true, data });

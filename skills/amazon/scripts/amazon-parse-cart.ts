@@ -34,7 +34,10 @@ export interface AmazonCartParseInput {
 }
 
 function extractMoneyLine(label: string, text: string): string | undefined {
-  const regex = new RegExp(`${label}[^\\n$]*?(\\$\\s*[0-9][0-9,]*(?:\\.[0-9]{2})?)`, "i");
+  const regex = new RegExp(
+    `${label}[^\\n$]*?(\\$\\s*[0-9][0-9,]*(?:\\.[0-9]{2})?)`,
+    "i",
+  );
   const match = text.match(regex);
   return match ? normalizeWhitespace(match[1]) : undefined;
 }
@@ -49,9 +52,14 @@ function parseItemCount(text: string): number | undefined {
 }
 
 function parseQuantityAround(lines: string[], index: number): number {
-  const window = lines.slice(Math.max(0, index - 1), Math.min(lines.length, index + 2));
+  const window = lines.slice(
+    Math.max(0, index - 1),
+    Math.min(lines.length, index + 2),
+  );
   for (const line of window) {
-    const quantityMatch = line.match(/qty\s*[:x]?\s*(\d+)/i) ?? line.match(/quantity\s*[:x]?\s*(\d+)/i);
+    const quantityMatch =
+      line.match(/qty\s*[:x]?\s*(\d+)/i) ??
+      line.match(/quantity\s*[:x]?\s*(\d+)/i);
     if (!quantityMatch) continue;
     const quantity = Number.parseInt(quantityMatch[1], 10);
     if (Number.isFinite(quantity) && quantity > 0) return quantity;
@@ -63,13 +71,25 @@ function likelyItemTitle(line: string): boolean {
   const lower = line.toLowerCase();
   if (line.length < 8) return false;
   if (line.includes("$")) return false;
-  if (lower.includes("subtotal") || lower.includes("shipping") || lower.includes("tax")) return false;
-  if (lower.includes("save for later") || lower.includes("delete")) return false;
-  if (lower.includes("proceed to checkout") || lower.includes("place your order")) return false;
+  if (
+    lower.includes("subtotal") ||
+    lower.includes("shipping") ||
+    lower.includes("tax")
+  )
+    return false;
+  if (lower.includes("save for later") || lower.includes("delete"))
+    return false;
+  if (
+    lower.includes("proceed to checkout") ||
+    lower.includes("place your order")
+  )
+    return false;
   return true;
 }
 
-export function parseAmazonCartSummary(input: AmazonCartParseInput): ParsedCartSummary {
+export function parseAmazonCartSummary(
+  input: AmazonCartParseInput,
+): ParsedCartSummary {
   const text = input.text ?? input.extracted?.text ?? "";
   const normalizedText = normalizeWhitespace(text);
   const lines = toLines(text);
@@ -103,7 +123,9 @@ export function parseAmazonCartSummary(input: AmazonCartParseInput): ParsedCartS
     items.push({
       title,
       quantity: parseQuantityAround(lines, index),
-      priceText: priceTextMatch ? normalizeWhitespace(priceTextMatch[0]) : undefined,
+      priceText: priceTextMatch
+        ? normalizeWhitespace(priceTextMatch[0])
+        : undefined,
       priceValue,
     });
   }
@@ -118,7 +140,10 @@ export function parseAmazonCartSummary(input: AmazonCartParseInput): ParsedCartS
 
   const outputItems = Array.from(deduped.values());
 
-  const subtotal = extractMoneyLine("(?:item\\(s\\)\\s*)?subtotal", normalizedText);
+  const subtotal = extractMoneyLine(
+    "(?:item\\(s\\)\\s*)?subtotal",
+    normalizedText,
+  );
   const shipping = extractMoneyLine("shipping", normalizedText);
   const tax = extractMoneyLine("(?:estimated\\s*)?tax", normalizedText);
   const total =
@@ -129,7 +154,8 @@ export function parseAmazonCartSummary(input: AmazonCartParseInput): ParsedCartS
 
   if (!subtotal) warnings.push("Subtotal was not detected in cart extract.");
   if (!total) warnings.push("Order total was not detected in cart extract.");
-  if (outputItems.length === 0) warnings.push("No cart line items were confidently parsed.");
+  if (outputItems.length === 0)
+    warnings.push("No cart line items were confidently parsed.");
 
   return {
     items: outputItems,

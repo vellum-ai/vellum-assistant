@@ -1,6 +1,11 @@
 #!/usr/bin/env bun
 
-import { normalizeWhitespace, parseCliInput, printError, printJson } from "./lib/common.js";
+import {
+  normalizeWhitespace,
+  parseCliInput,
+  printError,
+  printJson,
+} from "./lib/common.js";
 
 export interface CheckoutSanityInput {
   text?: string;
@@ -29,7 +34,9 @@ function detect(text: string, patterns: RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(text));
 }
 
-export function evaluateCheckoutSanity(input: CheckoutSanityInput): CheckoutSanityResult {
+export function evaluateCheckoutSanity(
+  input: CheckoutSanityInput,
+): CheckoutSanityResult {
   const rawText = input.text ?? input.extracted?.text ?? "";
   const text = normalizeWhitespace(rawText);
 

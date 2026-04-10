@@ -49,7 +49,8 @@ export async function parseCliInput<TPayload>(
 ): Promise<{ args: ParsedArgs; payload: TPayload }> {
   const args = parseArgs(argv);
 
-  const inputJson = typeof args["input-json"] === "string" ? args["input-json"] : null;
+  const inputJson =
+    typeof args["input-json"] === "string" ? args["input-json"] : null;
   if (inputJson) {
     return { args, payload: JSON.parse(inputJson) as TPayload };
   }

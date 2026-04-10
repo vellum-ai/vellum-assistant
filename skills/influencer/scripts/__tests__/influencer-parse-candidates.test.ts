@@ -21,8 +21,12 @@ describe("parseCandidates", () => {
       links: ["https://www.instagram.com/fit_with_amy/"],
     });
 
-    expect(profiles.some((profile) => profile.username === "fit_with_amy")).toBe(true);
-    expect(profiles.some((profile) => profile.username === "coach.jay")).toBe(true);
+    expect(
+      profiles.some((profile) => profile.username === "fit_with_amy"),
+    ).toBe(true);
+    expect(profiles.some((profile) => profile.username === "coach.jay")).toBe(
+      true,
+    );
   });
 
   test("parses twitter handles from user-cell style text", () => {

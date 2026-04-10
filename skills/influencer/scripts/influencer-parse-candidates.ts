@@ -9,7 +9,10 @@ import {
   safeStringArray,
   toLines,
 } from "./lib/common.js";
-import type { InfluencerPlatform, InfluencerProfile } from "./influencer-score.js";
+import type {
+  InfluencerPlatform,
+  InfluencerProfile,
+} from "./influencer-score.js";
 
 export interface ParseCandidatesInput {
   platform?: InfluencerPlatform;
@@ -61,7 +64,9 @@ function parseInstagram(text: string, links: string[]): InfluencerProfile[] {
   }
 
   for (const link of links) {
-    const profileMatch = link.match(/instagram\.com\/([a-zA-Z0-9._]{2,30})\/?/i);
+    const profileMatch = link.match(
+      /instagram\.com\/([a-zA-Z0-9._]{2,30})\/?/i,
+    );
     if (!profileMatch) continue;
 
     const username = profileMatch[1];
@@ -95,12 +100,17 @@ function parseTikTok(text: string): InfluencerProfile[] {
     const nextTwo = lines[index + 2] ?? "";
     const nextThree = lines[index + 3] ?? "";
 
-    if (!next.includes("follower") && !nextTwo.toLowerCase().includes("follower")) {
+    if (
+      !next.includes("follower") &&
+      !nextTwo.toLowerCase().includes("follower")
+    ) {
       continue;
     }
 
     const followersDisplay = next.includes("follower") ? line : nextTwo;
-    const parsedFollowers = parseFollowerCount(`${next} ${nextTwo} ${nextThree}`);
+    const parsedFollowers = parseFollowerCount(
+      `${next} ${nextTwo} ${nextThree}`,
+    );
 
     profiles.push({
       platform: "tiktok",
@@ -109,8 +119,12 @@ function parseTikTok(text: string): InfluencerProfile[] {
       profileUrl: `https://www.tiktok.com/@${usernameMatch[1].replace(/^@/, "")}`,
       followers: parsedFollowers,
       followersDisplay:
-        parsedFollowers !== undefined ? `${parsedFollowers}` : normalizeWhitespace(followersDisplay),
-      isVerified: /verified/i.test(lines.slice(Math.max(0, index - 2), index + 3).join(" ")),
+        parsedFollowers !== undefined
+          ? `${parsedFollowers}`
+          : normalizeWhitespace(followersDisplay),
+      isVerified: /verified/i.test(
+        lines.slice(Math.max(0, index - 2), index + 3).join(" "),
+      ),
     });
   }
 
@@ -127,9 +141,10 @@ function parseTwitter(text: string, links: string[]): InfluencerProfile[] {
     if (!usernameMatch) continue;
 
     const username = usernameMatch[1];
-    const displayName = lines[index - 1] && !lines[index - 1].startsWith("@")
-      ? lines[index - 1]
-      : username;
+    const displayName =
+      lines[index - 1] && !lines[index - 1].startsWith("@")
+        ? lines[index - 1]
+        : username;
 
     profiles.push({
       platform: "twitter",
@@ -137,7 +152,9 @@ function parseTwitter(text: string, links: string[]): InfluencerProfile[] {
       displayName,
       profileUrl: `https://x.com/${username}`,
       followersDisplay: "unknown",
-      isVerified: /verified/i.test(lines.slice(Math.max(0, index - 2), index + 3).join(" ")),
+      isVerified: /verified/i.test(
+        lines.slice(Math.max(0, index - 2), index + 3).join(" "),
+      ),
       bio: lines[index + 1],
     });
   }
@@ -160,7 +177,9 @@ function parseTwitter(text: string, links: string[]): InfluencerProfile[] {
   return dedupeProfiles(profiles);
 }
 
-export function parseCandidates(input: ParseCandidatesInput): InfluencerProfile[] {
+export function parseCandidates(
+  input: ParseCandidatesInput,
+): InfluencerProfile[] {
   const platform = input.platform ?? "instagram";
   const text = input.text ?? input.extracted?.text ?? "";
   const links = safeStringArray(input.links ?? input.extracted?.links ?? []);
@@ -185,14 +204,16 @@ async function main(): Promise<void> {
     );
 
     const platform =
-      (typeof args.platform === "string" ? args.platform : undefined) ?? payload.platform;
+      (typeof args.platform === "string" ? args.platform : undefined) ??
+      payload.platform;
 
     if (!platform || !["instagram", "tiktok", "twitter"].includes(platform)) {
       printError("platform must be one of instagram, tiktok, twitter");
       return;
     }
 
-    const text = (typeof args.text === "string" ? args.text : undefined) ?? payload.text;
+    const text =
+      (typeof args.text === "string" ? args.text : undefined) ?? payload.text;
     const links =
       (typeof args.links === "string"
         ? args.links

@@ -56,7 +56,8 @@ export async function parseCliInput<TPayload>(
 ): Promise<CliInput<TPayload>> {
   const args = parseArgs(argv);
 
-  const inputJson = typeof args["input-json"] === "string" ? args["input-json"] : null;
+  const inputJson =
+    typeof args["input-json"] === "string" ? args["input-json"] : null;
   if (inputJson) {
     return {
       args,
@@ -98,7 +99,9 @@ export function toLines(input: string): string[] {
 
 export function extractAsins(input: string): string[] {
   const matches = input.toUpperCase().match(/\b[A-Z0-9]{10}\b/g) ?? [];
-  const filtered = matches.filter((token) => /[A-Z]/.test(token) && /\d/.test(token));
+  const filtered = matches.filter(
+    (token) => /[A-Z]/.test(token) && /\d/.test(token),
+  );
   return Array.from(new Set(filtered));
 }
 

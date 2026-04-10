@@ -40,7 +40,9 @@ export function compareInfluencers(input: CompareInput): ComparedInfluencer[] {
       followers: entry.profile.followers,
       followersDisplay:
         entry.profile.followersDisplay ??
-        (entry.profile.followers !== undefined ? `${entry.profile.followers}` : undefined),
+        (entry.profile.followers !== undefined
+          ? `${entry.profile.followers}`
+          : undefined),
       verified: Boolean(entry.profile.isVerified),
       score: entry.score,
       highlights: entry.reasons,
@@ -56,8 +58,9 @@ async function main(): Promise<void> {
     );
 
     const limit =
-      (typeof args.limit === "string" ? Number.parseInt(args.limit, 10) : undefined) ??
-      payload.limit;
+      (typeof args.limit === "string"
+        ? Number.parseInt(args.limit, 10)
+        : undefined) ?? payload.limit;
 
     const data = compareInfluencers({
       ...payload,

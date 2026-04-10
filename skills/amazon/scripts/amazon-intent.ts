@@ -39,21 +39,53 @@ function includesAny(text: string, terms: string[]): boolean {
   return terms.some((term) => text.includes(term));
 }
 
-export function classifyAmazonIntent(input: AmazonIntentInput): AmazonIntentResult {
+export function classifyAmazonIntent(
+  input: AmazonIntentInput,
+): AmazonIntentResult {
   const context = input.context ?? {};
-  const requestText = [input.request, input.userIntent].filter(Boolean).join(" ");
+  const requestText = [input.request, input.userIntent]
+    .filter(Boolean)
+    .join(" ");
   const normalized = requestText.toLowerCase();
 
-  const freshTerms = ["fresh", "grocery", "groceries", "delivery slot", "whole foods"];
-  const placeOrderTerms = ["place order", "submit order", "buy now", "checkout", "order it"];
-  const cartTerms = ["cart", "basket", "review items", "what's in cart", "what is in cart"];
-  const variantTerms = ["size", "color", "flavor", "pack", "quantity", "variant", "option"];
+  const freshTerms = [
+    "fresh",
+    "grocery",
+    "groceries",
+    "delivery slot",
+    "whole foods",
+  ];
+  const placeOrderTerms = [
+    "place order",
+    "submit order",
+    "buy now",
+    "checkout",
+    "order it",
+  ];
+  const cartTerms = [
+    "cart",
+    "basket",
+    "review items",
+    "what's in cart",
+    "what is in cart",
+  ];
+  const variantTerms = [
+    "size",
+    "color",
+    "flavor",
+    "pack",
+    "quantity",
+    "variant",
+    "option",
+  ];
 
   const reasons: string[] = [];
 
   if (includesAny(normalized, placeOrderTerms)) {
     if (!context.checkoutReviewed) {
-      reasons.push("User requested order placement before checkout was reviewed.");
+      reasons.push(
+        "User requested order placement before checkout was reviewed.",
+      );
       return {
         step: "checkout_review",
         confidence: 0.92,
@@ -64,7 +96,9 @@ export function classifyAmazonIntent(input: AmazonIntentInput): AmazonIntentResu
       };
     }
 
-    reasons.push("User explicitly requested order placement and checkout appears reviewed.");
+    reasons.push(
+      "User explicitly requested order placement and checkout appears reviewed.",
+    );
     return {
       step: "place_order",
       confidence: 0.94,
@@ -82,12 +116,15 @@ export function classifyAmazonIntent(input: AmazonIntentInput): AmazonIntentResu
       confidence: 0.83,
       reasons,
       needsExplicitConfirmation: false,
-      suggestedNextAction: "Open cart page, parse itemized totals, and confirm intended items.",
+      suggestedNextAction:
+        "Open cart page, parse itemized totals, and confirm intended items.",
     };
   }
 
   if (includesAny(normalized, freshTerms) && !context.freshSlotSelected) {
-    reasons.push("Request appears to be Amazon Fresh flow without a selected slot.");
+    reasons.push(
+      "Request appears to be Amazon Fresh flow without a selected slot.",
+    );
     return {
       step: "fresh_slot",
       confidence: 0.8,
@@ -116,7 +153,8 @@ export function classifyAmazonIntent(input: AmazonIntentInput): AmazonIntentResu
     confidence: 0.68,
     reasons,
     needsExplicitConfirmation: false,
-    suggestedNextAction: "Run product search and present top options with price and Prime/Fresh hints.",
+    suggestedNextAction:
+      "Run product search and present top options with price and Prime/Fresh hints.",
   };
 }
 
@@ -128,7 +166,8 @@ async function main(): Promise<void> {
     );
 
     const request =
-      (typeof args.request === "string" ? args.request : undefined) ?? payload.request;
+      (typeof args.request === "string" ? args.request : undefined) ??
+      payload.request;
 
     const contextFromArgs: AmazonIntentContext = {
       cartConfirmed: toBool(args["cart-confirmed"]),
