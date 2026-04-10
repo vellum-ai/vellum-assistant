@@ -50,21 +50,16 @@ struct LogsAndUsagePanel: View {
             VColor.borderDisabled.frame(height: 1)
                 .padding(.trailing, VSpacing.xl)
 
-            // Body: nav pinned left + centered content with max width
+            // Body: nav pinned left + content area (each tab manages its own scrolling)
             HStack(alignment: .top, spacing: 0) {
                 tabNav
                     .frame(width: 200)
 
-                ScrollView {
-                    selectedTabContent
-                        .padding(.top, VSpacing.lg)
-                        .padding(.trailing, VSpacing.xl)
-                        .padding(.bottom, VSpacing.xl)
-                        .frame(maxWidth: 900, alignment: .top)
-                        .frame(maxWidth: .infinity)
-                        .background { OverlayScrollerStyle() }
-                }
-                .scrollContentBackground(.hidden)
+                selectedTabContent
+                    .padding(.top, VSpacing.lg)
+                    .padding(.trailing, VSpacing.xl)
+                    .padding(.bottom, VSpacing.xl)
+                    .frame(maxWidth: .infinity)
             }
             .frame(maxWidth: .infinity)
         }
@@ -134,9 +129,7 @@ struct LogsTabContent: View {
                 metricsCard(conversationId: conversationId)
 
                 if hasEvents {
-                    SettingsCard(title: "Trace Timeline") {
-                        TraceTimelineView(traceStore: traceStore, conversationId: conversationId)
-                    }
+                    TraceTimelineView(traceStore: traceStore, conversationId: conversationId)
                 }
             }
 
@@ -166,7 +159,7 @@ struct LogsTabContent: View {
                 Spacer()
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .onAppear {
             traceStore.isObserved = true
             hydrateIfNeeded()
@@ -316,6 +309,7 @@ struct UsageTabContent: View {
     }
 
     var body: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             timeRangeStrip(store: store)
 
@@ -342,7 +336,11 @@ struct UsageTabContent: View {
                 breakdownSection(store: store)
             }
         }
+        .frame(maxWidth: 900, alignment: .top)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background { OverlayScrollerStyle() }
+        }
+        .scrollContentBackground(.hidden)
         .onAppear {
             refreshTask = Task {
                 await store.refresh()
