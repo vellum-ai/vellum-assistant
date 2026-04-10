@@ -5,6 +5,8 @@ import os.signpost
 import SwiftUI
 import VellumAssistantShared
 
+private let scrollDiag = Logger(subsystem: Bundle.appBundleIdentifier, category: "ScrollDiag")
+
 struct MessageListView: View {
 
     let messages: [ChatMessage]
@@ -179,6 +181,23 @@ struct MessageListView: View {
             .onDisappear {
                 scrollCoordinator.reset()
                 scrollState.cancelAll()
+                // Do NOT clear scrollPosition here. The old ScrollView's
+                // onDisappear fires AFTER the new ScrollView's onAppear
+                // (confirmed by diagnostic logs: 10-225ms delay). Since
+                // both share the same @State var scrollPosition (the .id()
+                // modifier is on ScrollView, not MessageListView), clearing
+                // here overwrites the scrollTo(edge: .bottom) that
+                // handleConversationSwitched() just issued — leaving the
+                // viewport stranded in blank space.
+                //
+                // The stale-dedup concern (old edge:.bottom deduping with
+                // new edge:.bottom) is addressed by:
+                //   1. Imperative .scrollTo() methods (commands, not state)
+                //   2. restoreScrollToBottom() 100ms fallback
+                //   3. Content-height auto-follow on message load
+                //   4. Recovery window convergence
+                let convStr = conversationId?.uuidString ?? "nil"
+                scrollDiag.debug("onDisappear: leaving conv=\(convStr, privacy: .public)")
                 resizeScrollTask?.cancel()
                 resizeScrollTask = nil
                 highlightedMessageId = nil
@@ -194,6 +213,25 @@ struct MessageListView: View {
                 handleMessagesCountChanged()
             }
             .onChange(of: containerWidth) { handleContainerWidthChanged() }
+            .onChange(of: conversationId) {
+                // Safety net for rapid conversation switching. When the
+                // user switches conversations faster than SwiftUI can
+                // complete .id() lifecycle events, intermediate onAppear/
+                // onDisappear pairs are coalesced — handleConversationSwitched()
+                // never runs, leaving scrollState with stale data (wrong
+                // lastMessageId, expired recoveryDeadline). This onChange
+                // fires synchronously on every conversationId change,
+                // guaranteeing handleConversationSwitched() runs even when
+                // lifecycle events are dropped.
+                if scrollState.currentConversationId != conversationId,
+                   conversationId != nil {
+                    let oldConv = scrollState.currentConversationId?.uuidString ?? "nil"
+                    let newConv = conversationId?.uuidString ?? "nil"
+                    scrollDiag.debug("onChange(conversationId): detected switch old=\(oldConv, privacy: .public) new=\(newConv, privacy: .public)")
+                    configureScrollCallbacks()
+                    handleConversationSwitched()
+                }
+            }
             .onChange(of: activePendingRequestId) {
                 #if os(macOS)
                 handleConfirmationFocusIfNeeded()
