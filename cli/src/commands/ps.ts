@@ -19,6 +19,10 @@ import {
 } from "../lib/orphan-detection";
 import { pgrepExact } from "../lib/pgrep";
 import { probePort } from "../lib/port-probe";
+import {
+  getSmolvmMachineState,
+  smolvmMachineExecOutput,
+} from "../lib/smolvm.js";
 import { withStatusEmoji } from "../lib/status-emoji";
 import { execOutput } from "../lib/step-runner";
 
@@ -318,6 +322,59 @@ async function getDockerProcesses(entry: AssistantEntry): Promise<TableRow[]> {
   return results;
 }
 
+async function getSmolvmProcesses(entry: AssistantEntry): Promise<TableRow[]> {
+  const state = await getSmolvmMachineState(entry.assistantId);
+  const rows: TableRow[] = [
+    {
+      name: "machine",
+      status: withStatusEmoji(
+        state === "running" ? "running" : (state ?? "not found"),
+      ),
+      info: `machine ${entry.assistantId}`,
+    },
+  ];
+
+  if (state !== "running") {
+    return rows;
+  }
+
+  const processes = [
+    { name: "assistant", pattern: "src/daemon/main.ts" },
+    { name: "gateway", pattern: "src/index.ts" },
+    {
+      name: "credential-executor",
+      pattern: "src/managed-main.ts",
+    },
+  ];
+
+  const processRows = await Promise.all(
+    processes.map(async ({ name, pattern }) => {
+      try {
+        const output = await smolvmMachineExecOutput(entry.assistantId, [
+          "sh",
+          "-lc",
+          `pgrep -af "${pattern}" || true`,
+        ]);
+        const firstLine = output.trim().split("\n")[0]?.trim();
+        const pid = firstLine?.split(/\s+/, 2)[0];
+        return {
+          name,
+          status: withStatusEmoji(firstLine ? "running" : "not running"),
+          info: firstLine ? `PID ${pid}` : "not detected",
+        };
+      } catch {
+        return {
+          name,
+          status: withStatusEmoji("not running"),
+          info: "not detected",
+        };
+      }
+    }),
+  );
+
+  return [...rows, ...processRows];
+}
+
 async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
   const cloud = resolveCloud(entry);
 
@@ -331,6 +388,12 @@ async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
 
   if (cloud === "docker") {
     const rows = await getDockerProcesses(entry);
+    printTable(rows);
+    return;
+  }
+
+  if (cloud === "smolvm") {
+    const rows = await getSmolvmProcesses(entry);
     printTable(rows);
     return;
   }
@@ -439,6 +502,14 @@ async function listAllAssistants(): Promise<void> {
       } else if (a.cloud === "docker") {
         const res = dockerResourceNames(a.assistantId);
         const state = await getDockerContainerState(res.assistantContainer);
+        if (!state || state !== "running") {
+          health = { status: "sleeping", detail: null };
+        } else {
+          const token = loadGuardianToken(a.assistantId)?.accessToken;
+          health = await checkHealth(a.localUrl ?? a.runtimeUrl, token);
+        }
+      } else if (a.cloud === "smolvm") {
+        const state = await getSmolvmMachineState(a.assistantId);
         if (!state || state !== "running") {
           health = { status: "sleeping", detail: null };
         } else {

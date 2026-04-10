@@ -31,6 +31,7 @@ export const VALID_REMOTE_HOSTS = [
   "gcp",
   "aws",
   "docker",
+  "smolvm",
   "custom",
   "vellum",
 ] as const;

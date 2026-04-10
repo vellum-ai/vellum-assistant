@@ -20,6 +20,7 @@ import { hatchDocker } from "../lib/docker";
 import { hatchGcp } from "../lib/gcp";
 import type { PollResult, WatchHatchingResult } from "../lib/gcp";
 import { hatchLocal } from "../lib/hatch-local";
+import { hatchSmolvm } from "../lib/smolvm.js";
 import {
   getPlatformUrl,
   hatchAssistant,
@@ -205,7 +206,7 @@ function parseArgs(): HatchArgs {
       console.log("  -d                        Run in detached mode");
       console.log("  --name <name>             Custom instance name");
       console.log(
-        "  --remote <host>           Remote host (local, gcp, aws, docker, custom, vellum)",
+        "  --remote <host>           Remote host (local, gcp, aws, docker, smolvm, custom, vellum)",
       );
       console.log(
         "  --watch                   Run assistant and gateway in watch mode (hot reload on source changes)",
@@ -542,6 +543,11 @@ export async function hatch(): Promise<void> {
 
   if (remote === "docker") {
     await hatchDocker(species, detached, name, watch, configValues);
+    return;
+  }
+
+  if (remote === "smolvm") {
+    await hatchSmolvm(species, detached, name, configValues);
     return;
   }
 

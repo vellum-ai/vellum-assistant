@@ -5,6 +5,7 @@ import { resolveTargetAssistant } from "../lib/assistant-config.js";
 import type { AssistantEntry } from "../lib/assistant-config.js";
 import { dockerResourceNames, sleepContainers } from "../lib/docker.js";
 import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
+import { sleepSmolvm } from "../lib/smolvm.js";
 
 const ACTIVE_CALL_LEASES_FILE = "active-call-leases.json";
 
@@ -72,6 +73,11 @@ export async function sleep(): Promise<void> {
     return;
   }
 
+  if (entry.cloud === "smolvm") {
+    await sleepSmolvm(entry);
+    return;
+  }
+
   if (entry.cloud === "apple-container") {
     console.error(
       `Error: '${entry.assistantId}' uses the Apple Containers runtime. Its lifecycle is managed by the macOS app — use the app to stop it.`,
@@ -81,7 +87,7 @@ export async function sleep(): Promise<void> {
 
   if (entry.cloud && entry.cloud !== "local") {
     console.error(
-      `Error: 'vellum sleep' only works with local and docker assistants. '${entry.assistantId}' is a ${entry.cloud} instance.`,
+      `Error: 'vellum sleep' only works with local, docker, and smolvm assistants. '${entry.assistantId}' is a ${entry.cloud} instance.`,
     );
     process.exit(1);
   }
