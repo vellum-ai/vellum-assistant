@@ -127,6 +127,8 @@ struct LogsTabContent: View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             if let conversationId = activeSessionId {
                 metricsCard(conversationId: conversationId)
+                    .frame(maxWidth: 900, alignment: .top)
+                    .frame(maxWidth: .infinity)
 
                 if hasEvents {
                     TraceTimelineView(traceStore: traceStore, conversationId: conversationId)
