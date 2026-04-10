@@ -232,7 +232,7 @@ struct ChatBubble: View, Equatable {
     }
 
     var canForkFromMessage: Bool {
-        onForkFromMessage != nil && message.daemonMessageId != nil && !message.isStreaming
+        onForkFromMessage != nil && message.daemonMessageId != nil && !message.isStreaming && MacOSClientFeatureFlagManager.shared.isEnabled("fork-from-message")
     }
 
     var canInspectMessage: Bool {

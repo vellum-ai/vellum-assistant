@@ -420,6 +420,9 @@ struct SkillDetailTitleRow: View {
                     if let emoji = skill.emoji, !emoji.isEmpty {
                         Text(emoji)
                             .font(.system(size: 20))
+                    } else {
+                        VIconView(.puzzle, size: 20)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
 
                     Text(skill.name)

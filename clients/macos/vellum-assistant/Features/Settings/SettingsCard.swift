@@ -77,7 +77,7 @@ private struct ConditionalCardModifier: ViewModifier {
 struct SettingsDivider: View {
     var body: some View {
         Rectangle()
-            .fill(VColor.borderHover)
+            .fill(VColor.borderBase)
             .frame(height: 1)
     }
 }
