@@ -14,8 +14,8 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Nativ
 /// calling extension's ID is on the manifest's `allowed_origins`
 /// list, and spawns the binary referenced by `path`.
 ///
-/// See `clients/chrome-extension-native-host/` (PR 7) for the helper
-/// binary and `clients/chrome-extension-native-host/com.vellum.daemon.json.template`
+/// See `clients/chrome-extension/native-host/` (PR 7) for the helper
+/// binary and `clients/chrome-extension/native-host/com.vellum.daemon.json.template`
 /// for the shape of the manifest this installer writes.
 ///
 /// This helper intentionally carries **no** app state so it can run
@@ -124,7 +124,7 @@ public enum NativeMessagingInstaller {
         // JSONSerialization is used (rather than a Codable struct) so the
         // field order matches the Chrome-expected shape and so the
         // structure lines up 1:1 with the .template file checked into
-        // the chrome-extension-native-host package.
+        // the chrome-extension/native-host package.
         //
         // Swift dictionaries are unordered, but Chrome doesn't care about
         // field order — it just parses the object — so we prioritize

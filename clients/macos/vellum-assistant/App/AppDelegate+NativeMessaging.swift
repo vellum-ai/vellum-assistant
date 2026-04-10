@@ -8,7 +8,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDe
 /// Install-time hook for the Chrome native messaging host manifest.
 ///
 /// See `NativeMessagingInstaller` and
-/// `clients/chrome-extension-native-host/` for the full flow:
+/// `clients/chrome-extension/native-host/` for the full flow:
 /// this extension is responsible for (1) locating the bundled
 /// `vellum-chrome-native-host` helper binary inside the `.app`
 /// bundle at launch time, and (2) writing the
@@ -35,7 +35,7 @@ extension AppDelegate {
     nonisolated static func installChromeNativeMessagingHostIfNeeded() {
         guard let helperBinaryUrl = resolveBundledNativeMessagingHelper() else {
             // Normal for dev builds where the helper binary hasn't
-            // been built yet (see `clients/chrome-extension-native-host`
+            // been built yet (see `clients/chrome-extension/native-host`
             // and the build.sh wiring). Not an error — the self-hosted
             // Chrome extension pairing flow (PR 13) is optional, and
             // everything else in the assistant continues to work.
@@ -94,7 +94,7 @@ extension AppDelegate {
 /// Hard-coded allowlist of Chrome extension IDs the installer pins
 /// into the manifest's `allowed_origins`. Must stay in lockstep with
 /// `ALLOWED_EXTENSION_IDS` in
-/// `clients/chrome-extension-native-host/src/index.ts` and
+/// `clients/chrome-extension/native-host/src/index.ts` and
 /// `ALLOWED_EXTENSION_ORIGINS` in
 /// `assistant/src/runtime/routes/browser-extension-pair-routes.ts`.
 /// The sync guard at
@@ -108,7 +108,7 @@ enum ChromeExtensionAllowlist {
     /// in the helper binary's allowlist and the assistant's pair route
     /// allowlist. Replaced before release with the production extension
     /// id — see the `TODO: production id before release` comment in
-    /// `clients/chrome-extension-native-host/src/index.ts`.
+    /// `clients/chrome-extension/native-host/src/index.ts`.
     // SYNC: update alongside the assistant pair route and native host
     // constants (see extension-id-sync-guard.test.ts).
     static let devPlaceholderId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

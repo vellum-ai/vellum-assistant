@@ -4,7 +4,7 @@
  *
  *   - assistant/src/runtime/routes/browser-extension-pair-routes.ts
  *     (`ALLOWED_EXTENSION_ORIGINS`)
- *   - clients/chrome-extension-native-host/src/index.ts
+ *   - clients/chrome-extension/native-host/src/index.ts
  *     (`ALLOWED_EXTENSION_IDS`)
  *   - clients/macos/vellum-assistant/App/AppDelegate+NativeMessaging.swift
  *     (`ChromeExtensionAllowlist.devPlaceholderId`)
@@ -30,7 +30,7 @@ const repoRoot = resolve(__dirname, "..", "..", "..");
 
 const COUPLED_FILES: ReadonlyArray<string> = [
   "assistant/src/runtime/routes/browser-extension-pair-routes.ts",
-  "clients/chrome-extension-native-host/src/index.ts",
+  "clients/chrome-extension/native-host/src/index.ts",
   "clients/macos/vellum-assistant/App/AppDelegate+NativeMessaging.swift",
 ];
 

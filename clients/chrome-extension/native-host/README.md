@@ -131,7 +131,7 @@ resolved port.
 ## Building
 
 ```bash
-cd clients/chrome-extension-native-host
+cd clients/chrome-extension/native-host
 bun install
 bun run build       # produces dist/index.js
 ```
@@ -183,7 +183,7 @@ shell script. That approach was dropped because:
 ### Manifest template
 
 The canonical manifest shape is checked in at
-`clients/chrome-extension-native-host/com.vellum.daemon.json.template`.
+`clients/chrome-extension/native-host/com.vellum.daemon.json.template`.
 `NativeMessagingInstaller` rebuilds the same structure in-memory via
 `JSONSerialization` and overwrites the on-disk file on every launch
 (idempotent) so that upgrading the app bundle automatically updates the
@@ -195,7 +195,7 @@ performs template substitution.
 ## Testing
 
 ```bash
-cd clients/chrome-extension-native-host
+cd clients/chrome-extension/native-host
 bun test src/__tests__/protocol.test.ts
 ```
 
