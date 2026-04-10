@@ -50,6 +50,7 @@ export type RemoteFeatureFlagSyncConfig = {
 export class RemoteFeatureFlagSync {
   private started = false;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
+  private syncNowActive = false;
   private currentIntervalMs: number;
   private readonly maxIntervalMs: number;
   private readonly credentials: CredentialCache;
@@ -98,6 +99,9 @@ export class RemoteFeatureFlagSync {
    * steady-state interval after this fetch completes.
    */
   async syncNow(): Promise<void> {
+    // Guard: tell poll()'s .finally() not to reschedule — we'll handle it.
+    this.syncNowActive = true;
+
     // Cancel the pending poll so we don't double-fetch.
     if (this.pollTimer) {
       clearTimeout(this.pollTimer);
@@ -111,6 +115,8 @@ export class RemoteFeatureFlagSync {
       }
     } catch (err) {
       log.warn({ err }, "Failed to sync remote feature flags (syncNow)");
+    } finally {
+      this.syncNowActive = false;
     }
 
     if (this.started) {
@@ -147,7 +153,9 @@ export class RemoteFeatureFlagSync {
         );
       })
       .finally(() => {
-        if (this.started) {
+        // If syncNow() is active it owns rescheduling — skip to avoid
+        // creating a duplicate poll chain.
+        if (this.started && !this.syncNowActive) {
           this.scheduleNextPoll();
         }
       });
