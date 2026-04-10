@@ -51,7 +51,7 @@ enum ScrollMode: Equatable, CustomStringConvertible {
     /// until the layout mutation completes.
     var allowsAutoScroll: Bool {
         switch self {
-        case .initialLoad, .followingBottom: true
+        case .followingBottom: true
         default: false
         }
     }
@@ -484,8 +484,10 @@ final class MessageListScrollState {
     func beginStabilization(_ reason: StabilizationReason) {
         let previousMode: StabilizedMode
         switch mode {
-        case .followingBottom, .initialLoad:
+        case .followingBottom:
             previousMode = .followingBottom
+        case .initialLoad:
+            previousMode = .freeBrowsing
         case .freeBrowsing:
             previousMode = .freeBrowsing
         case .stabilizing(let prev, let activeReason):

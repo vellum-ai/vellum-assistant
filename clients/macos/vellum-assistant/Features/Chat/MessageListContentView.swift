@@ -237,7 +237,7 @@ struct MessageListContentView: View, Equatable {
                 // Active assistant turn: wrap in VStack with minHeight so user
                 // message sits at top. Only applies while the assistant has an
                 // active turn (sending, thinking, streaming, tool running).
-                .if(state.isActiveTurn && row.isLatestAssistant && row.message.id == state.rows.last?.message.id) { view in
+                .if(row.isLatestAssistant && row.message.id == state.rows.last?.message.id) { view in
                     VStack(spacing: 0) { view }
                         .frame(minHeight: turnMinHeight, alignment: .top)
                 }
@@ -287,9 +287,6 @@ struct MessageListContentView: View, Equatable {
             Color.clear.frame(height: 1)
                 .id("scroll-bottom-anchor")
                 .onAppear {
-                    // Signal that the bottom anchor has materialized —
-                    // isAtBottom is now reliable (based on actual content
-                    // height, not LazyVStack estimates).
                     scrollState.bottomAnchorAppeared = true
                     if !scrollState.hasBeenInteracted {
                         scrollState.handleReachedBottom()
