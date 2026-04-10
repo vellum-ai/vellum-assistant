@@ -176,7 +176,8 @@ final class ConversationManager: ConversationRestorerDelegate {
         conversationDetailClient: any ConversationDetailClientProtocol = ConversationDetailClient(),
         conversationHostAccessClient: any ConversationHostAccessClientProtocol = ConversationHostAccessClient(),
         conversationAnalysisClient: ConversationAnalysisClientProtocol = ConversationAnalysisClient(),
-        isFirstLaunch: Bool = false
+        isFirstLaunch: Bool = false,
+        preChatContext: PreChatOnboardingContext? = nil
     ) {
         Self.migrateStorageKeysIfNeeded()
         self.connectionManager = connectionManager
@@ -188,6 +189,10 @@ final class ConversationManager: ConversationRestorerDelegate {
         self.conversationAnalysisClient = conversationAnalysisClient
         self.conversationRestorer = ConversationRestorer(connectionManager: connectionManager, eventStreamClient: eventStreamClient)
         self.selectionStore = ConversationSelectionStore(listStore: listStore)
+
+        // Set pre-chat context before enterDraftMode() so the first draft VM
+        // picks it up when it checks preChatContext.
+        self.preChatContext = preChatContext
 
         // On first launch (post-onboarding), skip conversation restoration — there are
         // no meaningful prior conversations. Allow activeConversationId writes immediately so

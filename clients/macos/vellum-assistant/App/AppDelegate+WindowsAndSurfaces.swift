@@ -496,18 +496,17 @@ extension AppDelegate {
     @discardableResult
     func ensureMainWindowExists(isFirstLaunch: Bool = false) -> MainWindow {
         if let existing = mainWindow { return existing }
+        // Pass pre-chat context at construction time so it's available before
+        // ConversationManager.enterDraftMode() creates the first draft VM.
+        let context = pendingPreChatContext
+        pendingPreChatContext = nil
         let main = MainWindow(
             services: services,
             updateManager: updateManager,
             assistantFeatureFlagStore: featureFlagStore,
-            isFirstLaunch: isFirstLaunch
+            isFirstLaunch: isFirstLaunch,
+            preChatContext: context
         )
-        // Forward pending pre-chat onboarding context to the conversation
-        // manager so the first draft conversation includes it in its POST.
-        if let context = pendingPreChatContext {
-            main.conversationManager.preChatContext = context
-            pendingPreChatContext = nil
-        }
         main.onMicrophoneToggle = { [weak self] in
             self?.voiceInput?.toggleRecording()
         }

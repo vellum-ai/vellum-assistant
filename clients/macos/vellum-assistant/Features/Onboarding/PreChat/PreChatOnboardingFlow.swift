@@ -8,8 +8,17 @@ import VellumAssistantShared
 /// user finishes the flow, or `nil` when the user skips everything.
 @MainActor
 struct PreChatOnboardingFlow: View {
-    @State private var state = PreChatOnboardingState()
+    @State private var state: PreChatOnboardingState
     let onComplete: (PreChatOnboardingContext?) -> Void
+
+    init(initialAssistantName: String? = nil, onComplete: @escaping (PreChatOnboardingContext?) -> Void) {
+        let s = PreChatOnboardingState()
+        if let name = initialAssistantName, !name.isEmpty {
+            s.assistantName = name
+        }
+        self._state = State(initialValue: s)
+        self.onComplete = onComplete
+    }
 
     var body: some View {
         Group {
@@ -59,8 +68,7 @@ struct PreChatOnboardingFlow: View {
                 action()
             } label: {
                 HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 12, weight: .semibold))
+                    VIconView(.chevronLeft, size: 12)
                     Text("Back")
                         .font(VFont.bodyMediumDefault)
                 }
