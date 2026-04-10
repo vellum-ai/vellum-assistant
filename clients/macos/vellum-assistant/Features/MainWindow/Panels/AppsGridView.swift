@@ -179,7 +179,7 @@ struct AppsGridView: View {
                         ZStack {
                             VColor.surfaceBase
 
-                            VIconView(appIcon, size: 32)
+                            VIconView(.puzzle, size: 32)
                                 .foregroundStyle(VColor.contentTertiary)
                         }
                         .aspectRatio(16.0 / 10.0, contentMode: .fit)
