@@ -165,6 +165,14 @@ export class CdpInspectClient implements ScopedCdpClient {
       released = true;
       pending.waiters -= 1;
       if (pending.waiters <= 0 && this.pending === pending) {
+        // Clear the cached pending attach synchronously BEFORE
+        // firing the shared controller's abort. Otherwise a new
+        // `send()` that enters `ensureSession` between this abort
+        // and the async `.catch()` handler in `startAttach()` would
+        // reuse this already-aborted attach and immediately fail
+        // with an `aborted` error even though the new caller never
+        // aborted its own signal.
+        this.pending = null;
         try {
           pending.controller.abort();
         } catch {

@@ -686,6 +686,132 @@ describe("CdpInspectClient", () => {
     expect(probeSignalSeen?.aborted).toBe(true);
   });
 
+  test("a new send() after all waiters abort starts a fresh attach", async () => {
+    // Regression test for the race condition where onAbort aborts
+    // the shared controller but `this.pending` is only cleared later
+    // via the async `.catch()` handler in startAttach(). A new caller
+    // entering ensureSession() between those two events would reuse
+    // the already-aborted pending attach and immediately fail with an
+    // `aborted` error even though it never aborted its own signal.
+    //
+    // Fix: onAbort now clears `this.pending` synchronously BEFORE
+    // firing the shared controller.abort(), so any new caller after
+    // the abort starts a fresh attach.
+    let probeCount = 0;
+    let listCount = 0;
+    let connectCount = 0;
+
+    // The first probe hangs until the shared controller aborts it.
+    // The second probe (from the fresh attach) resolves normally.
+    const firstProbeStarted = Promise.withResolvers<void>();
+
+    const client = createCdpInspectClient("conv-race", {
+      host: "127.0.0.1",
+      port: 9222,
+      helpers: {
+        probeDevToolsJsonVersion: async (probeOpts) => {
+          probeCount += 1;
+          const signal = (probeOpts as { signal?: AbortSignal }).signal;
+          if (probeCount === 1) {
+            firstProbeStarted.resolve();
+            // Stall until the shared controller aborts us.
+            await new Promise<never>((_, reject) => {
+              const onAbort = () => {
+                reject(new Error("probe aborted via shared controller"));
+              };
+              if (signal?.aborted) {
+                onAbort();
+              } else {
+                signal?.addEventListener("abort", onAbort, { once: true });
+              }
+            });
+            throw new Error("unreachable");
+          }
+          return {
+            browser: "Chrome/125.0.0.0",
+            protocolVersion: "1.3",
+            webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser/fake",
+          };
+        },
+        listDevToolsTargets: async () => {
+          listCount += 1;
+          return [
+            {
+              id: "target-1",
+              type: "page",
+              title: "Example",
+              url: "https://example.com/",
+              webSocketDebuggerUrl:
+                "ws://127.0.0.1:9222/devtools/page/target-1",
+            },
+          ];
+        },
+        connectCdpWsTransport: async () => {
+          connectCount += 1;
+          return createFakeTransport({
+            onSend: async (method) => {
+              if (method === "Target.attachToTarget") {
+                return { sessionId: "session-race" };
+              }
+              return { ok: true };
+            },
+          });
+        },
+      },
+    });
+
+    // 1. First caller kicks off the attach with signal A.
+    const signalA = new AbortController();
+    const firstSend = client.send("Runtime.enable", undefined, signalA.signal);
+
+    // 2. Wait until the first probe has actually started so we know
+    //    the attach is in-flight and signal A is the only waiter.
+    await firstProbeStarted.promise;
+
+    // 3. Abort signal A. Because it's the only waiter, onAbort will
+    //    fire the shared controller and (with the fix) clear
+    //    `this.pending` synchronously.
+    signalA.abort();
+
+    // First caller should reject with `aborted`.
+    let firstErr: unknown;
+    try {
+      await firstSend;
+    } catch (err) {
+      firstErr = err;
+    }
+    expect(firstErr).toBeInstanceOf(CdpError);
+    expect((firstErr as InstanceType<typeof CdpError>).code).toBe("aborted");
+
+    // At this point, with the fix, `this.pending` has been cleared
+    // synchronously — but without the fix, it would still be set to
+    // the aborted pending until the `.catch()` handler in
+    // startAttach() runs asynchronously. We intentionally do NOT
+    // flush microtasks here before kicking off the second send() so
+    // that we exercise the race window.
+    //
+    // 4. New send() with its own signal B. With the fix, this should
+    //    start a fresh attach and complete successfully. Without the
+    //    fix, it would reuse the aborted pending and fail with an
+    //    `aborted` error even though signal B was never aborted.
+    const signalB = new AbortController();
+    const secondSend = client.send("Page.enable", undefined, signalB.signal);
+
+    // Second caller should succeed.
+    const secondResult = await secondSend;
+    expect(secondResult).toEqual({ ok: true });
+
+    // 5. Assert that the second send() kicked off a fresh attach —
+    //    probe, list, and connect should all have been called twice.
+    expect(probeCount).toBe(2);
+    expect(listCount).toBe(1);
+    expect(connectCount).toBe(1);
+    // listCount and connectCount are 1 because the first attach
+    // aborted during the probe stage — it never reached list or
+    // connect. The second (fresh) attach ran probe + list + connect
+    // all once.
+  });
+
   test("concurrent send() callers can abort independently", async () => {
     // Two callers race the same in-flight attach. The first caller
     // aborts; the second caller must still complete normally once the
