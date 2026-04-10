@@ -9,9 +9,10 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AuthS
 // into @MainActor isolation — which is an error in Swift 6 language mode.
 private let _platformURLOverrideEnvironmentKey = "VELLUM_PLATFORM_URL"
 private let _authServiceBaseURLDefaultsName = "authServiceBaseURL"
-/// Maps `VELLUM_ENVIRONMENT` to the platform API base URL.
-/// Mirrors the `VellumEnvironment.platformURL` mapping in the macOS client
-/// so all platforms share the same environment → URL resolution.
+/// Maps `VELLUM_ENVIRONMENT` to the auth/platform API base URL.
+/// Note: The `local` case intentionally differs from `VellumEnvironment.platformURL` —
+/// auth targets localhost for local dev, while Apple Containers use the remote dev platform.
+/// See `VellumEnvironment.swift` for the macOS-specific mapping.
 private func _defaultBaseURL(for environment: [String: String]) -> String {
     let env = environment["VELLUM_ENVIRONMENT"] ?? "production"
     switch env {
