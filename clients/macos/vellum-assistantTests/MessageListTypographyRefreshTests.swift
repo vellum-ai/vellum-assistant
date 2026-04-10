@@ -49,7 +49,7 @@ final class MessageListTypographyRefreshTests: XCTestCase {
             configuredProviders: [],
             subagentDetailStore: SubagentDetailStore(),
             assistantStatusText: nil,
-            scrollState: MessageListScrollState()
+            viewportHeight: .infinity
         )
     }
 

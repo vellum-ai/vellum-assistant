@@ -4,23 +4,18 @@ import VellumAssistantShared
 
 // MARK: - ScrollToLatestOverlayView
 
-/// Isolated child view for the "Scroll to latest" CTA. Creates its own
-/// observation boundary so changes to `showScrollToLatest` only invalidate
-/// this view — not the parent `MessageListView.body` or `ForEach`.
+/// Isolated child view for the "Scroll to latest" CTA. Appears when the
+/// user has scrolled away from the bottom of the message list.
 struct ScrollToLatestOverlayView: View {
-    let scrollState: MessageListScrollState
+    let isAtBottom: Bool
+    let onScrollToLatest: () -> Void
 
     var body: some View {
-        if scrollState.showScrollToLatest {
+        if !isAtBottom {
             Button(action: {
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollToLatestPressed")
-                // Spring animation drives both the CTA exit transition
-                // and the scroll-to-bottom. syncUIImmediately() inside
-                // requestPinToBottom captures showScrollToLatest = false
-                // within this animation transaction, so the .move/.opacity
-                // transition runs in sync with the scroll.
-                _ = withAnimation(VAnimation.spring) {
-                    scrollState.requestPinToBottom(animated: true, userInitiated: true)
+                withAnimation(VAnimation.spring) {
+                    onScrollToLatest()
                 }
             }) {
                 HStack(spacing: VSpacing.xs) {

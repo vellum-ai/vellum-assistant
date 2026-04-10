@@ -25,10 +25,9 @@ extension MessageListView {
     /// version. This exact signal covers content-only edits to an already-
     /// streaming message, which count/ID heuristics can miss.
     func refreshMessageListVersionIfNeeded(messagesRevision: UInt64) {
-        let cache = scrollState.derivedStateCache
-        if messagesRevision != cache.lastKnownMessagesRevision {
-            cache.lastKnownMessagesRevision = messagesRevision
-            cache.messageListVersion += 1
+        if messagesRevision != projectionCache.lastKnownMessagesRevision {
+            projectionCache.lastKnownMessagesRevision = messagesRevision
+            projectionCache.messageListVersion += 1
         }
     }
 
@@ -60,10 +59,8 @@ extension MessageListView {
     /// state changes.
     var derivedState: TranscriptRenderModel {
         os_signpost(.begin, log: stallLog, name: "DerivedState.resolve")
-        scrollState.recordBodyEvaluation()
-        let cache = scrollState.derivedStateCache
 
-        if cache.isThrottled, let cached = cache.cachedProjection {
+        if projectionCache.isThrottled, let cached = projectionCache.cachedProjection {
             os_signpost(.end, log: stallLog, name: "DerivedState.resolve")
             return cached
         }
@@ -71,11 +68,11 @@ extension MessageListView {
         // Compute visible messages first so version tracking and projection
         // both operate on the same filtered set.
         let liveMessages = visibleMessages
-        cache.cachedFirstVisibleMessageId = liveMessages.first?.id
+        projectionCache.cachedFirstVisibleMessageId = liveMessages.first?.id
         refreshMessageListVersionIfNeeded(messagesRevision: messagesRevision)
 
         let key = PrecomputedCacheKey(
-            messageListVersion: cache.messageListVersion,
+            messageListVersion: projectionCache.messageListVersion,
             isSending: isSending,
             isThinking: isThinking,
             isCompacting: isCompacting,
@@ -90,15 +87,15 @@ extension MessageListView {
         // Return cached projection when the key matches and the row count
         // is consistent with the live messages (guards against stale cache
         // after pagination window shifts).
-        if key == cache.cachedProjectionKey,
-           let cached = cache.cachedProjection,
+        if key == projectionCache.cachedProjectionKey,
+           let cached = projectionCache.cachedProjection,
            cached.rows.count == liveMessages.count {
             os_signpost(.event, log: stallLog, name: "DerivedState.projectionCacheHit")
             os_signpost(.end, log: stallLog, name: "DerivedState.resolve")
             return cached
         }
 
-        os_signpost(.event, log: stallLog, name: "DerivedState.projectionCacheMiss", "version=%d", cache.messageListVersion)
+        os_signpost(.event, log: stallLog, name: "DerivedState.projectionCacheMiss", "version=%d", projectionCache.messageListVersion)
 
         let result = TranscriptProjector.project(
             messages: messages,
@@ -115,8 +112,8 @@ extension MessageListView {
             highlightedMessageId: highlightedMessageId
         )
 
-        cache.cachedProjectionKey = key
-        cache.cachedProjection = result
+        projectionCache.cachedProjectionKey = key
+        projectionCache.cachedProjection = result
         os_signpost(.end, log: stallLog, name: "DerivedState.resolve")
         return result
     }
@@ -170,7 +167,7 @@ extension MessageListView {
             configuredProviders: configuredProviders,
             subagentDetailStore: subagentDetailStore,
             assistantStatusText: assistantStatusText,
-            scrollState: scrollState,
+            viewportHeight: viewportHeight,
             onConfirmationAllow: onConfirmationAllow,
             onConfirmationDeny: onConfirmationDeny,
             onAlwaysAllow: onAlwaysAllow,

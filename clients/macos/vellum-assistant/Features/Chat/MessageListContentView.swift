@@ -15,10 +15,8 @@ private let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "Layou
 /// this struct and applies scroll/lifecycle modifiers. This view's body is
 /// expensive — it drives `LazyStack.measureEstimates` over all visible cells.
 ///
-/// Closures and `@Observable` references (`scrollState`) are intentionally
-/// skipped in `==` — closures are never equal, and `@Observable` objects are
-/// identity-stable. Only data properties that affect rendered output are
-/// compared.
+/// Closures are intentionally skipped in `==` — closures are never equal.
+/// Only data properties that affect rendered output are compared.
 ///
 /// - SeeAlso: [WWDC23 — Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
 /// - SeeAlso: [Airbnb — Understanding and Improving SwiftUI Performance](https://airbnb.tech/mobile/understanding-and-improving-swiftui-performance/)
@@ -45,6 +43,7 @@ struct MessageListContentView: View, Equatable {
             && lhs.configuredProviders == rhs.configuredProviders
             && lhs.subagentDetailStore === rhs.subagentDetailStore
             && lhs.assistantStatusText == rhs.assistantStatusText
+            && lhs.viewportHeight == rhs.viewportHeight
     }
 
     // MARK: - Data properties (compared in ==)
@@ -69,9 +68,10 @@ struct MessageListContentView: View, Equatable {
     let subagentDetailStore: SubagentDetailStore
     let assistantStatusText: String?
 
-    // MARK: - @Observable references (not compared in ==; reads occur in closures or child views)
-
-    let scrollState: MessageListScrollState
+    /// Measured viewport height, passed from the outer ScrollView's
+    /// `onScrollGeometryChange`. Used for the active-turn `minHeight`
+    /// calculation so the user's message sits at the top of the viewport.
+    let viewportHeight: CGFloat
 
     // MARK: - Closures (skipped in ==)
 
@@ -176,8 +176,8 @@ struct MessageListContentView: View, Equatable {
             // viewportHeight is initialized to .infinity until the scroll view lays
             // out; guard against non-finite values so we never pass NaN/∞ into
             // .frame(minHeight:), which trips _NSViewValidateGeometry in AppKit.
-            let turnMinHeight: CGFloat = scrollState.viewportHeight.isFinite
-                ? max(0, scrollState.viewportHeight - 150)
+            let turnMinHeight: CGFloat = viewportHeight.isFinite
+                ? max(0, viewportHeight - 150)
                 : 0
             let isUnanchoredThinking = state.shouldShowThinkingIndicator && !state.rows.contains(where: \.isAnchoredThinkingRow)
             let thinkingLabel = !hasEverSentMessage && state.hasUserMessage
@@ -286,15 +286,6 @@ struct MessageListContentView: View, Equatable {
 
             Color.clear.frame(height: 1)
                 .id("scroll-bottom-anchor")
-                .onAppear {
-                    // Signal that the bottom anchor has materialized —
-                    // isAtBottom is now reliable (based on actual content
-                    // height, not LazyVStack estimates).
-                    scrollState.bottomAnchorAppeared = true
-                    if !scrollState.hasBeenInteracted {
-                        scrollState.handleReachedBottom()
-                    }
-                }
         }
         .disabled(!isInteractionEnabled)
         .transaction { $0.animation = nil }

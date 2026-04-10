@@ -337,9 +337,9 @@ struct ChatView: View {
     ///   to produce an immutable `TranscriptRenderModel` from the raw messages.
     /// - **ComposerController** — popup state (slash/emoji) and focus intents flow
     ///   through the controller's event-driven state machine, not raw bindings.
-    /// - **ScrollCoordinator** — scroll policy decisions (follow-bottom, anchor jumps,
-    ///   stabilization) flow through the coordinator's `handle(_:)` method and are
-    ///   translated into concrete `ScrollPosition` mutations by the view layer.
+    /// - **Scroll state** — scroll policy (bottom detection, scroll-to-latest,
+    ///   pagination) is handled by simple `@State` properties and
+    ///   `onScrollGeometryChange` modifiers inside `MessageListView`.
     ///
     /// The raw viewModel properties passed here (`messages`, `isSending`, etc.)
     /// are the projector's inputs — `MessageListView` does not observe them
@@ -397,7 +397,7 @@ struct ChatView: View {
                 hasMoreMessages: viewModel.hasMoreMessages,
                 isLoadingMoreMessages: viewModel.isLoadingMoreMessages,
                 loadPreviousMessagePage: { await viewModel.loadPreviousMessagePage() },
-                // -- ScrollCoordinator inputs --
+                // -- Scroll / layout inputs --
                 conversationId: conversationId,
                 anchorMessageId: $anchorMessageId,
                 highlightedMessageId: $highlightedMessageId,

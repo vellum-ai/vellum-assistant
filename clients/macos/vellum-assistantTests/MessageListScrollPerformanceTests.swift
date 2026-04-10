@@ -8,7 +8,7 @@ import XCTest
 // projected/controller/coordinator architecture.
 //
 // All transcript derivation flows through `TranscriptProjector`, gated by
-// `ProjectionCache`. Scroll policy flows through `ScrollCoordinator`. These
+// `ProjectionCache`. Scroll policy uses simple `@State` properties. These
 // tests assert that the measured hot paths stay on these implementations
 // rather than any removed compatibility layer.
 //
@@ -112,33 +112,7 @@ final class MessageListScrollPerformanceTests: XCTestCase {
         }
     }
 
-    // MARK: - Test 3: requestPinToBottom Hot Path
-
-    /// Measures the synchronous hot path of requestPinToBottom on the scroll
-    /// state: request a pin, transition back to followingBottom — repeated 100 times.
-    @MainActor
-    func testPinToBottomPerformance() {
-        measure(metrics: [XCTClockMetric()]) {
-            let scrollState = MessageListScrollState()
-            var scrollCallCount = 0
-
-            scrollState.scrollTo = { _, _ in
-                scrollCallCount += 1
-            }
-
-            // Ensure we start in followingBottom mode.
-            scrollState.transition(to: .followingBottom)
-
-            // Run 100 pin request cycles to get a stable measurement.
-            for _ in 0..<100 {
-                scrollState.requestPinToBottom()
-                scrollState.transition(to: .followingBottom)
-            }
-
-            XCTAssertGreaterThan(scrollCallCount, 0)
-            scrollState.cancelAll()
-        }
-    }
+    // (Test 3 — requestPinToBottom — removed: MessageListScrollState eliminated in scroll redesign.)
 
     // MARK: - Test 5: Streaming Text Visible Through Projection
 
@@ -435,36 +409,7 @@ final class MessageListScrollPerformanceTests: XCTestCase {
         XCTAssertFalse(cache.isThrottled)
     }
 
-    // MARK: - Test 12: ScrollCoordinator Policy Hot Path
-
-    /// Measures the synchronous hot path of ScrollCoordinator event handling.
-    /// All scroll policy decisions now flow through the coordinator's
-    /// `handle(_:)` method — this test establishes the baseline cost.
-    @MainActor
-    func testScrollCoordinatorPolicyHotPath() {
-        measure(metrics: [XCTClockMetric()]) {
-            let coordinator = ScrollCoordinator()
-
-            // Simulate a realistic event sequence: appear, send, stream,
-            // scroll, reattach — repeated 100 times.
-            for _ in 0..<100 {
-                coordinator.handle(.appeared)
-                coordinator.handle(.sendingChanged(isSending: true))
-                coordinator.handle(.messageCountChanged)
-                coordinator.handle(.messageCountChanged)
-                coordinator.handle(.scrollPhaseChanged(phase: .interacting))
-                coordinator.handle(.manualBrowseIntent)
-                coordinator.handle(.scrollPhaseChanged(phase: .idle))
-                let _ = coordinator.requestUserInitiatedPin()
-                coordinator.handle(.messageCountChanged)
-                coordinator.handle(.sendingChanged(isSending: false))
-                coordinator.reset()
-            }
-
-            // Prevent optimizer from eliding.
-            XCTAssertEqual(coordinator.mode, .initialLoad)
-        }
-    }
+    // (Test 12 — ScrollCoordinator policy — removed: ScrollCoordinator eliminated in scroll redesign.)
 
     // MARK: - Test 13: Projector Produces Stable Output for Coordinator Inputs
 

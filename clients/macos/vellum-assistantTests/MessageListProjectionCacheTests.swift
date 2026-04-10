@@ -4,9 +4,12 @@ import XCTest
 
 @MainActor
 final class MessageListProjectionCacheTests: XCTestCase {
+    /// Verifies that bumping messagesRevision invalidates the projection cache,
+    /// ensuring streaming text growth is reflected in the projected output.
     func testMessageRevisionInvalidatesProjectionCacheForStreamingTextGrowth() {
+        // GIVEN a shared projection cache and an initial streaming message
         let messageId = UUID()
-        let sharedScrollState = MessageListScrollState()
+        let sharedCache = ProjectionCache()
 
         let initialMessage = ChatMessage(
             id: messageId,
@@ -18,12 +21,15 @@ final class MessageListProjectionCacheTests: XCTestCase {
             messages: [initialMessage],
             messagesRevision: 1
         )
-        initialView.scrollState = sharedScrollState
+        initialView.projectionCache = sharedCache
 
+        // WHEN we compute the derived state for the first time
         let initialProjection = initialView.derivedState
+        // THEN the projection contains the initial text and version is bumped
         XCTAssertEqual(initialProjection.rows.last?.message.text, "Hello")
-        XCTAssertEqual(sharedScrollState.messageListVersion, 1)
+        XCTAssertEqual(sharedCache.messageListVersion, 1)
 
+        // GIVEN the message text grows (streaming) with a new revision
         let updatedMessage = ChatMessage(
             id: messageId,
             role: .assistant,
@@ -34,11 +40,13 @@ final class MessageListProjectionCacheTests: XCTestCase {
             messages: [updatedMessage],
             messagesRevision: 2
         )
-        updatedView.scrollState = sharedScrollState
+        updatedView.projectionCache = sharedCache
 
+        // WHEN we recompute the derived state
         let updatedProjection = updatedView.derivedState
+        // THEN the projection reflects the updated text and version is bumped again
         XCTAssertEqual(updatedProjection.rows.last?.message.text, "Hello, world")
-        XCTAssertEqual(sharedScrollState.messageListVersion, 2)
+        XCTAssertEqual(sharedCache.messageListVersion, 2)
     }
 
     private func makeView(

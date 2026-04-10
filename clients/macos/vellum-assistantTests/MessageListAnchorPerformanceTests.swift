@@ -5,7 +5,7 @@ import XCTest
 // MARK: - MessageListView Anchor & Rendering Performance Baselines
 //
 // These tests establish XCTest performance baselines for:
-//   1. MessageListScrollState bottom-detection hot-path stress (called on every scroll frame)
+//   1. Bottom-detection Bool-toggle stress (called on each scroll geometry change)
 //   2. Large conversation markdown pipeline throughput (cold cache)
 //   3. Attributed string cache hit performance (hot cache)
 //
@@ -78,22 +78,30 @@ final class MessageListAnchorPerformanceTests: XCTestCase {
     ```
     """
 
-    // MARK: - 1. Scroll State Bottom-Detection Rapid-Update Stress Test
+    // MARK: - 1. Bottom-Detection Bool-Toggle Stress Test
 
-    /// Benchmarks setting `isAtBottom` 10,000 times in a tight loop. While
-    /// individually trivial (O(1)), this mirrors the per-scroll-frame hot path.
-    /// This test detects if any future refactoring adds overhead.
+    /// Benchmarks toggling `isAtBottom` 10,000 times in a tight loop via the
+    /// `BottomDetection` hysteresis logic. While individually trivial (O(1)),
+    /// this mirrors the per-scroll-geometry-change hot path. This test detects
+    /// if any future refactoring adds overhead.
     func testBottomDetectionRapidUpdateStress() {
-        let scrollState = MessageListScrollState()
-
         measure(metrics: [XCTClockMetric(), XCTCPUMetric()]) {
+            var isAtBottom = true
             for i in 0..<10_000 {
-                // Simulate scroll position changes: alternate between bottom
-                // anchor and other views to stress isAtBottom updates.
-                // Simulate scroll geometry bottom detection: every 10th
+                // Simulate the BottomDetection hysteresis: every 10th
                 // iteration is "at bottom", the rest are not.
-                scrollState.isAtBottom = (i % 10 == 0)
+                let detection = BottomDetection(
+                    nearBottom: (i % 10 == 0),
+                    atBottom: (i % 10 == 0)
+                )
+                if isAtBottom {
+                    if !detection.nearBottom { isAtBottom = false }
+                } else {
+                    if detection.atBottom { isAtBottom = true }
+                }
             }
+            // Prevent optimizer from eliding the loop.
+            _ = isAtBottom
         }
     }
 
