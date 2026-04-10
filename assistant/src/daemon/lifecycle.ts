@@ -624,8 +624,6 @@ export async function runDaemon(): Promise<void> {
       }
     }
 
-    await initializeProvidersAndTools(config);
-
     // Start the DaemonServer (conversation manager) before Qdrant so HTTP
     // routes can begin accepting requests while Qdrant initializes.
     log.info("Daemon startup: starting DaemonServer");
@@ -1057,6 +1055,8 @@ export async function runDaemon(): Promise<void> {
     });
     try {
       await runtimeHttp.start();
+      log.info("Daemon startup: initializing providers and tools");
+      await initializeProvidersAndTools(config);
       setRelayBroadcast((msg) => server.broadcast(msg));
       setPointerMessageProcessor(
         async (conversationId, instruction, requiredFacts) => {
