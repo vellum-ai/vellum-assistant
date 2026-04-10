@@ -94,6 +94,7 @@ const mockProviders = new Map<
     key: string;
     tokenExchangeUrl: string;
     tokenEndpointAuthMethod?: string;
+    tokenExchangeBodyFormat?: string;
     baseUrl?: string;
   }
 >();
@@ -193,6 +194,7 @@ async function setupCredential(
   mockProviders.set(service, {
     key: service,
     tokenExchangeUrl: "https://oauth2.googleapis.com/token",
+    tokenExchangeBodyFormat: "form",
     // Only well-known providers (gmail) have a baseUrl; custom services don't
     baseUrl:
       service === "google"
