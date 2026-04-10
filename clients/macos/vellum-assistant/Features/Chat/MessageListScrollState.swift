@@ -730,8 +730,9 @@ final class MessageListScrollState {
         let path = userInitiated ? "userInitiated" : (forRecovery ? "recovery" : "autoFollow")
         scrollDiag.debug("executeScrollToBottom: path=\(path, privacy: .public) animated=\(animated, privacy: .public) lastMsgId=\(self.lastMessageId?.uuidString ?? "nil", privacy: .public)")
 
-        // ID-based scroll: targets a real ForEach item. Falls back to
-        // edge-based only for empty conversations (lastMessageId == nil).
+        // ID-based scroll for auto-follow/recovery. Edge-based scroll
+        // for CTA (reliability) and empty conversations (no lastMessageId).
+        // Initial send uses scheduleDeferredEdgeScroll (separate path).
         //
         // Animation handling:
         //   - userInitiated (CTA): caller wraps in withAnimation(VAnimation.spring),
