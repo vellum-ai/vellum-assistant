@@ -27,15 +27,7 @@ extension MessageListView {
         if isConversationSwitch {
             handleConversationSwitched()
         } else {
-            // Start the recovery window for the initial load — LazyVStack
-            // height estimates are unreliable until views materialize.
-            // (For conversation switches, reset() inside handleConversationSwitched
-            // already sets recoveryDeadline.)
-            scrollState.recoveryDeadline = Date().addingTimeInterval(2.0)
-            // Seed lastMessageId so the CTA and executeScrollToBottom always
-            // have a valid ForEach target. Without this, the initial load
-            // leaves lastMessageId nil — a CTA tap would fall back to the
-            // standalone "scroll-bottom-anchor" which may not be materialized.
+            // Seed lastMessageId for scroll-to-latest targeting.
             if let lastId = paginatedVisibleMessages.last?.id {
                 scrollState.lastMessageId = lastId
             }
