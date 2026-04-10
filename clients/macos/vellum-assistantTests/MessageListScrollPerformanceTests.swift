@@ -96,9 +96,6 @@ final class MessageListScrollPerformanceTests: XCTestCase {
                     isThinking: version.isMultiple(of: 7),
                     isCompacting: false,
                     assistantStatusText: nil,
-                    assistantActivityPhase: "",
-                    assistantActivityAnchor: "",
-                    assistantActivityReason: nil,
                     activeSubagentFingerprint: version % 5,
                     displayedMessageCount: version % 1000
                 )
@@ -398,9 +395,6 @@ final class MessageListScrollPerformanceTests: XCTestCase {
             isThinking: false,
             isCompacting: false,
             assistantStatusText: nil,
-            assistantActivityPhase: "",
-            assistantActivityAnchor: "",
-            assistantActivityReason: nil,
             activeSubagentFingerprint: 7,
             displayedMessageCount: 100
         )
