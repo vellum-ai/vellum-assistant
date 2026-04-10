@@ -56,9 +56,6 @@ struct VellumAssistantApp: App {
                     appDelegate.showSettingsWindow(nil)
                 }
                 .keyboardShortcut(",", modifiers: .command)
-                Button("Share Feedback") {
-                    appDelegate.sendFeedback()
-                }
                 if appDelegate.authManager.isAuthenticated {
                     Button("Sign Out") {
                         appDelegate.performLogout()
