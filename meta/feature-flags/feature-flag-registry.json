@@ -328,6 +328,14 @@
       "label": "Fork from Message",
       "description": "Show the Fork from here option in message overflow menus",
       "defaultEnabled": false
+    },
+    {
+      "id": "onboarding-pre-chat",
+      "scope": "macos",
+      "key": "onboarding-pre-chat",
+      "label": "Pre-Chat Onboarding Flow",
+      "description": "Gates the 3-screen pre-chat onboarding flow (tools, tasks/tone, name exchange) shown before the first conversation",
+      "defaultEnabled": false
     }
   ]
 }
