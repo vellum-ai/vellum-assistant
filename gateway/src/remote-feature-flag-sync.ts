@@ -91,6 +91,33 @@ export class RemoteFeatureFlagSync {
     }
   }
 
+  /**
+   * Trigger an immediate remote flag sync (e.g. after system wake).
+   *
+   * Resets the poll timer so the next scheduled poll starts fresh from the
+   * steady-state interval after this fetch completes.
+   */
+  async syncNow(): Promise<void> {
+    // Cancel the pending poll so we don't double-fetch.
+    if (this.pollTimer) {
+      clearTimeout(this.pollTimer);
+      this.pollTimer = null;
+    }
+
+    try {
+      const ok = await this.fetchAndCache();
+      if (ok) {
+        this.currentIntervalMs = this.maxIntervalMs;
+      }
+    } catch (err) {
+      log.warn({ err }, "Failed to sync remote feature flags (syncNow)");
+    }
+
+    if (this.started) {
+      this.scheduleNextPoll();
+    }
+  }
+
   private scheduleNextPoll(): void {
     this.pollTimer = setTimeout(() => {
       this.poll();

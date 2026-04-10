@@ -1621,6 +1621,12 @@ async function main() {
     configFileCache.invalidate();
     credentialCache.invalidate();
 
+    // Immediately refresh remote feature flags so the gateway doesn't run
+    // with stale values until the next scheduled poll (up to 5 min away).
+    remoteFeatureFlagSync.syncNow().catch((err) => {
+      log.error({ err }, "Failed to sync remote feature flags after wake");
+    });
+
     // Re-register Telegram webhook with current ingress URL
     if (telegramReady) {
       reconcileTelegramWebhook(telegramCaches).catch((err) => {
