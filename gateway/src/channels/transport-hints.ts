@@ -44,12 +44,47 @@ export const EMAIL_CHANNEL_TRANSPORT_HINTS = [
 export const EMAIL_CHANNEL_TRANSPORT_UX_BRIEF =
   "Email is an asynchronous medium. Responses can be longer and more detailed than chat. Use proper formatting. The user may not see the response immediately.";
 
-export function buildEmailTransportMetadata(): {
+export const EMAIL_REPLY_UX_BRIEF =
+  "This message arrived via email. You should almost certainly reply using the `assistant email send` CLI command (run `assistant email send --help` for usage). Use your judgement — there may be rare cases where a reply isn't appropriate or should go through another medium.";
+
+/**
+ * Context from the inbound email that the assistant needs to construct a
+ * reply via the `assistant email send` CLI command.
+ */
+export interface EmailReplyContext {
+  /** The sender's email address (who the reply should go to). */
+  senderAddress: string;
+  /** The assistant's own email address (the "from" for the reply). */
+  recipientAddress: string;
+  /** Original email subject line, if present. */
+  subject?: string;
+  /** Message-ID of the inbound email for In-Reply-To threading. */
+  inReplyTo?: string;
+}
+
+export function buildEmailTransportMetadata(replyContext?: EmailReplyContext): {
   hints: string[];
   uxBrief: string;
 } {
+  const hints: string[] = [...EMAIL_CHANNEL_TRANSPORT_HINTS];
+  let uxBrief = EMAIL_CHANNEL_TRANSPORT_UX_BRIEF;
+
+  if (replyContext) {
+    hints.push(
+      `email-reply-to: ${replyContext.senderAddress}`,
+      `email-from: ${replyContext.recipientAddress}`,
+    );
+    if (replyContext.subject) {
+      hints.push(`email-subject: ${replyContext.subject}`);
+    }
+    if (replyContext.inReplyTo) {
+      hints.push(`email-in-reply-to: ${replyContext.inReplyTo}`);
+    }
+    uxBrief = EMAIL_REPLY_UX_BRIEF;
+  }
+
   return {
-    hints: [...EMAIL_CHANNEL_TRANSPORT_HINTS],
-    uxBrief: EMAIL_CHANNEL_TRANSPORT_UX_BRIEF,
+    hints,
+    uxBrief,
   };
 }
