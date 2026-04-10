@@ -24,6 +24,7 @@ describe("constants", () => {
     expect(VALID_REMOTE_HOSTS).toContain("gcp");
     expect(VALID_REMOTE_HOSTS).toContain("aws");
     expect(VALID_REMOTE_HOSTS).toContain("docker");
+    expect(VALID_REMOTE_HOSTS).toContain("smolvm");
     expect(VALID_REMOTE_HOSTS).toContain("custom");
   });
 

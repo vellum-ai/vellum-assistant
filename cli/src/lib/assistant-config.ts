@@ -80,7 +80,7 @@ export interface AssistantEntry {
   sshUser?: string;
   zone?: string;
   hatchedAt?: string;
-  /** Per-instance resource config. Present for local entries in multi-instance setups. */
+  /** Per-instance resource config. Present for local and local-style entries. */
   resources?: LocalInstanceResources;
   /** PID of the file watcher process for docker instances hatched with --watch. */
   watcherPid?: number;
@@ -441,19 +441,72 @@ async function findAvailablePort(
 export async function allocateLocalResources(
   instanceName: string,
 ): Promise<LocalInstanceResources> {
-  // First local assistant gets the home directory with default ports.
-  // Respect BASE_DATA_DIR when set (e.g. in e2e tests) so the daemon,
-  // gateway, and credential store all resolve paths under the same root.
   const existingLocals = loadAllAssistants().filter((e) => e.cloud === "local");
+
+  // Collect ports already assigned to other local-style instances in the
+  // lockfile. Even if those instances are stopped, we must avoid reusing
+  // their ports to prevent binding collisions when both are woken.
+  const reservedPorts: number[] = [];
+  for (const entry of loadAllAssistants()) {
+    if (!entry.resources) continue;
+    reservedPorts.push(
+      entry.resources.daemonPort,
+      entry.resources.gatewayPort,
+      entry.resources.qdrantPort,
+      entry.resources.cesPort,
+    );
+  }
+
+  // First local assistant gets the home directory when the default ports are
+  // still free. Respect BASE_DATA_DIR when set (e.g. in e2e tests) so the
+  // daemon, gateway, and credential store all resolve paths under the same
+  // root.
   if (existingLocals.length === 0) {
     const baseDir = getBaseDir();
     const vellumDir = join(baseDir, ".vellum");
+    const defaultsReserved = [
+      DEFAULT_DAEMON_PORT,
+      DEFAULT_GATEWAY_PORT,
+      DEFAULT_QDRANT_PORT,
+      DEFAULT_CES_PORT,
+    ].some((port) => reservedPorts.includes(port));
+    if (!defaultsReserved) {
+      return {
+        instanceDir: baseDir,
+        daemonPort: DEFAULT_DAEMON_PORT,
+        gatewayPort: DEFAULT_GATEWAY_PORT,
+        qdrantPort: DEFAULT_QDRANT_PORT,
+        cesPort: DEFAULT_CES_PORT,
+        pidFile: join(vellumDir, "vellum.pid"),
+      };
+    }
+
+    const daemonPort = await findAvailablePort(
+      DEFAULT_DAEMON_PORT,
+      reservedPorts,
+    );
+    const gatewayPort = await findAvailablePort(DEFAULT_GATEWAY_PORT, [
+      ...reservedPorts,
+      daemonPort,
+    ]);
+    const qdrantPort = await findAvailablePort(DEFAULT_QDRANT_PORT, [
+      ...reservedPorts,
+      daemonPort,
+      gatewayPort,
+    ]);
+    const cesPort = await findAvailablePort(DEFAULT_CES_PORT, [
+      ...reservedPorts,
+      daemonPort,
+      gatewayPort,
+      qdrantPort,
+    ]);
+
     return {
       instanceDir: baseDir,
-      daemonPort: DEFAULT_DAEMON_PORT,
-      gatewayPort: DEFAULT_GATEWAY_PORT,
-      qdrantPort: DEFAULT_QDRANT_PORT,
-      cesPort: DEFAULT_CES_PORT,
+      daemonPort,
+      gatewayPort,
+      qdrantPort,
+      cesPort,
       pidFile: join(vellumDir, "vellum.pid"),
     };
   }
@@ -467,22 +520,6 @@ export async function allocateLocalResources(
     instanceName,
   );
   mkdirSync(instanceDir, { recursive: true });
-
-  // Collect ports already assigned to other local instances in the lockfile.
-  // Even if those instances are stopped, we must avoid reusing their ports
-  // to prevent binding collisions when both are woken.
-  const reservedPorts: number[] = [];
-  for (const entry of loadAllAssistants()) {
-    if (entry.cloud !== "local") continue;
-    if (entry.resources) {
-      reservedPorts.push(
-        entry.resources.daemonPort,
-        entry.resources.gatewayPort,
-        entry.resources.qdrantPort,
-        entry.resources.cesPort,
-      );
-    }
-  }
 
   // Allocate ports sequentially to avoid overlapping ranges assigning the
   // same port to multiple services (e.g. daemon 7821-7920 overlaps gateway 7830-7929).

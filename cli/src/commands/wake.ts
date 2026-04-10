@@ -15,6 +15,7 @@ import {
   startGateway,
 } from "../lib/local";
 import { maybeStartNgrokTunnel } from "../lib/ngrok";
+import { wakeSmolvm } from "../lib/smolvm.js";
 
 export async function wake(): Promise<void> {
   const args = process.argv.slice(3);
@@ -59,6 +60,20 @@ export async function wake(): Promise<void> {
     return;
   }
 
+  if (entry.cloud === "smolvm") {
+    if (watch || foreground) {
+      const ignored = [watch && "--watch", foreground && "--foreground"]
+        .filter(Boolean)
+        .join(" and ");
+      console.warn(
+        `Warning: ${ignored} ignored for smolvm instances (not supported).`,
+      );
+    }
+    await wakeSmolvm(entry);
+    console.log("Wake complete.");
+    return;
+  }
+
   if (entry.cloud === "apple-container") {
     console.error(
       `Error: '${entry.assistantId}' uses the Apple Containers runtime. Its lifecycle is managed by the macOS app — use the app to start it.`,
@@ -68,7 +83,7 @@ export async function wake(): Promise<void> {
 
   if (entry.cloud && entry.cloud !== "local") {
     console.error(
-      `Error: 'vellum wake' only works with local and docker assistants. '${entry.assistantId}' is a ${entry.cloud} instance.`,
+      `Error: 'vellum wake' only works with local, docker, and smolvm assistants. '${entry.assistantId}' is a ${entry.cloud} instance.`,
     );
     process.exit(1);
   }

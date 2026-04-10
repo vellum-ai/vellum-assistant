@@ -6,6 +6,7 @@ import {
 } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import { dockerResourceNames } from "../lib/docker";
+import { resolveSmolvmBinaryPath } from "../lib/smolvm.js";
 
 const SSH_OPTS = [
   "-o",
@@ -90,6 +91,24 @@ export async function ssh(): Promise<void> {
     child = spawn(
       "docker",
       ["exec", "-it", res.assistantContainer, "/bin/sh"],
+      { stdio: "inherit" },
+    );
+  } else if (cloud === "smolvm") {
+    const smolvm = await resolveSmolvmBinaryPath();
+    console.log(`🔗 Connecting to ${entry.assistantId} via smolvm exec...\n`);
+
+    child = spawn(
+      smolvm,
+      [
+        "machine",
+        "exec",
+        "--name",
+        entry.assistantId,
+        "-i",
+        "-t",
+        "--",
+        "/bin/sh",
+      ],
       { stdio: "inherit" },
     );
   } else if (cloud === "gcp") {

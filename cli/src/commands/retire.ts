@@ -12,6 +12,7 @@ import { retireInstance as retireAwsInstance } from "../lib/aws";
 import { retireDocker } from "../lib/docker";
 import { retireInstance as retireGcpInstance } from "../lib/gcp";
 import { retireLocal } from "../lib/retire-local";
+import { retireSmolvm } from "../lib/smolvm.js";
 import { exec } from "../lib/step-runner";
 import {
   openLogFile,
@@ -226,6 +227,8 @@ async function retireInner(): Promise<void> {
     await retireAwsInstance(name, region, source);
   } else if (cloud === "docker") {
     await retireDocker(name);
+  } else if (cloud === "smolvm") {
+    await retireSmolvm(entry);
   } else if (cloud === "local") {
     await retireLocal(name, entry);
   } else if (cloud === "custom") {
