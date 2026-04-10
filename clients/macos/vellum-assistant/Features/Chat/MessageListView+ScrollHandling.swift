@@ -3,8 +3,6 @@ import os.signpost
 import SwiftUI
 import VellumAssistantShared
 
-private let scrollDiag = Logger(subsystem: Bundle.appBundleIdentifier, category: "ScrollDiag")
-
 // MARK: - ScrollCoordinator.Phase Bridge
 
 extension ScrollCoordinator.Phase {
@@ -214,31 +212,13 @@ extension MessageListView {
         //   Shrinkage → LazyVStack height-estimate convergence after a
         //               conversation switch (estimated height overshoots,
         //               then shrinks as views materialize with actual heights)
-        // The 0.5pt threshold filters sub-pixel layout noise.
-        //
-        // When the viewport is at bottom, auto-follow fires unthrottled
-        // (normal streaming path — content grows, viewport follows).
-        //
-        // When NOT at bottom, auto-follow is throttled to 50ms (20Hz).
-        // Without this, each scrollTo(id:) triggers LazyVStack to
-        // re-estimate heights (materializing/dematerializing items),
-        // which changes content height by >0.5pt, which triggers another
-        // geometry callback — creating an infinite feedback loop at
-        // ~250/sec that never converges. The 50ms gap also prevents
-        // auto-follow from overriding recovery scrolls within
-        // the same layout cycle (recovery fires at 100ms intervals).
+        // The 0.5pt threshold filters sub-pixel layout noise. Safe from
+        // feedback loops because pinning changes contentOffsetY, not
+        // contentHeight.
         if abs(effectiveContentHeight - previousContentHeight) > 0.5,
            scrollState.mode.allowsAutoScroll,
            phaseAllowsAutoFollow {
-            if nowAtBottom {
-                scrollState.requestPinToBottom()
-            } else {
-                let now = Date()
-                if now.timeIntervalSince(scrollState.lastAutoFollowAttempt) >= 0.05 {
-                    scrollState.lastAutoFollowAttempt = now
-                    scrollState.requestPinToBottom()
-                }
-            }
+            scrollState.requestPinToBottom()
         }
         // --- Persistent bottom-recovery ---
         // Independent of the content-height auto-follow. Catches cases
@@ -250,39 +230,24 @@ extension MessageListView {
         //   • "False at-bottom" — viewport at the estimated bottom but
         //     actual content is above (LazyVStack blank space)
         //
-        // Recovery uses ID-based scroll only via
-        // requestPinToBottom(forRecovery: true) → executeScrollToBottom.
-        // Edge-based scroll (scrollToEdge(.bottom)) is NEVER used —
-        // it computes total content height from LazyVStack estimates,
-        // which overshoot into blank space for long conversations with
-        // unmaterialized items. ID-based scroll targets a real ForEach
-        // item, so it lands short (showing messages) rather than
-        // overshooting (showing blank space).
+        // Uses edge-based scroll instead of ID-based (requestPinToBottom).
+        // ID-based ScrollPosition(id: lastMessageId, .bottom) depends on
+        // accurate height estimates for all preceding views — in long
+        // conversations with images, estimates are unreliable and the
+        // scroll lands short. Edge-based scrollToEdge(.bottom) targets
+        // the absolute content bottom, converging as LazyVStack
+        // materializes more views with each attempt.
         //
-        // The repeated 100ms recovery cycle handles convergence —
-        // each attempt materializes views near the target, improving
-        // LazyVStack height estimates for the next attempt. This
-        // converges monotonically to the actual bottom, until the
-        // bottom anchor materializes and recovery stops.
-        //
-        // Recovery fires only within the recovery window — defined as
-        // the period before the bottom anchor view has appeared AND
-        // before the 2-second deadline expires (whichever comes first).
-        // After the window closes, the content-height auto-follow
-        // (separate block above) continues to handle scroll tracking
-        // for streaming and message loads. If the viewport is still
-        // stuck after the deadline, the CTA ("Scroll to latest")
-        // provides manual recovery.
-        //
-        // The deadline is critical because multiple paths reset
-        // bottomAnchorAppeared = false while the anchor may already
-        // be visible in the hierarchy (CTA taps, sends, resizes) —
-        // since onAppear only fires on hierarchy transitions, the
-        // flag won't be re-set and recovery would fire indefinitely
-        // without the time cutoff.
+        // Recovery fires unconditionally until the bottom anchor view
+        // has appeared (meaning LazyVStack materialized to the actual
+        // bottom and isAtBottom is reliable) OR the 2-second deadline
+        // expires (whichever comes first). The deadline is critical
+        // because multiple paths reset bottomAnchorAppeared = false
+        // while the anchor may already be visible in the hierarchy
+        // (CTA taps, sends, resizes) — since onAppear only fires on
+        // hierarchy transitions, the flag won't be re-set and recovery
+        // would fire indefinitely without the time cutoff.
         // Only fires in initialLoad/followingBottom.
-        //
-        // https://developer.apple.com/documentation/swiftui/scrollposition
         let isInRecoveryWindow: Bool
         if scrollState.bottomAnchorAppeared {
             // Anchor materialized — isAtBottom is reliable now.
@@ -312,22 +277,19 @@ extension MessageListView {
         if scrollState.mode.allowsAutoScroll,
            phaseAllowsAutoFollow,
            effectiveContentHeight > newState.visibleRectHeight,
-           isInRecoveryWindow {
+           (!nowAtBottom || isInRecoveryWindow) {
             // Throttle recovery to at most once per 100ms. Without this,
-            // geometry updates at ~60fps fire requestPinToBottom every
-            // ~16ms. LazyVStack needs time between scroll attempts to
-            // materialize views at the new position — rapid-fire scrolls
-            // keep yanking the viewport before materialization completes,
-            // causing the chat to appear blank (especially in long
-            // conversations). 100ms ≈ 6 frames at 60fps — enough for
-            // LazyVStack to materialize a batch of views while still
-            // feeling responsive.
+            // geometry updates at ~60fps fire scrollToEdge every ~16ms.
+            // LazyVStack needs time between scroll attempts to materialize
+            // views at the new position — rapid-fire scrolls keep yanking
+            // the viewport before materialization completes, causing the
+            // chat to appear blank (especially in long conversations).
+            // 100ms ≈ 6 frames at 60fps — enough for LazyVStack to
+            // materialize a batch of views while still feeling responsive.
             let now = Date()
             if now.timeIntervalSince(scrollState.lastRecoveryAttempt) >= 0.1 {
                 scrollState.lastRecoveryAttempt = now
-                let deadlineRemaining = scrollState.recoveryDeadline.map { $0.timeIntervalSince(now) } ?? -1
-                scrollDiag.debug("recovery: firing, distBottom=\(distanceFromBottom, privacy: .public) isAtBottom=\(nowAtBottom, privacy: .public) anchorAppeared=\(scrollState.bottomAnchorAppeared, privacy: .public) deadlineLeft=\(String(format: "%.1f", deadlineRemaining), privacy: .public)s mode=\(scrollState.mode.description, privacy: .public)")
-                scrollState.requestPinToBottom(forRecovery: true)
+                scrollState.scrollToEdge?(.bottom)
             }
         }
 
@@ -434,11 +396,8 @@ extension MessageListView {
                 // `guard case .stabilizing = mode` and bails if mode changed.
             } else if anchorMessageId == nil {
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=fallback")
-                scrollDiag.debug("restoreScrollToBottom: fallback firing, mode=\(scrollState.mode.description, privacy: .public)")
                 scrollState.transition(to: .followingBottom)
                 scrollState.requestPinToBottom()
-            } else {
-                scrollDiag.debug("restoreScrollToBottom: skipped — anchorMessageId is set")
             }
             scrollState.scrollRestoreTask = nil
         }
@@ -464,33 +423,32 @@ extension MessageListView {
     /// perform programmatic scrolls via the view-owned ScrollPosition.
     func configureScrollCallbacks() {
         let binding = $scrollPosition
-        // Use the imperative `.scrollTo()` mutating methods on the
-        // binding's wrappedValue. This is Apple's recommended pattern
-        // for programmatic scrolling (see ScrollPosition docs example:
-        // `position.scrollTo(edge: .bottom)`). The mutating method
-        // modifies the ScrollPosition through the binding's inout
-        // accessor, triggering the @State setter. This pattern is
-        // already used elsewhere in the codebase (handleAppear anchor
-        // scroll, handleSendingChanged user-message scroll).
-        //
-        // The previous approach used value replacement
-        // (`binding.wrappedValue = ScrollPosition(edge:)`) which was
-        // empirically unreliable — repeated writes of the same struct
-        // value were silently deduped by SwiftUI's binding update
-        // mechanism. The imperative method is a command ("scroll to X
-        // now") rather than a state declaration ("scroll state is X").
+        // Replace the entire ScrollPosition value instead of calling the
+        // mutating `.scrollTo(id:anchor:)` method. Value replacement
+        // forces SwiftUI to process a fresh scroll command every time.
+        // The `.scrollTo()` method can be silently deduped when the
+        // position was previously set to the same ID (e.g. from a
+        // conversation switch `ScrollPosition(id: lastId, .bottom)`) —
+        // even after the user has scrolled away, the internal state may
+        // still consider itself "at" that ID.
         scrollState.scrollTo = { id, anchor in
             if let uuidId = id as? UUID {
-                scrollDiag.debug("closure.scrollTo: id=\(uuidId.uuidString, privacy: .public) anchor=\(String(describing: anchor), privacy: .public)")
-                binding.wrappedValue.scrollTo(id: uuidId, anchor: anchor)
+                binding.wrappedValue = ScrollPosition(id: uuidId, anchor: anchor)
             } else if let stringId = id as? String {
-                scrollDiag.debug("closure.scrollTo: id=\(stringId, privacy: .public) anchor=\(String(describing: anchor), privacy: .public)")
-                binding.wrappedValue.scrollTo(id: stringId, anchor: anchor)
+                binding.wrappedValue = ScrollPosition(id: stringId, anchor: anchor)
             }
         }
+        // Replace the entire ScrollPosition value (same as the ID-based
+        // closure above) instead of calling the mutating `.scrollTo(edge:)`
+        // method. Value replacement forces SwiftUI to process a fresh
+        // scroll command every time. The mutating method can be silently
+        // deduped when SwiftUI considers the position "already at that
+        // edge" — the same class of bug that affected `.scrollTo(id:)`.
+        // After SwiftUI processes the edge scroll, it updates the binding
+        // to the actual content offset, so the next value replacement
+        // with ScrollPosition(edge:) is always a new value.
         scrollState.scrollToEdge = { edge in
-            scrollDiag.debug("closure.scrollToEdge: edge=\(String(describing: edge), privacy: .public)")
-            binding.wrappedValue.scrollTo(edge: edge)
+            binding.wrappedValue = ScrollPosition(edge: edge)
         }
         // Cancel in-flight spring animations on the scroll position.
         //

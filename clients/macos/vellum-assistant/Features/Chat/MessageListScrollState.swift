@@ -109,7 +109,6 @@ enum StabilizedMode: Equatable, CustomStringConvertible {
 }
 
 private let scrollLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "ScrollState")
-private let scrollDiag = Logger(subsystem: Bundle.appBundleIdentifier, category: "ScrollDiag")
 
 // MARK: - MessageListScrollState
 
@@ -249,16 +248,6 @@ final class MessageListScrollState {
     /// attempts. For very long conversations, this prevents the
     /// viewport from overshooting into unmaterialized estimated space.
     @ObservationIgnored var lastRecoveryAttempt: Date = .distantPast
-
-    /// Timestamp of the last content-height-change auto-follow call
-    /// when the viewport is NOT at bottom. Throttles the auto-follow
-    /// to at most once per 50ms when stuck off-bottom. Without this,
-    /// each `scrollTo(id:)` triggers LazyVStack to re-estimate heights
-    /// (materializing/dematerializing items), which changes content
-    /// height, which triggers another geometry callback — creating an
-    /// infinite feedback loop at ~250/sec that never converges.
-    /// When the viewport IS at bottom, auto-follow fires unthrottled.
-    @ObservationIgnored var lastAutoFollowAttempt: Date = .distantPast
 
     /// Timestamp of the last user-initiated CTA tap. Used to suppress
     /// `.decelerating` scroll-up detection for 500ms after the tap.
@@ -628,8 +617,7 @@ final class MessageListScrollState {
     ///
     /// `userInitiated: true` bypasses mode checks — user intent always wins.
     @discardableResult
-    func requestPinToBottom(animated: Bool = false, userInitiated: Bool = false, forRecovery: Bool = false) -> Bool {
-        scrollDiag.debug("requestPinToBottom: mode=\(self.mode.description, privacy: .public) userInit=\(userInitiated, privacy: .public) forRecovery=\(forRecovery, privacy: .public) allowsAuto=\(self.mode.allowsAutoScroll, privacy: .public)")
+    func requestPinToBottom(animated: Bool = false, userInitiated: Bool = false) -> Bool {
         if userInitiated {
             transition(to: .followingBottom)
             // Sync UI immediately so showScrollToLatest is updated within
@@ -650,53 +638,75 @@ final class MessageListScrollState {
             return true
         }
 
-        guard mode.allowsAutoScroll else {
-            scrollDiag.debug("requestPinToBottom: BLOCKED by mode=\(self.mode.description, privacy: .public)")
-            return false
-        }
-        executeScrollToBottom(animated: animated, forRecovery: forRecovery)
+        guard mode.allowsAutoScroll else { return false }
+        executeScrollToBottom(animated: animated)
         return true
     }
 
     /// Low-level scroll-to-bottom execution. Does not check mode.
     ///
-    /// All scroll closures (`scrollToEdge`, `scrollTo`) use the
-    /// imperative `.scrollTo()` mutating methods on the ScrollPosition
-    /// binding — Apple's recommended pattern for programmatic scrolling.
+    /// Two strategies depending on context:
     ///
-    /// **ID-only strategy:** All paths use ID-based scroll targeting
-    /// real ForEach items. Edge-based scroll (`scrollToEdge(.bottom)`)
-    /// is NEVER used when `lastMessageId` is available — it computes
-    /// total content height from LazyVStack estimates, which overshoot
-    /// into blank space for long conversations with unmaterialized
-    /// items. ID-based scroll targets a specific item that SwiftUI can
-    /// locate even when not materialized, so it lands short (showing
-    /// messages) rather than overshooting (showing blank space).
-    /// Each recovery attempt materializes views near the target,
-    /// improving LazyVStack estimates for the next attempt —
-    /// converging monotonically to the actual bottom.
+    /// **User-initiated (CTA tap):** ID-based scroll only.
+    /// `scrollTo(id: lastMessageId, .bottom)` fires synchronously —
+    /// targets a real ForEach item that SwiftUI can always locate (even
+    /// when not materialized), so it never overshoots into blank
+    /// LazyVStack estimated space. No deferred edge-based correction:
+    /// a Task calling `scrollToEdge(.bottom)` on the next run loop would
+    /// fire during the in-flight spring animation (~16ms later),
+    /// interrupting it with a non-animated jump to the estimated bottom
+    /// (possibly blank space). Instead, the recovery window (set in
+    /// `requestPinToBottom`) handles the small gap between the last
+    /// message and the absolute content bottom (padding/anchor below).
+    /// Recovery is phase-gated (`.idle` only), so it waits until the
+    /// spring completes. Animation is provided by the caller's
+    /// `withAnimation` wrapper (spring for smooth CTA scroll).
     ///
-    /// Edge-based scroll is only used as a fallback for empty
-    /// conversations where `lastMessageId == nil`.
+    /// **Auto-follow / recovery:** ID-based scroll only (synchronous).
+    /// `scrollTo(id: lastMessageId, .bottom)` targets real ForEach content.
+    /// Falls back to `scrollToEdge(.bottom)` only when `lastMessageId` is
+    /// nil (empty conversations). The previous dual-scroll strategy (edge
+    /// synchronous + ID Task) caused blank screens on initial load and
+    /// conversation switch: during the recovery window, geometry updates
+    /// fire at ~60fps, each cancelling the previous ID Task before it
+    /// executes — only edge scrolls (estimated bottom = blank space)
+    /// actually landed.
     ///
     /// - SeeAlso: https://stackoverflow.com/q/79884780 (ScrollPosition unreliable with variable heights)
     /// - SeeAlso: https://developer.apple.com/documentation/swiftui/scrollposition/scrollto(edge:)
-    private func executeScrollToBottom(animated: Bool, userInitiated: Bool = false, forRecovery: Bool = false) {
-        let path = userInitiated ? "userInitiated" : (forRecovery ? "recovery" : "autoFollow")
-        scrollDiag.debug("executeScrollToBottom: path=\(path, privacy: .public) animated=\(animated, privacy: .public) lastMsgId=\(self.lastMessageId?.uuidString ?? "nil", privacy: .public)")
+    private func executeScrollToBottom(animated: Bool, userInitiated: Bool = false) {
+        if userInitiated {
+            // ID-based only: targets a real ForEach item that SwiftUI
+            // can always locate — never overshoots into blank LazyVStack
+            // estimated space. If the user scrolls up immediately after
+            // tapping, they start from real content (not blank space).
+            // Animated with spring from the caller's withAnimation wrapper.
+            //
+            // No edge-based correction Task here. A deferred non-animated
+            // scrollToEdge(.bottom) would fire on the next run loop (~16ms)
+            // during the in-flight spring animation, interrupting it with
+            // a jarring jump to the estimated bottom (possibly blank space).
+            // Instead, the recovery window (set in requestPinToBottom)
+            // handles the small gap between lastMessageId and the absolute
+            // content bottom (padding/anchor below). Recovery is gated by
+            // phaseAllowsAutoFollow (.idle only), so it waits until the
+            // spring completes, then fires one clean correction.
+            let target: any Hashable = lastMessageId ?? ("scroll-bottom-anchor" as any Hashable)
+            scrollTo?(target, .bottom)
+            return
+        }
 
-        // ID-based scroll: targets a real ForEach item. Falls back to
-        // edge-based only for empty conversations (lastMessageId == nil).
-        //
-        // Animation handling:
-        //   - userInitiated (CTA): caller wraps in withAnimation(VAnimation.spring),
-        //     so we must NOT add an inner withAnimation — SwiftUI's nested
-        //     withAnimation gives precedence to the innermost call, which
-        //     would override the spring with VAnimation.fast.
-        //   - auto-follow / recovery: no outer withAnimation, so we wrap
-        //     in VAnimation.fast when animated == true.
+        // Auto-follow / recovery: ID-based primary (synchronous).
         if let target = lastMessageId {
-            if animated && !userInitiated {
+            // ID-based: targets a real ForEach item that SwiftUI can
+            // always locate (even when not materialized). Synchronous —
+            // no deferred Task that could be cancelled by the next
+            // recovery call before it executes. During the recovery
+            // window, geometry updates fire at ~60fps; a Task-based
+            // scroll would be cancelled by the next recovery call
+            // within ~16ms, leaving only edge scrolls (estimated
+            // bottom = blank space) actually landing.
+            if animated {
                 withAnimation(VAnimation.fast) {
                     scrollTo?(target, .bottom)
                 }
@@ -706,7 +716,7 @@ final class MessageListScrollState {
         } else {
             // No ForEach items to target (empty conversation).
             // Fall back to edge-based scroll.
-            if animated && !userInitiated {
+            if animated {
                 withAnimation(VAnimation.fast) {
                     scrollToEdge?(.bottom)
                 }
@@ -738,7 +748,7 @@ final class MessageListScrollState {
             break
         }
         // Cancel the active recovery window. Without this, recovery
-        // fires `scrollTo(id:)` in the brief `.idle` gap between
+        // fires `scrollToEdge(.bottom)` in the brief `.idle` gap between
         // user scroll gestures (trackpad lift → re-touch), yanking the
         // viewport back to bottom and creating a "scroll lock" effect.
         // User intent to scroll away always takes priority over recovery.
@@ -848,7 +858,6 @@ final class MessageListScrollState {
         // hasn't materialized yet. Until it does, isAtBottom is unreliable.
         bottomAnchorAppeared = false
         lastRecoveryAttempt = .distantPast
-        lastAutoFollowAttempt = .distantPast
         lastUserInitiatedPinTime = nil
         // Mark that a recovery window is active. Recovery fires
         // unconditionally until bottomAnchorAppeared becomes true.
@@ -898,7 +907,6 @@ final class MessageListScrollState {
         recoveryDeadline = nil
         bottomAnchorAppeared = false
         lastRecoveryAttempt = .distantPast
-        lastAutoFollowAttempt = .distantPast
         lastUserInitiatedPinTime = nil
         lastMessageId = nil
         isAtBottom = false

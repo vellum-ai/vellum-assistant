@@ -5,7 +5,6 @@ import SwiftUI
 import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "MessageListView")
-private let scrollDiag = Logger(subsystem: Bundle.appBundleIdentifier, category: "ScrollDiag")
 
 extension MessageListView {
 
@@ -18,19 +17,12 @@ extension MessageListView {
         // Must check BEFORE configureScrollCallbacks() which updates
         // currentConversationId.
         //
-        // previousConversationId can be nil in two cases:
-        //   1. True first mount (app launch) — reset() on freshly-initialized
-        //      state is redundant but harmless (scrollToEdge on empty content
-        //      is a no-op, recovery window helps with subsequent content load).
-        //   2. Parent view recreated MessageListView during a conversation
-        //      switch (conditional rendering) — @State was re-initialized,
-        //      clearing currentConversationId. handleConversationSwitched()
-        //      MUST run to properly position the viewport.
-        // Both cases are handled correctly by running handleConversationSwitched
-        // whenever the IDs differ (including nil != UUID).
+        // Skip when currentConversationId is nil (true first mount) — reset()
+        // on freshly-initialized state is redundant and its 300ms scroll-
+        // indicator-hide task would cause a visual flicker on app launch.
         let previousConversationId = scrollState.currentConversationId
-        let isConversationSwitch = previousConversationId != conversationId
-        scrollDiag.debug("handleAppear: isSwitch=\(isConversationSwitch, privacy: .public) old=\(previousConversationId?.uuidString ?? "nil", privacy: .public) new=\(conversationId?.uuidString ?? "nil", privacy: .public) msgCount=\(paginatedVisibleMessages.count, privacy: .public)")
+        let isConversationSwitch = previousConversationId != nil
+            && previousConversationId != conversationId
         configureScrollCallbacks()
         if isConversationSwitch {
             handleConversationSwitched()
@@ -68,15 +60,6 @@ extension MessageListView {
             flashHighlight(messageId: id)
             anchorMessageId = nil
             scrollState.anchorSetTime = nil
-            // Cancel the pending restore task. handleConversationSwitched()
-            // unconditionally calls restoreScrollToBottom() (line 335),
-            // which creates a 100ms delayed task. If the anchor was found
-            // and resolved above, the restore task would fire after the
-            // delay and yank the viewport from the anchor position back
-            // to bottom (since anchorMessageId is now nil, the restore
-            // task's `else if anchorMessageId == nil` branch executes).
-            scrollState.scrollRestoreTask?.cancel()
-            scrollState.scrollRestoreTask = nil
         } else if anchorMessageId != nil {
             // Anchor is set but the target message isn't loaded yet.
             os_signpost(.event, log: PerfSignposts.log, name: "anchorSet", "reason=onAppearPending")
@@ -323,23 +306,22 @@ extension MessageListView {
         //
         // Seed lastMessageId so executeScrollToBottom can target it.
         scrollState.lastMessageId = paginatedVisibleMessages.last?.id
-        // Position at the content bottom for the new conversation.
-        // Use the imperative `.scrollTo(edge: .bottom)` method — Apple's
-        // recommended pattern for programmatic scrolling (see ScrollPosition
-        // docs). This is a command ("scroll to bottom now") rather than a
-        // state declaration. Edge-based because ID-based requires computing
-        // cumulative estimated heights of all preceding items, which for
-        // long conversations with variable-height messages places the
-        // viewport in blank LazyVStack space.
-        // restoreScrollToBottom() (100ms fallback) fine-tunes via the
-        // recovery loop.
-        // https://developer.apple.com/documentation/swiftui/scrollposition/scrollto(edge:)
+        // Declarative position reset — processed in the same layout pass as new content.
+        // Prefer the last ForEach message ID over the standalone anchor because
+        // ForEach items are always indexable by ScrollPosition even when not
+        // materialized — SwiftUI locates them in the data source. The standalone
+        // "scroll-bottom-anchor" (outside ForEach) is only locatable when materialized.
+        // https://developer.apple.com/documentation/swiftui/scrollposition
         scrollState.scrollRestoreTask?.cancel()
         if anchorMessageId == nil {
-            scrollDiag.debug("handleConversationSwitched: calling scrollTo(edge: .bottom), lastMsgId=\(scrollState.lastMessageId?.uuidString ?? "nil", privacy: .public) conv=\(conversationId?.uuidString ?? "nil", privacy: .public)")
-            scrollPosition.scrollTo(edge: .bottom)
-        } else {
-            scrollDiag.debug("handleConversationSwitched: SKIPPED scroll — anchorMessageId is set")
+            if let lastId = paginatedVisibleMessages.last?.id {
+                scrollPosition = ScrollPosition(id: lastId, anchor: .bottom)
+            } else {
+                // Empty conversation — no ForEach items to target.
+                // Use edge-based position; the standalone "scroll-bottom-anchor"
+                // is outside ForEach and only locatable when materialized.
+                scrollPosition = ScrollPosition(edge: .bottom)
+            }
         }
         restoreScrollToBottom()
     }
