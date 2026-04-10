@@ -768,7 +768,7 @@ public struct VMenuDivider: View {
     public init() {}
 
     public var body: some View {
-        VColor.borderBase.frame(height: 1)
+        VColor.borderHover.frame(height: 1)
             .padding(.horizontal, VSpacing.xs)
             .padding(.vertical, VSpacing.xs)
             .accessibilityHidden(true)

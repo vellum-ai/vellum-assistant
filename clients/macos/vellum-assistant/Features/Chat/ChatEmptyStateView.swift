@@ -100,14 +100,14 @@ struct ChatEmptyStateView: View {
         HStack(spacing: VSpacing.md) {
             Group {
                 if appearance.customAvatarImage != nil {
-                    VAvatarImage(image: appearance.chatAvatarImage, size: 32)
+                    VAvatarImage(image: appearance.chatAvatarImage, size: 40)
                 } else if let body = appearance.characterBodyShape,
                    let eyes = appearance.characterEyeStyle,
                    let color = appearance.characterColor {
-                    AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color, size: 32)
-                        .frame(width: 32, height: 32)
+                    AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color, size: 40)
+                        .frame(width: 40, height: 40)
                 } else {
-                    VAvatarImage(image: appearance.chatAvatarImage, size: 32)
+                    VAvatarImage(image: appearance.chatAvatarImage, size: 40)
                 }
             }
 
