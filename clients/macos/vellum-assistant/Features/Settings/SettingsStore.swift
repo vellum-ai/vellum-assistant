@@ -3389,6 +3389,12 @@ public final class SettingsStore: ObservableObject {
     /// non-loopback host like `"attacker.example.com"` or an out-of-range
     /// port, we fall back to the safe defaults (`localhost` / `9222`) and
     /// log a warning instead of silently accepting the unsafe value.
+    ///
+    /// When an invalid value is detected, we also patch the sanitized
+    /// default back to the daemon config so the bad value does not
+    /// reappear on the next config reload. The patch only fires when
+    /// validation fails — once the config contains a valid value, no
+    /// patch is emitted, so there is no infinite loop across refreshes.
     static func applyHostBrowserCdpInspectConfig(
         _ config: [String: Any],
         into store: SettingsStore
@@ -3404,8 +3410,19 @@ public final class SettingsStore: ObservableObject {
             if isValidHostBrowserCdpInspectHost(host) {
                 store.hostBrowserCdpInspectHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
             } else {
-                log.warning("Ignoring invalid hostBrowser.cdpInspect.host value from daemon config (must be loopback); falling back to default")
+                log.warning("Ignoring invalid hostBrowser.cdpInspect.host value from daemon config (must be loopback); falling back to default and patching daemon")
                 store.hostBrowserCdpInspectHost = defaultHostBrowserCdpInspectHost
+                // Persist the sanitized fallback so the invalid value
+                // does not reappear on the next daemon config reload.
+                let settingsClient = store.settingsClient
+                Task {
+                    let success = await settingsClient.patchConfig([
+                        "hostBrowser": ["cdpInspect": ["host": defaultHostBrowserCdpInspectHost]]
+                    ])
+                    if !success {
+                        log.error("Failed to patch sanitized hostBrowser.cdpInspect.host back to daemon config")
+                    }
+                }
             }
         }
         // JSONSerialization may surface integral numbers as Double, so coerce
@@ -3422,8 +3439,19 @@ public final class SettingsStore: ObservableObject {
             if isValidHostBrowserCdpInspectPort(port) {
                 store.hostBrowserCdpInspectPort = port
             } else {
-                log.warning("Ignoring out-of-range hostBrowser.cdpInspect.port value from daemon config (must be 1..65535); falling back to default")
+                log.warning("Ignoring out-of-range hostBrowser.cdpInspect.port value from daemon config (must be 1..65535); falling back to default and patching daemon")
                 store.hostBrowserCdpInspectPort = defaultHostBrowserCdpInspectPort
+                // Persist the sanitized fallback so the invalid value
+                // does not reappear on the next daemon config reload.
+                let settingsClient = store.settingsClient
+                Task {
+                    let success = await settingsClient.patchConfig([
+                        "hostBrowser": ["cdpInspect": ["port": defaultHostBrowserCdpInspectPort]]
+                    ])
+                    if !success {
+                        log.error("Failed to patch sanitized hostBrowser.cdpInspect.port back to daemon config")
+                    }
+                }
             }
         }
         if let probeTimeout = cdpInspect["probeTimeoutMs"] as? Int {

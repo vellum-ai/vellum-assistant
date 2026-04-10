@@ -333,4 +333,148 @@ final class SettingsStoreBrowserBackendTests: XCTestCase {
         // existing value untouched (same contract as missing keys).
         XCTAssertEqual(store.hostBrowserCdpInspectHost, "127.0.0.1")
     }
+
+    // MARK: - Sanitize-and-patch-back behaviour
+
+    func testApplyDaemonConfigPatchesSanitizedHostBackToDaemon() {
+        // An invalid (non-loopback) host from the daemon must be both
+        // sanitized in-memory AND persisted back to the daemon config so
+        // the bad value does not reappear on the next reload.
+        XCTAssertTrue(mockSettingsClient.patchConfigCalls.isEmpty)
+
+        let config: [String: Any] = [
+            "hostBrowser": [
+                "cdpInspect": [
+                    "host": "attacker.example.com",
+                ]
+            ]
+        ]
+        SettingsStore.applyHostBrowserCdpInspectConfig(config, into: store)
+
+        // In-memory fallback applies immediately.
+        XCTAssertEqual(store.hostBrowserCdpInspectHost, "localhost")
+
+        // A patch with the sanitized default is emitted asynchronously.
+        waitForPatchCount(1)
+        let patch = lastCdpInspectPatch()
+        XCTAssertNotNil(patch, "expected a hostBrowser.cdpInspect patch payload")
+        XCTAssertEqual(patch?["host"] as? String, "localhost")
+        XCTAssertNil(patch?["port"])
+        XCTAssertNil(patch?["enabled"])
+    }
+
+    func testApplyDaemonConfigPatchesSanitizedPortBackToDaemon() {
+        // An out-of-range port from the daemon must be both sanitized
+        // in-memory AND persisted back to the daemon config so the bad
+        // value does not reappear on the next reload.
+        XCTAssertTrue(mockSettingsClient.patchConfigCalls.isEmpty)
+
+        let config: [String: Any] = [
+            "hostBrowser": [
+                "cdpInspect": [
+                    "port": 70000,
+                ]
+            ]
+        ]
+        SettingsStore.applyHostBrowserCdpInspectConfig(config, into: store)
+
+        // In-memory fallback applies immediately.
+        XCTAssertEqual(store.hostBrowserCdpInspectPort, 9222)
+
+        // A patch with the sanitized default is emitted asynchronously.
+        waitForPatchCount(1)
+        let patch = lastCdpInspectPatch()
+        XCTAssertNotNil(patch, "expected a hostBrowser.cdpInspect patch payload")
+        XCTAssertEqual(patch?["port"] as? Int, 9222)
+        XCTAssertNil(patch?["host"])
+        XCTAssertNil(patch?["enabled"])
+    }
+
+    func testApplyDaemonConfigPatchesBothSanitizedHostAndPortBackToDaemon() {
+        XCTAssertTrue(mockSettingsClient.patchConfigCalls.isEmpty)
+
+        let config: [String: Any] = [
+            "hostBrowser": [
+                "cdpInspect": [
+                    "host": "attacker.example.com",
+                    "port": -5,
+                ]
+            ]
+        ]
+        SettingsStore.applyHostBrowserCdpInspectConfig(config, into: store)
+
+        XCTAssertEqual(store.hostBrowserCdpInspectHost, "localhost")
+        XCTAssertEqual(store.hostBrowserCdpInspectPort, 9222)
+
+        // One patch per sanitization path.
+        waitForPatchCount(2)
+
+        // Assert BOTH sanitized fields were patched back, regardless of
+        // which order the two background tasks flushed in.
+        var sawHostPatch = false
+        var sawPortPatch = false
+        for payload in mockSettingsClient.patchConfigCalls {
+            guard let hostBrowser = payload["hostBrowser"] as? [String: Any],
+                  let cdpInspect = hostBrowser["cdpInspect"] as? [String: Any] else {
+                continue
+            }
+            if let host = cdpInspect["host"] as? String {
+                XCTAssertEqual(host, "localhost")
+                sawHostPatch = true
+            }
+            if let port = cdpInspect["port"] as? Int {
+                XCTAssertEqual(port, 9222)
+                sawPortPatch = true
+            }
+        }
+        XCTAssertTrue(sawHostPatch, "expected a patch setting host back to localhost")
+        XCTAssertTrue(sawPortPatch, "expected a patch setting port back to 9222")
+    }
+
+    func testApplyDaemonConfigDoesNotPatchWhenValuesAreValid() {
+        // Valid config values must NOT trigger a patch. This guards
+        // against any infinite-loop regression (patch -> refresh ->
+        // patch -> ...) in the normal happy path.
+        let config: [String: Any] = [
+            "hostBrowser": [
+                "cdpInspect": [
+                    "enabled": true,
+                    "host": "127.0.0.1",
+                    "port": 9333,
+                    "probeTimeoutMs": 750,
+                ]
+            ]
+        ]
+        SettingsStore.applyHostBrowserCdpInspectConfig(config, into: store)
+
+        // Give any stray background Task a chance to flush. If a patch
+        // were incorrectly emitted it would show up within this window.
+        let expectation = XCTestExpectation(description: "allow background tasks to flush")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { expectation.fulfill() }
+        wait(for: [expectation], timeout: 1.0)
+
+        XCTAssertTrue(
+            mockSettingsClient.patchConfigCalls.isEmpty,
+            "valid daemon config values must not trigger any patch"
+        )
+    }
+
+    func testApplyDaemonConfigDoesNotPatchWhenHostKeyIsAbsent() {
+        // Missing host key (or empty string, which is the same contract)
+        // must not trigger a patch — only an *invalid* value should.
+        let config: [String: Any] = [
+            "hostBrowser": [
+                "cdpInspect": [
+                    "enabled": true,
+                ]
+            ]
+        ]
+        SettingsStore.applyHostBrowserCdpInspectConfig(config, into: store)
+
+        let expectation = XCTestExpectation(description: "allow background tasks to flush")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { expectation.fulfill() }
+        wait(for: [expectation], timeout: 1.0)
+
+        XCTAssertTrue(mockSettingsClient.patchConfigCalls.isEmpty)
+    }
 }
