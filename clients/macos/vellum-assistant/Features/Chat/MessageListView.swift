@@ -196,7 +196,8 @@ struct MessageListView: View {
                 //   2. restoreScrollToBottom() 100ms fallback
                 //   3. Content-height auto-follow on message load
                 //   4. Recovery window convergence
-                scrollDiag.debug("onDisappear: leaving conv=\(conversationId?.uuidString ?? \"nil\", privacy: .public)")
+                let convStr = conversationId?.uuidString ?? "nil"
+                scrollDiag.debug("onDisappear: leaving conv=\(convStr, privacy: .public)")
                 resizeScrollTask?.cancel()
                 resizeScrollTask = nil
                 highlightedMessageId = nil
@@ -224,7 +225,9 @@ struct MessageListView: View {
                 // lifecycle events are dropped.
                 if scrollState.currentConversationId != conversationId,
                    conversationId != nil {
-                    scrollDiag.debug("onChange(conversationId): detected switch old=\(scrollState.currentConversationId?.uuidString ?? \"nil\", privacy: .public) new=\(conversationId?.uuidString ?? \"nil\", privacy: .public)")
+                    let oldConv = scrollState.currentConversationId?.uuidString ?? "nil"
+                    let newConv = conversationId?.uuidString ?? "nil"
+                    scrollDiag.debug("onChange(conversationId): detected switch old=\(oldConv, privacy: .public) new=\(newConv, privacy: .public)")
                     configureScrollCallbacks()
                     handleConversationSwitched()
                 }
