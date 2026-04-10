@@ -72,6 +72,10 @@ struct ChatBubble: View, Equatable {
     @State private var isUserMessageExpanded: Bool = false
     @State private var userMessageIntrinsicHeight: CGFloat = 0
     private let userMessageMaxCollapsedHeight: CGFloat = 150
+    private static let heuristicUserCollapseCharacterThreshold = 3_000
+    private static let heuristicUserCollapseLineThreshold = 40
+    private static let heuristicUserPreviewCharacterLimit = 1_200
+    private static let heuristicUserPreviewLineLimit = 24
 
     @State private var avatarBounceScale: CGFloat = 1.0
     /// When true, the assistant is still processing after tool calls completed.
@@ -533,6 +537,53 @@ struct ChatBubble: View, Equatable {
         !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// Extremely large user messages are collapsed via a cheap text heuristic
+    /// instead of intrinsic-height measurement. Measuring the full content just
+    /// to decide whether to collapse forces giant tool-result bubbles to fully
+    /// lay out when they first materialize during upward scroll.
+    private var shouldUseHeuristicUserCollapse: Bool {
+        guard isUser, !message.isStreaming else { return false }
+        return message.text.count > Self.heuristicUserCollapseCharacterThreshold
+            || Self.exceedsLineLimit(message.text, limit: Self.heuristicUserCollapseLineThreshold)
+    }
+
+    private var collapsedUserMessagePreviewText: String {
+        Self.collapsedPreviewText(from: message.text)
+    }
+
+    private static func exceedsLineLimit(_ text: String, limit: Int) -> Bool {
+        guard limit > 0 else { return !text.isEmpty }
+        var lineCount = 1
+        for character in text {
+            guard character.isNewline else { continue }
+            lineCount += 1
+            if lineCount > limit {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func collapsedPreviewText(from text: String) -> String {
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty else { return text }
+
+        let charLimitedEnd = text.index(
+            text.startIndex,
+            offsetBy: min(text.count, heuristicUserPreviewCharacterLimit)
+        )
+        let charLimited = String(text[..<charLimitedEnd])
+        let previewLines = charLimited
+            .split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+        let preview = previewLines
+            .prefix(heuristicUserPreviewLineLimit)
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !preview.isEmpty else { return trimmedText }
+        return preview == trimmedText ? preview : "\(preview)\n\n..."
+    }
+
     // MARK: - User Message Collapse / Expand
     //
     // .frame(maxHeight:) creates _FlexFrameLayout which recursively measures
@@ -560,23 +611,35 @@ struct ChatBubble: View, Equatable {
                 .clipped()
 
             if isCollapsible {
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isUserMessageExpanded.toggle()
-                    }
-                }) {
-                    Text(isUserMessageExpanded ? "Show less" : "Show more")
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.primaryBase)
-                }
-                .buttonStyle(.plain)
+                collapseToggleButton
             }
         }
     }
 
     @ViewBuilder
+    private func heuristicUserMessageCollapseWrapper<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .trailing, spacing: VSpacing.xs) {
+            content()
+            collapseToggleButton
+        }
+    }
+
+    private var collapseToggleButton: some View {
+        Button(action: {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isUserMessageExpanded.toggle()
+            }
+        }) {
+            Text(isUserMessageExpanded ? "Show less" : "Show more")
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.primaryBase)
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
     private var bubbleContent: some View {
-        bubbleContent(renderingText: message.text, hasRenderedText: hasText)
+        bubbleContent(renderingText: message.text)
     }
 
     /// Assistant-only wrapper that lifts inline `<thinking>...</thinking>`
@@ -610,18 +673,25 @@ struct ChatBubble: View, Equatable {
                 )
             }
             if hasRenderedText || hasAttachments {
-                bubbleContent(renderingText: joinedText, hasRenderedText: hasRenderedText)
+                bubbleContent(renderingText: joinedText)
             }
         }
     }
 
     @ViewBuilder
-    private func bubbleContent(renderingText: String, hasRenderedText: Bool) -> some View {
+    private func bubbleContent(renderingText: String) -> some View {
         let partitioned = partitionedAttachments
+        let shouldUseHeuristicCollapse = isUser && shouldUseHeuristicUserCollapse
+        let effectiveRenderingText = shouldUseHeuristicCollapse && !isUserMessageExpanded
+            ? collapsedUserMessagePreviewText
+            : renderingText
+        let effectiveHasRenderedText = !effectiveRenderingText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
         let chrome = bubbleChrome {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
-                if hasRenderedText {
-                    let segments = resolveSegments(for: renderingText, isStreaming: message.isStreaming)
+                if effectiveHasRenderedText {
+                    let segments = resolveSegments(for: effectiveRenderingText, isStreaming: message.isStreaming)
                     // Always render through MarkdownSegmentView to keep view
                     // identity stable across async segment parsing transitions.
                     // When a large message first renders, resolveSegments returns
@@ -691,7 +761,11 @@ struct ChatBubble: View, Equatable {
             }
         }
         if isUser {
-            userMessageHeightWrapper { chrome }
+            if shouldUseHeuristicCollapse {
+                heuristicUserMessageCollapseWrapper { chrome }
+            } else {
+                userMessageHeightWrapper { chrome }
+            }
         } else {
             chrome
         }
