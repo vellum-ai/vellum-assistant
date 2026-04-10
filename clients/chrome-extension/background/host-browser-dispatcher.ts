@@ -317,10 +317,12 @@ export function createHostBrowserDispatcher(
     const ownController = abort;
     inFlight.set(requestId, ownController);
     try {
-      const target = await deps.resolveTarget(envelope.cdpSessionId);
-
       // Handle synthetic Vellum.* methods that use chrome extension APIs
-      // directly instead of routing through chrome.debugger.
+      // directly instead of routing through chrome.debugger. These methods
+      // do not require a resolved CDP target, so they must be dispatched
+      // BEFORE `resolveTarget()` — otherwise `resolveTarget(undefined)`
+      // falls back to querying for the active tab, which throws when no
+      // focused window/tab exists (minimized, no active tab, etc.).
       if (envelope.cdpMethod === 'Vellum.findTab') {
         const urlPattern = (envelope.cdpParams as { urlPattern?: string } | undefined)?.urlPattern;
         if (!urlPattern) {
@@ -349,6 +351,7 @@ export function createHostBrowserDispatcher(
         return;
       }
 
+      const target = await deps.resolveTarget(envelope.cdpSessionId);
       const key = targetKey(target);
       if (!attachedTargets.has(key)) {
         try {
