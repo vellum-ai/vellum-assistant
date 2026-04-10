@@ -127,8 +127,6 @@ struct LogsTabContent: View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             if let conversationId = activeSessionId {
                 metricsCard(conversationId: conversationId)
-                    .frame(maxWidth: 900, alignment: .top)
-                    .frame(maxWidth: .infinity)
 
                 if hasEvents {
                     TraceTimelineView(traceStore: traceStore, conversationId: conversationId)
@@ -161,7 +159,8 @@ struct LogsTabContent: View {
                 Spacer()
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .frame(maxWidth: 900, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             traceStore.isObserved = true
             hydrateIfNeeded()
@@ -339,7 +338,7 @@ struct UsageTabContent: View {
             }
         }
         .frame(maxWidth: 900, alignment: .top)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity)
         .background { OverlayScrollerStyle() }
         }
         .scrollContentBackground(.hidden)
