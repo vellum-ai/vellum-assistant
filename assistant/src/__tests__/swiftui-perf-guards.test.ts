@@ -42,6 +42,7 @@ const LAZY_VSTACK_CELL_FILES = [
   "AnimatedImageView.swift",
   "MarkdownSegmentView.swift",
   "ThinkingBlockView.swift",
+  "SubagentEventsReader.swift",
   // The LazyVStack container itself
   "MessageListContentView.swift",
   // Shared cell files (under clients/shared/Features/Chat/)
@@ -141,7 +142,7 @@ describe("SwiftUI LazyVStack performance guards", () => {
     // Search for .transition(.move( in Swift files.
     // Uses hardcoded grep patterns — no user input, safe from injection.
     const raw = execSync(
-      'grep -rn "\\.transition(.move(" clients/macos/ clients/shared/ --include="*.swift" || true',
+      'grep -rn -E "\\.transition\\(\\.move\\(" clients/macos/ clients/shared/ --include="*.swift" || true',
       { encoding: "utf-8", cwd: repoRoot },
     );
 
