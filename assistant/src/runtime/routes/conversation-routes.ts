@@ -1120,6 +1120,13 @@ export async function handleSendMessage(
     bypassSecretCheck?: boolean;
     hostHomeDir?: string;
     hostUsername?: string;
+    onboarding?: {
+      tools: string[];
+      tasks: string[];
+      tone: string;
+      userName?: string;
+      assistantName?: string;
+    };
   };
 
   const { conversationKey, content, attachmentIds } = body;
@@ -1246,6 +1253,13 @@ export async function handleSendMessage(
     mapping.conversationId,
     { transport },
   );
+
+  // Store pre-chat onboarding context on the conversation when this is the
+  // very first message (no prior messages loaded). The context is in-memory
+  // only and used to personalize the system prompt for the first turn.
+  if (body.onboarding && conversation.messages.length === 0) {
+    conversation.setOnboardingContext(body.onboarding);
+  }
 
   // Resolve guardian context from the AuthContext's actorPrincipalId.
   // The JWT-verified principal is used as the sender identity through
