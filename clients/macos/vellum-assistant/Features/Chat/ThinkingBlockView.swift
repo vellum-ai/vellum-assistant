@@ -26,6 +26,20 @@ struct ThinkingBlockView: View {
         expansionStore.isExpanded(expansionKey)
     }
 
+    /// Seed the segment cache when the block is (or becomes) expanded and the
+    /// content has drifted from the cache. Called from `onAppear` as well as
+    /// `onChange` — `onAppear` is the critical one: when `MessageListContentView`
+    /// tears down and rebuilds the view subtree at the end of an active turn,
+    /// the view is recreated with `isExpanded == true` (from the store) but
+    /// empty `@State` caches, and neither `onChange` handler fires on initial
+    /// values. Without this, expanded blocks go blank at turn end until the
+    /// user collapses and re-expands them.
+    private func syncCacheIfExpanded() {
+        guard isExpanded, cachedContent != content else { return }
+        cachedContent = content
+        cachedSegments = parseMarkdownSegments(content)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             headerRow
@@ -54,16 +68,9 @@ struct ThinkingBlockView: View {
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .animation(VAnimation.fast, value: isExpanded)
-        .onChange(of: content) { _, newContent in
-            guard isExpanded, newContent != cachedContent else { return }
-            cachedContent = newContent
-            cachedSegments = parseMarkdownSegments(newContent)
-        }
-        .onChange(of: isExpanded) { _, expanded in
-            guard expanded, cachedContent != content else { return }
-            cachedContent = content
-            cachedSegments = parseMarkdownSegments(content)
-        }
+        .onAppear { syncCacheIfExpanded() }
+        .onChange(of: content) { _, _ in syncCacheIfExpanded() }
+        .onChange(of: isExpanded) { _, _ in syncCacheIfExpanded() }
     }
 
     // MARK: - Header
