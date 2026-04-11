@@ -248,7 +248,16 @@ async function sshAppleContainer(entry: AssistantEntry): Promise<void> {
 
     socket.on("end", () => {
       cleanup();
-      resolve();
+      if (handshakeComplete) {
+        resolve();
+      } else {
+        reject(
+          new Error(
+            "Management socket closed before handshake completed. " +
+              "The assistant may be restarting.",
+          ),
+        );
+      }
     });
 
     socket.on("error", (err) => {
@@ -258,7 +267,16 @@ async function sshAppleContainer(entry: AssistantEntry): Promise<void> {
 
     socket.on("close", () => {
       cleanup();
-      resolve();
+      if (handshakeComplete) {
+        resolve();
+      } else {
+        reject(
+          new Error(
+            "Management socket closed before handshake completed. " +
+              "The assistant may be restarting.",
+          ),
+        );
+      }
     });
 
     function cleanup(): void {
