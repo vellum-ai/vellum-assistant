@@ -56,8 +56,18 @@ function migrateProxyCa(): void {
     return;
   }
 
-  mkdirSync(destDir, { recursive: true });
-  cpSync(srcDir, destDir, { recursive: true });
+  try {
+    mkdirSync(destDir, { recursive: true });
+    cpSync(srcDir, destDir, { recursive: true });
+  } catch (err) {
+    // Clean up partial copy so the retry sees no destDir and tries again
+    try {
+      rmSync(destDir, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
+    throw err;
+  }
 
   // Remove old directory now that the copy succeeded
   try {
