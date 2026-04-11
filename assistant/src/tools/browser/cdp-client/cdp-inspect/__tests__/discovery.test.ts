@@ -9,8 +9,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
+  buildBrowserWsUrl,
   DevToolsDiscoveryError,
   type DevToolsTarget,
+  discoverTargetsViaWs,
+  isHttpDiscoveryFallbackEligible,
   listDevToolsTargets,
   pickDefaultTarget,
   probeDevToolsJsonVersion,
@@ -739,5 +742,266 @@ describe("pickDefaultTarget", () => {
   test("returns the only candidate when the list has length 1", () => {
     const targets = [makeTarget({ id: "only", url: "https://example.com/" })];
     expect(pickDefaultTarget(targets).id).toBe("only");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildBrowserWsUrl — loopback enforcement and URL construction.
+// ---------------------------------------------------------------------------
+
+describe("buildBrowserWsUrl", () => {
+  test("builds ws URL for localhost", () => {
+    expect(buildBrowserWsUrl("localhost", 9222)).toBe(
+      "ws://localhost:9222/devtools/browser",
+    );
+  });
+
+  test("builds ws URL for 127.0.0.1", () => {
+    expect(buildBrowserWsUrl("127.0.0.1", 9333)).toBe(
+      "ws://127.0.0.1:9333/devtools/browser",
+    );
+  });
+
+  test("wraps bare ::1 in brackets", () => {
+    expect(buildBrowserWsUrl("::1", 9222)).toBe(
+      "ws://[::1]:9222/devtools/browser",
+    );
+  });
+
+  test("accepts [::1] (already bracketed)", () => {
+    expect(buildBrowserWsUrl("[::1]", 9222)).toBe(
+      "ws://[::1]:9222/devtools/browser",
+    );
+  });
+
+  test("is case-insensitive for LOCALHOST", () => {
+    expect(buildBrowserWsUrl("LOCALHOST", 9222)).toBe(
+      "ws://localhost:9222/devtools/browser",
+    );
+  });
+
+  test("rejects non-loopback hosts with non_loopback", () => {
+    expect(() => buildBrowserWsUrl("192.168.1.1", 9222)).toThrow(
+      DevToolsDiscoveryError,
+    );
+    try {
+      buildBrowserWsUrl("evil.com", 9222);
+    } catch (e) {
+      expect((e as DevToolsDiscoveryError).code).toBe("non_loopback");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isHttpDiscoveryFallbackEligible — determines which errors trigger fallback.
+// ---------------------------------------------------------------------------
+
+describe("isHttpDiscoveryFallbackEligible", () => {
+  test("returns true for invalid_response", () => {
+    const err = new DevToolsDiscoveryError("invalid_response", "bad");
+    expect(isHttpDiscoveryFallbackEligible(err)).toBe(true);
+  });
+
+  test("returns true for unreachable", () => {
+    const err = new DevToolsDiscoveryError("unreachable", "gone");
+    expect(isHttpDiscoveryFallbackEligible(err)).toBe(true);
+  });
+
+  test("returns false for non_loopback", () => {
+    const err = new DevToolsDiscoveryError("non_loopback", "nope");
+    expect(isHttpDiscoveryFallbackEligible(err)).toBe(false);
+  });
+
+  test("returns false for non_chrome", () => {
+    const err = new DevToolsDiscoveryError("non_chrome", "Firefox");
+    expect(isHttpDiscoveryFallbackEligible(err)).toBe(false);
+  });
+
+  test("returns false for timeout", () => {
+    const err = new DevToolsDiscoveryError("timeout", "too slow");
+    expect(isHttpDiscoveryFallbackEligible(err)).toBe(false);
+  });
+
+  test("returns false for no_targets", () => {
+    const err = new DevToolsDiscoveryError("no_targets", "empty");
+    expect(isHttpDiscoveryFallbackEligible(err)).toBe(false);
+  });
+
+  test("returns false for non-DevToolsDiscoveryError", () => {
+    expect(isHttpDiscoveryFallbackEligible(new Error("random"))).toBe(false);
+    expect(isHttpDiscoveryFallbackEligible("string")).toBe(false);
+    expect(isHttpDiscoveryFallbackEligible(null)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// discoverTargetsViaWs — target enumeration via CDP Target.getTargets.
+// ---------------------------------------------------------------------------
+
+describe("discoverTargetsViaWs", () => {
+  /**
+   * Minimal fake transport that resolves Target.getTargets with the
+   * provided target infos.
+   */
+  function fakeTransport(targetInfos: unknown[]) {
+    return {
+      send: async () => ({ targetInfos }),
+      addEventListener: () => () => {},
+      dispose: () => {},
+    } as unknown as import("../../cdp-inspect/ws-transport.js").CdpWsTransport;
+  }
+
+  test("filters page targets and constructs ws URLs", async () => {
+    const transport = fakeTransport([
+      {
+        targetId: "A",
+        type: "page",
+        title: "Example",
+        url: "https://example.com/",
+      },
+      {
+        targetId: "B",
+        type: "service_worker",
+        title: "sw",
+        url: "https://example.com/sw.js",
+      },
+      {
+        targetId: "C",
+        type: "page",
+        title: "Another",
+        url: "https://another.com/",
+      },
+    ]);
+
+    const targets = await discoverTargetsViaWs({
+      transport,
+      host: "127.0.0.1",
+      port: 9222,
+    });
+
+    expect(targets).toHaveLength(2);
+    expect(targets[0]!.id).toBe("A");
+    expect(targets[0]!.webSocketDebuggerUrl).toBe(
+      "ws://127.0.0.1:9222/devtools/page/A",
+    );
+    expect(targets[1]!.id).toBe("C");
+    expect(targets[1]!.webSocketDebuggerUrl).toBe(
+      "ws://127.0.0.1:9222/devtools/page/C",
+    );
+  });
+
+  test("throws no_targets when no page targets exist", async () => {
+    const transport = fakeTransport([
+      {
+        targetId: "B",
+        type: "service_worker",
+        title: "sw",
+        url: "https://example.com/sw.js",
+      },
+    ]);
+
+    const error = await discoverTargetsViaWs({
+      transport,
+      host: "127.0.0.1",
+      port: 9222,
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(DevToolsDiscoveryError);
+    expect((error as DevToolsDiscoveryError).code).toBe("no_targets");
+  });
+
+  test("throws no_targets when targetInfos is empty", async () => {
+    const transport = fakeTransport([]);
+
+    const error = await discoverTargetsViaWs({
+      transport,
+      host: "127.0.0.1",
+      port: 9222,
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(DevToolsDiscoveryError);
+    expect((error as DevToolsDiscoveryError).code).toBe("no_targets");
+  });
+
+  test("throws ws_fallback_failed when targetInfos is missing", async () => {
+    const transport = {
+      send: async () => ({}),
+      addEventListener: () => () => {},
+      dispose: () => {},
+    } as unknown as import("../../cdp-inspect/ws-transport.js").CdpWsTransport;
+
+    const error = await discoverTargetsViaWs({
+      transport,
+      host: "127.0.0.1",
+      port: 9222,
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(DevToolsDiscoveryError);
+    expect((error as DevToolsDiscoveryError).code).toBe("ws_fallback_failed");
+  });
+
+  test("rejects non-loopback host before calling transport", async () => {
+    let transportCalled = false;
+    const transport = {
+      send: async () => {
+        transportCalled = true;
+        return { targetInfos: [] };
+      },
+      addEventListener: () => () => {},
+      dispose: () => {},
+    } as unknown as import("../../cdp-inspect/ws-transport.js").CdpWsTransport;
+
+    const error = await discoverTargetsViaWs({
+      transport,
+      host: "evil.com",
+      port: 9222,
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(DevToolsDiscoveryError);
+    expect((error as DevToolsDiscoveryError).code).toBe("non_loopback");
+    expect(transportCalled).toBe(false);
+  });
+
+  test("skips entries with empty or missing targetId", async () => {
+    const transport = fakeTransport([
+      { targetId: "", type: "page", title: "Empty ID", url: "https://a.com/" },
+      { type: "page", title: "Missing ID", url: "https://b.com/" },
+      {
+        targetId: "valid",
+        type: "page",
+        title: "Valid",
+        url: "https://c.com/",
+      },
+    ]);
+
+    const targets = await discoverTargetsViaWs({
+      transport,
+      host: "127.0.0.1",
+      port: 9222,
+    });
+
+    expect(targets).toHaveLength(1);
+    expect(targets[0]!.id).toBe("valid");
+  });
+
+  test("constructs IPv6 ws URLs with brackets", async () => {
+    const transport = fakeTransport([
+      {
+        targetId: "A",
+        type: "page",
+        title: "Page",
+        url: "https://example.com/",
+      },
+    ]);
+
+    const targets = await discoverTargetsViaWs({
+      transport,
+      host: "::1",
+      port: 9222,
+    });
+
+    expect(targets[0]!.webSocketDebuggerUrl).toBe(
+      "ws://[::1]:9222/devtools/page/A",
+    );
   });
 });
