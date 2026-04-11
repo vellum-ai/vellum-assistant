@@ -328,11 +328,11 @@ final class SkillsManager {
         // Show spinner immediately during the debounce window so the user
         // doesn't see the "No Skills Available" empty state for 300ms.
         isSearching = true
-        searchDebounceTask = Task {
+        searchDebounceTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
-            skillsStore.searchSkills(query: trimmed, force: true)
-            searchDebounceTask = nil
+            self?.skillsStore.searchSkills(query: trimmed, force: true)
+            self?.searchDebounceTask = nil
         }
     }
 
