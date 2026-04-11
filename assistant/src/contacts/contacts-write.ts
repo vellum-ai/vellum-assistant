@@ -8,6 +8,7 @@
 
 import type { ChannelId } from "../channels/types.js";
 import type { GuardianBinding } from "../memory/channel-verification-sessions.js";
+import { ensureGuardianPersonaFile } from "../prompts/persona-resolver.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 import { emitContactChange } from "./contact-events.js";
@@ -76,7 +77,7 @@ export function createGuardianBinding(params: {
     parseDisplayNameFromMetadata(params.metadataJson) ??
     params.guardianExternalUserId;
 
-  upsertContact({
+  const contact = upsertContact({
     displayName,
     role: "guardian",
     notes: "guardian",
@@ -93,6 +94,13 @@ export function createGuardianBinding(params: {
       },
     ],
   });
+
+  // Seed the per-user persona file so downstream readers (journaling,
+  // persona resolution) can rely on `users/<slug>.md` existing on disk.
+  // Idempotent: pre-existing customized files are preserved.
+  if (contact.userFile) {
+    ensureGuardianPersonaFile(contact.userFile);
+  }
 
   const now = Date.now();
   const result: GuardianBinding = {
@@ -185,7 +193,7 @@ export function upsertContactChannel(params: {
       ) ?? params.externalUserId)
     : null;
 
-  upsertContact({
+  const contact = upsertContact({
     id: params.contactId,
     displayName,
     role: params.role,
@@ -209,6 +217,13 @@ export function upsertContactChannel(params: {
     // existing channel identity to the invite's target contact.
     reassignConflictingChannels: !!params.contactId,
   });
+
+  // Seed the per-user persona file so downstream readers (journaling,
+  // persona resolution) can rely on `users/<slug>.md` existing on disk.
+  // Idempotent: pre-existing customized files are preserved.
+  if (contact.userFile) {
+    ensureGuardianPersonaFile(contact.userFile);
+  }
 
   const contactResult = findContactChannel({
     channelType: params.sourceChannel,
