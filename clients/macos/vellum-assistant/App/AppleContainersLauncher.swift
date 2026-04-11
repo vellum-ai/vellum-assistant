@@ -134,10 +134,12 @@ final class AppleContainersLauncher: AssistantManagementClient {
 
         // Start the management socket server so the CLI can exec into the container.
         let mgmtSocketPath = instanceDir.appendingPathComponent("mgmt.sock").path
+        var mgmtSocketStarted = false
         let server = ExecManagementServer(socketPath: mgmtSocketPath, podRuntime: runtime)
         do {
             try server.start()
             self.mgmtServer = server
+            mgmtSocketStarted = true
         } catch {
             log.warning("Failed to start management socket: \(error.localizedDescription, privacy: .public) — exec will be unavailable")
         }
@@ -188,7 +190,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
             hatchedAt: hatchedAt,
             signingKey: signingKey,
             runtimeUrl: runtime.gatewayURL,
-            mgmtSocket: mgmtSocketPath
+            mgmtSocket: mgmtSocketStarted ? mgmtSocketPath : nil
         )
         LockfileAssistant.setActiveAssistantId(assistantName)
         log.info("Apple container '\(assistantName, privacy: .public)' is running")
