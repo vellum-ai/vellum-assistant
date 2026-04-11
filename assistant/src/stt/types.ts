@@ -87,8 +87,11 @@ export class SttError extends Error {
  * Daemon-hosted batch transcriber contract.
  *
  * Implementations accept a buffer of audio data and return a transcription
- * result. Errors are thrown as `SttError` instances with a normalized category
- * so callers can handle failures uniformly across providers.
+ * result. Errors propagate as raw provider errors (not wrapped in
+ * {@link SttError}) so that callers relying on specific error identities
+ * (e.g. `AbortError` for cancellation) continue to work. Callers that need
+ * normalized error categories should wrap calls with `normalizeSttError()`
+ * from `daemon-batch-transcriber.ts`.
  */
 export interface BatchTranscriber {
   /** Which provider backs this transcriber. */
@@ -98,7 +101,10 @@ export interface BatchTranscriber {
 
   /**
    * Transcribe a chunk of audio.
-   * @throws {SttError} on any transcription failure.
+   *
+   * Rejects with the raw provider error on failure. Use
+   * `normalizeSttError()` to convert to an {@link SttError} with a
+   * structured {@link SttErrorCategory}.
    */
   transcribe(request: SttTranscribeRequest): Promise<SttTranscribeResult>;
 }
