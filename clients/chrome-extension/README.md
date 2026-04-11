@@ -6,7 +6,7 @@ Core pieces:
 - `background/worker.ts`: service worker (relay lifecycle, pairing, CDP dispatch)
 - `background/assistant-auth-profile.ts`: lockfile topology to auth profile mapping
 - `background/native-host-assistants.ts`: native messaging client for assistant catalog
-- `popup/`: popup UI (assistant selector, auth panels, Connect/Disconnect)
+- `popup/`: popup UI (assistant selector, one-click Connect, Pause, troubleshooting auth controls)
 - `popup/popup-state.ts`: pure view-state helpers for the assistant selector
 - `native-host/`: native messaging helper (`com.vellum.daemon`) for self-hosted pairing and assistant discovery
 - `build.sh`: bundles extension assets into `dist/`
@@ -36,12 +36,50 @@ Then in Chrome:
 3. Click **Load unpacked**
 4. Select `clients/chrome-extension/dist`
 
-## How It Works — Assistant-Centric Model
+## How It Works — One-Click Connect
 
 The extension discovers available assistants from the lockfile via the native
 messaging helper (`com.vellum.daemon`). The lockfile lists every assistant
 configured on the machine, along with its hosting topology (`cloud` field),
 runtime URL, and local assistant port.
+
+### First-Time Connect (One Click)
+
+1. The user opens the popup and clicks **Connect**.
+2. The worker resolves the selected assistant's auth profile from the
+   lockfile topology, then auto-bootstraps credentials under the hood:
+   - **Local assistants** (`local-pair`): The worker spawns the native
+     messaging helper, which POSTs to the assistant's
+     `/v1/browser-extension-pair` endpoint and returns a scoped capability
+     token. No manual "Pair" step is needed.
+   - **Cloud assistants** (`cloud-oauth`): The worker launches a
+     `chrome.identity.launchWebAuthFlow` against the cloud gateway to
+     obtain an OAuth token. No manual "Sign in" step is needed.
+3. Once credentials are obtained, the relay WebSocket opens automatically.
+
+The entire flow is a single user action — click **Connect**.
+
+### Auto-Connect On Reopen
+
+After a successful first connect, the extension sets a persistent
+`autoConnect` flag. On subsequent browser launches (or service-worker
+restarts), the worker reads this flag and automatically reconnects using
+the stored credentials — no user interaction required.
+
+If stored credentials have expired or are missing at auto-connect time,
+the extension falls back to the disconnected state silently. The user
+can click **Connect** again to re-bootstrap credentials interactively.
+
+### Pause Semantics
+
+**Pause** is the user-facing stop action. It:
+- Tears down the active relay WebSocket.
+- Clears the `autoConnect` flag so the extension does **not** reconnect
+  on the next browser launch.
+- Preserves stored credentials so the next **Connect** is instant (no
+  re-pair or re-sign-in needed unless the token has expired).
+
+Pause replaces the previous "Disconnect" terminology.
 
 ### Assistant Discovery And Selection
 
@@ -59,9 +97,10 @@ runtime URL, and local assistant port.
 ### Topology-To-Auth Mapping
 
 Each assistant's `cloud` field in the lockfile determines which auth flow
-the extension uses. The mapping is in `assistant-auth-profile.ts`:
+the worker bootstraps automatically on Connect. The mapping is in
+`assistant-auth-profile.ts`:
 
-| `cloud` value | Auth profile | Auth flow |
+| `cloud` value | Auth profile | Auth bootstrapped on Connect |
 |---|---|---|
 | `local` | `local-pair` | Native messaging pair (capability token) |
 | `apple-container` | `local-pair` | Native messaging pair (capability token) |
@@ -69,22 +108,27 @@ the extension uses. The mapping is in `assistant-auth-profile.ts`:
 | `platform` | `cloud-oauth` | Chrome identity OAuth flow |
 | *(anything else)* | `unsupported` | Error: update the extension |
 
-- **`local-pair`**: The popup shows the **Local** auth section with a
-  "Pair with local assistant" button. Pairing spawns the native messaging
-  helper, which POSTs to the assistant's `/v1/browser-extension-pair`
-  endpoint and returns a scoped capability token. Connect targets the
-  local assistant at `ws://127.0.0.1:<port>/v1/browser-relay`.
+- **`local-pair`**: The worker auto-pairs via native messaging on Connect.
+  The relay targets the local assistant at
+  `ws://127.0.0.1:<port>/v1/browser-relay`.
 
-- **`cloud-oauth`**: The popup shows the **Cloud** auth section with a
-  "Sign in with Vellum (cloud)" button. Sign-in runs a
-  `chrome.identity.launchWebAuthFlow` against the cloud gateway. Connect
-  targets the cloud gateway at `wss://<runtimeUrl>/v1/browser-relay`.
+- **`cloud-oauth`**: The worker auto-signs in via Chrome identity on Connect.
+  The relay targets the cloud gateway at
+  `wss://<runtimeUrl>/v1/browser-relay`.
 
 - **`unsupported`**: An error message instructs the user to update the
   extension. No auth panel is shown.
 
 Auth tokens are stored per-assistant under scoped storage keys so
 switching between assistants does not require re-authentication.
+
+### Manual Recovery (Troubleshooting)
+
+The popup includes a collapsible **Troubleshooting** section with manual
+"Re-pair with local assistant" and "Re-sign in with Vellum (cloud)"
+buttons. These are **not** required for the normal connect flow — they
+exist for edge cases where the automatic bootstrap fails (e.g. expired
+tokens, native host issues, OAuth configuration problems).
 
 ## Native Messaging Host Setup (If Pairing Fails)
 
@@ -177,15 +221,15 @@ of the extension. Update the extension to the latest version.
 
 ### Per-assistant auth mismatch
 
-Each assistant requires its own auth token scoped to its topology:
+Each assistant requires its own auth token scoped to its topology. The
+worker auto-bootstraps the correct token type on Connect, so switching
+between assistants with different topologies is handled transparently.
 
-- A `local` assistant requires a **local pair** token (click "Pair with
-  local assistant").
-- A `vellum`/`platform` assistant requires a **cloud sign-in** token
-  (click "Sign in with Vellum (cloud)").
-
-Switching between assistants with different topologies may require completing
-the appropriate auth flow for the newly selected assistant before connecting.
+If automatic bootstrap fails, use the Troubleshooting controls:
+- A `local` assistant can be manually re-paired via "Re-pair with local
+  assistant".
+- A `vellum`/`platform` assistant can be manually re-signed-in via
+  "Re-sign in with Vellum (cloud)".
 
 ### Common error messages
 
@@ -196,9 +240,9 @@ the appropriate auth flow for the newly selected assistant before connecting.
 - `assistant pair request failed with HTTP 401`
   - The pair endpoint rejected `extensionOrigin`. Verify your extension ID is in `meta/browser-extension/chrome-extension-allowlist.json`, then restart the assistant so it reloads allowlist config.
 - `Sign in with Vellum (cloud) before connecting`
-  - The selected assistant uses cloud-oauth but no cloud token is stored. Click "Sign in with Vellum (cloud)" first.
+  - The selected assistant uses cloud-oauth and the automatic sign-in failed. Use the "Re-sign in with Vellum (cloud)" troubleshooting button, then click Connect again.
 - `Pair the Vellum assistant (self-hosted) before connecting`
-  - The selected assistant uses local-pair but no capability token is stored. Click "Pair with local assistant" first.
+  - The selected assistant uses local-pair and the automatic pairing failed. Use the "Re-pair with local assistant" troubleshooting button, then click Connect again.
 - `Select an assistant before connecting`
   - No assistant is selected. The lockfile may be empty or the native messaging helper is unreachable.
 - `failed to reach assistant at http://127.0.0.1:<port>/v1/browser-extension-pair`

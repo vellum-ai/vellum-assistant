@@ -9,7 +9,11 @@ serves two purposes:
    assistant selector dropdown.
 2. **Self-hosted pairing** (`request_token`): bootstraps a scoped
    capability token for the local-assistant transport without shipping a
-   long-lived secret in the extension package.
+   long-lived secret in the extension package. In the normal one-click
+   Connect flow, the extension's service worker invokes this
+   automatically — users never need to trigger pairing manually. The
+   `request_token` message also serves as a recovery mechanism when
+   the popup's Troubleshooting "Re-pair" button is used.
 
 The macOS installer bundles this helper into the Mac `.app` under
 `Contents/MacOS/vellum-chrome-native-host` via `clients/macos/build.sh`
@@ -96,6 +100,12 @@ a `request_token` frame, the helper pairs against the specified
 assistant's port rather than the default.
 
 #### Self-hosted pairing (`request_token`)
+
+During normal operation, the extension's service worker sends this message
+automatically as part of the one-click Connect flow when the selected
+assistant uses the `local-pair` auth profile. Users do not interact with
+this message directly. It is also invoked when the user clicks the
+"Re-pair with local assistant" troubleshooting button in the popup.
 
 The extension sends:
 
