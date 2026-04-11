@@ -83,15 +83,13 @@ describe("Dynamic Skill Authoring Workflow moved to tool descriptions", () => {
     expect(result).not.toContain("**test-skill**");
   });
 
-  test("prompt is additive with IDENTITY/SOUL/USER files", () => {
+  test("prompt is additive with IDENTITY/SOUL files", () => {
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "Identity here");
     writeFileSync(join(TEST_DIR, "SOUL.md"), "Soul here");
-    writeFileSync(join(TEST_DIR, "USER.md"), "User here");
 
     const result = buildSystemPrompt();
     expect(result).toContain("Identity here");
     expect(result).toContain("Soul here");
-    expect(result).toContain("User here");
   });
 
   test("browser skill activation hints no longer appear in system prompt", () => {
