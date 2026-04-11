@@ -537,16 +537,23 @@ export class CallController {
    * built-in TTS.
    */
   private resolveCallTtsProvider(): {
-    provider: TtsProvider;
+    provider: TtsProvider | null;
     useSynthesizedPath: boolean;
   } {
-    const config = loadConfig();
-    const resolved = resolveTtsConfig(config);
-    const provider = getTtsProvider(resolved.provider);
-    // Providers with streaming support synthesize audio themselves; others
-    // rely on the relay's native (Twilio-managed) TTS engine.
-    const useSynthesizedPath = provider.capabilities.supportsStreaming;
-    return { provider, useSynthesizedPath };
+    try {
+      const config = loadConfig();
+      const resolved = resolveTtsConfig(config);
+      const provider = getTtsProvider(resolved.provider);
+      // Providers with streaming support synthesize audio themselves; others
+      // rely on the relay's native (Twilio-managed) TTS engine.
+      const useSynthesizedPath = provider.capabilities.supportsStreaming;
+      return { provider, useSynthesizedPath };
+    } catch {
+      // Config missing `services.tts` block or provider not registered
+      // (e.g. unit tests or early startup) — fall back to the native
+      // (non-streaming) path where the provider object is not used.
+      return { provider: null, useSynthesizedPath: false };
+    }
   }
 
   /**
@@ -700,7 +707,7 @@ export class CallController {
     // and intonation. Audio streams back via chunked transfer encoding
     // and is forwarded to Twilio as it arrives.
     const sanitizedSynthText = sanitizeForTts(synthesizedTextBuffer.trim());
-    if (useSynthesizedPath && sanitizedSynthText.length > 0) {
+    if (useSynthesizedPath && provider && sanitizedSynthText.length > 0) {
       if (!this.isCurrentRun(runVersion)) return fullResponseText;
       await this.synthesizeAndStreamAudio(
         provider,

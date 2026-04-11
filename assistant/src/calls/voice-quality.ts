@@ -63,9 +63,17 @@ export function resolveVoiceQualityProfile(
   const voice = cfg.calls.voice;
 
   // Resolve the active TTS provider through the global abstraction.
-  const resolved = resolveTtsConfig(cfg);
-  const provider = getTtsProvider(resolved.provider);
-  const usesSynthesizedPath = provider.capabilities.supportsStreaming;
+  // When the config lacks the `services.tts` block (e.g. test mocks or
+  // pre-migration configs) or the provider registry has not been initialised,
+  // we fall back to the native ElevenLabs profile.
+  let usesSynthesizedPath = false;
+  try {
+    const resolved = resolveTtsConfig(cfg);
+    const provider = getTtsProvider(resolved.provider);
+    usesSynthesizedPath = provider.capabilities.supportsStreaming;
+  } catch {
+    // Config or provider not available — default to native (ElevenLabs) path.
+  }
 
   const isGoogle = voice.transcriptionProvider === "Google";
   // Treat the legacy Deepgram default ("nova-3") as unset when provider is
