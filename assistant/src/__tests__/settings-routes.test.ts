@@ -10,16 +10,16 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../util/logger.js", () => ({
+mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
 }));
 
-import { createGuardianBinding } from "../../contacts/contacts-write.js";
-import { getSqlite, initializeDb } from "../../memory/db.js";
-import { settingsRouteDefinitions } from "./settings-routes.js";
+import { createGuardianBinding } from "../contacts/contacts-write.js";
+import { getSqlite, initializeDb } from "../memory/db.js";
+import { settingsRouteDefinitions } from "../runtime/routes/settings-routes.js";
 
 initializeDb();
 
