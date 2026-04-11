@@ -474,17 +474,9 @@ async function listAllAssistants(): Promise<void> {
         }
       } else if (a.cloud === "apple-container") {
         // Apple containers are managed by the macOS app. Probe the gateway
-        // when a runtimeUrl is available; fall back to mgmt socket presence.
-        if (a.runtimeUrl) {
-          const token = loadGuardianToken(a.assistantId)?.accessToken;
-          health = await checkHealth(a.runtimeUrl, token);
-        } else {
-          const mgmtSocket = a.mgmtSocket as string | undefined;
-          const socketAlive = mgmtSocket ? existsSync(mgmtSocket) : false;
-          health = socketAlive
-            ? { status: "running", detail: "gateway not ready" }
-            : { status: "not running", detail: null };
-        }
+        // (runtimeUrl is always written to the lockfile during hatch).
+        const token = loadGuardianToken(a.assistantId)?.accessToken;
+        health = await checkHealth(a.runtimeUrl, token);
       } else if (a.cloud === "vellum") {
         health = await checkManagedHealth(a.runtimeUrl, a.assistantId);
       } else {

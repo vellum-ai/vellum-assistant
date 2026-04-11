@@ -288,9 +288,7 @@ function readAssistants(): AssistantEntry[] {
 
   return entries.filter(
     (e): e is AssistantEntry =>
-      typeof e.assistantId === "string" &&
-      // Apple-container entries may lack runtimeUrl until the gateway is ready.
-      (typeof e.runtimeUrl === "string" || e.cloud === "apple-container"),
+      typeof e.assistantId === "string" && typeof e.runtimeUrl === "string",
   );
 }
 

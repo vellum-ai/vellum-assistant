@@ -144,6 +144,21 @@ final class AppleContainersLauncher: AssistantManagementClient {
             log.warning("Failed to start management socket: \(error.localizedDescription, privacy: .public) — exec will be unavailable")
         }
 
+        // Write the lockfile entry early so the CLI can discover this
+        // assistant immediately (e.g. `vellum ps`). The runtimeUrl is
+        // already known — it is derived from the pod IP assigned during
+        // start(). We will NOT update the entry again later; all fields
+        // that matter are populated here.
+        let hatchedAt = ISO8601DateFormatter().string(from: Date())
+        Self.writeLockfileEntry(
+            assistantId: assistantName,
+            hatchedAt: hatchedAt,
+            signingKey: signingKey,
+            runtimeUrl: runtime.gatewayURL,
+            mgmtSocket: mgmtSocketStarted ? mgmtSocketPath : nil
+        )
+        LockfileAssistant.setActiveAssistantId(assistantName)
+
         // Lease a guardian token so the desktop app can authenticate with the
         // gateway. The CLI does this in hatch-local.ts after the gateway starts;
         // for apple containers we do it directly from Swift.
@@ -187,16 +202,6 @@ final class AppleContainersLauncher: AssistantManagementClient {
         }
 
         onProgress?("Finalizing setup...")
-
-        let hatchedAt = ISO8601DateFormatter().string(from: Date())
-        Self.writeLockfileEntry(
-            assistantId: assistantName,
-            hatchedAt: hatchedAt,
-            signingKey: signingKey,
-            runtimeUrl: runtime.gatewayURL,
-            mgmtSocket: mgmtSocketStarted ? mgmtSocketPath : nil
-        )
-        LockfileAssistant.setActiveAssistantId(assistantName)
         log.info("Apple container '\(assistantName, privacy: .public)' is running")
     }
 
