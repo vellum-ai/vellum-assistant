@@ -142,32 +142,23 @@
     .local-status.paired { color: #0f766e; }
     .local-status.error { color: #ef4444; }
 
-    .mode-group {
+    .assistant-selector-group {
       margin-bottom: 14px;
     }
 
-    .mode-radio-row {
-      display: flex;
-      gap: 14px;
-      margin-top: 4px;
-    }
-
-    .mode-radio-row label {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-      font-weight: 500;
-      color: #374151;
-      cursor: pointer;
-      user-select: none;
-      margin-bottom: 0;
-    }
-
-    .mode-radio-row input[type="radio"] {
-      margin: 0;
+    select {
+      width: 100%;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      padding: 7px 10px;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.15s;
+      background: #fff;
+      color: #1a1a1a;
       cursor: pointer;
     }
+    select:focus { border-color: #6366f1; }
 
     .hint {
       font-size: 11px;
@@ -193,18 +184,9 @@
 
   <p class="error-text" id="error-text" style="display:none"></p>
 
-  <div class="mode-group">
-    <label>Connection mode</label>
-    <div class="mode-radio-row">
-      <label>
-        <input type="radio" name="relay-mode" value="self-hosted" id="mode-self-hosted" />
-        Self-hosted
-      </label>
-      <label>
-        <input type="radio" name="relay-mode" value="cloud" id="mode-cloud" />
-        Cloud
-      </label>
-    </div>
+  <div class="assistant-selector-group" id="assistant-selector-group" style="display:none">
+    <label for="assistant-select">Assistant</label>
+    <select id="assistant-select"></select>
   </div>
 
   <label for="port-input">Relay port</label>
@@ -221,7 +203,7 @@
     <button id="btn-disconnect" disabled>Disconnect</button>
   </div>
 
-  <p class="hint">Self-hosted mode requires pairing. Relay port defaults to 7830.</p>
+  <p class="hint">Relay port defaults to 7830.</p>
 
   <div class="divider"></div>
 
