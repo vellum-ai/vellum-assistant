@@ -392,11 +392,6 @@ public final class AuthService {
 
     /// Retrieve the user's currently active managed assistant for the given
     /// organization.
-    ///
-    /// The platform resolves the active assistant server-side via
-    /// `get_presumably_unique_assistant()`, so the client doesn't need to
-    /// enumerate or pick. Returns `.notFound` when the user has no active
-    /// assistant yet (e.g. first-time login before hatch).
     public func getActiveAssistant(organizationId: String) async throws -> PlatformAssistantResult {
         let response = try await performPlatformRequest(
             path: "v1/assistants/active/",
