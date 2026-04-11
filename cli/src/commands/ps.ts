@@ -10,6 +10,7 @@ import {
 import { loadGuardianToken } from "../lib/guardian-token";
 import { checkHealth, checkManagedHealth } from "../lib/health-check";
 import { dockerResourceNames } from "../lib/docker";
+import { existsSync } from "fs";
 import {
   classifyProcess,
   detectOrphanedProcesses,
@@ -335,6 +336,31 @@ async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
     return;
   }
 
+  if (cloud === "apple-container") {
+    const mgmtSocket = entry.mgmtSocket as string | undefined;
+    const socketAlive = mgmtSocket ? existsSync(mgmtSocket) : false;
+    const rows: TableRow[] = [
+      {
+        name: "container",
+        status: withStatusEmoji(socketAlive ? "running" : "not running"),
+        info: socketAlive
+          ? `mgmt ${mgmtSocket}`
+          : "management socket not found",
+      },
+    ];
+    if (entry.runtimeUrl) {
+      const token = loadGuardianToken(entry.assistantId)?.accessToken;
+      const health = await checkHealth(entry.runtimeUrl, token);
+      rows.push({
+        name: "gateway",
+        status: withStatusEmoji(health.status),
+        info: entry.runtimeUrl + (health.detail ? ` | ${health.detail}` : ""),
+      });
+    }
+    printTable(rows);
+    return;
+  }
+
   let output: string;
   try {
     if (cloud === "gcp") {
@@ -395,7 +421,8 @@ async function listAllAssistants(): Promise<void> {
   }
 
   const rows: TableRow[] = assistants.map((a) => {
-    const infoParts = [a.runtimeUrl];
+    const infoParts: string[] = [];
+    if (a.runtimeUrl) infoParts.push(a.runtimeUrl);
     if (a.cloud) infoParts.push(`cloud: ${a.cloud}`);
     if (a.species) infoParts.push(`species: ${a.species}`);
     const prefix = a.assistantId === activeId ? "* " : "  ";
@@ -445,6 +472,13 @@ async function listAllAssistants(): Promise<void> {
           const token = loadGuardianToken(a.assistantId)?.accessToken;
           health = await checkHealth(a.localUrl ?? a.runtimeUrl, token);
         }
+      } else if (a.cloud === "apple-container") {
+        // Apple containers are managed by the macOS app. Probe the gateway
+        // (runtimeUrl is always written to the lockfile during hatch).
+        const token = loadGuardianToken(a.assistantId)?.accessToken;
+        health = a.runtimeUrl
+          ? await checkHealth(a.runtimeUrl, token)
+          : { status: "unknown" as const, detail: "no runtime URL" };
       } else if (a.cloud === "vellum") {
         health = await checkManagedHealth(a.runtimeUrl, a.assistantId);
       } else {
@@ -456,7 +490,8 @@ async function listAllAssistants(): Promise<void> {
         updateServiceGroupVersion(a.assistantId, health.version);
       }
 
-      const infoParts = [a.runtimeUrl];
+      const infoParts: string[] = [];
+      if (a.runtimeUrl) infoParts.push(a.runtimeUrl);
       if (a.cloud) infoParts.push(`cloud: ${a.cloud}`);
       if (a.species) infoParts.push(`species: ${a.species}`);
       if (health.detail) infoParts.push(health.detail);

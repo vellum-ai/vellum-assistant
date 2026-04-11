@@ -145,6 +145,22 @@ export function supportsHostProxy(
   return false;
 }
 
+/**
+ * Whether the interface can service host_browser frames via the
+ * ChromeExtensionRegistry (WebSocket) when an extension connection exists.
+ *
+ * Returns `true` for interfaces where the daemon should set
+ * `hostBrowserSenderOverride` and provision a `HostBrowserProxy` when the
+ * guardian has an active extension connection — currently `chrome-extension`
+ * and `macos`.
+ *
+ * Use this instead of hard-coding interface checks so new desktop interfaces
+ * only need to be added in one place.
+ */
+export function canServiceRegistryBrowser(id: InterfaceId): boolean {
+  return id === "chrome-extension" || id === "macos";
+}
+
 export interface TurnInterfaceContext {
   userMessageInterface: InterfaceId;
   assistantMessageInterface: InterfaceId;

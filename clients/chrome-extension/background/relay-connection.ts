@@ -451,7 +451,7 @@ export class RelayConnection {
             kind: 'abort',
             error:
               `Relay token refresh failed: ${message}. ` +
-              `Sign in with Vellum again from the extension popup to reconnect.`,
+              `Use 'Re-sign in' in Troubleshooting, then try Connect again.`,
           };
         }
       }

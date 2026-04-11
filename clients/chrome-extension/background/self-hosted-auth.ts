@@ -25,6 +25,10 @@
  * We parse it into an epoch-millis number here so the in-memory and
  * on-disk representation matches `StoredCloudToken` and downstream code
  * can rely on a single numeric expiry type across both transports.
+ *
+ * Storage is assistant-scoped: each assistant ID gets its own storage key
+ * (`vellum.localCapabilityToken:<assistantId>`) so switching between
+ * assistants never clobbers another assistant's credentials.
  */
 
 export interface StoredLocalToken {
@@ -41,9 +45,29 @@ export interface StoredLocalToken {
   assistantPort?: number;
 }
 
-const STORAGE_KEY = 'vellum.localCapabilityToken';
+const STORAGE_KEY_PREFIX = 'vellum.localCapabilityToken';
 const NATIVE_HOST_NAME = 'com.vellum.daemon';
 const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 5_000;
+
+/**
+ * The legacy unscoped storage key used before assistant-scoped keys were
+ * introduced. Existing users may have a token stored under this key from
+ * a previous version of the extension. The migration helpers below
+ * transparently promote it to the new scoped key on first read.
+ *
+ * Exported so the worker can fall back to reading/writing this key when
+ * no assistant is selected yet (backward-compatible connect/pair flow).
+ */
+export const LEGACY_LOCAL_STORAGE_KEY = 'vellum.localCapabilityToken';
+
+/**
+ * Build the assistant-scoped chrome.storage.local key for a local
+ * capability token. Uses a colon separator so the key is
+ * `vellum.localCapabilityToken:<assistantId>`.
+ */
+export function localTokenStorageKey(assistantId: string): string {
+  return `${STORAGE_KEY_PREFIX}:${assistantId}`;
+}
 
 export interface BootstrapLocalTokenOptions {
   /**
@@ -54,9 +78,11 @@ export interface BootstrapLocalTokenOptions {
   timeoutMs?: number;
 }
 
-export async function getStoredLocalToken(): Promise<StoredLocalToken | null> {
-  const result = await chrome.storage.local.get(STORAGE_KEY);
-  const raw = result[STORAGE_KEY];
+/**
+ * Validate and return a parsed {@link StoredLocalToken} from a raw storage
+ * value, or `null` when the value is missing, malformed, or expired.
+ */
+export function validateLocalToken(raw: unknown): StoredLocalToken | null {
   if (!raw || typeof raw !== 'object') return null;
   const token = raw as StoredLocalToken;
   if (
@@ -84,12 +110,64 @@ export async function getStoredLocalToken(): Promise<StoredLocalToken | null> {
   return token;
 }
 
-export async function clearLocalToken(): Promise<void> {
-  await chrome.storage.local.remove(STORAGE_KEY);
+/**
+ * Check for a token stored under the legacy unscoped key
+ * (`vellum.localCapabilityToken`). If found and valid, migrate it to the
+ * new assistant-scoped key and remove the legacy key. The migration is
+ * idempotent — once the legacy key is removed, subsequent calls are a
+ * no-op.
+ *
+ * Returns the migrated token or `null`.
+ */
+async function migrateLegacyLocalToken(assistantId: string): Promise<StoredLocalToken | null> {
+  const scopedKey = localTokenStorageKey(assistantId);
+
+  // Only migrate when the scoped key is still empty — avoids clobbering
+  // a token that was stored directly under the scoped key after pairing.
+  const scopedResult = await chrome.storage.local.get(scopedKey);
+  if (scopedResult[scopedKey] !== undefined) return null;
+
+  const legacyResult = await chrome.storage.local.get(LEGACY_LOCAL_STORAGE_KEY);
+  const legacyToken = validateLocalToken(legacyResult[LEGACY_LOCAL_STORAGE_KEY]);
+  if (!legacyToken) return null;
+
+  // Write to the new scoped key and remove the legacy key atomically
+  // (as atomic as chrome.storage.local allows — both ops are awaited).
+  await chrome.storage.local.set({ [scopedKey]: legacyToken });
+  await chrome.storage.local.remove(LEGACY_LOCAL_STORAGE_KEY);
+
+  return legacyToken;
 }
 
-async function persistLocalToken(token: StoredLocalToken): Promise<void> {
-  await chrome.storage.local.set({ [STORAGE_KEY]: token });
+/**
+ * Read the stored local capability token for a specific assistant.
+ * Returns `null` when nothing is stored, the value is malformed, or it
+ * has expired.
+ *
+ * On the first call after the extension upgrades to assistant-scoped
+ * storage keys, this function transparently migrates any token stored
+ * under the legacy unscoped key to the new scoped key.
+ */
+export async function getStoredLocalToken(assistantId: string): Promise<StoredLocalToken | null> {
+  const key = localTokenStorageKey(assistantId);
+  const result = await chrome.storage.local.get(key);
+  const token = validateLocalToken(result[key]);
+  if (token) return token;
+
+  // Fallback: migrate a legacy unscoped token if no scoped token exists.
+  return migrateLegacyLocalToken(assistantId);
+}
+
+/**
+ * Remove the stored local capability token for a specific assistant.
+ */
+export async function clearLocalToken(assistantId: string): Promise<void> {
+  await chrome.storage.local.remove(localTokenStorageKey(assistantId));
+}
+
+async function persistLocalToken(assistantId: string | null, token: StoredLocalToken): Promise<void> {
+  const key = assistantId ? localTokenStorageKey(assistantId) : LEGACY_LOCAL_STORAGE_KEY;
+  await chrome.storage.local.set({ [key]: token });
 }
 
 /**
@@ -129,6 +207,7 @@ function parseExpiresAt(raw: unknown): number | null {
  *   process doesn't leak.
  */
 export async function bootstrapLocalToken(
+  assistantId: string | null,
   options: BootstrapLocalTokenOptions = {},
 ): Promise<StoredLocalToken> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_BOOTSTRAP_TIMEOUT_MS;
@@ -226,7 +305,7 @@ export async function bootstrapLocalToken(
         // couldn't durably save it. This also matches the comment
         // above: a storage failure shouldn't block the caller from
         // getting a token they just successfully negotiated.
-        persistLocalToken(stored).then(
+        persistLocalToken(assistantId, stored).then(
           () => resolve(stored),
           (err: unknown) => {
             const detail = err instanceof Error ? err.message : String(err);
@@ -259,6 +338,14 @@ export async function bootstrapLocalToken(
       finish(() => reject(new Error(message)));
     });
 
-    port.postMessage({ type: 'request_token' });
+    // Include the assistantId in the pair request so the native host
+    // can scope the pairing to a specific assistant's runtime. When
+    // assistantId is null (legacy flow), the field is omitted and the
+    // native host falls back to the default assistant.
+    const pairMessage: Record<string, unknown> = { type: 'request_token' };
+    if (assistantId) {
+      pairMessage.assistantId = assistantId;
+    }
+    port.postMessage(pairMessage);
   });
 }

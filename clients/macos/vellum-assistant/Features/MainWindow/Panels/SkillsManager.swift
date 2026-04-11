@@ -49,17 +49,22 @@ final class SkillsManager {
     var loadingFilePaths: Set<String> = []
     var fileContentErrors: [String: String] = [:]
     var installingSkillId: String?
+    var isSearching = false
 
     /// Safety timeout that defensively clears `installingSkillId` if a
     /// wedged `fetchSkills(force:)` response never lands. Without it, the
     /// install spinner can be stuck indefinitely when the confirmation
     /// refresh path is blocked or delayed.
     @ObservationIgnored private var installWatchdogTask: Task<Void, Never>?
+    @ObservationIgnored private var searchDebounceTask: Task<Void, Never>?
 
     // MARK: - Filter Inputs
 
     var searchQuery: String = "" {
-        didSet { recomputeFilteredData() }
+        didSet {
+            dispatchSearch(query: searchQuery)
+            recomputeFilteredData()
+        }
     }
 
     var selectedCategory: SkillCategory? {
@@ -104,9 +109,29 @@ final class SkillsManager {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self else { return }
-                let skills = self.skillsStore.skills
-                self.skills = skills
-                self.rebuildCategoryMap(from: skills)
+
+                // Compute once — used for both isSearching gating and merge guard.
+                let hasActiveQuery = !self.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+                // Gate spinner on whether there is actually a query; clearing
+                // the search bar should immediately stop the spinner even if
+                // a network request is still in-flight.
+                let debouncing = self.searchDebounceTask != nil && !(self.searchDebounceTask?.isCancelled ?? true)
+                self.isSearching = hasActiveQuery && (self.skillsStore.isSearching || debouncing)
+
+                // Merge local skills with external search results (if any),
+                // deduplicating by skill id so local entries take precedence.
+                let localSkills = self.skillsStore.skills
+                let mergedSkills: [SkillInfo]
+                if hasActiveQuery && !self.skillsStore.searchResults.isEmpty && !self.skillsStore.isSearching {
+                    let localIds = Set(localSkills.map(\.id))
+                    let externalResults = self.skillsStore.searchResults.filter { !localIds.contains($0.id) }
+                    mergedSkills = localSkills + externalResults
+                } else {
+                    mergedSkills = localSkills
+                }
+                self.skills = mergedSkills
+                self.rebuildCategoryMap(from: mergedSkills)
                 self.loadedBodies = self.skillsStore.loadedBodies
                 self.isLoading = self.skillsStore.isLoading
                 self.uninstallResult = self.skillsStore.uninstallResult
@@ -216,11 +241,29 @@ final class SkillsManager {
 
         let searchFiltered: [SkillInfo]
         if hasSearch {
-            searchFiltered = baseSkills.filter {
-                $0.name.lowercased().contains(query) ||
-                $0.description.lowercased().contains(query) ||
-                $0.id.lowercased().contains(query) ||
-                Self.sourceLabel($0.origin).lowercased().contains(query)
+            // When external search results have been merged in, the backend
+            // already performed fuzzy/semantic matching — backend-matched
+            // skills pass through unfiltered (they may not contain the query
+            // as a literal substring, e.g. skills.sh results with empty
+            // descriptions). Local-only skills still get the substring
+            // filter so they don't bypass search.
+            let backendIds = Set(skillsStore.searchResults.map(\.id))
+            let backendResultsPresent = !skillsStore.isSearching && baseSkills.contains(where: { backendIds.contains($0.id) })
+            if backendResultsPresent {
+                searchFiltered = baseSkills.filter {
+                    backendIds.contains($0.id) ||
+                    $0.name.lowercased().contains(query) ||
+                    $0.description.lowercased().contains(query) ||
+                    $0.id.lowercased().contains(query) ||
+                    Self.sourceLabel($0.origin).lowercased().contains(query)
+                }
+            } else {
+                searchFiltered = baseSkills.filter {
+                    $0.name.lowercased().contains(query) ||
+                    $0.description.lowercased().contains(query) ||
+                    $0.id.lowercased().contains(query) ||
+                    Self.sourceLabel($0.origin).lowercased().contains(query)
+                }
             }
         } else {
             searchFiltered = baseSkills
@@ -266,6 +309,30 @@ final class SkillsManager {
             return "Custom"
         default:
             return origin.replacingOccurrences(of: "-", with: " ").capitalized
+        }
+    }
+
+    // MARK: - Debounced Search
+
+    private func dispatchSearch(query: String) {
+        searchDebounceTask?.cancel()
+        // Cancel any in-flight network search and clear stale results
+        // immediately so previous search terms don't linger during the
+        // debounce window or after clearing the bar.
+        skillsStore.cancelSearch()
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            isSearching = false
+            return
+        }
+        // Show spinner immediately during the debounce window so the user
+        // doesn't see the "No Skills Available" empty state for 300ms.
+        isSearching = true
+        searchDebounceTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            self?.skillsStore.searchSkills(query: trimmed, force: true)
+            self?.searchDebounceTask = nil
         }
     }
 

@@ -134,15 +134,29 @@ final class AppleContainersLauncher: AssistantManagementClient {
 
         // Start the management socket server so the CLI can exec into the container.
         let mgmtSocketPath = instanceDir.appendingPathComponent("mgmt.sock").path
-        var mgmtSocketStarted = false
         let server = ExecManagementServer(socketPath: mgmtSocketPath, podRuntime: runtime)
         do {
             try server.start()
             self.mgmtServer = server
-            mgmtSocketStarted = true
         } catch {
             log.warning("Failed to start management socket: \(error.localizedDescription, privacy: .public) — exec will be unavailable")
         }
+
+        // Write the lockfile entry early so the CLI can discover this
+        // assistant immediately (e.g. `vellum ps`). The runtimeUrl is
+        // already known — it is derived from the pod IP assigned during
+        // start(). We will NOT update the entry again later; all fields
+        // that matter are populated here.
+        let previousActiveId = LockfileAssistant.loadActiveAssistantId()
+        let hatchedAt = ISO8601DateFormatter().string(from: Date())
+        Self.writeLockfileEntry(
+            assistantId: assistantName,
+            hatchedAt: hatchedAt,
+            signingKey: signingKey,
+            runtimeUrl: runtime.gatewayURL,
+            mgmtSocket: mgmtSocketPath
+        )
+        LockfileAssistant.setActiveAssistantId(assistantName)
 
         // Lease a guardian token so the desktop app can authenticate with the
         // gateway. The CLI does this in hatch-local.ts after the gateway starts;
@@ -160,6 +174,8 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 onProgress: onProgress
             )
             if !gatewayReady {
+                Self.removeLockfileEntry(assistantId: assistantName)
+                LockfileAssistant.setActiveAssistantId(previousActiveId)
                 mgmtServer?.stop()
                 mgmtServer = nil
                 try? await runtime.stop()
@@ -176,6 +192,8 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 onProgress: onProgress
             )
             if !tokenLeased {
+                Self.removeLockfileEntry(assistantId: assistantName)
+                LockfileAssistant.setActiveAssistantId(previousActiveId)
                 mgmtServer?.stop()
                 mgmtServer = nil
                 try? await runtime.stop()
@@ -187,16 +205,6 @@ final class AppleContainersLauncher: AssistantManagementClient {
         }
 
         onProgress?("Finalizing setup...")
-
-        let hatchedAt = ISO8601DateFormatter().string(from: Date())
-        Self.writeLockfileEntry(
-            assistantId: assistantName,
-            hatchedAt: hatchedAt,
-            signingKey: signingKey,
-            runtimeUrl: runtime.gatewayURL,
-            mgmtSocket: mgmtSocketStarted ? mgmtSocketPath : nil
-        )
-        LockfileAssistant.setActiveAssistantId(assistantName)
         log.info("Apple container '\(assistantName, privacy: .public)' is running")
     }
 
@@ -472,6 +480,32 @@ final class AppleContainersLauncher: AssistantManagementClient {
     }
 
     // MARK: - Lockfile
+
+    /// Removes a previously written lockfile entry for the given assistant.
+    /// Called on hatch failure to avoid leaving stale entries that point to
+    /// a stopped container.
+    nonisolated static func removeLockfileEntry(
+        assistantId: String,
+        lockfilePath: String? = nil
+    ) {
+        let path = lockfilePath ?? LockfilePaths.primaryPath
+        let fileURL = URL(fileURLWithPath: path)
+
+        guard let data = try? Data(contentsOf: fileURL),
+              var lockfile = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return
+        }
+
+        var assistants = lockfile["assistants"] as? [[String: Any]] ?? []
+        assistants.removeAll { ($0["assistantId"] as? String) == assistantId }
+        lockfile["assistants"] = assistants
+
+        if let updated = try? JSONSerialization.data(
+            withJSONObject: lockfile, options: [.prettyPrinted, .sortedKeys]
+        ) {
+            try? updated.write(to: fileURL, options: .atomic)
+        }
+    }
 
     @discardableResult
     nonisolated static func writeLockfileEntry(

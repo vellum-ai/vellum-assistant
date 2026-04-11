@@ -879,6 +879,10 @@ describe("AssistantConfigSchema", () => {
         host: "localhost",
         port: 9222,
         probeTimeoutMs: 500,
+        desktopAuto: {
+          enabled: true,
+          cooldownMs: 30_000,
+        },
       },
     });
   });
@@ -1066,6 +1070,53 @@ describe("AssistantConfigSchema", () => {
     }
   });
 
+  // ── hostBrowser.cdpInspect.desktopAuto config ───────────────────────
+
+  test("applies hostBrowser.cdpInspect.desktopAuto defaults", () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.hostBrowser.cdpInspect.desktopAuto).toEqual({
+      enabled: true,
+      cooldownMs: 30_000,
+    });
+  });
+
+  test("accepts hostBrowser.cdpInspect.desktopAuto overrides", () => {
+    const result = AssistantConfigSchema.parse({
+      hostBrowser: {
+        cdpInspect: {
+          desktopAuto: { enabled: false, cooldownMs: 10_000 },
+        },
+      },
+    });
+    expect(result.hostBrowser.cdpInspect.desktopAuto.enabled).toBe(false);
+    expect(result.hostBrowser.cdpInspect.desktopAuto.cooldownMs).toBe(10_000);
+  });
+
+  test("accepts hostBrowser.cdpInspect.desktopAuto.cooldownMs of 0 (disable cooldown)", () => {
+    const result = AssistantConfigSchema.parse({
+      hostBrowser: {
+        cdpInspect: { desktopAuto: { cooldownMs: 0 } },
+      },
+    });
+    expect(result.hostBrowser.cdpInspect.desktopAuto.cooldownMs).toBe(0);
+  });
+
+  test("rejects hostBrowser.cdpInspect.desktopAuto.cooldownMs below 0", () => {
+    const result = AssistantConfigSchema.safeParse({
+      hostBrowser: {
+        cdpInspect: { desktopAuto: { cooldownMs: -1 } },
+      },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.some((issue) =>
+          issue.path.join(".").includes("cooldownMs"),
+        ),
+      ).toBe(true);
+    }
+  });
+
   test("rejects invalid services.tts.provider", () => {
     const result = AssistantConfigSchema.safeParse({
       services: { tts: { provider: "aws-polly" } },
@@ -1089,6 +1140,50 @@ describe("AssistantConfigSchema", () => {
     // Any other string should be rejected
     const invalid2 = TtsServiceSchema.safeParse({ mode: "self-hosted" });
     expect(invalid2.success).toBe(false);
+  });
+
+  test("rejects hostBrowser.cdpInspect.desktopAuto.cooldownMs above 300000", () => {
+    const result = AssistantConfigSchema.safeParse({
+      hostBrowser: {
+        cdpInspect: { desktopAuto: { cooldownMs: 500_000 } },
+      },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.some((issue) =>
+          issue.path.join(".").includes("cooldownMs"),
+        ),
+      ).toBe(true);
+    }
+  });
+
+  test("rejects non-integer hostBrowser.cdpInspect.desktopAuto.cooldownMs", () => {
+    const result = AssistantConfigSchema.safeParse({
+      hostBrowser: {
+        cdpInspect: { desktopAuto: { cooldownMs: 5000.5 } },
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects non-boolean hostBrowser.cdpInspect.desktopAuto.enabled", () => {
+    const result = AssistantConfigSchema.safeParse({
+      hostBrowser: {
+        cdpInspect: { desktopAuto: { enabled: "yes" } },
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("desktopAuto defaults preserved when only cdpInspect.enabled is set", () => {
+    const result = AssistantConfigSchema.parse({
+      hostBrowser: { cdpInspect: { enabled: true } },
+    });
+    expect(result.hostBrowser.cdpInspect.desktopAuto).toEqual({
+      enabled: true,
+      cooldownMs: 30_000,
+    });
   });
 });
 

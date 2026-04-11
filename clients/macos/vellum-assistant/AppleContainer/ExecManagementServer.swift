@@ -13,7 +13,7 @@ private let log = Logger(
 ///
 /// Protocol:
 /// 1. Client connects and sends a single JSON line:
-///    `{"command": ["/bin/sh"], "service": "vellum-assistant", "cols": 120, "rows": 40}\n`
+///    `{"command": ["/bin/bash"], "service": "vellum-assistant", "cols": 120, "rows": 40}\n`
 /// 2. Server replies with a JSON line:
 ///    `{"status": "ok"}\n`  or  `{"status": "error", "message": "..."}\n`
 /// 3. On success the connection switches to raw mode — bytes flow
@@ -51,15 +51,9 @@ final class ExecManagementServer: @unchecked Sendable {
             switch state {
             case .ready:
                 log.info("Management socket listening at \(self.socketPath, privacy: .public)")
-                // Set socket permissions now that the file exists (start() is async).
-                do {
-                    try FileManager.default.setAttributes(
-                        [.posixPermissions: 0o600], ofItemAtPath: self.socketPath
-                    )
-                } catch {
-                    log.error("Failed to restrict socket permissions: \(error.localizedDescription, privacy: .public)")
-                    self.stopInternal()
-                }
+                // NWListener reports .ready before the socket file appears on disk.
+                // Poll briefly so we can restrict permissions before any client connects.
+                self.restrictSocketPermissions()
             case .failed(let error):
                 log.error("Management socket listener failed: \(error.localizedDescription, privacy: .public)")
                 self.stopInternal()
@@ -90,6 +84,32 @@ final class ExecManagementServer: @unchecked Sendable {
         listener?.cancel()
         try? FileManager.default.removeItem(atPath: socketPath)
         log.info("Management socket stopped")
+    }
+
+    /// NWListener reports `.ready` before the socket file is created on disk.
+    /// Poll up to ~1 s for the file to appear, then set 0600 permissions.
+    private func restrictSocketPermissions() {
+        let maxAttempts = 20
+        let delayUs: UInt32 = 50_000 // 50 ms (usleep takes microseconds)
+        for attempt in 1...maxAttempts {
+            if FileManager.default.fileExists(atPath: socketPath) {
+                do {
+                    try FileManager.default.setAttributes(
+                        [.posixPermissions: 0o600], ofItemAtPath: socketPath
+                    )
+                    log.info("Management socket permissions set to 0600")
+                } catch {
+                    log.error("Failed to restrict socket permissions: \(error.localizedDescription, privacy: .public)")
+                    self.stopInternal()
+                }
+                return
+            }
+            if attempt < maxAttempts {
+                usleep(delayUs)
+            }
+        }
+        log.error("Socket file did not appear after \(maxAttempts) attempts — stopping server")
+        self.stopInternal()
     }
 
     // MARK: - Connection Handling
@@ -165,7 +185,7 @@ final class ExecManagementServer: @unchecked Sendable {
             return nil
         }
 
-        let command = (json["command"] as? [String]) ?? ["/bin/sh"]
+        let command = (json["command"] as? [String]) ?? ["/bin/bash"]
         let serviceName = (json["service"] as? String) ?? VellumServiceName.assistant.rawValue
         let service = VellumServiceName(rawValue: serviceName) ?? .assistant
         let rawCols = json["cols"] as? Int ?? 120

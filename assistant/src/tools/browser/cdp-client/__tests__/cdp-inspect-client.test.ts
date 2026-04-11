@@ -16,6 +16,7 @@ const { CdpInspectClient, createCdpInspectClient } =
   await import("../cdp-inspect-client.js");
 const { CdpError } = await import("../errors.js");
 const { CdpWsTransportError } = await import("../cdp-inspect/ws-transport.js");
+const { DevToolsDiscoveryError } = await import("../cdp-inspect/discovery.js");
 
 type CdpInspectClientInstance = InstanceType<typeof CdpInspectClient>;
 
@@ -866,5 +867,397 @@ describe("CdpInspectClient", () => {
     expect(harness.listCalls).toBe(1);
     expect(harness.connectCalls).toBe(1);
     expect(harness.attachCallCount()).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WS-only fallback — HTTP discovery absent, WS fallback succeeds.
+// ---------------------------------------------------------------------------
+
+describe("CdpInspectClient — WS-only fallback", () => {
+  test("falls back to WS when HTTP discovery returns invalid_response", async () => {
+    const sends: Array<{
+      method: string;
+      params?: Record<string, unknown>;
+      sessionId?: string;
+    }> = [];
+    let connectCount = 0;
+    let discoverViaWsCalls = 0;
+
+    const client = createCdpInspectClient("conv-ws-fallback", {
+      host: "127.0.0.1",
+      port: 9222,
+      discoveryTimeoutMs: 100,
+      wsConnectTimeoutMs: 100,
+      helpers: {
+        probeDevToolsJsonVersion: async () => {
+          throw new DevToolsDiscoveryError(
+            "invalid_response",
+            "DevTools /json/version returned HTTP 404.",
+          );
+        },
+        listDevToolsTargets: async () => {
+          throw new Error("listDevToolsTargets should not be called");
+        },
+        connectCdpWsTransport: async () => {
+          connectCount += 1;
+          return createFakeTransport({
+            onSend: async (method) => {
+              if (method === "Target.attachToTarget") {
+                return { sessionId: "ws-session" };
+              }
+              return { ok: true };
+            },
+            trackSends: sends,
+          });
+        },
+        discoverTargetsViaWs: async () => {
+          discoverViaWsCalls += 1;
+          return [
+            {
+              id: "ws-target-1",
+              type: "page",
+              title: "WS Page",
+              url: "https://example.com/",
+              webSocketDebuggerUrl:
+                "ws://127.0.0.1:9222/devtools/page/ws-target-1",
+            },
+          ];
+        },
+        buildBrowserWsUrl: (host: string, port: number) =>
+          `ws://${host}:${port}/devtools/browser`,
+      },
+    });
+
+    const result = await client.send<{ ok: boolean }>("Browser.getVersion");
+    expect(result).toEqual({ ok: true });
+    expect(connectCount).toBe(1);
+    expect(discoverViaWsCalls).toBe(1);
+    // attach + forwarded call
+    expect(sends).toEqual([
+      {
+        method: "Target.attachToTarget",
+        params: { targetId: "ws-target-1", flatten: true },
+        sessionId: undefined,
+      },
+      {
+        method: "Browser.getVersion",
+        params: undefined,
+        sessionId: "ws-session",
+      },
+    ]);
+  });
+
+  test("falls back to WS when HTTP discovery is unreachable", async () => {
+    let discoverViaWsCalls = 0;
+
+    const client = createCdpInspectClient("conv-ws-unreachable", {
+      host: "127.0.0.1",
+      port: 9222,
+      discoveryTimeoutMs: 100,
+      helpers: {
+        probeDevToolsJsonVersion: async () => {
+          throw new DevToolsDiscoveryError(
+            "unreachable",
+            "Failed to reach DevTools endpoint: ECONNREFUSED",
+          );
+        },
+        listDevToolsTargets: async () => {
+          throw new Error("should not be called");
+        },
+        connectCdpWsTransport: async () =>
+          createFakeTransport({
+            onSend: async (method) => {
+              if (method === "Target.attachToTarget") {
+                return { sessionId: "ws-session" };
+              }
+              return { ok: true };
+            },
+          }),
+        discoverTargetsViaWs: async () => {
+          discoverViaWsCalls += 1;
+          return [
+            {
+              id: "ws-target-1",
+              type: "page",
+              title: "Page",
+              url: "https://example.com/",
+              webSocketDebuggerUrl:
+                "ws://127.0.0.1:9222/devtools/page/ws-target-1",
+            },
+          ];
+        },
+        buildBrowserWsUrl: (host: string, port: number) =>
+          `ws://${host}:${port}/devtools/browser`,
+      },
+    });
+
+    const result = await client.send<{ ok: boolean }>("Runtime.enable");
+    expect(result).toEqual({ ok: true });
+    expect(discoverViaWsCalls).toBe(1);
+  });
+
+  test("does NOT fall back to WS on non_loopback error (safety constraint)", async () => {
+    let connectCalled = false;
+
+    const client = createCdpInspectClient("conv-no-fallback-loopback", {
+      host: "127.0.0.1",
+      port: 9222,
+      discoveryTimeoutMs: 100,
+      helpers: {
+        probeDevToolsJsonVersion: async () => {
+          throw new DevToolsDiscoveryError(
+            "non_loopback",
+            "Refusing to probe non-loopback host",
+          );
+        },
+        listDevToolsTargets: async () => {
+          throw new Error("should not be called");
+        },
+        connectCdpWsTransport: async () => {
+          connectCalled = true;
+          return createFakeTransport({});
+        },
+        discoverTargetsViaWs: async () => {
+          throw new Error("should not be called");
+        },
+        buildBrowserWsUrl: () => "ws://127.0.0.1:9222/devtools/browser",
+      },
+    });
+
+    let caught: unknown;
+    try {
+      await client.send("Browser.getVersion");
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(CdpError);
+    const cdpErr = caught as InstanceType<typeof CdpError>;
+    expect(cdpErr.code).toBe("transport_error");
+    expect(cdpErr.message).toContain("non-loopback");
+    expect(connectCalled).toBe(false);
+  });
+
+  test("does NOT fall back to WS on non_chrome error", async () => {
+    let connectCalled = false;
+
+    const client = createCdpInspectClient("conv-no-fallback-chrome", {
+      host: "127.0.0.1",
+      port: 9222,
+      discoveryTimeoutMs: 100,
+      helpers: {
+        probeDevToolsJsonVersion: async () => {
+          throw new DevToolsDiscoveryError(
+            "non_chrome",
+            "Not Chrome: Firefox/115.0",
+          );
+        },
+        listDevToolsTargets: async () => {
+          throw new Error("should not be called");
+        },
+        connectCdpWsTransport: async () => {
+          connectCalled = true;
+          return createFakeTransport({});
+        },
+        discoverTargetsViaWs: async () => {
+          throw new Error("should not be called");
+        },
+        buildBrowserWsUrl: () => "ws://127.0.0.1:9222/devtools/browser",
+      },
+    });
+
+    let caught: unknown;
+    try {
+      await client.send("Browser.getVersion");
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(CdpError);
+    const cdpErr = caught as InstanceType<typeof CdpError>;
+    expect(cdpErr.code).toBe("transport_error");
+    expect(connectCalled).toBe(false);
+  });
+
+  test("does NOT fall back to WS on timeout error", async () => {
+    let connectCalled = false;
+
+    const client = createCdpInspectClient("conv-no-fallback-timeout", {
+      host: "127.0.0.1",
+      port: 9222,
+      discoveryTimeoutMs: 100,
+      helpers: {
+        probeDevToolsJsonVersion: async () => {
+          throw new DevToolsDiscoveryError(
+            "timeout",
+            "Timed out waiting for DevTools HTTP response.",
+          );
+        },
+        listDevToolsTargets: async () => {
+          throw new Error("should not be called");
+        },
+        connectCdpWsTransport: async () => {
+          connectCalled = true;
+          return createFakeTransport({});
+        },
+        discoverTargetsViaWs: async () => {
+          throw new Error("should not be called");
+        },
+        buildBrowserWsUrl: () => "ws://127.0.0.1:9222/devtools/browser",
+      },
+    });
+
+    let caught: unknown;
+    try {
+      await client.send("Browser.getVersion");
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(CdpError);
+    const cdpErr = caught as InstanceType<typeof CdpError>;
+    expect(cdpErr.code).toBe("transport_error");
+    expect(connectCalled).toBe(false);
+  });
+
+  test("full fallback failure: HTTP invalid_response + WS connect fails", async () => {
+    const client = createCdpInspectClient("conv-full-fail", {
+      host: "127.0.0.1",
+      port: 9222,
+      discoveryTimeoutMs: 100,
+      helpers: {
+        probeDevToolsJsonVersion: async () => {
+          throw new DevToolsDiscoveryError(
+            "invalid_response",
+            "DevTools /json/version returned HTTP 404.",
+          );
+        },
+        listDevToolsTargets: async () => {
+          throw new Error("should not be called");
+        },
+        connectCdpWsTransport: async () => {
+          throw new CdpWsTransportError(
+            "transport_error",
+            "websocket closed before open",
+          );
+        },
+        discoverTargetsViaWs: async () => {
+          throw new Error("should not be called");
+        },
+        buildBrowserWsUrl: (host: string, port: number) =>
+          `ws://${host}:${port}/devtools/browser`,
+      },
+    });
+
+    let caught: unknown;
+    try {
+      await client.send("Browser.getVersion");
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(CdpError);
+    const cdpErr = caught as InstanceType<typeof CdpError>;
+    expect(cdpErr.code).toBe("transport_error");
+    // Error message should explain both HTTP and WS failures
+    expect(cdpErr.message).toContain("HTTP discovery failed");
+    expect(cdpErr.message).toContain("WS-only fallback also failed");
+    expect(cdpErr.message).toContain("127.0.0.1:9222");
+  });
+
+  test("WS fallback: no page targets yields stable error", async () => {
+    const client = createCdpInspectClient("conv-ws-no-targets", {
+      host: "127.0.0.1",
+      port: 9222,
+      discoveryTimeoutMs: 100,
+      helpers: {
+        probeDevToolsJsonVersion: async () => {
+          throw new DevToolsDiscoveryError("unreachable", "ECONNREFUSED");
+        },
+        listDevToolsTargets: async () => {
+          throw new Error("should not be called");
+        },
+        connectCdpWsTransport: async () =>
+          createFakeTransport({
+            onSend: async () => ({ ok: true }),
+          }),
+        discoverTargetsViaWs: async () => {
+          throw new DevToolsDiscoveryError(
+            "no_targets",
+            "No usable page targets returned by CDP Target.getTargets.",
+          );
+        },
+        buildBrowserWsUrl: (host: string, port: number) =>
+          `ws://${host}:${port}/devtools/browser`,
+      },
+    });
+
+    let caught: unknown;
+    try {
+      await client.send("Browser.getVersion");
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(CdpError);
+    const cdpErr = caught as InstanceType<typeof CdpError>;
+    expect(cdpErr.code).toBe("transport_error");
+    expect(cdpErr.message).toContain("No usable page targets");
+  });
+
+  test("WS fallback caches session for subsequent calls", async () => {
+    let connectCount = 0;
+    let discoverViaWsCalls = 0;
+
+    const client = createCdpInspectClient("conv-ws-cache", {
+      host: "127.0.0.1",
+      port: 9222,
+      discoveryTimeoutMs: 100,
+      helpers: {
+        probeDevToolsJsonVersion: async () => {
+          throw new DevToolsDiscoveryError(
+            "invalid_response",
+            "no HTTP discovery",
+          );
+        },
+        listDevToolsTargets: async () => {
+          throw new Error("should not be called");
+        },
+        connectCdpWsTransport: async () => {
+          connectCount += 1;
+          return createFakeTransport({
+            onSend: async (method) => {
+              if (method === "Target.attachToTarget") {
+                return { sessionId: "ws-session-cached" };
+              }
+              return { ok: true };
+            },
+          });
+        },
+        discoverTargetsViaWs: async () => {
+          discoverViaWsCalls += 1;
+          return [
+            {
+              id: "t1",
+              type: "page",
+              title: "Page",
+              url: "https://example.com/",
+              webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/page/t1",
+            },
+          ];
+        },
+        buildBrowserWsUrl: (host: string, port: number) =>
+          `ws://${host}:${port}/devtools/browser`,
+      },
+    });
+
+    await client.send("Runtime.enable");
+    await client.send("Page.enable");
+    await client.send("DOM.enable");
+
+    // Only one WS fallback discovery + one connect + one attach
+    expect(connectCount).toBe(1);
+    expect(discoverViaWsCalls).toBe(1);
   });
 });

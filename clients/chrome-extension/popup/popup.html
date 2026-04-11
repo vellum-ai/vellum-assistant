@@ -37,6 +37,7 @@
       transition: background 0.2s;
     }
     .status-dot.connected { background: #22c55e; }
+    .status-dot.paused { background: #f59e0b; }
     .status-dot.disconnected { background: #ef4444; }
 
     .status-text {
@@ -88,11 +89,11 @@
     }
     #btn-connect:hover:not(:disabled) { background: #4f46e5; }
 
-    #btn-disconnect {
+    #btn-pause {
       background: #f3f4f6;
       color: #374151;
     }
-    #btn-disconnect:hover:not(:disabled) { background: #e5e7eb; }
+    #btn-pause:hover:not(:disabled) { background: #e5e7eb; }
 
     .divider {
       height: 1px;
@@ -142,32 +143,23 @@
     .local-status.paired { color: #0f766e; }
     .local-status.error { color: #ef4444; }
 
-    .mode-group {
+    .assistant-selector-group {
       margin-bottom: 14px;
     }
 
-    .mode-radio-row {
-      display: flex;
-      gap: 14px;
-      margin-top: 4px;
-    }
-
-    .mode-radio-row label {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-      font-weight: 500;
-      color: #374151;
-      cursor: pointer;
-      user-select: none;
-      margin-bottom: 0;
-    }
-
-    .mode-radio-row input[type="radio"] {
-      margin: 0;
+    select {
+      width: 100%;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      padding: 7px 10px;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.15s;
+      background: #fff;
+      color: #1a1a1a;
       cursor: pointer;
     }
+    select:focus { border-color: #6366f1; }
 
     .hint {
       font-size: 11px;
@@ -193,18 +185,9 @@
 
   <p class="error-text" id="error-text" style="display:none"></p>
 
-  <div class="mode-group">
-    <label>Connection mode</label>
-    <div class="mode-radio-row">
-      <label>
-        <input type="radio" name="relay-mode" value="self-hosted" id="mode-self-hosted" />
-        Self-hosted
-      </label>
-      <label>
-        <input type="radio" name="relay-mode" value="cloud" id="mode-cloud" />
-        Cloud
-      </label>
-    </div>
+  <div class="assistant-selector-group" id="assistant-selector-group" style="display:none">
+    <label for="assistant-select">Assistant</label>
+    <select id="assistant-select"></select>
   </div>
 
   <label for="port-input">Relay port</label>
@@ -218,22 +201,20 @@
 
   <div class="btn-row">
     <button id="btn-connect">Connect</button>
-    <button id="btn-disconnect" disabled>Disconnect</button>
+    <button id="btn-pause" disabled>Pause</button>
   </div>
 
-  <p class="hint">Self-hosted mode requires pairing. Relay port defaults to 7830.</p>
+  <p class="hint">Relay port defaults to 7830.</p>
 
-  <div class="divider"></div>
+  <div class="divider" id="troubleshooting-divider"></div>
 
-  <p class="section-label">Local</p>
-  <p class="local-status" id="local-status">Not paired</p>
-  <button id="btn-pair-local" type="button">Pair with local assistant</button>
+  <p class="section-label" id="troubleshooting-label">Troubleshooting</p>
 
-  <div class="divider"></div>
+  <p class="local-status" id="local-status" style="display:none">Not paired</p>
+  <button id="btn-pair-local" type="button" style="display:none">Re-pair with local assistant</button>
 
-  <p class="section-label">Cloud</p>
-  <p class="cloud-status" id="cloud-status">Not signed in</p>
-  <button id="btn-cloud-signin" type="button">Sign in with Vellum (cloud)</button>
+  <p class="cloud-status" id="cloud-status" style="display:none">Not signed in</p>
+  <button id="btn-cloud-signin" type="button" style="display:none">Re-sign in with Vellum (cloud)</button>
 
   <script type="module" src="popup.js"></script>
 </body>

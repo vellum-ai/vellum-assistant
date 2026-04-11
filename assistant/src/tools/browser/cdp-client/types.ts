@@ -50,3 +50,26 @@ export interface ScopedCdpClient extends CdpClient {
   /** Stable conversation id this client is bound to. */
   readonly conversationId: string;
 }
+
+/**
+ * A deferred backend candidate used by the chained factory. Each
+ * candidate carries a `kind` label and a `create` thunk that
+ * materialises the underlying {@link CdpClient} + {@link BrowserBackend}
+ * on demand. The factory only calls `create()` when the candidate is
+ * actually selected (either as the primary or as a failover target),
+ * so backends that are never reached pay zero setup cost.
+ */
+export interface BackendCandidate {
+  readonly kind: CdpClientKind;
+  /** Human-readable reason this candidate was included. */
+  readonly reason: string;
+  /**
+   * Materialise the backend. Called at most once — the factory caches
+   * the result after the first successful CDP command so subsequent
+   * commands reuse the same backend (sticky semantics).
+   */
+  create(): {
+    client: CdpClient;
+    backend: import("../../../browser-session/types.js").BrowserBackend;
+  };
+}

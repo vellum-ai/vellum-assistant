@@ -152,6 +152,13 @@ struct AgentPanelContent: View {
     private var filterBar: some View {
         HStack(spacing: VSpacing.sm) {
             VSearchBar(placeholder: "Search Skills", text: $skillsManager.searchQuery)
+                .overlay(alignment: .trailing) {
+                    if skillsManager.isSearching {
+                        ProgressView()
+                            .controlSize(.small)
+                            .padding(.trailing, 28)
+                    }
+                }
             VDropdown(
                 options: SkillFilter.allCases.map { VDropdownOption(label: $0.rawValue, value: $0, icon: $0.icon) },
                 selection: $skillsManager.skillFilter,
@@ -259,6 +266,13 @@ struct AgentPanelContent: View {
             )
             .id(skill.id)
         } else if skillsManager.isLoading && skillsManager.baseSkillsEmpty {
+            VStack {
+                Spacer()
+                VLoadingIndicator()
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if skillsManager.isSearching && skillsManager.filteredSkills.isEmpty {
             VStack {
                 Spacer()
                 VLoadingIndicator()

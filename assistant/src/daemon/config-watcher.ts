@@ -40,6 +40,17 @@ import {
 
 const log = getLogger("config-watcher");
 
+/**
+ * Attach a resilient error handler to an FSWatcher so that async errors
+ * (e.g. ENXIO when a Unix socket file like `gateway.sock` appears in a
+ * watched directory) are logged instead of crashing the process.
+ */
+function attachWatcherErrorHandler(watcher: FSWatcher, dir: string): void {
+  watcher.on("error", (err) => {
+    log.warn({ err, dir }, "FSWatcher error (non-fatal, continuing)");
+  });
+}
+
 export class ConfigWatcher {
   private watchers: FSWatcher[] = [];
   private debounceTimers = new DebouncerMap({
@@ -180,6 +191,7 @@ export class ConfigWatcher {
             handlers[file]();
           });
         });
+        attachWatcherErrorHandler(watcher, dir);
         this.watchers.push(watcher);
         log.info({ dir }, `Watching ${label}`);
       } catch (err) {
@@ -237,6 +249,7 @@ export class ConfigWatcher {
           onSoundsConfigChanged();
         });
       });
+      attachWatcherErrorHandler(watcher, soundsDir);
       this.watchers.push(watcher);
       log.info({ dir: soundsDir }, "Watching sounds directory for changes");
     } catch (err) {
@@ -269,6 +282,7 @@ export class ConfigWatcher {
           onAvatarChanged();
         });
       });
+      attachWatcherErrorHandler(watcher, avatarDir);
       this.watchers.push(watcher);
       log.info({ dir: avatarDir }, "Watching avatar directory for changes");
     } catch (err) {
@@ -315,6 +329,7 @@ export class ConfigWatcher {
           500,
         );
       });
+      attachWatcherErrorHandler(watcher, protectedDir);
       this.watchers.push(watcher);
       log.info(
         { dir: protectedDir },
@@ -377,6 +392,7 @@ export class ConfigWatcher {
           }
         }
       });
+      attachWatcherErrorHandler(watcher, signalsDir);
       this.watchers.push(watcher);
       log.info({ dir: signalsDir }, "Watching signals directory");
     } catch (err) {
@@ -406,6 +422,7 @@ export class ConfigWatcher {
           scheduleSkillsReload(filename ? String(filename) : "(unknown)");
         },
       );
+      attachWatcherErrorHandler(recursiveWatcher, skillsDir);
       this.watchers.push(recursiveWatcher);
       log.info({ dir: skillsDir }, "Watching skills directory recursively");
       return;
@@ -426,6 +443,7 @@ export class ConfigWatcher {
         const watcher = watch(dirPath, (_eventType, filename) => {
           onChange(filename ? String(filename) : "(unknown)");
         });
+        attachWatcherErrorHandler(watcher, dirPath);
         this.watchers.push(watcher);
         return watcher;
       } catch (err) {

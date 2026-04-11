@@ -12,7 +12,7 @@ final class OnboardingHostingModeResolverTests: XCTestCase {
             appleContainerEnabled: false
         )
 
-        XCTAssertEqual(modes, [.vellumCloud, .local, .oldLocal])
+        XCTAssertEqual(modes, [.vellumCloud, .oldLocal, .local])
     }
 
     func testAvailableHostingModesAddsUserHostedOptionsWithoutDockerCard() {
@@ -50,22 +50,36 @@ final class OnboardingHostingModeResolverTests: XCTestCase {
 
     func testDisplayNameShowsDockerLocalWhenAppleContainerEnabled() {
         XCTAssertEqual(
-            OnboardingHostingModeResolver.displayName(for: .docker, appleContainerEnabled: true),
+            OnboardingHostingModeResolver.displayName(for: .docker, localDockerEnabled: false, appleContainerEnabled: true),
             "Docker Local"
         )
     }
 
     func testDisplayNameShowsHostLocalWhenAppleContainerEnabled() {
         XCTAssertEqual(
-            OnboardingHostingModeResolver.displayName(for: .oldLocal, appleContainerEnabled: true),
+            OnboardingHostingModeResolver.displayName(for: .oldLocal, localDockerEnabled: false, appleContainerEnabled: true),
             "Host Local"
         )
     }
 
     func testDisplayNameUsesDefaultWhenAppleContainerDisabled() {
         XCTAssertEqual(
-            OnboardingHostingModeResolver.displayName(for: .docker, appleContainerEnabled: false),
+            OnboardingHostingModeResolver.displayName(for: .docker, localDockerEnabled: false, appleContainerEnabled: false),
             OnboardingState.HostingMode.docker.displayName
+        )
+    }
+
+    func testDisplayNameShowsDockerExperimentalWhenLocalDockerEnabled() {
+        XCTAssertEqual(
+            OnboardingHostingModeResolver.displayName(for: .local, localDockerEnabled: true, appleContainerEnabled: false),
+            "Docker (Experimental)"
+        )
+    }
+
+    func testDisplayNameShowsLocalBareMetalWhenLocalDockerEnabled() {
+        XCTAssertEqual(
+            OnboardingHostingModeResolver.displayName(for: .oldLocal, localDockerEnabled: true, appleContainerEnabled: false),
+            "Local (Bare Metal)"
         )
     }
 
@@ -78,7 +92,18 @@ final class OnboardingHostingModeResolverTests: XCTestCase {
                 localDockerEnabled: true,
                 appleContainerEnabled: false
             ),
-            OnboardingState.HostingMode.docker.subtitle
+            "Runs locally in a Docker container for added isolation."
+        )
+    }
+
+    func testOldLocalSubtitleUsesBareMetalCopyWhenDockerEnabled() {
+        XCTAssertEqual(
+            OnboardingHostingModeResolver.subtitle(
+                for: .oldLocal,
+                localDockerEnabled: true,
+                appleContainerEnabled: false
+            ),
+            "Runs directly on your Mac. No containers, no extra setup."
         )
     }
 
