@@ -18,14 +18,14 @@ Pick a voice that matches the your identity and the user's preferences. Offer to
 
 ### Female voices
 
-| Voice     | Style                              | Voice ID               |
-| --------- | ---------------------------------- | ---------------------- |
-| Amelia    | Expressive, enthusiastic, British  | `ZF6FPAbjXT4488VcRRnw` |
-| Sarah     | Soft, young, approachable          | `EXAVITQu4vr4xnSDxMaL` |
-| Charlotte | Warm, Swedish-accented             | `XB0fDUnXU5powFXDhCwa` |
-| Alice     | Confident, British                 | `Xb7hH8MSUJpSbSDYk0k2` |
-| Matilda   | Warm, friendly, young              | `XrExE9yKIg1WjnnlVkGX` |
-| Lily      | Warm, British                      | `pFZP5JQG7iQjIQuC4Bku` |
+| Voice     | Style                             | Voice ID               |
+| --------- | --------------------------------- | ---------------------- |
+| Amelia    | Expressive, enthusiastic, British | `ZF6FPAbjXT4488VcRRnw` |
+| Sarah     | Soft, young, approachable         | `EXAVITQu4vr4xnSDxMaL` |
+| Charlotte | Warm, Swedish-accented            | `XB0fDUnXU5powFXDhCwa` |
+| Alice     | Confident, British                | `Xb7hH8MSUJpSbSDYk0k2` |
+| Matilda   | Warm, friendly, young             | `XrExE9yKIg1WjnnlVkGX` |
+| Lily      | Warm, British                     | `pFZP5JQG7iQjIQuC4Bku` |
 
 ### Male voices
 
