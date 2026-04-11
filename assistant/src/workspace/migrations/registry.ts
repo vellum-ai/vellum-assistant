@@ -27,6 +27,7 @@ import { removeOrphanedOptimizedImagesCacheMigration } from "./027-remove-orphan
 import { recoverConversationsFromDiskViewMigration } from "./028-recover-conversations-from-disk-view.js";
 import { seedPkbMigration } from "./029-seed-pkb.js";
 import { seedPkbAutoinjectMigration } from "./030-seed-pkb-autoinject.js";
+import { dropUserMdMigration } from "./031-drop-user-md.js";
 import { llmLogRetentionZeroToNullMigration } from "./031-llm-log-retention-zero-to-null.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
@@ -67,4 +68,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   seedPkbMigration,
   seedPkbAutoinjectMigration,
   llmLogRetentionZeroToNullMigration,
+  dropUserMdMigration,
 ];

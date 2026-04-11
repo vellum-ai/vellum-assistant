@@ -30,7 +30,6 @@ assistant/src/prompts/templates/ @awlevin @siddseethepalli @alex-nork
 
 # Default identity/personality files
 assistant/src/prompts/templates/IDENTITY.md @awlevin @AnitaKirkovska
-assistant/src/prompts/templates/USER.md @awlevin @AnitaKirkovska
 assistant/src/prompts/templates/SOUL.md @awlevin @AnitaKirkovska
 assistant/src/prompts/templates/BOOTSTRAP.md @awlevin @AnitaKirkovska
 
