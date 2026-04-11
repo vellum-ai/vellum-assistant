@@ -11,6 +11,19 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIST_DIR="$SCRIPT_DIR/dist"
 
+# Resolve extension version. The release workflow injects VERSION; local
+# dev builds fall back to the value in the source manifest.
+if [ -n "${VERSION:-}" ]; then
+  EXT_VERSION="$VERSION"
+else
+  EXT_VERSION=$(jq -r '.version' "$SCRIPT_DIR/manifest.json")
+fi
+
+# Chrome manifest requires 1-4 dot-separated integers. Strip any
+# prerelease suffix (e.g. "0.6.0-staging.3" -> "0.6.0") so staging
+# builds produce a valid extension zip.
+EXT_VERSION="${EXT_VERSION%%-*}"
+
 echo "Building Vellum browser-relay extension…"
 
 # Type-check with tsc --noEmit before bundling so type errors fail fast
@@ -45,6 +58,12 @@ bun build \
 
 # Copy static assets
 cp "$SCRIPT_DIR/manifest.json" "$DIST_DIR/manifest.json"
+
+# Stamp the resolved version into the dist manifest.
+jq --arg v "$EXT_VERSION" '.version = $v' "$DIST_DIR/manifest.json" > "$DIST_DIR/manifest.json.tmp" \
+  && mv "$DIST_DIR/manifest.json.tmp" "$DIST_DIR/manifest.json"
+echo "  Extension version: $EXT_VERSION"
+
 cp "$SCRIPT_DIR/popup/popup.html" "$DIST_DIR/popup/popup.html"
 
 # Copy icons if they exist, otherwise create placeholder PNGs

@@ -22,6 +22,7 @@ import {
   shouldShowCloudSection,
   deriveCtaState,
   deriveStatusDisplay,
+  deriveSetupMessage,
   healthToPhase,
   deriveHealthStatusDisplay,
   shouldExpandTroubleshooting,
@@ -214,15 +215,23 @@ describe('deriveCtaState', () => {
     expect(state.pauseEnabled).toBe(false);
   });
 
+  test('no-native-host: both buttons disabled', () => {
+    const state = deriveCtaState('no-native-host');
+    expect(state.connectLabel).toBe('Connect');
+    expect(state.connectEnabled).toBe(false);
+    expect(state.pauseLabel).toBe('Pause');
+    expect(state.pauseEnabled).toBe(false);
+  });
+
   test('all phases produce consistent label/enablement pairs', () => {
-    const phases: ConnectionPhase[] = ['disconnected', 'connecting', 'reconnecting', 'connected', 'paused'];
+    const phases: ConnectionPhase[] = ['disconnected', 'connecting', 'reconnecting', 'connected', 'paused', 'no-native-host'];
     for (const phase of phases) {
       const state = deriveCtaState(phase);
       // Pause should only be enabled when connected
       expect(state.pauseEnabled).toBe(phase === 'connected');
-      // Connect should be disabled when connecting, reconnecting, or connected
+      // Connect should be disabled when connecting, reconnecting, connected, or no-native-host
       expect(state.connectEnabled).toBe(
-        phase !== 'connecting' && phase !== 'reconnecting' && phase !== 'connected',
+        phase !== 'connecting' && phase !== 'reconnecting' && phase !== 'connected' && phase !== 'no-native-host',
       );
     }
   });
@@ -261,6 +270,12 @@ describe('deriveStatusDisplay', () => {
     expect(status.text).toBe('Paused');
   });
 
+  test('no-native-host: red dot, Desktop app required', () => {
+    const status = deriveStatusDisplay('no-native-host');
+    expect(status.dotClass).toBe('disconnected');
+    expect(status.text).toBe('Desktop app required');
+  });
+
   test('display transitions: disconnected -> connecting -> connected -> reconnecting -> connected -> paused -> disconnected', () => {
     const transitions: ConnectionPhase[] = [
       'disconnected',
@@ -286,6 +301,43 @@ describe('deriveStatusDisplay', () => {
       const status = deriveStatusDisplay(transitions[i]!);
       expect(status.dotClass).toBe(expectedDots[i]);
       expect(status.text).toBe(expectedTexts[i]);
+    }
+  });
+});
+
+// ── deriveSetupMessage ─────────────────────────────────────────────
+
+describe('deriveSetupMessage', () => {
+  test('returns setup guidance for no-native-host phase', () => {
+    const msg = deriveSetupMessage('no-native-host');
+    expect(msg).toBeString();
+    expect(msg).toContain('desktop app');
+  });
+
+  test('returns null for disconnected phase', () => {
+    expect(deriveSetupMessage('disconnected')).toBeNull();
+  });
+
+  test('returns null for connecting phase', () => {
+    expect(deriveSetupMessage('connecting')).toBeNull();
+  });
+
+  test('returns null for reconnecting phase', () => {
+    expect(deriveSetupMessage('reconnecting')).toBeNull();
+  });
+
+  test('returns null for connected phase', () => {
+    expect(deriveSetupMessage('connected')).toBeNull();
+  });
+
+  test('returns null for paused phase', () => {
+    expect(deriveSetupMessage('paused')).toBeNull();
+  });
+
+  test('all non-no-native-host phases return null', () => {
+    const normalPhases: ConnectionPhase[] = ['disconnected', 'connecting', 'reconnecting', 'connected', 'paused'];
+    for (const phase of normalPhases) {
+      expect(deriveSetupMessage(phase)).toBeNull();
     }
   });
 });
@@ -321,7 +373,7 @@ describe('healthToPhase', () => {
     const healthStates: ConnectionHealthState[] = [
       'paused', 'connecting', 'connected', 'reconnecting', 'auth_required', 'error',
     ];
-    const validPhases = new Set<ConnectionPhase>(['disconnected', 'connecting', 'reconnecting', 'connected', 'paused']);
+    const validPhases = new Set<ConnectionPhase>(['disconnected', 'connecting', 'reconnecting', 'connected', 'paused', 'no-native-host']);
 
     for (const health of healthStates) {
       const phase = healthToPhase(health);

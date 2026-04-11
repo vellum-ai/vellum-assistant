@@ -17,7 +17,7 @@
  * by `worker-autoconnect.test.ts` and `worker-connect-preflight.test.ts`.
  */
 
-import { describe, test, expect, beforeEach } from 'bun:test';
+import { describe, test, expect } from 'bun:test';
 
 // ── Types mirroring worker.ts health state ──────────────────────────
 
@@ -69,7 +69,7 @@ function createFakeStorage(): FakeStorage {
 // ── Storage key constants (mirror worker.ts) ────────────────────────
 
 const AUTO_CONNECT_KEY = 'autoConnect';
-const RELAY_AUTH_ERROR_KEY = 'vellum.relayAuthError';
+
 
 // ── Minimal RelayConnection fake ────────────────────────────────────
 

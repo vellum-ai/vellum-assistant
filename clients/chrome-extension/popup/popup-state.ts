@@ -165,14 +165,16 @@ export function shouldShowCloudSection(
  * The popup's connection lifecycle phase. Drives the primary/secondary
  * button labels, enablement, and status indicator.
  *
- * - `disconnected`  — idle, no active relay connection.
- * - `connecting`    — connect in progress (waiting for socket open).
- * - `reconnecting`  — transient disconnect, automatic recovery in progress.
- * - `connected`     — relay WebSocket is open and active.
- * - `paused`        — user explicitly paused; credentials are preserved
- *                     so reconnect is instant.
+ * - `disconnected`    — idle, no active relay connection.
+ * - `connecting`      — connect in progress (waiting for socket open).
+ * - `reconnecting`    — transient disconnect, automatic recovery in progress.
+ * - `connected`       — relay WebSocket is open and active.
+ * - `paused`          — user explicitly paused; credentials are preserved
+ *                       so reconnect is instant.
+ * - `no-native-host`  — native messaging host is not installed; the user
+ *                       needs to install the Vellum desktop app first.
  */
-export type ConnectionPhase = 'disconnected' | 'connecting' | 'reconnecting' | 'connected' | 'paused';
+export type ConnectionPhase = 'disconnected' | 'connecting' | 'reconnecting' | 'connected' | 'paused' | 'no-native-host';
 
 /**
  * Derived view state for the popup's primary and secondary action buttons.
@@ -191,13 +193,14 @@ export interface CtaState {
 /**
  * Derive the CTA button labels and enablement from the connection phase.
  *
- * | Phase        | Connect       | Pause         |
- * |--------------|---------------|---------------|
- * | disconnected | Connect (on)  | Pause (off)   |
- * | connecting   | Connecting... (off) | Pause (off) |
- * | reconnecting | Reconnecting... (off) | Pause (off) |
- * | connected    | Connect (off) | Pause (on)    |
- * | paused       | Connect (on)  | Pause (off)   |
+ * | Phase           | Connect                | Pause         |
+ * |-----------------|------------------------|---------------|
+ * | disconnected    | Connect (on)           | Pause (off)   |
+ * | connecting      | Connecting... (off)    | Pause (off)   |
+ * | reconnecting    | Reconnecting... (off)  | Pause (off)   |
+ * | connected       | Connect (off)          | Pause (on)    |
+ * | paused          | Connect (on)           | Pause (off)   |
+ * | no-native-host  | Connect (off)          | Pause (off)   |
  */
 export function deriveCtaState(phase: ConnectionPhase): CtaState {
   switch (phase) {
@@ -236,6 +239,13 @@ export function deriveCtaState(phase: ConnectionPhase): CtaState {
         pauseLabel: 'Pause',
         pauseEnabled: false,
       };
+    case 'no-native-host':
+      return {
+        connectLabel: 'Connect',
+        connectEnabled: false,
+        pauseLabel: 'Pause',
+        pauseEnabled: false,
+      };
   }
 }
 
@@ -264,7 +274,25 @@ export function deriveStatusDisplay(phase: ConnectionPhase): StatusDisplay {
       return { dotClass: 'connected', text: 'Connected to relay server' };
     case 'paused':
       return { dotClass: 'paused', text: 'Paused' };
+    case 'no-native-host':
+      return { dotClass: 'disconnected', text: 'Desktop app required' };
   }
+}
+
+/**
+ * Derive a user-facing setup message for phases that require
+ * external action (e.g. installing the desktop app).
+ *
+ * Returns `null` when no setup guidance is needed.
+ */
+export function deriveSetupMessage(phase: ConnectionPhase): string | null {
+  if (phase === 'no-native-host') {
+    return (
+      'Install the Vellum desktop app to connect. ' +
+      'The browser extension requires the desktop app to communicate with your local assistant.'
+    );
+  }
+  return null;
 }
 
 // ── Health-aware state mapping ──────────────────────────────────────

@@ -38,6 +38,7 @@ import {
   shouldShowLocalSection,
   shouldShowCloudSection,
   deriveCtaState,
+  deriveSetupMessage,
   deriveHealthStatusDisplay,
   healthToPhase,
   shouldExpandTroubleshooting,
@@ -60,6 +61,7 @@ const btnPause = document.getElementById('btn-pause') as HTMLButtonElement;
 const statusDot = document.getElementById('status-dot') as HTMLDivElement;
 const statusText = document.getElementById('status-text') as HTMLParagraphElement;
 const errorText = document.getElementById('error-text') as HTMLParagraphElement;
+const setupMessage = document.getElementById('setup-message') as HTMLParagraphElement;
 const btnCloudSignIn = document.getElementById('btn-cloud-signin') as HTMLButtonElement;
 const cloudStatus = document.getElementById('cloud-status') as HTMLParagraphElement;
 const btnPairLocal = document.getElementById('btn-pair-local') as HTMLButtonElement;
@@ -88,6 +90,7 @@ const assistantSelect = document.getElementById(
 // connect and auth-refresh operations use the right assistant context.
 
 let currentAssistantId: string | null = null;
+let currentAuthProfile: AssistantAuthProfile | null = null;
 
 // ── Current health state ────────────────────────────────────────────
 //
@@ -97,6 +100,19 @@ let currentAssistantId: string | null = null;
 let currentHealthState: ConnectionHealthState = 'paused';
 
 // ── Connection phase management ─────────────────────────────────────
+
+/**
+ * Show or hide the setup-message element based on the current phase.
+ */
+function setSetupMessage(phase: ConnectionPhase): void {
+  const msg = deriveSetupMessage(phase);
+  if (msg) {
+    setupMessage.textContent = msg;
+    setupMessage.style.display = 'block';
+  } else {
+    setupMessage.style.display = 'none';
+  }
+}
 
 /**
  * Apply the worker's health state to the full popup UI. Derives button
@@ -124,6 +140,8 @@ function applyHealthState(
 
   portInput.disabled = phase === 'connected' || phase === 'connecting';
 
+  setSetupMessage(phase);
+
   if (health === 'connected') {
     errorText.style.display = 'none';
   }
@@ -142,8 +160,10 @@ function setPhase(phase: ConnectionPhase): void {
   const healthMap: Record<ConnectionPhase, ConnectionHealthState> = {
     connected: 'connected',
     connecting: 'connecting',
+    reconnecting: 'reconnecting',
     disconnected: 'paused',
     paused: 'paused',
+    'no-native-host': 'error',
   };
   applyHealthState(healthMap[phase]);
 }
@@ -248,6 +268,7 @@ function renderAssistantSelector(
  * based on the selected assistant's auth profile.
  */
 function updateAuthSections(authProfile: AssistantAuthProfile | null): void {
+  currentAuthProfile = authProfile;
   const showLocal = shouldShowLocalSection(authProfile);
   const showCloud = shouldShowCloudSection(authProfile);
 
@@ -266,10 +287,30 @@ function updateAuthSections(authProfile: AssistantAuthProfile | null): void {
 /**
  * Load the assistant catalog from the worker and render the selector.
  */
+function isNativeHostUnavailable(error: string | undefined): boolean {
+  if (!error) return false;
+  const lower = error.toLowerCase();
+  // Match only Chrome's specific host-not-installed error messages:
+  //   "Specified native messaging host not found."
+  //   "Access to the specified native messaging host is forbidden."
+  // Recoverable errors like timeouts, generic helper errors, and
+  // disconnect-before-response must NOT trigger the no-native-host phase.
+  return (
+    (lower.includes('native messaging host') && lower.includes('not found')) ||
+    (lower.includes('native messaging host') && lower.includes('forbidden'))
+  );
+}
+
 function loadAssistantCatalog(): void {
   chrome.runtime.sendMessage({ type: 'assistants-get' }, (response: AssistantsGetResponse) => {
     if (chrome.runtime.lastError || !response?.ok) {
       const errMsg = response?.error ?? chrome.runtime.lastError?.message ?? 'Failed to load assistants';
+
+      if (isNativeHostUnavailable(errMsg)) {
+        setPhase('no-native-host');
+        return;
+      }
+
       showError(errMsg);
       return;
     }
