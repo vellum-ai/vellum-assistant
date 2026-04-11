@@ -1068,6 +1068,6 @@ Voice and TTS settings are configurable via the `calls.voice` config block — t
 
 All calls use **ElevenLabs** as the TTS provider via Twilio ConversationRelay. The voice ID is read from the shared `elevenlabs.voiceId` config key (defaulting to Amelia — `ZF6FPAbjXT4488VcRRnw`). Optional tuning parameters (`voiceModelId`, `speed`, `stability`, `similarityBoost`) are also read from the top-level `elevenlabs` config. When `voiceModelId` is set, the emitted voice spec uses the Twilio ConversationRelay extended format: `voiceId-model-speed_stability_similarity`. When `voiceModelId` is empty (the default), only the bare `voiceId` is sent.
 
-The voice webhook in `twilio-routes.ts` calls `resolveVoiceQualityProfile()` and passes the result directly to `generateTwiML()` to produce ConversationRelay TwiML.
+The voice webhook in `twilio-routes.ts` calls `resolveVoiceQualityProfile()` for TTS settings and separately resolves STT configuration via `resolveTelephonySttProfile()` + `buildTwilioRelaySpeechConfig()`. Both the voice quality profile and the resulting `TwilioRelaySpeechConfig` are passed to `generateTwiML()` to produce ConversationRelay TwiML. This separation keeps TTS and STT resolution independent — the voice quality profile controls the TTS provider, voice, and language, while the speech config controls the STT provider, model, and language for transcription.
 
 ---
