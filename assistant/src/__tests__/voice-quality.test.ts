@@ -6,6 +6,7 @@ mock.module("../config/loader.js", () => ({
   loadConfig: () => mockConfig,
 }));
 
+import { resolveTelephonySttProfile } from "../calls/stt-profile.js";
 import {
   buildElevenLabsVoiceSpec,
   resolveVoiceQualityProfile,
@@ -60,6 +61,57 @@ describe("buildElevenLabsVoiceSpec", () => {
     expect(buildElevenLabsVoiceSpec({ voiceId: "  abc123  " })).toBe("abc123");
   });
 });
+
+// ── resolveTelephonySttProfile (adapter unit tests) ─────────────────
+
+describe("resolveTelephonySttProfile", () => {
+  test("Deepgram defaults speechModel to nova-3 when unset", () => {
+    const profile = resolveTelephonySttProfile({
+      transcriptionProvider: "Deepgram",
+      speechModel: undefined,
+    });
+    expect(profile.provider).toBe("Deepgram");
+    expect(profile.speechModel).toBe("nova-3");
+  });
+
+  test("Deepgram preserves explicitly set speechModel", () => {
+    const profile = resolveTelephonySttProfile({
+      transcriptionProvider: "Deepgram",
+      speechModel: "nova-2-phonecall",
+    });
+    expect(profile.provider).toBe("Deepgram");
+    expect(profile.speechModel).toBe("nova-2-phonecall");
+  });
+
+  test("Google leaves speechModel undefined when unset", () => {
+    const profile = resolveTelephonySttProfile({
+      transcriptionProvider: "Google",
+      speechModel: undefined,
+    });
+    expect(profile.provider).toBe("Google");
+    expect(profile.speechModel).toBeUndefined();
+  });
+
+  test("Google treats legacy Deepgram default nova-3 as unset", () => {
+    const profile = resolveTelephonySttProfile({
+      transcriptionProvider: "Google",
+      speechModel: "nova-3",
+    });
+    expect(profile.provider).toBe("Google");
+    expect(profile.speechModel).toBeUndefined();
+  });
+
+  test("Google preserves explicitly set non-legacy speechModel", () => {
+    const profile = resolveTelephonySttProfile({
+      transcriptionProvider: "Google",
+      speechModel: "telephony",
+    });
+    expect(profile.provider).toBe("Google");
+    expect(profile.speechModel).toBe("telephony");
+  });
+});
+
+// ── resolveVoiceQualityProfile ──────────────────────────────────────
 
 describe("resolveVoiceQualityProfile", () => {
   test("always returns ElevenLabs ttsProvider", () => {
@@ -181,5 +233,67 @@ describe("resolveVoiceQualityProfile", () => {
     };
     const profile = resolveVoiceQualityProfile();
     expect(profile.hints).toEqual(["Vellum", "Nova", "AI assistant"]);
+  });
+
+  test("delegates STT resolution to adapter — Deepgram defaults to nova-3", () => {
+    mockConfig = {
+      elevenlabs: { voiceId: "abc" },
+      calls: {
+        voice: {
+          language: "en-US",
+          transcriptionProvider: "Deepgram",
+        },
+      },
+    };
+    const profile = resolveVoiceQualityProfile();
+    expect(profile.transcriptionProvider).toBe("Deepgram");
+    expect(profile.speechModel).toBe("nova-3");
+  });
+
+  test("delegates STT resolution to adapter — Google leaves speechModel undefined", () => {
+    mockConfig = {
+      elevenlabs: { voiceId: "abc" },
+      calls: {
+        voice: {
+          language: "en-US",
+          transcriptionProvider: "Google",
+        },
+      },
+    };
+    const profile = resolveVoiceQualityProfile();
+    expect(profile.transcriptionProvider).toBe("Google");
+    expect(profile.speechModel).toBeUndefined();
+  });
+
+  test("delegates STT resolution to adapter — Google strips legacy nova-3", () => {
+    mockConfig = {
+      elevenlabs: { voiceId: "abc" },
+      calls: {
+        voice: {
+          language: "en-US",
+          transcriptionProvider: "Google",
+          speechModel: "nova-3",
+        },
+      },
+    };
+    const profile = resolveVoiceQualityProfile();
+    expect(profile.transcriptionProvider).toBe("Google");
+    expect(profile.speechModel).toBeUndefined();
+  });
+
+  test("delegates STT resolution to adapter — Google preserves explicit model", () => {
+    mockConfig = {
+      elevenlabs: { voiceId: "abc" },
+      calls: {
+        voice: {
+          language: "en-US",
+          transcriptionProvider: "Google",
+          speechModel: "telephony",
+        },
+      },
+    };
+    const profile = resolveVoiceQualityProfile();
+    expect(profile.transcriptionProvider).toBe("Google");
+    expect(profile.speechModel).toBe("telephony");
   });
 });
