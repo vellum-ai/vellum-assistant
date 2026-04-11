@@ -173,6 +173,50 @@
       color: #ef4444;
       margin-bottom: 8px;
     }
+
+    /* ── Troubleshoot collapsible area ────────────────────────────── */
+
+    #troubleshoot-section {
+      margin-top: 16px;
+    }
+
+    #troubleshoot-section[hidden] {
+      display: none;
+    }
+
+    .troubleshoot-toggle {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background: none;
+      border: none;
+      padding: 0;
+      margin-bottom: 10px;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      flex: none;
+    }
+    .troubleshoot-toggle:hover { color: #374151; }
+
+    .troubleshoot-toggle .chevron {
+      display: inline-block;
+      font-size: 10px;
+      transition: transform 0.15s;
+    }
+    .troubleshoot-toggle[aria-expanded="true"] .chevron {
+      transform: rotate(90deg);
+    }
+
+    #troubleshoot-body {
+      overflow: hidden;
+    }
+    #troubleshoot-body[hidden] {
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -206,15 +250,29 @@
 
   <p class="hint">Relay port defaults to 7830.</p>
 
-  <div class="divider" id="troubleshooting-divider"></div>
+  <!-- Troubleshoot section: collapsed by default, auto-expanded for auth_required/error -->
+  <div id="troubleshoot-section" hidden>
+    <div class="divider"></div>
 
-  <p class="section-label" id="troubleshooting-label">Troubleshooting</p>
+    <button
+      type="button"
+      class="troubleshoot-toggle"
+      id="troubleshoot-toggle"
+      aria-expanded="false"
+      aria-controls="troubleshoot-body"
+    >
+      <span class="chevron">&#9654;</span>
+      Troubleshoot
+    </button>
 
-  <p class="local-status" id="local-status" style="display:none">Not paired</p>
-  <button id="btn-pair-local" type="button" style="display:none">Re-pair with local assistant</button>
+    <div id="troubleshoot-body" hidden>
+      <p class="local-status" id="local-status" style="display:none">Not paired</p>
+      <button id="btn-pair-local" type="button" style="display:none">Re-pair with local assistant</button>
 
-  <p class="cloud-status" id="cloud-status" style="display:none">Not signed in</p>
-  <button id="btn-cloud-signin" type="button" style="display:none">Re-sign in with Vellum (cloud)</button>
+      <p class="cloud-status" id="cloud-status" style="display:none">Not signed in</p>
+      <button id="btn-cloud-signin" type="button" style="display:none">Re-sign in with Vellum (cloud)</button>
+    </div>
+  </div>
 
   <script type="module" src="popup.js"></script>
 </body>

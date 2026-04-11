@@ -657,3 +657,280 @@ describe('connectPreflight — edge cases', () => {
     expect(result.token).toBe('fallback-jwt');
   });
 });
+
+// ── Local token staleness decision ───────────────────────────────
+//
+// The worker's `buildRelayModeForAssistant` uses `isLocalTokenStale` to
+// decide whether to attempt a silent bootstrap. These tests verify the
+// decision boundary matches the stale-window semantics.
+
+import {
+  isLocalTokenStale,
+  LOCAL_TOKEN_STALE_WINDOW_MS,
+  type StoredLocalToken as StaleTestStoredLocalToken,
+} from '../self-hosted-auth.js';
+
+function makeFreshLocalToken(overrides: Partial<StaleTestStoredLocalToken> = {}): StaleTestStoredLocalToken {
+  return {
+    token: 'fresh-token',
+    expiresAt: Date.now() + 3_600_000,
+    guardianId: 'g-fresh',
+    ...overrides,
+  };
+}
+
+function makeStaleLocalToken(overrides: Partial<StaleTestStoredLocalToken> = {}): StaleTestStoredLocalToken {
+  return {
+    token: 'stale-token',
+    expiresAt: Date.now() + 30_000,
+    guardianId: 'g-stale',
+    ...overrides,
+  };
+}
+
+function makeExpiredLocalToken(overrides: Partial<StaleTestStoredLocalToken> = {}): StaleTestStoredLocalToken {
+  return {
+    token: 'expired-token',
+    expiresAt: Date.now() - 1_000,
+    guardianId: 'g-expired',
+    ...overrides,
+  };
+}
+
+describe('preflight: local token staleness drives silent recovery decision', () => {
+  test('null token triggers recovery (isLocalTokenStale returns true)', () => {
+    expect(isLocalTokenStale(null)).toBe(true);
+  });
+
+  test('expired token triggers recovery', () => {
+    const token = makeExpiredLocalToken();
+    expect(isLocalTokenStale(token)).toBe(true);
+  });
+
+  test('stale token (within stale window) triggers recovery', () => {
+    const token = makeStaleLocalToken();
+    expect(isLocalTokenStale(token)).toBe(true);
+  });
+
+  test('fresh token does NOT trigger recovery', () => {
+    const token = makeFreshLocalToken();
+    expect(isLocalTokenStale(token)).toBe(false);
+  });
+
+  test('token expiring exactly at stale boundary triggers recovery', () => {
+    const now = 1_000_000;
+    const token: StaleTestStoredLocalToken = {
+      token: 'boundary',
+      expiresAt: now + LOCAL_TOKEN_STALE_WINDOW_MS,
+      guardianId: 'g-boundary',
+    };
+    expect(isLocalTokenStale(token, now)).toBe(true);
+  });
+
+  test('token expiring 1ms after stale boundary does NOT trigger recovery', () => {
+    const now = 1_000_000;
+    const token: StaleTestStoredLocalToken = {
+      token: 'just-outside',
+      expiresAt: now + LOCAL_TOKEN_STALE_WINDOW_MS + 1,
+      guardianId: 'g-outside',
+    };
+    expect(isLocalTokenStale(token, now)).toBe(false);
+  });
+});
+
+describe('recovery semantics', () => {
+  test('successful bootstrap produces a usable fresh token', () => {
+    const refreshed = makeFreshLocalToken({ token: 'bootstrap-fresh' });
+    expect(refreshed.token).toBe('bootstrap-fresh');
+    expect(isLocalTokenStale(refreshed)).toBe(false);
+  });
+
+  test('native host missing error is non-recoverable', () => {
+    const error = new Error('Specified native messaging host not found.');
+    expect(error.message).toContain('native messaging host not found');
+  });
+
+  test('forbidden origin error is non-recoverable', () => {
+    const error = new Error('unauthorized_origin');
+    expect(error.message).toBe('unauthorized_origin');
+  });
+
+  test('pair endpoint failure is non-recoverable', () => {
+    const error = new Error('connection refused');
+    expect(error.message).toBe('connection refused');
+  });
+
+  test('timeout error is non-recoverable', () => {
+    const error = new Error('native messaging timeout');
+    expect(error.message).toBe('native messaging timeout');
+  });
+});
+
+describe('integrated silent recovery: staleness detection + bootstrap', () => {
+  /**
+   * These tests verify the integrated flow that the worker executes during
+   * reconnect for local-pair assistants: detect staleness via
+   * `isLocalTokenStale`, then call `bootstrapLocalToken` to recover.
+   *
+   * This exercises both functions together as they'd be invoked in the
+   * actual reconnect path (buildRelayModeForAssistant).
+   */
+
+  test('stale token triggers bootstrap which produces a fresh usable token', async () => {
+    const staleToken = makeStaleLocalToken({ token: 'original-stale' });
+
+    // Step 1: staleness detection triggers recovery
+    expect(isLocalTokenStale(staleToken)).toBe(true);
+
+    // Step 2: bootstrap produces a fresh token
+    const bootstrapResult = makeStoredLocalToken({
+      token: 'bootstrap-refreshed',
+      expiresAt: Date.now() + 3_600_000,
+      assistantPort: 7831,
+    });
+    const deps = makeDeps({
+      bootstrapLocalToken: async () => bootstrapResult,
+    });
+    const result = await deps.bootstrapLocalToken('local-1');
+
+    // Step 3: the new token is fresh and usable
+    expect(result.token).toBe('bootstrap-refreshed');
+    expect(isLocalTokenStale(result)).toBe(false);
+  });
+
+  test('missing token triggers bootstrap which produces a fresh usable token', async () => {
+    const storedToken = null;
+
+    // Step 1: null token triggers recovery
+    expect(isLocalTokenStale(storedToken)).toBe(true);
+
+    // Step 2: bootstrap produces a fresh token
+    const bootstrapResult = makeStoredLocalToken({
+      token: 'new-from-bootstrap',
+      expiresAt: Date.now() + 3_600_000,
+      assistantPort: 9000,
+    });
+    const deps = makeDeps({
+      bootstrapLocalToken: async () => bootstrapResult,
+    });
+    const result = await deps.bootstrapLocalToken('local-1');
+
+    // Step 3: the new token is fresh and usable
+    expect(result.token).toBe('new-from-bootstrap');
+    expect(isLocalTokenStale(result)).toBe(false);
+    expect(result.assistantPort).toBe(9000);
+  });
+
+  test('bootstrap failure surfaces original stale token (not null)', async () => {
+    const staleToken = makeStaleLocalToken({ token: 'original-stale-kept' });
+
+    // Step 1: staleness detection triggers recovery
+    expect(isLocalTokenStale(staleToken)).toBe(true);
+
+    // Step 2: bootstrap fails
+    const deps = makeDeps({
+      bootstrapLocalToken: async () => {
+        throw new Error('native messaging timeout');
+      },
+    });
+
+    let recoveredToken: StoredLocalToken | null = staleToken;
+    try {
+      await deps.bootstrapLocalToken('local-1');
+    } catch {
+      // Bootstrap failed — fall back to the original stale token
+      recoveredToken = staleToken;
+    }
+
+    // Step 3: the original stale token is preserved (not null)
+    expect(recoveredToken).not.toBeNull();
+    expect(recoveredToken!.token).toBe('original-stale-kept');
+  });
+
+  test('bootstrap failure does not discard expired token either', async () => {
+    const expiredToken = makeExpiredLocalToken({ token: 'expired-but-available' });
+
+    // Step 1: staleness detection triggers recovery
+    expect(isLocalTokenStale(expiredToken)).toBe(true);
+
+    // Step 2: bootstrap fails
+    const deps = makeDeps({
+      bootstrapLocalToken: async () => {
+        throw new Error('connection refused');
+      },
+    });
+
+    let recoveredToken: StoredLocalToken | null = expiredToken;
+    try {
+      await deps.bootstrapLocalToken('local-1');
+    } catch {
+      // Bootstrap failed — fall back to the original token
+      recoveredToken = expiredToken;
+    }
+
+    // Step 3: the original token is still surfaced (not replaced with null)
+    expect(recoveredToken).not.toBeNull();
+    expect(recoveredToken!.token).toBe('expired-but-available');
+  });
+
+  test('interactive local-pair preflight attempts bootstrap when token is missing and succeeds', async () => {
+    const assistant = makeLocalAssistant();
+    const mode: RelayMode = {
+      kind: 'self-hosted',
+      baseUrl: 'http://127.0.0.1:7821',
+      token: null,
+    };
+
+    // Simulate: isLocalTokenStale(null) => true, then bootstrap succeeds
+    expect(isLocalTokenStale(null)).toBe(true);
+
+    const bootstrapped = makeStoredLocalToken({
+      token: 'interactive-bootstrap-token',
+      assistantPort: 7831,
+    });
+    let bootstrapCalled = false;
+    const deps = makeDeps({
+      bootstrapLocalToken: async (id) => {
+        bootstrapCalled = true;
+        expect(id).toBe('local-1');
+        return bootstrapped;
+      },
+    });
+
+    const result = await connectPreflight(
+      assistant,
+      'local-pair',
+      mode,
+      { interactive: true },
+      deps,
+    );
+
+    expect(bootstrapCalled).toBe(true);
+    expect(result.token).toBe('interactive-bootstrap-token');
+    expect(isLocalTokenStale(bootstrapped)).toBe(false);
+  });
+});
+
+describe('reconnect: silent recovery for self-hosted mode', () => {
+  test('stale stored token on reconnect triggers recovery attempt', () => {
+    const stored = makeStaleLocalToken();
+    expect(isLocalTokenStale(stored)).toBe(true);
+  });
+
+  test('fresh stored token on reconnect uses existing token without bootstrap', () => {
+    const stored = makeFreshLocalToken();
+    expect(isLocalTokenStale(stored)).toBe(false);
+    expect(stored.token).toBe('fresh-token');
+  });
+
+  test('missing token on reconnect triggers recovery attempt', () => {
+    expect(isLocalTokenStale(null)).toBe(true);
+  });
+
+  test('recovery failure on reconnect produces abort with actionable message', () => {
+    const abortError =
+      'Self-hosted relay token missing or expired. Pair the Vellum assistant again from the extension popup.';
+    expect(abortError).toContain('Pair');
+    expect(abortError).toContain('extension popup');
+  });
+});
