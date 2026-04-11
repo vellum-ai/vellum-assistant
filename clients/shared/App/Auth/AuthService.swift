@@ -390,8 +390,7 @@ public final class AuthService {
         return try decodeAssistantResult(response)
     }
 
-    /// Retrieve the user's currently active managed assistant for the given
-    /// organization.
+    /// Retrieve the user's currently active managed assistant.
     public func getActiveAssistant(organizationId: String) async throws -> PlatformAssistantResult {
         let response = try await performPlatformRequest(
             path: "v1/assistants/active/",
