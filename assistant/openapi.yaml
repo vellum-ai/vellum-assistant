@@ -4801,7 +4801,7 @@ paths:
     post:
       operationId: messages_by_id_tts_post
       summary: Synthesize message to speech
-      description: Synthesize a message's text content to audio using Fish Audio TTS.
+      description: Synthesize a message's text content to audio using the configured TTS provider.
       tags:
         - messages
       responses:

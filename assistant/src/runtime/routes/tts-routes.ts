@@ -4,14 +4,14 @@
  * POST /v1/messages/:id/tts?conversationId=... — synthesize message text to audio
  *
  * Gated behind the `message-tts` assistant feature flag.
- * Uses Fish Audio for synthesis when configured.
+ * Uses the globally configured TTS provider via the provider abstraction.
  */
 
-import { synthesizeWithFishAudio } from "../../calls/fish-audio-client.js";
 import { sanitizeForTts } from "../../calls/tts-text-sanitizer.js";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
 import { getMessageContent } from "../../daemon/handlers/conversation-history.js";
+import { synthesizeText } from "../../tts/synthesize-text.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
@@ -32,7 +32,7 @@ export function ttsRouteDefinitions(): RouteDefinition[] {
       policyKey: "messages/tts",
       summary: "Synthesize message to speech",
       description:
-        "Synthesize a message's text content to audio using Fish Audio TTS.",
+        "Synthesize a message's text content to audio using the configured TTS provider.",
       tags: ["messages"],
       queryParams: [
         {
@@ -70,35 +70,32 @@ export function ttsRouteDefinitions(): RouteDefinition[] {
           );
         }
 
-        const { fishAudio } = config;
-        if (!fishAudio?.referenceId) {
-          return httpError(
-            "SERVICE_UNAVAILABLE",
-            "Fish Audio TTS is not configured",
-            503,
-          );
-        }
-
         try {
-          const audioBuffer = await synthesizeWithFishAudio(
-            sanitizedText,
-            fishAudio,
-          );
+          const { audio, contentType } = await synthesizeText({
+            text: sanitizedText,
+            useCase: "message-playback",
+          });
 
-          const format = fishAudio.format ?? "mp3";
-          const contentType =
-            format === "wav"
-              ? "audio/wav"
-              : format === "opus"
-                ? "audio/opus"
-                : "audio/mpeg";
-
-          return new Response(new Uint8Array(audioBuffer), {
+          return new Response(new Uint8Array(audio), {
             status: 200,
             headers: { "Content-Type": contentType },
           });
         } catch (err) {
           log.error({ err, messageId }, "TTS synthesis failed");
+
+          // Surface provider-not-configured as 503
+          if (
+            err instanceof Error &&
+            "code" in err &&
+            (err as { code: string }).code === "TTS_PROVIDER_NOT_CONFIGURED"
+          ) {
+            return httpError(
+              "SERVICE_UNAVAILABLE",
+              "TTS provider is not configured",
+              503,
+            );
+          }
+
           return httpError("INTERNAL_ERROR", "TTS synthesis failed", 502);
         }
       },
