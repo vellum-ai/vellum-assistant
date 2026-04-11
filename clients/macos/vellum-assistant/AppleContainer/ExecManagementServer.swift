@@ -51,6 +51,15 @@ final class ExecManagementServer: @unchecked Sendable {
             switch state {
             case .ready:
                 log.info("Management socket listening at \(self.socketPath, privacy: .public)")
+                // Set socket permissions now that the file exists (start() is async).
+                do {
+                    try FileManager.default.setAttributes(
+                        [.posixPermissions: 0o600], ofItemAtPath: self.socketPath
+                    )
+                } catch {
+                    log.error("Failed to restrict socket permissions: \(error.localizedDescription, privacy: .public)")
+                    self.stopInternal()
+                }
             case .failed(let error):
                 log.error("Management socket listener failed: \(error.localizedDescription, privacy: .public)")
                 self.stopInternal()
@@ -65,11 +74,6 @@ final class ExecManagementServer: @unchecked Sendable {
 
         lock.withLock { _listener = listener }
         listener.start(queue: queue)
-
-        // Restrict socket to current user.
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o600], ofItemAtPath: socketPath
-        )
     }
 
     /// Stops the listener and removes the socket file.
@@ -245,8 +249,8 @@ final class ExecManagementServer: @unchecked Sendable {
                     }
                 }
             }
-            // Client disconnected — close the PTY so the process gets SIGHUP.
-            try? terminal.close()
+            // Client disconnected — don't close the terminal here;
+            // session.wait() handles cleanup to avoid double-close of the fd.
         }
 
         // Wait for the process to exit and clean up.
@@ -274,9 +278,18 @@ final class ExecManagementServer: @unchecked Sendable {
     }
 
     private func sendError(_ connection: NWConnection, message: String) {
-        let escaped = message.replacingOccurrences(of: "\"", with: "\\\"")
-        let response = "{\"status\":\"error\",\"message\":\"\(escaped)\"}\n".data(using: .utf8)!
-        connection.send(content: response, completion: .contentProcessed { _ in
+        let responseDict: [String: Any] = ["status": "error", "message": message]
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: responseDict),
+              var responseString = String(data: jsonData, encoding: .utf8) else {
+            connection.cancel()
+            return
+        }
+        responseString += "\n"
+        guard let responseData = responseString.data(using: .utf8) else {
+            connection.cancel()
+            return
+        }
+        connection.send(content: responseData, completion: .contentProcessed { _ in
             connection.cancel()
         })
     }
