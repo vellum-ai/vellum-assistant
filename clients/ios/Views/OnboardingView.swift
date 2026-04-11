@@ -109,11 +109,50 @@ struct OnboardingView: View {
         .padding(VSpacing.xl)
     }
 
+    /// Persist the selected assistant's config, rebuild the daemon client,
+    /// and advance to the permissions step.
+    private func finalizeAssistantSelection(_ assistant: PlatformAssistant) {
+        let platformBaseURL = AuthService.shared.baseURL
+
+        // Persist managed assistant config so DaemonConfig.fromUserDefaults() picks it up.
+        UserDefaults.standard.set(assistant.id, forKey: UserDefaultsKeys.managedAssistantId)
+        UserDefaults.standard.set(platformBaseURL, forKey: UserDefaultsKeys.managedPlatformBaseURL)
+        // TODO: Migrate to LockfileAssistant.setActiveAssistantId() when
+        // LockfileAssistant is available on iOS (currently macOS-only).
+        UserDefaults.standard.set(assistant.id, forKey: "connectedAssistantId")
+
+        // Rebuild the daemon client with managed transport config.
+        // ContentView.attemptInitialConnection() handles connecting with
+        // proper retries and timeout once onboarding completes.
+        clientProvider.rebuildClient()
+
+        isBootstrappingManaged = false
+        currentStep = .permissions
+    }
+
     private func performManagedBootstrap() async {
         isBootstrappingManaged = true
         managedBootstrapError = nil
 
         do {
+            // Ask the platform for the user's active assistant via
+            // GET /v1/assistants/active/ before falling through to the bootstrap
+            // service. The server resolves the active assistant via
+            // `get_presumably_unique_assistant()`, so the client doesn't need
+            // to enumerate or pick. Single-org is the only supported shape on
+            // iOS today; multi-org or zero-org cases fall through to
+            // `ensureManagedAssistant()` which surfaces a typed error.
+            let orgs = try await AuthService.shared.getOrganizations()
+            if orgs.count == 1, let orgId = orgs.first?.id {
+                let activeResult = try await AuthService.shared.getActiveAssistant(organizationId: orgId)
+                if case .found(let existing) = activeResult {
+                    finalizeAssistantSelection(existing)
+                    return
+                }
+            }
+
+            // No active assistant (first-run) or non-single-org shape —
+            // delegate to the shared bootstrap, which hatches on iOS.
             let outcome = try await ManagedAssistantBootstrapService.shared.ensureManagedAssistant()
 
             let assistant: PlatformAssistant
@@ -124,22 +163,7 @@ struct OnboardingView: View {
                 assistant = created
             }
 
-            let platformBaseURL = AuthService.shared.baseURL
-
-            // Persist managed assistant config so DaemonConfig.fromUserDefaults() picks it up.
-            UserDefaults.standard.set(assistant.id, forKey: UserDefaultsKeys.managedAssistantId)
-            UserDefaults.standard.set(platformBaseURL, forKey: UserDefaultsKeys.managedPlatformBaseURL)
-            // TODO: Migrate to LockfileAssistant.setActiveAssistantId() when
-            // LockfileAssistant is available on iOS (currently macOS-only).
-            UserDefaults.standard.set(assistant.id, forKey: "connectedAssistantId")
-
-            // Rebuild the daemon client with managed transport config.
-            // ContentView.attemptInitialConnection() handles connecting with
-            // proper retries and timeout once onboarding completes.
-            clientProvider.rebuildClient()
-
-            isBootstrappingManaged = false
-            currentStep = .permissions
+            finalizeAssistantSelection(assistant)
         } catch {
             managedBootstrapError = error.localizedDescription
         }

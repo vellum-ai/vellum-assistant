@@ -380,6 +380,41 @@ public final class AuthService {
         }
     }
 
+    /// Retrieve the user's currently active managed assistant for the given
+    /// organization.
+    ///
+    /// The platform resolves the active assistant server-side via
+    /// `get_presumably_unique_assistant()`, so the client doesn't need to
+    /// enumerate or pick. Returns `.notFound` when the user has no active
+    /// assistant yet (e.g. first-time login before hatch).
+    public func getActiveAssistant(organizationId: String) async throws -> PlatformAssistantResult {
+        let response = try await performPlatformRequest(
+            path: "v1/assistants/active/",
+            method: "GET",
+            organizationId: organizationId
+        )
+
+        switch response.statusCode {
+        case 404:
+            return .notFound
+        case 403:
+            return .accessDenied
+        case 401:
+            throw PlatformAPIError.authenticationRequired
+        case 200..<300:
+            do {
+                return .found(try JSONDecoder().decode(PlatformAssistant.self, from: response.data))
+            } catch {
+                throw PlatformAPIError.decodingError(error.localizedDescription)
+            }
+        default:
+            throw PlatformAPIError.serverError(
+                statusCode: response.statusCode,
+                detail: String(data: response.data, encoding: .utf8)
+            )
+        }
+    }
+
     /// List managed assistants visible to the caller in the given organization.
     ///
     /// Used by the multi-assistant bootstrap flow to discover existing assistants
