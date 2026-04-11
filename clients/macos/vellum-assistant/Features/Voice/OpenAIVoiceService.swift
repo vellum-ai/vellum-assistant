@@ -36,6 +36,11 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
     var speakingAmplitude: Float = 0
     var livePartialText: String = ""
 
+    // MARK: - Speech Recognizer Adapter
+
+    /// Injected adapter wrapping SFSpeechRecognizer static APIs and instance creation.
+    @ObservationIgnored let speechRecognizerAdapter: any SpeechRecognizerAdapter
+
     // MARK: - Recording State
 
     @ObservationIgnored private let engineController = AudioEngineController(label: "com.vellum.audioEngine.voiceService")
@@ -94,7 +99,9 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
             ?? Self.defaultVoiceId
     }
 
-    nonisolated init() {}
+    nonisolated init(speechRecognizerAdapter: any SpeechRecognizerAdapter = AppleSpeechRecognizerAdapter()) {
+        self.speechRecognizerAdapter = speechRecognizerAdapter
+    }
 
     // MARK: - API Keys
 
@@ -104,21 +111,19 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
     // MARK: - Speech Recognition Authorization
 
     /// Check if speech recognition is authorized. Returns true if authorized.
-    nonisolated static func isSpeechRecognitionAuthorized() -> Bool {
-        SFSpeechRecognizer.authorizationStatus() == .authorized
+    nonisolated func isSpeechRecognitionAuthorized() -> Bool {
+        speechRecognizerAdapter.authorizationStatus() == .authorized
     }
 
     /// Request speech recognition authorization if not yet determined.
-    nonisolated static func requestSpeechRecognitionAuthorization(completion: @escaping (Bool) -> Void) {
-        let status = SFSpeechRecognizer.authorizationStatus()
+    nonisolated func requestSpeechRecognitionAuthorization(completion: @escaping (Bool) -> Void) {
+        let status = speechRecognizerAdapter.authorizationStatus()
         switch status {
         case .authorized:
             completion(true)
         case .notDetermined:
-            SFSpeechRecognizer.requestAuthorization { newStatus in
-                DispatchQueue.main.async {
-                    completion(newStatus == .authorized)
-                }
+            speechRecognizerAdapter.requestAuthorization { newStatus in
+                completion(newStatus == .authorized)
             }
         default:
             completion(false)
@@ -156,7 +161,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         // release delays that make isAvailable return false on the second turn.
         // Recreate if transiently unavailable (e.g. after sleep/wake or heavy use).
         if speechRecognizer == nil || speechRecognizer?.isAvailable != true {
-            speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+            speechRecognizer = speechRecognizerAdapter.makeRecognizer(locale: Locale(identifier: "en-US"))
         }
         guard let recognizer = speechRecognizer, recognizer.isAvailable else {
             log.error("SFSpeechRecognizer not available")

@@ -84,10 +84,10 @@ final class VoiceModeManager: ObservableObject {
         guard state == .off else { return }
         wasAutoDeactivated = false
 
-        guard OpenAIVoiceService.isSpeechRecognitionAuthorized() else {
+        guard openAIVoiceService?.isSpeechRecognitionAuthorized() == true else {
             log.error("Voice mode: speech recognition not authorized")
             awaitingAuthorization = true
-            OpenAIVoiceService.requestSpeechRecognitionAuthorization { [weak self] authorized in
+            openAIVoiceService?.requestSpeechRecognitionAuthorization { [weak self] authorized in
                 guard let self, self.awaitingAuthorization else { return }
                 self.awaitingAuthorization = false
                 if authorized {
