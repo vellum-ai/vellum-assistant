@@ -69,28 +69,31 @@ function resolveCallTtsProvider(): ResolvedCallTts {
 /**
  * Speak a deterministic text prompt through the active TTS provider.
  *
- * For native providers this is equivalent to `relay.sendTextToken(text, true)`.
- * For synthesized providers this synthesizes audio via the provider API and
- * sends the play URL to the relay.
+ * For native providers this is equivalent to `relay.sendTextToken(text, true)`
+ * and resolves immediately (synchronous send).
  *
- * The function is intentionally fire-and-forget for the synthesized path —
- * callers that need to wait for TTS playback to complete should still use
- * `getTtsPlaybackDelayMs()` for scheduling follow-up actions (e.g. ending
- * the session after a goodbye message).
+ * For synthesized providers this synthesizes audio via the provider API,
+ * sends the play URL to the relay, and resolves once synthesis is complete.
+ * Callers in disconnect/teardown flows should `await` the returned promise
+ * before starting teardown timers so that the play URL is delivered to
+ * Twilio before the session ends. Interactive mid-call callers can
+ * fire-and-forget with `void speakSystemPrompt(...)`.
  */
-export function speakSystemPrompt(relay: RelayConnection, text: string): void {
+export function speakSystemPrompt(
+  relay: RelayConnection,
+  text: string,
+): Promise<void> {
   const { provider, useSynthesizedPath, audioFormat } =
     resolveCallTtsProvider();
 
   if (!useSynthesizedPath || !provider) {
     // Native path — send text for Twilio's built-in TTS.
     relay.sendTextToken(text, true);
-    return;
+    return Promise.resolve();
   }
 
   // Synthesized path — synthesize audio and send play URL.
-  // Fire-and-forget: callers use getTtsPlaybackDelayMs() for timing.
-  void synthesizeAndPlay(relay, provider, text, audioFormat);
+  return synthesizeAndPlay(relay, provider, text, audioFormat);
 }
 
 // ---------------------------------------------------------------------------
