@@ -90,7 +90,7 @@ final class ExecManagementServer: @unchecked Sendable {
     /// Poll up to ~1 s for the file to appear, then set 0600 permissions.
     private func restrictSocketPermissions() {
         let maxAttempts = 20
-        let delayMs: UInt32 = 50_000 // 50 ms
+        let delayUs: UInt32 = 50_000 // 50 ms (usleep takes microseconds)
         for attempt in 1...maxAttempts {
             if FileManager.default.fileExists(atPath: socketPath) {
                 do {
@@ -105,7 +105,7 @@ final class ExecManagementServer: @unchecked Sendable {
                 return
             }
             if attempt < maxAttempts {
-                usleep(delayMs)
+                usleep(delayUs)
             }
         }
         log.error("Socket file did not appear after \(maxAttempts) attempts — stopping server")

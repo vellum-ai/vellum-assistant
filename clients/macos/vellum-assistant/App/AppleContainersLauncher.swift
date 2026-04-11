@@ -175,6 +175,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 onProgress: onProgress
             )
             if !gatewayReady {
+                Self.removeLockfileEntry(assistantId: assistantName)
                 mgmtServer?.stop()
                 mgmtServer = nil
                 try? await runtime.stop()
@@ -191,6 +192,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 onProgress: onProgress
             )
             if !tokenLeased {
+                Self.removeLockfileEntry(assistantId: assistantName)
                 mgmtServer?.stop()
                 mgmtServer = nil
                 try? await runtime.stop()
@@ -477,6 +479,41 @@ final class AppleContainersLauncher: AssistantManagementClient {
     }
 
     // MARK: - Lockfile
+
+    /// Removes a previously written lockfile entry for the given assistant.
+    /// Called on hatch failure to avoid leaving stale entries that point to
+    /// a stopped container.
+    nonisolated static func removeLockfileEntry(
+        assistantId: String,
+        lockfilePath: String? = nil
+    ) {
+        let path = lockfilePath ?? LockfilePaths.primaryPath
+        let fileURL = URL(fileURLWithPath: path)
+
+        guard let data = try? Data(contentsOf: fileURL),
+              var lockfile = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return
+        }
+
+        var assistants = lockfile["assistants"] as? [[String: Any]] ?? []
+        assistants.removeAll { ($0["assistantId"] as? String) == assistantId }
+        lockfile["assistants"] = assistants
+
+        // If the removed entry was the active assistant, clear or reassign.
+        if (lockfile["activeAssistant"] as? String) == assistantId {
+            if let next = assistants.first?["assistantId"] as? String {
+                lockfile["activeAssistant"] = next
+            } else {
+                lockfile.removeValue(forKey: "activeAssistant")
+            }
+        }
+
+        if let updated = try? JSONSerialization.data(
+            withJSONObject: lockfile, options: [.prettyPrinted, .sortedKeys]
+        ) {
+            try? updated.write(to: fileURL, options: .atomic)
+        }
+    }
 
     @discardableResult
     nonisolated static func writeLockfileEntry(
