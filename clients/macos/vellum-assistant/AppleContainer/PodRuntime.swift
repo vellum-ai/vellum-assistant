@@ -264,7 +264,7 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
     /// An active exec session inside a running container.
     ///
     /// Owns the host-side PTY and the `LinuxProcess`. The management socket
-    /// server (PR 2) reads/writes `hostTerminal` and forwards resize events.
+    /// server reads/writes `hostTerminal` and forwards resize events.
     struct ExecSession: Sendable {
         /// Host-side PTY file handle — read for stdout, write for stdin.
         let hostTerminal: Terminal
@@ -298,7 +298,7 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
     ///   - service: Which container to exec into (defaults to `.assistant`).
     ///   - command: The command and arguments to run (defaults to `["/bin/sh"]`).
     ///   - initialSize: Initial terminal dimensions for the PTY.
-    /// - Returns: An `ExecSession` whose `hostTerminal` can be relayed over
+    /// - Returns: An `ExecSession` whose `hostTerminal` is relayed over
     ///   the management socket.
     func exec(
         service: VellumServiceName = .assistant,
