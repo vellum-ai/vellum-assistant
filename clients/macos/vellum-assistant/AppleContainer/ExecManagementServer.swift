@@ -251,8 +251,17 @@ final class ExecManagementServer: @unchecked Sendable {
                 }
                 if writeFailed { break }
             }
-            // Client disconnected — don't close the terminal here;
-            // session.wait() handles cleanup to avoid double-close of the fd.
+        }
+
+        // When both relay tasks exit (client disconnected), close the PTY so
+        // the container process gets SIGHUP and session.wait() can return.
+        // If the process exits first, session.wait() returns and cancels this task
+        // before it fires. session.wait()'s defer uses try? on close(), so a
+        // double-close is handled gracefully.
+        let cleanupTask = Task {
+            _ = await readTask.value
+            _ = await writeTask.value
+            try? terminal.close()
         }
 
         // Wait for the process to exit and clean up.
@@ -262,6 +271,7 @@ final class ExecManagementServer: @unchecked Sendable {
             log.warning("Management socket: exec session wait error: \(error.localizedDescription, privacy: .public)")
         }
 
+        cleanupTask.cancel()
         readTask.cancel()
         writeTask.cancel()
         connection.cancel()
