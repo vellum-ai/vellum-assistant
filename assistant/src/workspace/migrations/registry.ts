@@ -28,6 +28,7 @@ import { recoverConversationsFromDiskViewMigration } from "./028-recover-convers
 import { seedPkbMigration } from "./029-seed-pkb.js";
 import { seedPkbAutoinjectMigration } from "./030-seed-pkb-autoinject.js";
 import { llmLogRetentionZeroToNullMigration } from "./031-llm-log-retention-zero-to-null.js";
+import { ttsProviderUnificationMigration } from "./032-tts-provider-unification.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -67,4 +68,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   seedPkbMigration,
   seedPkbAutoinjectMigration,
   llmLogRetentionZeroToNullMigration,
+  ttsProviderUnificationMigration,
 ];
