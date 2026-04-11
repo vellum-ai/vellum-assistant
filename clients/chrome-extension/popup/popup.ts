@@ -388,14 +388,24 @@ btnConnect.addEventListener('click', async () => {
     const poll = setInterval(() => {
       chrome.runtime.sendMessage({ type: 'get_status' }, (r: GetStatusResponse) => {
         if (chrome.runtime.lastError) {
-          if (++attempts > 10) clearInterval(poll);
+          if (++attempts > 10) {
+            clearInterval(poll);
+            // Fall back to a recoverable state so the user can retry.
+            applyHealthState('paused');
+          }
           return;
         }
 
         const health = r?.health ?? (r?.connected ? 'connected' : 'connecting');
-        if (health === 'connected' || health === 'error' || health === 'auth_required' || ++attempts > 10) {
+        if (health === 'connected' || health === 'error' || health === 'auth_required') {
           clearInterval(poll);
           applyHealthState(health as ConnectionHealthState, r?.healthDetail);
+        } else if (++attempts > 10) {
+          clearInterval(poll);
+          // Polling exhausted without reaching a terminal health state.
+          // Fall back to paused so the Connect button re-enables and
+          // the user can retry instead of being stuck on "Connecting...".
+          applyHealthState('paused');
         }
       });
     }, 300);
