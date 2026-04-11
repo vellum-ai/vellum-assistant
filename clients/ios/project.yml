@@ -13,6 +13,7 @@ targets:
     platform: iOS
     sources:
       - path: App
+      - path: Services
       - path: Views
       - path: Resources
         buildPhase: resources
