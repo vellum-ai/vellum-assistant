@@ -665,10 +665,11 @@ struct ChatBubble: View, Equatable {
         let hasAttachments = !message.attachments.isEmpty
 
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            ForEach(Array(thinkingChunks.enumerated()), id: \.offset) { _, content in
+            ForEach(Array(thinkingChunks.enumerated()), id: \.offset) { offset, content in
                 ThinkingBlockView(
                     content: content,
                     isStreaming: message.isStreaming,
+                    expansionKey: "\(message.id.uuidString)-inline-\(offset)",
                     typographyGeneration: typographyGeneration
                 )
             }

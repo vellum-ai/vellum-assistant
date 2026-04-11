@@ -109,6 +109,12 @@ struct MessageListView: View {
     /// Native SwiftUI scroll position struct (macOS 15+). Replaces
     /// `ScrollViewReader` + `proxy.scrollTo()` and distance-from-bottom math.
     @State var scrollPosition = ScrollPosition()
+    /// Tracks expand/collapse state for every thinking block in this list.
+    /// Owned here (above the `.if` min-height wrapper in
+    /// `MessageListContentView`) so the state survives the view-tree
+    /// destruction that happens when `state.isActiveTurn` flips at the
+    /// start/end of an active turn. See `ThinkingBlockExpansionStore.swift`.
+    @State var thinkingBlockExpansionStore = ThinkingBlockExpansionStore()
 
     // MARK: - Body
 
@@ -150,6 +156,7 @@ struct MessageListView: View {
             // https://developer.apple.com/documentation/swiftui/view/defaultscrollanchor(_:for:)
             .defaultScrollAnchor(.bottom, for: .initialOffset)
             .scrollPosition($scrollPosition)
+            .environment(\.thinkingBlockExpansionStore, thinkingBlockExpansionStore)
             .environment(\.suppressAutoScroll, { [self] in
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=manualExpansionDetach")
                 let intents = scrollCoordinator.handle(.manualExpansion)
