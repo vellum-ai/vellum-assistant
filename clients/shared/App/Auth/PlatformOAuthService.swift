@@ -51,17 +51,6 @@ public final class PlatformOAuthService {
 
     // MARK: - Private Helpers
 
-    /// Resolve the platform base URL for OAuth endpoints.
-    ///
-    /// Uses `VellumEnvironment.resolvedPlatformURL` which respects
-    /// `VELLUM_PLATFORM_URL` env override, then falls back to the
-    /// `VELLUM_ENVIRONMENT`-based canonical URL.
-    /// Note: the lockfile `runtimeUrl` is the Assistant's Gateway URL,
-    /// NOT the platform URL — it must not be used for platform API calls.
-    private func resolvePlatformBaseURL() -> String {
-        return VellumEnvironment.resolvedPlatformURL
-    }
-
     private func authenticatedRequest(url: URL, method: String) async throws -> URLRequest {
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = method
@@ -85,7 +74,7 @@ public final class PlatformOAuthService {
 
     /// Start an OAuth flow for the given provider and assistant.
     public func startOAuthConnect(provider: String, assistantId: String, redirectAfterConnect: String? = nil) async throws -> OAuthStartResponse {
-        let urlString = "\(resolvePlatformBaseURL())/v1/assistants/\(assistantId)/oauth/\(provider)/start/"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/assistants/\(assistantId)/oauth/\(provider)/start/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -131,7 +120,7 @@ public final class PlatformOAuthService {
 
     /// List OAuth connections for the given assistant.
     public func listConnections(assistantId: String) async throws -> [OAuthConnectionEntry] {
-        let urlString = "\(resolvePlatformBaseURL())/v1/assistants/\(assistantId)/oauth/connections/"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/assistants/\(assistantId)/oauth/connections/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -169,7 +158,7 @@ public final class PlatformOAuthService {
 
     /// Disconnect a specific OAuth connection for the given assistant.
     public func disconnectConnection(assistantId: String, connectionId: String) async throws {
-        let urlString = "\(resolvePlatformBaseURL())/v1/assistants/\(assistantId)/oauth/connections/\(connectionId)/disconnect/"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/assistants/\(assistantId)/oauth/connections/\(connectionId)/disconnect/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
