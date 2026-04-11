@@ -114,12 +114,10 @@ struct OnboardingView: View {
     private func finalizeAssistantSelection(_ assistant: PlatformAssistant) {
         let platformBaseURL = AuthService.shared.baseURL
 
-        // Persist managed assistant config so DaemonConfig.fromUserDefaults() picks it up.
+        // Persist managed assistant config so GatewayHTTPClient.resolveConnection()
+        // can build a ConnectionInfo for outbound requests.
         UserDefaults.standard.set(assistant.id, forKey: UserDefaultsKeys.managedAssistantId)
         UserDefaults.standard.set(platformBaseURL, forKey: UserDefaultsKeys.managedPlatformBaseURL)
-        // TODO: Migrate to LockfileAssistant.setActiveAssistantId() when
-        // LockfileAssistant is available on iOS (currently macOS-only).
-        UserDefaults.standard.set(assistant.id, forKey: "connectedAssistantId")
 
         // Rebuild the daemon client with managed transport config.
         // ContentView.attemptInitialConnection() handles connecting with
