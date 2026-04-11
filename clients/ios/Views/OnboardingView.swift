@@ -133,13 +133,11 @@ struct OnboardingView: View {
         managedBootstrapError = nil
 
         do {
-            let orgs = try await AuthService.shared.getOrganizations()
-            if orgs.count == 1, let orgId = orgs.first?.id {
-                let activeResult = try await AuthService.shared.getActiveAssistant(organizationId: orgId)
-                if case .found(let existing) = activeResult {
-                    finalizeAssistantSelection(existing)
-                    return
-                }
+            let orgId = try await AuthService.shared.resolveOrganizationId()
+            let activeResult = try await AuthService.shared.getActiveAssistant(organizationId: orgId)
+            if case .found(let existing) = activeResult {
+                finalizeAssistantSelection(existing)
+                return
             }
 
             let outcome = try await ManagedAssistantBootstrapService.shared.ensureManagedAssistant()
