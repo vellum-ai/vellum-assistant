@@ -13,7 +13,7 @@ private let log = Logger(
 ///
 /// Protocol:
 /// 1. Client connects and sends a single JSON line:
-///    `{"command": ["/bin/sh"], "service": "vellum-assistant", "cols": 120, "rows": 40}\n`
+///    `{"command": ["/bin/bash"], "service": "vellum-assistant", "cols": 120, "rows": 40}\n`
 /// 2. Server replies with a JSON line:
 ///    `{"status": "ok"}\n`  or  `{"status": "error", "message": "..."}\n`
 /// 3. On success the connection switches to raw mode — bytes flow
@@ -165,7 +165,7 @@ final class ExecManagementServer: @unchecked Sendable {
             return nil
         }
 
-        let command = (json["command"] as? [String]) ?? ["/bin/sh"]
+        let command = (json["command"] as? [String]) ?? ["/bin/bash"]
         let serviceName = (json["service"] as? String) ?? VellumServiceName.assistant.rawValue
         let service = VellumServiceName(rawValue: serviceName) ?? .assistant
         let rawCols = json["cols"] as? Int ?? 120
