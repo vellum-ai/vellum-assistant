@@ -97,6 +97,45 @@ const mockConfig = {
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => mockConfig,
+  loadConfig: () => mockConfig,
+}));
+
+// ── TTS provider mocks (for call-speech-output) ─────────────────────
+
+let mockTtsProviderId: string = "elevenlabs";
+let mockTtsSupportsStreaming: boolean = false;
+let mockTtsSynthesizeStream: Mock<any> | null = null;
+
+mock.module("../tts/tts-config-resolver.js", () => ({
+  resolveTtsConfig: () => ({
+    provider: mockTtsProviderId,
+    providerConfig: { voiceId: "test-voice", format: "mp3" },
+  }),
+}));
+
+mock.module("../tts/provider-registry.js", () => ({
+  getTtsProvider: () => ({
+    id: mockTtsProviderId,
+    capabilities: {
+      supportsStreaming: mockTtsSupportsStreaming,
+      supportedFormats: ["mp3"],
+    },
+    synthesize: async () => ({
+      audio: Buffer.from("fake-audio"),
+      contentType: "audio/mpeg",
+    }),
+    synthesizeStream: mockTtsSynthesizeStream
+      ? (...args: unknown[]) => mockTtsSynthesizeStream!(...args)
+      : undefined,
+  }),
+  registerTtsProvider: () => {},
+  listTtsProviders: () => [],
+  _resetTtsProviderRegistry: () => {},
+}));
+
+// Mock public ingress URLs for synthesized TTS path
+mock.module("../inbound/public-ingress-urls.js", () => ({
+  getPublicBaseUrl: () => "https://test.example.com",
 }));
 
 // ── Helpers for building mock provider responses ────────────────────
@@ -335,11 +374,16 @@ describe("relay-server", () => {
     resetTables();
     activeRelayConnections.clear();
     mockUserReference = "my human";
+    mockAssistantName = "Vellum";
     mockSendMessage.mockImplementation(createMockProviderResponse(["Hello"]));
     mockConfig.calls.verification.enabled = false;
     mockConfig.calls.verification.maxAttempts = 3;
     mockConfig.calls.verification.codeLength = 6;
     mockConfig.calls.callerIdentity.userNumber = undefined;
+    // Reset TTS provider mocks to native (non-streaming) path
+    mockTtsProviderId = "elevenlabs";
+    mockTtsSupportsStreaming = false;
+    mockTtsSynthesizeStream = null;
     setVoiceBridgeDeps({
       getOrCreateConversation: async (conversationId) => {
         const session = {
@@ -4235,5 +4279,309 @@ describe("relay-server", () => {
     expect(promptText).toContain("my human");
 
     relay.destroy();
+  });
+
+  // ── Provider-aware call speech output ──────────────────────────────
+
+  describe("provider-aware system prompts", () => {
+    test("native TTS provider: verification prompt uses sendTextToken (text messages)", async () => {
+      // Ensure native (non-streaming) TTS path
+      mockTtsSupportsStreaming = false;
+      mockTtsSynthesizeStream = null;
+
+      ensureConversation("conv-native-tts-verify");
+      const session = createCallSession({
+        conversationId: "conv-native-tts-verify",
+        provider: "twilio",
+        fromNumber: "+15559999999",
+        toNumber: "+15551111111",
+      });
+
+      createPendingVoiceGuardianChallenge("654321");
+
+      const { ws, relay } = createMockWs(session.id);
+
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "setup",
+          callSid: "CA_native_tts_verify",
+          from: "+15559999999",
+          to: "+15551111111",
+        }),
+      );
+
+      expect(relay.getConnectionState()).toBe("verification_pending");
+
+      // With native TTS, the prompt should appear as a text message (not play)
+      const textMessages = ws.sentMessages
+        .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+        .filter((m) => m.type === "text");
+      const playMessages = ws.sentMessages
+        .map((raw) => JSON.parse(raw) as { type: string; source?: string })
+        .filter((m) => m.type === "play");
+
+      expect(
+        textMessages.some((m) => (m.token ?? "").includes("verification code")),
+      ).toBe(true);
+      expect(playMessages.length).toBe(0);
+
+      relay.destroy();
+    });
+
+    test("synthesized TTS provider: verification prompt uses sendPlayUrl (play messages)", async () => {
+      // Enable synthesized (streaming) TTS path
+      mockTtsProviderId = "fish-audio";
+      mockTtsSupportsStreaming = true;
+      mockTtsSynthesizeStream = jest.fn(
+        async (_request: unknown, onChunk: (chunk: Uint8Array) => void) => {
+          onChunk(new Uint8Array([0x01, 0x02, 0x03]));
+          return {
+            audio: Buffer.from([0x01, 0x02, 0x03]),
+            contentType: "audio/mpeg",
+          };
+        },
+      );
+
+      ensureConversation("conv-synth-tts-verify");
+      const session = createCallSession({
+        conversationId: "conv-synth-tts-verify",
+        provider: "twilio",
+        fromNumber: "+15559999998",
+        toNumber: "+15551111111",
+      });
+
+      createPendingVoiceGuardianChallenge("654321");
+
+      const { ws, relay } = createMockWs(session.id);
+
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "setup",
+          callSid: "CA_synth_tts_verify",
+          from: "+15559999998",
+          to: "+15551111111",
+        }),
+      );
+
+      expect(relay.getConnectionState()).toBe("verification_pending");
+
+      // Allow async synthesis to complete
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // With synthesized TTS, the prompt should appear as a play message
+      const playMessages = ws.sentMessages
+        .map((raw) => JSON.parse(raw) as { type: string; source?: string })
+        .filter((m) => m.type === "play");
+
+      expect(playMessages.length).toBeGreaterThan(0);
+      expect(playMessages[0].source).toContain("/v1/audio/");
+
+      // The synthesizeStream mock should have been called
+      expect(mockTtsSynthesizeStream).toHaveBeenCalled();
+
+      relay.destroy();
+    });
+
+    test("native TTS provider: name capture greeting uses text messages", async () => {
+      // Ensure native (non-streaming) TTS path
+      mockTtsSupportsStreaming = false;
+      mockTtsSynthesizeStream = null;
+
+      ensureConversation("conv-native-name-capture");
+      const session = createCallSession({
+        conversationId: "conv-native-name-capture",
+        provider: "twilio",
+        fromNumber: "+15559990097",
+        toNumber: "+15551111111",
+      });
+
+      mockAssistantName = "Jarvis";
+
+      const { ws, relay } = createMockWs(session.id);
+
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "setup",
+          callSid: "CA_native_name_capture",
+          from: "+15559990097",
+          to: "+15551111111",
+        }),
+      );
+
+      expect(relay.getConnectionState()).toBe("awaiting_name");
+
+      // With native TTS, the greeting should be a text message
+      const textMessages = ws.sentMessages
+        .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+        .filter((m) => m.type === "text");
+      const playMessages = ws.sentMessages
+        .map((raw) => JSON.parse(raw) as { type: string; source?: string })
+        .filter((m) => m.type === "play");
+
+      expect(
+        textMessages.some((m) => (m.token ?? "").includes("don't recognize")),
+      ).toBe(true);
+      expect(playMessages.length).toBe(0);
+
+      // Reset
+      mockAssistantName = "Vellum";
+      relay.destroy();
+    });
+
+    test("synthesized TTS provider: name capture greeting uses play messages", async () => {
+      // Enable synthesized (streaming) TTS path
+      mockTtsProviderId = "fish-audio";
+      mockTtsSupportsStreaming = true;
+      mockTtsSynthesizeStream = jest.fn(
+        async (_request: unknown, onChunk: (chunk: Uint8Array) => void) => {
+          onChunk(new Uint8Array([0x04, 0x05, 0x06]));
+          return {
+            audio: Buffer.from([0x04, 0x05, 0x06]),
+            contentType: "audio/mpeg",
+          };
+        },
+      );
+
+      ensureConversation("conv-synth-name-capture");
+      const session = createCallSession({
+        conversationId: "conv-synth-name-capture",
+        provider: "twilio",
+        fromNumber: "+15559990098",
+        toNumber: "+15551111111",
+      });
+
+      mockAssistantName = "Jarvis";
+
+      const { ws, relay } = createMockWs(session.id);
+
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "setup",
+          callSid: "CA_synth_name_capture",
+          from: "+15559990098",
+          to: "+15551111111",
+        }),
+      );
+
+      expect(relay.getConnectionState()).toBe("awaiting_name");
+
+      // Allow async synthesis to complete
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // With synthesized TTS, the greeting should be a play message
+      const playMessages = ws.sentMessages
+        .map((raw) => JSON.parse(raw) as { type: string; source?: string })
+        .filter((m) => m.type === "play");
+
+      expect(playMessages.length).toBeGreaterThan(0);
+      expect(playMessages[0].source).toContain("/v1/audio/");
+
+      // The synthesizeStream mock should have been called
+      expect(mockTtsSynthesizeStream).toHaveBeenCalled();
+
+      // Reset
+      mockAssistantName = "Vellum";
+      relay.destroy();
+    });
+
+    test("synthesized TTS provider: falls back to text on synthesis failure", async () => {
+      // Configure synthesized path but make it fail
+      mockTtsProviderId = "fish-audio";
+      mockTtsSupportsStreaming = true;
+      mockTtsSynthesizeStream = jest.fn(async () => {
+        throw new Error("Synthesis service unavailable");
+      });
+
+      ensureConversation("conv-synth-fallback");
+      const session = createCallSession({
+        conversationId: "conv-synth-fallback",
+        provider: "twilio",
+        fromNumber: "+15559990099",
+        toNumber: "+15551111111",
+      });
+
+      createPendingVoiceGuardianChallenge("654321");
+
+      const { ws, relay } = createMockWs(session.id);
+
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "setup",
+          callSid: "CA_synth_fallback",
+          from: "+15559990099",
+          to: "+15551111111",
+        }),
+      );
+
+      expect(relay.getConnectionState()).toBe("verification_pending");
+
+      // Allow async synthesis (and fallback) to complete
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Should have fallen back to text messages after synthesis failure
+      const textMessages = ws.sentMessages
+        .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+        .filter((m) => m.type === "text");
+
+      expect(
+        textMessages.some((m) => (m.token ?? "").includes("verification code")),
+      ).toBe(true);
+
+      relay.destroy();
+    });
+
+    test("native TTS provider: DTMF callee verification failure prompt uses text messages", async () => {
+      // Ensure native (non-streaming) TTS path
+      mockTtsSupportsStreaming = false;
+      mockTtsSynthesizeStream = null;
+
+      ensureConversation("conv-native-callee-fail");
+      mockConfig.calls.verification.enabled = true;
+      mockConfig.calls.verification.maxAttempts = 1;
+
+      const session = createCallSession({
+        conversationId: "conv-native-callee-fail",
+        provider: "twilio",
+        fromNumber: "+15551111111",
+        toNumber: "+15552222222",
+        task: "Call +15552222222",
+      });
+
+      const { ws, relay } = createMockWs(session.id);
+
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "setup",
+          callSid: "CA_native_callee_fail",
+          from: "+15551111111",
+          to: "+15552222222",
+        }),
+      );
+
+      expect(relay.getConnectionState()).toBe("verification_pending");
+      expect(relay.getVerificationCode()).not.toBeNull();
+
+      // Send wrong digits
+      for (const digit of "000000") {
+        await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
+      }
+
+      // Should have sent "Verification failed" as text (not play)
+      const textMessages = ws.sentMessages
+        .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+        .filter((m) => m.type === "text");
+      const playMessages = ws.sentMessages
+        .map((raw) => JSON.parse(raw) as { type: string; source?: string })
+        .filter((m) => m.type === "play");
+
+      expect(
+        textMessages.some((m) =>
+          (m.token ?? "").includes("Verification failed"),
+        ),
+      ).toBe(true);
+      expect(playMessages.length).toBe(0);
+
+      relay.destroy();
+    });
   });
 });

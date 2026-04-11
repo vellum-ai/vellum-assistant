@@ -43,6 +43,7 @@ import {
 } from "./call-constants.js";
 import { CallController } from "./call-controller.js";
 import { addPointerMessage, formatDuration } from "./call-pointer-messages.js";
+import { speakSystemPrompt } from "./call-speech-output.js";
 import { fireCallTranscriptNotifier } from "./call-state.js";
 import { isTerminalState } from "./call-state-machine.js";
 import {
@@ -701,7 +702,7 @@ export class RelayConnection {
       channelId: resolved.actorTrust.memberRecord?.channel.id,
       memberPolicy: resolved.actorTrust.memberRecord?.channel.policy,
     });
-    this.sendTextToken(outcome.message, true);
+    speakSystemPrompt(this, outcome.message);
     this.connectionState = "disconnecting";
     updateCallSession(this.callSessionId, {
       status: "failed",
@@ -740,9 +741,9 @@ export class RelayConnection {
 
     // Send a TTS prompt with the code spoken digit by digit
     const spokenCode = code.split("").join(". ");
-    this.sendTextToken(
+    speakSystemPrompt(
+      this,
       `Please enter the verification code: ${spokenCode}.`,
-      true,
     );
 
     // Post the verification code to the initiating conversation so the
@@ -861,7 +862,7 @@ export class RelayConnection {
       handoffText = `Great! ${guardianLabel} said I can speak with you. How can I help?`;
     }
 
-    this.sendTextToken(handoffText, true);
+    speakSystemPrompt(this, handoffText);
 
     recordCallEvent(this.callSessionId, "assistant_spoke", {
       text: handoffText,
@@ -904,9 +905,9 @@ export class RelayConnection {
       maxAttempts: this.verificationMaxAttempts,
     });
 
-    this.sendTextToken(
+    speakSystemPrompt(
+      this,
       "Welcome. Please enter your six-digit verification code using your keypad, or speak the digits now.",
-      true,
     );
 
     log.info(
@@ -946,7 +947,7 @@ export class RelayConnection {
       GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_CALL_INTRO,
       { codeDigits: this.verificationCodeLength },
     );
-    this.sendTextToken(introText, true);
+    speakSystemPrompt(this, introText);
 
     log.info(
       {
@@ -1102,7 +1103,7 @@ export class RelayConnection {
         "Guardian voice verification failed — max attempts reached",
       );
 
-      this.sendTextToken(result.ttsMessage, true);
+      speakSystemPrompt(this, result.ttsMessage);
 
       updateCallSession(this.callSessionId, {
         status: "failed",
@@ -1151,7 +1152,7 @@ export class RelayConnection {
         },
         "Guardian voice verification attempt failed — retrying",
       );
-      this.sendTextToken(result.ttsMessage, true);
+      speakSystemPrompt(this, result.ttsMessage);
     }
   }
 
@@ -1196,7 +1197,7 @@ export class RelayConnection {
     } else {
       promptText = `Welcome ${displayFriend}. Please enter the 6-digit code that ${displayGuardian} provided you to verify your identity.`;
     }
-    this.sendTextToken(promptText, true);
+    speakSystemPrompt(this, promptText);
 
     log.info(
       { callSessionId: this.callSessionId, assistantId },
@@ -1221,7 +1222,7 @@ export class RelayConnection {
       ? `Hi, this is ${assistantName}, ${guardianLabel}'s assistant. Sorry, I don't recognize this number. I'll let ${guardianLabel} know you called and see if I have permission to speak with you. Can I get your name?`
       : `Hi, this is ${guardianLabel}'s assistant. Sorry, I don't recognize this number. I'll let ${guardianLabel} know you called and see if I have permission to speak with you. Can I get your name?`;
 
-    this.sendTextToken(greeting, true);
+    speakSystemPrompt(this, greeting);
 
     // Start a timeout so silent callers don't keep the call open indefinitely.
     // Uses a 30-second window — enough time to speak a name but short enough
@@ -1327,9 +1328,9 @@ export class RelayConnection {
     const pollIntervalMs = getAccessRequestPollIntervalMs();
 
     const guardianLabel = this.resolveGuardianLabel();
-    this.sendTextToken(
+    speakSystemPrompt(
+      this,
       `Thank you. I've let ${guardianLabel} know. Please hold while I check if I have permission to speak with you.`,
-      true,
     );
 
     updateCallSession(this.callSessionId, { status: "waiting_on_user" });
@@ -1460,9 +1461,9 @@ export class RelayConnection {
       requestId: this.accessRequestId,
     });
 
-    this.sendTextToken(
+    speakSystemPrompt(
+      this,
       `Sorry, ${guardianLabel} says I'm not allowed to speak with you. Goodbye.`,
-      true,
     );
 
     this.connectionState = "disconnecting";
@@ -1503,9 +1504,9 @@ export class RelayConnection {
     const callbackNote = this.callbackOptIn
       ? ` I've noted that you'd like a callback — I'll pass that along to ${guardianLabel}.`
       : "";
-    this.sendTextToken(
+    speakSystemPrompt(
+      this,
       `Sorry, I can't get ahold of ${guardianLabel} right now. I'll let them know you called.${callbackNote}`,
-      true,
     );
 
     this.connectionState = "disconnecting";
@@ -1556,9 +1557,9 @@ export class RelayConnection {
       from: this.accessRequestFromNumber,
     });
 
-    this.sendTextToken(
+    speakSystemPrompt(
+      this,
       "Sorry, I didn't catch your name. Please try calling back. Goodbye.",
-      true,
     );
 
     this.connectionState = "disconnecting";
@@ -1634,7 +1635,7 @@ export class RelayConnection {
         "Voice invite redemption failed — invalid or expired code",
       );
 
-      this.sendTextToken(result.ttsMessage, true);
+      speakSystemPrompt(this, result.ttsMessage);
 
       this.connectionState = "disconnecting";
 
@@ -1691,7 +1692,7 @@ export class RelayConnection {
       callSessionId: this.callSessionId,
       consumeSequence: () => this.heartbeatSequence++,
       resolveGuardianLabel: () => this.resolveGuardianLabel(),
-      sendTextToken: (text, last) => this.sendTextToken(text, last),
+      sendTextToken: (text, _last) => speakSystemPrompt(this, text),
       scheduleNext: () => this.scheduleNextHeartbeat(),
     });
   }
@@ -1737,9 +1738,9 @@ export class RelayConnection {
           clearTimeout(this.accessRequestHeartbeatTimer);
           this.accessRequestHeartbeatTimer = null;
         }
-        this.sendTextToken(
+        speakSystemPrompt(
+          this,
           `Noted, I'll make sure ${guardianLabel} knows you'd like a callback. For now, I'll keep trying to reach them.`,
-          true,
         );
         this.scheduleNextHeartbeat();
         return;
@@ -1756,9 +1757,9 @@ export class RelayConnection {
           clearTimeout(this.accessRequestHeartbeatTimer);
           this.accessRequestHeartbeatTimer = null;
         }
-        this.sendTextToken(
+        speakSystemPrompt(
+          this,
           `No problem, I'll keep holding. Still waiting on ${guardianLabel}.`,
-          true,
         );
         this.scheduleNextHeartbeat();
         return;
@@ -1793,15 +1794,15 @@ export class RelayConnection {
             "voice_guardian_wait_callback_offer_sent",
             {},
           );
-          this.sendTextToken(
+          speakSystemPrompt(
+            this,
             `I understand this is taking a while. I can have ${guardianLabel} call you back once I hear from them. Would you like that, or would you prefer to keep holding?`,
-            true,
           );
         } else {
           // Already offered callback — just reassure
-          this.sendTextToken(
+          speakSystemPrompt(
+            this,
             `I hear you, I'm sorry for the wait. Still trying to reach ${guardianLabel}.`,
-            true,
           );
         }
         this.scheduleNextHeartbeat();
@@ -1814,9 +1815,9 @@ export class RelayConnection {
           clearTimeout(this.accessRequestHeartbeatTimer);
           this.accessRequestHeartbeatTimer = null;
         }
-        this.sendTextToken(
+        speakSystemPrompt(
+          this,
           `Yes, I'm still here. Still waiting to hear back from ${guardianLabel}.`,
-          true,
         );
         this.scheduleNextHeartbeat();
         break;
@@ -1827,9 +1828,9 @@ export class RelayConnection {
           clearTimeout(this.accessRequestHeartbeatTimer);
           this.accessRequestHeartbeatTimer = null;
         }
-        this.sendTextToken(
+        speakSystemPrompt(
+          this,
           `Thanks for that. I'm still waiting on ${guardianLabel}. I'll let you know as soon as I hear back.`,
-          true,
         );
         this.scheduleNextHeartbeat();
         break;
@@ -1890,9 +1891,9 @@ export class RelayConnection {
         const enteredCode = spokenDigits.slice(0, this.verificationCodeLength);
         this.handleVerificationCodeResult(enteredCode);
       } else if (spokenDigits.length > 0) {
-        this.sendTextToken(
+        speakSystemPrompt(
+          this,
           `I heard ${spokenDigits.length} digits. Please enter all ${this.verificationCodeLength} digits of your code.`,
-          true,
         );
       }
       return;
@@ -1920,9 +1921,9 @@ export class RelayConnection {
         );
         this.handleInviteCodeRedemptionResult(enteredCode);
       } else if (spokenDigits.length > 0) {
-        this.sendTextToken(
+        speakSystemPrompt(
+          this,
           `I heard ${spokenDigits.length} digits. Please enter all ${this.inviteRedemptionCodeLength} digits of your code.`,
-          true,
         );
       }
       return;
@@ -2014,7 +2015,7 @@ export class RelayConnection {
           );
         }
       }
-      this.sendTextToken("I'm still setting up. Please hold.", true);
+      speakSystemPrompt(this, "I'm still setting up. Please hold.");
     }
   }
 
@@ -2155,7 +2156,7 @@ export class RelayConnection {
               "Callee verification failed — max attempts reached",
             );
 
-            this.sendTextToken("Verification failed. Goodbye.", true);
+            speakSystemPrompt(this, "Verification failed. Goodbye.");
 
             // Mark failed immediately so a relay close during the goodbye TTS
             // window cannot race this into a terminal "completed" status.
@@ -2202,9 +2203,9 @@ export class RelayConnection {
               },
               "Callee verification attempt failed — retrying",
             );
-            this.sendTextToken(
+            speakSystemPrompt(
+              this,
               "That code was incorrect. Please try again.",
-              true,
             );
           }
         }
