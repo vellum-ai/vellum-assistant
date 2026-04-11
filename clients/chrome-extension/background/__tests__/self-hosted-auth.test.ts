@@ -200,7 +200,7 @@ describe('bootstrapLocalToken', () => {
 
     // Port was told to request a token.
     expect(fakeRuntime.connectCalls).toEqual(['com.vellum.daemon']);
-    expect(fakeRuntime.currentPort?.sent).toEqual([{ type: 'request_token' }]);
+    expect(fakeRuntime.currentPort?.sent).toEqual([{ type: 'request_token', assistantId: ASSISTANT_A }]);
 
     // Token was persisted under assistant-scoped key.
     const key = localTokenStorageKey(ASSISTANT_A);
