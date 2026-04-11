@@ -242,7 +242,6 @@ export const PROVIDER_SEED_DATA: Record<
     tokenEndpointAuthMethod: "client_secret_basic",
     loopbackPort: 17335,
     managedServiceConfigKey: "twitter-oauth",
-    featureFlag: "managed-x-oauth-integration",
     injectionTemplates: [
       {
         hostPattern: "api.x.com",
