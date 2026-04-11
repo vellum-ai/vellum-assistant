@@ -383,6 +383,7 @@ export function getUsageGroupBreakdown(
     /*sql*/ `
     SELECT
       ${column}                                      AS group_key,
+      NULL                                           AS group_id,
       COALESCE(SUM(input_tokens), 0)                 AS total_input_tokens,
       COALESCE(SUM(output_tokens), 0)                AS total_output_tokens,
       COALESCE(SUM(cache_creation_input_tokens), 0)  AS total_cache_creation_tokens,
@@ -401,8 +402,9 @@ export function getUsageGroupBreakdown(
     group: r.group_key,
     // Non-conversation group-bys (actor/provider/model) don't have a
     // separate stable id — the grouping column itself is the identifier
-    // and is already exposed via `group`.
-    groupId: null,
+    // and is already exposed via `group`. The SELECT projects
+    // `NULL AS group_id` so the runtime shape matches `GroupRow`.
+    groupId: r.group_id,
     totalInputTokens: r.total_input_tokens,
     totalOutputTokens: r.total_output_tokens,
     totalCacheCreationTokens: r.total_cache_creation_tokens,
