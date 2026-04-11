@@ -164,7 +164,7 @@ Docker instances use four dedicated volumes with strict per-service access bound
 | Volume | Mount path | Access | Contents |
 |---|---|---|---|
 | **Workspace** (`<name>-workspace`) | `/workspace` | Assistant: read-write, Gateway: read-write, CES: read-only | `config.json`, conversations, apps, skills, db, logs |
-| **Gateway security** (`<name>-gateway-sec`) | `/gateway-security` | Gateway only | `trust.json`, `actor-token-signing-key`, `guardian-init.lock` |
+| **Gateway security** (`<name>-gateway-sec`) | `/gateway-security` | Gateway only | Files private to the gateway container |
 | **CES security** (`<name>-ces-sec`) | `/ces-security` | CES only | `keys.enc`, `store.key` |
 | **Socket** (`<name>-socket`) | `/run/ces-bootstrap` | Assistant + CES | CES bootstrap socket for initial handshake |
 
