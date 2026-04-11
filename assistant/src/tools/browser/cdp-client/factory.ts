@@ -33,6 +33,13 @@ const log = getLogger("cdp-factory");
  * is less than the configured `desktopAuto.cooldownMs`, the factory skips the
  * automatic cdp-inspect candidate and goes straight to the local backend.
  *
+ * **Process-global scope**: this is a module-level singleton that affects ALL
+ * conversations in the process. A cdp-inspect failure on any conversation
+ * suppresses desktop-auto probes for every conversation in this daemon until
+ * the cooldown expires. This is intentional -- the local loopback CDP
+ * endpoint is per-machine, not per-conversation, so a failure on one
+ * conversation implies all others would fail the same way.
+ *
  * Reset to 0 when the cooldown expires or when manually cleared via
  * {@link _resetDesktopAutoCooldown} (for testing).
  */
