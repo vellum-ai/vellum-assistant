@@ -99,7 +99,7 @@ struct UsageDashboardView: View {
                 } else {
                     ForEach(daily.buckets, id: \.date) { bucket in
                         HStack {
-                            Text(Self.formatBucketLabel(bucket.date, isHourly: isHourly))
+                            Text(bucket.displayLabel ?? bucket.date)
                                 .font(.footnote.monospaced())
                             Spacer()
                             Text(UsageFormatting.formatCost(bucket.totalEstimatedCostUsd))
@@ -172,47 +172,5 @@ struct UsageDashboardView: View {
         }
     }
 
-    // MARK: - Formatters
-
-    private static let shortDateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "MMM d"
-        f.timeZone = TimeZone(identifier: "UTC")!
-        return f
-    }()
-
-    private static let isoDateParser: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(identifier: "UTC")!
-        return f
-    }()
-
-    private static let isoHourParser: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd HH:mm"
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(identifier: "UTC")!
-        return f
-    }()
-
-    private static let shortHourFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "ha"
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(identifier: "UTC")!
-        return f
-    }()
-
-    private static func formatBucketLabel(_ dateString: String, isHourly: Bool) -> String {
-        if isHourly {
-            guard let date = isoHourParser.date(from: dateString) else { return dateString }
-            return shortHourFormatter.string(from: date).lowercased()
-        } else {
-            guard let date = isoDateParser.date(from: dateString) else { return dateString }
-            return shortDateFormatter.string(from: date)
-        }
-    }
 }
 #endif

@@ -14,10 +14,29 @@ import {
   getUsageHourBuckets,
   getUsageTotals,
 } from "../../memory/llm-usage-store.js";
+import { validateTimezone } from "../../memory/usage-buckets.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
 const VALID_GROUP_BY = new Set(["actor", "provider", "model", "conversation"]);
+
+/**
+ * Resolve the optional `tz` query param to a validated IANA identifier.
+ * Returns the tz string, or an error Response if the value is not a valid tz.
+ */
+function resolveTimezone(url: URL): string | Response {
+  const tz = url.searchParams.get("tz") ?? "UTC";
+  try {
+    validateTimezone(tz);
+  } catch (err) {
+    return httpError(
+      "BAD_REQUEST",
+      (err as Error).message,
+      400,
+    );
+  }
+  return tz;
+}
 
 /**
  * Parse and validate the `from` and `to` epoch-millis query parameters.
@@ -110,6 +129,12 @@ export function usageRouteDefinitions(): RouteDefinition[] {
           schema: { type: "string", enum: ["daily", "hourly"] },
           description: 'Bucket granularity: "daily" (default) or "hourly"',
         },
+        {
+          name: "tz",
+          schema: { type: "string" },
+          description:
+            'IANA timezone identifier (e.g. "America/Los_Angeles"). Bucket boundaries and display labels are computed in this timezone. Defaults to "UTC" for backwards compatibility.',
+        },
       ],
       responseBody: z.object({
         buckets: z.array(z.unknown()).describe("Usage bucket objects"),
@@ -125,10 +150,13 @@ export function usageRouteDefinitions(): RouteDefinition[] {
             400,
           );
         }
+        const tz = resolveTimezone(url);
+        if (tz instanceof Response) return tz;
+        // The chart wants a continuous time axis, so fill empty buckets.
         const buckets =
           granularity === "hourly"
-            ? getUsageHourBuckets(range)
-            : getUsageDayBuckets(range);
+            ? getUsageHourBuckets(range, tz, { fillEmpty: true })
+            : getUsageDayBuckets(range, tz, { fillEmpty: true });
         return Response.json({ buckets });
       },
     },

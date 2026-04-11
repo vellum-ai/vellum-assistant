@@ -36,18 +36,51 @@ public struct UsageTotalsResponse: Decodable, Equatable, Sendable {
 
 /// A single day bucket from `GET /v1/usage/daily`.
 public struct UsageDayBucket: Decodable, Equatable, Sendable {
+    /// Local-time bucket key in the requested tz: "YYYY-MM-DD" (daily) or
+    /// "YYYY-MM-DD HH:00" (hourly). Clients should treat this as an opaque
+    /// identifier and prefer `displayLabel` for rendering.
     public let date: String
+    /// Pre-formatted human-readable label from the daemon, formatted in the
+    /// requested timezone. Absent for responses from older daemons.
+    public let displayLabel: String?
     public let totalInputTokens: Int
     public let totalOutputTokens: Int
     public let totalEstimatedCostUsd: Double
     public let eventCount: Int
 
-    public init(date: String, totalInputTokens: Int, totalOutputTokens: Int, totalEstimatedCostUsd: Double, eventCount: Int) {
+    public init(
+        date: String,
+        displayLabel: String? = nil,
+        totalInputTokens: Int,
+        totalOutputTokens: Int,
+        totalEstimatedCostUsd: Double,
+        eventCount: Int
+    ) {
         self.date = date
+        self.displayLabel = displayLabel
         self.totalInputTokens = totalInputTokens
         self.totalOutputTokens = totalOutputTokens
         self.totalEstimatedCostUsd = totalEstimatedCostUsd
         self.eventCount = eventCount
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case date
+        case displayLabel
+        case totalInputTokens
+        case totalOutputTokens
+        case totalEstimatedCostUsd
+        case eventCount
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        date = try container.decode(String.self, forKey: .date)
+        displayLabel = try container.decodeIfPresent(String.self, forKey: .displayLabel)
+        totalInputTokens = try container.decode(Int.self, forKey: .totalInputTokens)
+        totalOutputTokens = try container.decode(Int.self, forKey: .totalOutputTokens)
+        totalEstimatedCostUsd = try container.decode(Double.self, forKey: .totalEstimatedCostUsd)
+        eventCount = try container.decode(Int.self, forKey: .eventCount)
     }
 }
 

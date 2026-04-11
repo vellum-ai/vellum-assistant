@@ -208,7 +208,7 @@ final class UsageDashboardViewTests: XCTestCase {
 @MainActor
 private final class NilUsageClient: UsageClientProtocol {
     func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? { nil }
-    func fetchUsageDaily(from: Int, to: Int, granularity: String) async -> UsageDailyResponse? { nil }
+    func fetchUsageDaily(from: Int, to: Int, granularity: String, tz: String) async -> UsageDailyResponse? { nil }
     func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? { nil }
 }
 
@@ -228,10 +228,10 @@ private final class StubUsageClient: UsageClientProtocol {
         )
     }
 
-    func fetchUsageDaily(from: Int, to: Int, granularity: String) async -> UsageDailyResponse? {
+    func fetchUsageDaily(from: Int, to: Int, granularity: String, tz: String) async -> UsageDailyResponse? {
         UsageDailyResponse(buckets: [
-            UsageDayBucket(date: "2026-03-04", totalInputTokens: 600, totalOutputTokens: 300, totalEstimatedCostUsd: 0.0025, eventCount: 2),
-            UsageDayBucket(date: "2026-03-05", totalInputTokens: 400, totalOutputTokens: 200, totalEstimatedCostUsd: 0.0017, eventCount: 1),
+            UsageDayBucket(date: "2026-03-04", displayLabel: "Mar 4", totalInputTokens: 600, totalOutputTokens: 300, totalEstimatedCostUsd: 0.0025, eventCount: 2),
+            UsageDayBucket(date: "2026-03-05", displayLabel: "Mar 5", totalInputTokens: 400, totalOutputTokens: 200, totalEstimatedCostUsd: 0.0017, eventCount: 1),
         ])
     }
 

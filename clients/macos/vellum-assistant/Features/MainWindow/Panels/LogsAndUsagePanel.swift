@@ -486,7 +486,7 @@ struct UsageTabContent: View {
                             Text(formatCost(bucket.totalEstimatedCostUsd))
                                 .font(VFont.labelSmall)
                                 .foregroundStyle(VColor.contentSecondary)
-                            Text(formatBucketLabel(bucket.date, isHourly: isHourly))
+                            Text(formatBucketLabel(bucket))
                                 .font(VFont.labelSmall)
                                 .foregroundStyle(VColor.contentTertiary)
                         }
@@ -498,45 +498,11 @@ struct UsageTabContent: View {
         }
     }
 
-    private static let shortDateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "MMM d"
-        f.timeZone = TimeZone(identifier: "UTC")!
-        return f
-    }()
-
-    private static let isoDateParser: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(identifier: "UTC")!
-        return f
-    }()
-
-    private static let isoHourParser: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd HH:mm"
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(identifier: "UTC")!
-        return f
-    }()
-
-    private static let shortHourFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "ha"
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(identifier: "UTC")!
-        return f
-    }()
-
-    private func formatBucketLabel(_ dateString: String, isHourly: Bool) -> String {
-        if isHourly {
-            guard let date = Self.isoHourParser.date(from: dateString) else { return dateString }
-            return Self.shortHourFormatter.string(from: date).lowercased()
-        } else {
-            guard let date = Self.isoDateParser.date(from: dateString) else { return dateString }
-            return Self.shortDateFormatter.string(from: date)
-        }
+    /// The daemon emits `displayLabel` already formatted in the requested
+    /// timezone. We fall back to the raw `date` string for responses from
+    /// older daemons that don't include the label.
+    private func formatBucketLabel(_ bucket: UsageDayBucket) -> String {
+        bucket.displayLabel ?? bucket.date
     }
 
     // MARK: - Breakdown Section

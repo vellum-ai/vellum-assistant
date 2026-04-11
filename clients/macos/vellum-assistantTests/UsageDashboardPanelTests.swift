@@ -459,7 +459,7 @@ private final class MockPanelClient: UsageClientProtocol {
         return stubbedTotals
     }
 
-    func fetchUsageDaily(from: Int, to: Int, granularity: String) async -> UsageDailyResponse? {
+    func fetchUsageDaily(from: Int, to: Int, granularity: String, tz: String) async -> UsageDailyResponse? {
         lastDailyFrom = from
         return stubbedDaily
     }

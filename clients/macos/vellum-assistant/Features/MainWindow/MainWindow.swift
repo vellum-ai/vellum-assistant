@@ -296,6 +296,9 @@ public final class MainWindow {
 
     /// Tracks daemon reconnects so trace state can be reset on stream restart.
     private var connectionCancellable: AnyCancellable?
+    /// Tracks changes to `SettingsStore.userTimezone` so the usage dashboard
+    /// re-fetches with the new timezone when the user changes it in settings.
+    private var userTimezoneCancellable: AnyCancellable?
     private var layoutObserver: NSObjectProtocol?
     private var defaultTrafficLightOrigin: NSPoint?
     private var hasConnectedOnce = false
@@ -325,6 +328,7 @@ public final class MainWindow {
             isFirstLaunch: isFirstLaunch
         )
         self.usageDashboardStore = UsageDashboardStore()
+        self.usageDashboardStore.updateTimezone(services.settingsStore.userTimezone)
         self.conversationManager.ambientAgent = services.ambientAgent
         documentManager.connectionManager = connectionManager
         Task { @MainActor [weak self] in
@@ -341,6 +345,19 @@ public final class MainWindow {
             }
         }
         observeDaemonReconnects()
+        observeUserTimezoneChanges()
+    }
+
+    /// Keep `UsageDashboardStore.resolvedTimezone` in sync with the user's
+    /// configured timezone in Settings. When the user updates or clears the
+    /// setting, the store resets and re-fetches on the next render.
+    private func observeUserTimezoneChanges() {
+        userTimezoneCancellable = services.settingsStore.$userTimezone
+            .dropFirst()
+            .removeDuplicates()
+            .sink { [weak self] newIdentifier in
+                self?.usageDashboardStore.updateTimezone(newIdentifier)
+            }
     }
 
     /// Reset trace state when the daemon reconnects after a disconnect.

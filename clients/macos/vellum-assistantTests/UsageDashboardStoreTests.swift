@@ -14,6 +14,8 @@ private final class MockUsageClient: UsageClientProtocol {
     var lastTotalsTo: Int?
     var lastDailyFrom: Int?
     var lastDailyTo: Int?
+    var lastDailyTz: String?
+    var lastDailyGranularity: String?
     var lastBreakdownFrom: Int?
     var lastBreakdownTo: Int?
     var lastBreakdownGroupBy: String?
@@ -24,9 +26,11 @@ private final class MockUsageClient: UsageClientProtocol {
         return stubbedTotals
     }
 
-    func fetchUsageDaily(from: Int, to: Int, granularity: String) async -> UsageDailyResponse? {
+    func fetchUsageDaily(from: Int, to: Int, granularity: String, tz: String) async -> UsageDailyResponse? {
         lastDailyFrom = from
         lastDailyTo = to
+        lastDailyGranularity = granularity
+        lastDailyTz = tz
         return stubbedDaily
     }
 
@@ -362,7 +366,7 @@ private final class DelayedMockUsageClient: UsageClientProtocol {
         }
     }
 
-    func fetchUsageDaily(from: Int, to: Int, granularity: String) async -> UsageDailyResponse? {
+    func fetchUsageDaily(from: Int, to: Int, granularity: String, tz: String) async -> UsageDailyResponse? {
         await withCheckedContinuation { continuation in
             dailyContinuations.append(continuation)
         }
@@ -589,7 +593,7 @@ struct UsageTimeRangeTests {
     func todayRangeStartsAtMidnightUTC() {
         // Use a mid-day timestamp so UTC midnight differs from most local timezones
         let now = Date(timeIntervalSince1970: 1709733600) // 2024-03-06 14:00:00 UTC
-        let range = UsageTimeRange.today.epochMillisRange(now: now)
+        let range = UsageTimeRange.today.epochMillisRange(now: now, timeZone: TimeZone(identifier: "UTC")!)
 
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
@@ -603,9 +607,32 @@ struct UsageTimeRangeTests {
     }
 
     @Test
+    func todayRangeStartsAtMidnightInUserTimezone() {
+        // 2024-03-06 14:00:00 UTC is 2024-03-06 06:00:00 PST (UTC-8).
+        // Midnight PST that day is 2024-03-06 08:00:00 UTC = 1709712000.
+        let now = Date(timeIntervalSince1970: 1709733600)
+        let pst = TimeZone(identifier: "America/Los_Angeles")!
+        let range = UsageTimeRange.today.epochMillisRange(now: now, timeZone: pst)
+
+        #expect(range.from == 1709712000 * 1000)
+        #expect(range.to == Int(now.timeIntervalSince1970 * 1000))
+    }
+
+    @Test
+    func todayRangeHandlesFractionalOffset() {
+        // Asia/Kolkata is UTC+5:30. 2024-03-06 14:00:00 UTC is 2024-03-06 19:30:00 IST.
+        // Midnight IST that day is 2024-03-05 18:30:00 UTC = 1709663400.
+        let now = Date(timeIntervalSince1970: 1709733600)
+        let ist = TimeZone(identifier: "Asia/Kolkata")!
+        let range = UsageTimeRange.today.epochMillisRange(now: now, timeZone: ist)
+
+        #expect(range.from == 1709663400 * 1000)
+    }
+
+    @Test
     func last7DaysSpansSixDaysBack() {
         let now = Date(timeIntervalSince1970: 1709733600) // 2024-03-06 14:00:00 UTC
-        let range = UsageTimeRange.last7Days.epochMillisRange(now: now)
+        let range = UsageTimeRange.last7Days.epochMillisRange(now: now, timeZone: TimeZone(identifier: "UTC")!)
 
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
@@ -622,6 +649,120 @@ struct UsageTimeRangeTests {
         for timeRange in UsageTimeRange.allCases {
             let range = timeRange.epochMillisRange()
             #expect(range.from <= range.to, "from should be <= to for \(timeRange.rawValue)")
+        }
+    }
+}
+
+// MARK: - Timezone Wiring
+
+@Suite("UsageDashboardStore — Timezone Wiring")
+@MainActor
+struct UsageDashboardStoreTimezoneTests {
+
+    @Test
+    func defaultsToCurrentSystemTimezone() {
+        let store = UsageDashboardStore()
+        #expect(store.resolvedTimezoneIdentifier == TimeZone.current.identifier)
+    }
+
+    @Test
+    func updateTimezoneAcceptsIanaIdentifier() {
+        let store = UsageDashboardStore()
+        store.updateTimezone("America/New_York")
+        #expect(store.resolvedTimezoneIdentifier == "America/New_York")
+        #expect(store.resolvedTimezone.identifier == "America/New_York")
+    }
+
+    @Test
+    func updateTimezoneWithNilFallsBackToCurrent() {
+        let store = UsageDashboardStore()
+        store.updateTimezone("Europe/Berlin")
+        store.updateTimezone(nil)
+        #expect(store.resolvedTimezoneIdentifier == TimeZone.current.identifier)
+    }
+
+    @Test
+    func updateTimezoneWithInvalidIdentifierFallsBackToCurrent() {
+        let store = UsageDashboardStore()
+        store.updateTimezone("Not/A/Real/Zone")
+        #expect(store.resolvedTimezoneIdentifier == TimeZone.current.identifier)
+    }
+
+    @Test
+    func refreshPassesTimezoneToFetchUsageDaily() async {
+        let client = MockUsageClient()
+        client.stubbedTotals = UsageTotalsResponse(
+            totalInputTokens: 0, totalOutputTokens: 0,
+            totalCacheCreationTokens: 0, totalCacheReadTokens: 0,
+            totalEstimatedCostUsd: 0, eventCount: 0,
+            pricedEventCount: 0, unpricedEventCount: 0
+        )
+        client.stubbedDaily = UsageDailyResponse(buckets: [])
+        client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [])
+
+        let store = UsageDashboardStore()
+        store.updateClient(client)
+        store.updateTimezone("Europe/Berlin")
+        await store.refresh()
+
+        #expect(client.lastDailyTz == "Europe/Berlin")
+    }
+
+    @Test
+    func updateTimezoneResetsLoadedData() async {
+        let client = MockUsageClient()
+        client.stubbedTotals = UsageTotalsResponse(
+            totalInputTokens: 100, totalOutputTokens: 50,
+            totalCacheCreationTokens: 0, totalCacheReadTokens: 0,
+            totalEstimatedCostUsd: 0.01, eventCount: 1,
+            pricedEventCount: 1, unpricedEventCount: 0
+        )
+        client.stubbedDaily = UsageDailyResponse(buckets: [])
+        client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [])
+
+        let store = UsageDashboardStore()
+        store.updateClient(client)
+        await store.refresh()
+
+        // Loaded after refresh.
+        if case .loaded = store.totalsState {
+            // ok
+        } else {
+            Issue.record("Expected totals to be loaded")
+        }
+
+        store.updateTimezone("Asia/Tokyo")
+
+        // Reset back to idle after tz change.
+        #expect(store.totalsState == .idle)
+        #expect(store.dailyState == .idle)
+        #expect(store.breakdownState == .idle)
+    }
+
+    @Test
+    func updateTimezoneWithSameIdentifierDoesNotReset() async {
+        let client = MockUsageClient()
+        client.stubbedTotals = UsageTotalsResponse(
+            totalInputTokens: 100, totalOutputTokens: 50,
+            totalCacheCreationTokens: 0, totalCacheReadTokens: 0,
+            totalEstimatedCostUsd: 0.01, eventCount: 1,
+            pricedEventCount: 1, unpricedEventCount: 0
+        )
+        client.stubbedDaily = UsageDailyResponse(buckets: [])
+        client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [])
+
+        let store = UsageDashboardStore()
+        store.updateClient(client)
+        store.updateTimezone("America/Chicago")
+        await store.refresh()
+
+        store.updateTimezone("America/Chicago") // same value — should be a no-op
+
+        // Remains loaded.
+        if case .loaded = store.totalsState {
+            // ok
+        } else {
+            Issue.record("Expected totals to remain loaded after no-op timezone update")
         }
     }
 }
