@@ -192,19 +192,37 @@ async function sshAppleContainer(entry: AssistantEntry): Promise<void> {
       socket.write(handshake);
     });
 
+    // 10s handshake timeout — matches SSH ConnectTimeout.
+    const HANDSHAKE_TIMEOUT_MS = 10_000;
     let handshakeComplete = false;
-    let handshakeBuffer = "";
+    const handshakeChunks: Buffer[] = [];
+    let handshakeLen = 0;
+
+    socket.setTimeout(HANDSHAKE_TIMEOUT_MS);
+    socket.on("timeout", () => {
+      if (!handshakeComplete) {
+        console.error(
+          "Timed out waiting for handshake response from management socket.",
+        );
+        socket.destroy();
+        process.exit(1);
+      }
+      // After handshake, no timeout — interactive session runs indefinitely.
+    });
 
     socket.on("data", (data: Buffer) => {
       if (!handshakeComplete) {
-        // Accumulate data until we find a newline (end of JSON response).
-        handshakeBuffer += data.toString("utf-8");
-        const nlIndex = handshakeBuffer.indexOf("\n");
+        // Accumulate raw buffers until we find a newline (end of JSON response).
+        handshakeChunks.push(data);
+        handshakeLen += data.length;
+        const accumulated = Buffer.concat(handshakeChunks, handshakeLen);
+        const nlIndex = accumulated.indexOf(0x0a);
         if (nlIndex === -1) return; // Wait for more data.
 
-        const responseLine = handshakeBuffer.slice(0, nlIndex);
-        const remainder = handshakeBuffer.slice(nlIndex + 1);
+        const responseLine = accumulated.slice(0, nlIndex).toString("utf-8");
+        const remainder = accumulated.slice(nlIndex + 1);
         handshakeComplete = true;
+        socket.setTimeout(0); // Disable timeout for interactive session.
 
         let response: { status: string; message?: string };
         try {
@@ -233,7 +251,7 @@ async function sshAppleContainer(entry: AssistantEntry): Promise<void> {
         process.stdin.resume();
         process.stdin.pipe(socket);
 
-        // Write any data that arrived after the handshake newline.
+        // Write any raw bytes that arrived after the handshake newline.
         if (remainder.length > 0) {
           process.stdout.write(remainder);
         }
