@@ -379,7 +379,11 @@ interface LocalPairResponse {
 
 function requestLocalPair(): Promise<LocalPairResponse> {
   return new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type: 'self-hosted-pair' }, (response: LocalPairResponse) => {
+    const msg: Record<string, unknown> = { type: 'self-hosted-pair' };
+    if (currentAssistantId) {
+      msg.assistantId = currentAssistantId;
+    }
+    chrome.runtime.sendMessage(msg, (response: LocalPairResponse) => {
       if (chrome.runtime.lastError) {
         resolve({ ok: false, error: chrome.runtime.lastError.message ?? 'Unknown error' });
         return;

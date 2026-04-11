@@ -1066,7 +1066,13 @@ async function bootstrap(): Promise<void> {
       console.warn(`[vellum-relay] Skipping auto-connect: ${err.message}`);
       return;
     }
-    throw err;
+    // Non-token errors (e.g. native host not installed) are not
+    // recoverable at auto-connect time. Reset state and log so the
+    // popup shows disconnected rather than crashing the worker with
+    // an unhandled rejection.
+    shouldConnect = false;
+    const detail = err instanceof Error ? err.message : String(err);
+    console.warn(`[vellum-relay] Auto-connect failed: ${detail}`);
   }
 }
 
