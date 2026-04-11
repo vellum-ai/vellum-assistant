@@ -119,6 +119,12 @@ async function getOrCreateClientInstanceId(): Promise<string> {
   return fresh;
 }
 
+// Storage key that controls auto-connect on service-worker startup.
+// Set to `true` after a successful user-initiated connect, cleared to
+// `false` by the `pause` action so the extension stays quiet until
+// the user explicitly reconnects.
+const AUTO_CONNECT_KEY = 'autoConnect';
+
 // Storage key used to surface the most recent auth-related relay error
 // to the popup. The popup reads this on open and shows it next to the
 // cloud sign-in button. Cleared on a successful connect so stale errors
@@ -144,6 +150,19 @@ async function clearRelayAuthError(): Promise<void> {
     await chrome.storage.local.remove(RELAY_AUTH_ERROR_KEY);
   } catch (err) {
     console.warn('[vellum-relay] Failed to clear relay auth error', err);
+  }
+}
+
+/**
+ * Persist the auto-connect flag. Called after a successful user-initiated
+ * connect so the next service-worker startup (e.g. browser reopen)
+ * automatically reconnects.
+ */
+async function setAutoConnect(enabled: boolean): Promise<void> {
+  try {
+    await chrome.storage.local.set({ [AUTO_CONNECT_KEY]: enabled });
+  } catch (err) {
+    console.warn('[vellum-relay] Failed to persist autoConnect flag', err);
   }
 }
 
@@ -1028,7 +1047,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     // bootstrap missing auth (pair for local, sign-in for cloud)
     // rather than requiring the popup to pre-check credentials.
     connect({ interactive: true })
-      .then(() => sendResponseFn({ ok: true }))
+      .then(async () => {
+        // Successful user-initiated connect — make auto-connect sticky
+        // so the next service-worker start reconnects automatically.
+        await setAutoConnect(true);
+        sendResponseFn({ ok: true });
+      })
       .catch((err) => {
         // Reset shouldConnect so a subsequent storage change or
         // bootstrap doesn't silently retry a doomed connect. The user
@@ -1039,8 +1063,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       });
     return true; // async
   }
-  if (message.type === 'disconnect') {
+  // `pause` is the canonical user-level stop action: it clears the
+  // sticky auto-connect flag so the extension does not reconnect on
+  // the next startup, then tears down the relay connection.
+  // `disconnect` is kept as a backward-compatible alias during rollout
+  // — both actions perform identical state transitions.
+  if (message.type === 'pause' || message.type === 'disconnect') {
     shouldConnect = false;
+    void setAutoConnect(false);
     disconnect();
     sendResponseFn({ ok: true });
     return false;
@@ -1207,31 +1237,43 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
 });
 
 // Auto-connect on service worker start if previously connected.
+// Only fires when the sticky `autoConnect` flag is `true` (set by a
+// prior successful user-initiated Connect). Bootstrap uses a non-
+// interactive connect so it never pops up auth UIs — if credentials
+// are missing the user will see the disconnected state in the popup
+// and can trigger an interactive connect manually.
 async function bootstrap(): Promise<void> {
-  const { autoConnect } = await chrome.storage.local.get('autoConnect');
-  if (autoConnect !== true) return;
+  const result = await chrome.storage.local.get(AUTO_CONNECT_KEY);
+  if (result[AUTO_CONNECT_KEY] !== true) return;
   shouldConnect = true;
   try {
-    // Non-interactive: bootstrap should not pop up auth UIs. If
-    // credentials are missing the user will see disconnected state
-    // in the popup and can trigger an interactive connect.
     await connect({ interactive: false });
   } catch (err) {
     // A missing token at auto-connect time is not a hard failure —
     // the user will see the disconnected state in the popup and can
-    // sign in / pair to try again. Log and move on.
+    // sign in / pair to try again. Persist the error detail exactly
+    // once so the popup can surface it, then stop retrying.
+    shouldConnect = false;
     if (err instanceof MissingTokenError) {
-      shouldConnect = false;
       console.warn(`[vellum-relay] Skipping auto-connect: ${err.message}`);
+      void setRelayAuthError({
+        message: err.message,
+        mode: currentAuthProfile === 'cloud-oauth' ? 'cloud' : 'self-hosted',
+        at: Date.now(),
+      });
       return;
     }
     // Non-token errors (e.g. native host not installed) are not
     // recoverable at auto-connect time. Reset state and log so the
     // popup shows disconnected rather than crashing the worker with
     // an unhandled rejection.
-    shouldConnect = false;
     const detail = err instanceof Error ? err.message : String(err);
     console.warn(`[vellum-relay] Auto-connect failed: ${detail}`);
+    void setRelayAuthError({
+      message: detail,
+      mode: currentAuthProfile === 'cloud-oauth' ? 'cloud' : 'self-hosted',
+      at: Date.now(),
+    });
   }
 }
 
