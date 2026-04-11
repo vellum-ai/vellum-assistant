@@ -1,16 +1,16 @@
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { getRootDir } from "../credential-reader.js";
+import { getGatewaySecurityDir } from "../config.js";
 
 let db: Database | null = null;
 
 function getDbPath(): string {
-  const dataDir = join(getRootDir(), "data");
-  if (!existsSync(dataDir)) {
-    mkdirSync(dataDir, { recursive: true });
+  const securityDir = getGatewaySecurityDir();
+  if (!existsSync(securityDir)) {
+    mkdirSync(securityDir, { recursive: true });
   }
-  return join(dataDir, "gateway.sqlite");
+  return join(securityDir, "gateway.sqlite");
 }
 
 export function getGatewayDb(): Database {
