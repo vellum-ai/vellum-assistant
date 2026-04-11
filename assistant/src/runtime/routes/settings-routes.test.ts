@@ -74,19 +74,19 @@ describe("GET /workspace-files", () => {
     resetContactTables();
   });
 
-  test("with no guardian: returns the static legacy entries only", async () => {
+  test("with no guardian: returns the static entries only", async () => {
     const res = await handler(makeCtx("workspace-files"));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       files: Array<{ path: string; name: string; exists: boolean }>;
     };
     const paths = body.files.map((f) => f.path);
-    expect(paths).toEqual(["IDENTITY.md", "SOUL.md", "USER.md", "skills/"]);
+    expect(paths).toEqual(["IDENTITY.md", "SOUL.md", "skills/"]);
     // No guardian → no users/*.md entry.
     expect(paths.find((p) => p.startsWith("users/"))).toBeUndefined();
   });
 
-  test("with a guardian: includes users/<slug>.md alongside legacy USER.md", async () => {
+  test("with a guardian: includes users/<slug>.md", async () => {
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "Alice",
@@ -102,8 +102,9 @@ describe("GET /workspace-files", () => {
     };
     const paths = body.files.map((f) => f.path);
 
-    // Legacy USER.md entry is still present.
-    expect(paths).toContain("USER.md");
+    // USER.md has been removed — the guardian per-user persona is the sole
+    // user-profile entry.
+    expect(paths).not.toContain("USER.md");
     // Guardian per-user persona is appended.
     expect(paths).toContain("users/alice.md");
 

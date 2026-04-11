@@ -318,17 +318,13 @@ async function handleOAuthConnectStart(body: {
 /**
  * Build the list of workspace files exposed via the workspace-files endpoint.
  *
- * Returns the static identity/soul/user files plus the guardian's resolved
- * per-user persona file at `users/<slug>.md` when a guardian exists. Callers
- * should invoke this per-request instead of caching, since the guardian can
- * change over the lifetime of the daemon.
- *
- * `USER.md` remains in the list as a legacy transitional entry; a later
- * change will remove it once all readers have migrated to the per-user
- * persona path.
+ * Returns the static identity/soul files and skills directory plus the
+ * guardian's resolved per-user persona file at `users/<slug>.md` when a
+ * guardian exists. Callers should invoke this per-request instead of
+ * caching, since the guardian can change over the lifetime of the daemon.
  */
 function getWorkspaceFiles(): string[] {
-  const files = ["IDENTITY.md", "SOUL.md", "USER.md", "skills/"];
+  const files = ["IDENTITY.md", "SOUL.md", "skills/"];
   const guardianPath = resolveGuardianPersonaPath();
   if (guardianPath) {
     files.push(`users/${basename(guardianPath)}`);
