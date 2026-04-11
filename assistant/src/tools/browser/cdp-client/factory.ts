@@ -40,8 +40,8 @@ let _desktopAutoCooldownSince = 0;
 
 /**
  * Record a cooldown after a desktop-auto cdp-inspect transport failure.
- * Exported for testing -- production code should call
- * {@link recordDesktopAutoCooldown} instead.
+ * Called by {@link maybeRecordDesktopAutoCooldown} in production; also
+ * exported directly for use in tests.
  */
 export function recordDesktopAutoCooldown(): void {
   _desktopAutoCooldownSince = Date.now();
