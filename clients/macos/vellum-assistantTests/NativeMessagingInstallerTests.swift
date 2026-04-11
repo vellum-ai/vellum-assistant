@@ -60,7 +60,7 @@ final class NativeMessagingInstallerTests: XCTestCase {
     func testInstallWritesManifestWithExpectedStructure() throws {
         try NativeMessagingInstaller.installChromeManifest(
             helperBinaryPath: helperBinaryUrl,
-            extensionId: placeholderExtensionId,
+            extensionIds: [placeholderExtensionId],
             homeDirectory: mockHome,
             fileManager: .default
         )
@@ -91,7 +91,7 @@ final class NativeMessagingInstallerTests: XCTestCase {
     func testInstallSetsManifestPermissionsTo0o644() throws {
         try NativeMessagingInstaller.installChromeManifest(
             helperBinaryPath: helperBinaryUrl,
-            extensionId: placeholderExtensionId,
+            extensionIds: [placeholderExtensionId],
             homeDirectory: mockHome,
             fileManager: .default
         )
@@ -115,7 +115,7 @@ final class NativeMessagingInstallerTests: XCTestCase {
 
         try NativeMessagingInstaller.installChromeManifest(
             helperBinaryPath: helperBinaryUrl,
-            extensionId: placeholderExtensionId,
+            extensionIds: [placeholderExtensionId],
             homeDirectory: mockHome,
             fileManager: .default
         )
@@ -138,7 +138,7 @@ final class NativeMessagingInstallerTests: XCTestCase {
         )
         try NativeMessagingInstaller.installChromeManifest(
             helperBinaryPath: staleBinary,
-            extensionId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            extensionIds: ["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],
             homeDirectory: mockHome,
             fileManager: .default
         )
@@ -146,7 +146,7 @@ final class NativeMessagingInstallerTests: XCTestCase {
         // Re-install with the canonical helper binary and placeholder id.
         try NativeMessagingInstaller.installChromeManifest(
             helperBinaryPath: helperBinaryUrl,
-            extensionId: placeholderExtensionId,
+            extensionIds: [placeholderExtensionId],
             homeDirectory: mockHome,
             fileManager: .default
         )
@@ -177,7 +177,7 @@ final class NativeMessagingInstallerTests: XCTestCase {
         XCTAssertThrowsError(
             try NativeMessagingInstaller.installChromeManifest(
                 helperBinaryPath: missingBinary,
-                extensionId: placeholderExtensionId,
+                extensionIds: [placeholderExtensionId],
                 homeDirectory: mockHome,
                 fileManager: .default
             )
@@ -205,7 +205,7 @@ final class NativeMessagingInstallerTests: XCTestCase {
     func testUninstallRemovesManifest() throws {
         try NativeMessagingInstaller.installChromeManifest(
             helperBinaryPath: helperBinaryUrl,
-            extensionId: placeholderExtensionId,
+            extensionIds: [placeholderExtensionId],
             homeDirectory: mockHome,
             fileManager: .default
         )
