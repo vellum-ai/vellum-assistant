@@ -9,13 +9,6 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AuthS
 // into @MainActor isolation — which is an error in Swift 6 language mode.
 private let _platformURLOverrideEnvironmentKey = "VELLUM_PLATFORM_URL"
 private let _authServiceBaseURLDefaultsName = "authServiceBaseURL"
-private let _defaultBaseURL: String = {
-    #if DEBUG
-    return "https://dev-platform.vellum.ai"
-    #else
-    return "https://platform.vellum.ai"
-    #endif
-}()
 
 @MainActor
 public final class AuthService {
@@ -34,9 +27,9 @@ public final class AuthService {
     /// All inputs are value types; no mutable shared state is accessed.
     ///
     /// Resolution order:
-    /// 1. `VELLUM_PLATFORM_URL` environment variable
+    /// 1. `VELLUM_PLATFORM_URL` environment variable (explicit override)
     /// 2. `authServiceBaseURL` UserDefaults key (DEBUG builds only)
-    /// 3. Build-time default (`https://dev-platform.vellum.ai` for DEBUG, `https://platform.vellum.ai` for RELEASE)
+    /// 3. `VELLUM_ENVIRONMENT`-based default
     nonisolated static func resolveBaseURL(
         environment: [String: String],
         userDefaults: UserDefaults
@@ -50,7 +43,7 @@ public final class AuthService {
             return override
         }
         #endif
-        return _defaultBaseURL
+        return VellumEnvironment.resolve(from: environment).platformURL
     }
 
     nonisolated private static func normalizedBaseURL(_ raw: String?) -> String? {

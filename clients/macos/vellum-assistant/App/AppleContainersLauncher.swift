@@ -97,7 +97,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
             )
         }
 
-        let platformURL = VellumEnvironment.current.platformURL
+        let platformURL = VellumEnvironment.current.containerPlatformURL
 
         let config = AppleContainersPodRuntime.Configuration(
             instanceName: assistantName,

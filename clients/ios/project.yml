@@ -61,8 +61,16 @@ schemes:
         vellum-assistant-ios: all
     run:
       config: Debug
+      environmentVariables:
+        VELLUM_ENVIRONMENT:
+          value: local
+          isEnabled: true
     test:
       config: Debug
+      environmentVariables:
+        VELLUM_ENVIRONMENT:
+          value: test
+          isEnabled: true
       targets:
         - vellum-assistant-iosTests
     profile:
