@@ -7,10 +7,36 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Featu
 public protocol FeatureFlagClientProtocol {
     func getFeatureFlags() async throws -> [AssistantFeatureFlag]
     func setFeatureFlag(key: String, enabled: Bool) async throws
-    func setPrivacyConfig(collectUsageData: Bool?, sendDiagnostics: Bool?) async throws
+    func getPrivacyConfig() async throws -> PrivacyConfig
+    func setPrivacyConfig(
+        collectUsageData: Bool?,
+        sendDiagnostics: Bool?,
+        llmRequestLogRetentionMs: Int64??
+    ) async throws
 }
 
 // MARK: - Response Types
+
+/// Privacy configuration sourced from the gateway API.
+///
+/// Mirrors the `{assistantId}/config/privacy` response shape and carries the
+/// three user-facing privacy toggles: usage data, diagnostics, and LLM request
+/// log retention (in milliseconds). `null` means "keep forever".
+public struct PrivacyConfig: Decodable, Sendable, Equatable {
+    public let collectUsageData: Bool
+    public let sendDiagnostics: Bool
+    public let llmRequestLogRetentionMs: Int64?
+
+    public init(
+        collectUsageData: Bool,
+        sendDiagnostics: Bool,
+        llmRequestLogRetentionMs: Int64?
+    ) {
+        self.collectUsageData = collectUsageData
+        self.sendDiagnostics = sendDiagnostics
+        self.llmRequestLogRetentionMs = llmRequestLogRetentionMs
+    }
+}
 
 /// A feature flag sourced from the gateway API, used by the settings UI.
 public struct AssistantFeatureFlag: Decodable, Identifiable, Sendable {
@@ -121,10 +147,33 @@ public struct FeatureFlagClient: FeatureFlagClientProtocol {
         }
     }
 
-    public func setPrivacyConfig(collectUsageData: Bool? = nil, sendDiagnostics: Bool? = nil) async throws {
+    public func getPrivacyConfig() async throws -> PrivacyConfig {
+        let response = try await GatewayHTTPClient.get(
+            path: "assistants/{assistantId}/config/privacy",
+            timeout: 10
+        )
+        guard response.isSuccess else {
+            log.error("getPrivacyConfig failed (HTTP \(response.statusCode))")
+            throw FeatureFlagError.requestFailed(response.statusCode)
+        }
+        return try JSONDecoder().decode(PrivacyConfig.self, from: response.data)
+    }
+
+    public func setPrivacyConfig(
+        collectUsageData: Bool? = nil,
+        sendDiagnostics: Bool? = nil,
+        llmRequestLogRetentionMs: Int64?? = nil
+    ) async throws {
         var body: [String: Any] = [:]
         if let collectUsageData { body["collectUsageData"] = collectUsageData }
         if let sendDiagnostics { body["sendDiagnostics"] = sendDiagnostics }
+        if let retentionOuter = llmRequestLogRetentionMs {
+            if let value = retentionOuter {
+                body["llmRequestLogRetentionMs"] = value
+            } else {
+                body["llmRequestLogRetentionMs"] = NSNull()
+            }
+        }
 
         let response = try await GatewayHTTPClient.patch(
             path: "assistants/{assistantId}/config/privacy",

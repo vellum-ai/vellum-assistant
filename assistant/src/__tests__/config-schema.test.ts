@@ -166,7 +166,7 @@ describe("AssistantConfigSchema", () => {
       enqueueIntervalMs: 6 * 60 * 60 * 1000,
       supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
       conversationRetentionDays: 0,
-      llmRequestLogRetentionMs: 1 * 24 * 60 * 60 * 1000,
+      llmRequestLogRetentionMs: 1 * 60 * 60 * 1000,
     });
   });
 
@@ -175,6 +175,63 @@ describe("AssistantConfigSchema", () => {
       memory: { cleanup: { enqueueIntervalMs: 0 } },
     });
     expect(result.success).toBe(false);
+  });
+
+  test("accepts memory.cleanup.llmRequestLogRetentionMs at the 365-day boundary", () => {
+    const max = 365 * 24 * 60 * 60 * 1000;
+    const result = AssistantConfigSchema.safeParse({
+      memory: { cleanup: { llmRequestLogRetentionMs: max } },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.memory.cleanup.llmRequestLogRetentionMs).toBe(max);
+    }
+  });
+
+  test("rejects memory.cleanup.llmRequestLogRetentionMs above 365 days", () => {
+    // This must match the gateway's MAX_LLM_REQUEST_LOG_RETENTION_MS. Without
+    // the Zod .max(), a manually edited config.json with a large value would
+    // be silently accepted by the daemon and then truncated by the macOS
+    // picker on the next PATCH — a quiet data-loss bug.
+    const overMax = 365 * 24 * 60 * 60 * 1000 + 1;
+    const result = AssistantConfigSchema.safeParse({
+      memory: { cleanup: { llmRequestLogRetentionMs: overMax } },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.some((i) =>
+          i.path.includes("llmRequestLogRetentionMs"),
+        ),
+      ).toBe(true);
+    }
+  });
+
+  test("rejects negative memory.cleanup.llmRequestLogRetentionMs", () => {
+    const result = AssistantConfigSchema.safeParse({
+      memory: { cleanup: { llmRequestLogRetentionMs: -1 } },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("accepts null memory.cleanup.llmRequestLogRetentionMs (keep forever)", () => {
+    const result = AssistantConfigSchema.safeParse({
+      memory: { cleanup: { llmRequestLogRetentionMs: null } },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.memory.cleanup.llmRequestLogRetentionMs).toBeNull();
+    }
+  });
+
+  test("accepts memory.cleanup.llmRequestLogRetentionMs: 0 (prune immediately)", () => {
+    const result = AssistantConfigSchema.safeParse({
+      memory: { cleanup: { llmRequestLogRetentionMs: 0 } },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.memory.cleanup.llmRequestLogRetentionMs).toBe(0);
+    }
   });
 
   test("rejects invalid provider", () => {

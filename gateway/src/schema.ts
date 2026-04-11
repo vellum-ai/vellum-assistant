@@ -2234,10 +2234,50 @@ export function buildSchema(): Record<string, unknown> {
         },
       },
       "/v1/config/privacy": {
+        get: {
+          summary: "Get privacy config",
+          description:
+            "Scope-protected gateway endpoint that returns the current privacy configuration (collectUsageData, sendDiagnostics, llmRequestLogRetentionMs). Missing or malformed values fall back to the daemon schema defaults. Requires a bearer token with `settings.read` scope.",
+          operationId: "privacyConfigGet",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "Privacy config returned",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      collectUsageData: { type: "boolean" },
+                      sendDiagnostics: { type: "boolean" },
+                      llmRequestLogRetentionMs: {
+                        type: ["integer", "null"],
+                        minimum: 0,
+                        maximum: 31536000000,
+                        description:
+                          "Retention period for LLM request/response logs in milliseconds. null keeps forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms); server-side clamping enforces this cap on reads.",
+                      },
+                    },
+                    required: [
+                      "collectUsageData",
+                      "sendDiagnostics",
+                      "llmRequestLogRetentionMs",
+                    ],
+                  },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Insufficient scope" },
+            "500": { description: "Config file is malformed" },
+          },
+        },
         patch: {
           summary: "Update privacy config",
           description:
-            "Scope-protected gateway endpoint that updates privacy configuration (collectUsageData, sendDiagnostics). Requires a bearer token with `feature_flags.write` scope.",
+            "Scope-protected gateway endpoint that updates privacy configuration (collectUsageData, sendDiagnostics, llmRequestLogRetentionMs). Requires a bearer token with `settings.write` scope.",
           operationId: "privacyConfigPatch",
           security: [{ BearerAuth: [] }],
           requestBody: {
@@ -2249,10 +2289,18 @@ export function buildSchema(): Record<string, unknown> {
                   properties: {
                     collectUsageData: { type: "boolean" },
                     sendDiagnostics: { type: "boolean" },
+                    llmRequestLogRetentionMs: {
+                      type: ["integer", "null"],
+                      minimum: 0,
+                      maximum: 31536000000,
+                      description:
+                        "Retention window for LLM request logs, in milliseconds. null keeps forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
+                    },
                   },
                   anyOf: [
                     { required: ["collectUsageData"] },
                     { required: ["sendDiagnostics"] },
+                    { required: ["llmRequestLogRetentionMs"] },
                   ],
                 },
               },
@@ -2268,7 +2316,19 @@ export function buildSchema(): Record<string, unknown> {
                     properties: {
                       collectUsageData: { type: "boolean" },
                       sendDiagnostics: { type: "boolean" },
+                      llmRequestLogRetentionMs: {
+                        type: ["integer", "null"],
+                        minimum: 0,
+                        maximum: 31536000000,
+                        description:
+                          "Retention window for LLM request logs, in milliseconds. null keeps logs forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
+                      },
                     },
+                    required: [
+                      "collectUsageData",
+                      "sendDiagnostics",
+                      "llmRequestLogRetentionMs",
+                    ],
                   },
                 },
               },
@@ -2349,6 +2409,55 @@ export function buildSchema(): Record<string, unknown> {
         },
       },
       "/v1/assistants/{assistantId}/config/privacy/": {
+        get: {
+          summary: "Get privacy config (assistant-scoped)",
+          description:
+            "Assistant-scoped variant of the privacy config read endpoint. Returns the current privacy configuration (collectUsageData, sendDiagnostics, llmRequestLogRetentionMs). Missing or malformed values fall back to the daemon schema defaults. Requires a bearer token with `settings.read` scope.",
+          operationId: "assistantPrivacyConfigGet",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "assistantId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+              description: "The assistant identifier.",
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Privacy config returned",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      collectUsageData: { type: "boolean" },
+                      sendDiagnostics: { type: "boolean" },
+                      llmRequestLogRetentionMs: {
+                        type: ["integer", "null"],
+                        minimum: 0,
+                        maximum: 31536000000,
+                        description:
+                          "Retention period for LLM request/response logs in milliseconds. null keeps forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms); server-side clamping enforces this cap on reads.",
+                      },
+                    },
+                    required: [
+                      "collectUsageData",
+                      "sendDiagnostics",
+                      "llmRequestLogRetentionMs",
+                    ],
+                  },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Insufficient scope" },
+            "500": { description: "Config file is malformed" },
+          },
+        },
         patch: {
           summary: "Update privacy config (assistant-scoped)",
           description:
@@ -2373,10 +2482,18 @@ export function buildSchema(): Record<string, unknown> {
                   properties: {
                     collectUsageData: { type: "boolean" },
                     sendDiagnostics: { type: "boolean" },
+                    llmRequestLogRetentionMs: {
+                      type: ["integer", "null"],
+                      minimum: 0,
+                      maximum: 31536000000,
+                      description:
+                        "Retention window for LLM request logs, in milliseconds. null keeps forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
+                    },
                   },
                   anyOf: [
                     { required: ["collectUsageData"] },
                     { required: ["sendDiagnostics"] },
+                    { required: ["llmRequestLogRetentionMs"] },
                   ],
                 },
               },
@@ -2392,7 +2509,19 @@ export function buildSchema(): Record<string, unknown> {
                     properties: {
                       collectUsageData: { type: "boolean" },
                       sendDiagnostics: { type: "boolean" },
+                      llmRequestLogRetentionMs: {
+                        type: ["integer", "null"],
+                        minimum: 0,
+                        maximum: 31536000000,
+                        description:
+                          "Retention window for LLM request logs, in milliseconds. null keeps logs forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
+                      },
                     },
+                    required: [
+                      "collectUsageData",
+                      "sendDiagnostics",
+                      "llmRequestLogRetentionMs",
+                    ],
                   },
                 },
               },
