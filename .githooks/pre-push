@@ -6,8 +6,9 @@
 # 1. Swift build (clients/) — when .swift files changed (macOS SPM)
 # 2. iOS build (clients/ios/) — when .swift files changed (xcodebuild for simulator)
 # 3. TypeScript type check (assistant/) — when .ts/.tsx files changed
-# 4. Lint (assistant/, cli/, gateway/, clients/chrome-extension/) — eslint on changed .ts/.tsx/.js/.jsx/.mjs files
-# 5. Related test discovery and execution — via dependency graph + filename heuristics
+# 4. TypeScript type check (clients/chrome-extension/) — when .ts/.tsx files changed
+# 5. Lint (assistant/, cli/, gateway/, clients/chrome-extension/) — eslint on changed .ts/.tsx/.js/.jsx/.mjs files
+# 6. Related test discovery and execution — via dependency graph + filename heuristics
 #
 # Skip Swift build only:  SKIP_SWIFT_BUILD=1 git push
 # Skip iOS build only:    SKIP_IOS_BUILD=1 git push
@@ -256,6 +257,35 @@ if [ -n "$CHANGED_FILES" ]; then
         fi
         echo -e "  ${GREEN}✅ Type check OK in assistant/${NC}"
         _debug_log "tsc --noEmit done (passed)"
+    fi
+
+    # --- TypeScript type check for clients/chrome-extension/ ---
+    # Mirrors the assistant/ type check above. Chrome-extension has its own
+    # tsconfig.json and a bun-test-shim.d.ts for test types.
+    CHROME_EXT_TS_CHANGED=0
+    while IFS= read -r file; do
+        if [[ "$file" == clients/chrome-extension/*.ts ]] || [[ "$file" == clients/chrome-extension/*.tsx ]]; then
+            CHROME_EXT_TS_CHANGED=1
+            break
+        fi
+    done <<< "$CHANGED_FILES"
+
+    if [ $CHROME_EXT_TS_CHANGED -eq 1 ]; then
+        echo ""
+        echo "🔍 Type-checking clients/chrome-extension/..."
+        _debug_log "clients/chrome-extension: tsc start"
+        if ! (cd "${REPO_ROOT}/clients/chrome-extension" && "$BUN" run typecheck) 2>&1; then
+            echo ""
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${RED}TypeScript type errors in clients/chrome-extension/ — push blocked${NC}"
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo ""
+            echo "Fix the type errors or push with --no-verify to skip."
+            _debug_log "clients/chrome-extension: tsc done (FAILED)"
+            exit 1
+        fi
+        echo -e "  ${GREEN}✅ Type check OK in clients/chrome-extension/${NC}"
+        _debug_log "clients/chrome-extension: tsc done (passed)"
     fi
 
     # --- Lint check for assistant/, cli/, gateway/, clients/chrome-extension/ ---
