@@ -25,7 +25,7 @@ Phase 2 ships:
    - **Cloud**: WSS to the gateway's `/v1/browser-relay` endpoint, using
      a guardian-bound JWT minted via WorkOS-backed
      `chrome.identity.launchWebAuthFlow`.
-   - **Self-hosted**: WS to the local daemon's `/v1/browser-relay`
+   - **Self-hosted**: WS to the local assistant's `/v1/browser-relay`
      endpoint on `127.0.0.1`, using a scoped capability token bootstrapped
      via Chrome Native Messaging.
 3. A new `chrome-extension` interface in `INTERFACE_IDS` that routes
@@ -34,6 +34,27 @@ Phase 2 ships:
 4. A per-capability `supportsHostProxy(id, capability)` so the
    chrome-extension interface can advertise `host_browser` without
    implying that bash / file / CU proxies are also available.
+5. **Relay keepalive**: The extension sends periodic JSON heartbeat
+   frames (`{ type: "keepalive", sentAt: <epoch_ms> }`) every 20 seconds
+   to prevent Chrome MV3 service-worker idle suspension (~30 s timeout).
+   The runtime acknowledges by touching the connection's activity
+   timestamp in the `ChromeExtensionRegistry`.
+6. **Silent token maintenance**: On connect, reconnect, and auto-connect,
+   the worker transparently re-bootstraps expired/stale local tokens via
+   native messaging and refreshes cloud JWTs via non-interactive OAuth —
+   no user interaction required unless refresh itself fails.
+7. **Extension-first CDP routing**: The CDP client factory always prefers
+   the extension transport when it is provisioned. When the extension
+   proxy exists but is temporarily unavailable (mid-reconnect), the
+   factory intentionally skips `cdp-inspect` to prevent silent backend
+   drift; only when no extension proxy exists at all does `cdp-inspect`
+   enter the candidate list (via the macOS desktop-auto path or explicit
+   config enablement).
+8. **Structured connection health**: The worker maintains a six-state
+   health machine (`paused`, `connecting`, `connected`, `reconnecting`,
+   `auth_required`, `error`) surfaced to the popup via `get_status`.
+   The popup renders concise status text and auto-expands the
+   Troubleshooting section only when user action is genuinely needed.
 
 `browser-execution.ts` drives the live navigation surface through a
 per-invocation `BrowserSessionManager` obtained via `getCdpClient()`
@@ -49,18 +70,30 @@ registry/proxy code path on the runtime side. Only the transport layer
 and the handshake differ.
 
 ```
- ┌───────────────────────┐
- │  Chrome extension     │
- │  (service worker)     │
- │                       │
- │  host-browser-dispatcher
- │   + cdp-proxy         │
- │   + relay-connection  │
- └──────────┬────────────┘
+ ┌─────────────────────────────────┐
+ │  Chrome extension               │
+ │  (MV3 service worker)           │
+ │                                 │
+ │  host-browser-dispatcher        │
+ │   + cdp-proxy                   │
+ │   + relay-connection            │
+ │     (keepalive 20s interval)    │
+ │     (reconnect 1s–30s backoff)  │
+ │     (silent token refresh)      │
+ │                                 │
+ │  ConnectionHealthState:         │
+ │   paused | connecting |         │
+ │   connected | reconnecting |    │
+ │   auth_required | error         │
+ │        │                        │
+ │        ▼                        │
+ │  popup (get_status)             │
+ └──────────┬──────────────────────┘
             │ WS (self-hosted)     WSS (cloud)
+            │  + keepalive frames  │
             │                      │
             ▼                      ▼
-    127.0.0.1:<port>         api.vellum.ai
+    127.0.0.1:<port>         <gateway>
     /v1/browser-relay        /v1/browser-relay
             │                      │
             └──────────┬───────────┘
@@ -71,7 +104,8 @@ and the handshake differ.
           │  http-server.ts open/close │
           │        │                   │
           │        ▼                   │
-         │  ChromeExtensionRegistry   │  (guardianId, clientInstanceId → ws)
+          │  ChromeExtensionRegistry   │  (guardianId, clientInstanceId → ws)
+          │   .touch() on keepalive    │
           │        │                   │
           │        ▼                   │
           │  HostBrowserProxy          │
@@ -99,30 +133,47 @@ the runtime runs on infrastructure managed by Vellum.
 
 Handshake:
 
-1. The user clicks "Sign in with Vellum (cloud)" in the extension
-   popup.
+1. The user clicks **Connect** in the extension popup. For cloud
+   assistants, the worker auto-bootstraps credentials as part of the
+   one-click flow — no separate "Sign in" step is needed.
 2. The service worker (not the popup) runs
    `chrome.identity.launchWebAuthFlow` against the gateway's WorkOS
    OIDC endpoint. Running it in the service worker keeps the awaited
    promise alive if the popup closes mid-flow.
 3. On success, the gateway returns a guardian-bound JWT and the
-   extension persists it via `cloud-auth.ts::getStoredToken`.
-4. The extension opens `wss://api.vellum.ai/v1/browser-relay` with the
-   JWT on the `token=...` query parameter.
+   extension persists it per-assistant via scoped storage keys.
+4. The extension opens `wss://<gateway>/v1/browser-relay` with the
+   JWT on the `token=...` query parameter and a `clientInstanceId`
+   for multi-install disambiguation.
 5. The gateway verifies the JWT, extracts the guardian id, and forwards
    the upgrade to the assistant runtime. The runtime registers the
-   connection under that guardian id in the `ChromeExtensionRegistry`.
+   connection under `(guardianId, clientInstanceId)` in the
+   `ChromeExtensionRegistry`.
+
+Token lifecycle:
+
+- The worker proactively refreshes stale cloud JWTs before they expire,
+  both at connect time (`connectPreflight`) and on reconnect
+  (`cloudReconnectHook`).
+- A non-interactive OAuth refresh is attempted first. If it succeeds the
+  relay reconnects silently.
+- If non-interactive refresh is impossible (refresh token expired, OAuth
+  configuration changed), the reconnect loop aborts and the popup enters
+  `auth_required` state. The user must re-sign-in via the Troubleshooting
+  controls, then click **Connect**.
 
 ## Self-hosted transport
 
 The self-hosted transport is used by users who run the assistant
 locally on their own machine (the default desktop experience). The
-extension talks directly to the local daemon over loopback.
+extension talks directly to the local assistant over loopback.
 
 Handshake:
 
-1. The user clicks "Pair with Vellum (self-hosted)" in the extension
-   popup.
+1. The user clicks **Connect** in the extension popup. For local
+   assistants, the worker auto-bootstraps the capability token via
+   native messaging as part of the one-click flow — no separate "Pair"
+   step is needed.
 2. The service worker calls
    `chrome.runtime.connectNative("com.vellum.daemon")`, which spawns
    `clients/chrome-extension/native-host/` (a tiny CLI helper bundled
@@ -136,13 +187,26 @@ Handshake:
    c. POSTs to `http://127.0.0.1:<port>/v1/browser-extension-pair` to
       mint a scoped capability token bound to the caller's guardian.
    d. Writes a `token_response` frame to stdout and exits.
-4. The extension persists the token and opens
-   `ws://127.0.0.1:<port>/v1/browser-relay` with the token on the
-   `token=...` query parameter.
-5. The daemon verifies the token via
-   `verifyHostBrowserCapability`, registers the connection in the
-   `ChromeExtensionRegistry`, and starts routing `host_browser_request`
-   frames to it.
+4. The extension persists the token per-assistant under scoped storage
+   keys and opens `ws://127.0.0.1:<port>/v1/browser-relay` with the
+   token on the `token=...` query parameter and a `clientInstanceId`
+   for multi-install disambiguation.
+5. The assistant verifies the token via
+   `verifyHostBrowserCapability`, registers the connection under
+   `(guardianId, clientInstanceId)` in the `ChromeExtensionRegistry`,
+   and starts routing `host_browser_request` frames to it.
+
+Token lifecycle:
+
+- The worker silently re-bootstraps local tokens when they are expired
+  or stale, both at connect time (`buildRelayModeForAssistant`) and on
+  reconnect (`onReconnect` hook in `createRelayConnection`). The native
+  messaging helper is re-spawned to mint a fresh token — no user
+  interaction required.
+- If the native host is unreachable or the pair endpoint rejects the
+  request, the reconnect loop aborts and the popup enters
+  `auth_required` state. The user must re-pair via the Troubleshooting
+  controls, then click **Connect**.
 
 `/v1/browser-extension-pair` is loopback-only and refuses requests
 from any non-private peer. The capability token is HMAC-SHA256 signed
@@ -180,16 +244,31 @@ The new modules that implement Phase 2:
   hands results to the worker for relay-aware delivery (WS first, HTTP
   fallback in self-hosted mode).
 - **`clients/chrome-extension/background/relay-connection.ts`** —
-  WebSocket relay with heartbeat, reconnect-with-token-refresh, and
-  mode-aware bearer injection.
+  Long-lived WebSocket relay with keepalive heartbeat (20 s interval to
+  prevent MV3 idle suspension), exponential-backoff reconnect (1 s base,
+  30 s cap), structured reconnect-with-refresh lifecycle (token rotation
+  before each reconnect attempt), and mode-aware bearer injection. The
+  `onReconnect` hook supports three outcomes: `keep` (reuse token),
+  `refreshed` (swap in a new token), or `abort` (stop reconnecting and
+  surface auth error to popup).
+- **`clients/chrome-extension/background/cloud-reconnect-decision.ts`** —
+  Pure decision function for cloud reconnect strategy. Distinguishes
+  auth-failure closes (4001/4002/4003/1008) from transient 1006 closes
+  and manages a refresh-attempt budget to avoid silently hammering the
+  gateway. Covered by direct unit tests.
 - **`clients/chrome-extension/native-host/`** — Native messaging helper
-  binary that bootstraps the self-hosted capability token.
+  binary that bootstraps the self-hosted capability token. Invoked
+  automatically by the service worker during connect, reconnect, and
+  auto-connect flows; manual invocation via the popup's Troubleshooting
+  controls is reserved for diagnostics when automatic recovery fails.
 
 Runtime wiring:
 
 - `http-server.ts` open/close handlers for `/v1/browser-relay` register
   the connection in `ChromeExtensionRegistry` on open and unregister on
-  close.
+  close. The inbound frame handler dispatches `keepalive` frames to
+  `registry.touch(connectionId)` to refresh the connection's activity
+  timestamp without log noise.
 - `conversation-routes.ts` turn-start wires a registry-routed
   `hostBrowserSenderOverride` onto the `Conversation` so
   `host_browser_request` frames go to the extension WebSocket instead of
@@ -202,6 +281,23 @@ Runtime wiring:
   only for `host_browser`; macOS returns `true` for all four (bash,
   file, cu, browser).
 
+Extension-side health wiring:
+
+- The worker maintains a `ConnectionHealthState` enum (`paused`,
+  `connecting`, `connected`, `reconnecting`, `auth_required`, `error`)
+  with detail fields (last disconnect code, last error message,
+  timestamp).
+- Health transitions are driven by connect/open/close/pause actions.
+  The `onClose` callback transitions to `reconnecting` on unexpected
+  disconnects and to `auth_required` when the reconnect hook aborts.
+- The popup reads health via the `get_status` message and maps it to
+  concise display states via `popup-state.ts` helpers
+  (`deriveHealthStatusDisplay`, `shouldExpandTroubleshooting`,
+  `healthToPhase`).
+- The Troubleshooting section auto-expands only when health is
+  `auth_required` or `error` — during `connected`, `reconnecting`, and
+  `paused` it stays collapsed to avoid distracting users.
+
 ## Open follow-ups
 
 - Production extension allowlist: the native messaging helper, the
@@ -212,6 +308,37 @@ Runtime wiring:
   if any of the three drifts out of sync, so updating the placeholder
   to the production id must touch all three files plus the test
   constant in lockstep.
+
+## Steady-state contract
+
+After the first successful Connect, the extension operates as a
+background service with no further user interaction required:
+
+1. **Install once**: Load the extension, ensure the native messaging host
+   is installed (the macOS app does this automatically).
+2. **Connect once**: Click Connect in the popup. The worker
+   auto-bootstraps credentials (local pair token or cloud JWT) as part
+   of the single-click flow.
+3. **Forget it**: The extension maintains the relay indefinitely.
+   Keepalive frames prevent MV3 idle suspension. Exponential-backoff
+   reconnect handles transient drops. Silent token refresh re-bootstraps
+   credentials when they expire. The `autoConnect` flag persists across
+   browser sessions so reopening Chrome automatically reconnects.
+
+Users should only interact with the extension again when:
+
+- They want to **Pause** (intentionally disconnect and disable
+  auto-reconnect).
+- The popup shows **Action required** (`auth_required` or `error` health
+  state), meaning automatic recovery has been exhausted.
+
+The `cdp-inspect` backend is **not** a fallback for transient extension
+interruptions. The CDP client factory intentionally skips cdp-inspect
+when the extension proxy exists but is temporarily unavailable, giving
+the extension's automatic recovery time to restore the connection.
+`cdp-inspect` is an advanced, opt-in backend for users who cannot install
+the extension or who need broad session-level CDP access; see
+[Browser Use — `cdp-inspect` Backend](./browser-use-cdp-inspect-backend.md).
 
 ## Known UX considerations
 
@@ -253,4 +380,7 @@ Alternatives considered:
   and avoids the per-tab debugger infobar entirely. It is implemented
   and opt-in via `hostBrowser.cdpInspect.enabled`; see
   [Browser Use — `cdp-inspect` Backend](./browser-use-cdp-inspect-backend.md)
-  for setup, security trade-offs, and troubleshooting.
+  for setup, security trade-offs, and troubleshooting. Note: the
+  `cdp-inspect` backend does **not** activate as a fallback during
+  transient extension disconnects — the extension-first routing logic
+  in the CDP client factory prevents silent backend drift.
