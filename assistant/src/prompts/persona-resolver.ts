@@ -237,23 +237,27 @@ export function resolveGuardianPersona(): string | null {
 }
 
 /**
- * Write the guardian persona template scaffold to `users/<slug>.md`
+ * Write the guardian persona template scaffold to `users/<userFile>`
  * when the file does not yet exist. No-op when the file already
  * exists (safe against clobbering user edits).
  *
- * Rejects slugs that fail basename validation (path traversal guard).
+ * @param userFile - A filename (not a bare slug), matching the shape
+ *   of `Contact.userFile` — a basename with a `.md` suffix
+ *   (e.g. `"sidd.md"`). The path traversal guard rejects values that
+ *   are not a clean basename.
+ *
  * Creates the parent `users/` directory if missing.
  */
-export function ensureGuardianPersonaFile(slug: string): void {
-  if (basename(slug) !== slug || slug === ".." || slug === ".") {
+export function ensureGuardianPersonaFile(userFile: string): void {
+  if (basename(userFile) !== userFile || userFile === ".." || userFile === ".") {
     log.warn(
-      { slug },
-      "Guardian persona slug contains path traversal; refusing to write",
+      { userFile },
+      "Guardian persona userFile contains path traversal; refusing to write",
     );
     return;
   }
 
-  const filePath = join(getWorkspaceDir(), "users", slug);
+  const filePath = join(getWorkspaceDir(), "users", userFile);
   if (existsSync(filePath)) return;
 
   mkdirSync(dirname(filePath), { recursive: true });

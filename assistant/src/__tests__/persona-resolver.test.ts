@@ -114,12 +114,12 @@ describe("resolveGuardianPersonaPath", () => {
 
 describe("ensureGuardianPersonaFile", () => {
   test("writes the template when the file is missing", () => {
-    const slug = "sidd.md";
-    const filePath = join(mockWorkspaceDir, "users", slug);
+    const userFile = "sidd.md";
+    const filePath = join(mockWorkspaceDir, "users", userFile);
 
     expect(existsSync(filePath)).toBe(false);
 
-    ensureGuardianPersonaFile(slug);
+    ensureGuardianPersonaFile(userFile);
 
     expect(existsSync(filePath)).toBe(true);
     const content = readFileSync(filePath, "utf-8");
@@ -133,15 +133,15 @@ describe("ensureGuardianPersonaFile", () => {
   });
 
   test("is a no-op when the file already exists (does not clobber)", () => {
-    const slug = "sidd.md";
+    const userFile = "sidd.md";
     const dir = join(mockWorkspaceDir, "users");
-    const filePath = join(dir, slug);
+    const filePath = join(dir, userFile);
     const existingContent = "# Existing user notes\n\n- Likes sparkling water\n";
 
     mkdirSync(dir, { recursive: true });
     writeFileSync(filePath, existingContent, "utf-8");
 
-    ensureGuardianPersonaFile(slug);
+    ensureGuardianPersonaFile(userFile);
 
     const content = readFileSync(filePath, "utf-8");
     expect(content).toBe(existingContent);
@@ -157,20 +157,20 @@ describe("isGuardianPersonaCustomized", () => {
   });
 
   test("returns false for the bare scaffold template (no user edits)", () => {
-    const slug = "sidd.md";
-    const filePath = join(mockWorkspaceDir, "users", slug);
+    const userFile = "sidd.md";
+    const filePath = join(mockWorkspaceDir, "users", userFile);
 
     // ensureGuardianPersonaFile writes the canonical template — the
     // exact bytes that "not customized" accepts.
-    ensureGuardianPersonaFile(slug);
+    ensureGuardianPersonaFile(userFile);
 
     expect(isGuardianPersonaCustomized(filePath)).toBe(false);
   });
 
   test("returns false when the file contains only comment lines", () => {
-    const slug = "sidd.md";
+    const userFile = "sidd.md";
     const dir = join(mockWorkspaceDir, "users");
-    const filePath = join(dir, slug);
+    const filePath = join(dir, userFile);
 
     mkdirSync(dir, { recursive: true });
     writeFileSync(
@@ -183,9 +183,9 @@ describe("isGuardianPersonaCustomized", () => {
   });
 
   test("returns true when the file has user-authored content", () => {
-    const slug = "sidd.md";
+    const userFile = "sidd.md";
     const dir = join(mockWorkspaceDir, "users");
-    const filePath = join(dir, slug);
+    const filePath = join(dir, userFile);
 
     mkdirSync(dir, { recursive: true });
     writeFileSync(

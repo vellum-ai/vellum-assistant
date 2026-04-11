@@ -166,8 +166,11 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
       }));
     }
   } catch {
-    // Guardian may not exist yet; rules will be emitted on the next
-    // template build once the guardian contact is created.
+    // If guardian resolution fails at default-rule computation, the rule
+    // will be missing until the trust cache is invalidated and rebuilt.
+    // Runtime guardian-creation paths invalidate the cache via
+    // `clearTrustCache()` in `contacts-write.createGuardianBinding` so
+    // that the next `getRules()` call picks up the new auto-allow rule.
   }
 
   const bootstrapDeleteRule: DefaultRuleTemplate = {

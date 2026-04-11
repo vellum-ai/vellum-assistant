@@ -12,12 +12,14 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
+  afterAll,
   afterEach,
   beforeAll,
   beforeEach,
   describe,
   expect,
   mock,
+  spyOn,
   test,
 } from "bun:test";
 
@@ -72,9 +74,19 @@ mock.module("../config/loader.js", () => ({
 // Defaults to null so existing tests see no extra rules, matching the
 // behaviour on a fresh install without a resolved guardian.
 let mockGuardianPersonaPath: string | null = null;
-mock.module("../prompts/persona-resolver.js", () => ({
-  resolveGuardianPersonaPath: () => mockGuardianPersonaPath,
-}));
+
+// Spy on the namespace import rather than using `mock.module`. Bun's
+// `mock.module` is a persistent process-wide override that would clobber
+// every other export (e.g. `ensureGuardianPersonaFile`,
+// `isGuardianPersonaCustomized`) and break unrelated test files
+// (persona-resolver.test.ts) when run in the same bun test invocation.
+// `spyOn` with `mockRestore()` in afterAll restores the original
+// implementation so other test files see the real exports.
+import * as personaResolver from "../prompts/persona-resolver.js";
+const guardianPathSpy = spyOn(
+  personaResolver,
+  "resolveGuardianPersonaPath",
+).mockImplementation(() => mockGuardianPersonaPath);
 
 import {
   check,
@@ -148,6 +160,13 @@ function writeSkill(
     `---\nname: "${name}"\ndescription: "${description}"\n---\n\nSkill body.\n`,
   );
 }
+
+// Restore the guardian persona spy at the end of this file's run so
+// subsequent test files (e.g. persona-resolver.test.ts) see the real
+// implementation when they import from the module namespace.
+afterAll(() => {
+  guardianPathSpy.mockRestore();
+});
 
 describe("Permission Checker", () => {
   beforeAll(async () => {
