@@ -11,7 +11,6 @@
  * configuration or feature flags.
  */
 
-import { getProviderKeyAsync } from "../security/secure-keys.js";
 import type {
   BatchTranscriber,
   SttTranscribeRequest,
@@ -96,13 +95,18 @@ function normalizeSttError(err: unknown): SttError {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve a `BatchTranscriber` for the daemon-batch boundary.
+ * Create a `BatchTranscriber` for the daemon-batch boundary.
  *
- * Returns `null` when the required provider credentials are not configured,
- * signalling to the caller that batch transcription is unavailable.
+ * Callers provide the API key (obtained via the authorized secure-keys
+ * importer in `providers/speech-to-text/resolve.ts`) so that this module
+ * doesn't need to import secure-keys directly.
+ *
+ * Returns `null` when `apiKey` is falsy, signalling to the caller that
+ * batch transcription is unavailable.
  */
-export async function resolveDaemonBatchTranscriber(): Promise<BatchTranscriber | null> {
-  const apiKey = await getProviderKeyAsync("openai");
+export function createDaemonBatchTranscriber(
+  apiKey: string | null | undefined,
+): BatchTranscriber | null {
   if (!apiKey) return null;
   return new WhisperBatchTranscriber(apiKey);
 }

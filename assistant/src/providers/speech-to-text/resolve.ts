@@ -1,18 +1,19 @@
-import { resolveDaemonBatchTranscriber } from "../../stt/daemon-batch-transcriber.js";
+import { getProviderKeyAsync } from "../../security/secure-keys.js";
+import { createDaemonBatchTranscriber } from "../../stt/daemon-batch-transcriber.js";
 import type { SpeechToTextProvider } from "./types.js";
 
 /**
  * Resolve a `SpeechToTextProvider` for daemon-hosted batch transcription.
  *
  * Delegates to the daemon batch transcriber facade so that the provider
- * construction and credential lookup are centralized. The returned object
- * satisfies the existing `SpeechToTextProvider` interface so that all
- * current callsites continue working without changes.
+ * construction is centralized. Credential lookup stays here (an authorized
+ * secure-keys importer) and the API key is passed through.
  *
  * Returns `null` when no STT credentials are configured.
  */
 export async function resolveSpeechToTextProvider(): Promise<SpeechToTextProvider | null> {
-  const transcriber = await resolveDaemonBatchTranscriber();
+  const apiKey = await getProviderKeyAsync("openai");
+  const transcriber = createDaemonBatchTranscriber(apiKey);
   if (!transcriber) return null;
 
   // Adapt the BatchTranscriber interface to the legacy SpeechToTextProvider

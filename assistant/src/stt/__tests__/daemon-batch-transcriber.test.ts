@@ -6,13 +6,6 @@ import { SttError } from "../types.js";
 // Module mocks — must precede dynamic imports
 // ---------------------------------------------------------------------------
 
-let mockOpenAIKey: string | undefined;
-
-mock.module("../../security/secure-keys.js", () => ({
-  getProviderKeyAsync: async (provider: string) =>
-    provider === "openai" ? mockOpenAIKey : undefined,
-}));
-
 let mockTranscribeResult: { text: string } = { text: "" };
 let mockTranscribeError: Error | null = null;
 
@@ -27,16 +20,15 @@ mock.module("../../providers/speech-to-text/openai-whisper.js", () => ({
 }));
 
 // Dynamic import so mocks are active when the module loads.
-const { resolveDaemonBatchTranscriber } =
+const { createDaemonBatchTranscriber } =
   await import("../daemon-batch-transcriber.js");
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("resolveDaemonBatchTranscriber", () => {
+describe("createDaemonBatchTranscriber", () => {
   beforeEach(() => {
-    mockOpenAIKey = undefined;
     mockTranscribeResult = { text: "" };
     mockTranscribeError = null;
   });
@@ -45,15 +37,13 @@ describe("resolveDaemonBatchTranscriber", () => {
   // Credential resolution
   // -------------------------------------------------------------------------
 
-  test("returns null when no OpenAI key is configured", async () => {
-    mockOpenAIKey = undefined;
-    const transcriber = await resolveDaemonBatchTranscriber();
-    expect(transcriber).toBeNull();
+  test("returns null when no API key is provided", () => {
+    expect(createDaemonBatchTranscriber(null)).toBeNull();
+    expect(createDaemonBatchTranscriber(undefined)).toBeNull();
   });
 
-  test("returns a BatchTranscriber when OpenAI key is present", async () => {
-    mockOpenAIKey = "sk-test-key";
-    const transcriber = await resolveDaemonBatchTranscriber();
+  test("returns a BatchTranscriber when API key is present", () => {
+    const transcriber = createDaemonBatchTranscriber("sk-test-key");
     expect(transcriber).not.toBeNull();
   });
 
@@ -61,15 +51,13 @@ describe("resolveDaemonBatchTranscriber", () => {
   // Provider identity
   // -------------------------------------------------------------------------
 
-  test("reports providerId as openai-whisper", async () => {
-    mockOpenAIKey = "sk-test-key";
-    const transcriber = await resolveDaemonBatchTranscriber();
+  test("reports providerId as openai-whisper", () => {
+    const transcriber = createDaemonBatchTranscriber("sk-test-key");
     expect(transcriber!.providerId).toBe("openai-whisper");
   });
 
-  test("reports boundaryId as daemon-batch", async () => {
-    mockOpenAIKey = "sk-test-key";
-    const transcriber = await resolveDaemonBatchTranscriber();
+  test("reports boundaryId as daemon-batch", () => {
+    const transcriber = createDaemonBatchTranscriber("sk-test-key");
     expect(transcriber!.boundaryId).toBe("daemon-batch");
   });
 
@@ -78,10 +66,9 @@ describe("resolveDaemonBatchTranscriber", () => {
   // -------------------------------------------------------------------------
 
   test("delegates transcription to the underlying provider", async () => {
-    mockOpenAIKey = "sk-test-key";
     mockTranscribeResult = { text: "Hello from Whisper" };
 
-    const transcriber = await resolveDaemonBatchTranscriber();
+    const transcriber = createDaemonBatchTranscriber("sk-test-key");
     const result = await transcriber!.transcribe({
       audio: Buffer.from("fake-audio"),
       mimeType: "audio/ogg",
@@ -95,13 +82,12 @@ describe("resolveDaemonBatchTranscriber", () => {
   // -------------------------------------------------------------------------
 
   test("normalizes AbortError to timeout category", async () => {
-    mockOpenAIKey = "sk-test-key";
     mockTranscribeError = new DOMException(
       "The operation was aborted",
       "AbortError",
     );
 
-    const transcriber = await resolveDaemonBatchTranscriber();
+    const transcriber = createDaemonBatchTranscriber("sk-test-key");
 
     try {
       await transcriber!.transcribe({
@@ -116,10 +102,9 @@ describe("resolveDaemonBatchTranscriber", () => {
   });
 
   test("normalizes 401 errors to auth category", async () => {
-    mockOpenAIKey = "sk-test-key";
     mockTranscribeError = new Error("Whisper API error (401): Unauthorized");
 
-    const transcriber = await resolveDaemonBatchTranscriber();
+    const transcriber = createDaemonBatchTranscriber("sk-test-key");
 
     try {
       await transcriber!.transcribe({
@@ -134,10 +119,9 @@ describe("resolveDaemonBatchTranscriber", () => {
   });
 
   test("normalizes 403 errors to auth category", async () => {
-    mockOpenAIKey = "sk-test-key";
     mockTranscribeError = new Error("Whisper API error (403): Forbidden");
 
-    const transcriber = await resolveDaemonBatchTranscriber();
+    const transcriber = createDaemonBatchTranscriber("sk-test-key");
 
     try {
       await transcriber!.transcribe({
@@ -152,12 +136,11 @@ describe("resolveDaemonBatchTranscriber", () => {
   });
 
   test("normalizes 429 errors to rate-limit category", async () => {
-    mockOpenAIKey = "sk-test-key";
     mockTranscribeError = new Error(
       "Whisper API error (429): Too Many Requests",
     );
 
-    const transcriber = await resolveDaemonBatchTranscriber();
+    const transcriber = createDaemonBatchTranscriber("sk-test-key");
 
     try {
       await transcriber!.transcribe({
@@ -172,10 +155,9 @@ describe("resolveDaemonBatchTranscriber", () => {
   });
 
   test("normalizes rate limit text to rate-limit category", async () => {
-    mockOpenAIKey = "sk-test-key";
     mockTranscribeError = new Error("Request rate-limited by provider");
 
-    const transcriber = await resolveDaemonBatchTranscriber();
+    const transcriber = createDaemonBatchTranscriber("sk-test-key");
 
     try {
       await transcriber!.transcribe({
@@ -190,12 +172,11 @@ describe("resolveDaemonBatchTranscriber", () => {
   });
 
   test("normalizes 400 audio errors to invalid-audio category", async () => {
-    mockOpenAIKey = "sk-test-key";
     mockTranscribeError = new Error(
       "Whisper API error (400): Invalid audio format",
     );
 
-    const transcriber = await resolveDaemonBatchTranscriber();
+    const transcriber = createDaemonBatchTranscriber("sk-test-key");
 
     try {
       await transcriber!.transcribe({
@@ -210,10 +191,9 @@ describe("resolveDaemonBatchTranscriber", () => {
   });
 
   test("normalizes unknown errors to provider-error category", async () => {
-    mockOpenAIKey = "sk-test-key";
     mockTranscribeError = new Error("Something went wrong");
 
-    const transcriber = await resolveDaemonBatchTranscriber();
+    const transcriber = createDaemonBatchTranscriber("sk-test-key");
 
     try {
       await transcriber!.transcribe({
@@ -228,11 +208,10 @@ describe("resolveDaemonBatchTranscriber", () => {
   });
 
   test("passes through SttError instances without re-wrapping", async () => {
-    mockOpenAIKey = "sk-test-key";
     const original = new SttError("auth", "Custom auth failure");
     mockTranscribeError = original;
 
-    const transcriber = await resolveDaemonBatchTranscriber();
+    const transcriber = createDaemonBatchTranscriber("sk-test-key");
 
     try {
       await transcriber!.transcribe({
