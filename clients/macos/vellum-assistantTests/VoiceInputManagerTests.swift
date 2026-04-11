@@ -22,9 +22,16 @@ private final class MockDictationClient: DictationClientProtocol {
 
 /// A controllable mock of `SpeechRecognizerAdapter` for testing VoiceInputManager's
 /// authorization and recognizer-creation paths without hitting real Speech framework APIs.
+///
+/// `stubbedRecognizer` defaults to `nil` so tests never depend on a real
+/// `SFSpeechRecognizer` instance (which may be unavailable in CI/sandboxed
+/// environments). Recognizer availability is controlled independently via
+/// `stubbedIsRecognizerAvailable`, letting permission tests validate their
+/// assertions even when the real Speech framework cannot create a recognizer.
 private final class MockSpeechRecognizerAdapter: SpeechRecognizerAdapter {
     var stubbedAuthorizationStatus: SFSpeechRecognizerAuthorizationStatus = .authorized
-    var stubbedRecognizer: SFSpeechRecognizer? = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+    var stubbedRecognizer: SFSpeechRecognizer? = nil
+    var stubbedIsRecognizerAvailable: Bool = true
     var requestAuthorizationResult: SFSpeechRecognizerAuthorizationStatus = .authorized
     var makeRecognizerCallCount = 0
     var requestAuthorizationCallCount = 0
@@ -41,6 +48,10 @@ private final class MockSpeechRecognizerAdapter: SpeechRecognizerAdapter {
     func makeRecognizer(locale: Locale) -> SFSpeechRecognizer? {
         makeRecognizerCallCount += 1
         return stubbedRecognizer
+    }
+
+    var isRecognizerAvailable: Bool {
+        stubbedIsRecognizerAvailable
     }
 }
 
@@ -343,14 +354,14 @@ final class VoiceInputManagerTests: XCTestCase {
     }
 
     func testUnavailableRecognizerDoesNotStartRecording() {
-        // Configure the adapter to return nil (unavailable recognizer)
-        speechAdapter.stubbedRecognizer = nil
+        // Configure the adapter to report unavailable — no real SFSpeechRecognizer needed
+        speechAdapter.stubbedIsRecognizerAvailable = false
         let freshManager = VoiceInputManager(
             dictationClient: dictationClient,
             speechRecognizerAdapter: speechAdapter
         )
 
-        // Attempt to toggle recording — should not start because recognizer is nil
+        // Attempt to toggle recording — should not start because recognizer is unavailable
         freshManager.toggleRecording()
 
         XCTAssertFalse(freshManager.isRecording,
