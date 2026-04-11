@@ -221,6 +221,7 @@ struct APIKeyStepView: View {
     private func iconForMode(_ mode: OnboardingState.HostingMode) -> VIcon {
         switch mode {
         case .vellumCloud: return .cloud
+        case .local where localDockerEnabled && !appleContainerEnabled: return .package
         case .local: return .laptop
         case .docker: return .package
         case .oldLocal: return .laptop
