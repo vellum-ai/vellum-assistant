@@ -47,8 +47,10 @@ declare module 'bun:test' {
     toBeInstanceOf(expected: abstract new (...args: any[]) => any): R;
     toBeNull(): R;
     toBeUndefined(): R;
+    toBeGreaterThan(expected: number): R;
     toBeGreaterThanOrEqual(expected: number): R;
     toBeLessThanOrEqual(expected: number): R;
+    toBeString(): R;
     toContain(expected: unknown): R;
     not: Matchers<R>;
     rejects: {
