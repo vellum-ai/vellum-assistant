@@ -214,6 +214,27 @@ private final class MockBootstrapAuthService: ManagedAssistantBootstrapAuthServi
         organizations
     }
 
+    // Mirrors `AuthService.resolveOrganizationId` — reads the persisted
+    // test value from UserDefaults, validates it against `organizations`,
+    // and falls back to the single-org case. Throws the same typed errors
+    // the bootstrap's private wrapper expects to translate.
+    func resolveOrganizationId() async throws -> String {
+        let persisted = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+        if let persisted, organizations.contains(where: { $0.id == persisted }) {
+            return persisted
+        }
+        switch organizations.count {
+        case 0:
+            throw AuthService.OrganizationResolutionError.noOrganizations
+        case 1:
+            let orgId = organizations[0].id
+            UserDefaults.standard.set(orgId, forKey: "connectedOrganizationId")
+            return orgId
+        default:
+            throw AuthService.OrganizationResolutionError.multipleOrganizations
+        }
+    }
+
     func getAssistant(id: String, organizationId: String) async throws -> PlatformAssistantResult {
         getAssistantCallCount += 1
         return getAssistantResult

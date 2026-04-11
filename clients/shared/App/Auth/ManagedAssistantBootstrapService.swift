@@ -44,6 +44,7 @@ public enum ManagedBootstrapError: LocalizedError, Sendable {
 @MainActor
 public protocol ManagedAssistantBootstrapAuthServicing: AnyObject {
     func getOrganizations() async throws -> [PlatformOrganization]
+    func resolveOrganizationId() async throws -> String
     func getAssistant(id: String, organizationId: String) async throws -> PlatformAssistantResult
     func listAssistants(organizationId: String) async throws -> [PlatformAssistant]
     func hatchAssistant(
@@ -246,30 +247,17 @@ public final class ManagedAssistantBootstrapService {
         log.warning("Provisioning poll timed out for \(assistantId, privacy: .public) after \(timeout)s — proceeding to health check")
     }
 
-    /// Resolve the organization ID, validating any persisted value against the
-    /// user's actual org list to prevent stale cross-environment IDs.
+    /// Resolve the organization ID, delegating to `AuthService.resolveOrganizationId()`
+    /// so that `AuthManager` (post-login) and bootstrap share a single
+    /// validator/persister. Translates `AuthService` errors into the bootstrap's
+    /// typed `ManagedBootstrapError` shape so UI surfaces the right message.
     private func resolveOrganizationId() async throws -> String {
         do {
-            let orgs = try await authService.getOrganizations()
-            let persistedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
-            if let persistedOrgId, orgs.contains(where: { $0.id == persistedOrgId }) {
-                log.info("Validated persisted organization: \(persistedOrgId, privacy: .public)")
-                return persistedOrgId
-            }
-            if persistedOrgId != nil {
-                log.warning("Persisted organization ID not found in user's orgs — re-resolving")
-            }
-            switch orgs.count {
-            case 0:
-                throw ManagedBootstrapError.serverError(statusCode: 0, detail: "No organizations found for this account")
-            case 1:
-                let orgId = orgs[0].id
-                UserDefaults.standard.set(orgId, forKey: "connectedOrganizationId")
-                log.info("Resolved organization: \(orgId, privacy: .public)")
-                return orgId
-            default:
-                throw ManagedBootstrapError.multipleOrganizations
-            }
+            return try await authService.resolveOrganizationId()
+        } catch AuthService.OrganizationResolutionError.noOrganizations {
+            throw ManagedBootstrapError.serverError(statusCode: 0, detail: "No organizations found for this account")
+        } catch AuthService.OrganizationResolutionError.multipleOrganizations {
+            throw ManagedBootstrapError.multipleOrganizations
         } catch let error as PlatformAPIError {
             throw mapPlatformError(error)
         }
