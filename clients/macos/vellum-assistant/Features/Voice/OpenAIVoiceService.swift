@@ -10,9 +10,6 @@ enum VoiceServiceError: Error, LocalizedError {
     case speechRecognitionUnavailable
     case notAuthorized
     case invalidResponse
-    case ttsNotConfigured
-    case ttsFeatureDisabled
-    case ttsEndpointError(message: String)
     case noAudioData
     case noTranscription
 
@@ -21,9 +18,6 @@ enum VoiceServiceError: Error, LocalizedError {
         case .speechRecognitionUnavailable: return "Speech recognition unavailable"
         case .notAuthorized: return "Speech recognition not authorized"
         case .invalidResponse: return "Invalid API response"
-        case .ttsNotConfigured: return "Text-to-speech is not configured"
-        case .ttsFeatureDisabled: return "Text-to-speech is not enabled"
-        case .ttsEndpointError(let msg): return "TTS error: \(msg)"
         case .noAudioData: return "No audio data recorded"
         case .noTranscription: return "No transcription result"
         }
