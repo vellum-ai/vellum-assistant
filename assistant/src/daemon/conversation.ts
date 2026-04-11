@@ -196,15 +196,15 @@ export class Conversation {
   /** @internal */ hostFileProxy?: HostFileProxy;
   /**
    * Optional override sender used by `restoreBrowserProxyAvailability` so
-   * non-SSE transports (e.g. chrome-extension, whose host_browser_request
-   * frames flow through the ChromeExtensionRegistry WebSocket rather than
-   * the SSE hub) can preserve their registry-routed sender across drain
-   * queue restores. When set, `restoreBrowserProxyAvailability()` uses this
+   * registry-routed transports can preserve their sender across drain queue
+   * restores. When set, `restoreBrowserProxyAvailability()` uses this
    * function instead of `sendToClient` so the drain-queue path doesn't
-   * clobber the chrome-extension sender with the SSE hub emitter.
+   * clobber the registry-routed sender with the SSE hub emitter.
    *
-   * Populated by the POST /messages handler for chrome-extension turns and
-   * cleared when an unrelated interface takes over (see `updateClient`).
+   * Populated by the POST /messages handler when the guardian has an active
+   * extension connection in the `ChromeExtensionRegistry`, regardless of
+   * interface (chrome-extension, macOS, etc.). Cleared when a turn without
+   * an active extension connection takes over.
    */
   /** @internal */ hostBrowserSenderOverride?: (msg: ServerMessage) => void;
   /** @internal */ cesClient?: CesClient;
@@ -574,21 +574,31 @@ export class Conversation {
     this.hostFileProxy?.updateSender(this.sendToClient, false);
   }
 
-  /** Restore host proxy availability based on whether a real client is connected. */
-  restoreProxyAvailability(): void {
+  /**
+   * Restore host proxy availability based on whether a real client is connected.
+   * When `skipBrowser` is true, the browser proxy is left untouched — use this
+   * when `restoreBrowserProxyAvailability()` will handle the browser proxy
+   * separately with the correct registry-routed sender.
+   */
+  restoreProxyAvailability(options?: { skipBrowser?: boolean }): void {
     if (!this.hasNoClient) {
       this.hostBashProxy?.updateSender(this.sendToClient, true);
-      this.hostBrowserProxy?.updateSender(this.sendToClient, true);
+      if (!options?.skipBrowser) {
+        this.hostBrowserProxy?.updateSender(this.sendToClient, true);
+      }
       this.hostCuProxy?.updateSender(this.sendToClient, true);
       this.hostFileProxy?.updateSender(this.sendToClient, true);
     }
   }
 
   /**
-   * Restore host browser proxy availability only. Used for non-desktop
-   * interfaces (e.g. chrome-extension) that support host_browser but not
-   * the full desktop proxy set, so calling restoreProxyAvailability() would
-   * incorrectly re-enable bash/file/CU proxies that should stay disabled.
+   * Restore host browser proxy availability only. Used for interfaces that
+   * support host_browser but not the full desktop proxy set, so calling
+   * restoreProxyAvailability() would incorrectly re-enable bash/file/CU
+   * proxies that should stay disabled. Applicable to chrome-extension turns
+   * (which only support host_browser) and macOS turns with an active
+   * extension connection (which route browser tools through the extension
+   * registry instead of cdp-inspect/local).
    *
    * Unlike `restoreProxyAvailability()`, this helper does NOT gate on
    * `hasNoClient`. The chrome-extension interface is non-interactive (so
@@ -599,16 +609,16 @@ export class Conversation {
    * incorrectly enable host_bash/host_file/host_cu tool gating downstream.
    *
    * When `hostBrowserSenderOverride` is set, that function is used as the
-   * sender instead of `sendToClient`. This is required for the
-   * chrome-extension interface whose host_browser frames route through the
-   * ChromeExtensionRegistry WebSocket rather than the SSE hub: if the
-   * queue-drain path called this helper with `sendToClient`, the
-   * registry-routed sender established at turn-start would be clobbered by
-   * the SSE hub emitter and host_browser_request frames would stop
-   * reaching the extension.
+   * sender instead of `sendToClient`. This is required for any interface
+   * whose host_browser frames route through the ChromeExtensionRegistry
+   * WebSocket rather than the SSE hub: if the queue-drain path called this
+   * helper with `sendToClient`, the registry-routed sender established at
+   * turn-start would be clobbered by the SSE hub emitter and
+   * host_browser_request frames would stop reaching the extension.
    *
    * Callers must only invoke this when they know the current interface
-   * supports host_browser (see `supportsHostProxy(id, "host_browser")`).
+   * supports host_browser (see `supportsHostProxy(id, "host_browser")`)
+   * or has an active extension connection with a registry-routed sender.
    */
   restoreBrowserProxyAvailability(): void {
     const sender = this.hostBrowserSenderOverride ?? this.sendToClient;

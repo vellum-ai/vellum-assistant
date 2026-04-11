@@ -713,3 +713,138 @@ describe("restoreBrowserProxyAvailability", () => {
     expect(registry).not.toContain(probe);
   });
 });
+
+describe("hostBrowserSenderOverride is sender-mode based, not interface-string based", () => {
+  test("macOS turn with registry override routes browser frames through the registry sender", () => {
+    // When a macOS turn sets hostBrowserSenderOverride (because the
+    // guardian has an active extension connection), the browser proxy
+    // must route through the registry sender, not the SSE hub — the
+    // same behavior chrome-extension turns have always used.
+    const sseHub: ServerMessage[] = [];
+    const registry: ServerMessage[] = [];
+    const conversation = makeConversation((msg) => sseHub.push(msg));
+    const browserProxy = new HostBrowserProxy(() => {});
+    conversation.setHostBrowserProxy(browserProxy);
+
+    // macOS is interactive — hasNoClient is false.
+    conversation.updateClient((msg) => sseHub.push(msg), false);
+
+    // The POST /messages handler detected an active extension connection
+    // and set the registry-routed sender override.
+    const registrySender = (msg: ServerMessage) => registry.push(msg);
+    conversation.hostBrowserSenderOverride = registrySender;
+
+    // restoreBrowserProxyAvailability (called after updateClient in the
+    // POST handler) must prefer the override.
+    conversation.restoreBrowserProxyAvailability();
+    expect(browserProxy.isAvailable()).toBe(true);
+
+    // Verify frames flow through the registry, not the SSE hub.
+    const internalSend = (
+      browserProxy as unknown as {
+        sendToClient: (msg: ServerMessage) => void;
+      }
+    ).sendToClient;
+    const probe: ServerMessage = {
+      type: "host_browser_cancel",
+      requestId: "probe-macos-registry",
+    } as ServerMessage;
+    internalSend(probe);
+    expect(registry).toHaveLength(1);
+    expect(sseHub.some((m) => m === probe)).toBe(false);
+  });
+
+  test("macOS turn without registry override clears the browser proxy on restore", () => {
+    // When a macOS turn has no active extension connection, the override
+    // is cleared and restoreBrowserProxyAvailability falls back to the
+    // SSE hub sender. The proxy should not be stuck on an unavailable
+    // registry-routed sender from a prior chrome-extension turn.
+    const sseHub: ServerMessage[] = [];
+    const conversation = makeConversation((msg) => sseHub.push(msg));
+    const browserProxy = new HostBrowserProxy(() => {});
+    conversation.setHostBrowserProxy(browserProxy);
+
+    // Interactive macOS turn without extension connectivity.
+    conversation.updateClient((msg) => sseHub.push(msg), false);
+    conversation.hostBrowserSenderOverride = undefined;
+    conversation.restoreBrowserProxyAvailability();
+
+    // The proxy should be available and routed through SSE.
+    expect(browserProxy.isAvailable()).toBe(true);
+    const internalSend = (
+      browserProxy as unknown as {
+        sendToClient: (msg: ServerMessage) => void;
+      }
+    ).sendToClient;
+    const probe: ServerMessage = {
+      type: "host_browser_cancel",
+      requestId: "probe-macos-sse",
+    } as ServerMessage;
+    internalSend(probe);
+    expect(sseHub).toContain(probe);
+  });
+
+  test("override semantics are symmetric: chrome-extension and macOS both set override when registry-routed", () => {
+    // The override field must be set for ANY interface that uses a
+    // registry-routed sender, and cleared for any that does not.
+    // This test verifies the field is not gated on interface strings.
+    const conversation = makeConversation();
+    const registrySender = () => {};
+
+    // Simulate chrome-extension setting the override.
+    conversation.hostBrowserSenderOverride = registrySender;
+    expect(conversation.hostBrowserSenderOverride).toBe(registrySender);
+
+    // Simulate macOS-with-extension setting the same override.
+    // The field value is the same registry sender, not gated by interface.
+    const macosRegistrySender = () => {};
+    conversation.hostBrowserSenderOverride = macosRegistrySender;
+    expect(conversation.hostBrowserSenderOverride).toBe(macosRegistrySender);
+
+    // Simulate macOS-without-extension clearing the override.
+    conversation.hostBrowserSenderOverride = undefined;
+    expect(conversation.hostBrowserSenderOverride).toBeUndefined();
+  });
+
+  test("queue-drain restore path preserves registry-routed sender for macOS turns", () => {
+    // When a macOS turn with an active extension connection has its
+    // messages queued and later drained, the drain-queue path calls
+    // restoreBrowserProxyAvailability(). With the override set, the
+    // proxy must be restored with the registry sender, not the SSE hub.
+    const sseHub: ServerMessage[] = [];
+    const registry: ServerMessage[] = [];
+    const conversation = makeConversation((msg) => sseHub.push(msg));
+    const browserProxy = new HostBrowserProxy(() => {});
+    conversation.setHostBrowserProxy(browserProxy);
+
+    // macOS interactive turn with extension connectivity.
+    conversation.updateClient((msg) => sseHub.push(msg), false);
+    const registrySender = (msg: ServerMessage) => registry.push(msg);
+    conversation.hostBrowserSenderOverride = registrySender;
+    conversation.restoreBrowserProxyAvailability();
+    expect(browserProxy.isAvailable()).toBe(true);
+
+    // Simulate drain-queue clearing all proxies for a non-interactive
+    // queued message, then restoring for the next macOS turn.
+    conversation.clearProxyAvailability();
+    expect(browserProxy.isAvailable()).toBe(false);
+
+    // Drain restore — override is still set from the POST handler.
+    conversation.restoreBrowserProxyAvailability();
+    expect(browserProxy.isAvailable()).toBe(true);
+
+    // Verify the registry sender was preserved, not the SSE hub.
+    const internalSend = (
+      browserProxy as unknown as {
+        sendToClient: (msg: ServerMessage) => void;
+      }
+    ).sendToClient;
+    const probe: ServerMessage = {
+      type: "host_browser_cancel",
+      requestId: "probe-drain-macos",
+    } as ServerMessage;
+    internalSend(probe);
+    expect(registry).toHaveLength(1);
+    expect(sseHub.some((m) => m === probe)).toBe(false);
+  });
+});

@@ -50,10 +50,12 @@ export { FishAudioConfigSchema } from "./schemas/fish-audio.js";
 export type { HeartbeatConfig } from "./schemas/heartbeat.js";
 export { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
 export type {
+  DesktopAutoCdpInspectConfig,
   HostBrowserCdpInspectConfig,
   HostBrowserConfig,
 } from "./schemas/host-browser.js";
 export {
+  DesktopAutoCdpInspectConfigSchema,
   HostBrowserCdpInspectConfigSchema,
   HostBrowserConfigSchema,
 } from "./schemas/host-browser.js";

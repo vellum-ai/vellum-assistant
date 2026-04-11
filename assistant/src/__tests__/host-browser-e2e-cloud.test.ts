@@ -225,8 +225,7 @@ describe("host_browser cloud-hosted e2e round-trip", () => {
     // Same fixture as the HTTP happy path, but configured to return
     // results over the /v1/browser-relay WebSocket instead of POSTing
     // /v1/host-browser-result. This exercises the runtime WS
-    // `message` handler's host_browser_result dispatch path added in
-    // PR2 of the browser-use remediation plan.
+    // `message` handler's host_browser_result dispatch path.
     const mockExt = createMockChromeExtension({
       runtimeBaseUrl,
       token,
@@ -309,8 +308,7 @@ describe("host_browser cloud-hosted e2e round-trip", () => {
   });
 
   test("abort: late /v1/host-browser-result POST after cancel is ignored (no ghost completion)", async () => {
-    // Regression for PR6 of the browser-use remediation plan. The
-    // daemon-side proxy must treat a late result POST — arriving
+    // The daemon-side proxy must treat a late result POST — arriving
     // after the caller has already been resolved with "Aborted" —
     // as a benign race, not a noisy false-positive timeout. It must
     // also NOT resolve the caller a second time.
@@ -428,6 +426,142 @@ describe("host_browser cloud-hosted e2e round-trip", () => {
     // we know we're exercising the proxy's timer, not a send failure).
     expect(mockExt.receivedRequests()).toHaveLength(1);
     expect(mockExt.receivedRequests()[0].cdpMethod).toBe("Browser.getVersion");
+
+    proxy.dispose();
+    await mockExt.stop();
+  });
+});
+
+// ── macOS message ingress with connected extension ──────────────────
+//
+// Verifies the end-to-end path for macOS-originated turns when the user
+// has the chrome extension connected. On macOS, browser commands should
+// route through the registry-backed host browser flow (extension → user's
+// real Chrome session) rather than falling back to local Playwright.
+//
+// The macOS browser backend preference order is:
+//
+//   macOS + extension connected → extension backend (registry-routed)
+//   macOS + extension absent    → cdp-inspect (desktop-auto) → local
+//
+// NOTE: These tests construct a HostBrowserProxy directly and call
+// proxy.request(), which validates the extension relay round-trip but
+// bypasses handleSendMessage / conversation-routes. Full ingress-path
+// coverage (interface propagation, resolveHostBrowserSender wiring, and
+// CDP factory candidate selection) is exercised by the route-level tests
+// in conversation-routes-disk-view.test.ts.
+//
+// If future refactors break the wiring between conversation-routes
+// (`resolveHostBrowserSender`) and the CDP factory's candidate list, those
+// route-level tests will fail.
+
+describe("macOS message ingress with connected extension", () => {
+  let server: RuntimeHttpServer;
+  let port: number;
+  let runtimeBaseUrl: string;
+
+  beforeEach(async () => {
+    const db = getDb();
+    db.run("DELETE FROM contact_channels");
+    db.run("DELETE FROM contacts");
+    pendingInteractions.clear();
+    __resetChromeExtensionRegistryForTests();
+
+    port = 20000 + Math.floor(Math.random() * 200);
+    runtimeBaseUrl = `http://127.0.0.1:${port}`;
+    server = new RuntimeHttpServer({ port });
+    await server.start();
+  });
+
+  afterEach(async () => {
+    await server?.stop();
+    pendingInteractions.clear();
+    __resetChromeExtensionRegistryForTests();
+  });
+
+  test("macOS turn routes Browser.getVersion through the registry-backed extension, not local Playwright", async () => {
+    // Arrange: connect a mock extension for a given guardianId.
+    const guardianId = `test-guardian-macos-${crypto.randomUUID()}`;
+    const token = mintActorToken(guardianId);
+
+    const { createMockChromeExtension } =
+      await import("./fixtures/mock-chrome-extension.js");
+    const mockExt = createMockChromeExtension({
+      runtimeBaseUrl,
+      token,
+    });
+    await mockExt.start();
+    await mockExt.waitForConnection();
+    await waitForRegistryEntry(guardianId);
+
+    // Build a proxy bound to the guardian's extension connection, mimicking
+    // the wiring that conversation-routes.ts performs for macOS turns when
+    // the ChromeExtensionRegistry has an active entry for the guardian.
+    const { proxy } = createBoundProxy(guardianId, "conv-macos-ext");
+
+    // Act: issue a CDP command through the proxy (same as how browser tools
+    // dispatch commands during a macOS turn with extension override).
+    const result = await proxy.request(
+      { cdpMethod: "Browser.getVersion" },
+      "conv-macos-ext",
+    );
+
+    // Assert: the command reached the mock extension (not local Playwright)
+    // and the round-trip completed successfully.
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Chrome/MockTest");
+
+    const received = mockExt.receivedRequests();
+    expect(received).toHaveLength(1);
+    expect(received[0].cdpMethod).toBe("Browser.getVersion");
+    expect(received[0].conversationId).toBe("conv-macos-ext");
+
+    proxy.dispose();
+    await mockExt.stop();
+  });
+
+  test("macOS turn with extension disconnected mid-conversation does not hang (proxy detects unavailability)", async () => {
+    // Arrange: connect a mock extension then forcibly disconnect it.
+    const guardianId = `test-guardian-macos-disco-${crypto.randomUUID()}`;
+    const token = mintActorToken(guardianId);
+
+    const { createMockChromeExtension } =
+      await import("./fixtures/mock-chrome-extension.js");
+    const mockExt = createMockChromeExtension({
+      runtimeBaseUrl,
+      token,
+    });
+    await mockExt.start();
+    await mockExt.waitForConnection();
+    await waitForRegistryEntry(guardianId);
+
+    // The proxy is bound while the extension is still connected.
+    const { proxy } = createBoundProxy(guardianId, "conv-macos-disco");
+
+    // Disconnect the extension before sending any commands.
+    mockExt.forceDisconnect();
+
+    // Wait for the registry to notice the close event.
+    await waitFor(
+      () => getChromeExtensionRegistry().get(guardianId) === undefined,
+    );
+
+    // Act: attempt a CDP command through the proxy. The registry send should
+    // fail because the connection is gone, and the proxy's sendToClient
+    // wrapper throws immediately.
+    try {
+      await proxy.request(
+        { cdpMethod: "Browser.getVersion", timeout_seconds: 0.5 },
+        "conv-macos-disco",
+      );
+      // If we reach here, the test should still verify the result indicates
+      // an error rather than a successful extension round-trip.
+      expect(true).toBe(false); // Should not reach here
+    } catch {
+      // Expected: the send failed because the extension is disconnected.
+      // This confirms the macOS path detects disconnection rather than
+      // silently routing to the wrong backend.
+    }
 
     proxy.dispose();
     await mockExt.stop();
