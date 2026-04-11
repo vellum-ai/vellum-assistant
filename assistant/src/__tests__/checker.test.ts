@@ -1484,14 +1484,6 @@ describe("Permission Checker", () => {
       expect(result.matchedRule!.id).toBe("default:allow-file_edit-identity");
     });
 
-    test("file_read of workspace USER.md is auto-allowed", async () => {
-      const userPath = join(checkerTestDir, "USER.md");
-      const result = await check("file_read", { path: userPath }, "/tmp");
-      expect(result.decision).toBe("allow");
-      expect(result.matchedRule).toBeDefined();
-      expect(result.matchedRule!.id).toBe("default:allow-file_read-user");
-    });
-
     test("file_write of workspace SOUL.md is auto-allowed", async () => {
       const soulPath = join(checkerTestDir, "SOUL.md");
       const result = await check("file_write", { path: soulPath }, "/tmp");
@@ -1543,8 +1535,8 @@ describe("Permission Checker", () => {
     // ── guardian persona file (users/<slug>.md) ──────────────────
     // The drop-user-md migration replaces the legacy workspace USER.md
     // with a per-user persona file at `users/<guardian-slug>.md`. The
-    // dynamic guardian-persona default rules make first-run onboarding
-    // and day-to-day persona edits frictionless.
+    // dynamic guardian-persona default rules are now the sole auto-allow
+    // entry for the per-user profile file.
 
     test("file_edit of guardian users/<slug>.md is auto-allowed", async () => {
       const guardianPath = join(checkerTestDir, "users", "alice.md");
