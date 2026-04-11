@@ -35,13 +35,11 @@ mock.module("../../../memory/attachments-store.js", () => ({
     mockAttachments.find((a) => a.id === id) ?? null,
 }));
 
-mock.module("../../../security/secure-keys.js", () => ({
-  getProviderKeyAsync: async () => (mockTranscriber ? "fake-key" : null),
+mock.module("../../../providers/speech-to-text/resolve.js", () => ({
+  resolveBatchTranscriber: async () => mockTranscriber,
 }));
 
 mock.module("../../../stt/daemon-batch-transcriber.js", () => ({
-  createDaemonBatchTranscriber: (apiKey: string | null | undefined) =>
-    apiKey ? mockTranscriber : null,
   normalizeSttError: (err: unknown): SttError => {
     if (err instanceof SttError) return err;
     const message = err instanceof Error ? err.message : String(err);

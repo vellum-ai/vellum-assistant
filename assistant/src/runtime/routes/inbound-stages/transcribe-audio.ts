@@ -10,11 +10,8 @@
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../config/loader.js";
 import * as attachmentsStore from "../../../memory/attachments-store.js";
-import { getProviderKeyAsync } from "../../../security/secure-keys.js";
-import {
-  createDaemonBatchTranscriber,
-  normalizeSttError,
-} from "../../../stt/daemon-batch-transcriber.js";
+import { resolveBatchTranscriber } from "../../../providers/speech-to-text/resolve.js";
+import { normalizeSttError } from "../../../stt/daemon-batch-transcriber.js";
 import { getLogger } from "../../../util/logger.js";
 
 const log = getLogger("transcribe-audio");
@@ -60,8 +57,7 @@ export async function tryTranscribeAudioAttachments(
     }
 
     // Resolve STT provider via daemon batch transcriber facade
-    const apiKey = await getProviderKeyAsync("openai");
-    const transcriber = createDaemonBatchTranscriber(apiKey);
+    const transcriber = await resolveBatchTranscriber();
     if (!transcriber) {
       return {
         status: "no_provider",
