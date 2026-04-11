@@ -115,7 +115,8 @@ final class SkillsManager {
                 // deduplicating by skill id so local entries take precedence.
                 let localSkills = self.skillsStore.skills
                 let mergedSkills: [SkillInfo]
-                if !self.skillsStore.searchResults.isEmpty && !self.skillsStore.isSearching {
+                let hasActiveQuery = !self.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                if hasActiveQuery && !self.skillsStore.searchResults.isEmpty && !self.skillsStore.isSearching {
                     let localIds = Set(localSkills.map(\.id))
                     let externalResults = self.skillsStore.searchResults.filter { !localIds.contains($0.id) }
                     mergedSkills = localSkills + externalResults
