@@ -100,6 +100,7 @@ final class ExecManagementServer: @unchecked Sendable {
                     log.info("Management socket permissions set to 0600")
                 } catch {
                     log.error("Failed to restrict socket permissions: \(error.localizedDescription, privacy: .public)")
+                    self.stopInternal()
                 }
                 return
             }
@@ -107,7 +108,8 @@ final class ExecManagementServer: @unchecked Sendable {
                 usleep(delayMs)
             }
         }
-        log.warning("Socket file did not appear after \(maxAttempts) attempts — permissions not set")
+        log.error("Socket file did not appear after \(maxAttempts) attempts — stopping server")
+        self.stopInternal()
     }
 
     // MARK: - Connection Handling
