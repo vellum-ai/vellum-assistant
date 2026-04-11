@@ -3,10 +3,16 @@
  * from the canonical `services.tts` config block.
  *
  * During the migration window the resolver also falls back to legacy config
- * keys (`calls.voice.ttsProvider`, `elevenlabs.*`, `fishAudio.*`) when
- * `services.tts` has not been explicitly configured yet. This temporary
- * fallback will be removed once all workspaces have been migrated and the
- * legacy keys are deleted.
+ * keys:
+ * - Provider selection: `calls.voice.ttsProvider` is consulted when the
+ *   canonical `services.tts.provider` is still the schema default and the
+ *   legacy key has a different value (i.e. migration 032 has not run yet).
+ * - Provider-specific config: `elevenlabs.*` / `fishAudio.*` are consulted
+ *   when the canonical `services.tts.providers.*` block only contains
+ *   schema defaults.
+ *
+ * These temporary fallbacks will be removed once all workspaces have been
+ * migrated and the legacy keys are deleted.
  */
 
 import { DEFAULT_ELEVENLABS_VOICE_ID } from "../config/schemas/elevenlabs.js";
@@ -40,21 +46,33 @@ const DEFAULT_TTS_PROVIDER: TtsProviderId = "elevenlabs";
  * Resolve the effective TTS provider and its configuration from the
  * assistant config.
  *
- * Resolution order:
- * 1. `services.tts.provider` (canonical) when `services.tts` is present and
- *    the provider field has been explicitly set (not just schema-defaulted).
- * 2. Legacy `calls.voice.ttsProvider` as the selected provider, with
- *    provider-specific values read from `elevenlabs.*` / `fishAudio.*`.
- * 3. Schema defaults from `services.tts`.
+ * Resolution:
+ * - Provider is read from `services.tts.provider` (always populated by Zod
+ *   defaults; migration 032 copies legacy `calls.voice.ttsProvider`). When
+ *   the canonical provider is still the schema default and
+ *   `calls.voice.ttsProvider` has a different value — meaning migration has
+ *   not run yet — the legacy provider is preferred.
+ * - Provider-specific config is read from `services.tts.providers.<id>`,
+ *   falling back to legacy top-level keys (`elevenlabs.*`, `fishAudio.*`)
+ *   when the canonical block only has schema defaults.
  */
 export function resolveTtsConfig(config: AssistantConfig): ResolvedTtsConfig {
   const ttsService = config.services.tts;
 
-  // The canonical config always has a resolved value (schema defaults fill
-  // in). We use it directly — migration 032 ensures legacy values are
-  // copied into the canonical location, so by the time this runs, the
-  // canonical block should reflect the user's intent.
-  const provider: TtsProviderId = ttsService.provider ?? DEFAULT_TTS_PROVIDER;
+  // Start with the canonical provider (always populated by Zod defaults).
+  let provider: TtsProviderId = ttsService.provider ?? DEFAULT_TTS_PROVIDER;
+
+  // If the canonical provider is still the schema default, check whether
+  // the legacy `calls.voice.ttsProvider` disagrees — this means migration
+  // 032 hasn't run yet and we should honour the user's legacy selection.
+  const legacyProvider = config.calls?.voice?.ttsProvider;
+  if (
+    provider === DEFAULT_TTS_PROVIDER &&
+    legacyProvider &&
+    legacyProvider !== provider
+  ) {
+    provider = legacyProvider as TtsProviderId;
+  }
 
   // Resolve provider-specific config from the canonical providers map.
   const providerConfig = resolveProviderConfig(config, provider);

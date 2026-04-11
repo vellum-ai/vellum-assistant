@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-import { VALID_CONVERSATION_TIMEOUTS } from "./elevenlabs.js";
+import {
+  DEFAULT_ELEVENLABS_VOICE_ID,
+  VALID_CONVERSATION_TIMEOUTS,
+} from "./elevenlabs.js";
 
 /**
  * Valid TTS provider identifiers — must stay in sync with TtsProviderId union
@@ -23,7 +26,7 @@ export const TtsElevenLabsProviderConfigSchema = z
         error: "services.tts.providers.elevenlabs.voiceId must be a string",
       })
       .min(1, "services.tts.providers.elevenlabs.voiceId must not be empty")
-      .default("ZF6FPAbjXT4488VcRRnw")
+      .default(DEFAULT_ELEVENLABS_VOICE_ID)
       .describe("ElevenLabs voice ID for text-to-speech"),
     voiceModelId: z
       .string({
