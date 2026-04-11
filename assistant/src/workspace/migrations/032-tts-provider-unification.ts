@@ -107,12 +107,52 @@ export const ttsProviderUnificationMigration: WorkspaceMigration = {
       return;
     }
 
-    // Remove services.tts block added by this migration.
-    // We only remove the tts key from services — other service keys are
-    // unrelated.
+    // Restore legacy keys from canonical services.tts before removing it.
     const services = config.services;
     if (services && typeof services === "object" && !Array.isArray(services)) {
-      delete (services as Record<string, unknown>).tts;
+      const servicesObj = services as Record<string, unknown>;
+      const tts = servicesObj.tts;
+      if (tts && typeof tts === "object" && !Array.isArray(tts)) {
+        const ttsObj = tts as Record<string, unknown>;
+
+        // Restore calls.voice.ttsProvider from services.tts.provider
+        const provider = ttsObj.provider;
+        if (typeof provider === "string") {
+          const calls = ensureObj(config, "calls");
+          const voice = ensureObj(calls, "voice");
+          voice.ttsProvider = provider;
+        }
+
+        // Restore top-level elevenlabs and fishAudio from providers map
+        const providers = ttsObj.providers;
+        if (
+          providers &&
+          typeof providers === "object" &&
+          !Array.isArray(providers)
+        ) {
+          const providersObj = providers as Record<string, unknown>;
+
+          const elConfig = providersObj.elevenlabs;
+          if (
+            elConfig &&
+            typeof elConfig === "object" &&
+            !Array.isArray(elConfig)
+          ) {
+            config.elevenlabs = { ...(elConfig as Record<string, unknown>) };
+          }
+
+          const faConfig = providersObj["fish-audio"];
+          if (
+            faConfig &&
+            typeof faConfig === "object" &&
+            !Array.isArray(faConfig)
+          ) {
+            config.fishAudio = { ...(faConfig as Record<string, unknown>) };
+          }
+        }
+      }
+
+      delete servicesObj.tts;
     }
 
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");

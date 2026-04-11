@@ -2,9 +2,9 @@
  * Resolves the effective TTS provider and provider-specific configuration
  * from the canonical `services.tts` config block.
  *
- * All legacy fallback logic has been removed. The resolver reads only
- * from `services.tts.provider` and `services.tts.providers.<id>`.
- * Migration 032 ensures all workspaces have canonical fields materialised.
+ * Reads exclusively from `services.tts.provider` and
+ * `services.tts.providers.<id>`. Migration 032 ensures all workspaces
+ * have canonical fields materialised.
  */
 
 import type { AssistantConfig } from "../config/types.js";
