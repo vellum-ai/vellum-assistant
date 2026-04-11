@@ -7827,6 +7827,50 @@ paths:
                 - decision
                 - priority
               additionalProperties: false
+  /v1/tts/synthesize:
+    post:
+      operationId: tts_synthesize_post
+      summary: Synthesize text to speech
+      description: >-
+        Synthesize arbitrary text to audio using the configured TTS provider.
+        Provider selection is resolved globally via config — callers do not
+        specify a provider.
+      tags:
+        - tts
+      responses:
+        "200":
+          description: Audio binary response
+          content:
+            audio/*:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Invalid request (missing or empty text)
+        "503":
+          description: TTS provider is not configured
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                  description: Text to synthesize into speech
+                context:
+                  type: string
+                  description: >-
+                    Optional context hint for output policy or capability
+                    selection (e.g. voice-mode). Does not affect provider
+                    selection.
+                conversationId:
+                  type: string
+                  description: Optional conversation ID for scoping or analytics.
+              required:
+                - text
+              additionalProperties: false
   /v1/usage/breakdown:
     get:
       operationId: usage_breakdown_get
