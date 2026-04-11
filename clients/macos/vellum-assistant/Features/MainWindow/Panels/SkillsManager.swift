@@ -109,13 +109,19 @@ final class SkillsManager {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self else { return }
-                self.isSearching = self.skillsStore.isSearching
+
+                // Compute once — used for both isSearching gating and merge guard.
+                let hasActiveQuery = !self.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+                // Gate spinner on whether there is actually a query; clearing
+                // the search bar should immediately stop the spinner even if
+                // a network request is still in-flight.
+                self.isSearching = hasActiveQuery && self.skillsStore.isSearching
 
                 // Merge local skills with external search results (if any),
                 // deduplicating by skill id so local entries take precedence.
                 let localSkills = self.skillsStore.skills
                 let mergedSkills: [SkillInfo]
-                let hasActiveQuery = !self.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 if hasActiveQuery && !self.skillsStore.searchResults.isEmpty && !self.skillsStore.isSearching {
                     let localIds = Set(localSkills.map(\.id))
                     let externalResults = self.skillsStore.searchResults.filter { !localIds.contains($0.id) }
@@ -234,11 +240,22 @@ final class SkillsManager {
 
         let searchFiltered: [SkillInfo]
         if hasSearch {
-            searchFiltered = baseSkills.filter {
-                $0.name.lowercased().contains(query) ||
-                $0.description.lowercased().contains(query) ||
-                $0.id.lowercased().contains(query) ||
-                Self.sourceLabel($0.origin).lowercased().contains(query)
+            // When external search results have been merged in, the backend
+            // already performed fuzzy/semantic matching — applying a local
+            // substring filter would silently drop valid results whose query
+            // text doesn't appear as a literal substring (e.g. skills.sh
+            // results with empty descriptions). Skip the local filter in
+            // that case and show the full merged list.
+            let backendResultsPresent = !skillsStore.searchResults.isEmpty && !skillsStore.isSearching
+            if backendResultsPresent {
+                searchFiltered = baseSkills
+            } else {
+                searchFiltered = baseSkills.filter {
+                    $0.name.lowercased().contains(query) ||
+                    $0.description.lowercased().contains(query) ||
+                    $0.id.lowercased().contains(query) ||
+                    Self.sourceLabel($0.origin).lowercased().contains(query)
+                }
             }
         } else {
             searchFiltered = baseSkills
@@ -291,11 +308,11 @@ final class SkillsManager {
 
     private func dispatchSearch(query: String) {
         searchDebounceTask?.cancel()
+        // Always clear stale results immediately so previous search terms
+        // don't linger during the debounce window or after clearing the bar.
+        skillsStore.searchResults = []
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            skillsStore.searchResults = []
-            return
-        }
+        guard !trimmed.isEmpty else { return }
         searchDebounceTask = Task {
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
