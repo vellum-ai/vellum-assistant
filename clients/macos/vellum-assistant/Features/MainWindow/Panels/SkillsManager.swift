@@ -49,17 +49,22 @@ final class SkillsManager {
     var loadingFilePaths: Set<String> = []
     var fileContentErrors: [String: String] = [:]
     var installingSkillId: String?
+    var isSearching = false
 
     /// Safety timeout that defensively clears `installingSkillId` if a
     /// wedged `fetchSkills(force:)` response never lands. Without it, the
     /// install spinner can be stuck indefinitely when the confirmation
     /// refresh path is blocked or delayed.
     @ObservationIgnored private var installWatchdogTask: Task<Void, Never>?
+    @ObservationIgnored private var searchDebounceTask: Task<Void, Never>?
 
     // MARK: - Filter Inputs
 
     var searchQuery: String = "" {
-        didSet { recomputeFilteredData() }
+        didSet {
+            recomputeFilteredData()
+            dispatchSearch(query: searchQuery)
+        }
     }
 
     var selectedCategory: SkillCategory? {
@@ -104,9 +109,22 @@ final class SkillsManager {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self else { return }
-                let skills = self.skillsStore.skills
-                self.skills = skills
-                self.rebuildCategoryMap(from: skills)
+                self.isSearching = self.skillsStore.isSearching
+
+                // Merge local skills with external search results (if any),
+                // deduplicating by skill id so local entries take precedence.
+                let localSkills = self.skillsStore.skills
+                let mergedSkills: [SkillInfo]
+                let hasActiveQuery = !self.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                if hasActiveQuery && !self.skillsStore.searchResults.isEmpty && !self.skillsStore.isSearching {
+                    let localIds = Set(localSkills.map(\.id))
+                    let externalResults = self.skillsStore.searchResults.filter { !localIds.contains($0.id) }
+                    mergedSkills = localSkills + externalResults
+                } else {
+                    mergedSkills = localSkills
+                }
+                self.skills = mergedSkills
+                self.rebuildCategoryMap(from: mergedSkills)
                 self.loadedBodies = self.skillsStore.loadedBodies
                 self.isLoading = self.skillsStore.isLoading
                 self.uninstallResult = self.skillsStore.uninstallResult
@@ -266,6 +284,22 @@ final class SkillsManager {
             return "Custom"
         default:
             return origin.replacingOccurrences(of: "-", with: " ").capitalized
+        }
+    }
+
+    // MARK: - Debounced Search
+
+    private func dispatchSearch(query: String) {
+        searchDebounceTask?.cancel()
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            skillsStore.searchResults = []
+            return
+        }
+        searchDebounceTask = Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            skillsStore.searchSkills(query: trimmed, force: true)
         }
     }
 

@@ -92,6 +92,7 @@ public final class SkillsStore: ObservableObject {
 
     private let skillsClient: SkillsClientProtocol
     private var lastSearchQuery: String?
+    private var searchTask: Task<Void, Never>?
     private var draftTask: Task<Void, Never>?
     private var createTask: Task<Void, Never>?
     private var skillDetailTask: Task<Void, Never>?
@@ -145,12 +146,15 @@ public final class SkillsStore: ObservableObject {
     // MARK: - Search Skills
 
     public func searchSkills(query: String = "", force: Bool = false) {
-        guard !isSearching else { return }
         if !force && !searchResults.isEmpty && lastSearchQuery == query { return }
+
+        // Cancel any in-flight search so the latest query always wins.
+        searchTask?.cancel()
         isSearching = true
 
-        Task {
+        searchTask = Task {
             let result = await skillsClient.searchSkills(query: query)
+            guard !Task.isCancelled else { return }
             if let result, result.success {
                 searchResults = result.skills
             } else {
