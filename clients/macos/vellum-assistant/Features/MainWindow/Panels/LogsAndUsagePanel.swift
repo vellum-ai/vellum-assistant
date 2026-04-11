@@ -306,6 +306,7 @@ struct UsageTabContent: View {
 
     @State private var refreshTask: Task<Void, Never>?
     @State private var breakdownTask: Task<Void, Never>?
+    @State private var hoveredConversationGroupId: String?
 
     private var allFailed: Bool {
         store.totalsState.isFailed && store.dailyState.isFailed && store.breakdownState.isFailed
@@ -603,27 +604,75 @@ struct UsageTabContent: View {
         .frame(maxWidth: breakdownTableWidth, alignment: .leading)
     }
 
+    /// Returns the conversation id that a tap on `entry`'s row should
+    /// navigate to, or `nil` if the row is not navigable (non-conversation
+    /// group-by, or the "Other" bucket whose `groupId` is nil). Extracted as a
+    /// pure helper so it can be unit-tested without mounting the view.
+    func navigationTarget(for entry: UsageGroupBreakdownEntry) -> String? {
+        guard store.selectedGroupBy == .conversation else { return nil }
+        return entry.groupId
+    }
+
     @ViewBuilder
     func breakdownRow(_ entry: UsageGroupBreakdownEntry) -> some View {
-        HStack(alignment: .top, spacing: VSpacing.sm) {
-            Text(entry.group)
-                .font(VFont.bodyMediumLighter)
-                .foregroundStyle(VColor.contentDefault)
-                .frame(width: groupColumnWidth, alignment: .leading)
-                .lineLimit(store.selectedGroupBy == .conversation ? 2 : 1)
-            Text(UsageFormatting.formatBreakdownSummary(entry))
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.contentSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-            Text(formatCost(entry.totalEstimatedCostUsd))
-                .font(VFont.bodyMediumLighter)
-                .foregroundStyle(VColor.contentDefault)
-                .frame(width: 70, alignment: .trailing)
+        let target = navigationTarget(for: entry)
+        let isHovered = target != nil && hoveredConversationGroupId == target
+        let titleColor: Color = isHovered ? VColor.contentEmphasized : VColor.contentDefault
+
+        if let target {
+            HStack(alignment: .top, spacing: VSpacing.sm) {
+                Text(entry.group)
+                    .font(VFont.bodyMediumLighter)
+                    .foregroundStyle(titleColor)
+                    .frame(width: groupColumnWidth, alignment: .leading)
+                    .lineLimit(store.selectedGroupBy == .conversation ? 2 : 1)
+                Text(UsageFormatting.formatBreakdownSummary(entry))
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                Text(formatCost(entry.totalEstimatedCostUsd))
+                    .font(VFont.bodyMediumLighter)
+                    .foregroundStyle(VColor.contentDefault)
+                    .frame(width: 70, alignment: .trailing)
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
+            .background(VColor.borderBase.opacity(isHovered ? 0.15 : 0))
+            .contentShape(Rectangle())
+            .onTapGesture {
+                onSelectConversation(target)
+            }
+            .onHover { hovering in
+                hoveredConversationGroupId = hovering ? target : nil
+                if hovering {
+                    NSCursor.pointingHand.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+        } else {
+            HStack(alignment: .top, spacing: VSpacing.sm) {
+                Text(entry.group)
+                    .font(VFont.bodyMediumLighter)
+                    .foregroundStyle(VColor.contentDefault)
+                    .frame(width: groupColumnWidth, alignment: .leading)
+                    .lineLimit(store.selectedGroupBy == .conversation ? 2 : 1)
+                Text(UsageFormatting.formatBreakdownSummary(entry))
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                Text(formatCost(entry.totalEstimatedCostUsd))
+                    .font(VFont.bodyMediumLighter)
+                    .foregroundStyle(VColor.contentDefault)
+                    .frame(width: 70, alignment: .trailing)
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
         }
-        .padding(.horizontal, VSpacing.md)
-        .padding(.vertical, VSpacing.sm)
     }
 
     // MARK: - Shared Components

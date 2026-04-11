@@ -271,6 +271,148 @@ struct UsageGroupBreakdownEntryGroupIdDecodingTests {
     }
 }
 
+// MARK: - Conversation Row Interactivity
+
+/// These tests exercise `UsageTabContent.navigationTarget(for:)` — the pure
+/// helper that decides whether a breakdown row should navigate to a
+/// conversation on tap. The row's `.onTapGesture` calls `onSelectConversation`
+/// only when this helper returns a non-nil groupId, so unit-testing the
+/// helper directly is equivalent to testing the tap outcome without
+/// needing a SwiftUI view hosting harness.
+
+@Suite("UsageTabContent — Conversation row interactivity")
+struct UsageTabContentConversationRowInteractivityTests {
+
+    private static let conversationEntry = UsageGroupBreakdownEntry(
+        group: "Designing the usage dashboard",
+        groupId: "conv_abc",
+        totalInputTokens: 1_000,
+        totalOutputTokens: 500,
+        totalCacheCreationTokens: 0,
+        totalCacheReadTokens: 0,
+        totalEstimatedCostUsd: 0.05,
+        eventCount: 3
+    )
+
+    private static let otherBucketEntry = UsageGroupBreakdownEntry(
+        group: "Other",
+        groupId: nil,
+        totalInputTokens: 200,
+        totalOutputTokens: 100,
+        totalCacheCreationTokens: 0,
+        totalCacheReadTokens: 0,
+        totalEstimatedCostUsd: 0.01,
+        eventCount: 1
+    )
+
+    private static let modelEntry = UsageGroupBreakdownEntry(
+        group: "claude-sonnet-4-20250514",
+        totalInputTokens: 1_000,
+        totalOutputTokens: 500,
+        totalCacheCreationTokens: 0,
+        totalCacheReadTokens: 0,
+        totalEstimatedCostUsd: 0.05,
+        eventCount: 3
+    )
+
+    @Test @MainActor
+    func conversationRowWithGroupIdTriggersNavigationAndInvokesClosure() async {
+        let client = MockPanelClient()
+        client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [Self.conversationEntry])
+        let store = UsageDashboardStore()
+        store.updateClient(client)
+        await store.selectGroupBy(.conversation)
+
+        var captured: [String] = []
+        let tab = UsageTabContent(
+            store: store,
+            onSelectConversation: { captured.append($0) }
+        )
+
+        // The pure helper is the single source of truth for whether a tap
+        // navigates — the row's .onTapGesture fires onSelectConversation only
+        // when this returns non-nil.
+        #expect(tab.navigationTarget(for: Self.conversationEntry) == "conv_abc")
+
+        if let target = tab.navigationTarget(for: Self.conversationEntry) {
+            tab.onSelectConversation(target)
+        }
+        #expect(captured == ["conv_abc"])
+    }
+
+    @Test @MainActor
+    func otherBucketWithNilGroupIdDoesNotNavigate() async {
+        let client = MockPanelClient()
+        client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [Self.otherBucketEntry])
+        let store = UsageDashboardStore()
+        store.updateClient(client)
+        await store.selectGroupBy(.conversation)
+
+        var captured: [String] = []
+        let tab = UsageTabContent(
+            store: store,
+            onSelectConversation: { captured.append($0) }
+        )
+
+        #expect(tab.navigationTarget(for: Self.otherBucketEntry) == nil)
+
+        // A tap on an "Other" row never reaches onSelectConversation because
+        // the inert branch of breakdownRow omits .onTapGesture. Mirror that
+        // behavior here: invoke the closure only when the helper returns
+        // non-nil. captured must remain empty.
+        if let target = tab.navigationTarget(for: Self.otherBucketEntry) {
+            tab.onSelectConversation(target)
+        }
+        #expect(captured.isEmpty)
+    }
+
+    @Test @MainActor
+    func modelGroupByDoesNotNavigateEvenWithPopulatedEntry() async {
+        let client = MockPanelClient()
+        client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [Self.modelEntry])
+        let store = UsageDashboardStore()
+        store.updateClient(client)
+        // Default groupBy is .model — do not switch it.
+
+        var captured: [String] = []
+        let tab = UsageTabContent(
+            store: store,
+            onSelectConversation: { captured.append($0) }
+        )
+
+        #expect(store.selectedGroupBy == .model)
+        #expect(tab.navigationTarget(for: Self.modelEntry) == nil)
+
+        if let target = tab.navigationTarget(for: Self.modelEntry) {
+            tab.onSelectConversation(target)
+        }
+        #expect(captured.isEmpty)
+    }
+
+    @Test @MainActor
+    func conversationEntryWithGroupIdInertWhenGroupedByProvider() async {
+        // Even a conversation-shaped entry (groupId non-nil) must not
+        // navigate if the store is grouped by something other than
+        // .conversation — the helper gates on groupBy first.
+        let client = MockPanelClient()
+        let store = UsageDashboardStore()
+        store.updateClient(client)
+        await store.selectGroupBy(.provider)
+
+        var captured: [String] = []
+        let tab = UsageTabContent(
+            store: store,
+            onSelectConversation: { captured.append($0) }
+        )
+
+        #expect(tab.navigationTarget(for: Self.conversationEntry) == nil)
+        if let target = tab.navigationTarget(for: Self.conversationEntry) {
+            tab.onSelectConversation(target)
+        }
+        #expect(captured.isEmpty)
+    }
+}
+
 // MARK: - View Content Helper
 
 /// Dumps the tab's section view trees so that all Text content is captured
@@ -279,7 +421,7 @@ struct UsageGroupBreakdownEntryGroupIdDecodingTests {
 /// each section's body to expand those closures.
 @MainActor
 private func collectTabContent(store: UsageDashboardStore) -> String {
-    let tab = UsageTabContent(store: store)
+    let tab = UsageTabContent(store: store, onSelectConversation: { _ in })
     var output = ""
     dump(tab.totalsSection(store: store).body, to: &output)
     dump(tab.dailySection(store: store).body, to: &output)
@@ -291,7 +433,7 @@ private func collectTabContent(store: UsageDashboardStore) -> String {
 private func collectBreakdownRow(entry: UsageGroupBreakdownEntry) -> String {
     let helperStore = UsageDashboardStore()
     helperStore.updateClient(MockPanelClient())
-    let tab = UsageTabContent(store: helperStore)
+    let tab = UsageTabContent(store: helperStore, onSelectConversation: { _ in })
     let row = tab.breakdownRow(entry)
     var output = ""
     dump(row, to: &output)
