@@ -1157,14 +1157,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
           try {
             await connect({ interactive: true });
           } catch (err) {
-            if (err instanceof MissingTokenError) {
-              shouldConnect = false;
-              console.warn(
-                `[vellum-relay] Assistant switch left disconnected: ${err.message}`,
-              );
-            } else {
-              throw err;
-            }
+            // The assistant selection was already persisted and the old
+            // relay disconnected, so the switch itself succeeded regardless
+            // of whether the reconnect worked. MissingTokenError means no
+            // credentials at all; other errors (e.g. "cloud sign-in
+            // cancelled" when the user closes the OAuth window) are
+            // transient. In both cases, log and continue — the user can
+            // manually reconnect via the Connect button.
+            shouldConnect = false;
+            console.warn(
+              `[vellum-relay] Assistant switch left disconnected: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
 
