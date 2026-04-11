@@ -10,8 +10,8 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AuthS
 private let _platformURLOverrideEnvironmentKey = "VELLUM_PLATFORM_URL"
 private let _authServiceBaseURLDefaultsName = "authServiceBaseURL"
 private let _defaultBaseURL: String = {
-    #if DEBUG && os(macOS)
-    return "http://localhost:8000"
+    #if DEBUG
+    return "https://dev-platform.vellum.ai"
     #else
     return "https://platform.vellum.ai"
     #endif
@@ -36,7 +36,7 @@ public final class AuthService {
     /// Resolution order:
     /// 1. `VELLUM_PLATFORM_URL` environment variable
     /// 2. `authServiceBaseURL` UserDefaults key (DEBUG builds only)
-    /// 3. Build-time default (`http://localhost:8000` for DEBUG, `https://platform.vellum.ai` for RELEASE)
+    /// 3. Build-time default (`https://dev-platform.vellum.ai` for DEBUG, `https://platform.vellum.ai` for RELEASE)
     nonisolated static func resolveBaseURL(
         environment: [String: String],
         userDefaults: UserDefaults

@@ -24,7 +24,7 @@ final class AuthServiceBaseURLTests: XCTestCase {
             )
 
             #if DEBUG
-            XCTAssertEqual(resolved, "http://localhost:8000")
+            XCTAssertEqual(resolved, "https://dev-platform.vellum.ai")
             #else
             XCTAssertEqual(resolved, "https://platform.vellum.ai")
             #endif
