@@ -280,8 +280,8 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
         @discardableResult
         func wait() async throws -> ExitStatus {
             let status = try await process.wait()
+            defer { try? hostTerminal.close() }
             try await process.delete()
-            try hostTerminal.close()
             return status
         }
     }
@@ -311,15 +311,21 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
 
         let (parentTerminal, childTerminal) = try Terminal.create(initialSize: initialSize)
 
-        let process = try await pod.execInContainer(cid, processID: processID) { config in
-            config.arguments = command
-            config.setTerminalIO(terminal: childTerminal)
+        do {
+            let process = try await pod.execInContainer(cid, processID: processID) { config in
+                config.arguments = command
+                config.setTerminalIO(terminal: childTerminal)
+            }
+
+            try await process.start()
+            log.info("Exec session \(processID, privacy: .public) started in \(cid, privacy: .public)")
+
+            return ExecSession(hostTerminal: parentTerminal, process: process)
+        } catch {
+            try? parentTerminal.close()
+            try? childTerminal.close()
+            throw error
         }
-
-        try await process.start()
-        log.info("Exec session \(processID, privacy: .public) started in \(cid, privacy: .public)")
-
-        return ExecSession(hostTerminal: parentTerminal, process: process)
     }
 
     // MARK: - Errors
