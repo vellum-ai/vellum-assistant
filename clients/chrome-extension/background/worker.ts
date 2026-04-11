@@ -950,17 +950,26 @@ async function connectPreflight(
 // preflight. This prevents duplicate auth/pair flows when multiple
 // connect calls arrive before the first socket opens (e.g., repeated
 // user action or overlapping message paths).
+//
+// Exception: an interactive connect (user-initiated) always supersedes a
+// non-interactive one (bootstrap). If the in-flight connect is
+// non-interactive and the new caller is interactive, we discard the
+// in-flight promise and start a fresh interactive connect so the user
+// gets the interactive auth flow they expect.
 let connectInFlight: Promise<void> | null = null;
+let connectInFlightInteractive = false;
 
 async function connect(options: ConnectOptions = { interactive: false }): Promise<void> {
-  if (connectInFlight) {
+  if (connectInFlight && (connectInFlightInteractive || !options.interactive)) {
     return connectInFlight;
   }
+  connectInFlightInteractive = !!options.interactive;
   connectInFlight = doConnect(options);
   try {
     await connectInFlight;
   } finally {
     connectInFlight = null;
+    connectInFlightInteractive = false;
   }
 }
 
