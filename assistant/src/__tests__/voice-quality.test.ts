@@ -344,7 +344,7 @@ describe("resolveVoiceQualityProfile", () => {
     expect(profile.voice).toBe("");
   });
 
-  test("preserves transcription and language settings for synthesized providers", () => {
+  test("preserves language setting for synthesized providers", () => {
     mockConfig = {
       calls: {
         voice: {
@@ -365,9 +365,8 @@ describe("resolveVoiceQualityProfile", () => {
     };
     const profile = resolveVoiceQualityProfile();
     expect(profile.language).toBe("ja-JP");
-    expect(profile.transcriptionProvider).toBe("Google");
-    // speechModel "nova-3" is treated as unset for Google transcription
-    expect(profile.speechModel).toBeUndefined();
+    // STT fields (transcriptionProvider, speechModel) are resolved separately
+    // in twilio-routes.ts via resolveTelephonySttProfile() — not on this profile.
   });
 
   // -- Canonical-only behavior (no legacy fallback) -----------------------
