@@ -62,8 +62,8 @@ final class SkillsManager {
 
     var searchQuery: String = "" {
         didSet {
-            recomputeFilteredData()
             dispatchSearch(query: searchQuery)
+            recomputeFilteredData()
         }
     }
 
@@ -246,7 +246,8 @@ final class SkillsManager {
             // text doesn't appear as a literal substring (e.g. skills.sh
             // results with empty descriptions). Skip the local filter in
             // that case and show the full merged list.
-            let backendResultsPresent = !skillsStore.searchResults.isEmpty && !skillsStore.isSearching
+            let backendIds = Set(skillsStore.searchResults.map(\.id))
+            let backendResultsPresent = !skillsStore.isSearching && baseSkills.contains(where: { backendIds.contains($0.id) })
             if backendResultsPresent {
                 searchFiltered = baseSkills
             } else {
@@ -312,7 +313,13 @@ final class SkillsManager {
         // don't linger during the debounce window or after clearing the bar.
         skillsStore.searchResults = []
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else {
+            isSearching = false
+            return
+        }
+        // Show spinner immediately during the debounce window so the user
+        // doesn't see the "No Skills Available" empty state for 300ms.
+        isSearching = true
         searchDebounceTask = Task {
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
