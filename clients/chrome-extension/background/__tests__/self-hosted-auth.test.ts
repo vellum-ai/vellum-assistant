@@ -588,3 +588,103 @@ describe('assistant token isolation', () => {
     expect(fakeStorage.data[localTokenStorageKey(ASSISTANT_A)]).toBeUndefined();
   });
 });
+
+describe('legacy token migration (self-hosted)', () => {
+  const LEGACY_KEY = 'vellum.localCapabilityToken';
+
+  test('getStoredLocalToken migrates a valid legacy token to the scoped key', async () => {
+    const legacyToken: StoredLocalToken = {
+      token: 'legacy-cap',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-legacy',
+    };
+    fakeStorage.data[LEGACY_KEY] = legacyToken;
+
+    const result = await getStoredLocalToken(ASSISTANT_A);
+    expect(result).toEqual(legacyToken);
+
+    // Legacy key was removed.
+    expect(fakeStorage.data[LEGACY_KEY]).toBeUndefined();
+    // Scoped key was populated.
+    expect(fakeStorage.data[localTokenStorageKey(ASSISTANT_A)]).toEqual(legacyToken);
+  });
+
+  test('migration preserves assistantPort from the legacy token', async () => {
+    const legacyToken: StoredLocalToken = {
+      token: 'legacy-with-port',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-legacy-port',
+      assistantPort: 7821,
+    };
+    fakeStorage.data[LEGACY_KEY] = legacyToken;
+
+    const result = await getStoredLocalToken(ASSISTANT_A);
+    expect(result?.assistantPort).toBe(7821);
+    expect(fakeStorage.data[LEGACY_KEY]).toBeUndefined();
+    expect(fakeStorage.data[localTokenStorageKey(ASSISTANT_A)]).toEqual(legacyToken);
+  });
+
+  test('migration does not clobber an existing scoped token', async () => {
+    const scopedToken: StoredLocalToken = {
+      token: 'scoped-cap',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-scoped',
+    };
+    const legacyToken: StoredLocalToken = {
+      token: 'legacy-cap',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-legacy',
+    };
+    fakeStorage.data[localTokenStorageKey(ASSISTANT_A)] = scopedToken;
+    fakeStorage.data[LEGACY_KEY] = legacyToken;
+
+    const result = await getStoredLocalToken(ASSISTANT_A);
+    expect(result).toEqual(scopedToken);
+    // Legacy key is NOT removed because the scoped key already existed.
+    expect(fakeStorage.data[LEGACY_KEY]).toEqual(legacyToken);
+  });
+
+  test('migration is idempotent — second call is a no-op', async () => {
+    const legacyToken: StoredLocalToken = {
+      token: 'legacy-cap',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-legacy',
+    };
+    fakeStorage.data[LEGACY_KEY] = legacyToken;
+
+    // First call migrates.
+    await getStoredLocalToken(ASSISTANT_A);
+    expect(fakeStorage.data[LEGACY_KEY]).toBeUndefined();
+
+    // Second call is a no-op — the scoped key exists and the legacy key
+    // is gone.
+    const result = await getStoredLocalToken(ASSISTANT_A);
+    expect(result).toEqual(legacyToken);
+    expect(fakeStorage.data[localTokenStorageKey(ASSISTANT_A)]).toEqual(legacyToken);
+  });
+
+  test('migration ignores a malformed legacy value', async () => {
+    fakeStorage.data[LEGACY_KEY] = { token: 42, expiresAt: 'soon' };
+
+    const result = await getStoredLocalToken(ASSISTANT_A);
+    expect(result).toBeNull();
+  });
+
+  test('migration returns null for an expired legacy token', async () => {
+    fakeStorage.data[LEGACY_KEY] = {
+      token: 'expired-legacy',
+      expiresAt: Date.now() - 1_000,
+      guardianId: 'g-expired',
+    } satisfies StoredLocalToken;
+
+    // validateLocalToken checks expiry, so expired legacy tokens are
+    // not migrated.
+    const result = await getStoredLocalToken(ASSISTANT_A);
+    expect(result).toBeNull();
+  });
+
+  test('migration returns null when no legacy key exists', async () => {
+    const result = await getStoredLocalToken(ASSISTANT_A);
+    expect(result).toBeNull();
+  });
+});

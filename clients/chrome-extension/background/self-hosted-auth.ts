@@ -50,6 +50,14 @@ const NATIVE_HOST_NAME = 'com.vellum.daemon';
 const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 5_000;
 
 /**
+ * The legacy unscoped storage key used before assistant-scoped keys were
+ * introduced. Existing users may have a token stored under this key from
+ * a previous version of the extension. The migration helpers below
+ * transparently promote it to the new scoped key on first read.
+ */
+const LEGACY_LOCAL_STORAGE_KEY = 'vellum.localCapabilityToken';
+
+/**
  * Build the assistant-scoped chrome.storage.local key for a local
  * capability token. Uses a colon separator so the key is
  * `vellum.localCapabilityToken:<assistantId>`.
@@ -100,14 +108,51 @@ function validateLocalToken(raw: unknown): StoredLocalToken | null {
 }
 
 /**
+ * Check for a token stored under the legacy unscoped key
+ * (`vellum.localCapabilityToken`). If found and valid, migrate it to the
+ * new assistant-scoped key and remove the legacy key. The migration is
+ * idempotent — once the legacy key is removed, subsequent calls are a
+ * no-op.
+ *
+ * Returns the migrated token or `null`.
+ */
+async function migrateLegacyLocalToken(assistantId: string): Promise<StoredLocalToken | null> {
+  const scopedKey = localTokenStorageKey(assistantId);
+
+  // Only migrate when the scoped key is still empty — avoids clobbering
+  // a token that was stored directly under the scoped key after pairing.
+  const scopedResult = await chrome.storage.local.get(scopedKey);
+  if (scopedResult[scopedKey] !== undefined) return null;
+
+  const legacyResult = await chrome.storage.local.get(LEGACY_LOCAL_STORAGE_KEY);
+  const legacyToken = validateLocalToken(legacyResult[LEGACY_LOCAL_STORAGE_KEY]);
+  if (!legacyToken) return null;
+
+  // Write to the new scoped key and remove the legacy key atomically
+  // (as atomic as chrome.storage.local allows — both ops are awaited).
+  await chrome.storage.local.set({ [scopedKey]: legacyToken });
+  await chrome.storage.local.remove(LEGACY_LOCAL_STORAGE_KEY);
+
+  return legacyToken;
+}
+
+/**
  * Read the stored local capability token for a specific assistant.
  * Returns `null` when nothing is stored, the value is malformed, or it
  * has expired.
+ *
+ * On the first call after the extension upgrades to assistant-scoped
+ * storage keys, this function transparently migrates any token stored
+ * under the legacy unscoped key to the new scoped key.
  */
 export async function getStoredLocalToken(assistantId: string): Promise<StoredLocalToken | null> {
   const key = localTokenStorageKey(assistantId);
   const result = await chrome.storage.local.get(key);
-  return validateLocalToken(result[key]);
+  const token = validateLocalToken(result[key]);
+  if (token) return token;
+
+  // Fallback: migrate a legacy unscoped token if no scoped token exists.
+  return migrateLegacyLocalToken(assistantId);
 }
 
 /**

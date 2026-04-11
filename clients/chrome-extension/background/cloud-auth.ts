@@ -79,12 +79,49 @@ export const CLOUD_AUTH_FAILURE_CLOSE_CODES: ReadonlySet<number> = new Set([
 const STORAGE_KEY_PREFIX = 'vellum.cloudAuthToken';
 
 /**
+ * The legacy unscoped storage key used before assistant-scoped keys were
+ * introduced. Existing users may have a token stored under this key from
+ * a previous version of the extension. The migration helpers below
+ * transparently promote it to the new scoped key on first read.
+ */
+const LEGACY_CLOUD_STORAGE_KEY = 'vellum.cloudAuthToken';
+
+/**
  * Build the assistant-scoped chrome.storage.local key for a cloud auth
  * token. Uses a colon separator so the key is
  * `vellum.cloudAuthToken:<assistantId>`.
  */
 export function cloudTokenStorageKey(assistantId: string): string {
   return `${STORAGE_KEY_PREFIX}:${assistantId}`;
+}
+
+/**
+ * Check for a token stored under the legacy unscoped key
+ * (`vellum.cloudAuthToken`). If found and valid, migrate it to the new
+ * assistant-scoped key and remove the legacy key. The migration is
+ * idempotent — once the legacy key is removed, subsequent calls are a
+ * no-op.
+ *
+ * Returns the migrated token (without expiry check) or `null`.
+ */
+async function migrateLegacyCloudToken(assistantId: string): Promise<StoredCloudToken | null> {
+  const scopedKey = cloudTokenStorageKey(assistantId);
+
+  // Only migrate when the scoped key is still empty — avoids clobbering
+  // a token that was stored directly under the scoped key after sign-in.
+  const scopedResult = await chrome.storage.local.get(scopedKey);
+  if (scopedResult[scopedKey] !== undefined) return null;
+
+  const legacyResult = await chrome.storage.local.get(LEGACY_CLOUD_STORAGE_KEY);
+  const legacyToken = validateCloudToken(legacyResult[LEGACY_CLOUD_STORAGE_KEY]);
+  if (!legacyToken) return null;
+
+  // Write to the new scoped key and remove the legacy key atomically
+  // (as atomic as chrome.storage.local allows — both ops are awaited).
+  await chrome.storage.local.set({ [scopedKey]: legacyToken });
+  await chrome.storage.local.remove(LEGACY_CLOUD_STORAGE_KEY);
+
+  return legacyToken;
 }
 
 /**
@@ -109,7 +146,13 @@ function validateCloudToken(raw: unknown): StoredCloudToken | null {
 export async function getStoredToken(assistantId: string): Promise<StoredCloudToken | null> {
   const key = cloudTokenStorageKey(assistantId);
   const result = await chrome.storage.local.get(key);
-  const token = validateCloudToken(result[key]);
+  let token = validateCloudToken(result[key]);
+
+  // Fallback: migrate a legacy unscoped token if no scoped token exists.
+  if (!token) {
+    token = await migrateLegacyCloudToken(assistantId);
+  }
+
   if (!token) return null;
   if (token.expiresAt <= Date.now()) return null;
   return token;
@@ -125,7 +168,11 @@ export async function getStoredToken(assistantId: string): Promise<StoredCloudTo
 export async function getStoredTokenRaw(assistantId: string): Promise<StoredCloudToken | null> {
   const key = cloudTokenStorageKey(assistantId);
   const result = await chrome.storage.local.get(key);
-  return validateCloudToken(result[key]);
+  const token = validateCloudToken(result[key]);
+  if (token) return token;
+
+  // Fallback: migrate a legacy unscoped token if no scoped token exists.
+  return migrateLegacyCloudToken(assistantId);
 }
 
 /**

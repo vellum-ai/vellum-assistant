@@ -401,3 +401,122 @@ describe('assistant token isolation', () => {
     expect(fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)]).toBeUndefined();
   });
 });
+
+describe('legacy token migration (cloud)', () => {
+  const LEGACY_KEY = 'vellum.cloudAuthToken';
+
+  test('getStoredToken migrates a valid legacy token to the scoped key', async () => {
+    const legacyToken: StoredCloudToken = {
+      token: 'legacy-jwt',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-legacy',
+    };
+    fakeStorage.data[LEGACY_KEY] = legacyToken;
+
+    const result = await getStoredToken(ASSISTANT_A);
+    expect(result).toEqual(legacyToken);
+
+    // Legacy key was removed.
+    expect(fakeStorage.data[LEGACY_KEY]).toBeUndefined();
+    // Scoped key was populated.
+    expect(fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)]).toEqual(legacyToken);
+  });
+
+  test('getStoredTokenRaw migrates a valid legacy token to the scoped key', async () => {
+    const legacyToken: StoredCloudToken = {
+      token: 'legacy-raw',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-legacy-raw',
+    };
+    fakeStorage.data[LEGACY_KEY] = legacyToken;
+
+    const result = await getStoredTokenRaw(ASSISTANT_A);
+    expect(result).toEqual(legacyToken);
+
+    // Legacy key was removed, scoped key was populated.
+    expect(fakeStorage.data[LEGACY_KEY]).toBeUndefined();
+    expect(fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)]).toEqual(legacyToken);
+  });
+
+  test('getStoredTokenRaw migrates an expired legacy token (returns it without expiry check)', async () => {
+    const expiredLegacy: StoredCloudToken = {
+      token: 'expired-legacy',
+      expiresAt: Date.now() - 1_000,
+      guardianId: 'g-expired',
+    };
+    fakeStorage.data[LEGACY_KEY] = expiredLegacy;
+
+    // getStoredTokenRaw does not filter by expiry, but validateCloudToken
+    // also does not filter by expiry — only getStoredToken does. However,
+    // the migration helper uses validateCloudToken which does NOT check
+    // expiry, so getStoredTokenRaw will surface the expired token.
+    const result = await getStoredTokenRaw(ASSISTANT_A);
+    expect(result).toEqual(expiredLegacy);
+  });
+
+  test('getStoredToken returns null for an expired legacy token', async () => {
+    const expiredLegacy: StoredCloudToken = {
+      token: 'expired-legacy',
+      expiresAt: Date.now() - 1_000,
+      guardianId: 'g-expired',
+    };
+    fakeStorage.data[LEGACY_KEY] = expiredLegacy;
+
+    // getStoredToken applies the expiry check, so expired legacy tokens
+    // are not surfaced (but they are still migrated).
+    const result = await getStoredToken(ASSISTANT_A);
+    expect(result).toBeNull();
+  });
+
+  test('migration does not clobber an existing scoped token', async () => {
+    const scopedToken: StoredCloudToken = {
+      token: 'scoped-jwt',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-scoped',
+    };
+    const legacyToken: StoredCloudToken = {
+      token: 'legacy-jwt',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-legacy',
+    };
+    fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)] = scopedToken;
+    fakeStorage.data[LEGACY_KEY] = legacyToken;
+
+    const result = await getStoredToken(ASSISTANT_A);
+    expect(result).toEqual(scopedToken);
+    // Legacy key is NOT removed because the scoped key already existed.
+    expect(fakeStorage.data[LEGACY_KEY]).toEqual(legacyToken);
+  });
+
+  test('migration is idempotent — second call is a no-op', async () => {
+    const legacyToken: StoredCloudToken = {
+      token: 'legacy-jwt',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-legacy',
+    };
+    fakeStorage.data[LEGACY_KEY] = legacyToken;
+
+    // First call migrates.
+    await getStoredToken(ASSISTANT_A);
+    expect(fakeStorage.data[LEGACY_KEY]).toBeUndefined();
+
+    // Second call is a no-op — the scoped key exists and the legacy key
+    // is gone, so migration does nothing.
+    const result = await getStoredToken(ASSISTANT_A);
+    expect(result).toEqual(legacyToken);
+    expect(fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)]).toEqual(legacyToken);
+  });
+
+  test('migration ignores a malformed legacy value', async () => {
+    fakeStorage.data[LEGACY_KEY] = { token: 42, expiresAt: 'soon' };
+
+    const result = await getStoredToken(ASSISTANT_A);
+    expect(result).toBeNull();
+    // Malformed legacy key is not cleaned up — only valid tokens are migrated.
+  });
+
+  test('migration returns null when no legacy key exists', async () => {
+    const result = await getStoredToken(ASSISTANT_A);
+    expect(result).toBeNull();
+  });
+});
