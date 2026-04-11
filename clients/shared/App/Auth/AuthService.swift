@@ -7,7 +7,6 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AuthS
 // These live outside the @MainActor class so nonisolated static functions
 // (resolveBaseURL, normalizedBaseURL) can reference them without crossing
 // into @MainActor isolation — which is an error in Swift 6 language mode.
-private let _platformURLOverrideEnvironmentKey = "VELLUM_PLATFORM_URL"
 private let _authServiceBaseURLDefaultsName = "authServiceBaseURL"
 
 @MainActor
@@ -27,23 +26,22 @@ public final class AuthService {
     /// All inputs are value types; no mutable shared state is accessed.
     ///
     /// Resolution order:
-    /// 1. `VELLUM_PLATFORM_URL` environment variable (explicit override)
+    /// 1. `VELLUM_PLATFORM_URL` environment variable (via `VellumEnvironment`)
     /// 2. `authServiceBaseURL` UserDefaults key (DEBUG builds only)
-    /// 3. `VELLUM_ENVIRONMENT`-based default
+    /// 3. `VELLUM_ENVIRONMENT`-based canonical URL (via `VellumEnvironment`)
     nonisolated static func resolveBaseURL(
         environment: [String: String],
         userDefaults: UserDefaults
     ) -> String {
-        if let override = normalizedBaseURL(environment[_platformURLOverrideEnvironmentKey]) {
-            return override
-        }
         #if DEBUG
-        // Keep the UserDefaults override as a fallback for direct debug sessions.
-        if let override = normalizedBaseURL(userDefaults.string(forKey: _authServiceBaseURLDefaultsName)) {
+        // UserDefaults override for direct debug sessions — only applies when
+        // there is no explicit VELLUM_PLATFORM_URL env var.
+        if environment["VELLUM_PLATFORM_URL"] == nil,
+           let override = normalizedBaseURL(userDefaults.string(forKey: _authServiceBaseURLDefaultsName)) {
             return override
         }
         #endif
-        return VellumEnvironment.resolve(from: environment).platformURL
+        return VellumEnvironment.resolvePlatformURL(from: environment)
     }
 
     nonisolated private static func normalizedBaseURL(_ raw: String?) -> String? {

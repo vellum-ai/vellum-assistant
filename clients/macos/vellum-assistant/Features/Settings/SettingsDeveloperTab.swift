@@ -247,7 +247,7 @@ struct SettingsDeveloperTab: View {
 
     private var platformUrlSection: some View {
         SettingsCard(title: "Platform URL") {
-            Text(AuthService.shared.baseURL)
+            Text(VellumEnvironment.resolvedPlatformURL)
                 .font(VFont.bodyMediumDefault)
                 .foregroundStyle(VColor.contentDefault)
                 .textSelection(.enabled)

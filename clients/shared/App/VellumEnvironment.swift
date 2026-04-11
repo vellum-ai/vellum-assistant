@@ -37,7 +37,7 @@ public enum VellumEnvironment: String {
         }
     }
 
-    /// The Vellum platform API base URL for this environment.
+    /// The canonical Vellum platform API base URL for this environment.
     public var platformURL: String {
         switch self {
         case .local:
@@ -51,6 +51,27 @@ public enum VellumEnvironment: String {
         case .production:
             return "https://platform.vellum.ai"
         }
+    }
+
+    /// Resolve the platform URL from an environment dictionary.
+    ///
+    /// Resolution order:
+    /// 1. `VELLUM_PLATFORM_URL` environment variable (explicit override)
+    /// 2. `VELLUM_ENVIRONMENT`-based canonical URL
+    public static func resolvePlatformURL(from environment: [String: String]) -> String {
+        if let raw = environment["VELLUM_PLATFORM_URL"] {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            let normalized = trimmed.replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
+            if !normalized.isEmpty { return normalized }
+        }
+        return resolve(from: environment).platformURL
+    }
+
+    /// The current resolved platform URL, read once from `ProcessInfo`.
+    /// Checks `VELLUM_PLATFORM_URL` first, then falls back to the
+    /// environment-based canonical URL.
+    public static var resolvedPlatformURL: String {
+        resolvePlatformURL(from: ProcessInfo.processInfo.environment)
     }
 
     /// The platform URL to inject into containers (Docker, Apple Containers).
