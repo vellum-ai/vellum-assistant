@@ -234,6 +234,13 @@ export async function rollback(): Promise<void> {
   const entry = resolveTargetAssistant(name);
   const cloud = resolveCloud(entry);
 
+  if (cloud === "apple-container") {
+    console.error(
+      `Error: '${entry.assistantId}' uses the Apple Containers runtime. Rollback is not yet supported for this topology.`,
+    );
+    process.exit(1);
+  }
+
   // ---------- Managed (Vellum platform) rollback ----------
   if (cloud === "vellum") {
     await rollbackPlatformViaEndpoint(entry, version ?? undefined);
