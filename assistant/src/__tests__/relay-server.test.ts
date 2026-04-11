@@ -4536,6 +4536,7 @@ describe("relay-server", () => {
       mockTtsSynthesizeStream = null;
 
       ensureConversation("conv-native-callee-fail");
+      ensureConversation("conv-native-callee-fail-origin");
       mockConfig.calls.verification.enabled = true;
       mockConfig.calls.verification.maxAttempts = 1;
 
@@ -4545,6 +4546,7 @@ describe("relay-server", () => {
         fromNumber: "+15551111111",
         toNumber: "+15552222222",
         task: "Call +15552222222",
+        initiatedFromConversationId: "conv-native-callee-fail-origin",
       });
 
       const { ws, relay } = createMockWs(session.id);
