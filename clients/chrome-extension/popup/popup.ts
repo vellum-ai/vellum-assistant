@@ -197,7 +197,15 @@ function updateAuthSections(authProfile: AssistantAuthProfile | null): void {
 function isNativeHostUnavailable(error: string | undefined): boolean {
   if (!error) return false;
   const lower = error.toLowerCase();
-  return lower.includes('native messaging') || lower.includes('native host');
+  // Match only Chrome's specific host-not-installed error messages:
+  //   "Specified native messaging host not found."
+  //   "Access to the specified native messaging host is forbidden."
+  // Recoverable errors like timeouts, generic helper errors, and
+  // disconnect-before-response must NOT trigger the no-native-host phase.
+  return (
+    (lower.includes('native messaging host') && lower.includes('not found')) ||
+    (lower.includes('native messaging host') && lower.includes('forbidden'))
+  );
 }
 
 function loadAssistantCatalog(): void {
