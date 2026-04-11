@@ -14,10 +14,7 @@
 import { copyFile, mkdir, rename, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
-import {
-  listSnapshotsInDir,
-  type SnapshotEntry,
-} from "./list-snapshots.js";
+import { pruneDir, type SnapshotEntry } from "./list-snapshots.js";
 import { formatBackupFilename } from "./paths.js";
 
 /**
@@ -69,13 +66,15 @@ export async function writeLocalSnapshot(
 /**
  * Apply retention policy to the local backup directory.
  *
- * Lists snapshots newest-first, keeps the first `retention` entries, and
- * `unlink`s the rest. Returns a `{ kept, deleted }` split so callers can
- * log/report what happened without re-listing the directory.
+ * Thin wrapper around the shared `pruneDir` helper in `list-snapshots.ts`.
+ * Local backup directories live under `~/.vellum/backups/local` and are
+ * created on demand by `writeLocalSnapshot`, so the parent is effectively
+ * always present — we strip the `skipped` flag from the returned shape to
+ * match the original local-writer contract.
  *
  * Edge cases:
- * - Missing directory: returns `{ kept: [], deleted: [] }` (the listing
- *   helper already swallows ENOENT).
+ * - Missing directory: returns `{ kept: [], deleted: [] }` (inherited from
+ *   `pruneDir`, which defers to `listSnapshotsInDir`'s ENOENT handling).
  * - `retention >= snapshots.length`: nothing is deleted; everything is kept.
  * - `retention === 0`: every snapshot is deleted. The config schema rejects
  *   `retention: 0` (min is 1), so this branch only fires when callers
@@ -85,20 +84,6 @@ export async function pruneLocalSnapshots(
   localDir: string,
   retention: number,
 ): Promise<{ kept: SnapshotEntry[]; deleted: SnapshotEntry[] }> {
-  const snapshots = await listSnapshotsInDir(localDir);
-  const kept = snapshots.slice(0, retention);
-  const deleted = snapshots.slice(retention);
-
-  for (const entry of deleted) {
-    try {
-      await unlink(entry.path);
-    } catch (err) {
-      // Tolerate races with concurrent prunes / external deletions: a
-      // file we just stat'd may have been removed before we could unlink.
-      // Anything else (EACCES, EBUSY, ...) should still propagate.
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-    }
-  }
-
+  const { kept, deleted } = await pruneDir(localDir, retention);
   return { kept, deleted };
 }

@@ -1,15 +1,8 @@
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import type { BackupDestination } from "../config/schema.js";
 import { getProtectedDir } from "../util/platform.js";
-
-/**
- * Temporary local type until the backup config PR lands — matches the shape
- * of `BackupDestinationSchema` that will be exported from `../config/schema.js`.
- * A later PR will replace this with the real import so callers that depend on
- * both modules have a single source of truth.
- */
-type BackupDestinationLike = { path: string; encrypt: boolean };
 
 /**
  * Computes the root ~/.vellum directory without introducing a new export from
@@ -55,8 +48,8 @@ export function getDefaultOffsiteBackupsDir(): string {
  * unchanged so callers never need to null-check.
  */
 export function resolveOffsiteDestinations(
-  override?: BackupDestinationLike[] | null,
-): BackupDestinationLike[] {
+  override?: BackupDestination[] | null,
+): BackupDestination[] {
   if (override == null) {
     return [{ path: getDefaultOffsiteBackupsDir(), encrypt: true }];
   }
