@@ -619,59 +619,38 @@ struct UsageTabContent: View {
         let isHovered = target != nil && hoveredConversationGroupId == target
         let titleColor: Color = isHovered ? VColor.contentEmphasized : VColor.contentDefault
 
+        let row = HStack(alignment: .top, spacing: VSpacing.sm) {
+            Text(entry.group)
+                .font(VFont.bodyMediumLighter)
+                .foregroundStyle(titleColor)
+                .frame(width: groupColumnWidth, alignment: .leading)
+                .lineLimit(store.selectedGroupBy == .conversation ? 2 : 1)
+            Text(UsageFormatting.formatBreakdownSummary(entry))
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+            Text(formatCost(entry.totalEstimatedCostUsd))
+                .font(VFont.bodyMediumLighter)
+                .foregroundStyle(VColor.contentDefault)
+                .frame(width: 70, alignment: .trailing)
+        }
+        .padding(.horizontal, VSpacing.md)
+        .padding(.vertical, VSpacing.sm)
+
         if let target {
-            HStack(alignment: .top, spacing: VSpacing.sm) {
-                Text(entry.group)
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(titleColor)
-                    .frame(width: groupColumnWidth, alignment: .leading)
-                    .lineLimit(store.selectedGroupBy == .conversation ? 2 : 1)
-                Text(UsageFormatting.formatBreakdownSummary(entry))
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                Text(formatCost(entry.totalEstimatedCostUsd))
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentDefault)
-                    .frame(width: 70, alignment: .trailing)
-            }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
-            .background(VColor.borderBase.opacity(isHovered ? 0.15 : 0))
-            .contentShape(Rectangle())
-            .onTapGesture {
-                onSelectConversation(target)
-            }
-            .onHover { hovering in
-                hoveredConversationGroupId = hovering ? target : nil
-                if hovering {
-                    NSCursor.pointingHand.push()
-                } else {
-                    NSCursor.pop()
+            row
+                .background(VColor.borderBase.opacity(isHovered ? 0.15 : 0))
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    onSelectConversation(target)
                 }
-            }
+                .pointerCursor { hovering in
+                    hoveredConversationGroupId = hovering ? target : nil
+                }
         } else {
-            HStack(alignment: .top, spacing: VSpacing.sm) {
-                Text(entry.group)
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentDefault)
-                    .frame(width: groupColumnWidth, alignment: .leading)
-                    .lineLimit(store.selectedGroupBy == .conversation ? 2 : 1)
-                Text(UsageFormatting.formatBreakdownSummary(entry))
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                Text(formatCost(entry.totalEstimatedCostUsd))
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentDefault)
-                    .frame(width: 70, alignment: .trailing)
-            }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
+            row
         }
     }
 
