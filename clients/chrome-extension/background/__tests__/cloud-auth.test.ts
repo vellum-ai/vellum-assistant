@@ -397,7 +397,7 @@ describe('assistant token isolation', () => {
     await signInCloud(ASSISTANT_B, config);
 
     // Only ASSISTANT_B's key should be populated.
-    expect(fakeStorage.data[cloudTokenStorageKey(ASSISTANT_B)]).toBeDefined();
+    expect(fakeStorage.data[cloudTokenStorageKey(ASSISTANT_B)]).not.toBeUndefined();
     expect(fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)]).toBeUndefined();
   });
 });

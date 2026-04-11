@@ -584,7 +584,7 @@ describe('assistant token isolation', () => {
     await bootstrapLocalToken(ASSISTANT_B);
 
     // Only ASSISTANT_B's key should be populated.
-    expect(fakeStorage.data[localTokenStorageKey(ASSISTANT_B)]).toBeDefined();
+    expect(fakeStorage.data[localTokenStorageKey(ASSISTANT_B)]).not.toBeUndefined();
     expect(fakeStorage.data[localTokenStorageKey(ASSISTANT_A)]).toBeUndefined();
   });
 });
