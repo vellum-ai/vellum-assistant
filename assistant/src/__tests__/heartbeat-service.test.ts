@@ -23,6 +23,39 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
+// ── Guardian persona mock ─────────────────────────────────────────
+//
+// `heartbeat-service.isShallowProfile` reads the guardian persona via
+// `resolveGuardianPersona()` and compares against the exported
+// `GUARDIAN_PERSONA_TEMPLATE` scaffold. We mock the module so each
+// test can seed whatever persona content it needs; the scaffold text
+// below is kept byte-identical to the real template in
+// `persona-resolver.ts` so the "scaffold-only" path triggers a match.
+const GUARDIAN_PERSONA_TEMPLATE = `_ Lines starting with _ are comments - they won't appear in the system prompt
+
+# User Profile
+
+Store details about your user here. Edit freely - build this over time as you learn about them. Don't be pushy about seeking details, but when you learn something, write it down. More context makes you more useful.
+
+- Preferred name/reference:
+- Pronouns:
+- Locale:
+- Work role:
+- Goals:
+- Hobbies/fun:
+- Daily tools:
+`;
+
+// `resolveGuardianPersona` returns already-stripped + trimmed content
+// (or null for missing/empty files). Tests mutate this variable to
+// drive `isShallowProfile`.
+let mockGuardianPersona: string | null = null;
+
+mock.module("../prompts/persona-resolver.js", () => ({
+  GUARDIAN_PERSONA_TEMPLATE,
+  resolveGuardianPersona: () => mockGuardianPersona,
+}));
+
 // Mock conversation store
 const createdConversations: Array<{ title: string; conversationType: string }> =
   [];
@@ -85,7 +118,13 @@ const IDENTITY_TEMPLATE = readFileSync(
   join(templatesDir, "IDENTITY.md"),
   "utf-8",
 );
-const USER_TEMPLATE = readFileSync(join(templatesDir, "USER.md"), "utf-8");
+
+// Stripped/trimmed form of the guardian persona scaffold — mirrors
+// the transformation applied by `resolveGuardianPersona` (which runs
+// `stripCommentLines` internally). Used to simulate a freshly-seeded,
+// never-edited persona file.
+const { stripCommentLines } = await import("../util/strip-comment-lines.js");
+const SCAFFOLD_PERSONA = stripCommentLines(GUARDIAN_PERSONA_TEMPLATE).trim();
 
 describe("HeartbeatService", () => {
   let processMessageCalls: Array<{
@@ -99,7 +138,6 @@ describe("HeartbeatService", () => {
     // Clean up workspace files between tests so file-existence tests don't leak
     rmSync(join(testWorkspaceDir, "HEARTBEAT.md"), { force: true });
     rmSync(join(testWorkspaceDir, "IDENTITY.md"), { force: true });
-    rmSync(join(testWorkspaceDir, "USER.md"), { force: true });
     rmSync(join(testWorkspaceDir, ".reengagement-ts"), { force: true });
   });
 
@@ -108,6 +146,7 @@ describe("HeartbeatService", () => {
     alerterCalls = [];
     createdConversations.length = 0;
     conversationIdCounter = 0;
+    mockGuardianPersona = null;
 
     mockConfig = {
       heartbeat: {
@@ -494,9 +533,23 @@ describe("HeartbeatService", () => {
   });
 
   describe("isShallowProfile", () => {
-    test("returns true when both IDENTITY.md and USER.md are unmodified templates", () => {
+    test("returns true when IDENTITY.md is template and guardian persona is missing", () => {
       writeFileSync(join(testWorkspaceDir, "IDENTITY.md"), IDENTITY_TEMPLATE);
-      writeFileSync(join(testWorkspaceDir, "USER.md"), USER_TEMPLATE);
+      mockGuardianPersona = null;
+
+      expect(isShallowProfile()).toBe(true);
+    });
+
+    test("returns true when IDENTITY.md is template and guardian persona has only scaffold fields", () => {
+      writeFileSync(join(testWorkspaceDir, "IDENTITY.md"), IDENTITY_TEMPLATE);
+      mockGuardianPersona = SCAFFOLD_PERSONA;
+
+      expect(isShallowProfile()).toBe(true);
+    });
+
+    test("returns true when IDENTITY.md is template and guardian persona is empty string", () => {
+      writeFileSync(join(testWorkspaceDir, "IDENTITY.md"), IDENTITY_TEMPLATE);
+      mockGuardianPersona = "";
 
       expect(isShallowProfile()).toBe(true);
     });
@@ -506,22 +559,22 @@ describe("HeartbeatService", () => {
         join(testWorkspaceDir, "IDENTITY.md"),
         "# IDENTITY.md\n\n- **Name:** Jarvis\n",
       );
-      writeFileSync(join(testWorkspaceDir, "USER.md"), USER_TEMPLATE);
+      mockGuardianPersona = SCAFFOLD_PERSONA;
 
       expect(isShallowProfile()).toBe(false);
     });
 
-    test("returns false when USER.md has been customized", () => {
+    test("returns false when guardian persona has real content", () => {
       writeFileSync(join(testWorkspaceDir, "IDENTITY.md"), IDENTITY_TEMPLATE);
-      writeFileSync(
-        join(testWorkspaceDir, "USER.md"),
-        "# USER.md\n\n- Preferred name/reference: Alice\n",
-      );
+      mockGuardianPersona =
+        "# User Profile\n\n- Preferred name/reference: Alice\n- Work role: designer";
 
       expect(isShallowProfile()).toBe(false);
     });
 
-    test("returns false when neither file exists", () => {
+    test("returns false when IDENTITY.md does not exist", () => {
+      mockGuardianPersona = null;
+
       expect(isShallowProfile()).toBe(false);
     });
   });
@@ -529,7 +582,7 @@ describe("HeartbeatService", () => {
   describe("relationship-depth prompt injection", () => {
     test("includes <relationship-depth> when profile is shallow", () => {
       writeFileSync(join(testWorkspaceDir, "IDENTITY.md"), IDENTITY_TEMPLATE);
-      writeFileSync(join(testWorkspaceDir, "USER.md"), USER_TEMPLATE);
+      mockGuardianPersona = SCAFFOLD_PERSONA;
 
       const service = createService();
       const { prompt, includedReengagement } =
@@ -545,7 +598,7 @@ describe("HeartbeatService", () => {
         join(testWorkspaceDir, "IDENTITY.md"),
         "# IDENTITY.md\n\n- **Name:** Jarvis\n",
       );
-      writeFileSync(join(testWorkspaceDir, "USER.md"), USER_TEMPLATE);
+      mockGuardianPersona = SCAFFOLD_PERSONA;
 
       const service = createService();
       const { prompt, includedReengagement } =
@@ -557,7 +610,7 @@ describe("HeartbeatService", () => {
 
     test("omits <relationship-depth> when cooldown has not elapsed", () => {
       writeFileSync(join(testWorkspaceDir, "IDENTITY.md"), IDENTITY_TEMPLATE);
-      writeFileSync(join(testWorkspaceDir, "USER.md"), USER_TEMPLATE);
+      mockGuardianPersona = SCAFFOLD_PERSONA;
       // Write a recent timestamp to simulate cooldown not elapsed
       writeFileSync(
         join(testWorkspaceDir, ".reengagement-ts"),
@@ -574,7 +627,7 @@ describe("HeartbeatService", () => {
 
     test("includes <relationship-depth> when cooldown has elapsed", () => {
       writeFileSync(join(testWorkspaceDir, "IDENTITY.md"), IDENTITY_TEMPLATE);
-      writeFileSync(join(testWorkspaceDir, "USER.md"), USER_TEMPLATE);
+      mockGuardianPersona = SCAFFOLD_PERSONA;
       // Write a timestamp from 19 hours ago
       const nineteenHoursAgo = Date.now() - 19 * 60 * 60 * 1000;
       writeFileSync(
@@ -592,7 +645,7 @@ describe("HeartbeatService", () => {
 
     test("does not record timestamp when processMessage fails", async () => {
       writeFileSync(join(testWorkspaceDir, "IDENTITY.md"), IDENTITY_TEMPLATE);
-      writeFileSync(join(testWorkspaceDir, "USER.md"), USER_TEMPLATE);
+      mockGuardianPersona = SCAFFOLD_PERSONA;
 
       const service = createService({
         processMessage: async () => {
@@ -609,7 +662,7 @@ describe("HeartbeatService", () => {
 
     test("records timestamp after successful delivery", async () => {
       writeFileSync(join(testWorkspaceDir, "IDENTITY.md"), IDENTITY_TEMPLATE);
-      writeFileSync(join(testWorkspaceDir, "USER.md"), USER_TEMPLATE);
+      mockGuardianPersona = SCAFFOLD_PERSONA;
 
       const service = createService();
       await service.runOnce();

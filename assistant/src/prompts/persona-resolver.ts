@@ -26,8 +26,9 @@ const log = getLogger("persona-resolver");
 // Scaffold written to `users/<slug>.md` when a guardian is resolved
 // but no per-user persona file yet exists. Kept in sync with the
 // legacy workspace USER.md template so that upgrading users preserve
-// the same editable shape.
-const GUARDIAN_PERSONA_TEMPLATE = `_ Lines starting with _ are comments - they won't appear in the system prompt
+// the same editable shape. Exported so consumers can detect the
+// unmodified scaffold (e.g. heartbeat's `isShallowProfile`).
+export const GUARDIAN_PERSONA_TEMPLATE = `_ Lines starting with _ are comments - they won't appear in the system prompt
 
 # User Profile
 
