@@ -302,6 +302,11 @@ extension AppDelegate {
                     if msg.key == "activationKey" {
                         NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
                     }
+                    // Notify observers when the global TTS provider changes so
+                    // voice mode and other consumers can pick up the new provider.
+                    if msg.key == "ttsProvider" {
+                        NotificationCenter.default.post(name: .configChanged, object: nil)
+                    }
                 case .identityChanged(let msg):
                     NotificationCenter.default.post(
                         name: .identityChanged,

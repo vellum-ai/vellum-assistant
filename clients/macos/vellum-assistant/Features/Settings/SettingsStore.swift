@@ -2906,6 +2906,23 @@ public final class SettingsStore: ObservableObject {
         return task
     }
 
+    /// Persists the selected TTS provider to the daemon config so synthesis
+    /// routes through the correct backend. The canonical config path is
+    /// `services.tts.provider`.
+    @discardableResult
+    func setTTSProvider(_ provider: String) -> Task<Bool, Never> {
+        let task = Task {
+            let success = await settingsClient.patchConfig([
+                "services": ["tts": ["provider": provider]]
+            ])
+            if !success {
+                log.error("Failed to patch config for TTS provider")
+            }
+            return success
+        }
+        return task
+    }
+
     /// Schedules a delayed refresh of provider routing sources, giving the
     /// daemon time to re-initialize providers after a key change.
     private func scheduleRoutingSourceRefresh() {
@@ -3325,6 +3342,15 @@ public final class SettingsStore: ObservableObject {
            let webSearch = services["web-search"] as? [String: Any],
            let provider = webSearch["provider"] as? String {
             self.webSearchProvider = provider
+        }
+
+        // Sync the global TTS provider from the daemon config so the client
+        // stays aligned after restart or reconnection. The canonical path
+        // is services.tts.provider.
+        if let services = config["services"] as? [String: Any],
+           let tts = services["tts"] as? [String: Any],
+           let ttsProvider = tts["provider"] as? String {
+            UserDefaults.standard.set(ttsProvider, forKey: "ttsProvider")
         }
 
         Self.applyHostBrowserCdpInspectConfig(config, into: self)

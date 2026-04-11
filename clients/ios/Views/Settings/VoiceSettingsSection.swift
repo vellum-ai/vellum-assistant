@@ -2,17 +2,27 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// TTS provider options surfaced in Voice settings.
-/// The system provider uses iOS AVSpeechSynthesizer; ElevenLabs uses the
-/// ElevenLabs REST API (requires an API key stored in the keychain under "elevenlabs").
+/// TTS provider options for the unified global provider selector.
+/// The selected provider is used for all speech features — voice conversations
+/// and read-aloud. Provider-specific configuration (API keys, voice IDs)
+/// is managed through the assistant's settings tools.
 enum TTSProvider: String, CaseIterable {
-    case system = "system"
-    case elevenLabs = "elevenlabs"
+    case elevenlabs = "elevenlabs"
+    case fishAudio = "fish-audio"
 
     var displayName: String {
         switch self {
-        case .system: return "System (Apple)"
-        case .elevenLabs: return "ElevenLabs"
+        case .elevenlabs: return "ElevenLabs"
+        case .fishAudio: return "Fish Audio"
+        }
+    }
+
+    var footerText: String {
+        switch self {
+        case .elevenlabs:
+            return "ElevenLabs provides high-quality voice synthesis. Requires an API key — configure via the assistant's voice settings on your Mac."
+        case .fishAudio:
+            return "Fish Audio provides natural-sounding voice synthesis with custom voice cloning. Requires an API key and voice reference ID — configure via the assistant's voice settings on your Mac."
         }
     }
 }
@@ -31,11 +41,11 @@ struct VoiceSettingsSection: View {
     /// Range 5 – 60 s.
     @AppStorage(UserDefaultsKeys.voiceListeningTimeout) private var listeningTimeout: Double = 30.0
 
-    /// TTS provider used when the assistant speaks a response.
-    @AppStorage(UserDefaultsKeys.voiceTTSProvider) private var ttsProviderRaw: String = TTSProvider.system.rawValue
+    /// Global TTS provider used for all speech features.
+    @AppStorage(UserDefaultsKeys.voiceTTSProvider) private var ttsProviderRaw: String = TTSProvider.elevenlabs.rawValue
 
     private var ttsProvider: TTSProvider {
-        TTSProvider(rawValue: ttsProviderRaw) ?? .system
+        TTSProvider(rawValue: ttsProviderRaw) ?? .elevenlabs
     }
 
     var body: some View {
@@ -92,71 +102,11 @@ struct VoiceSettingsSection: View {
             } header: {
                 Text("Text-to-Speech")
             } footer: {
-                Group {
-                    if ttsProvider == .elevenLabs {
-                        Text("ElevenLabs requires an API key. Get yours at elevenlabs.io — this is the same provider used by voice mode on macOS.")
-                    } else {
-                        Text("System uses Apple's built-in AVSpeechSynthesizer. No API key required.")
-                    }
-                }
-            }
-
-            // ElevenLabs API key entry (shown only when ElevenLabs is selected)
-            if ttsProvider == .elevenLabs {
-                ElevenLabsKeySection()
+                Text(ttsProvider.footerText)
             }
         }
         .navigationTitle("Voice")
         .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
-// MARK: - ElevenLabs Key Section
-
-/// Inline key management for ElevenLabs — shown when ElevenLabs TTS is selected.
-private struct ElevenLabsKeySection: View {
-    @State private var keyText: String = ""
-    @State private var isSaved = false
-    @State private var hasExistingKey = false
-
-    var body: some View {
-        Section {
-            if hasExistingKey {
-                HStack {
-                    VIconView(.circleCheck, size: 16)
-                        .foregroundStyle(.green)
-                    Text("API key saved")
-                    Spacer()
-                    Button("Remove", role: .destructive) {
-                        _ = APIKeyManager.shared.deleteAPIKey(provider: "elevenlabs")
-                        hasExistingKey = false
-                        keyText = ""
-                    }
-                    .font(.caption)
-                }
-            } else {
-                SecureField("ElevenLabs API Key", text: $keyText)
-                    .textContentType(.password)
-                    .autocapitalization(.none)
-                    .disableAutocorrection(true)
-
-                Button("Save") {
-                    let trimmed = keyText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.isEmpty else { return }
-                    _ = APIKeyManager.shared.setAPIKey(trimmed, provider: "elevenlabs")
-                    hasExistingKey = true
-                    keyText = ""
-                }
-                .disabled(keyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-        } header: {
-            Text("ElevenLabs API Key")
-        } footer: {
-            Text("Your key is stored securely in the iOS Keychain and never sent to Vellum servers.")
-        }
-        .onAppear {
-            hasExistingKey = APIKeyManager.shared.getAPIKey(provider: "elevenlabs") != nil
-        }
     }
 }
 #endif
