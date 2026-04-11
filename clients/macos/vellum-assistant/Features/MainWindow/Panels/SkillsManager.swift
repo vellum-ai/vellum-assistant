@@ -116,7 +116,8 @@ final class SkillsManager {
                 // Gate spinner on whether there is actually a query; clearing
                 // the search bar should immediately stop the spinner even if
                 // a network request is still in-flight.
-                self.isSearching = hasActiveQuery && self.skillsStore.isSearching
+                let debouncing = self.searchDebounceTask != nil && !(self.searchDebounceTask?.isCancelled ?? true)
+                self.isSearching = hasActiveQuery && (self.skillsStore.isSearching || debouncing)
 
                 // Merge local skills with external search results (if any),
                 // deduplicating by skill id so local entries take precedence.
@@ -241,15 +242,21 @@ final class SkillsManager {
         let searchFiltered: [SkillInfo]
         if hasSearch {
             // When external search results have been merged in, the backend
-            // already performed fuzzy/semantic matching — applying a local
-            // substring filter would silently drop valid results whose query
-            // text doesn't appear as a literal substring (e.g. skills.sh
-            // results with empty descriptions). Skip the local filter in
-            // that case and show the full merged list.
+            // already performed fuzzy/semantic matching — backend-matched
+            // skills pass through unfiltered (they may not contain the query
+            // as a literal substring, e.g. skills.sh results with empty
+            // descriptions). Local-only skills still get the substring
+            // filter so they don't bypass search.
             let backendIds = Set(skillsStore.searchResults.map(\.id))
             let backendResultsPresent = !skillsStore.isSearching && baseSkills.contains(where: { backendIds.contains($0.id) })
             if backendResultsPresent {
-                searchFiltered = baseSkills
+                searchFiltered = baseSkills.filter {
+                    backendIds.contains($0.id) ||
+                    $0.name.lowercased().contains(query) ||
+                    $0.description.lowercased().contains(query) ||
+                    $0.id.lowercased().contains(query) ||
+                    Self.sourceLabel($0.origin).lowercased().contains(query)
+                }
             } else {
                 searchFiltered = baseSkills.filter {
                     $0.name.lowercased().contains(query) ||
