@@ -6,8 +6,6 @@
  * the database.
  */
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import type { AssistantConfig } from "../config/schema.js";
 import type { OAuthProviderRow } from "./oauth-store.js";
 
 /**
@@ -50,7 +48,7 @@ export interface SerializedProviderSummary {
  */
 export function serializeProvider(
   row: OAuthProviderRow | null | undefined,
-  options?: { redirectUri?: string | null; config?: AssistantConfig },
+  options?: { redirectUri?: string | null },
 ): ReturnType<typeof _serializeProvider> | null | undefined {
   if (row === undefined) return undefined;
   if (row === null) return null;
@@ -59,7 +57,7 @@ export function serializeProvider(
 
 function _serializeProvider(
   row: OAuthProviderRow,
-  options?: { redirectUri?: string | null; config?: AssistantConfig },
+  options?: { redirectUri?: string | null },
 ) {
   // Destructure the renamed Drizzle TS-side fields out of the row so they
   // do not leak into the spread below. The wire format intentionally keeps
@@ -87,7 +85,7 @@ function _serializeProvider(
     logoUrl: row.logoUrl ?? null,
     clientIdPlaceholder: row.clientIdPlaceholder ?? null,
     requiresClientSecret: !!(row.requiresClientSecret ?? 1),
-    supportsManagedMode: isManagedModeEnabled(row, options?.config),
+    supportsManagedMode: !!row.managedServiceConfigKey,
     defaultScopes: row.defaultScopes ? JSON.parse(row.defaultScopes) : [],
     scopePolicy: row.scopePolicy ? JSON.parse(row.scopePolicy) : {},
     scopeSeparator: row.scopeSeparator,
@@ -131,7 +129,6 @@ function _serializeProvider(
  */
 export function serializeProviderSummary(
   row: OAuthProviderRow | null | undefined,
-  config?: AssistantConfig,
 ): SerializedProviderSummary | null {
   if (!row) return null;
   return {
@@ -142,21 +139,7 @@ export function serializeProviderSummary(
     client_id_placeholder: row.clientIdPlaceholder ?? null,
     requires_client_secret: !!(row.requiresClientSecret ?? 1),
     logo_url: row.logoUrl ?? null,
-    supports_managed_mode: isManagedModeEnabled(row, config),
+    supports_managed_mode: !!row.managedServiceConfigKey,
     feature_flag: row.featureFlag ?? null,
   };
-}
-
-/**
- * A provider supports managed mode when it has a managedServiceConfigKey
- * and either has no feature flag or the flag is enabled.
- */
-function isManagedModeEnabled(
-  row: OAuthProviderRow,
-  config?: AssistantConfig,
-): boolean {
-  if (!row.managedServiceConfigKey) return false;
-  if (!row.featureFlag) return true;
-  if (!config) return false;
-  return isAssistantFeatureFlagEnabled(row.featureFlag, config);
 }

@@ -6,7 +6,6 @@
  * bearer-token authenticated via the standard runtime auth middleware.
  */
 
-import { loadConfig } from "../../config/loader.js";
 import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
 import {
   deleteApp,
@@ -75,7 +74,7 @@ export function oauthAppsRouteDefinitions(): RouteDefinition[] {
 
         const providerRow = getProvider(provider);
         const providerSummary = providerRow
-          ? serializeProviderSummary(providerRow, loadConfig())
+          ? serializeProviderSummary(providerRow)
           : null;
 
         return Response.json({
