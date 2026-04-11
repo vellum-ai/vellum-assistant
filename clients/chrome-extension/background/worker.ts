@@ -1048,9 +1048,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     // rather than requiring the popup to pre-check credentials.
     connect({ interactive: true })
       .then(async () => {
-        // Successful user-initiated connect — make auto-connect sticky
-        // so the next service-worker start reconnects automatically.
-        await setAutoConnect(true);
+        // Guard: skip if the user paused/disconnected while the connect
+        // was in-flight — their pause intent takes precedence.
+        if (shouldConnect) {
+          await setAutoConnect(true);
+        }
         sendResponseFn({ ok: true });
       })
       .catch((err) => {
