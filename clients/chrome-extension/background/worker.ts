@@ -912,7 +912,26 @@ async function connectPreflight(
   throw new MissingTokenError(missingTokenMessage(authProfile));
 }
 
+// Serialization lock: if a connect is already in progress, subsequent
+// callers await the existing attempt rather than launching a concurrent
+// preflight. This prevents duplicate auth/pair flows when multiple
+// connect calls arrive before the first socket opens (e.g., repeated
+// user action or overlapping message paths).
+let connectInFlight: Promise<void> | null = null;
+
 async function connect(options: ConnectOptions = { interactive: false }): Promise<void> {
+  if (connectInFlight) {
+    return connectInFlight;
+  }
+  connectInFlight = doConnect(options);
+  try {
+    await connectInFlight;
+  } finally {
+    connectInFlight = null;
+  }
+}
+
+async function doConnect(options: ConnectOptions): Promise<void> {
   if (relayConnection && relayConnection.isOpen()) return;
   // Defensive: a fresh connect() always starts the 1006 refresh
   // budget from scratch. The counter is normally reset from onOpen,
