@@ -19,8 +19,16 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { createGuardianBinding } from "../contacts/contacts-write.js";
+import {
+  createGuardianBinding,
+  upsertContactChannel,
+} from "../contacts/contacts-write.js";
 import { getSqlite, initializeDb } from "../memory/db.js";
+import {
+  clearAllRules,
+  clearCache as clearTrustCache,
+  getAllRules,
+} from "../permissions/trust-store.js";
 
 initializeDb();
 
@@ -100,5 +108,83 @@ describe("createGuardianBinding seeds users/<slug>.md", () => {
 
     const afterContent = readFileSync(expectedPath, "utf-8");
     expect(afterContent).toBe(customContent);
+  });
+});
+
+// These two tests lock in invariants from the drop-user-md plan fix PR
+// #24878. They guard against two specific regressions that have already
+// happened once:
+//
+//  1. Seeding `users/<slug>.md` from `upsertContactChannel` fires the
+//     users/ directory watcher on every inbound message from a new
+//     contact and evicts live conversations. Seeding must be restricted
+//     to the guardian-creation path.
+//
+//  2. Without `clearTrustCache()` in `createGuardianBinding`, the
+//     dynamic `default:allow-file_*-guardian-persona` rules from
+//     `permissions/defaults.ts` are never backfilled for guardians
+//     created at runtime, so the model prompts on its first
+//     `file_edit users/<slug>.md`.
+describe("drop-user-md regression guards (PR #24878)", () => {
+  beforeEach(() => {
+    resetContactTables();
+    clearAllRules();
+    clearTrustCache();
+  });
+
+  test("upsertContactChannel does NOT seed users/<slug>.md for non-guardian contacts", () => {
+    // upsertContact assigns a userFile slug to every contact (including
+    // non-guardians) via generateUserFileSlug when no principalId/sibling
+    // match is found. If upsertContactChannel ever re-adds the
+    // `ensureGuardianPersonaFile(contact.userFile)` call that PR #24878
+    // removed, this test will start seeing the file on disk and fail.
+    const result = upsertContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "Bob",
+      externalChatId: "chat-bob",
+      displayName: "Bob",
+      role: "contact",
+      status: "active",
+    });
+
+    expect(result).not.toBeNull();
+    // Confirm the contact was actually persisted with a userFile slug —
+    // otherwise the assertion below would pass trivially.
+    expect(result?.contact.userFile).toBeTruthy();
+
+    const slug = result!.contact.userFile!;
+    const personaPath = userFilePath(slug);
+    expect(existsSync(personaPath)).toBe(false);
+  });
+
+  test("createGuardianBinding backfills the guardian-persona auto-allow rule via clearTrustCache", () => {
+    // Warm the trust cache BEFORE a guardian exists so the initial
+    // loadFromDisk → backfillDefaults → getDefaultRuleTemplates round
+    // sees no guardian and emits no guardian-persona rule.
+    const beforeRules = getAllRules();
+    const guardianRuleBefore = beforeRules.find(
+      (r) => r.id === "default:allow-file_edit-guardian-persona",
+    );
+    expect(guardianRuleBefore).toBeUndefined();
+
+    createGuardianBinding({
+      channel: "telegram",
+      guardianExternalUserId: "Carol",
+      guardianDeliveryChatId: "chat-carol",
+      guardianPrincipalId: "principal-carol",
+      verifiedVia: "challenge",
+    });
+
+    // After createGuardianBinding, clearTrustCache() should have been
+    // invoked, so the next getAllRules() call re-runs loadFromDisk and
+    // backfills the dynamic guardian-persona rule pointing at the
+    // newly-resolved users/<slug>.md.
+    const afterRules = getAllRules();
+    const guardianRuleAfter = afterRules.find(
+      (r) => r.id === "default:allow-file_edit-guardian-persona",
+    );
+    expect(guardianRuleAfter).toBeDefined();
+    expect(guardianRuleAfter?.decision).toBe("allow");
+    expect(guardianRuleAfter?.pattern).toContain("users/carol.md");
   });
 });
