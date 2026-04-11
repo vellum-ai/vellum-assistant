@@ -207,6 +207,7 @@ describe('listAssistants', () => {
           type: 'assistants_response',
           assistants: [entry1, entry2],
           activeAssistantId: 'a-1',
+          protocolVersion: 1,
         });
       });
     };
@@ -215,6 +216,7 @@ describe('listAssistants', () => {
 
     expect(catalog.assistants.length).toBe(2);
     expect(catalog.activeAssistantId).toBe('a-1');
+    expect(catalog.protocolVersion).toBe(1);
 
     // First assistant: local with daemon port
     expect(catalog.assistants[0]!.assistantId).toBe('a-1');
@@ -240,6 +242,7 @@ describe('listAssistants', () => {
           type: 'assistants_response',
           assistants: [],
           activeAssistantId: null,
+          protocolVersion: 1,
         });
       });
     };
@@ -247,6 +250,7 @@ describe('listAssistants', () => {
     const catalog = await listAssistants();
     expect(catalog.assistants.length).toBe(0);
     expect(catalog.activeAssistantId).toBeNull();
+    expect(catalog.protocolVersion).toBe(1);
   });
 
   test('filters out malformed entries from the response', async () => {
@@ -325,6 +329,24 @@ describe('listAssistants', () => {
     expect(catalog.activeAssistantId).toBe('orphan');
   });
 
+  test('treats missing protocolVersion as null for backward compatibility', async () => {
+    fakeRuntime.onConnect = (port) => {
+      queueMicrotask(() => {
+        // Simulate an older native host that does not include protocolVersion
+        port.emitMessage({
+          type: 'assistants_response',
+          assistants: [makeAssistantEntry({ assistantId: 'legacy' })],
+          activeAssistantId: 'legacy',
+          // No protocolVersion field
+        });
+      });
+    };
+
+    const catalog = await listAssistants();
+    expect(catalog.protocolVersion).toBeNull();
+    expect(catalog.assistants.length).toBe(1);
+  });
+
   test('resolves unsupported cloud values to unsupported auth profile', async () => {
     fakeRuntime.onConnect = (port) => {
       queueMicrotask(() => {
@@ -397,6 +419,7 @@ describe('resolveSelectedAssistant', () => {
     const result = await testResolveSelectedAssistant({
       assistants: [],
       activeAssistantId: null,
+      protocolVersion: null,
     });
     expect(result).toBeNull();
   });
@@ -406,6 +429,7 @@ describe('resolveSelectedAssistant', () => {
     const result = await testResolveSelectedAssistant({
       assistants: [single],
       activeAssistantId: 'solo',
+      protocolVersion: 1,
     });
     expect(result).toEqual(single);
     expect(fakeStorage.data[SELECTED_ASSISTANT_ID_KEY]).toBe('solo');
@@ -417,6 +441,7 @@ describe('resolveSelectedAssistant', () => {
     const result = await testResolveSelectedAssistant({
       assistants: [a1, a2],
       activeAssistantId: null,
+      protocolVersion: 1,
     });
     expect(result).toEqual(a1);
     expect(fakeStorage.data[SELECTED_ASSISTANT_ID_KEY]).toBe('first');
@@ -429,6 +454,7 @@ describe('resolveSelectedAssistant', () => {
     const result = await testResolveSelectedAssistant({
       assistants: [a1, a2],
       activeAssistantId: null,
+      protocolVersion: 1,
     });
     expect(result).toEqual(a2);
     // Storage was not overwritten
@@ -442,6 +468,7 @@ describe('resolveSelectedAssistant', () => {
     const result = await testResolveSelectedAssistant({
       assistants: [a1, a2],
       activeAssistantId: null,
+      protocolVersion: 1,
     });
     expect(result).toEqual(a1);
     // Storage was updated to the new default
@@ -455,6 +482,7 @@ describe('resolveSelectedAssistant', () => {
     const result = await testResolveSelectedAssistant({
       assistants: [a1, a2],
       activeAssistantId: null,
+      protocolVersion: 1,
     });
     expect(result).toEqual(a1);
     expect(fakeStorage.data[SELECTED_ASSISTANT_ID_KEY]).toBe('first');
@@ -467,6 +495,7 @@ describe('resolveSelectedAssistant', () => {
     const result = await testResolveSelectedAssistant({
       assistants: [a1, a2],
       activeAssistantId: null,
+      protocolVersion: 1,
     });
     expect(result).toEqual(a1);
     expect(fakeStorage.data[SELECTED_ASSISTANT_ID_KEY]).toBe('first');

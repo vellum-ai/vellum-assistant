@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { getBundledSkillsDir } from "../config/skills.js";
+import { resolveGuardianPersonaPath } from "../prompts/persona-resolver.js";
 import { getWorkspaceDir } from "../util/platform.js";
 
 export interface DefaultRuleTemplate {
@@ -118,7 +119,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   const workspaceDir = getWorkspaceDir().replaceAll("\\", "/");
   const WORKSPACE_PROMPT_FILES = [
     "IDENTITY.md",
-    "USER.md",
     "SOUL.md",
     "BOOTSTRAP.md",
     "UPDATES.md",
@@ -138,6 +138,37 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
       priority: 100,
     })),
   );
+
+  // Guardian persona file — the contact-store-resolved `users/<slug>.md`
+  // for the current guardian. Once the workspace has a guardian contact,
+  // their per-user persona file should be readable/editable without a
+  // prompt. This is the sole auto-allow entry for the per-user profile
+  // file (the legacy workspace `USER.md` was removed).
+  //
+  // Resolved dynamically at template-build time (rather than hardcoded
+  // like WORKSPACE_PROMPT_FILES) because the slug depends on the
+  // installed guardian. The try/catch protects against early-boot paths
+  // where the DB may not yet be initialized — in that case no guardian
+  // persona rules are emitted and the agent will be prompted on first
+  // edit until the guardian contact is created.
+  let guardianPersonaRules: DefaultRuleTemplate[] = [];
+  try {
+    const guardianPath = resolveGuardianPersonaPath();
+    if (guardianPath) {
+      const posixPath = guardianPath.replaceAll("\\", "/");
+      guardianPersonaRules = WORKSPACE_FILE_TOOLS.map((tool) => ({
+        id: `default:allow-${tool}-guardian-persona`,
+        tool,
+        pattern: `${tool}:${posixPath}`,
+        scope: "everywhere",
+        decision: "allow" as const,
+        priority: 100,
+      }));
+    }
+  } catch {
+    // Guardian may not exist yet; rules will be emitted on the next
+    // template build once the guardian contact is created.
+  }
 
   const bootstrapDeleteRule: DefaultRuleTemplate = {
     id: "default:allow-bash-rm-bootstrap",
@@ -303,6 +334,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     ...computerUseRules,
     ...managedSkillRules,
     ...workspacePromptRules,
+    ...guardianPersonaRules,
     bootstrapDeleteRule,
     updatesDeleteRule,
     ...skillSourceMutationRules,

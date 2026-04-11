@@ -11,6 +11,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 
 import {
   RelayConnection,
+  KEEPALIVE_INTERVAL_MS,
   type RelayMode,
   type RelayReconnectContext,
   type RelayReconnectDecision,
@@ -953,6 +954,307 @@ describe('RelayConnection', () => {
       // ws.readyState is still CONNECTING (0).
       conn.send('too-early');
       expect(instances[0].sent).toEqual([]);
+    });
+  });
+
+  describe('keepalive', () => {
+    /**
+     * These tests intercept setInterval/clearInterval to verify keepalive
+     * timer lifecycle without waiting for real 20-second intervals.
+     */
+
+    /** Tracks setInterval calls for deterministic keepalive testing. */
+    interface IntervalRecord {
+      id: number;
+      callback: () => void;
+      ms: number;
+      cleared: boolean;
+    }
+
+    let intervalRecords: IntervalRecord[];
+    let nextIntervalId: number;
+    let origSetInterval: typeof setInterval;
+    let origClearInterval: typeof clearInterval;
+
+    function installFakeIntervals(): void {
+      intervalRecords = [];
+      nextIntervalId = 9000;
+      origSetInterval = globalThis.setInterval;
+      origClearInterval = globalThis.clearInterval;
+
+      (globalThis as unknown as { setInterval: typeof setInterval }).setInterval = ((
+        cb: () => void,
+        ms: number,
+      ) => {
+        const id = nextIntervalId++;
+        intervalRecords.push({ id, callback: cb, ms, cleared: false });
+        return id as unknown as ReturnType<typeof setInterval>;
+      }) as typeof setInterval;
+
+      (globalThis as unknown as { clearInterval: typeof clearInterval }).clearInterval = ((
+        id: ReturnType<typeof clearInterval>,
+      ) => {
+        const record = intervalRecords.find((r) => r.id === (id as unknown as number));
+        if (record) record.cleared = true;
+      }) as typeof clearInterval;
+    }
+
+    function restoreFakeIntervals(): void {
+      globalThis.setInterval = origSetInterval;
+      globalThis.clearInterval = origClearInterval;
+    }
+
+    /** Fire the callback of all active (non-cleared) interval records. */
+    function tickActiveIntervals(): void {
+      for (const record of intervalRecords) {
+        if (!record.cleared) record.callback();
+      }
+    }
+
+    /** Return all non-cleared interval records. */
+    function activeIntervals(): IntervalRecord[] {
+      return intervalRecords.filter((r) => !r.cleared);
+    }
+
+    test('sends keepalive frames only while the socket is OPEN', () => {
+      installFakeIntervals();
+      try {
+        const cbs = makeCallbacks();
+        const conn = makeConn(
+          { kind: 'self-hosted', baseUrl: 'http://127.0.0.1:7830', token: 't' },
+          cbs,
+        );
+
+        conn.start();
+
+        // While CONNECTING — no interval should have been created.
+        expect(activeIntervals().length).toBe(0);
+        expect(instances[0].sent.length).toBe(0);
+
+        // Open the socket — keepalive timer should now be active.
+        openSocket(instances[0]);
+        expect(activeIntervals().length).toBe(1);
+        expect(activeIntervals()[0].ms).toBe(KEEPALIVE_INTERVAL_MS);
+
+        // Simulate the interval firing — should send a keepalive frame.
+        tickActiveIntervals();
+
+        expect(instances[0].sent.length).toBe(1);
+        const frame = JSON.parse(instances[0].sent[0]);
+        expect(frame.type).toBe('keepalive');
+        expect(typeof frame.sentAt).toBe('number');
+        expect(frame.sentAt).toBeGreaterThan(0);
+
+        conn.close();
+      } finally {
+        restoreFakeIntervals();
+      }
+    });
+
+    test('keepalive does not send when socket readyState is not OPEN', () => {
+      installFakeIntervals();
+      try {
+        const cbs = makeCallbacks();
+        const conn = makeConn(
+          { kind: 'self-hosted', baseUrl: 'http://127.0.0.1:7830', token: 't' },
+          cbs,
+        );
+
+        conn.start();
+        openSocket(instances[0]);
+        expect(activeIntervals().length).toBe(1);
+
+        // Simulate the socket transitioning to CLOSING before the
+        // interval fires (race condition edge case).
+        instances[0].readyState = 2; // CLOSING
+
+        tickActiveIntervals();
+        // No frame should have been sent because readyState is not OPEN.
+        expect(instances[0].sent.length).toBe(0);
+
+        conn.close();
+      } finally {
+        restoreFakeIntervals();
+      }
+    });
+
+    test('keepalives stop immediately after close()', () => {
+      installFakeIntervals();
+      try {
+        const cbs = makeCallbacks();
+        const conn = makeConn(
+          { kind: 'self-hosted', baseUrl: 'http://127.0.0.1:7830', token: 't' },
+          cbs,
+        );
+
+        conn.start();
+        openSocket(instances[0]);
+        expect(activeIntervals().length).toBe(1);
+
+        conn.close();
+
+        // The interval should have been cleared.
+        expect(activeIntervals().length).toBe(0);
+        expect(intervalRecords[0].cleared).toBe(true);
+
+        // Simulate firing the interval callback after clear — should
+        // be a no-op (belt-and-suspenders: even if the cleared callback
+        // somehow fires, readyState check prevents sending).
+        tickActiveIntervals();
+        expect(instances[0].sent.length).toBe(0);
+      } finally {
+        restoreFakeIntervals();
+      }
+    });
+
+    test('keepalives stop immediately after setMode()', () => {
+      installFakeIntervals();
+      try {
+        const cbs = makeCallbacks();
+        const conn = makeConn(
+          { kind: 'self-hosted', baseUrl: 'http://127.0.0.1:7830', token: 't' },
+          cbs,
+        );
+
+        conn.start();
+        openSocket(instances[0]);
+        expect(activeIntervals().length).toBe(1);
+        const firstIntervalId = intervalRecords[0].id;
+
+        // Switch modes — keepalive for the old socket should stop.
+        conn.setMode({
+          kind: 'cloud',
+          baseUrl: 'https://api.vellum.ai',
+          token: 'cloud-jwt',
+        });
+
+        // The first interval should be cleared.
+        expect(intervalRecords.find((r) => r.id === firstIntervalId)!.cleared).toBe(true);
+
+        // The new socket is still CONNECTING, so no new interval yet.
+        expect(activeIntervals().length).toBe(0);
+
+        // Open the new socket — a fresh interval should be created.
+        openSocket(instances[1]);
+        expect(activeIntervals().length).toBe(1);
+        // The active interval should be a NEW one, not the old one.
+        expect(activeIntervals()[0].id).not.toBe(firstIntervalId);
+
+        conn.close();
+      } finally {
+        restoreFakeIntervals();
+      }
+    });
+
+    test('keepalives stop after socket close event (server-initiated)', () => {
+      installFakeIntervals();
+      try {
+        const cbs = makeCallbacks();
+        const conn = makeConn(
+          { kind: 'self-hosted', baseUrl: 'http://127.0.0.1:7830', token: 't' },
+          cbs,
+        );
+
+        conn.start();
+        openSocket(instances[0]);
+        expect(activeIntervals().length).toBe(1);
+
+        // Server closes the socket abnormally.
+        closeSocket(instances[0], 1006, 'abnormal');
+
+        // The interval should have been cleared by the close handler.
+        expect(activeIntervals().length).toBe(0);
+
+        conn.close();
+      } finally {
+        restoreFakeIntervals();
+      }
+    });
+
+    test('no duplicate keepalive loops after reconnect cycles', async () => {
+      installFakeIntervals();
+      try {
+        const cbs = makeCallbacks();
+        const conn = makeConn(
+          { kind: 'self-hosted', baseUrl: 'http://127.0.0.1:7830', token: 't' },
+          cbs,
+        );
+
+        conn.start();
+        openSocket(instances[0]);
+
+        // First interval is active.
+        expect(activeIntervals().length).toBe(1);
+
+        // Server closes — interval should be cleared.
+        closeSocket(instances[0], 1006, 'abnormal');
+        expect(activeIntervals().length).toBe(0);
+
+        // Wait for the reconnect timer to fire (uses real setTimeout,
+        // which is not intercepted by the fake interval shim).
+        await new Promise((r) => setTimeout(r, 1100));
+        expect(instances.length).toBe(2);
+
+        // Open the reconnected socket — exactly one new interval.
+        openSocket(instances[1]);
+        expect(activeIntervals().length).toBe(1);
+
+        // Fire the keepalive — verify only one frame arrives (not
+        // duplicated by a leaked timer from the first socket).
+        tickActiveIntervals();
+        expect(instances[1].sent.length).toBe(1);
+
+        const frame = JSON.parse(instances[1].sent[0]);
+        expect(frame.type).toBe('keepalive');
+
+        conn.close();
+      } finally {
+        restoreFakeIntervals();
+      }
+    });
+
+    test('no duplicate keepalive loops after multiple rapid reconnects', async () => {
+      installFakeIntervals();
+      try {
+        const cbs = makeCallbacks();
+        const conn = makeConn(
+          { kind: 'self-hosted', baseUrl: 'http://127.0.0.1:7830', token: 't' },
+          cbs,
+        );
+
+        conn.start();
+        openSocket(instances[0]);
+        expect(activeIntervals().length).toBe(1);
+
+        // First disconnect + reconnect.
+        closeSocket(instances[0], 1006, 'abnormal');
+        expect(activeIntervals().length).toBe(0);
+
+        await new Promise((r) => setTimeout(r, 1100));
+        openSocket(instances[1]);
+        expect(activeIntervals().length).toBe(1);
+
+        // Second disconnect + reconnect.
+        closeSocket(instances[1], 1006, 'abnormal');
+        expect(activeIntervals().length).toBe(0);
+
+        await new Promise((r) => setTimeout(r, 2200));
+        openSocket(instances[2]);
+
+        // After two reconnect cycles, only ONE active interval should exist.
+        expect(activeIntervals().length).toBe(1);
+
+        // Total intervals created: 3 (one per open), but only the latest
+        // should be active.
+        expect(intervalRecords.length).toBe(3);
+        expect(intervalRecords[0].cleared).toBe(true);
+        expect(intervalRecords[1].cleared).toBe(true);
+        expect(intervalRecords[2].cleared).toBe(false);
+
+        conn.close();
+      } finally {
+        restoreFakeIntervals();
+      }
     });
   });
 });

@@ -154,14 +154,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "managed-google-oauth",
-      "scope": "assistant",
-      "key": "managed-google-oauth",
-      "label": "Managed Google OAuth",
-      "description": "Show the Google OAuth service card in Models & Services settings",
-      "defaultEnabled": true
-    },
-    {
       "id": "settings-embedding-provider",
       "scope": "assistant",
       "key": "settings-embedding-provider",
@@ -327,6 +319,14 @@
       "key": "fork-from-message",
       "label": "Fork from Message",
       "description": "Show the Fork from here option in message overflow menus",
+      "defaultEnabled": false
+    },
+    {
+      "id": "managed-x-oauth-integration",
+      "scope": "assistant",
+      "key": "managed-x-oauth-integration",
+      "label": "Managed X/Twitter OAuth",
+      "description": "Enable platform-managed X/Twitter OAuth integration in Models & Services settings",
       "defaultEnabled": false
     }
   ]

@@ -17,15 +17,28 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import { resolveGuardianPersonaPath } from "../../prompts/persona-resolver.js";
+import { getLogger } from "../../util/logger.js";
 import type { ManifestType } from "./vbundle-validator.js";
 
-/** Only these prompt filenames are accepted during import. */
+const log = getLogger("vbundle-import-analyzer");
+
+/**
+ * Only these prompt filenames are accepted during import.
+ *
+ * `USER.md` is retained for backward compatibility with legacy bundles —
+ * on import, its content is translated to `users/<slug>.md` at the
+ * current guardian's location (see `DefaultPathResolver.resolve`).
+ */
 const ALLOWED_PROMPT_FILENAMES = new Set([
   "IDENTITY.md",
   "SOUL.md",
   "USER.md",
   "UPDATES.md",
 ]);
+
+/** Archive path for the legacy guardian user persona file. */
+const LEGACY_USER_MD_ARCHIVE_PATH = "prompts/USER.md";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -87,9 +100,19 @@ export interface PathResolver {
 }
 
 export class DefaultPathResolver implements PathResolver {
+  /**
+   * @param workspaceDir  absolute path to the workspace directory.
+   * @param hooksDir      absolute path to the hooks directory.
+   * @param guardianPersonaPathResolver  function that returns the
+   *   current guardian's persona path (`users/<slug>.md`) or `null`
+   *   when no guardian exists. Defaults to the production
+   *   `resolveGuardianPersonaPath` helper; tests inject a stub so they
+   *   don't need to mock the contact store.
+   */
   constructor(
     private workspaceDir?: string,
     private hooksDir?: string,
+    private guardianPersonaPathResolver: () => string | null = resolveGuardianPersonaPath,
   ) {}
 
   resolve(archivePath: string): string | null {
@@ -139,6 +162,38 @@ export class DefaultPathResolver implements PathResolver {
       if (!ALLOWED_PROMPT_FILENAMES.has(filename)) {
         return null;
       }
+
+      // Legacy USER.md translation: rewrite the destination to the
+      // current guardian's per-user persona file `users/<slug>.md`.
+      // Guardian-less workspaces return null → importer skips with a
+      // warning (see vbundle-importer.ts). This lookup runs against
+      // whatever DB state is live at the time of resolve — typically
+      // the pre-import workspace, which is the common upgrade case.
+      if (archivePath === LEGACY_USER_MD_ARCHIVE_PATH) {
+        const guardianPath = this.guardianPersonaPathResolver();
+        if (!guardianPath) {
+          log.warn(
+            { path: archivePath },
+            "Legacy prompts/USER.md has no guardian target — will be skipped on import",
+          );
+          return null;
+        }
+        // Containment check: guardian path must live under the workspace.
+        const wsRoot = resolve(this.workspaceDir);
+        const guardianResolved = resolve(guardianPath);
+        if (
+          guardianResolved !== wsRoot &&
+          !guardianResolved.startsWith(wsRoot + "/")
+        ) {
+          log.warn(
+            { path: archivePath, guardianPath },
+            "Guardian persona path falls outside workspace — refusing to write",
+          );
+          return null;
+        }
+        return guardianResolved;
+      }
+
       const resolved = resolve(this.workspaceDir, filename);
       const wsRoot = resolve(this.workspaceDir);
       if (resolved !== wsRoot && !resolved.startsWith(wsRoot + "/")) {

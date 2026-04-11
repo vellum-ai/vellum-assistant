@@ -25,7 +25,7 @@ export { SYSTEM_PROMPT_CACHE_BOUNDARY };
 
 const log = getLogger("system-prompt");
 
-const PROMPT_FILES = ["SOUL.md", "IDENTITY.md", "USER.md"] as const;
+const PROMPT_FILES = ["SOUL.md", "IDENTITY.md"] as const;
 
 /**
  * Copy template prompt files into the data directory if they don't already exist.
@@ -190,7 +190,7 @@ export function ensurePromptFiles(): void {
  *
  * Composition:
  *   1. Base prompt: IDENTITY.md + SOUL.md (guaranteed to exist after ensurePromptFiles)
- *   2. Append USER.md (user profile)
+ *   2. Append the resolved user persona from users/<slug>.md (via options.userPersona)
  *   3. If BOOTSTRAP.md exists, append first-run ritual instructions
  */
 export interface BuildSystemPromptOptions {
@@ -215,7 +215,7 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // ── Static instruction sections (stable across turns) ──
   // These sections are deterministic within a process lifetime.  They form
   // the first cache block so they remain cached even when workspace files
-  // (IDENTITY.md, SOUL.md, USER.md, etc.) are edited between turns.
+  // (IDENTITY.md, SOUL.md, users/<slug>.md, etc.) are edited between turns.
   const staticParts: string[] = [];
   const customPrefix = readCustomSystemPromptPrefix();
   if (customPrefix) staticParts.push(customPrefix);
@@ -242,13 +242,11 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
 
   const soulPath = getWorkspacePromptPath("SOUL.md");
   const identityPath = getWorkspacePromptPath("IDENTITY.md");
-  const userPath = getWorkspacePromptPath("USER.md");
   const bootstrapPath = getWorkspacePromptPath("BOOTSTRAP.md");
   const updatesPath = getWorkspacePromptPath("UPDATES.md");
 
   const soul = readPromptFile(soulPath);
   const identity = readPromptFile(identityPath);
-  const user = readPromptFile(userPath);
   const bootstrap = readPromptFile(bootstrapPath);
   const updates = readPromptFile(updatesPath);
 
@@ -262,7 +260,6 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // source and skip them — SOUL.md provides sufficient personality defaults
   // until onboarding completes.
   const identityIsTemplate = isTemplateContent(identity, "IDENTITY.md");
-  const userIsTemplate = isTemplateContent(user, "USER.md");
 
   if (identity && !identityIsTemplate) {
     // Strip placeholder lines (e.g. "- **Name:** _(not yet chosen)_") so
@@ -278,12 +275,16 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   if (soul) dynamicParts.push(soul);
   if (options?.userPersona) dynamicParts.push(options.userPersona);
   if (options?.channelPersona) dynamicParts.push(options.channelPersona);
-  if (user && !userIsTemplate && !options?.userPersona) dynamicParts.push(user);
   if (includeBootstrap) {
+    const userSlug = options?.userSlug ?? "default";
+    const bootstrapWithSlug = bootstrap.replaceAll(
+      "{{USER_PERSONA_FILE}}",
+      `${userSlug}.md`,
+    );
     dynamicParts.push(
       "# First-Run Ritual\n\n" +
         "BOOTSTRAP.md is present — this is your first conversation. Follow its instructions.\n\n" +
-        bootstrap,
+        bootstrapWithSlug,
     );
   }
   if (updates) {
@@ -490,7 +491,7 @@ function readPromptFile(path: string): string | null {
 }
 
 /**
- * Reads the core identity/personality prompt files (SOUL.md, IDENTITY.md, USER.md)
+ * Reads the core identity/personality prompt files (SOUL.md, IDENTITY.md)
  * and concatenates whichever exist. Returns null if none are present.
  *
  * This is useful for injecting identity context into subsystems (e.g. memory
@@ -504,10 +505,9 @@ export function buildCoreIdentityContext(opts?: {
     const content = readPromptFile(getWorkspacePromptPath(file));
     if (!content) continue;
     // SOUL.md is always included — it provides personality defaults even
-    // before onboarding completes.  Only skip IDENTITY.md and USER.md when
-    // they are still unmodified templates (matching buildSystemPrompt).
+    // before onboarding completes.  Only skip IDENTITY.md when it is still
+    // an unmodified template (matching buildSystemPrompt).
     if (file !== "SOUL.md" && isTemplateContent(content, file)) continue;
-    if (file === "USER.md" && opts?.userPersona) continue;
     parts.push(content);
   }
   if (opts?.userPersona) parts.push(opts.userPersona);

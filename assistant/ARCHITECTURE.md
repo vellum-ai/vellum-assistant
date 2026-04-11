@@ -7,7 +7,7 @@ This document owns assistant-runtime architecture details. The repo-level archit
 - Transport metadata arrives via `conversation_create.transport` (HTTP) or `/channels/inbound` (`channelId`, optional `hints`, optional `uxBrief`).
 - Telegram webhook ingress injects deterministic channel-safe transport metadata (`hints` + `uxBrief`) so non-dashboard channels defer dashboard-only UI tasks cleanly.
 - `OnboardingPlaybookManager` resolves `<channel>_onboarding.md`, checks `onboarding/playbooks/registry.json`, and applies per-channel first-time fast-path onboarding.
-- `OnboardingOrchestrator` derives onboarding-mode guidance (post-hatch sequence, USER.md capture) from playbook + transport context.
+- `OnboardingOrchestrator` derives onboarding-mode guidance (post-hatch sequence, `users/<slug>.md` persona capture) from playbook + transport context.
 - Conversation runtime assembly injects both `<channel_onboarding_playbook>` and `<onboarding_mode>` context before provider calls, then strips both from persisted conversation history.
 - Permission setup remains user-initiated and hatch + first-conversation flows avoid proactive permission asks.
 

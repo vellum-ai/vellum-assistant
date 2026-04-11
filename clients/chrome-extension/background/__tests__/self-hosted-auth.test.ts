@@ -14,6 +14,8 @@ import {
   clearLocalToken,
   bootstrapLocalToken,
   localTokenStorageKey,
+  isLocalTokenStale,
+  LOCAL_TOKEN_STALE_WINDOW_MS,
   type StoredLocalToken,
 } from '../self-hosted-auth.js';
 
@@ -200,7 +202,7 @@ describe('bootstrapLocalToken', () => {
 
     // Port was told to request a token.
     expect(fakeRuntime.connectCalls).toEqual(['com.vellum.daemon']);
-    expect(fakeRuntime.currentPort?.sent).toEqual([{ type: 'request_token' }]);
+    expect(fakeRuntime.currentPort?.sent).toEqual([{ type: 'request_token', assistantId: ASSISTANT_A }]);
 
     // Token was persisted under assistant-scoped key.
     const key = localTokenStorageKey(ASSISTANT_A);
@@ -270,6 +272,49 @@ describe('bootstrapLocalToken', () => {
     const result = await bootstrapLocalToken(ASSISTANT_A);
     expect(result.assistantPort).toBeUndefined();
     expect(result.guardianId).toBe('g-legacy');
+  });
+
+  test('persists protocolVersion when the helper frame includes it', async () => {
+    const expiresAtIso = new Date(Date.now() + 60_000).toISOString();
+
+    fakeRuntime.onConnect = (port) => {
+      queueMicrotask(() => {
+        port.emitMessage({
+          type: 'token_response',
+          token: 'pv-token',
+          expiresAt: expiresAtIso,
+          guardianId: 'g-pv',
+          protocolVersion: 1,
+        });
+      });
+    };
+
+    const result = await bootstrapLocalToken(ASSISTANT_A);
+    expect(result.protocolVersion).toBe(1);
+
+    // And the stored value must round-trip through getStoredLocalToken.
+    const loaded = await getStoredLocalToken(ASSISTANT_A);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.protocolVersion).toBe(1);
+  });
+
+  test('treats missing protocolVersion as null for backward compatibility', async () => {
+    const expiresAtIso = new Date(Date.now() + 60_000).toISOString();
+
+    fakeRuntime.onConnect = (port) => {
+      queueMicrotask(() => {
+        // Simulate an older native host that does not include protocolVersion
+        port.emitMessage({
+          type: 'token_response',
+          token: 'legacy-pv-token',
+          expiresAt: expiresAtIso,
+          guardianId: 'g-legacy-pv',
+        });
+      });
+    };
+
+    const result = await bootstrapLocalToken(ASSISTANT_A);
+    expect(result.protocolVersion).toBeNull();
   });
 
   test('drops malformed assistantPort from the helper frame', async () => {
@@ -686,5 +731,64 @@ describe('legacy token migration (self-hosted)', () => {
   test('migration returns null when no legacy key exists', async () => {
     const result = await getStoredLocalToken(ASSISTANT_A);
     expect(result).toBeNull();
+  });
+});
+
+describe('isLocalTokenStale', () => {
+  test('returns true when token is null', () => {
+    expect(isLocalTokenStale(null)).toBe(true);
+  });
+
+  test('returns true when token is expired', () => {
+    const token: StoredLocalToken = {
+      token: 'expired',
+      expiresAt: Date.now() - 1_000,
+      guardianId: 'g-1',
+    };
+    expect(isLocalTokenStale(token)).toBe(true);
+  });
+
+  test('returns true when token expires within the stale window', () => {
+    const now = 1_000_000;
+    const token: StoredLocalToken = {
+      token: 'almost-expired',
+      expiresAt: now + LOCAL_TOKEN_STALE_WINDOW_MS - 1,
+      guardianId: 'g-1',
+    };
+    expect(isLocalTokenStale(token, now)).toBe(true);
+  });
+
+  test('returns true when token expires exactly at the stale window boundary', () => {
+    const now = 1_000_000;
+    const token: StoredLocalToken = {
+      token: 'boundary',
+      expiresAt: now + LOCAL_TOKEN_STALE_WINDOW_MS,
+      guardianId: 'g-1',
+    };
+    expect(isLocalTokenStale(token, now)).toBe(true);
+  });
+
+  test('returns false when token has plenty of remaining lifetime', () => {
+    const now = 1_000_000;
+    const token: StoredLocalToken = {
+      token: 'fresh',
+      expiresAt: now + LOCAL_TOKEN_STALE_WINDOW_MS + 1,
+      guardianId: 'g-1',
+    };
+    expect(isLocalTokenStale(token, now)).toBe(false);
+  });
+
+  test('returns false for a token well outside the stale window', () => {
+    const now = 1_000_000;
+    const token: StoredLocalToken = {
+      token: 'very-fresh',
+      expiresAt: now + 3_600_000, // 1 hour
+      guardianId: 'g-1',
+    };
+    expect(isLocalTokenStale(token, now)).toBe(false);
+  });
+
+  test('LOCAL_TOKEN_STALE_WINDOW_MS is 60 seconds', () => {
+    expect(LOCAL_TOKEN_STALE_WINDOW_MS).toBe(60_000);
   });
 });

@@ -2,7 +2,8 @@
  * Unit tests for the identity intro cache (identity-intro-cache.ts).
  *
  * Validates TTL-based expiration, content-hash-based invalidation when
- * workspace identity files change, and round-trip get/set behavior.
+ * workspace identity files or the guardian persona content change, and
+ * round-trip get/set behavior.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -44,6 +45,14 @@ mock.module("node:fs", () => ({
   },
 }));
 
+// Mocked guardian persona — mutable so tests can change it and verify cache
+// invalidation based on the per-user persona file content.
+let guardianPersonaContent: string | null = null;
+
+mock.module("../prompts/persona-resolver.js", () => ({
+  resolveGuardianPersona: () => guardianPersonaContent,
+}));
+
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
@@ -63,6 +72,7 @@ afterEach(() => {
   for (const key of Object.keys(workspaceFiles)) {
     delete workspaceFiles[key];
   }
+  guardianPersonaContent = null;
 });
 
 // ---------------------------------------------------------------------------
@@ -77,7 +87,7 @@ describe("identity intro cache", () => {
   test("round-trip: set then get returns cached text", () => {
     workspaceFiles["IDENTITY.md"] = "- **Name:** Atlas";
     workspaceFiles["SOUL.md"] = "Be playful.";
-    workspaceFiles["USER.md"] = "The user likes coffee.";
+    guardianPersonaContent = "The user likes coffee.";
 
     setCachedIntro("Hey, I'm Atlas.");
     const cached = getCachedIntro();
@@ -131,24 +141,24 @@ describe("identity intro cache", () => {
     expect(getCachedIntro()).toBeNull();
   });
 
-  test("busts cache when USER.md changes", () => {
-    workspaceFiles["USER.md"] = "Likes coffee.";
+  test("busts cache when guardian persona content changes", () => {
+    guardianPersonaContent = "Likes coffee.";
     setCachedIntro("Good morning!");
 
-    // Change USER.md
-    workspaceFiles["USER.md"] = "Likes tea.";
+    // Change guardian persona (e.g. user edited users/<slug>.md)
+    guardianPersonaContent = "Likes tea.";
 
     expect(getCachedIntro()).toBeNull();
   });
 
-  test("cache survives when files are unchanged", () => {
+  test("cache remains valid when guardian persona is unchanged", () => {
     workspaceFiles["IDENTITY.md"] = "- **Name:** Atlas";
     workspaceFiles["SOUL.md"] = "Be chill.";
-    workspaceFiles["USER.md"] = "Likes sunsets.";
+    guardianPersonaContent = "Likes sunsets.";
 
     setCachedIntro("Atlas here.");
 
-    // Read twice — both should return the cached value
+    // Read twice with the same guardian persona — both should return the cached value
     expect(getCachedIntro()?.text).toBe("Atlas here.");
     expect(getCachedIntro()?.text).toBe("Atlas here.");
   });
@@ -156,12 +166,32 @@ describe("identity intro cache", () => {
   test("computeIdentityContentHash is deterministic", () => {
     workspaceFiles["IDENTITY.md"] = "test";
     workspaceFiles["SOUL.md"] = "test2";
-    workspaceFiles["USER.md"] = "test3";
+    guardianPersonaContent = "test3";
 
     const hash1 = computeIdentityContentHash();
     const hash2 = computeIdentityContentHash();
     expect(hash1).toBe(hash2);
     expect(hash1).toMatch(/^[a-f0-9]{64}$/); // SHA-256 hex
+  });
+
+  test("computeIdentityContentHash changes when guardian persona changes", () => {
+    workspaceFiles["IDENTITY.md"] = "- **Name:** Atlas";
+    workspaceFiles["SOUL.md"] = "Be playful.";
+    guardianPersonaContent = "Likes coffee.";
+    const hash1 = computeIdentityContentHash();
+
+    guardianPersonaContent = "Likes tea.";
+    const hash2 = computeIdentityContentHash();
+
+    expect(hash1).not.toBe(hash2);
+  });
+
+  test("computeIdentityContentHash handles null guardian persona", () => {
+    workspaceFiles["IDENTITY.md"] = "- **Name:** Atlas";
+    guardianPersonaContent = null;
+
+    const hash = computeIdentityContentHash();
+    expect(hash).toMatch(/^[a-f0-9]{64}$/);
   });
 
   test("computeIdentityContentHash changes when file content changes", () => {

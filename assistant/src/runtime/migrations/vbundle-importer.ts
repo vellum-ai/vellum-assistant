@@ -25,9 +25,16 @@ import {
 import { dirname, join } from "node:path";
 
 import { sanitizeConfigForTransfer } from "../../config/sanitize-for-transfer.js";
+import { isGuardianPersonaCustomized } from "../../prompts/persona-resolver.js";
+import { getLogger } from "../../util/logger.js";
 import type { PathResolver } from "./vbundle-import-analyzer.js";
 import type { ManifestType, VBundleTarEntry } from "./vbundle-validator.js";
 import { validateVBundle } from "./vbundle-validator.js";
+
+const log = getLogger("vbundle-importer");
+
+/** Archive path for the legacy guardian user persona file. */
+const LEGACY_USER_MD_ARCHIVE_PATH = "prompts/USER.md";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -267,6 +274,33 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
       warnings.push(
         `Skipped "${fileEntry.path}": declared in manifest but not found in archive`,
       );
+      continue;
+    }
+
+    // Legacy guardian persona (prompts/USER.md) is translated to the
+    // current guardian's users/<slug>.md by DefaultPathResolver. If
+    // that target already holds user-authored content, skip rather
+    // than clobber — the user has curated their persona since the
+    // bundle was exported.
+    if (
+      fileEntry.path === LEGACY_USER_MD_ARCHIVE_PATH &&
+      isGuardianPersonaCustomized(diskPath)
+    ) {
+      log.warn(
+        { archivePath: fileEntry.path, diskPath },
+        "Skipping legacy prompts/USER.md import: guardian persona is already customized",
+      );
+      warnings.push(
+        `Skipped "${fileEntry.path}": guardian persona at "${diskPath}" is already customized`,
+      );
+      importedFiles.push({
+        path: fileEntry.path,
+        disk_path: diskPath,
+        action: "skipped",
+        size: fileEntry.size,
+        sha256: fileEntry.sha256,
+        backup_path: null,
+      });
       continue;
     }
 

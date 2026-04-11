@@ -1267,12 +1267,21 @@ echo "Signing with: $SIGN_IDENTITY"
 # Sign components explicitly (Apple's recommended approach instead of --deep)
 # This ensures nested binaries with specific entitlements aren't overwritten
 
+# Timestamp flags: release builds with a real identity use Apple's timestamp
+# server (required for notarization). Debug builds and self-signed builds use
+# --timestamp=none to explicitly opt out — otherwise, when re-signing Sparkle's
+# pre-timestamped XPC services, codesign implicitly tries to preserve the
+# timestamp by contacting Apple's timestamp server, and if that server is
+# unreachable the build fails with "A timestamp was expected but was not found".
+if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
+    CODESIGN_TS_FLAGS=(--timestamp --options runtime)
+else
+    CODESIGN_TS_FLAGS=(--timestamp=none)
+fi
+
 # Sign Sparkle.framework — must sign nested binaries inside-out before the outer framework
 if [ -d "$FRAMEWORKS_DIR/Sparkle.framework" ]; then
-    FW_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
-    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-        FW_SIGN_FLAGS+=(--timestamp --options runtime)
-    fi
+    FW_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
 
     SPARKLE_VERSIONS="$FRAMEWORKS_DIR/Sparkle.framework/Versions/B"
 
@@ -1302,10 +1311,7 @@ fi
 # Sign Quick Look Thumbnail extension (must be signed before outer app bundle)
 QLTHUMB_APPEX="$CONTENTS/PlugIns/VellumQLThumbnail.appex"
 if [ -d "$QLTHUMB_APPEX" ]; then
-    QLTHUMB_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
-    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-        QLTHUMB_SIGN_FLAGS+=(--timestamp --options runtime)
-    fi
+    QLTHUMB_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
     codesign "${QLTHUMB_SIGN_FLAGS[@]}" "$QLTHUMB_APPEX"
     echo "VellumQLThumbnail.appex signed"
 fi
@@ -1313,40 +1319,28 @@ fi
 # Sign Quick Look Preview extension (must be signed before outer app bundle)
 QLPREV_APPEX="$CONTENTS/PlugIns/VellumQLPreview.appex"
 if [ -d "$QLPREV_APPEX" ]; then
-    QLPREV_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
-    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-        QLPREV_SIGN_FLAGS+=(--timestamp --options runtime)
-    fi
+    QLPREV_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
     codesign "${QLPREV_SIGN_FLAGS[@]}" "$QLPREV_APPEX"
     echo "VellumQLPreview.appex signed"
 fi
 
 # Sign CLI binary
 if [ -f "$MACOS_DIR/vellum-cli" ]; then
-    CLI_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
-    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-        CLI_SIGN_FLAGS+=(--timestamp --options runtime)
-    fi
+    CLI_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
     codesign "${CLI_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-cli"
     echo "CLI binary signed"
 fi
 
 # Sign gateway binary
 if [ -f "$MACOS_DIR/vellum-gateway" ]; then
-    GATEWAY_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
-    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-        GATEWAY_SIGN_FLAGS+=(--timestamp --options runtime)
-    fi
+    GATEWAY_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
     codesign "${GATEWAY_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-gateway"
     echo "Gateway binary signed"
 fi
 
 # Sign Chrome native messaging helper binary
 if [ -f "$MACOS_DIR/vellum-chrome-native-host" ]; then
-    NATIVE_HOST_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
-    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-        NATIVE_HOST_SIGN_FLAGS+=(--timestamp --options runtime)
-    fi
+    NATIVE_HOST_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
     codesign "${NATIVE_HOST_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-chrome-native-host"
     echo "Chrome native messaging helper binary signed"
 fi
@@ -1356,10 +1350,7 @@ fi
 # Sign any additional regular files directly under Contents/MacOS.
 # This protects against future unsigned loose files in incremental dev builds.
 if [ -d "$MACOS_DIR" ]; then
-    EXTRA_FILE_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
-    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-        EXTRA_FILE_SIGN_FLAGS+=(--timestamp --options runtime)
-    fi
+    EXTRA_FILE_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
     find "$MACOS_DIR" -maxdepth 1 -type f \
         ! -name "$BUNDLE_DISPLAY_NAME" \
         ! -name "vellum-daemon" \
@@ -1371,10 +1362,7 @@ fi
 
 # Sign daemon binary with its own entitlements (JIT, network)
 if [ -f "$MACOS_DIR/vellum-daemon" ]; then
-    DAEMON_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$SCRIPT_DIR/daemon-entitlements.plist")
-    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-        DAEMON_SIGN_FLAGS+=(--timestamp --options runtime)
-    fi
+    DAEMON_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$SCRIPT_DIR/daemon-entitlements.plist" "${CODESIGN_TS_FLAGS[@]}")
     codesign "${DAEMON_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-daemon"
     echo "Daemon binary signed with entitlements"
 fi
@@ -1403,10 +1391,7 @@ if [ ${#STRAY_ITEMS[@]} -gt 0 ]; then
 fi
 
 # Sign the outer app bundle with entitlements (without --deep to preserve nested signatures)
-APP_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$SCRIPT_DIR/app-entitlements.plist")
-if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-    APP_SIGN_FLAGS+=(--timestamp --options runtime)
-fi
+APP_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$SCRIPT_DIR/app-entitlements.plist" "${CODESIGN_TS_FLAGS[@]}")
 codesign "${APP_SIGN_FLAGS[@]}" "$APP_DIR"
 
 echo "Built: $APP_DIR"
