@@ -43,6 +43,13 @@ export interface StoredLocalToken {
    * native helpers that predate PR 3 of the browser-remediation plan.
    */
   assistantPort?: number;
+  /**
+   * Protocol version reported by the native host. `null` when the native
+   * host predates protocol versioning (backward-compatible — treat as
+   * "version unknown, assume compatible"). Optional so existing stored
+   * tokens without this field remain valid.
+   */
+  protocolVersion?: number | null;
 }
 
 const STORAGE_KEY_PREFIX = 'vellum.localCapabilityToken';
@@ -255,6 +262,7 @@ export async function bootstrapLocalToken(
         expiresAt?: unknown;
         guardianId?: unknown;
         assistantPort?: unknown;
+        protocolVersion?: unknown;
         message?: unknown;
       };
 
@@ -285,11 +293,18 @@ export async function bootstrapLocalToken(
         ) {
           assistantPort = rawPort;
         }
+        // Forward/back-compat: accept missing protocolVersion. Older
+        // native helpers that predate protocol versioning don't emit
+        // this field; treat as null (version unknown, assume compatible).
+        const protocolVersion =
+          typeof frame.protocolVersion === 'number' ? frame.protocolVersion : null;
+
         const stored: StoredLocalToken = {
           token: frame.token,
           expiresAt,
           guardianId: frame.guardianId,
           ...(assistantPort !== undefined ? { assistantPort } : {}),
+          protocolVersion,
         };
 
         // Mark settled + tear down the port SYNCHRONOUSLY so a racing

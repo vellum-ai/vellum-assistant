@@ -151,6 +151,14 @@ const RUNTIME_PORT_FILE = join(homedir(), ".vellum", "runtime-port");
 export const NATIVE_HOST_MARKER_HEADER = "x-vellum-native-host";
 export const NATIVE_HOST_MARKER_VALUE = "1";
 
+/**
+ * Protocol version for the native messaging handshake. Increment this when
+ * making breaking changes to the message format. The extension uses this to
+ * detect incompatible native host versions and show an "update your desktop
+ * app" message.
+ */
+export const PROTOCOL_VERSION = 1;
+
 interface TokenResponse {
   token: string;
   expiresAt: string;
@@ -312,7 +320,7 @@ function writeFrameAndExitAsync(
  */
 function fail(message: string, code = 1): never {
   process.stderr.write(`vellum-chrome-native-host: ${message}\n`);
-  writeErrorFrameAndExit({ type: "error", message }, code);
+  writeErrorFrameAndExit({ type: "error", message, protocolVersion: PROTOCOL_VERSION }, code);
 }
 
 /**
@@ -474,6 +482,7 @@ async function main(): Promise<void> {
                 type: "assistants_response",
                 assistants: inventory.assistants,
                 activeAssistantId: inventory.activeAssistantId,
+                protocolVersion: PROTOCOL_VERSION,
               },
               0,
             );
@@ -500,6 +509,7 @@ async function main(): Promise<void> {
                 expiresAt,
                 guardianId,
                 assistantPort,
+                protocolVersion: PROTOCOL_VERSION,
               },
               0,
             );

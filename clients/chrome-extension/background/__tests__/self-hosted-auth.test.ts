@@ -272,6 +272,49 @@ describe('bootstrapLocalToken', () => {
     expect(result.guardianId).toBe('g-legacy');
   });
 
+  test('persists protocolVersion when the helper frame includes it', async () => {
+    const expiresAtIso = new Date(Date.now() + 60_000).toISOString();
+
+    fakeRuntime.onConnect = (port) => {
+      queueMicrotask(() => {
+        port.emitMessage({
+          type: 'token_response',
+          token: 'pv-token',
+          expiresAt: expiresAtIso,
+          guardianId: 'g-pv',
+          protocolVersion: 1,
+        });
+      });
+    };
+
+    const result = await bootstrapLocalToken(ASSISTANT_A);
+    expect(result.protocolVersion).toBe(1);
+
+    // And the stored value must round-trip through getStoredLocalToken.
+    const loaded = await getStoredLocalToken(ASSISTANT_A);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.protocolVersion).toBe(1);
+  });
+
+  test('treats missing protocolVersion as null for backward compatibility', async () => {
+    const expiresAtIso = new Date(Date.now() + 60_000).toISOString();
+
+    fakeRuntime.onConnect = (port) => {
+      queueMicrotask(() => {
+        // Simulate an older native host that does not include protocolVersion
+        port.emitMessage({
+          type: 'token_response',
+          token: 'legacy-pv-token',
+          expiresAt: expiresAtIso,
+          guardianId: 'g-legacy-pv',
+        });
+      });
+    };
+
+    const result = await bootstrapLocalToken(ASSISTANT_A);
+    expect(result.protocolVersion).toBeNull();
+  });
+
   test('drops malformed assistantPort from the helper frame', async () => {
     const expiresAtIso = new Date(Date.now() + 60_000).toISOString();
 
