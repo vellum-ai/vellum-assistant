@@ -3,14 +3,13 @@
  *
  * Wraps the ElevenLabs REST text-to-speech API (`/v1/text-to-speech/:voiceId`)
  * behind the uniform {@link TtsProvider} interface. Reads the API key from the
- * secure credential store (`elevenlabs/api_key`) and the voice configuration
+ * secure credential store and the voice configuration
  * from `services.tts.providers.elevenlabs` config section.
  */
 
 import { getConfig } from "../../config/loader.js";
 import { DEFAULT_ELEVENLABS_VOICE_ID } from "../../config/schemas/elevenlabs.js";
 import type { TtsElevenLabsProviderConfig } from "../../config/schemas/tts.js";
-import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import type {
@@ -114,14 +113,12 @@ export function createElevenLabsProvider(): TtsProvider {
     async synthesize(
       request: TtsSynthesisRequest,
     ): Promise<TtsSynthesisResult> {
-      const apiKey = await getSecureKeyAsync(
-        credentialKey("elevenlabs", "api_key"),
-      );
+      const apiKey = await getSecureKeyAsync("elevenlabs");
       if (!apiKey) {
         throw new ElevenLabsTtsError(
           "ELEVENLABS_TTS_NO_API_KEY",
           "ElevenLabs API key not configured. " +
-            "Store it via: assistant credentials set --service elevenlabs --field api_key <key>",
+            "Add it in Settings → Voice or via: vellum keys set elevenlabs <key>",
         );
       }
 
