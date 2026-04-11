@@ -164,7 +164,7 @@ The native messaging helper reads the lockfile to discover assistants. If the
 popup shows no assistants:
 
 - Verify at least one assistant is running: check for the lockfile at
-  `~/.vellum/lockfile.json` (or the path appropriate for your OS).
+  `~/.vellum.lock.json` (or `~/.vellum.lockfile.json` for legacy installs).
 - Verify the native messaging host is installed and reachable (see the setup
   section above). The macOS app installs the manifest automatically on launch.
 - Check the service worker console for `native messaging` errors.
@@ -207,7 +207,7 @@ the appropriate auth flow for the newly selected assistant before connecting.
 ### Useful checks
 
 ```bash
-cat ~/.vellum/lockfile.json
+cat ~/.vellum.lock.json
 cat ~/.vellum/runtime-port
 cat "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.vellum.daemon.json"
 cat meta/browser-extension/chrome-extension-allowlist.json
