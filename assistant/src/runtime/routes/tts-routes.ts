@@ -132,14 +132,15 @@ export function ttsRouteDefinitions(): RouteDefinition[] {
           .optional()
           .describe("Optional conversation ID for scoping or analytics."),
       }),
-      responseBody: z.object({
-        audio: z.string().describe("Raw audio binary (response body)"),
-      }),
       handler: async ({ req }) => {
         let body: { text?: string; context?: string; conversationId?: string };
         try {
           body = (await req.json()) as typeof body;
         } catch {
+          return httpError("BAD_REQUEST", "Invalid JSON body", 400);
+        }
+
+        if (!body || typeof body !== "object") {
           return httpError("BAD_REQUEST", "Invalid JSON body", 400);
         }
 

@@ -7839,17 +7839,6 @@ paths:
       responses:
         "200":
           description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  audio:
-                    type: string
-                    description: Raw audio binary (response body)
-                required:
-                  - audio
-                additionalProperties: false
       requestBody:
         required: true
         content:

@@ -118,6 +118,11 @@ async function synthesizeAndPlay(
     const baseUrl = getPublicBaseUrl(config);
     const url = `${baseUrl}/v1/audio/${handle.audioId}`;
 
+    // Send the play URL FIRST so Twilio can start playing audio as soon as
+    // chunks arrive in the streaming store. This avoids the caller hearing
+    // silence during the full synthesis latency window.
+    relay.sendPlayUrl(url);
+
     if (provider.synthesizeStream) {
       await provider.synthesizeStream(
         { text, useCase: "phone-call" },
@@ -130,10 +135,6 @@ async function synthesizeAndPlay(
       });
       handle.push(result.audio);
     }
-
-    // Send the play URL only after synthesis succeeds so that Twilio never
-    // receives a play message pointing to empty/broken audio on failure.
-    relay.sendPlayUrl(url);
 
     // Signal end of this turn's speech.  An empty token with `last: true`
     // tells ConversationRelay to start listening — it does NOT trigger TTS

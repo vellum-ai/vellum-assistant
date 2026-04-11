@@ -113,6 +113,7 @@ export function createFishAudioProvider(): TtsProvider {
           signal: request.signal,
         });
       } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") throw err;
         throw new FishAudioTtsError(
           "FISH_AUDIO_TTS_SYNTHESIS_FAILED",
           `Fish Audio TTS synthesis failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -152,6 +153,7 @@ export function createFishAudioProvider(): TtsProvider {
           signal: request.signal,
         });
       } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") throw err;
         throw new FishAudioTtsError(
           "FISH_AUDIO_TTS_SYNTHESIS_FAILED",
           `Fish Audio TTS streaming synthesis failed: ${err instanceof Error ? err.message : String(err)}`,

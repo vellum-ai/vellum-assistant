@@ -2189,13 +2189,21 @@ export class RelayConnection {
 
             // Wait for synthesis to complete before starting teardown timer
             // so the caller hears the goodbye message.
-            void speakSystemPrompt(this, "Verification failed. Goodbye.").then(
-              () => {
+            void speakSystemPrompt(this, "Verification failed. Goodbye.")
+              .then(() => {
                 setTimeout(() => {
                   this.endSession("Verification failed");
                 }, getTtsPlaybackDelayMs());
-              },
-            );
+              })
+              .catch((err) => {
+                log.error(
+                  { err, callSessionId: this.callSessionId },
+                  "System prompt TTS failed during verification teardown",
+                );
+                setTimeout(() => {
+                  this.endSession("Verification failed");
+                }, getTtsPlaybackDelayMs());
+              });
           } else {
             // Allow another attempt
             log.info(

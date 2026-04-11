@@ -159,6 +159,7 @@ export function createElevenLabsProvider(): TtsProvider {
           signal: request.signal,
         });
       } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") throw err;
         throw new ElevenLabsTtsError(
           "ELEVENLABS_TTS_REQUEST_FAILED",
           `ElevenLabs TTS request failed: ${err instanceof Error ? err.message : String(err)}`,

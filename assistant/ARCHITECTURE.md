@@ -2065,8 +2065,9 @@ The `TtsUseCase` discriminator (`"phone-call"` or `"message-playback"`) lets pro
 3. Register the adapter in `src/tts/providers/register-builtins.ts`.
 4. Add provider-specific config resolution in `tts-config-resolver.ts`.
 5. Update `TtsProviderId` union in `src/tts/types.ts`.
+6. If the new provider is a **native** (non-streaming) provider, update `resolveVoiceQualityProfile()` in `src/calls/voice-quality.ts`. The native path currently hardcodes ElevenLabs voice spec for the Twilio ConversationRelay `ttsProvider`/`voice` fields — a new native provider will need its own branch or the hardcoded ElevenLabs fallback will produce incorrect TwiML.
 
-No other files need to change — the registry, resolver, and orchestrator will automatically pick up the new provider when selected via `services.tts.provider`.
+The registry, resolver, and orchestrator will automatically pick up the new provider when selected via `services.tts.provider`. Streaming providers require no `voice-quality.ts` changes because they bypass Twilio's built-in TTS entirely.
 
 **Key source files:**
 
