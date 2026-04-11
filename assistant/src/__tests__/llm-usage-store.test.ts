@@ -453,6 +453,7 @@ describe("getUsageGroupBreakdown", () => {
   beforeEach(() => {
     const db = getDb();
     db.run(`DELETE FROM llm_usage_events`);
+    db.run(`DELETE FROM conversations`);
   });
 
   test("returns empty array when no events exist", () => {
@@ -598,6 +599,81 @@ describe("getUsageGroupBreakdown", () => {
     expect(groups[0].group).toBe("title_generator");
     expect(groups[1].group).toBe("context_compactor");
     expect(groups[2].group).toBe("main_agent");
+  });
+
+  test("returns groupId matching the seeded conversation id when grouping by conversation", () => {
+    const db = getDb();
+    const conversationId = "conv-breakdown-1";
+    const now = Date.now();
+    db.run(
+      `INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('${conversationId}', 'Debug session', ${now}, ${now})`,
+    );
+
+    insertEventAt(
+      1000,
+      { conversationId, inputTokens: 100, outputTokens: 50 },
+      { estimatedCostUsd: 0.02, pricingStatus: "priced" },
+    );
+    insertEventAt(
+      2000,
+      { conversationId, inputTokens: 200, outputTokens: 75 },
+      { estimatedCostUsd: 0.03, pricingStatus: "priced" },
+    );
+
+    const groups = getUsageGroupBreakdown(
+      { from: 0, to: 5000 },
+      "conversation",
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0].group).toBe("Debug session");
+    expect(groups[0].groupId).toBe(conversationId);
+    expect(groups[0].totalInputTokens).toBe(300);
+    expect(groups[0].totalOutputTokens).toBe(125);
+    expect(groups[0].totalEstimatedCostUsd).toBeCloseTo(0.05);
+    expect(groups[0].eventCount).toBe(2);
+  });
+
+  test("returns groupId null for the Other bucket when grouping by conversation and events have no conversation id", () => {
+    insertEventAt(
+      1000,
+      { conversationId: null, inputTokens: 100 },
+      { estimatedCostUsd: 0.01, pricingStatus: "priced" },
+    );
+    insertEventAt(
+      2000,
+      { conversationId: null, inputTokens: 200 },
+      { estimatedCostUsd: 0.02, pricingStatus: "priced" },
+    );
+
+    const groups = getUsageGroupBreakdown(
+      { from: 0, to: 5000 },
+      "conversation",
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0].group).toBe("Other");
+    expect(groups[0].groupId).toBeNull();
+    expect(groups[0].totalInputTokens).toBe(300);
+    expect(groups[0].eventCount).toBe(2);
+  });
+
+  test("returns groupId null for every row when grouping by a non-conversation dimension", () => {
+    insertEventAt(
+      1000,
+      { model: "claude-sonnet-4-20250514", conversationId: "conv-a" },
+      { estimatedCostUsd: 0.03, pricingStatus: "priced" },
+    );
+    insertEventAt(
+      2000,
+      { model: "claude-sonnet-4-20250514", conversationId: "conv-b" },
+      { estimatedCostUsd: 0.02, pricingStatus: "priced" },
+    );
+    insertEventAt(3000, { model: "llama3" }, unpricedResult);
+
+    const groups = getUsageGroupBreakdown({ from: 0, to: 5000 }, "model");
+    expect(groups.length).toBeGreaterThan(0);
+    for (const row of groups) {
+      expect(row.groupId).toBeNull();
+    }
   });
 });
 

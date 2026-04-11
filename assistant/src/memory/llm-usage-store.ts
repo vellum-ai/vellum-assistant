@@ -164,6 +164,14 @@ export interface UsageDayBucket {
 /** A grouped breakdown row (by actor, provider, or model). */
 export interface UsageGroupBreakdown {
   group: string;
+  /**
+   * Stable identifier for the group. Populated with the conversation id when
+   * `groupBy === "conversation"` (and `null` for that mode's "Other" bucket,
+   * which aggregates events with no conversation id). For all other group-bys
+   * (`actor`, `provider`, `model`) this is always `null` — the raw grouping
+   * column is already exposed via `group`.
+   */
+  groupId: string | null;
   /** Direct input tokens only; cache traffic is reported separately below. */
   totalInputTokens: number;
   totalOutputTokens: number;
@@ -196,6 +204,7 @@ interface DayBucketRow {
 
 interface GroupRow {
   group_key: string;
+  group_id: string | null;
   total_input_tokens: number;
   total_output_tokens: number;
   total_cache_creation_tokens: number;
@@ -330,6 +339,7 @@ export function getUsageGroupBreakdown(
         CASE WHEN e.conversation_id IS NULL THEN 'Other'
              ELSE COALESCE(c.title, 'Untitled')
         END AS group_key,
+        e.conversation_id                                AS group_id,
         COALESCE(SUM(e.input_tokens), 0)                 AS total_input_tokens,
         COALESCE(SUM(e.output_tokens), 0)                AS total_output_tokens,
         COALESCE(SUM(e.cache_creation_input_tokens), 0)  AS total_cache_creation_tokens,
@@ -348,6 +358,10 @@ export function getUsageGroupBreakdown(
     );
     return rows.map((r) => ({
       group: r.group_key,
+      // `GROUP BY e.conversation_id` makes `e.conversation_id` unambiguous
+      // inside each group — it is the seeded conversation id for real rows
+      // and `null` for the "Other" bucket (events with no conversation).
+      groupId: r.group_id,
       totalInputTokens: r.total_input_tokens,
       totalOutputTokens: r.total_output_tokens,
       totalCacheCreationTokens: r.total_cache_creation_tokens,
@@ -378,6 +392,10 @@ export function getUsageGroupBreakdown(
   );
   return rows.map((r) => ({
     group: r.group_key,
+    // Non-conversation group-bys (actor/provider/model) don't have a
+    // separate stable id — the grouping column itself is the identifier
+    // and is already exposed via `group`.
+    groupId: null,
     totalInputTokens: r.total_input_tokens,
     totalOutputTokens: r.total_output_tokens,
     totalCacheCreationTokens: r.total_cache_creation_tokens,
