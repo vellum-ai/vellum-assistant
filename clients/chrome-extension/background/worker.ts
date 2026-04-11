@@ -61,6 +61,7 @@ import {
   bootstrapLocalToken,
   getStoredLocalToken,
   validateLocalToken,
+  isLocalTokenStale,
   LEGACY_LOCAL_STORAGE_KEY,
   type StoredLocalToken,
 } from './self-hosted-auth.js';
@@ -520,7 +521,29 @@ async function buildRelayModeForAssistant(
   });
 
   if (profile === 'local-pair') {
-    const local = await getStoredLocalToken(assistant.assistantId);
+    let local = await getStoredLocalToken(assistant.assistantId);
+
+    // Silent token recovery: when the stored token is missing, expired,
+    // or stale (within the stale window), attempt a non-interactive
+    // bootstrap before surfacing a missing-token error. This lets
+    // returning local users with expired/stale pair tokens auto-recover
+    // without a manual re-pair click in startup/reconnect flows.
+    if (isLocalTokenStale(local)) {
+      try {
+        local = await bootstrapLocalToken(assistant.assistantId);
+      } catch (err) {
+        // Non-recoverable native-host failures (missing host, forbidden
+        // origin, pair endpoint failure) — fall through to the
+        // token-less error path below so the caller surfaces an
+        // actionable error.
+        const detail = err instanceof Error ? err.message : String(err);
+        console.warn(
+          `[vellum-relay] Silent local token refresh failed: ${detail}`,
+        );
+        local = null;
+      }
+    }
+
     if (local) {
       const port = local.assistantPort ?? assistant.daemonPort ?? (await getRelayPort());
       return {
@@ -768,9 +791,27 @@ function createRelayConnection(
         return cloudReconnectHook(ctx);
       }
       const selectedId = await loadSelectedAssistantId();
-      const local = selectedId
+      let local = selectedId
         ? await getStoredLocalToken(selectedId)
         : await getLegacyLocalToken();
+
+      // Silent token recovery on reconnect: when the stored local token
+      // is stale/expired/missing, attempt a non-interactive bootstrap
+      // before aborting. This mirrors the preflight recovery in
+      // buildRelayModeForAssistant and lets auto-reconnect paths
+      // silently refresh tokens without user interaction.
+      if (isLocalTokenStale(local) && selectedId) {
+        try {
+          local = await bootstrapLocalToken(selectedId);
+        } catch (err) {
+          const detail = err instanceof Error ? err.message : String(err);
+          console.warn(
+            `[vellum-relay] Silent local token refresh on reconnect failed: ${detail}`,
+          );
+          local = null;
+        }
+      }
+
       if (local?.token) {
         return { kind: 'refreshed', token: local.token };
       }
