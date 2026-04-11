@@ -134,6 +134,7 @@ struct SettingsPanel: View {
     @State private var isDeveloperEnabled: Bool = false
     @State private var isSoundsEnabled: Bool = true
     @State private var isEmbeddingProviderEnabled: Bool = false
+    @State private var isEmailChannelEnabled: Bool = false
     @State private var showingDevUnlock: Bool = false
     @State private var devUnlockText: String = ""
     @State private var devUnlockMonitor: Any?
@@ -143,6 +144,7 @@ struct SettingsPanel: View {
     private static let billingFeatureFlagKey = "settings-billing"
     private static let developerFeatureFlagKey = "settings-developer-nav"
     private static let embeddingProviderFeatureFlagKey = "settings-embedding-provider"
+    private static let emailChannelFeatureFlagKey = "email-channel"
     private static let soundsFeatureFlagKey = "sounds"
 
     var body: some View {
@@ -498,6 +500,11 @@ struct SettingsPanel: View {
                 )
             }
 
+            // EMAIL (feature-flagged)
+            if isEmailChannelEnabled {
+                EmailServiceCard(store: store)
+            }
+
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
@@ -505,6 +512,9 @@ struct SettingsPanel: View {
             store.refreshModelInfo()
             store.loadProviderRoutingSources()
             store.refreshEmbeddingConfig()
+            if isEmailChannelEnabled {
+                store.refreshAssistantEmail()
+            }
         }
     }
 
@@ -641,6 +651,9 @@ struct SettingsPanel: View {
                 if let embeddingProviderFlag = flags.first(where: { $0.key == Self.embeddingProviderFeatureFlagKey }) {
                     isEmbeddingProviderEnabled = embeddingProviderFlag.enabled
                 }
+                if let emailChannelFlag = flags.first(where: { $0.key == Self.emailChannelFeatureFlagKey }) {
+                    isEmailChannelEnabled = emailChannelFlag.enabled
+                }
                 if let soundsFlag = flags.first(where: { $0.key == Self.soundsFeatureFlagKey }) {
                     isSoundsEnabled = soundsFlag.enabled
                 }
@@ -663,6 +676,9 @@ struct SettingsPanel: View {
         }
         if let embeddingProviderEnabled = resolved[Self.embeddingProviderFeatureFlagKey] {
             isEmbeddingProviderEnabled = embeddingProviderEnabled
+        }
+        if let emailChannelEnabled = resolved[Self.emailChannelFeatureFlagKey] {
+            isEmailChannelEnabled = emailChannelEnabled
         }
         if let soundsEnabled = resolved[Self.soundsFeatureFlagKey] {
             isSoundsEnabled = soundsEnabled

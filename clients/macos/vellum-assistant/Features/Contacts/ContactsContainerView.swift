@@ -16,7 +16,6 @@ struct ContactsContainerView: View {
     var connectionManager: GatewayConnectionManager?
     var store: SettingsStore?
     var conversationManager: ConversationManager?
-    var isEmailEnabled: Bool = false
     var showToast: ((String, ToastInfo.Style) -> Void)?
 
     @State private var viewModel: ContactsViewModel
@@ -24,11 +23,10 @@ struct ContactsContainerView: View {
 
     private let contactClient: ContactClientProtocol = ContactClient()
 
-    init(connectionManager: GatewayConnectionManager?, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, isEmailEnabled: Bool = false, showToast: ((String, ToastInfo.Style) -> Void)? = nil) {
+    init(connectionManager: GatewayConnectionManager?, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil) {
         self.connectionManager = connectionManager
         self.store = store
         self.conversationManager = conversationManager
-        self.isEmailEnabled = isEmailEnabled
         self.showToast = showToast
         _viewModel = State(wrappedValue: ContactsViewModel(connectionManager: connectionManager, eventStreamClient: eventStreamClient))
     }
@@ -318,7 +316,7 @@ struct ContactsContainerView: View {
                 .padding(.horizontal, VSpacing.lg)
 
                 if let store {
-                    AssistantChannelsDetailView(store: store, connectionManager: connectionManager, conversationManager: conversationManager, assistantName: cachedAssistantName, isEmailEnabled: isEmailEnabled, showCardBorders: false)
+                    AssistantChannelsDetailView(store: store, connectionManager: connectionManager, conversationManager: conversationManager, assistantName: cachedAssistantName, showCardBorders: false)
                         .padding(.horizontal, VSpacing.lg)
                         .padding(.bottom, VSpacing.lg)
                 }
