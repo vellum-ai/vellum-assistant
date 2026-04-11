@@ -2,11 +2,9 @@
  * Provider-aware speech output for deterministic call prompts.
  *
  * Deterministic call prompts (verification codes, guardian wait updates,
- * timeout copy, failure copy, etc.) were previously sent directly via
- * `sendTextToken()` which always uses Twilio's built-in TTS. This helper
- * routes them through the same provider abstraction used by the call
- * controller so that configured synthesized providers (e.g. Fish Audio)
- * are respected for all spoken output.
+ * timeout copy, failure copy, etc.) are routed through the same provider
+ * abstraction used by the call controller so that configured synthesized
+ * providers (e.g. Fish Audio) are respected for all spoken output.
  *
  * Two output paths:
  * - **Native**: Provider does not support streaming — text is sent via
@@ -116,7 +114,6 @@ async function synthesizeAndPlay(
     const config = loadConfig();
     const baseUrl = getPublicBaseUrl(config);
     const url = `${baseUrl}/v1/audio/${handle.audioId}`;
-    relay.sendPlayUrl(url);
 
     if (provider.synthesizeStream) {
       await provider.synthesizeStream(
@@ -130,12 +127,25 @@ async function synthesizeAndPlay(
       });
       handle.push(result.audio);
     }
+
+    // Send the play URL only after synthesis succeeds so that Twilio never
+    // receives a play message pointing to empty/broken audio on failure.
+    relay.sendPlayUrl(url);
+
+    // Signal end of this turn's speech.  An empty token with `last: true`
+    // tells ConversationRelay to start listening — it does NOT trigger TTS
+    // synthesis.  This is required even when a synthesized provider handled
+    // all audio playback, because ConversationRelay still needs the
+    // end-of-turn signal to transition from "assistant speaking" to
+    // "caller speaking" state.
+    relay.sendTextToken("", true);
   } catch (err) {
     log.error(
       { err, provider: provider.id },
       "System prompt TTS synthesis failed — falling back to native TTS",
     );
     // Fallback: send text via native TTS so the caller still hears the message.
+    // sendTextToken with last:true includes the end-of-turn signal inherently.
     relay.sendTextToken(text, true);
   } finally {
     handle?.finalize();
