@@ -62,9 +62,15 @@ mock.module("../prompts/system-prompt.js", () => ({
 }));
 
 mock.module("../prompts/persona-resolver.js", () => ({
+  resolvePersonaContext: () => ({
+    userPersona: null,
+    userSlug: null,
+    channelPersona: null,
+  }),
   resolveGuardianPersona: () => null,
   resolveChannelPersona: () => null,
   resolveUserPersona: () => null,
+  resolveUserSlug: () => null,
 }));
 
 // ---------------------------------------------------------------------------
@@ -313,6 +319,7 @@ describe("POST /v1/btw", () => {
       channelPersona: null,
       excludeBootstrap: true,
       userPersona: null,
+      userSlug: null,
     });
 
     // Options: tool_choice must be "none"
