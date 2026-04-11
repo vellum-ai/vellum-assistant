@@ -1,10 +1,16 @@
 /**
- * Pure view-state helpers for the popup assistant selector.
+ * Pure view-state helpers for the popup UI.
  *
- * These functions derive display state from the assistant catalog and
- * selection data returned by the worker's `assistants-get` message.
- * They are deliberately side-effect-free so they can be unit tested
- * without a Chrome runtime environment.
+ * These functions derive display state from the assistant catalog,
+ * selection data, and connection phase. They are deliberately
+ * side-effect-free so they can be unit tested without a Chrome runtime
+ * environment.
+ *
+ * The popup exposes two primary actions:
+ *   - **Connect** — the only first-step CTA. The worker handles auth
+ *     bootstrap (pairing/sign-in) automatically when `interactive=true`.
+ *   - **Pause** — user-facing stop action that halts the relay but
+ *     preserves credentials so reconnect is instant.
  */
 
 import type { AssistantDescriptor } from '../background/native-host-assistants.js';
@@ -111,4 +117,101 @@ export function shouldShowCloudSection(
   authProfile: AssistantAuthProfile | null,
 ): boolean {
   return authProfile === 'cloud-oauth';
+}
+
+// ── Connection phase & CTA helpers ──────────────────────────────────
+
+/**
+ * The popup's connection lifecycle phase. Drives the primary/secondary
+ * button labels, enablement, and status indicator.
+ *
+ * - `disconnected` — idle, no active relay connection.
+ * - `connecting`   — connect in progress (waiting for socket open).
+ * - `connected`    — relay WebSocket is open and active.
+ * - `paused`       — user explicitly paused; credentials are preserved
+ *                    so reconnect is instant.
+ */
+export type ConnectionPhase = 'disconnected' | 'connecting' | 'connected' | 'paused';
+
+/**
+ * Derived view state for the popup's primary and secondary action buttons.
+ */
+export interface CtaState {
+  /** Label for the primary action button. */
+  connectLabel: string;
+  /** Whether the primary Connect button is enabled. */
+  connectEnabled: boolean;
+  /** Label for the secondary action button. */
+  pauseLabel: string;
+  /** Whether the secondary Pause button is enabled. */
+  pauseEnabled: boolean;
+}
+
+/**
+ * Derive the CTA button labels and enablement from the connection phase.
+ *
+ * | Phase        | Connect       | Pause         |
+ * |--------------|---------------|---------------|
+ * | disconnected | Connect (on)  | Pause (off)   |
+ * | connecting   | Connecting... (off) | Pause (off) |
+ * | connected    | Connect (off) | Pause (on)    |
+ * | paused       | Connect (on)  | Pause (off)   |
+ */
+export function deriveCtaState(phase: ConnectionPhase): CtaState {
+  switch (phase) {
+    case 'disconnected':
+      return {
+        connectLabel: 'Connect',
+        connectEnabled: true,
+        pauseLabel: 'Pause',
+        pauseEnabled: false,
+      };
+    case 'connecting':
+      return {
+        connectLabel: 'Connecting\u2026',
+        connectEnabled: false,
+        pauseLabel: 'Pause',
+        pauseEnabled: false,
+      };
+    case 'connected':
+      return {
+        connectLabel: 'Connect',
+        connectEnabled: false,
+        pauseLabel: 'Pause',
+        pauseEnabled: true,
+      };
+    case 'paused':
+      return {
+        connectLabel: 'Connect',
+        connectEnabled: true,
+        pauseLabel: 'Pause',
+        pauseEnabled: false,
+      };
+  }
+}
+
+/**
+ * Derived view state for the status indicator (dot + text).
+ */
+export interface StatusDisplay {
+  /** CSS class for the status dot (`connected`, `paused`, `disconnected`). */
+  dotClass: string;
+  /** User-facing status text. */
+  text: string;
+}
+
+/**
+ * Derive the status dot class and text from the connection phase.
+ */
+export function deriveStatusDisplay(phase: ConnectionPhase): StatusDisplay {
+  switch (phase) {
+    case 'disconnected':
+      return { dotClass: 'disconnected', text: 'Not connected' };
+    case 'connecting':
+      return { dotClass: 'disconnected', text: 'Connecting\u2026' };
+    case 'connected':
+      return { dotClass: 'connected', text: 'Connected to relay server' };
+    case 'paused':
+      return { dotClass: 'paused', text: 'Paused' };
+  }
 }

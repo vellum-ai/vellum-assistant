@@ -37,6 +37,7 @@
       transition: background 0.2s;
     }
     .status-dot.connected { background: #22c55e; }
+    .status-dot.paused { background: #f59e0b; }
     .status-dot.disconnected { background: #ef4444; }
 
     .status-text {
@@ -88,11 +89,11 @@
     }
     #btn-connect:hover:not(:disabled) { background: #4f46e5; }
 
-    #btn-disconnect {
+    #btn-pause {
       background: #f3f4f6;
       color: #374151;
     }
-    #btn-disconnect:hover:not(:disabled) { background: #e5e7eb; }
+    #btn-pause:hover:not(:disabled) { background: #e5e7eb; }
 
     .divider {
       height: 1px;
@@ -200,22 +201,20 @@
 
   <div class="btn-row">
     <button id="btn-connect">Connect</button>
-    <button id="btn-disconnect" disabled>Disconnect</button>
+    <button id="btn-pause" disabled>Pause</button>
   </div>
 
   <p class="hint">Relay port defaults to 7830.</p>
 
-  <div class="divider"></div>
+  <div class="divider" id="troubleshooting-divider"></div>
 
-  <p class="section-label">Local</p>
-  <p class="local-status" id="local-status">Not paired</p>
-  <button id="btn-pair-local" type="button">Pair with local assistant</button>
+  <p class="section-label" id="troubleshooting-label">Troubleshooting</p>
 
-  <div class="divider"></div>
+  <p class="local-status" id="local-status" style="display:none">Not paired</p>
+  <button id="btn-pair-local" type="button" style="display:none">Re-pair with local assistant</button>
 
-  <p class="section-label">Cloud</p>
-  <p class="cloud-status" id="cloud-status">Not signed in</p>
-  <button id="btn-cloud-signin" type="button">Sign in with Vellum (cloud)</button>
+  <p class="cloud-status" id="cloud-status" style="display:none">Not signed in</p>
+  <button id="btn-cloud-signin" type="button" style="display:none">Re-sign in with Vellum (cloud)</button>
 
   <script type="module" src="popup.js"></script>
 </body>
