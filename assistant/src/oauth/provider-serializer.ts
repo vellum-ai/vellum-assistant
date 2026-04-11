@@ -50,7 +50,7 @@ export interface SerializedProviderSummary {
  */
 export function serializeProvider(
   row: OAuthProviderRow | null | undefined,
-  options?: { redirectUri?: string | null },
+  options?: { redirectUri?: string | null; config?: AssistantConfig },
 ): ReturnType<typeof _serializeProvider> | null | undefined {
   if (row === undefined) return undefined;
   if (row === null) return null;
@@ -59,7 +59,7 @@ export function serializeProvider(
 
 function _serializeProvider(
   row: OAuthProviderRow,
-  options?: { redirectUri?: string | null },
+  options?: { redirectUri?: string | null; config?: AssistantConfig },
 ) {
   // Destructure the renamed Drizzle TS-side fields out of the row so they
   // do not leak into the spread below. The wire format intentionally keeps
@@ -87,7 +87,7 @@ function _serializeProvider(
     logoUrl: row.logoUrl ?? null,
     clientIdPlaceholder: row.clientIdPlaceholder ?? null,
     requiresClientSecret: !!(row.requiresClientSecret ?? 1),
-    supportsManagedMode: isManagedModeEnabled(row),
+    supportsManagedMode: isManagedModeEnabled(row, options?.config),
     defaultScopes: row.defaultScopes ? JSON.parse(row.defaultScopes) : [],
     scopePolicy: row.scopePolicy ? JSON.parse(row.scopePolicy) : {},
     scopeSeparator: row.scopeSeparator,

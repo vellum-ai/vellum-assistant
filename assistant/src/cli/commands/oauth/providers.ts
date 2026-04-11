@@ -80,6 +80,7 @@ function parseProviderRow(row: ReturnType<typeof getProvider>) {
   if (!row) return row;
   return serializeProvider(row, {
     redirectUri: resolveRedirectUri(row.loopbackPort),
+    config: loadConfig(),
   });
 }
 
