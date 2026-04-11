@@ -137,8 +137,15 @@ export interface ProcessConversationContext {
   clearProxyAvailability(): void;
   /** Restore host proxy availability based on whether a real client is connected. */
   restoreProxyAvailability(): void;
-  /** Restore only the host browser proxy (used by chrome-extension drains). */
+  /** Restore only the host browser proxy (used by chrome-extension and macOS+extension drains). */
   restoreBrowserProxyAvailability(): void;
+  /**
+   * Registry-routed sender override for the host browser proxy. When set,
+   * `restoreBrowserProxyAvailability()` uses this function instead of
+   * `sendToClient`. Set by the POST /messages handler when the guardian
+   * has an active extension connection (regardless of interface).
+   */
+  hostBrowserSenderOverride?: (msg: ServerMessage) => void;
   /** Replace or clear the conversation's host browser proxy. */
   setHostBrowserProxy(
     proxy: import("./host-browser-proxy.js").HostBrowserProxy | undefined,
@@ -358,16 +365,37 @@ export async function drainQueue(
       conversation.addPreactivatedSkillId("computer-use");
     }
     // Tear down a stale hostBrowserProxy inherited from a prior turn on a
-    // different interface (e.g. chrome-extension installed one, then a
-    // macos turn drains). Without this, restoreProxyAvailability() above
-    // would re-enable the proxy and getCdpClient() would route browser
-    // tools through host_browser_request and hang waiting for a client
-    // that this turn's interface can't service.
+    // different interface (e.g. chrome-extension installed one, then a CLI
+    // turn drains). Without this, restoreProxyAvailability() above would
+    // re-enable the proxy and getCdpClient() would route browser tools
+    // through host_browser_request and hang waiting for a client that this
+    // turn's interface can't service.
+    //
+    // Skip teardown only when BOTH conditions hold:
+    //   1. `hostBrowserSenderOverride` is set (live registry-routed sender)
+    //   2. The current turn's interface can service host_browser frames
+    //      (chrome-extension or macOS).
+    // Without the interface check, queued turns from CLI/iOS/Vellum would
+    // inherit a stale override left by a prior extension-connected turn
+    // and keep the proxy alive, causing cross-interface misrouting.
+    const currentTurnCanServiceBrowser =
+      sourceInterface === "chrome-extension" || sourceInterface === "macos";
     if (
       sourceInterface &&
-      !supportsHostProxy(sourceInterface, "host_browser")
+      !supportsHostProxy(sourceInterface, "host_browser") &&
+      !(conversation.hostBrowserSenderOverride && currentTurnCanServiceBrowser)
     ) {
       conversation.setHostBrowserProxy(undefined);
+    }
+    // When a macOS turn has a registry-routed sender override (active
+    // extension connection), restore the browser proxy so host_browser
+    // tools route through the extension rather than cdp-inspect/local.
+    if (
+      sourceInterface &&
+      supportsHostProxy(sourceInterface) &&
+      conversation.hostBrowserSenderOverride
+    ) {
+      conversation.restoreBrowserProxyAvailability();
     }
   }
 
