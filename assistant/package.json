@@ -46,6 +46,7 @@
     "dotenv": "17.3.1",
     "drizzle-orm": "0.45.2",
     "jszip": "3.10.1",
+    "marked": "18.0.0",
     "minimatch": "10.2.4",
     "openai": "6.29.0",
     "pino": "9.14.0",
