@@ -172,60 +172,40 @@ function loadOverridesFromFile(): Record<string, boolean> {
 }
 
 /**
- * Fetch override values from the gateway via async HTTP.
+ * Fetch override values from the gateway via IPC.
  *
- * Returns the gateway's merged feature flag map (persisted > remote >
- * registry), or an empty record on any failure (network, auth, parse).
+ * Connects to the gateway's Unix domain socket and calls `getFeatureFlags`
+ * to retrieve the merged flag state (persisted > remote > registry).
+ * Returns an empty record on any failure (socket not available, timeout).
  */
 async function fetchOverridesFromGateway(): Promise<Record<string, boolean>> {
   try {
-    // Lazy-import to avoid circular dependency and keep this module
-    // importable from bootstrap code when not in containerized mode.
-    const { getGatewayInternalBaseUrl } =
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      require("./env.js") as typeof import("./env.js");
-    const {
-      mintEdgeRelayToken,
-      isSigningKeyInitialized,
-      initAuthSigningKey,
-      resolveSigningKey,
-    } =
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      require("../runtime/auth/token-service.js") as typeof import("../runtime/auth/token-service.js");
+    const { getGatewayIpcClient } = await import("../ipc/gateway-client.js");
+    const client = getGatewayIpcClient();
 
-    // CLI subprocesses don't run daemon startup, so the signing key
-    // may not be initialized yet. Initialize it now so mintEdgeRelayToken
-    // can produce a valid JWT for the gateway request.
-    if (!isSigningKeyInitialized()) {
-      initAuthSigningKey(resolveSigningKey());
+    // Wait briefly for the client to connect if it hasn't yet.
+    // The gateway may still be starting up.
+    if (!client.isConnected()) {
+      await new Promise<void>((resolve) => {
+        const onConnect = () => {
+          cleanup();
+          resolve();
+        };
+        const timer = setTimeout(() => {
+          cleanup();
+          resolve();
+        }, 5_000);
+        const cleanup = () => {
+          client.removeListener("connected", onConnect);
+          clearTimeout(timer);
+        };
+        client.once("connected", onConnect);
+      });
     }
 
-    const url = `${getGatewayInternalBaseUrl()}/v1/feature-flags`;
-    const token = mintEdgeRelayToken();
+    if (!client.isConnected()) return {};
 
-    const response = await fetch(url, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
-      },
-      signal: AbortSignal.timeout(10_000),
-    });
-
-    if (!response.ok) return {};
-
-    const parsed = (await response.json()) as {
-      flags?: Array<{ key: string; enabled: boolean }>;
-    };
-    if (!Array.isArray(parsed.flags)) return {};
-
-    const result: Record<string, boolean> = {};
-    for (const entry of parsed.flags) {
-      if (typeof entry.key === "string" && typeof entry.enabled === "boolean") {
-        result[entry.key] = entry.enabled;
-      }
-    }
-    return result;
+    return await client.getFeatureFlags();
   } catch {
     return {};
   }
@@ -235,9 +215,12 @@ async function fetchOverridesFromGateway(): Promise<Record<string, boolean>> {
  * Pre-populate the override cache from the gateway (async).
  *
  * Call this once during startup (daemon or CLI entry) before any sync
- * `isAssistantFeatureFlagEnabled` calls. In containerized mode, always
- * uses the gateway. In local mode, falls back to the local file when
- * the gateway is unreachable.
+ * `isAssistantFeatureFlagEnabled` calls. Fetches the merged flag state
+ * from the gateway via IPC. Falls back to the local file when the
+ * gateway is unreachable.
+ *
+ * Also subscribes to `feature_flags_changed` events so the cache is
+ * automatically refreshed when the gateway detects flag file changes.
  *
  * On failure, the cache is left unset so subsequent sync calls fall
  * through to the file-based fallback rather than caching an empty map
@@ -247,12 +230,24 @@ export async function initFeatureFlagOverrides(): Promise<void> {
   const gatewayOverrides = await fetchOverridesFromGateway();
   if (Object.keys(gatewayOverrides).length > 0) {
     cachedOverrides = gatewayOverrides;
-    return;
   }
 
-  // Gateway returned empty or failed. Leave the cache unset so
-  // loadOverrides() falls through to file on the next sync read,
-  // regardless of containerized vs local mode.
+  // Subscribe to feature flag change events from the gateway so the
+  // cache stays fresh without polling.
+  try {
+    const { getGatewayIpcClient } = await import("../ipc/gateway-client.js");
+    const client = getGatewayIpcClient();
+    client.on("feature_flags_changed", (data: unknown) => {
+      if (data && typeof data === "object" && !Array.isArray(data)) {
+        cachedOverrides = data as Record<string, boolean>;
+      } else {
+        // Event without payload — invalidate cache so next read re-fetches
+        cachedOverrides = null;
+      }
+    });
+  } catch {
+    // IPC not available — continue without live updates
+  }
 }
 
 /**
