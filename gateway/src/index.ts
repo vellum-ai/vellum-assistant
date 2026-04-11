@@ -529,6 +529,12 @@ async function main() {
       handler: (req) => contactsControlPlaneProxy.handleMergeContacts(req),
     },
     {
+      path: "/v1/contacts/guardian/channel",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => contactsControlPlaneProxy.handleAddGuardianChannel(req),
+    },
+    {
       path: /^\/v1\/contact-channels\/([^/]+)$/,
       method: "PATCH",
       auth: "edge",
