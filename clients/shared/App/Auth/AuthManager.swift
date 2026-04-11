@@ -60,6 +60,7 @@ public final class AuthManager {
                 let response = try await authService.getSession(timeout: 10)
                 if response.status == 200, response.meta?.is_authenticated != false, let user = response.data?.user {
                     state = .authenticated(user)
+                    await resolveOrganizationIdAfterAuth()
                     return
                 } else {
                     // Server responded but session is invalid — no retry needed
@@ -164,12 +165,14 @@ public final class AuthManager {
                 if let user = response.data?.user {
                     state = .authenticated(user)
                     log.info("WorkOS login completed from provider-token response for user \(user.id ?? user.email ?? "unknown", privacy: .public)")
+                    await resolveOrganizationIdAfterAuth()
                 } else {
                     log.info("Provider-token auth returned no user payload; validating session via auth/session")
                     let session = try await authService.getSession()
                     if session.status == 200, session.meta?.is_authenticated != false, let user = session.data?.user {
                         state = .authenticated(user)
                         log.info("WorkOS login completed after session revalidation for user \(user.id ?? user.email ?? "unknown", privacy: .public)")
+                        await resolveOrganizationIdAfterAuth()
                     } else {
                         log.error(
                             "Session revalidation after provider-token auth did not return an authenticated user. status=\(session.status, privacy: .public) isAuthenticated=\(session.meta?.is_authenticated == true, privacy: .public) hasUser=\(session.data?.user != nil, privacy: .public)"
@@ -220,6 +223,17 @@ public final class AuthManager {
         UserDefaults.standard.removeObject(forKey: "managed_platform_base_url")
         state = .unauthenticated
         return logoutError
+    }
+
+    /// Best-effort org resolution after a successful authentication.
+    /// Failures are logged, not thrown: a transient network error here
+    /// must not block the transition to `.authenticated`.
+    private func resolveOrganizationIdAfterAuth() async {
+        do {
+            _ = try await authService.resolveOrganizationId()
+        } catch {
+            log.warning("Failed to resolve organization ID post-auth: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func generateCodeVerifier() -> String {

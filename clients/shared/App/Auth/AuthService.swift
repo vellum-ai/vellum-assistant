@@ -221,6 +221,49 @@ public final class AuthService {
         }
     }
 
+    public enum OrganizationResolutionError: LocalizedError, Sendable {
+        case noOrganizations
+        case multipleOrganizations
+
+        public var errorDescription: String? {
+            switch self {
+            case .noOrganizations:
+                return "No organizations found for this account"
+            case .multipleOrganizations:
+                return "Multiple organizations found. Multi-org support is not yet available — please contact support."
+            }
+        }
+    }
+
+    /// Resolve the caller's organization ID, persisting it under
+    /// `connectedOrganizationId` in UserDefaults for synchronous readers.
+    ///
+    /// A persisted value is re-validated against the current org list on
+    /// every call so stale cross-environment IDs don't leak through.
+    @discardableResult
+    public func resolveOrganizationId() async throws -> String {
+        let orgs = try await getOrganizations()
+        let persistedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+        if let persistedOrgId, orgs.contains(where: { $0.id == persistedOrgId }) {
+            log.info("Validated persisted organization: \(persistedOrgId, privacy: .public)")
+            return persistedOrgId
+        }
+        if persistedOrgId != nil {
+            log.warning("Persisted organization ID not found in user's orgs — re-resolving")
+        }
+        switch orgs.count {
+        case 0:
+            throw OrganizationResolutionError.noOrganizations
+        case 1:
+            let orgId = orgs[0].id
+            UserDefaults.standard.set(orgId, forKey: "connectedOrganizationId")
+            log.info("Resolved organization: \(orgId, privacy: .public)")
+            return orgId
+        default:
+            throw OrganizationResolutionError.multipleOrganizations
+        }
+    }
+
     // MARK: - Platform Request Helper
 
     /// Raw result of a platform HTTP request — status code + body data.
