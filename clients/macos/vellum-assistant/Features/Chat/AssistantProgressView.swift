@@ -628,9 +628,11 @@ struct AssistantProgressView: View {
 
 private final class StepDetailAttributedStringCacheEntry: NSObject {
     let value: AttributedString
+    let totalLines: Int
 
-    init(_ value: AttributedString) {
+    init(_ value: AttributedString, totalLines: Int) {
         self.value = value
+        self.totalLines = totalLines
     }
 }
 
@@ -647,6 +649,12 @@ private struct StepDetailRow: View {
     var onRehydrate: (() -> Void)?
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
 
+    /// Maximum number of lines rendered in the output `Text` view.
+    /// Content beyond this cap is not displayed but remains available
+    /// via the copy button. Keeps `coloredOutput()` and SwiftUI text
+    /// layout bounded regardless of result size.
+    private static let maxDisplayLines = 500
+
     private static let coloredOutputCache: NSCache<NSString, StepDetailAttributedStringCacheEntry> = {
         let cache = NSCache<NSString, StepDetailAttributedStringCacheEntry>()
         cache.countLimit = 128
@@ -661,16 +669,29 @@ private struct StepDetailRow: View {
     }
 
     /// Render-time memoization that stays off SwiftUI-owned state.
-    private var cachedColoredResult: AttributedString? {
+    /// Returns the full cache entry so callers can access both the
+    /// attributed string and the total line count for truncation info.
+    private var cachedColoredEntry: StepDetailAttributedStringCacheEntry? {
         guard let result = toolCall.result, !result.isEmpty else { return nil }
         let key = Self.coloredOutputCacheKey(for: result, isError: toolCall.isError)
         if let cached = Self.coloredOutputCache.object(forKey: key) {
-            return cached.value
+            return cached
         }
 
-        let colored = coloredOutput(result, isError: toolCall.isError)
-        Self.coloredOutputCache.setObject(StepDetailAttributedStringCacheEntry(colored), forKey: key)
-        return colored
+        let (colored, totalLines) = coloredOutput(result, isError: toolCall.isError, lineLimit: Self.maxDisplayLines)
+        let entry = StepDetailAttributedStringCacheEntry(colored, totalLines: totalLines)
+        Self.coloredOutputCache.setObject(entry, forKey: key)
+        return entry
+    }
+
+    private var cachedColoredResult: AttributedString? {
+        cachedColoredEntry?.value
+    }
+
+    /// Footer message shown when the displayed result is truncated to `maxDisplayLines`.
+    private var truncationFooterText: String? {
+        guard let entry = cachedColoredEntry, entry.totalLines > Self.maxDisplayLines else { return nil }
+        return "Showing first \(Self.maxDisplayLines) of \(entry.totalLines) lines — copy for full output"
     }
 
     /// Whether this tool has detail content to show (running or completed).
@@ -858,7 +879,8 @@ private struct StepDetailRow: View {
                         attributedText: cachedColoredResult,
                         copyText: result,
                         copyLabel: "Copy output",
-                        isError: toolCall.isError
+                        isError: toolCall.isError,
+                        truncationFooter: truncationFooterText
                     )
                 }
                 .padding(.horizontal, VSpacing.lg)
@@ -873,30 +895,42 @@ private struct StepDetailRow: View {
     /// Reusable output block with copy button.
     /// The outer transcript owns vertical scrolling to avoid nested scroll-view
     /// hit-testing and responder churn inside expanded tool rows.
+    ///
+    /// `truncationFooter` is shown below the output when displayed content was
+    /// capped at `maxDisplayLines`.
     @ViewBuilder
     private func outputBlock(
         text: String?,
         attributedText: AttributedString?,
         copyText: String,
         copyLabel: String,
-        isError: Bool = false
+        isError: Bool = false,
+        truncationFooter: String? = nil
     ) -> some View {
         ZStack(alignment: .topTrailing) {
-            // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
-            HStack(spacing: 0) {
-                outputTextView(text: text, attributedText: attributedText, isError: isError)
-                Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+                HStack(spacing: 0) {
+                    outputTextView(text: text, attributedText: attributedText, isError: isError)
+                    Spacer(minLength: 0)
+                }
+                .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.sm + VSpacing.xl))
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .fill(VColor.surfaceOverlay.opacity(0.6))
+                )
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .stroke(VColor.borderBase, lineWidth: 0.5)
+                )
+
+                if let footer = truncationFooter {
+                    Text(footer)
+                        .font(VFont.labelSmall)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
             }
-            .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.sm + VSpacing.xl))
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.sm)
-                    .fill(VColor.surfaceOverlay.opacity(0.6))
-            )
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.sm)
-                    .stroke(VColor.borderBase, lineWidth: 0.5)
-            )
 
             ChatEquatableButton(
                 config: ChatButtonConfig(
@@ -955,11 +989,24 @@ private struct StepDetailRow: View {
         return "output:\(result.utf8.count):\(hasher.finalize())" as NSString
     }
 
-    private func coloredOutput(_ result: String, isError: Bool) -> AttributedString {
-        let lines = result.components(separatedBy: "\n")
+    /// Builds a diff-colored `AttributedString`, processing at most
+    /// `lineLimit` lines so that very large results don't produce
+    /// unbounded `AttributedString` construction. Uses String.Index
+    /// iteration to avoid allocating N substrings via `components(separatedBy:)`.
+    /// Returns the attributed string and the total line count of the
+    /// original result (for showing a truncation footer).
+    private func coloredOutput(_ result: String, isError: Bool, lineLimit: Int) -> (AttributedString, Int) {
+        // O(n) byte scan for total line count — fast even for huge strings.
+        let totalLines = result.utf8.reduce(1) { c, b in b == 0x0A ? c + 1 : c }
         let isDiff = result.contains("@@") && result.contains("---") && result.contains("+++")
         var attributed = AttributedString()
-        for (index, line) in lines.enumerated() {
+        var lineIndex = 0
+        var searchStart = result.startIndex
+
+        while searchStart < result.endIndex && lineIndex < lineLimit {
+            let lineEnd = result[searchStart...].firstIndex(of: "\n") ?? result.endIndex
+            let line = result[searchStart..<lineEnd]
+
             var part = AttributedString(line)
             let color: Color
             if isError {
@@ -977,11 +1024,18 @@ private struct StepDetailRow: View {
             }
             part.foregroundColor = color
             attributed.append(part)
-            if index < lines.count - 1 {
+
+            lineIndex += 1
+            if lineEnd < result.endIndex {
+                searchStart = result.index(after: lineEnd)
+                guard lineIndex < lineLimit else { break }
                 attributed.append(AttributedString("\n"))
+            } else {
+                break
             }
         }
-        return attributed
+
+        return (attributed, totalLines)
     }
 
     private func formatDuration(_ seconds: TimeInterval) -> String {
