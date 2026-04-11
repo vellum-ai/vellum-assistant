@@ -133,10 +133,6 @@ struct OnboardingView: View {
         managedBootstrapError = nil
 
         do {
-            // Ask the platform for the user's active assistant before falling
-            // through to the bootstrap service. Single-org is the only
-            // supported shape on iOS today; multi-org or zero-org cases fall
-            // through to `ensureManagedAssistant()` which surfaces a typed error.
             let orgs = try await AuthService.shared.getOrganizations()
             if orgs.count == 1, let orgId = orgs.first?.id {
                 let activeResult = try await AuthService.shared.getActiveAssistant(organizationId: orgId)
@@ -146,8 +142,6 @@ struct OnboardingView: View {
                 }
             }
 
-            // No active assistant or non-single-org shape — delegate to the
-            // shared bootstrap, which hatches on iOS.
             let outcome = try await ManagedAssistantBootstrapService.shared.ensureManagedAssistant()
 
             let assistant: PlatformAssistant
