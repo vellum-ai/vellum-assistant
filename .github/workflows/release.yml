@@ -1366,12 +1366,6 @@ jobs:
             meta/browser-extension/chrome-extension-allowlist.json > tmp.json \
             && mv tmp.json meta/browser-extension/chrome-extension-allowlist.json
 
-      - name: Build extension ID CSV for compiled binaries
-        working-directory: .
-        run: |
-          IDS_CSV=$(jq -r '.allowedExtensionIds | join(",")' meta/browser-extension/chrome-extension-allowlist.json)
-          echo "CHROME_EXTENSION_IDS_CSV=$IDS_CSV" >> "$GITHUB_ENV"
-
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
@@ -1748,12 +1742,6 @@ jobs:
             '.allowedExtensionIds += [$id]' \
             meta/browser-extension/chrome-extension-allowlist.json > tmp.json \
             && mv tmp.json meta/browser-extension/chrome-extension-allowlist.json
-
-      - name: Build extension ID CSV for compiled binaries
-        working-directory: .
-        run: |
-          IDS_CSV=$(jq -r '.allowedExtensionIds | join(",")' meta/browser-extension/chrome-extension-allowlist.json)
-          echo "CHROME_EXTENSION_IDS_CSV=$IDS_CSV" >> "$GITHUB_ENV"
 
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
