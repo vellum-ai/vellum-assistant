@@ -582,10 +582,7 @@ public enum GatewayHTTPClient {
                 // crossing into @MainActor isolation. The instance property
                 // `AuthService.shared.baseURL` is @MainActor-isolated and
                 // cannot be read from a nonisolated synchronous context.
-                baseURL = AuthService.resolveBaseURL(
-                    environment: ProcessInfo.processInfo.environment,
-                    userDefaults: .standard
-                )
+                baseURL = VellumEnvironment.resolvedPlatformURL
             }
             return ConnectionInfo(baseURL: baseURL, authHeader: ("X-Session-Token", token), assistantId: assistant.assistantId, isManaged: true)
         } else {

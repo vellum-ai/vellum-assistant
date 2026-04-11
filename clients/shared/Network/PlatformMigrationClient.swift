@@ -381,10 +381,7 @@ public enum PlatformMigrationClient {
             throw PlatformMigrationError.notAuthenticated
         }
 
-        let baseURL = AuthService.resolveBaseURL(
-            environment: ProcessInfo.processInfo.environment,
-            userDefaults: .standard
-        )
+        let baseURL = VellumEnvironment.resolvedPlatformURL
 
         let orgId: String? = {
             guard let id = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !id.isEmpty else { return nil }

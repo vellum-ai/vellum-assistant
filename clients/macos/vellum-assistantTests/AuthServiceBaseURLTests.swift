@@ -3,111 +3,68 @@ import XCTest
 
 @MainActor
 final class AuthServiceBaseURLTests: XCTestCase {
-    /// VELLUM_PLATFORM_URL takes highest priority, overriding both UserDefaults and VELLUM_ENVIRONMENT.
-    func testResolveBaseURLPrefersVellumPlatformURLOverride() {
-        withUserDefaultsSuite { defaults in
-            // GIVEN a UserDefaults override and a VELLUM_PLATFORM_URL env var are both set
-            defaults.set("https://defaults.example.com/", forKey: "authServiceBaseURL")
-            let environment = [
-                "VELLUM_PLATFORM_URL": "https://env.example.com/",
-                "VELLUM_ENVIRONMENT": "local",
-            ]
+    /// VELLUM_PLATFORM_URL takes highest priority, overriding VELLUM_ENVIRONMENT.
+    func testResolvePlatformURLPrefersVellumPlatformURLOverride() {
+        // GIVEN both VELLUM_PLATFORM_URL and VELLUM_ENVIRONMENT are set
+        let environment = [
+            "VELLUM_PLATFORM_URL": "https://env.example.com/",
+            "VELLUM_ENVIRONMENT": "local",
+        ]
 
-            // WHEN resolving the base URL
-            let resolved = AuthService.resolveBaseURL(
-                environment: environment,
-                userDefaults: defaults
-            )
+        // WHEN resolving the platform URL
+        let resolved = VellumEnvironment.resolvePlatformURL(from: environment)
 
-            // THEN the explicit VELLUM_PLATFORM_URL wins (trailing slash stripped)
-            XCTAssertEqual(resolved, "https://env.example.com")
-        }
+        // THEN the explicit VELLUM_PLATFORM_URL wins (trailing slash stripped)
+        XCTAssertEqual(resolved, "https://env.example.com")
     }
 
     /// With no VELLUM_ENVIRONMENT set, defaults to production.
-    func testResolveBaseURLDefaultsToProductionWhenNoEnvironmentSet() {
-        withUserDefaultsSuite { defaults in
-            // GIVEN an empty environment dictionary
-            // WHEN resolving the base URL
-            let resolved = AuthService.resolveBaseURL(
-                environment: [:],
-                userDefaults: defaults
-            )
+    func testResolvePlatformURLDefaultsToProductionWhenNoEnvironmentSet() {
+        // GIVEN an empty environment dictionary
+        // WHEN resolving the platform URL
+        let resolved = VellumEnvironment.resolvePlatformURL(from: [:])
 
-            // THEN falls back to the production platform URL
-            XCTAssertEqual(resolved, "https://platform.vellum.ai")
-        }
+        // THEN falls back to the production platform URL
+        XCTAssertEqual(resolved, "https://platform.vellum.ai")
     }
 
-    /// VELLUM_ENVIRONMENT=local resolves to localhost for auth flows.
-    func testResolveBaseURLUsesLocalhostForLocalEnvironment() {
-        withUserDefaultsSuite { defaults in
-            // GIVEN VELLUM_ENVIRONMENT is set to "local"
-            // WHEN resolving the base URL
-            let resolved = AuthService.resolveBaseURL(
-                environment: ["VELLUM_ENVIRONMENT": "local"],
-                userDefaults: defaults
-            )
+    /// VELLUM_ENVIRONMENT=local resolves to localhost.
+    func testResolvePlatformURLUsesLocalhostForLocalEnvironment() {
+        // GIVEN VELLUM_ENVIRONMENT is set to "local"
+        // WHEN resolving the platform URL
+        let resolved = VellumEnvironment.resolvePlatformURL(from: ["VELLUM_ENVIRONMENT": "local"])
 
-            // THEN auth targets localhost
-            XCTAssertEqual(resolved, "http://localhost:8000")
-        }
+        // THEN targets localhost
+        XCTAssertEqual(resolved, "http://localhost:8000")
     }
 
     /// VELLUM_ENVIRONMENT=dev resolves to the dev platform.
-    func testResolveBaseURLUsesDevPlatformForDevEnvironment() {
-        withUserDefaultsSuite { defaults in
-            // GIVEN VELLUM_ENVIRONMENT is set to "dev"
-            // WHEN resolving the base URL
-            let resolved = AuthService.resolveBaseURL(
-                environment: ["VELLUM_ENVIRONMENT": "dev"],
-                userDefaults: defaults
-            )
+    func testResolvePlatformURLUsesDevPlatformForDevEnvironment() {
+        // GIVEN VELLUM_ENVIRONMENT is set to "dev"
+        // WHEN resolving the platform URL
+        let resolved = VellumEnvironment.resolvePlatformURL(from: ["VELLUM_ENVIRONMENT": "dev"])
 
-            // THEN auth targets the dev platform
-            XCTAssertEqual(resolved, "https://dev-platform.vellum.ai")
-        }
+        // THEN targets the dev platform
+        XCTAssertEqual(resolved, "https://dev-platform.vellum.ai")
     }
 
     /// VELLUM_ENVIRONMENT=staging resolves to the staging platform.
-    func testResolveBaseURLUsesStagingPlatformForStagingEnvironment() {
-        withUserDefaultsSuite { defaults in
-            // GIVEN VELLUM_ENVIRONMENT is set to "staging"
-            // WHEN resolving the base URL
-            let resolved = AuthService.resolveBaseURL(
-                environment: ["VELLUM_ENVIRONMENT": "staging"],
-                userDefaults: defaults
-            )
+    func testResolvePlatformURLUsesStagingPlatformForStagingEnvironment() {
+        // GIVEN VELLUM_ENVIRONMENT is set to "staging"
+        // WHEN resolving the platform URL
+        let resolved = VellumEnvironment.resolvePlatformURL(from: ["VELLUM_ENVIRONMENT": "staging"])
 
-            // THEN auth targets the staging platform
-            XCTAssertEqual(resolved, "https://staging-platform.vellum.ai")
-        }
+        // THEN targets the staging platform
+        XCTAssertEqual(resolved, "https://staging-platform.vellum.ai")
     }
 
     /// VELLUM_ENVIRONMENT=test resolves to the test platform.
-    func testResolveBaseURLUsesTestPlatformForTestEnvironment() {
-        withUserDefaultsSuite { defaults in
-            // GIVEN VELLUM_ENVIRONMENT is set to "test"
-            // WHEN resolving the base URL
-            let resolved = AuthService.resolveBaseURL(
-                environment: ["VELLUM_ENVIRONMENT": "test"],
-                userDefaults: defaults
-            )
+    func testResolvePlatformURLUsesTestPlatformForTestEnvironment() {
+        // GIVEN VELLUM_ENVIRONMENT is set to "test"
+        // WHEN resolving the platform URL
+        let resolved = VellumEnvironment.resolvePlatformURL(from: ["VELLUM_ENVIRONMENT": "test"])
 
-            // THEN auth targets the test platform
-            XCTAssertEqual(resolved, "https://test-platform.vellum.ai")
-        }
-    }
-
-    private func withUserDefaultsSuite(_ body: (UserDefaults) -> Void) {
-        let suiteName = "AuthServiceBaseURLTests.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-
-        defaults.removePersistentDomain(forName: suiteName)
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        body(defaults)
+        // THEN targets the test platform
+        XCTAssertEqual(resolved, "https://test-platform.vellum.ai")
     }
 }

@@ -3,52 +3,15 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AuthService")
 
-// MARK: - Module-private constants (nonisolated by default)
-// These live outside the @MainActor class so nonisolated static functions
-// (resolveBaseURL, normalizedBaseURL) can reference them without crossing
-// into @MainActor isolation — which is an error in Swift 6 language mode.
-private let _authServiceBaseURLDefaultsName = "authServiceBaseURL"
-
 @MainActor
 public final class AuthService {
     public static let shared = AuthService()
 
     public var baseURL: String {
-        Self.resolveBaseURL(
-            environment: ProcessInfo.processInfo.environment,
-            userDefaults: .standard
-        )
+        VellumEnvironment.resolvedPlatformURL
     }
 
     private init() {}
-
-    /// Pure URL resolution logic — safe to call from any isolation context.
-    /// All inputs are value types; no mutable shared state is accessed.
-    ///
-    /// Resolution order:
-    /// 1. `VELLUM_PLATFORM_URL` environment variable (via `VellumEnvironment`)
-    /// 2. `authServiceBaseURL` UserDefaults key (DEBUG builds only)
-    /// 3. `VELLUM_ENVIRONMENT`-based canonical URL (via `VellumEnvironment`)
-    nonisolated static func resolveBaseURL(
-        environment: [String: String],
-        userDefaults: UserDefaults
-    ) -> String {
-        #if DEBUG
-        // UserDefaults override for direct debug sessions — only applies when
-        // there is no explicit VELLUM_PLATFORM_URL env var.
-        if environment["VELLUM_PLATFORM_URL"] == nil,
-           let override = normalizedBaseURL(userDefaults.string(forKey: _authServiceBaseURLDefaultsName)) {
-            return override
-        }
-        #endif
-        return VellumEnvironment.resolvePlatformURL(from: environment)
-    }
-
-    nonisolated private static func normalizedBaseURL(_ raw: String?) -> String? {
-        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let normalized = trimmed.replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
-        return normalized.isEmpty ? nil : normalized
-    }
 
     private struct AuthRequestConfig {
         let path: String
