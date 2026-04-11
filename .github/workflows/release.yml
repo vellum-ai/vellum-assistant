@@ -207,6 +207,9 @@ jobs:
         working-directory: clients/chrome-extension
         run: |
           EXPECTED="${{ needs.extract-version.outputs.version }}"
+          # build.sh strips prerelease suffixes (e.g. "0.6.0-staging.3" -> "0.6.0")
+          # to satisfy Chrome's version format requirement. Match that here.
+          EXPECTED="${EXPECTED%%-*}"
           ACTUAL=$(jq -r '.version' dist/manifest.json)
           if [ "$ACTUAL" != "$EXPECTED" ]; then
             echo "::error::Manifest version mismatch: expected $EXPECTED, got $ACTUAL"
