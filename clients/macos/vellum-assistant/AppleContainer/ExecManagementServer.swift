@@ -226,6 +226,8 @@ final class ExecManagementServer: @unchecked Sendable {
         }
 
         // Client → PTY: read from NWConnection, write to terminal fd.
+        // When the client disconnects, this task closes the PTY to deliver
+        // SIGHUP to the container process and unblock readTask's blocking read().
         let writeTask = Task.detached { [weak self] in
             guard self != nil else { return }
             let fd = terminal.fileDescriptor
@@ -251,16 +253,10 @@ final class ExecManagementServer: @unchecked Sendable {
                 }
                 if writeFailed { break }
             }
-        }
-
-        // When both relay tasks exit (client disconnected), close the PTY so
-        // the container process gets SIGHUP and session.wait() can return.
-        // If the process exits first, session.wait() returns and cancels this task
-        // before it fires. session.wait()'s defer uses try? on close(), so a
-        // double-close is handled gracefully.
-        let cleanupTask = Task {
-            _ = await readTask.value
-            _ = await writeTask.value
+            // Client disconnected — close the PTY so the container process
+            // gets SIGHUP and readTask's blocking read() returns EIO.
+            // session.wait()'s defer uses try? on close(), so a double-close
+            // from the normal exit path is handled gracefully.
             try? terminal.close()
         }
 
@@ -271,7 +267,6 @@ final class ExecManagementServer: @unchecked Sendable {
             log.warning("Management socket: exec session wait error: \(error.localizedDescription, privacy: .public)")
         }
 
-        cleanupTask.cancel()
         readTask.cancel()
         writeTask.cancel()
         connection.cancel()
