@@ -351,14 +351,14 @@ public final class AuthService {
 
     // MARK: - Platform Assistant API
 
-    /// Retrieve a specific managed assistant by ID.
-    public func getAssistant(id: String, organizationId: String) async throws -> PlatformAssistantResult {
-        let response = try await performPlatformRequest(
-            path: "v1/assistants/\(id)/",
-            method: "GET",
-            organizationId: organizationId
-        )
-
+    /// Map a platform assistant `GET` response into a `PlatformAssistantResult`.
+    ///
+    /// Shared by single-assistant lookup endpoints (`getAssistant`,
+    /// `getActiveAssistant`) that all use the same `.found` / `.notFound` /
+    /// `.accessDenied` status-code contract.
+    private func decodeAssistantResult(
+        _ response: PlatformResponse
+    ) throws -> PlatformAssistantResult {
         switch response.statusCode {
         case 404:
             return .notFound
@@ -380,6 +380,16 @@ public final class AuthService {
         }
     }
 
+    /// Retrieve a specific managed assistant by ID.
+    public func getAssistant(id: String, organizationId: String) async throws -> PlatformAssistantResult {
+        let response = try await performPlatformRequest(
+            path: "v1/assistants/\(id)/",
+            method: "GET",
+            organizationId: organizationId
+        )
+        return try decodeAssistantResult(response)
+    }
+
     /// Retrieve the user's currently active managed assistant for the given
     /// organization.
     ///
@@ -393,26 +403,7 @@ public final class AuthService {
             method: "GET",
             organizationId: organizationId
         )
-
-        switch response.statusCode {
-        case 404:
-            return .notFound
-        case 403:
-            return .accessDenied
-        case 401:
-            throw PlatformAPIError.authenticationRequired
-        case 200..<300:
-            do {
-                return .found(try JSONDecoder().decode(PlatformAssistant.self, from: response.data))
-            } catch {
-                throw PlatformAPIError.decodingError(error.localizedDescription)
-            }
-        default:
-            throw PlatformAPIError.serverError(
-                statusCode: response.statusCode,
-                detail: String(data: response.data, encoding: .utf8)
-            )
-        }
+        return try decodeAssistantResult(response)
     }
 
     /// List managed assistants visible to the caller in the given organization.
