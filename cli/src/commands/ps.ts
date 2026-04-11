@@ -476,7 +476,9 @@ async function listAllAssistants(): Promise<void> {
         // Apple containers are managed by the macOS app. Probe the gateway
         // (runtimeUrl is always written to the lockfile during hatch).
         const token = loadGuardianToken(a.assistantId)?.accessToken;
-        health = await checkHealth(a.runtimeUrl, token);
+        health = a.runtimeUrl
+          ? await checkHealth(a.runtimeUrl, token)
+          : { status: "unknown" as const, detail: "no runtime URL" };
       } else if (a.cloud === "vellum") {
         health = await checkManagedHealth(a.runtimeUrl, a.assistantId);
       } else {
