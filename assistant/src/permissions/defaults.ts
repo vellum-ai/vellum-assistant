@@ -119,7 +119,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   const workspaceDir = getWorkspaceDir().replaceAll("\\", "/");
   const WORKSPACE_PROMPT_FILES = [
     "IDENTITY.md",
-    "USER.md",
     "SOUL.md",
     "BOOTSTRAP.md",
     "UPDATES.md",
@@ -143,13 +142,15 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   // Guardian persona file — the contact-store-resolved `users/<slug>.md`
   // for the current guardian. Once the workspace has a guardian contact,
   // their per-user persona file should be readable/editable without a
-  // prompt, the same way the legacy workspace USER.md is.
+  // prompt. This is the sole auto-allow entry for the per-user profile
+  // file (the legacy workspace `USER.md` was removed).
   //
-  // This is resolved dynamically at template-build time (rather than
-  // hardcoded like WORKSPACE_PROMPT_FILES) because the slug depends on
-  // the installed guardian. The try/catch protects against early-boot
-  // paths where the DB may not yet be initialized — in that case the
-  // legacy workspace USER.md rules still cover onboarding.
+  // Resolved dynamically at template-build time (rather than hardcoded
+  // like WORKSPACE_PROMPT_FILES) because the slug depends on the
+  // installed guardian. The try/catch protects against early-boot paths
+  // where the DB may not yet be initialized — in that case no guardian
+  // persona rules are emitted and the agent will be prompted on first
+  // edit until the guardian contact is created.
   let guardianPersonaRules: DefaultRuleTemplate[] = [];
   try {
     const guardianPath = resolveGuardianPersonaPath();
@@ -165,7 +166,8 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
       }));
     }
   } catch {
-    // Guardian may not exist yet; the workspace prompt rules still cover USER.md during onboarding.
+    // Guardian may not exist yet; rules will be emitted on the next
+    // template build once the guardian contact is created.
   }
 
   const bootstrapDeleteRule: DefaultRuleTemplate = {
