@@ -41,7 +41,9 @@ declare module 'bun:test' {
 
   interface Matchers<R> {
     toBe(expected: unknown): R;
+    toBeDefined(): R;
     toEqual(expected: unknown): R;
+    toBeInstanceOf(expected: Function): R;
     toBeNull(): R;
     toBeUndefined(): R;
     toBeGreaterThanOrEqual(expected: number): R;
@@ -54,5 +56,10 @@ declare module 'bun:test' {
     toThrow(expected?: string | RegExp | Error): R;
   }
 
-  export function expect<T>(actual: T): Matchers<void>;
+  interface ExpectFunction {
+    <T>(actual: T): Matchers<void>;
+    unreachable(message?: string): never;
+  }
+
+  export const expect: ExpectFunction;
 }
