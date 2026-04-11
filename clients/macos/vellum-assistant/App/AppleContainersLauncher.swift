@@ -160,6 +160,8 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 onProgress: onProgress
             )
             if !gatewayReady {
+                mgmtServer?.stop()
+                mgmtServer = nil
                 try? await runtime.stop()
                 self.podRuntime = nil
                 throw LauncherError.hatchFailed(
@@ -174,6 +176,8 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 onProgress: onProgress
             )
             if !tokenLeased {
+                mgmtServer?.stop()
+                mgmtServer = nil
                 try? await runtime.stop()
                 self.podRuntime = nil
                 throw LauncherError.hatchFailed(

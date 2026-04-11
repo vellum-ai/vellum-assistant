@@ -164,8 +164,10 @@ final class ExecManagementServer: @unchecked Sendable {
         let command = (json["command"] as? [String]) ?? ["/bin/sh"]
         let serviceName = (json["service"] as? String) ?? VellumServiceName.assistant.rawValue
         let service = VellumServiceName(rawValue: serviceName) ?? .assistant
-        let cols = UInt16(json["cols"] as? Int ?? 120)
-        let rows = UInt16(json["rows"] as? Int ?? 40)
+        let rawCols = json["cols"] as? Int ?? 120
+        let rawRows = json["rows"] as? Int ?? 40
+        let cols = UInt16(clamping: max(1, rawCols))
+        let rows = UInt16(clamping: max(1, rawRows))
 
         return ExecRequest(command: command, service: service, cols: cols, rows: rows)
     }
