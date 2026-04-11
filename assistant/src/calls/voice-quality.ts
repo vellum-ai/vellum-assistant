@@ -1,10 +1,7 @@
 import { loadConfig } from "../config/loader.js";
-import { resolveTelephonySttProfile } from "./stt-profile.js";
 
 export interface VoiceQualityProfile {
   language: string;
-  transcriptionProvider: string;
-  speechModel?: string;
   ttsProvider: string;
   voice: string;
   interruptSensitivity: string;
@@ -46,10 +43,6 @@ export function buildElevenLabsVoiceSpec(config: {
 /**
  * Resolve the effective voice quality profile from config.
  *
- * STT provider and speech model selection is delegated to the telephony
- * STT profile adapter (`stt-profile.ts`), which centralizes all
- * provider-specific fallback logic.
- *
  * Supports ElevenLabs (default) and Fish Audio TTS providers.
  * When Fish Audio is selected, `ttsProvider` is set to `"Google"` as a
  * placeholder — ConversationRelay requires a valid provider in TwiML, but
@@ -58,6 +51,11 @@ export function buildElevenLabsVoiceSpec(config: {
  *
  * For ElevenLabs, the voice ID comes from the shared `elevenlabs.voiceId`
  * config (defaults to Amelia — ZF6FPAbjXT4488VcRRnw).
+ *
+ * NOTE: STT provider and speech model are intentionally NOT part of this
+ * profile. STT resolution is handled once in the voice webhook route
+ * (`twilio-routes.ts`) via `resolveTelephonySttProfile()` to maintain a
+ * single point of ownership.
  */
 export function resolveVoiceQualityProfile(
   config?: ReturnType<typeof loadConfig>,
@@ -66,11 +64,8 @@ export function resolveVoiceQualityProfile(
   const voice = cfg.calls.voice;
   const configuredTts = voice.ttsProvider ?? "elevenlabs";
   const fishAudio = configuredTts === "fish-audio";
-  const sttProfile = resolveTelephonySttProfile(voice);
   return {
     language: voice.language,
-    transcriptionProvider: sttProfile.provider,
-    speechModel: sttProfile.speechModel,
     ttsProvider: fishAudio ? "Google" : "ElevenLabs",
     voice: fishAudio ? "" : buildElevenLabsVoiceSpec(cfg.elevenlabs),
     interruptSensitivity: voice.interruptSensitivity ?? "low",
