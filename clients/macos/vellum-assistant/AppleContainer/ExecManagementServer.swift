@@ -201,7 +201,7 @@ final class ExecManagementServer: @unchecked Sendable {
         // PTY → client: read from terminal fd, write to NWConnection.
         let readTask = Task.detached { [weak self] in
             guard self != nil else { return }
-            let fd = terminal.fileDescriptor
+            let fd = terminal.handle.fileDescriptor
             let bufferSize = 8192
             let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
             defer { buffer.deallocate() }
@@ -230,7 +230,7 @@ final class ExecManagementServer: @unchecked Sendable {
         // SIGHUP to the container process and unblock readTask's blocking read().
         let writeTask = Task.detached { [weak self] in
             guard self != nil else { return }
-            let fd = terminal.fileDescriptor
+            let fd = terminal.handle.fileDescriptor
             while !Task.isCancelled {
                 let result = await withCheckedContinuation { (cont: CheckedContinuation<(Data?, NWError?), Never>) in
                     connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { data, _, _, error in
