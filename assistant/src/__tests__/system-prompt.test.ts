@@ -276,6 +276,47 @@ describe("buildSystemPrompt", () => {
     expect(basePrompt(result)).toBe("");
   });
 
+  describe("BOOTSTRAP.md user persona placeholder", () => {
+    test("substitutes {{USER_PERSONA_FILE}} with users/<slug>.md when userSlug is provided", () => {
+      writeFileSync(
+        join(TEST_DIR, "BOOTSTRAP.md"),
+        "# First run\n\nSave facts to users/{{USER_PERSONA_FILE}} immediately.",
+      );
+      const result = buildSystemPrompt({ userSlug: "alice" });
+      expect(result).toContain("users/alice.md");
+      expect(result).not.toContain("{{USER_PERSONA_FILE}}");
+    });
+
+    test("falls back to users/default.md when userSlug is omitted", () => {
+      writeFileSync(
+        join(TEST_DIR, "BOOTSTRAP.md"),
+        "# First run\n\nSave facts to users/{{USER_PERSONA_FILE}} immediately.",
+      );
+      const result = buildSystemPrompt();
+      expect(result).toContain("users/default.md");
+      expect(result).not.toContain("{{USER_PERSONA_FILE}}");
+    });
+
+    test("substitutes the unmodified bundled BOOTSTRAP.md template", () => {
+      // Copy the real bundled BOOTSTRAP.md into the test workspace so we
+      // verify substitution against the actual template the daemon ships.
+      const bundled = readFileSync(
+        join(
+          import.meta.dirname,
+          "..",
+          "prompts",
+          "templates",
+          "BOOTSTRAP.md",
+        ),
+        "utf-8",
+      );
+      writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), bundled);
+      const result = buildSystemPrompt({ userSlug: "alice" });
+      expect(result).toContain("users/alice.md");
+      expect(result).not.toContain("{{USER_PERSONA_FILE}}");
+    });
+  });
+
   describe("app-builder tool ownership guidance", () => {
     test("iteration guidance does not mention app_update for HTML changes", () => {
       const result = buildSystemPrompt();

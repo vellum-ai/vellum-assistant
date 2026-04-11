@@ -280,10 +280,15 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   if (options?.channelPersona) dynamicParts.push(options.channelPersona);
   if (user && !userIsTemplate && !options?.userPersona) dynamicParts.push(user);
   if (includeBootstrap) {
+    const userSlug = options?.userSlug ?? "default";
+    const bootstrapWithSlug = bootstrap.replaceAll(
+      "{{USER_PERSONA_FILE}}",
+      `${userSlug}.md`,
+    );
     dynamicParts.push(
       "# First-Run Ritual\n\n" +
         "BOOTSTRAP.md is present — this is your first conversation. Follow its instructions.\n\n" +
-        bootstrap,
+        bootstrapWithSlug,
     );
   }
   if (updates) {

@@ -49,10 +49,10 @@ describe("onboarding template contracts", () => {
       expect(lower).toContain("declined");
     });
 
-    test("instructs saving to IDENTITY.md, USER.md, and SOUL.md via file_edit", () => {
+    test("instructs saving to IDENTITY.md, SOUL.md, and user persona file via file_edit", () => {
       expect(bootstrap).toContain("IDENTITY.md");
-      expect(bootstrap).toContain("USER.md");
       expect(bootstrap).toContain("SOUL.md");
+      expect(bootstrap).toContain("{{USER_PERSONA_FILE}}");
       expect(bootstrap).toContain("file_edit");
     });
 
