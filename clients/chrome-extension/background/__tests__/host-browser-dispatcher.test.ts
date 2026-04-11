@@ -298,7 +298,7 @@ describe('createHostBrowserDispatcher', () => {
         sendResult: { id: 1, result: {} },
       });
       // Override resolveTarget to record calls and return a targetId.
-      harness.resolveTargetImpl = async (cdpSessionId) => {
+      harness.resolveTargetImpl = async (_cdpSessionId) => {
         return { targetId: 'test-target-id' };
       };
 
@@ -624,7 +624,6 @@ describe('createHostBrowserDispatcher', () => {
 
     test('stringifies non-Error thrown values', async () => {
       harness.resolveTargetImpl = async () => {
-        // eslint-disable-next-line no-throw-literal
         throw 'raw string rejection';
       };
 

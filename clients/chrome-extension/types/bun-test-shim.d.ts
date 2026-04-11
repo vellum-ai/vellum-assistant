@@ -43,11 +43,14 @@ declare module 'bun:test' {
     toBe(expected: unknown): R;
     toBeDefined(): R;
     toEqual(expected: unknown): R;
-    toBeInstanceOf(expected: Function): R;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    toBeInstanceOf(expected: abstract new (...args: any[]) => any): R;
     toBeNull(): R;
     toBeUndefined(): R;
+    toBeGreaterThan(expected: number): R;
     toBeGreaterThanOrEqual(expected: number): R;
     toBeLessThanOrEqual(expected: number): R;
+    toBeString(): R;
     toContain(expected: unknown): R;
     not: Matchers<R>;
     rejects: {

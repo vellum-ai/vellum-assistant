@@ -8,7 +8,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { z } from "zod";
 
@@ -36,6 +36,7 @@ import {
   generateAllowlistOptions,
   generateScopeOptions,
 } from "../../permissions/checker.js";
+import { resolveGuardianPersonaPath } from "../../prompts/persona-resolver.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { parseToolManifestFile } from "../../skills/tool-manifest.js";
 import {
@@ -314,16 +315,31 @@ async function handleOAuthConnectStart(body: {
 // Workspace files (list/read)
 // ---------------------------------------------------------------------------
 
-const WORKSPACE_FILES = ["IDENTITY.md", "SOUL.md", "USER.md", "skills/"];
+/**
+ * Build the list of workspace files exposed via the workspace-files endpoint.
+ *
+ * Returns the static identity/soul files and skills directory plus the
+ * guardian's resolved per-user persona file at `users/<slug>.md` when a
+ * guardian exists. Callers should invoke this per-request instead of
+ * caching, since the guardian can change over the lifetime of the daemon.
+ */
+function getWorkspaceFiles(): string[] {
+  const files = ["IDENTITY.md", "SOUL.md", "skills/"];
+  const guardianPath = resolveGuardianPersonaPath();
+  if (guardianPath) {
+    files.push(`users/${basename(guardianPath)}`);
+  }
+  return files;
+}
 
 function handleWorkspaceFilesList(): Response {
   const base = getWorkspaceDir();
-  const files = WORKSPACE_FILES.map((name) => ({
+  const files = getWorkspaceFiles().map((name) => ({
     path: name,
     name,
     exists: pathExists(join(base, name)),
   }));
-  return Response.json({ files });
+  return Response.json({ type: "workspace_files_list_response", files });
 }
 
 function handleWorkspaceFileRead(requestedPath: string): Response {

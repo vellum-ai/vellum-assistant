@@ -21,11 +21,11 @@ You are helping the user set up and manage phone calls via Twilio. This skill co
 
 ## External Identity
 
-When speaking on behalf of your user during calls, refer to yourself as an "assistant" (not "AI assistant"). Use your user's name and pronouns from USER.md. Don't volunteer that you are an AI unless directly asked.
+When speaking on behalf of your user during calls, refer to yourself as an "assistant" (not "AI assistant"). Use your user's name and pronouns from their user persona file (`users/<slug>.md`). Don't volunteer that you are an AI unless directly asked.
 
 # Overview
 
-The calling system uses Twilio's ConversationRelay for both **outbound** and **inbound** voice calls with **ElevenLabs** providing the text-to-speech voice. After Twilio setup, the assistant configures ElevenLabs as the TTS provider and prompts the user to choose a voice from a curated list of supported options.
+The calling system uses Twilio's ConversationRelay for both **outbound** and **inbound** voice calls. The text-to-speech voice is provided by the globally configured TTS provider (set via `services.tts.provider`, default: ElevenLabs). After Twilio setup, the assistant prompts the user to choose a voice from a curated list of supported options.
 
 # Initial Setup
 

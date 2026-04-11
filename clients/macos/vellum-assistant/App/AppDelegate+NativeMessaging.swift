@@ -46,7 +46,7 @@ extension AppDelegate {
         do {
             try NativeMessagingInstaller.installChromeManifest(
                 helperBinaryPath: helperBinaryUrl,
-                extensionId: ChromeExtensionAllowlist.primaryId
+                extensionIds: ChromeExtensionAllowlist.allIds
             )
         } catch {
             // Best-effort: a failing manifest install must not crash
@@ -91,8 +91,8 @@ extension AppDelegate {
     }
 }
 
-/// Chrome extension id used when writing the native messaging manifest's
-/// `allowed_origins` entry. Resolved from the canonical config at
+/// Chrome extension IDs used when writing the native messaging manifest's
+/// `allowed_origins` entries. Resolved from the canonical config at
 /// `meta/browser-extension/chrome-extension-allowlist.json` when available.
 ///
 /// Kept in a standalone enum so unit tests can reference it without
@@ -101,6 +101,25 @@ enum ChromeExtensionAllowlist {
     private static let fallbackPlaceholderId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     private static let extensionIdRegex = try! NSRegularExpression(pattern: "^[a-p]{32}$")
 
+    /// All valid extension IDs from the canonical config. Used to populate
+    /// the native messaging manifest's `allowed_origins` array so both the
+    /// development (sideloaded) and CWS-published extension are accepted.
+    static var allIds: [String] {
+        if let fromEnv = ProcessInfo.processInfo.environment["VELLUM_CHROME_EXTENSION_IDS"] {
+            let ids = fromEnv.components(separatedBy: CharacterSet(charactersIn: ", "))
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { isValidExtensionId($0) }
+            if !ids.isEmpty { return ids }
+        }
+
+        if let fromConfig = loadAllIdsFromCanonicalConfig() {
+            return fromConfig
+        }
+
+        return [fallbackPlaceholderId]
+    }
+
+    /// The first valid extension ID — used when a single ID is needed.
     static var primaryId: String {
         if let fromEnv = ProcessInfo.processInfo.environment["VELLUM_CHROME_EXTENSION_ID"],
            isValidExtensionId(fromEnv)
@@ -119,6 +138,20 @@ enum ChromeExtensionAllowlist {
         let fullRange = NSRange(value.startIndex..<value.endIndex, in: value)
         let match = extensionIdRegex.firstMatch(in: value, options: [], range: fullRange)
         return match != nil
+    }
+
+    private static func loadAllIdsFromCanonicalConfig() -> [String]? {
+        for candidate in canonicalConfigPathCandidates() {
+            guard let data = try? Data(contentsOf: candidate),
+                  let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let ids = raw["allowedExtensionIds"] as? [String]
+            else {
+                continue
+            }
+            let valid = ids.filter { isValidExtensionId($0) }
+            if !valid.isEmpty { return valid }
+        }
+        return nil
     }
 
     private static func loadPrimaryIdFromCanonicalConfig() -> String? {

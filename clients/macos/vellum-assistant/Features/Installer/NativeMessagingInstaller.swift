@@ -72,17 +72,17 @@ public enum NativeMessagingInstaller {
     ///     messaging helper binary (e.g.
     ///     `…/Contents/MacOS/vellum-chrome-native-host`). Must exist —
     ///     Chrome refuses to spawn a host whose `path` is missing.
-    ///   - extensionId: The Chrome extension ID to pin in
-    ///     `allowed_origins`. Must match the allowlist enforced by the
-    ///     helper binary itself (PR 7 `ALLOWED_EXTENSION_IDS`) and the
-    ///     runtime pair endpoint's allowlist (PR 11).
+    ///   - extensionIds: Chrome extension IDs to pin in
+    ///     `allowed_origins`. Should include both the development and
+    ///     CWS production IDs so the native host accepts connections
+    ///     from either origin.
     public static func installChromeManifest(
         helperBinaryPath: URL,
-        extensionId: String
+        extensionIds: [String]
     ) throws {
         try installChromeManifest(
             helperBinaryPath: helperBinaryPath,
-            extensionId: extensionId,
+            extensionIds: extensionIds,
             homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
             fileManager: FileManager.default
         )
@@ -104,7 +104,7 @@ public enum NativeMessagingInstaller {
     /// directory under the tester's home folder.
     internal static func installChromeManifest(
         helperBinaryPath: URL,
-        extensionId: String,
+        extensionIds: [String],
         homeDirectory: URL,
         fileManager: FileManager
     ) throws {
@@ -134,7 +134,7 @@ public enum NativeMessagingInstaller {
             "description": hostDescription,
             "path": helperBinaryPath.path,
             "type": "stdio",
-            "allowed_origins": ["chrome-extension://\(extensionId)/"],
+            "allowed_origins": extensionIds.map { "chrome-extension://\($0)/" },
         ]
 
         let data = try JSONSerialization.data(

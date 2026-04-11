@@ -208,38 +208,52 @@ export function buildCandidateList(context: ToolContext): BackendCandidate[] {
     context.transportInterface === "macos" &&
     cdpInspectConfig.desktopAuto.enabled
   ) {
-    // macOS desktop-auto: include cdp-inspect as a candidate unless the
-    // cooldown from a recent failure is still active.
-    const { cooldownMs } = cdpInspectConfig.desktopAuto;
-    if (isDesktopAutoCooldownActive(cooldownMs)) {
+    // macOS desktop-auto: include cdp-inspect as a candidate unless:
+    // (a) the hostBrowserProxy exists but is temporarily unavailable
+    //     (extension transport expected but transiently disconnected --
+    //     inserting cdp-inspect here would cause a silent takeover), or
+    // (b) the cooldown from a recent failure is still active.
+    //
+    // When no hostBrowserProxy is present at all (extension not
+    // provisioned for this conversation), cdp-inspect remains available
+    // as a fallback per the desktop-auto contract.
+    if (hostBrowserProxy && !hostBrowserProxy.isAvailable()) {
       log.debug(
-        {
-          conversationId,
-          cooldownMs,
-          cooldownSince: _desktopAutoCooldownSince,
-        },
-        "CDP factory: desktop-auto cdp-inspect skipped (cooldown active)",
+        { conversationId },
+        "CDP factory: desktop-auto cdp-inspect skipped (extension transport expected but temporarily unavailable)",
       );
     } else {
-      candidates.push({
-        kind: "cdp-inspect",
-        reason: "desktopAuto: macOS turn, cdp-inspect auto-attempted",
-        create() {
-          const client = createCdpInspectClient(conversationId, {
-            host: cdpInspectConfig.host,
-            port: cdpInspectConfig.port,
-            discoveryTimeoutMs: cdpInspectConfig.probeTimeoutMs,
-            wsConnectTimeoutMs: cdpInspectConfig.probeTimeoutMs,
-          });
-          const backend = createCdpInspectBackend({
-            isAvailable: () => true,
-            sendCdp: (command, signal) =>
-              dispatchThroughClient(client, command, signal),
-            dispose: () => client.dispose(),
-          });
-          return { client, backend };
-        },
-      });
+      const { cooldownMs } = cdpInspectConfig.desktopAuto;
+      if (isDesktopAutoCooldownActive(cooldownMs)) {
+        log.debug(
+          {
+            conversationId,
+            cooldownMs,
+            cooldownSince: _desktopAutoCooldownSince,
+          },
+          "CDP factory: desktop-auto cdp-inspect skipped (cooldown active)",
+        );
+      } else {
+        candidates.push({
+          kind: "cdp-inspect",
+          reason: "desktopAuto: macOS turn, cdp-inspect auto-attempted",
+          create() {
+            const client = createCdpInspectClient(conversationId, {
+              host: cdpInspectConfig.host,
+              port: cdpInspectConfig.port,
+              discoveryTimeoutMs: cdpInspectConfig.probeTimeoutMs,
+              wsConnectTimeoutMs: cdpInspectConfig.probeTimeoutMs,
+            });
+            const backend = createCdpInspectBackend({
+              isAvailable: () => true,
+              sendCdp: (command, signal) =>
+                dispatchThroughClient(client, command, signal),
+              dispose: () => client.dispose(),
+            });
+            return { client, backend };
+          },
+        });
+      }
     }
   }
 

@@ -1220,12 +1220,13 @@ describe("isSideEffectTool", () => {
   });
 });
 
-// Baseline: allow rules can auto-allow file_edit for USER.md today (no forced prompting).
-// The mock check() delegates to findHighestPriorityRule (via spy) so a regression
-// in trust-rule matching would cause this test to fail instead of being masked by
-// a blanket mock-allow.
-describe("ToolExecutor baseline: allow rule auto-allows file_edit USER.md", () => {
-  const userMdPath = "/Users/sidd/.vellum/workspace/USER.md";
+// Baseline: allow rules can auto-allow file_edit for the guardian persona
+// today (no forced prompting). The mock check() delegates to
+// findHighestPriorityRule (via spy) so a regression in trust-rule matching
+// would cause this test to fail instead of being masked by a blanket
+// mock-allow.
+describe("ToolExecutor baseline: allow rule auto-allows file_edit guardian persona", () => {
+  const guardianPersonaPath = "/Users/sidd/.vellum/workspace/users/sidd.md";
   let ruleSpy: ReturnType<typeof spyOn> | undefined;
 
   beforeEach(() => {
@@ -1239,18 +1240,19 @@ describe("ToolExecutor baseline: allow rule auto-allows file_edit USER.md", () =
       addRuleSpy = undefined;
     }
 
-    // Simulate a trust rule that allows file_edit on USER.md by stubbing
-    // findHighestPriorityRule. This mirrors the default allow rules that
-    // the trust-store creates for workspace prompt files.
+    // Simulate a trust rule that allows file_edit on the guardian's per-user
+    // persona file by stubbing findHighestPriorityRule. This mirrors the
+    // default allow rules that the trust-store creates for the guardian
+    // persona file (see permissions/defaults.ts).
     ruleSpy = spyOn(trustStore, "findHighestPriorityRule").mockImplementation(
       (tool: string, commands: string[], _scope: string) => {
         if (tool !== "file_edit") return null;
         for (const cmd of commands) {
-          if (cmd === `file_edit:${userMdPath}`) {
+          if (cmd === `file_edit:${guardianPersonaPath}`) {
             return {
-              id: "default:allow-file_edit-user",
+              id: "default:allow-file_edit-guardian-persona",
               tool: "file_edit",
-              pattern: `file_edit:${userMdPath}`,
+              pattern: `file_edit:${guardianPersonaPath}`,
               scope: "everywhere",
               decision: "allow" as const,
               priority: 100,
@@ -1294,11 +1296,11 @@ describe("ToolExecutor baseline: allow rule auto-allows file_edit USER.md", () =
     }
   });
 
-  test("file_edit to USER.md is auto-allowed via trust rule", async () => {
+  test("file_edit to guardian persona is auto-allowed via trust rule", async () => {
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       "file_edit",
-      { path: userMdPath, content: "hello" },
+      { path: guardianPersonaPath, content: "hello" },
       makeContext(),
     );
     expect(result.isError).toBe(false);
@@ -1310,7 +1312,7 @@ describe("ToolExecutor baseline: allow rule auto-allows file_edit USER.md", () =
     expect(ruleSpy).toHaveBeenCalled();
   });
 
-  test("file_edit to a non-USER.md path is NOT auto-allowed without a matching rule", async () => {
+  test("file_edit to a non-guardian-persona path is NOT auto-allowed without a matching rule", async () => {
     let promptCalled = false;
     const trackingPrompter = {
       prompt: async () => {
@@ -1530,22 +1532,23 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     expect(promptCount).toBe(1);
   });
 
-  // ── USER.md security invariant (PR 31) ──────────
+  // ── Guardian persona security invariant (PR 31) ──────────
 
-  test("file_edit to USER.md forces prompt in private conversation even with matching trust rule", async () => {
-    // This is a key security invariant: USER.md contains the user's persistent
-    // memory. In a private conversation (forcePromptSideEffects=true), edits to it
-    // must always require explicit approval, even when a trust rule matches.
+  test("file_edit to guardian persona forces prompt in private conversation even with matching trust rule", async () => {
+    // This is a key security invariant: the guardian persona file contains
+    // the user's persistent memory. In a private conversation
+    // (forcePromptSideEffects=true), edits to it must always require explicit
+    // approval, even when a trust rule matches.
     checkResultOverride = {
       decision: "allow",
-      reason: "Matched trust rule: file_edit:*/USER.md",
+      reason: "Matched trust rule: file_edit:*/users/*.md",
     };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
     const result = await executor.execute(
       "file_edit",
       {
-        path: "/Users/sidd/.vellum/workspace/USER.md",
+        path: "/Users/sidd/.vellum/workspace/users/sidd.md",
         old_string: "old pref",
         new_string: "new pref",
       },
@@ -1557,14 +1560,14 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     expect(promptCalled).toBe(true);
   });
 
-  test("host_file_edit to USER.md forces prompt in private conversation", async () => {
+  test("host_file_edit to guardian persona forces prompt in private conversation", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
     const result = await executor.execute(
       "host_file_edit",
       {
-        path: "/Users/sidd/.vellum/workspace/USER.md",
+        path: "/Users/sidd/.vellum/workspace/users/sidd.md",
         old_string: "x",
         new_string: "y",
       },

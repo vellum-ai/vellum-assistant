@@ -810,7 +810,10 @@ struct ConstellationView: View {
 
     private var groups: [CategoryGroup] {
         let fileItems = existingFiles.enumerated().map { idx, node in
-            let path: String? = node.label.hasSuffix(".md") ? node.path : nil
+            // Detect files by the backend-provided path, not the display
+            // label — labels are user-facing strings (e.g. "User Profile")
+            // that no longer necessarily match the filename.
+            let path: String? = node.path.hasSuffix(".md") ? node.path : nil
             return OrbitItem(
                 id: "workspace-\(idx)", label: node.label, icon: SkillCategory.knowledge.icon,
                 emoji: nil, color: SkillCategory.knowledge.color, filePath: path,

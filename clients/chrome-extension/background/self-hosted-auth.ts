@@ -43,11 +43,39 @@ export interface StoredLocalToken {
    * native helpers that predate PR 3 of the browser-remediation plan.
    */
   assistantPort?: number;
+  /**
+   * Protocol version reported by the native host. `null` when the native
+   * host predates protocol versioning (backward-compatible — treat as
+   * "version unknown, assume compatible"). Optional so existing stored
+   * tokens without this field remain valid.
+   */
+  protocolVersion?: number | null;
 }
 
 const STORAGE_KEY_PREFIX = 'vellum.localCapabilityToken';
 const NATIVE_HOST_NAME = 'com.vellum.daemon';
 const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 5_000;
+
+/**
+ * Window (ms) before `expiresAt` inside which we treat the stored local token
+ * as "stale" and proactively re-bootstrap it. 60 seconds mirrors the cloud
+ * token stale semantics — gives enough headroom that an in-flight reconnect
+ * doesn't race the runtime's own expiry check.
+ */
+export const LOCAL_TOKEN_STALE_WINDOW_MS = 60_000;
+
+/**
+ * Return `true` when the stored local token is expired or within
+ * {@link LOCAL_TOKEN_STALE_WINDOW_MS} of expiring. `null`/missing tokens
+ * also count as stale so callers can treat them uniformly.
+ */
+export function isLocalTokenStale(
+  token: StoredLocalToken | null,
+  now: number = Date.now(),
+): boolean {
+  if (!token) return true;
+  return token.expiresAt - now <= LOCAL_TOKEN_STALE_WINDOW_MS;
+}
 
 /**
  * The legacy unscoped storage key used before assistant-scoped keys were
@@ -255,6 +283,7 @@ export async function bootstrapLocalToken(
         expiresAt?: unknown;
         guardianId?: unknown;
         assistantPort?: unknown;
+        protocolVersion?: unknown;
         message?: unknown;
       };
 
@@ -285,11 +314,18 @@ export async function bootstrapLocalToken(
         ) {
           assistantPort = rawPort;
         }
+        // Forward/back-compat: accept missing protocolVersion. Older
+        // native helpers that predate protocol versioning don't emit
+        // this field; treat as null (version unknown, assume compatible).
+        const protocolVersion =
+          typeof frame.protocolVersion === 'number' ? frame.protocolVersion : null;
+
         const stored: StoredLocalToken = {
           token: frame.token,
           expiresAt,
           guardianId: frame.guardianId,
           ...(assistantPort !== undefined ? { assistantPort } : {}),
+          protocolVersion,
         };
 
         // Mark settled + tear down the port SYNCHRONOUSLY so a racing

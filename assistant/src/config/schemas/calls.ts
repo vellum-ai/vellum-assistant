@@ -6,7 +6,6 @@ export const VALID_CALLER_IDENTITY_MODES = [
   "user_number",
 ] as const;
 const VALID_CALL_TRANSCRIPTION_PROVIDERS = ["Deepgram", "Google"] as const;
-export const VALID_TTS_PROVIDERS = ["elevenlabs", "fish-audio"] as const;
 
 export const CallsDisclosureConfigSchema = z
   .object({
@@ -64,16 +63,8 @@ export const CallsVoiceConfigSchema = z
       .describe(
         "ASR model to use for speech recognition (e.g. nova-3, nova-2-phonecall for Deepgram; telephony, long for Google)",
       ),
-    ttsProvider: z
-      .enum(VALID_TTS_PROVIDERS, {
-        error: `calls.voice.ttsProvider must be one of: ${VALID_TTS_PROVIDERS.join(", ")}`,
-      })
-      .default("elevenlabs")
-      .describe("Text-to-speech provider for phone calls"),
     hints: z
-      .array(
-        z.string({ error: "calls.voice.hints values must be strings" }),
-      )
+      .array(z.string({ error: "calls.voice.hints values must be strings" }))
       .default([])
       .describe(
         "Static vocabulary hints for speech recognition — proper nouns, domain terms, and other words the STT provider should prioritize",

@@ -42,6 +42,12 @@ export interface AssistantDescriptor {
 export interface AssistantCatalog {
   assistants: AssistantDescriptor[];
   activeAssistantId: string | null;
+  /**
+   * Protocol version reported by the native host. `null` when the native
+   * host predates protocol versioning (backward-compatible — treat as
+   * "version unknown, assume compatible").
+   */
+  protocolVersion: number | null;
 }
 
 export interface ListAssistantsOptions {
@@ -139,6 +145,7 @@ export async function listAssistants(
         type?: unknown;
         assistants?: unknown;
         activeAssistantId?: unknown;
+        protocolVersion?: unknown;
         message?: unknown;
       };
 
@@ -153,10 +160,14 @@ export async function listAssistants(
             ? frame.activeAssistantId
             : null;
 
+        const protocolVersion =
+          typeof frame.protocolVersion === 'number' ? frame.protocolVersion : null;
+
         finish(() =>
           resolve({
             assistants,
             activeAssistantId,
+            protocolVersion,
           }),
         );
         return;

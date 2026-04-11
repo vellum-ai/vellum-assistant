@@ -33,7 +33,7 @@ Create a new inbox through the CLI:
 assistant email inbox create --username <your-username>
 ```
 
-For `<your-username>`, use your assistant name (lowercased, alphanumeric only). Check your identity from `IDENTITY.md` or `USER.md` to determine your name. If you don't have a name yet, ask the user what username they'd like for your email.
+For `<your-username>`, use your assistant name (lowercased, alphanumeric only). Check your identity from `IDENTITY.md` or your user persona file (`users/<slug>.md`) to determine your name. If you don't have a name yet, ask the user what username they'd like for your email.
 
 Use the returned `inbox.address` (or `inbox.id` if `address` is empty) as the created email address.
 
@@ -50,7 +50,7 @@ Confirm the created inbox appears in `health.inboxes`.
 After the inbox is created and visible in status:
 
 1. Tell the user your new email address.
-2. Store a note in your memory or `USER.md` that your email has been provisioned so you remember it in future conversations.
+2. Store a note in your memory or the user persona file (`users/<slug>.md`) that your email has been provisioned so you remember it in future conversations.
 
 ## Rules
 

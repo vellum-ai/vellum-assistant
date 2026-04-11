@@ -8,7 +8,6 @@ protocol VoiceServiceProtocol: AnyObject {
     var onMicrophoneAuthorized: (() -> Void)? { get set }
     var onBargeInDetected: (() -> Void)? { get set }
     var livePartialText: String { get }
-    func hasElevenLabsKey() async -> Bool
 
     func prewarmEngine()
     @discardableResult func startRecording() -> Bool

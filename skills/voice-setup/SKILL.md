@@ -62,7 +62,7 @@ Ask if they want high-quality text-to-speech voices via ElevenLabs (optional - s
 
 If yes, the included **ElevenLabs Voice** skill (automatically appended below via `includes`) provides the full setup flow: curated voice list, API key collection, advanced voice selection, and tuning parameters. Follow the instructions there.
 
-Note: The shared config key `elevenlabs.voiceId` controls the voice for both in-app TTS and phone calls. If the user sets up phone calls later, they will automatically use the same voice for a consistent experience.
+Note: The config key `services.tts.providers.elevenlabs.voiceId` controls the voice for both in-app TTS and phone calls. If the user sets up phone calls later, they will automatically use the same voice for a consistent experience.
 
 ### 4. Verification
 

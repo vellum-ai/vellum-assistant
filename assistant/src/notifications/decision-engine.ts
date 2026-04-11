@@ -61,9 +61,9 @@ const PROMPT_VERSION = "v4";
 /**
  * Maximum character budget for identity context injected into the notification
  * decision prompt. We truncate to prevent oversized prompts when SOUL.md /
- * IDENTITY.md / USER.md are large — exceeding the provider context window
- * would cause the LLM call to fail and silently degrade to deterministic
- * fallback for all notifications.
+ * IDENTITY.md / users/<slug>.md are large — exceeding the provider context
+ * window would cause the LLM call to fail and silently degrade to
+ * deterministic fallback for all notifications.
  */
 const MAX_IDENTITY_CONTEXT_CHARS = 2000;
 

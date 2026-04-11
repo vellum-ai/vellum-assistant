@@ -382,22 +382,65 @@ struct WorkspaceFileNode: Identifiable {
     let path: String
     let exists: Bool
 
-    /// Check file existence via the gateway workspace tree API.
+    /// Static nodes used as a last-resort fallback when the gateway is
+    /// unreachable. Mirrors the server's static entries in `settings-routes.ts`
+    /// (minus the guardian's dynamic `users/<slug>.md`, which we obviously
+    /// can't resolve client-side).
+    private static let fallbackNodes: [WorkspaceFileNode] = [
+        WorkspaceFileNode(label: "IDENTITY.md", path: "IDENTITY.md", exists: false),
+        WorkspaceFileNode(label: "SOUL.md", path: "SOUL.md", exists: false),
+        WorkspaceFileNode(label: "skills/", path: "skills", exists: false),
+    ]
+
+    /// Fetch the well-known workspace files from the gateway.
+    ///
+    /// Uses `GET /workspace-files`, which the daemon builds dynamically:
+    /// it includes the static identity/soul/skills entries plus the
+    /// guardian's resolved per-user persona file at `users/<slug>.md`.
+    /// The client renders whatever the server returns — the guardian slug
+    /// is decided server-side and surfaced as a single "User Profile" node.
     static func scanAsync() async -> [WorkspaceFileNode] {
-        guard let tree = await WorkspaceClient().fetchWorkspaceTree(path: "", showHidden: false) else {
-            return [
-                WorkspaceFileNode(label: "IDENTITY.md", path: "IDENTITY.md", exists: false),
-                WorkspaceFileNode(label: "SOUL.md", path: "SOUL.md", exists: false),
-                WorkspaceFileNode(label: "USER.md", path: "USER.md", exists: false),
-                WorkspaceFileNode(label: "skills/", path: "skills", exists: false),
-            ]
+        guard let response = await WorkspaceClient().fetchWorkspaceFilesList() else {
+            return fallbackNodes
         }
-        let names = Set(tree.entries.map { $0.name })
-        return [
-            WorkspaceFileNode(label: "IDENTITY.md", path: "IDENTITY.md", exists: names.contains("IDENTITY.md")),
-            WorkspaceFileNode(label: "SOUL.md", path: "SOUL.md", exists: names.contains("SOUL.md")),
-            WorkspaceFileNode(label: "USER.md", path: "USER.md", exists: names.contains("USER.md")),
-            WorkspaceFileNode(label: "skills/", path: "skills", exists: names.contains("skills")),
-        ]
+        return buildNodes(from: response.files)
+    }
+
+    /// Pure transformation from the server's `workspace-files` response to
+    /// the nodes rendered by the identity panel. Factored out for easier
+    /// reasoning and future unit testing — contains no I/O.
+    static func buildNodes(from entries: [WorkspaceFilesListResponseFile]) -> [WorkspaceFileNode] {
+        var nodes: [WorkspaceFileNode] = []
+        for entry in entries {
+            nodes.append(
+                WorkspaceFileNode(
+                    label: displayLabel(for: entry),
+                    path: entry.path,
+                    exists: entry.exists
+                )
+            )
+        }
+        return nodes
+    }
+
+    /// True when `path` points at the guardian-owned per-user persona file
+    /// (any markdown file directly under `users/`). The client does not care
+    /// which slug the guardian chose — the server decides and we render it.
+    private static func isGuardianUserPersonaPath(_ path: String) -> Bool {
+        guard path.hasPrefix("users/") else { return false }
+        let remainder = path.dropFirst("users/".count)
+        return !remainder.isEmpty
+            && !remainder.contains("/")
+            && remainder.hasSuffix(".md")
+    }
+
+    /// Maps a server entry to a user-facing label. The guardian's
+    /// `users/<slug>.md` is shown as "User Profile" so the UI doesn't surface
+    /// a slug. All other entries render their server-provided name verbatim.
+    private static func displayLabel(for entry: WorkspaceFilesListResponseFile) -> String {
+        if isGuardianUserPersonaPath(entry.path) {
+            return "User Profile"
+        }
+        return entry.name
     }
 }

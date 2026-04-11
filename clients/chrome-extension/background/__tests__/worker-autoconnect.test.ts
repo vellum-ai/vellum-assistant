@@ -18,7 +18,7 @@
  * `worker-selected-assistant-connect.test.ts`.
  */
 
-import { describe, test, expect, beforeEach } from 'bun:test';
+import { describe, test, expect } from 'bun:test';
 
 // ── Fake chrome.storage.local ───────────────────────────────────────
 

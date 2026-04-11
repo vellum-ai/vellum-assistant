@@ -23,6 +23,9 @@ import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { mintDaemonDeliveryToken } from "../runtime/auth/token-service.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
+import { getTtsProvider } from "../tts/provider-registry.js";
+import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
+import type { TtsProvider } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
 import { createStreamingEntry } from "./audio-store.js";
 import {
@@ -45,7 +48,6 @@ import {
   updateCallSession,
 } from "./call-store.js";
 import { finalizeCall } from "./finalize-call.js";
-import { synthesizeWithFishAudio } from "./fish-audio-client.js";
 import { sendGuardianExpiryNotices } from "./guardian-action-sweep.js";
 import { dispatchGuardianQuestion } from "./guardian-dispatch.js";
 import type { RelayConnection } from "./relay-server.js";
@@ -61,7 +63,6 @@ import {
   extractBalancedJson,
   stripInternalSpeechMarkers,
 } from "./voice-control-protocol.js";
-import { isFishAudioTts } from "./voice-quality.js";
 import {
   startVoiceTurn,
   type VoiceTurnHandle,
@@ -139,8 +140,8 @@ export class CallController {
    * without blocking the caller.
    */
   private guardianUnavailableForCall = false;
-  /** Active Fish Audio session — tracked so interrupt handling can close it. */
-  private activeFishAbort: AbortController | null = null;
+  /** Active synthesized-TTS session — tracked so interrupt handling can close it. */
+  private activeSynthesisAbort: AbortController | null = null;
 
   constructor(
     callSessionId: string,
@@ -351,10 +352,10 @@ export class CallController {
     const wasSpeaking = this.state === "speaking";
     this.abortCurrentTurn();
     this.llmRunVersion++;
-    // Cancel in-flight Fish Audio synthesis on barge-in
-    if (this.activeFishAbort) {
-      this.activeFishAbort.abort();
-      this.activeFishAbort = null;
+    // Cancel in-flight synthesized TTS on barge-in
+    if (this.activeSynthesisAbort) {
+      this.activeSynthesisAbort.abort();
+      this.activeSynthesisAbort = null;
     }
     // Explicitly terminate the in-progress TTS turn so the relay can
     // immediately hand control back to the caller after barge-in.
@@ -386,9 +387,9 @@ export class CallController {
     this.pendingInstructions = [];
     this.llmRunVersion++;
     this.abortCurrentTurn();
-    if (this.activeFishAbort) {
-      this.activeFishAbort.abort();
-      this.activeFishAbort = null;
+    if (this.activeSynthesisAbort) {
+      this.activeSynthesisAbort.abort();
+      this.activeSynthesisAbort = null;
     }
     this.currentTurnPromise = null;
     unregisterCallController(this.callSessionId);
@@ -527,6 +528,46 @@ export class CallController {
   }
 
   /**
+   * Resolve the active TTS provider via the global provider abstraction.
+   *
+   * Providers that declare streaming support are treated as "synthesized"
+   * providers — their audio is streamed through the audio store and played
+   * via `sendPlayUrl`. Providers without streaming support are "native"
+   * providers — text tokens are streamed directly to the relay for Twilio's
+   * built-in TTS.
+   */
+  private resolveCallTtsProvider(): {
+    provider: TtsProvider | null;
+    useSynthesizedPath: boolean;
+    audioFormat: "mp3" | "wav" | "opus";
+  } {
+    try {
+      const config = loadConfig();
+      const resolved = resolveTtsConfig(config);
+      const provider = getTtsProvider(resolved.provider);
+      // Providers with streaming support synthesize audio themselves; others
+      // rely on the relay's native (Twilio-managed) TTS engine.
+      const useSynthesizedPath = provider.capabilities.supportsStreaming;
+      // Read the user-configured audio format from the resolved provider
+      // config so the streaming store entry's content-type matches the
+      // actual audio bytes the provider produces.
+      const configuredFormat = (resolved.providerConfig as { format?: string })
+        .format;
+      const audioFormat = (
+        configuredFormat && ["mp3", "wav", "opus"].includes(configuredFormat)
+          ? configuredFormat
+          : "mp3"
+      ) as "mp3" | "wav" | "opus";
+      return { provider, useSynthesizedPath, audioFormat };
+    } catch {
+      // Config missing `services.tts` block or provider not registered
+      // (e.g. unit tests or early startup) — fall back to the native
+      // (non-streaming) path where the provider object is not used.
+      return { provider: null, useSynthesizedPath: false, audioFormat: "mp3" };
+    }
+  }
+
+  /**
    * Stream TTS tokens from the conversation pipeline, buffering to strip
    * control markers before they reach the relay. Returns the full
    * accumulated response text for post-turn marker detection.
@@ -536,11 +577,13 @@ export class CallController {
     runVersion: number,
     runSignal: AbortSignal,
   ): Promise<string> {
-    // Fish Audio TTS routing: when configured, buffer text by sentence
-    // boundaries and synthesize via Fish Audio instead of streaming text
-    // tokens for ElevenLabs TTS.
-    const config = loadConfig();
-    const useFishAudio = isFishAudioTts(config);
+    // Resolve the active TTS provider through the global abstraction.
+    // Providers that declare streaming support use the synthesized-play
+    // path (buffer text, synthesize via provider API, stream audio chunks
+    // to Twilio via play-URL). Native providers stream text tokens to
+    // the relay for Twilio's built-in TTS.
+    const { provider, useSynthesizedPath, audioFormat } =
+      this.resolveCallTtsProvider();
 
     // Buffer incoming tokens so we can strip control markers ([ASK_GUARDIAN:...], [END_CALL])
     // before they reach TTS. We hold text whenever an unmatched '[' appears, since it
@@ -548,16 +591,16 @@ export class CallController {
     let ttsBuffer = "";
     let fullResponseText = "";
 
-    // When using Fish Audio, we accumulate all text and synthesize
+    // When using the synthesized path, we accumulate all text and synthesize
     // the complete response at the end of the turn (better prosody).
-    let fishAudioTextBuffer = "";
+    let synthesizedTextBuffer = "";
 
     /** Emit a chunk of safe text to the appropriate TTS backend. */
     const emitSafeChunk = (safeText: string): void => {
       const cleaned = sanitizeForTts(safeText);
       if (cleaned.length === 0) return;
-      if (useFishAudio) {
-        fishAudioTextBuffer += cleaned;
+      if (useSynthesizedPath) {
+        synthesizedTextBuffer += cleaned;
       } else {
         this.relay.sendTextToken(cleaned, false);
       }
@@ -670,47 +713,28 @@ export class CallController {
       emitSafeChunk(ttsBuffer);
     }
 
-    // When using Fish Audio, synthesize the complete response text in a
-    // single REST API call. The full text gives Fish Audio better context
-    // for prosody and intonation. Audio streams back via chunked transfer
-    // encoding and is forwarded to Twilio as it arrives.
-    const sanitizedFishText = sanitizeForTts(fishAudioTextBuffer.trim());
-    if (useFishAudio && sanitizedFishText.length > 0) {
+    // Synthesized-play path: when the active provider supports streaming,
+    // synthesize the complete response text via the provider's streaming
+    // API. The full text gives the provider better context for prosody
+    // and intonation. Audio streams back via chunked transfer encoding
+    // and is forwarded to Twilio as it arrives.
+    const sanitizedSynthText = sanitizeForTts(synthesizedTextBuffer.trim());
+    if (useSynthesizedPath && provider && sanitizedSynthText.length > 0) {
       if (!this.isCurrentRun(runVersion)) return fullResponseText;
-      let handle: ReturnType<typeof createStreamingEntry> | null = null;
-      try {
-        const format = config.fishAudio.format ?? "mp3";
-        handle = createStreamingEntry(format as "mp3" | "wav" | "opus");
-        const baseUrl = getPublicBaseUrl(config);
-        const url = `${baseUrl}/v1/audio/${handle.audioId}`;
-        this.relay.sendPlayUrl(url);
-        const abortController = new AbortController();
-        this.activeFishAbort = abortController;
-        await synthesizeWithFishAudio(
-          sanitizedFishText,
-          config.fishAudio,
-          {
-            onChunk: (chunk) => handle!.push(chunk),
-            signal: abortController.signal,
-          },
-        );
-      } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") {
-          log.debug("Fish Audio synthesis aborted (barge-in)");
-        } else {
-          log.error({ err }, "Fish Audio synthesis failed — skipping");
-        }
-      } finally {
-        this.activeFishAbort = null;
-        handle?.finalize();
-      }
+      await this.synthesizeAndStreamAudio(
+        provider,
+        sanitizedSynthText,
+        runVersion,
+        audioFormat,
+      );
     }
 
     // Signal end of this turn's speech.  An empty token with `last: true`
     // tells ConversationRelay to start listening — it does NOT trigger TTS
-    // synthesis.  This is required even when Fish Audio handled all audio
-    // playback, because ConversationRelay still needs the end-of-turn signal
-    // to transition from "assistant speaking" to "caller speaking" state.
+    // synthesis.  This is required even when a synthesized provider handled
+    // all audio playback, because ConversationRelay still needs the
+    // end-of-turn signal to transition from "assistant speaking" to
+    // "caller speaking" state.
     this.relay.sendTextToken("", true);
 
     // Mark the greeting's first response as awaiting ack
@@ -720,6 +744,65 @@ export class CallController {
     }
 
     return fullResponseText;
+  }
+
+  /**
+   * Synthesize text via a streaming TTS provider and forward audio chunks
+   * to Twilio through the audio store / play-URL mechanism.
+   */
+  private async synthesizeAndStreamAudio(
+    provider: TtsProvider,
+    text: string,
+    _runVersion: number,
+    format: "mp3" | "wav" | "opus" = "mp3",
+  ): Promise<void> {
+    let handle: ReturnType<typeof createStreamingEntry> | null = null;
+    try {
+      handle = createStreamingEntry(format);
+      const config = loadConfig();
+      const baseUrl = getPublicBaseUrl(config);
+      const url = `${baseUrl}/v1/audio/${handle.audioId}`;
+      this.relay.sendPlayUrl(url);
+
+      const abortController = new AbortController();
+      this.activeSynthesisAbort = abortController;
+
+      if (provider.synthesizeStream) {
+        await provider.synthesizeStream(
+          {
+            text,
+            useCase: "phone-call",
+            signal: abortController.signal,
+          },
+          (chunk) => handle!.push(chunk),
+        );
+      } else {
+        // Fallback: buffer-oriented synthesis for providers that don't
+        // implement streaming (shouldn't normally reach here since
+        // useSynthesizedPath is gated on supportsStreaming).
+        const result = await provider.synthesize({
+          text,
+          useCase: "phone-call",
+          signal: abortController.signal,
+        });
+        handle.push(result.audio);
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        log.debug(
+          { provider: provider.id },
+          "TTS synthesis aborted (barge-in)",
+        );
+      } else {
+        log.error(
+          { err, provider: provider.id },
+          "TTS synthesis failed — skipping",
+        );
+      }
+    } finally {
+      this.activeSynthesisAbort = null;
+      handle?.finalize();
+    }
   }
 
   /**
@@ -734,7 +817,9 @@ export class CallController {
     recordCallEvent(this.callSessionId, "assistant_spoke", {
       text: responseText,
     });
-    const spokenText = sanitizeForTts(stripInternalSpeechMarkers(responseText)).trim();
+    const spokenText = sanitizeForTts(
+      stripInternalSpeechMarkers(responseText),
+    ).trim();
     if (spokenText.length > 0) {
       const session = getCallSession(this.callSessionId);
       if (session) {
