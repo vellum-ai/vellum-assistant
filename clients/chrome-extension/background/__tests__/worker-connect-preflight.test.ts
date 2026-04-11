@@ -26,7 +26,7 @@
 
 import { describe, test, expect } from 'bun:test';
 
-import { resolveAuthProfile, type AssistantAuthProfile } from '../assistant-auth-profile.js';
+import { type AssistantAuthProfile } from '../assistant-auth-profile.js';
 import type { AssistantDescriptor } from '../native-host-assistants.js';
 import { isCloudTokenStale, type StoredCloudToken } from '../cloud-auth.js';
 import type { StoredLocalToken } from '../self-hosted-auth.js';

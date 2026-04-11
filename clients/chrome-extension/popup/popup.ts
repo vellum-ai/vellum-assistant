@@ -76,7 +76,6 @@ const assistantSelect = document.getElementById(
 // Tracks the currently selected assistant and its auth profile so
 // connect and auth-refresh operations use the right assistant context.
 
-let currentAuthProfile: AssistantAuthProfile | null = null;
 let currentAssistantId: string | null = null;
 
 // ── Connection phase management ─────────────────────────────────────
@@ -156,8 +155,6 @@ function renderAssistantSelector(
  * based on the selected assistant's auth profile.
  */
 function updateAuthSections(authProfile: AssistantAuthProfile | null): void {
-  currentAuthProfile = authProfile;
-
   const showLocal = shouldShowLocalSection(authProfile);
   const showCloud = shouldShowCloudSection(authProfile);
 

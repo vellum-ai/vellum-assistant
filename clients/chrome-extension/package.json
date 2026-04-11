@@ -1,0 +1,16 @@
+{
+  "name": "@vellumai/chrome-extension",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "eslint",
+    "test": "bun test",
+    "typecheck": "bunx tsc --noEmit"
+  },
+  "devDependencies": {
+    "eslint": "10.2.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.58.1"
+  }
+}
