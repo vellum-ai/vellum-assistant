@@ -23,7 +23,7 @@ import { generateTwiML } from "../calls/twilio-routes.js";
 // ── Helper to build speech config from raw provider settings ─────────
 
 function speechConfigFor(
-  transcriptionProvider: string,
+  transcriptionProvider: "Deepgram" | "Google",
   speechModel: string | undefined,
   interruptSensitivity: string,
   hints?: string,
