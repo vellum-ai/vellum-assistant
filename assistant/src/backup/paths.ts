@@ -1,0 +1,117 @@
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+
+import { getProtectedDir } from "../util/platform.js";
+
+/**
+ * Temporary local type until the backup config PR lands — matches the shape
+ * of `BackupDestinationSchema` that will be exported from `../config/schema.js`.
+ * A later PR will replace this with the real import so callers that depend on
+ * both modules have a single source of truth.
+ */
+type BackupDestinationLike = { path: string; encrypt: boolean };
+
+/**
+ * Computes the root ~/.vellum directory without introducing a new export from
+ * `platform.ts`. `getProtectedDir()` returns `join(vellumRoot(), "protected")`,
+ * so its parent directory is the vellum root. Using `dirname(getProtectedDir())`
+ * keeps this module self-contained and avoids expanding the platform.ts surface
+ * area just for backups.
+ */
+function vellumRootFromProtected(): string {
+  return dirname(getProtectedDir());
+}
+
+/**
+ * Returns the directory for local (on-device) backups. By default this lives
+ * under `~/.vellum/backups/local`; callers can pass an explicit override from
+ * config to place backups elsewhere on disk.
+ */
+export function getLocalBackupsDir(override?: string | null): string {
+  return override ?? join(vellumRootFromProtected(), "backups", "local");
+}
+
+/**
+ * Returns the default offsite backups directory — the iCloud Drive path under
+ * the VellumAssistant namespace. Used when no explicit offsite destinations
+ * are configured.
+ */
+export function getDefaultOffsiteBackupsDir(): string {
+  return join(
+    homedir(),
+    "Library",
+    "Mobile Documents",
+    "com~apple~CloudDocs",
+    "VellumAssistant",
+    "backups",
+  );
+}
+
+/**
+ * Resolves the list of offsite backup destinations from an optional config
+ * override. When `override` is `null` (the "not configured" sentinel), returns
+ * a single-element array pointing at the iCloud default with encryption
+ * enabled. When `override` is an array (including the empty array), returns it
+ * unchanged so callers never need to null-check.
+ */
+export function resolveOffsiteDestinations(
+  override?: BackupDestinationLike[] | null,
+): BackupDestinationLike[] {
+  if (override == null) {
+    return [{ path: getDefaultOffsiteBackupsDir(), encrypt: true }];
+  }
+  return override;
+}
+
+/**
+ * Returns the path to the backup encryption key file
+ * (`~/.vellum/protected/backup.key`). The key lives inside the protected
+ * directory so it inherits the same access restrictions as credentials and
+ * trust rules.
+ */
+export function getBackupKeyPath(): string {
+  return join(getProtectedDir(), "backup.key");
+}
+
+/**
+ * Formats a backup filename from a date. Encrypted backups get a `.vbundle.enc`
+ * suffix; plaintext backups get `.vbundle`. Timestamp components are in UTC to
+ * avoid timezone-induced filename collisions across devices.
+ *
+ * Example: `backup-20260411-153045.vbundle`
+ */
+export function formatBackupFilename(
+  date: Date,
+  { encrypted }: { encrypted: boolean },
+): string {
+  const year = date.getUTCFullYear().toString().padStart(4, "0");
+  const month = (date.getUTCMonth() + 1).toString().padStart(2, "0");
+  const day = date.getUTCDate().toString().padStart(2, "0");
+  const hour = date.getUTCHours().toString().padStart(2, "0");
+  const minute = date.getUTCMinutes().toString().padStart(2, "0");
+  const second = date.getUTCSeconds().toString().padStart(2, "0");
+  const ext = encrypted ? ".vbundle.enc" : ".vbundle";
+  return `backup-${year}${month}${day}-${hour}${minute}${second}${ext}`;
+}
+
+// Matches `backup-YYYYMMDD-HHMMSS` optionally followed by `.vbundle` or
+// `.vbundle.enc`. Kept as a module-level constant so repeated parsing doesn't
+// rebuild the RegExp.
+const BACKUP_FILENAME_RE =
+  /^backup-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})\.vbundle(?:\.enc)?$/;
+
+/**
+ * Inverse of `formatBackupFilename`. Parses a backup filename (with either
+ * `.vbundle` or `.vbundle.enc` suffix) and returns the encoded UTC timestamp.
+ * Returns `null` when the filename doesn't match the expected pattern, when a
+ * component is out of range, or when the parsed date is invalid.
+ */
+export function parseBackupTimestamp(filename: string): Date | null {
+  const match = BACKUP_FILENAME_RE.exec(filename);
+  if (!match) return null;
+  const [, year, month, day, hour, minute, second] = match;
+  const iso = `${year}-${month}-${day}T${hour}:${minute}:${second}.000Z`;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
