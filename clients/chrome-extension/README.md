@@ -36,12 +36,18 @@ Then in Chrome:
 3. Click **Load unpacked**
 4. Select `clients/chrome-extension/dist`
 
-## How It Works — One-Click Connect
+## How It Works — Install Once, Connect Once, Forget It
 
 The extension discovers available assistants from the lockfile via the native
 messaging helper (`com.vellum.daemon`). The lockfile lists every assistant
 configured on the machine, along with its hosting topology (`cloud` field),
 runtime URL, and local assistant port.
+
+After the first successful Connect, the extension maintains a long-lived
+background connection and recovers automatically from transient interruptions
+(browser restarts, network drops, service-worker suspension, token rotation).
+Users should **not** need to touch Pair, Sign-in, or Connect again under
+normal operation.
 
 ### First-Time Connect (One Click)
 
@@ -59,6 +65,39 @@ runtime URL, and local assistant port.
 
 The entire flow is a single user action — click **Connect**.
 
+### Long-Lived Background Behavior
+
+After a successful first connect, the extension runs as a long-lived
+background service. The relay WebSocket stays open and the service worker
+sends periodic keepalive frames (every 20 seconds) to prevent Chrome's
+MV3 idle-suspension timeout (~30 seconds). The assistant runtime
+acknowledges keepalives by touching the connection's activity timestamp
+in the `ChromeExtensionRegistry`.
+
+The extension handles the following interruptions automatically:
+
+| Interruption | Recovery |
+|---|---|
+| **Service-worker restart** (Chrome MV3 teardown/relaunch) | Auto-reconnect via persisted `autoConnect` flag and stored credentials. |
+| **Transient network drop** (cable unplugged, Wi-Fi blip) | Exponential-backoff reconnect (1 s base, 30 s cap). |
+| **Token expiry** (local capability token or cloud JWT) | Silent non-interactive token refresh via native messaging (local) or OAuth refresh (cloud) before the next reconnect attempt. |
+| **Assistant restart** | WebSocket close triggers reconnect; the extension re-establishes the relay against the new runtime instance. |
+| **Browser close and reopen** | The `autoConnect` flag persists across browser sessions, so the worker auto-connects on startup. |
+
+Users should **not** re-pair, re-sign-in, or re-click Connect for any of
+these cases. The popup's health indicator shows the current state
+(`Connected`, `Reconnecting automatically...`, `Paused`, or
+`Action required`) so users can verify recovery is happening without
+taking action.
+
+### When User Action IS Required
+
+The extension enters `auth_required` only when non-interactive token
+refresh is impossible (e.g. the cloud OAuth refresh token itself has
+expired, or the native messaging host is uninstalled). In this state the
+popup's Troubleshooting section expands automatically and prompts the
+user to re-pair (local) or re-sign-in (cloud), then click **Connect**.
+
 ### Auto-Connect On Reopen
 
 After a successful first connect, the extension sets a persistent
@@ -66,9 +105,10 @@ After a successful first connect, the extension sets a persistent
 restarts), the worker reads this flag and automatically reconnects using
 the stored credentials — no user interaction required.
 
-If stored credentials have expired or are missing at auto-connect time,
-the extension falls back to the disconnected state silently. The user
-can click **Connect** again to re-bootstrap credentials interactively.
+If stored credentials have expired or are missing at auto-connect time
+and silent refresh also fails, the extension transitions to
+`auth_required`. The user can click **Connect** to re-bootstrap
+credentials interactively.
 
 ### Pause Semantics
 
@@ -79,7 +119,9 @@ can click **Connect** again to re-bootstrap credentials interactively.
 - Preserves stored credentials so the next **Connect** is instant (no
   re-pair or re-sign-in needed unless the token has expired).
 
-Pause replaces the previous "Disconnect" terminology.
+Pause replaces the previous "Disconnect" terminology. It is the only
+action that intentionally stops the extension — all other disconnects
+trigger automatic recovery.
 
 ### Assistant Discovery And Selection
 
@@ -127,8 +169,89 @@ switching between assistants does not require re-authentication.
 The popup includes a collapsible **Troubleshooting** section with manual
 "Re-pair with local assistant" and "Re-sign in with Vellum (cloud)"
 buttons. These are **not** required for the normal connect flow — they
-exist for edge cases where the automatic bootstrap fails (e.g. expired
-tokens, native host issues, OAuth configuration problems).
+exist for edge cases where automatic recovery is impossible.
+
+**When to use Troubleshooting controls:**
+- The popup shows `Action required` with an `auth_required` health state.
+- The Troubleshooting section expanded automatically (it stays collapsed
+  during `connected`, `reconnecting`, `connecting`, and `paused` states).
+
+**When NOT to use Troubleshooting controls:**
+- The popup shows `Reconnecting automatically...` — the extension is
+  already recovering and will reconnect on its own.
+- The popup shows `Connected` — everything is working.
+- The popup shows `Paused` — click **Connect** (not Troubleshoot) to
+  resume.
+
+Transient disconnects (network drops, service-worker restarts, assistant
+restarts) are handled silently with exponential-backoff reconnect and
+automatic token refresh. Touching the Troubleshooting controls during a
+transient interruption is unnecessary and may interfere with the
+automatic recovery path.
+
+### Connection Health States
+
+The worker maintains a structured health state machine surfaced to the
+popup via `get_status`. The six states drive the popup's status indicator,
+button enablement, and Troubleshooting section visibility:
+
+| State | Popup display | Auto-reconnect? | User action needed? |
+|---|---|---|---|
+| `connected` | Green dot, "Connected" | n/a | No |
+| `connecting` | Gray dot, "Connecting..." | n/a | No |
+| `reconnecting` | Yellow dot, "Reconnecting automatically..." | Yes | No |
+| `paused` | Yellow dot, "Paused" | No | Click Connect to resume |
+| `auth_required` | Gray dot, "Action required: ..." | No | Re-pair / Re-sign-in, then Connect |
+| `error` | Gray dot, "Error: ..." | No | Check Troubleshooting section |
+
+The `reconnecting` state means the extension detected an unexpected
+disconnect and is actively recovering — the user should wait. Only
+`auth_required` and `error` warrant manual intervention.
+
+## End-to-End Validation (QA Playbook)
+
+Use this checklist to verify the "install once, connect once, forget it"
+contract from a clean state.
+
+### Setup
+1. Build and load the extension (see [Build And Load](#build-and-load-the-extension)).
+2. Start at least one local assistant (or have a cloud-managed assistant configured).
+3. Verify the native messaging host is installed (macOS app installs it automatically).
+
+### Happy path
+1. Open the extension popup.
+2. Click **Connect**. Verify the status transitions: `Connecting...` then `Connected`.
+3. Close Chrome completely. Reopen Chrome.
+4. Open the extension popup. Verify the status shows `Connected` (auto-reconnect from `autoConnect` flag).
+5. Open the service worker console (`chrome://extensions` > Service worker link). Verify keepalive frames are logged every ~20 seconds.
+
+### Automatic recovery — network drop
+1. While connected, disable your network adapter (Wi-Fi off, cable out).
+2. Open the popup. Verify the status shows `Reconnecting automatically...`.
+3. Re-enable the network adapter.
+4. Verify the status returns to `Connected` within ~30 seconds (backoff cap).
+
+### Automatic recovery — assistant restart
+1. While connected, stop the assistant process.
+2. Verify the popup shows `Reconnecting automatically...`.
+3. Restart the assistant.
+4. Verify the popup returns to `Connected`.
+
+### Automatic recovery — token refresh
+1. While connected, manually expire or delete the stored token in `chrome.storage.local`.
+2. On the next reconnect cycle, the extension should silently re-bootstrap the token (local pair via native messaging, or cloud via OAuth refresh).
+3. Verify the popup returns to `Connected` without manual intervention.
+
+### Pause and resume
+1. While connected, click **Pause**. Verify the status shows `Paused`.
+2. Close and reopen Chrome. Verify the popup still shows `Paused` (autoConnect cleared).
+3. Click **Connect**. Verify the status returns to `Connected`.
+
+### Auth failure (manual recovery required)
+1. Uninstall the native messaging host (or revoke the cloud OAuth token entirely).
+2. Force a reconnect (restart Chrome or stop/start the assistant).
+3. Verify the popup shows `Action required` and the Troubleshooting section expands automatically.
+4. Reinstall the native host (or re-sign-in), then click **Connect**. Verify recovery.
 
 ## Native Messaging Host Setup (If Pairing Fails)
 
