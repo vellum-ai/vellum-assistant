@@ -45,6 +45,7 @@ let mockRepoSkillsDir: string | undefined = undefined;
 
 mock.module("../skills/catalog-cache.js", () => ({
   getCatalog: async () => mockCatalog,
+  getCachedCatalogSync: () => mockCatalog,
 }));
 
 mock.module("../skills/catalog-install.js", () => ({
@@ -72,6 +73,8 @@ mock.module("../config/env.js", () => ({
 // ---------------------------------------------------------------------------
 
 import {
+  catalogSkillToSlim,
+  createVellumCatalogProvider,
   readCatalogSkillFileContent,
   readCatalogSkillFiles,
   sanitizeRelativePath,
@@ -858,5 +861,140 @@ describe("readCatalogSkillFileContent (platform mode)", () => {
     installFetchForbidden();
     expect(await readCatalogSkillFileContent("unknown", "SKILL.md")).toBeNull();
     expect(fetchCalls.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// catalogSkillToSlim
+// ---------------------------------------------------------------------------
+
+describe("catalogSkillToSlim", () => {
+  test("maps CatalogSkill to SlimSkillResponse with vellum origin", () => {
+    const cs: CatalogSkill = {
+      id: "test-skill",
+      name: "test-skill",
+      description: "A test skill",
+      emoji: "🧪",
+    };
+    const slim = catalogSkillToSlim(cs);
+    expect(slim.id).toBe("test-skill");
+    expect(slim.name).toBe("test-skill");
+    expect(slim.description).toBe("A test skill");
+    expect(slim.emoji).toBe("🧪");
+    expect(slim.kind).toBe("catalog");
+    expect(slim.origin).toBe("vellum");
+    expect(slim.status).toBe("available");
+  });
+
+  test("uses display-name from metadata when available", () => {
+    const cs: CatalogSkill = {
+      id: "test-skill",
+      name: "test-skill",
+      description: "A test skill",
+      metadata: { vellum: { "display-name": "Pretty Name" } },
+    };
+    const slim = catalogSkillToSlim(cs);
+    expect(slim.name).toBe("Pretty Name");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createVellumCatalogProvider
+// ---------------------------------------------------------------------------
+
+describe("createVellumCatalogProvider", () => {
+  test("canHandle returns true when skill is in the cached catalog", () => {
+    mockCatalog = [skill("my-skill"), skill("other-skill")];
+    const provider = createVellumCatalogProvider();
+    expect(provider.canHandle("my-skill")).toBe(true);
+    expect(provider.canHandle("other-skill")).toBe(true);
+  });
+
+  test("canHandle returns false when skill is NOT in the cached catalog", () => {
+    mockCatalog = [skill("my-skill")];
+    const provider = createVellumCatalogProvider();
+    expect(provider.canHandle("unknown-skill")).toBe(false);
+  });
+
+  test("canHandle returns false when catalog cache is empty", () => {
+    mockCatalog = [];
+    const provider = createVellumCatalogProvider();
+    expect(provider.canHandle("any-skill")).toBe(false);
+  });
+
+  test("listFiles delegates to readCatalogSkillFiles", async () => {
+    const root = makeTempSkillsDir();
+    writeSkill(root, "my-skill", {
+      "SKILL.md": "# hello",
+      "tools/run.sh": "#!/bin/sh\necho hi\n",
+    });
+    mockRepoSkillsDir = root;
+    mockCatalog = [skill("my-skill")];
+    installFetchForbidden();
+
+    const provider = createVellumCatalogProvider();
+    const entries = await provider.listFiles("my-skill");
+    expect(entries).not.toBeNull();
+    const paths = entries!.map((e) => e.path).sort();
+    expect(paths).toEqual(["SKILL.md", "tools/run.sh"]);
+  });
+
+  test("listFiles returns null for unknown skill", async () => {
+    mockCatalog = [];
+    installFetchForbidden();
+
+    const provider = createVellumCatalogProvider();
+    expect(await provider.listFiles("unknown")).toBeNull();
+  });
+
+  test("readFileContent delegates to readCatalogSkillFileContent", async () => {
+    const root = makeTempSkillsDir();
+    writeSkill(root, "my-skill", { "SKILL.md": "# hello world\n" });
+    mockRepoSkillsDir = root;
+    mockCatalog = [skill("my-skill")];
+    installFetchForbidden();
+
+    const provider = createVellumCatalogProvider();
+    const entry = await provider.readFileContent("my-skill", "SKILL.md");
+    expect(entry).not.toBeNull();
+    expect(entry!.content).toBe("# hello world\n");
+    expect(entry!.path).toBe("SKILL.md");
+  });
+
+  test("readFileContent returns null for unknown skill", async () => {
+    mockCatalog = [];
+    installFetchForbidden();
+
+    const provider = createVellumCatalogProvider();
+    expect(await provider.readFileContent("unknown", "SKILL.md")).toBeNull();
+  });
+
+  test("toSlimSkill returns SlimSkillResponse for catalog skill", async () => {
+    mockCatalog = [
+      {
+        id: "my-skill",
+        name: "my-skill",
+        description: "A skill",
+        emoji: "🔧",
+        metadata: { vellum: { "display-name": "My Skill" } },
+      },
+    ];
+
+    const provider = createVellumCatalogProvider();
+    const slim = await provider.toSlimSkill("my-skill");
+    expect(slim).not.toBeNull();
+    expect(slim!.id).toBe("my-skill");
+    expect(slim!.name).toBe("My Skill");
+    expect(slim!.description).toBe("A skill");
+    expect(slim!.kind).toBe("catalog");
+    expect(slim!.origin).toBe("vellum");
+    expect(slim!.status).toBe("available");
+  });
+
+  test("toSlimSkill returns null for unknown skill", async () => {
+    mockCatalog = [];
+
+    const provider = createVellumCatalogProvider();
+    expect(await provider.toSlimSkill("unknown")).toBeNull();
   });
 });
