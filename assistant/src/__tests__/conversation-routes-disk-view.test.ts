@@ -398,15 +398,13 @@ describe("macOS browser backend fallback (no extension, no cdp-inspect)", () => 
 
     // With no extension in the ChromeExtensionRegistry, the conversation's
     // hostBrowserProxy should NOT be provisioned through the registry.
-    // It may be undefined or null (depending on whether the SSE-based
-    // proxy was provisioned for the macos interface). The key assertion is
-    // that it is NOT registry-routed — the absence of a hostBrowserProxy
-    // means the CDP factory will skip the extension candidate entirely
-    // and fall through: cdp-inspect (desktop-auto) → local.
-    //
-    // We cannot inspect hostBrowserProxy directly on our fake conversation,
-    // but we can verify the override was NOT set — our fake does not
-    // implement hostBrowserSenderOverride, so it would remain undefined.
+    // The absence of a hostBrowserProxy means the CDP factory will skip
+    // the extension candidate entirely and fall through:
+    // cdp-inspect (desktop-auto) → local.
+    expect(
+      (capturedConversation as unknown as Record<string, unknown>)
+        .hostBrowserProxy,
+    ).toBeUndefined();
     expect(
       (capturedConversation as unknown as Record<string, unknown>)
         .hostBrowserSenderOverride,

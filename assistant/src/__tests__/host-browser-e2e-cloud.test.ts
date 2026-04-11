@@ -225,8 +225,7 @@ describe("host_browser cloud-hosted e2e round-trip", () => {
     // Same fixture as the HTTP happy path, but configured to return
     // results over the /v1/browser-relay WebSocket instead of POSTing
     // /v1/host-browser-result. This exercises the runtime WS
-    // `message` handler's host_browser_result dispatch path added in
-    // PR2 of the browser-use remediation plan.
+    // `message` handler's host_browser_result dispatch path.
     const mockExt = createMockChromeExtension({
       runtimeBaseUrl,
       token,
@@ -309,8 +308,7 @@ describe("host_browser cloud-hosted e2e round-trip", () => {
   });
 
   test("abort: late /v1/host-browser-result POST after cancel is ignored (no ghost completion)", async () => {
-    // Regression for PR6 of the browser-use remediation plan. The
-    // daemon-side proxy must treat a late result POST — arriving
+    // The daemon-side proxy must treat a late result POST — arriving
     // after the caller has already been resolved with "Aborted" —
     // as a benign race, not a noisy false-positive timeout. It must
     // also NOT resolve the caller a second time.
@@ -441,15 +439,21 @@ describe("host_browser cloud-hosted e2e round-trip", () => {
 // route through the registry-backed host browser flow (extension → user's
 // real Chrome session) rather than falling back to local Playwright.
 //
-// This is the regression guard for the backend preference order introduced
-// across PRs 2–5 of the macOS browser-extension CDP fallback plan:
+// The macOS browser backend preference order is:
 //
 //   macOS + extension connected → extension backend (registry-routed)
 //   macOS + extension absent    → cdp-inspect (desktop-auto) → local
 //
+// NOTE: These tests construct a HostBrowserProxy directly and call
+// proxy.request(), which validates the extension relay round-trip but
+// bypasses handleSendMessage / conversation-routes. Full ingress-path
+// coverage (interface propagation, resolveHostBrowserSender wiring, and
+// CDP factory candidate selection) is exercised by the route-level tests
+// in conversation-routes-disk-view.test.ts.
+//
 // If future refactors break the wiring between conversation-routes
-// (`resolveHostBrowserSender`) and the CDP factory's candidate list, these
-// tests will fail.
+// (`resolveHostBrowserSender`) and the CDP factory's candidate list, those
+// route-level tests will fail.
 
 describe("macOS message ingress with connected extension", () => {
   let server: RuntimeHttpServer;
