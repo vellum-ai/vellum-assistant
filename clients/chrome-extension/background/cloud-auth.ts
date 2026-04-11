@@ -83,8 +83,11 @@ const STORAGE_KEY_PREFIX = 'vellum.cloudAuthToken';
  * introduced. Existing users may have a token stored under this key from
  * a previous version of the extension. The migration helpers below
  * transparently promote it to the new scoped key on first read.
+ *
+ * Exported so the worker can fall back to reading this key when no
+ * assistant is selected yet (backward-compatible connect flow).
  */
-const LEGACY_CLOUD_STORAGE_KEY = 'vellum.cloudAuthToken';
+export const LEGACY_CLOUD_STORAGE_KEY = 'vellum.cloudAuthToken';
 
 /**
  * Build the assistant-scoped chrome.storage.local key for a cloud auth
@@ -130,7 +133,7 @@ async function migrateLegacyCloudToken(assistantId: string): Promise<StoredCloud
  * type checks. Does NOT check expiry — callers that need expiry filtering
  * should check separately.
  */
-function validateCloudToken(raw: unknown): StoredCloudToken | null {
+export function validateCloudToken(raw: unknown): StoredCloudToken | null {
   if (!raw || typeof raw !== 'object') return null;
   const token = raw as StoredCloudToken;
   if (

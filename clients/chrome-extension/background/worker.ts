@@ -25,7 +25,9 @@ import {
   refreshCloudToken,
   getStoredToken as getStoredCloudToken,
   getStoredTokenRaw as getStoredCloudTokenRaw,
+  validateCloudToken,
   CLOUD_AUTH_FAILURE_CLOSE_CODES,
+  LEGACY_CLOUD_STORAGE_KEY,
   type CloudAuthConfig,
   type StoredCloudToken,
 } from './cloud-auth.js';
@@ -33,8 +35,19 @@ import {
   decideCloudReconnectAction,
 } from './cloud-reconnect-decision.js';
 import {
+  listAssistants,
+  type AssistantDescriptor,
+  type AssistantCatalog,
+} from './native-host-assistants.js';
+import {
+  resolveAuthProfile,
+  type AssistantAuthProfile,
+} from './assistant-auth-profile.js';
+import {
   bootstrapLocalToken,
   getStoredLocalToken,
+  validateLocalToken,
+  LEGACY_LOCAL_STORAGE_KEY,
   type StoredLocalToken,
 } from './self-hosted-auth.js';
 import {
@@ -133,6 +146,91 @@ async function clearRelayAuthError(): Promise<void> {
   }
 }
 
+// ── Assistant selection ─────────────────────────────────────────────
+//
+// The worker owns the selected-assistant lifecycle. The popup reads the
+// current catalog and selection via `assistants-get` and persists a new
+// choice via `assistant-select`. Selection is stored in
+// `chrome.storage.local` so it survives service-worker teardown.
+//
+// Selection resolution rules (applied by `resolveSelectedAssistant`):
+//   1. If exactly one assistant exists, auto-select it.
+//   2. If multiple assistants exist and the stored selection is still
+//      valid (present in the catalog), keep it.
+//   3. If multiple assistants exist and the stored selection is
+//      missing/invalid, default to the first assistant entry.
+//   4. If no assistants exist, return null (empty-state).
+
+const SELECTED_ASSISTANT_ID_KEY = 'vellum.selectedAssistantId';
+
+/**
+ * Read the persisted selected-assistant ID from chrome.storage.local.
+ * Returns `null` when nothing is stored or the value is not a string.
+ */
+async function loadSelectedAssistantId(): Promise<string | null> {
+  const result = await chrome.storage.local.get(SELECTED_ASSISTANT_ID_KEY);
+  const stored = result[SELECTED_ASSISTANT_ID_KEY];
+  return typeof stored === 'string' && stored.length > 0 ? stored : null;
+}
+
+/**
+ * Persist a selected-assistant ID in chrome.storage.local.
+ */
+async function saveSelectedAssistantId(assistantId: string): Promise<void> {
+  await chrome.storage.local.set({ [SELECTED_ASSISTANT_ID_KEY]: assistantId });
+}
+
+/**
+ * Apply the selection resolution rules described above.
+ *
+ * Returns the resolved assistant descriptor or `null` when the catalog
+ * is empty. Also persists the resolved ID when it changes (auto-select
+ * or invalid-stored-selection recovery) so subsequent reads don't
+ * re-resolve.
+ */
+async function resolveSelectedAssistant(
+  catalog: AssistantCatalog,
+): Promise<AssistantDescriptor | null> {
+  const { assistants } = catalog;
+  if (assistants.length === 0) return null;
+
+  // Rule 1: exactly one assistant — auto-select.
+  if (assistants.length === 1) {
+    await saveSelectedAssistantId(assistants[0]!.assistantId);
+    return assistants[0]!;
+  }
+
+  // Rule 2 / 3: multiple assistants — check stored selection.
+  const storedId = await loadSelectedAssistantId();
+  if (storedId) {
+    const match = assistants.find((a) => a.assistantId === storedId);
+    if (match) return match;
+  }
+
+  // Stored selection is missing or invalid — default to first entry.
+  const first = assistants[0]!;
+  await saveSelectedAssistantId(first.assistantId);
+  return first;
+}
+
+/**
+ * Convenience: fetch the catalog and resolve the selected assistant in
+ * one call. Used by the `assistants-get` message handler and (in future
+ * PRs) by the connect flow.
+ */
+async function getAssistantCatalogAndSelection(): Promise<{
+  assistants: AssistantDescriptor[];
+  selected: AssistantDescriptor | null;
+  authProfile: AssistantAuthProfile | null;
+}> {
+  const catalog = await listAssistants();
+  const selected = await resolveSelectedAssistant(catalog);
+  const authProfile = selected
+    ? resolveAuthProfile({ cloud: selected.cloud, runtimeUrl: selected.runtimeUrl })
+    : null;
+  return { assistants: catalog.assistants, selected, authProfile };
+}
+
 // ── Mode selection ─────────────────────────────────────────────────
 //
 // Existing installs have no `vellum.relayMode` key and must keep using
@@ -224,8 +322,12 @@ async function dispatchHostBrowserResult(
 
   // Self-hosted fallback: POST directly to the local daemon using the
   // capability token from the native-messaging pair flow. If no paired
-  // token is available the result is dropped.
-  const local = await getStoredLocalToken();
+  // token is available the result is dropped. When no assistant is
+  // selected, fall back to the legacy unscoped token key.
+  const selectedId = await loadSelectedAssistantId();
+  const local = selectedId
+    ? await getStoredLocalToken(selectedId)
+    : await getLegacyLocalToken();
   if (local) {
     const fallbackPort = local.assistantPort ?? (await getRelayPort());
     const fallbackMode: RelayMode = {
@@ -292,6 +394,39 @@ async function getRelayPort(): Promise<number> {
   return DEFAULT_RELAY_PORT;
 }
 
+/**
+ * Read a cloud auth token from the legacy unscoped storage key
+ * (`vellum.cloudAuthToken`). Used as a backward-compatible fallback when
+ * no assistant is selected — existing users who paired before
+ * assistant-scoped keys were introduced still have tokens under this key.
+ */
+async function getLegacyCloudToken(): Promise<StoredCloudToken | null> {
+  const result = await chrome.storage.local.get(LEGACY_CLOUD_STORAGE_KEY);
+  const token = validateCloudToken(result[LEGACY_CLOUD_STORAGE_KEY]);
+  if (!token) return null;
+  if (token.expiresAt <= Date.now()) return null;
+  return token;
+}
+
+/**
+ * Read the raw (no-expiry-check) cloud auth token from the legacy
+ * unscoped storage key. Used by the reconnect hook fallback.
+ */
+async function getLegacyCloudTokenRaw(): Promise<StoredCloudToken | null> {
+  const result = await chrome.storage.local.get(LEGACY_CLOUD_STORAGE_KEY);
+  return validateCloudToken(result[LEGACY_CLOUD_STORAGE_KEY]);
+}
+
+/**
+ * Read a local capability token from the legacy unscoped storage key
+ * (`vellum.localCapabilityToken`). Used as a backward-compatible
+ * fallback when no assistant is selected.
+ */
+async function getLegacyLocalToken(): Promise<StoredLocalToken | null> {
+  const result = await chrome.storage.local.get(LEGACY_LOCAL_STORAGE_KEY);
+  return validateLocalToken(result[LEGACY_LOCAL_STORAGE_KEY]);
+}
+
 // ── Relay connection lifecycle ──────────────────────────────────────
 
 async function loadRelayMode(): Promise<RelayModeKind> {
@@ -301,8 +436,16 @@ async function loadRelayMode(): Promise<RelayModeKind> {
 }
 
 async function buildRelayModeConfig(kind: RelayModeKind): Promise<RelayMode> {
+  const selectedId = await loadSelectedAssistantId();
+
   if (kind === 'cloud') {
-    const stored = await getStoredCloudToken();
+    // When an assistant is selected, read from the assistant-scoped key.
+    // Otherwise fall back to the legacy unscoped key so existing users
+    // who signed in before assistant-scoped storage was introduced still
+    // get their token picked up.
+    const stored = selectedId
+      ? await getStoredCloudToken(selectedId)
+      : await getLegacyCloudToken();
     return {
       kind: 'cloud',
       baseUrl: CLOUD_GATEWAY_BASE_URL,
@@ -315,9 +458,12 @@ async function buildRelayModeConfig(kind: RelayModeKind): Promise<RelayMode> {
   // carries the assistant runtime port the helper used when it
   // pair-bootstrapped, so we target the runtime directly.
   //
-  // No compatibility fallback: self-hosted relay now requires pairing
-  // through the native-messaging capability-token flow.
-  const local = await getStoredLocalToken();
+  // When no assistant is selected, fall back to the legacy unscoped
+  // storage key so existing users who paired before assistant-scoped
+  // keys were introduced can still connect.
+  const local = selectedId
+    ? await getStoredLocalToken(selectedId)
+    : await getLegacyLocalToken();
   if (local) {
     const port = local.assistantPort ?? (await getRelayPort());
     return {
@@ -391,7 +537,10 @@ function resetCloudRefreshAttempts(): void {
 async function cloudReconnectHook(
   ctx: RelayReconnectContext,
 ): Promise<RelayReconnectDecision> {
-  const stored = await getStoredCloudTokenRaw();
+  const selectedId = await loadSelectedAssistantId();
+  const stored = selectedId
+    ? await getStoredCloudTokenRaw(selectedId)
+    : await getLegacyCloudTokenRaw();
   const action = decideCloudReconnectAction({
     ctx,
     stored,
@@ -411,10 +560,16 @@ async function cloudReconnectHook(
 
   // action.kind === 'refresh'
   cloudRefreshAttempts += 1;
-  const refreshed = await refreshCloudToken({
-    gatewayBaseUrl: CLOUD_GATEWAY_BASE_URL,
-    clientId: CLOUD_OAUTH_CLIENT_ID,
-  });
+  // refreshCloudToken requires an assistantId to persist the refreshed
+  // token under the correct scoped key. When no assistant is selected
+  // we can't scope the refresh, so we skip it — the user will be
+  // prompted to sign in again (abort path on the next reconnect).
+  const refreshed = selectedId
+    ? await refreshCloudToken(selectedId, {
+        gatewayBaseUrl: CLOUD_GATEWAY_BASE_URL,
+        clientId: CLOUD_OAUTH_CLIENT_ID,
+      })
+    : null;
   if (refreshed) {
     console.log('[vellum-relay] Cloud token refreshed after reconnect');
     return { kind: 'refreshed', token: refreshed.token };
@@ -509,7 +664,10 @@ function createRelayConnection(
       if (liveMode === 'cloud') {
         return cloudReconnectHook(ctx);
       }
-      const local = await getStoredLocalToken();
+      const selectedId = await loadSelectedAssistantId();
+      const local = selectedId
+        ? await getStoredLocalToken(selectedId)
+        : await getLegacyLocalToken();
       if (local?.token) {
         return { kind: 'refreshed', token: local.token };
       }
@@ -694,7 +852,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       clientId:
         typeof message.clientId === 'string' ? message.clientId : CLOUD_OAUTH_CLIENT_ID,
     };
-    signInCloud(config)
+    const assistantId =
+      typeof message.assistantId === 'string' ? message.assistantId : null;
+    (assistantId
+      ? Promise.resolve(assistantId)
+      : loadSelectedAssistantId()
+    )
+      .then((resolvedId) => {
+        if (!resolvedId) {
+          throw new Error('No assistant selected. Fetch the assistant catalog first.');
+        }
+        return signInCloud(resolvedId, config);
+      })
       .then((stored: StoredCloudToken) => sendResponseFn({ ok: true, token: stored }))
       .catch((err) => sendResponseFn({ ok: false, error: err instanceof Error ? err.message : String(err) }));
     return true; // async
@@ -705,9 +874,85 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     // can't tear down the awaited promise before the token is persisted.
     // chrome.runtime.connectNative also requires the "nativeMessaging"
     // permission, which is declared in manifest.json.
-    bootstrapLocalToken()
+    //
+    // When no assistant is selected (legacy popup flow), fall back to
+    // bootstrapping without an assistantId — the token is persisted to
+    // the legacy unscoped key so existing connect behavior is preserved.
+    const assistantId =
+      typeof message.assistantId === 'string' ? message.assistantId : null;
+    (assistantId
+      ? Promise.resolve(assistantId)
+      : loadSelectedAssistantId()
+    )
+      .then((resolvedId) => bootstrapLocalToken(resolvedId))
       .then((stored: StoredLocalToken) => sendResponseFn({ ok: true, token: stored }))
       .catch((err) => sendResponseFn({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+    return true; // async
+  }
+  if (message.type === 'assistants-get') {
+    // Returns the full assistant catalog, the resolved selected
+    // assistant, and the auth profile for the selected assistant.
+    // The popup uses this to render the assistant selector and decide
+    // which auth flow to present.
+    getAssistantCatalogAndSelection()
+      .then(({ assistants, selected, authProfile }) =>
+        sendResponseFn({
+          ok: true,
+          assistants,
+          selected,
+          authProfile,
+        }),
+      )
+      .catch((err) =>
+        sendResponseFn({
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    return true; // async
+  }
+  if (message.type === 'assistant-select') {
+    // Persists a specific assistant ID and returns the resolved
+    // descriptor. The popup calls this when the user picks a different
+    // assistant from the dropdown.
+    const assistantId =
+      typeof message.assistantId === 'string' ? message.assistantId : null;
+    if (!assistantId) {
+      sendResponseFn({ ok: false, error: 'assistantId is required' });
+      return false;
+    }
+    // Fetch a fresh catalog so the selected ID is validated against the
+    // current lockfile state — a stale ID from a previous session
+    // should not be persisted.
+    listAssistants()
+      .then(async (catalog) => {
+        const match = catalog.assistants.find(
+          (a) => a.assistantId === assistantId,
+        );
+        if (!match) {
+          sendResponseFn({
+            ok: false,
+            error: `Assistant "${assistantId}" not found in the current catalog`,
+          });
+          return;
+        }
+        await saveSelectedAssistantId(assistantId);
+        const authProfile = resolveAuthProfile({
+          cloud: match.cloud,
+          runtimeUrl: match.runtimeUrl,
+        });
+        sendResponseFn({
+          ok: true,
+          selected: match,
+          authProfile,
+        });
+      })
+      .catch((err) =>
+        sendResponseFn({
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
     return true; // async
   }
 });
