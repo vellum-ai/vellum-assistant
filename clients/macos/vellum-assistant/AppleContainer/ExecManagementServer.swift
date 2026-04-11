@@ -239,15 +239,17 @@ final class ExecManagementServer: @unchecked Sendable {
                 if error != nil || data == nil || data!.isEmpty {
                     break
                 }
+                var writeFailed = false
                 data!.withUnsafeBytes { rawBuf in
                     var written = 0
                     let total = rawBuf.count
                     while written < total {
                         let result = Darwin.write(fd, rawBuf.baseAddress! + written, total - written)
-                        if result <= 0 { break }
+                        if result <= 0 { writeFailed = true; break }
                         written += result
                     }
                 }
+                if writeFailed { break }
             }
             // Client disconnected — don't close the terminal here;
             // session.wait() handles cleanup to avoid double-close of the fd.
