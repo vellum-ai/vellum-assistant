@@ -420,7 +420,7 @@ struct WorkspaceFileNode: Identifiable {
     /// Pure transformation from the server's `workspace-files` response to
     /// the nodes rendered by the identity panel. Factored out for easier
     /// reasoning and future unit testing — contains no I/O.
-    static func buildNodes(from entries: [WorkspaceFilesListEntry]) -> [WorkspaceFileNode] {
+    static func buildNodes(from entries: [WorkspaceFilesListResponseFile]) -> [WorkspaceFileNode] {
         // When the server returns a guardian-resolved `users/<slug>.md`, we
         // suppress the legacy `USER.md` entry so the panel renders a single
         // user-persona node instead of two competing ones.
@@ -457,7 +457,7 @@ struct WorkspaceFileNode: Identifiable {
     /// the guardian's `users/<slug>.md` and the legacy `USER.md` — are shown
     /// as "User Profile" so the UI doesn't surface a slug or legacy filename.
     /// All other entries render their server-provided name verbatim.
-    private static func displayLabel(for entry: WorkspaceFilesListEntry) -> String {
+    private static func displayLabel(for entry: WorkspaceFilesListResponseFile) -> String {
         if isGuardianUserPersonaPath(entry.path) || entry.path == legacyUserPersonaFilename {
             return "User Profile"
         }

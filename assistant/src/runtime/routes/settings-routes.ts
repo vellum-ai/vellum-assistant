@@ -343,7 +343,7 @@ function handleWorkspaceFilesList(): Response {
     name,
     exists: pathExists(join(base, name)),
   }));
-  return Response.json({ files });
+  return Response.json({ type: "workspace_files_list_response", files });
 }
 
 function handleWorkspaceFileRead(requestedPath: string): Response {
