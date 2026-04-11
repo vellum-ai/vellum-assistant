@@ -26,6 +26,7 @@ import {
   getStoredToken as getStoredCloudToken,
   getStoredTokenRaw as getStoredCloudTokenRaw,
   validateCloudToken,
+  isCloudTokenStale,
   CLOUD_AUTH_FAILURE_CLOSE_CODES,
   LEGACY_CLOUD_STORAGE_KEY,
   type CloudAuthConfig,
@@ -782,7 +783,126 @@ function missingTokenMessage(profile: AssistantAuthProfile | null): string {
   return 'Select an assistant before connecting';
 }
 
-async function connect(): Promise<void> {
+// ── Connect options ────────────────────────────────────────────────
+//
+// Threading an explicit `interactive` flag through the connect flow
+// lets the worker decide whether missing/stale credentials should
+// trigger an interactive sign-in/pair flow or produce an immediate
+// error. User-initiated Connect passes `interactive: true`; non-user-
+// initiated paths (auto-connect on bootstrap, reconnect) pass `false`.
+
+/**
+ * Options bag threaded through {@link connect} to control whether
+ * missing credentials trigger an interactive auth bootstrap.
+ *
+ * - `interactive: true` — the worker will auto-bootstrap auth when
+ *   credentials are missing or stale. For `local-pair` this runs
+ *   `bootstrapLocalToken`; for `cloud-oauth` this runs `signInCloud`.
+ * - `interactive: false` — the worker will attempt a non-interactive
+ *   refresh for cloud tokens but will NOT launch an interactive flow.
+ *   Missing credentials produce a {@link MissingTokenError}.
+ */
+interface ConnectOptions {
+  interactive: boolean;
+}
+
+/**
+ * Resolve credentials for the selected assistant before the socket
+ * opens. This is the single authority for whether auth is satisfied —
+ * the popup no longer needs to pre-check pairing/sign-in state.
+ *
+ * For `local-pair`:
+ *   - If the assistant-scoped local token is present and unexpired,
+ *     the existing relay mode is returned as-is.
+ *   - If the token is missing/expired and `interactive=true`, runs
+ *     `bootstrapLocalToken({ assistantId })` and rebuilds the mode.
+ *   - If the token is missing/expired and `interactive=false`, throws
+ *     a {@link MissingTokenError}.
+ *
+ * For `cloud-oauth`:
+ *   - If the stored cloud token is present and not stale, the existing
+ *     relay mode is returned as-is.
+ *   - If the token is missing/stale and `interactive=true`, runs
+ *     `signInCloud(...)` and rebuilds the mode.
+ *   - If the token is missing/stale and `interactive=false`, attempts
+ *     `refreshCloudToken(...)` first. If the non-interactive refresh
+ *     succeeds, rebuilds the mode with the fresh token. Otherwise
+ *     throws a {@link MissingTokenError}.
+ *
+ * Returns the (possibly refreshed) {@link RelayMode} ready for socket
+ * open.
+ */
+async function connectPreflight(
+  assistant: AssistantDescriptor | null,
+  authProfile: AssistantAuthProfile | null,
+  mode: RelayMode,
+  options: ConnectOptions,
+): Promise<RelayMode> {
+  // Token already present — nothing to do.
+  if (mode.token) {
+    // For cloud mode, check staleness: a token that's about to expire
+    // should be proactively refreshed even when it's technically present.
+    if (mode.kind === 'cloud' && assistant) {
+      const stored = await getStoredCloudToken(assistant.assistantId);
+      if (!isCloudTokenStale(stored)) {
+        return mode;
+      }
+      // Token is stale — fall through to the refresh/sign-in logic below.
+    } else {
+      return mode;
+    }
+  }
+
+  if (authProfile === 'local-pair') {
+    if (!options.interactive) {
+      throw new MissingTokenError(missingTokenMessage('local-pair'));
+    }
+    // Interactive: auto-bootstrap the local capability token.
+    const assistantId = assistant?.assistantId ?? null;
+    const stored = await bootstrapLocalToken(assistantId);
+    const port = stored.assistantPort ?? assistant?.daemonPort ?? (await getRelayPort());
+    return {
+      kind: 'self-hosted',
+      baseUrl: `http://127.0.0.1:${port}`,
+      token: stored.token,
+    };
+  }
+
+  if (authProfile === 'cloud-oauth') {
+    const assistantId = assistant?.assistantId ?? null;
+    if (!assistantId) {
+      throw new MissingTokenError(missingTokenMessage(null));
+    }
+
+    if (!options.interactive) {
+      // Non-interactive: attempt a silent refresh first.
+      const gatewayBaseUrl = assistant?.runtimeUrl || CLOUD_GATEWAY_BASE_URL;
+      const refreshed = await refreshCloudToken(assistantId, {
+        gatewayBaseUrl,
+        clientId: CLOUD_OAUTH_CLIENT_ID,
+      });
+      if (refreshed) {
+        const baseUrl = assistant?.runtimeUrl || CLOUD_GATEWAY_BASE_URL;
+        return { kind: 'cloud', baseUrl, token: refreshed.token };
+      }
+      throw new MissingTokenError(missingTokenMessage('cloud-oauth'));
+    }
+
+    // Interactive: launch the full OAuth sign-in flow.
+    const gatewayBaseUrl = assistant?.runtimeUrl || CLOUD_GATEWAY_BASE_URL;
+    const stored = await signInCloud(assistantId, {
+      gatewayBaseUrl,
+      clientId: CLOUD_OAUTH_CLIENT_ID,
+    });
+    const baseUrl = assistant?.runtimeUrl || CLOUD_GATEWAY_BASE_URL;
+    return { kind: 'cloud', baseUrl, token: stored.token };
+  }
+
+  // Unsupported or no assistant selected — preflight can't help.
+  throw new MissingTokenError(missingTokenMessage(authProfile));
+}
+
+async function connect(options: ConnectOptions = { interactive: false }): Promise<void> {
   if (relayConnection && relayConnection.isOpen()) return;
   // Defensive: a fresh connect() always starts the 1006 refresh
   // budget from scratch. The counter is normally reset from onOpen,
@@ -812,12 +932,12 @@ async function connect(): Promise<void> {
     throw new MissingTokenError(msg);
   }
 
-  const mode = await buildRelayModeForAssistant(selected);
-  if (!mode.token) {
-    const msg = missingTokenMessage(authProfile);
-    console.warn(`[vellum-relay] ${msg}`);
-    throw new MissingTokenError(msg);
-  }
+  const rawMode = await buildRelayModeForAssistant(selected);
+  // Run the preflight to resolve/bootstrap credentials. When
+  // interactive=true the preflight auto-pairs or auto-signs-in;
+  // when interactive=false it either refreshes non-interactively or
+  // throws MissingTokenError.
+  const mode = await connectPreflight(selected, authProfile, rawMode, options);
   // Tear down any stale instance before constructing a new one. This
   // keeps the close/reconnect lifecycle simple — one RelayConnection
   // per live socket, no hidden state carried across mode switches.
@@ -875,7 +995,10 @@ async function handleServerMessage(raw: string): Promise<void> {
 chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
   if (message.type === 'connect') {
     shouldConnect = true;
-    connect()
+    // User-initiated Connect is interactive: the worker will auto-
+    // bootstrap missing auth (pair for local, sign-in for cloud)
+    // rather than requiring the popup to pre-check credentials.
+    connect({ interactive: true })
       .then(() => sendResponseFn({ ok: true }))
       .catch((err) => {
         // Reset shouldConnect so a subsequent storage change or
@@ -1019,9 +1142,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
         if (shouldConnect && relayConnection) {
           disconnect();
           // Attempt a reconnect to the newly selected assistant.
+          // Interactive since the user is actively switching.
           // Errors are non-fatal — the user can manually reconnect.
           try {
-            await connect();
+            await connect({ interactive: true });
           } catch (err) {
             if (err instanceof MissingTokenError) {
               shouldConnect = false;
@@ -1056,7 +1180,10 @@ async function bootstrap(): Promise<void> {
   if (autoConnect !== true) return;
   shouldConnect = true;
   try {
-    await connect();
+    // Non-interactive: bootstrap should not pop up auth UIs. If
+    // credentials are missing the user will see disconnected state
+    // in the popup and can trigger an interactive connect.
+    await connect({ interactive: false });
   } catch (err) {
     // A missing token at auto-connect time is not a hard failure —
     // the user will see the disconnected state in the popup and can
