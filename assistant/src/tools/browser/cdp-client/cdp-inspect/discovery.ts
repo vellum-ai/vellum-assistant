@@ -1,21 +1,28 @@
 /**
- * DevTools HTTP discovery helpers for the `cdp-inspect` backend.
+ * DevTools discovery helpers for the `cdp-inspect` backend.
  *
- * These helpers are pure HTTP/domain logic — they do not own a
- * websocket transport, a session manager, or any CDP command state.
- * They exist so the higher-level `cdp-inspect` client can:
+ * Two discovery strategies are provided:
  *
- * 1. Probe `/json/version` to verify that a loopback port is actually
- *    a Chrome/Chromium DevTools endpoint (and not some other service
- *    that happens to be listening).
- * 2. Enumerate available page targets via `/json/list`.
- * 3. Pick a sensible default target when the caller doesn't specify
- *    one explicitly.
+ * **HTTP discovery** (primary path):
+ *   1. Probe `/json/version` to verify that a loopback port is actually
+ *      a Chrome/Chromium DevTools endpoint.
+ *   2. Enumerate available page targets via `/json/list`.
+ *   3. Pick a sensible default target when the caller doesn't specify
+ *      one explicitly.
  *
- * Safety boundary: **only loopback hosts are allowed**. A non-loopback
- * host is rejected *before* any network I/O so that this module can
- * never be coerced into making cross-origin requests on behalf of an
- * attacker-controlled config value.
+ * **WS-only discovery** (fallback path):
+ *   When the HTTP endpoints (`/json/version`, `/json/list`) are
+ *   unavailable (e.g. extension/proxy environments that expose only
+ *   the WebSocket debugger), the client can fall back to a direct
+ *   WebSocket connection to the well-known browser endpoint
+ *   (`ws://<host>:<port>/devtools/browser`) and use CDP
+ *   `Target.getTargets` to enumerate targets instead.
+ *
+ * Safety boundary: **only loopback hosts are allowed** for both
+ * strategies. A non-loopback host is rejected *before* any network
+ * I/O so that this module can never be coerced into making
+ * cross-origin requests on behalf of an attacker-controlled config
+ * value.
  */
 
 /**
@@ -31,7 +38,8 @@ export type DevToolsDiscoveryErrorCode =
   | "non_chrome"
   | "invalid_response"
   | "no_targets"
-  | "timeout";
+  | "timeout"
+  | "ws_fallback_failed";
 
 /**
  * Single error type thrown by all discovery helpers. Mirrors the
@@ -575,4 +583,138 @@ function isUtilityTarget(target: DevToolsTarget): boolean {
   if (url.startsWith("devtools://")) return true;
   if (url === "about:blank") return true;
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// WS-only discovery fallback
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a well-known browser-level WebSocket debugger URL from a
+ * loopback host and port. The resulting URL follows the standard
+ * Chrome DevTools pattern: `ws://<host>:<port>/devtools/browser`.
+ *
+ * Enforces the same loopback check as {@link probeDevToolsJsonVersion}
+ * so this function can never produce a URL that points outside the
+ * local machine. IPv6 bare form (`::1`) is wrapped in square brackets.
+ *
+ * Exported for use by the `cdp-inspect` client's WS fallback path and
+ * for unit testing.
+ */
+export function buildBrowserWsUrl(host: string, port: number): string {
+  assertLoopback(host);
+  const normalized = host.toLowerCase();
+  const hostSegment = normalized === "::1" ? "[::1]" : normalized;
+  return `ws://${hostSegment}:${port}/devtools/browser`;
+}
+
+/**
+ * Determine whether an HTTP discovery error is eligible for the
+ * WS-only fallback. Only `invalid_response` and `unreachable` qualify
+ * — these indicate the HTTP endpoints are absent or the server doesn't
+ * speak the JSON discovery protocol. Errors like `non_loopback`,
+ * `non_chrome`, and `timeout` should *not* trigger the fallback because
+ * they indicate a fundamental safety or configuration problem.
+ */
+export function isHttpDiscoveryFallbackEligible(
+  err: unknown,
+): err is DevToolsDiscoveryError {
+  if (!(err instanceof DevToolsDiscoveryError)) return false;
+  return err.code === "invalid_response" || err.code === "unreachable";
+}
+
+/**
+ * Target info returned by CDP `Target.getTargets`. A subset of the
+ * full `TargetInfo` — we only need enough to build a
+ * {@link DevToolsTarget} for the attach step.
+ */
+interface CdpTargetInfo {
+  targetId: string;
+  type: string;
+  title: string;
+  url: string;
+}
+
+/**
+ * Enumerate page targets via a direct WebSocket connection to the
+ * browser-level DevTools endpoint. Uses CDP `Target.getTargets` instead
+ * of the HTTP `/json/list` endpoint.
+ *
+ * This function is the core of the WS-only fallback: when the HTTP
+ * discovery endpoints are absent, the caller connects to the well-known
+ * `ws://<host>:<port>/devtools/browser` URL and uses this function to
+ * discover page targets.
+ *
+ * The transport is provided by the caller (the cdp-inspect client's
+ * attach method) so this function doesn't own the socket lifecycle.
+ *
+ * Returns a filtered list of page targets. Throws `no_targets` when no
+ * page targets are found.
+ *
+ * @param transport - An already-connected {@link CdpWsTransport}.
+ * @param host - The loopback host, used to construct per-target ws URLs.
+ * @param port - The port, used to construct per-target ws URLs.
+ * @param signal - Optional abort signal for the CDP call.
+ */
+export async function discoverTargetsViaWs(opts: {
+  transport: import("./ws-transport.js").CdpWsTransport;
+  host: string;
+  port: number;
+  signal?: AbortSignal;
+}): Promise<DevToolsTarget[]> {
+  assertLoopback(opts.host);
+
+  const result = await opts.transport.send<{
+    targetInfos?: CdpTargetInfo[];
+  }>("Target.getTargets", undefined, { signal: opts.signal });
+
+  const targetInfos = result?.targetInfos;
+  if (!Array.isArray(targetInfos)) {
+    throw new DevToolsDiscoveryError(
+      "ws_fallback_failed",
+      "Target.getTargets did not return a targetInfos array.",
+    );
+  }
+
+  const normalized = opts.host.toLowerCase();
+  const hostSegment = normalized === "::1" ? "[::1]" : normalized;
+
+  const targets: DevToolsTarget[] = [];
+  for (const info of targetInfos) {
+    if (
+      typeof info !== "object" ||
+      info === null ||
+      typeof info.type !== "string"
+    ) {
+      continue;
+    }
+    if (info.type !== "page") continue;
+
+    const id =
+      typeof info.targetId === "string" && info.targetId.length > 0
+        ? info.targetId
+        : "";
+    if (!id) continue;
+
+    const title = typeof info.title === "string" ? info.title : "";
+    const url = typeof info.url === "string" ? info.url : "";
+    // In WS-only mode, Chrome does not provide per-target ws URLs via
+    // the HTTP API. Construct the standard DevTools per-page URL so
+    // downstream code has a consistent shape. Note: the cdp-inspect
+    // client does not actually use this URL to connect — it uses
+    // Target.attachToTarget on the browser-level transport instead.
+    const webSocketDebuggerUrl = `ws://${hostSegment}:${opts.port}/devtools/page/${id}`;
+
+    targets.push({ id, type: "page", title, url, webSocketDebuggerUrl });
+  }
+
+  if (targets.length === 0) {
+    throw new DevToolsDiscoveryError(
+      "no_targets",
+      "No usable page targets returned by CDP Target.getTargets. " +
+        "Ensure at least one browser tab is open.",
+    );
+  }
+
+  return targets;
 }

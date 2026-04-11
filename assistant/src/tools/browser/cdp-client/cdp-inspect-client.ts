@@ -1,7 +1,10 @@
 import { getLogger } from "../../../util/logger.js";
 import {
+  buildBrowserWsUrl,
   type DevToolsTarget,
   type DevToolsVersionInfo,
+  discoverTargetsViaWs,
+  isHttpDiscoveryFallbackEligible,
   listDevToolsTargets,
   pickDefaultTarget,
   probeDevToolsJsonVersion,
@@ -60,13 +63,21 @@ export interface CdpInspectHelpers {
   listDevToolsTargets?: typeof listDevToolsTargets;
   pickDefaultTarget?: typeof pickDefaultTarget;
   connectCdpWsTransport?: typeof connectCdpWsTransport;
+  /** Override for the WS-only fallback target discovery. */
+  discoverTargetsViaWs?: typeof discoverTargetsViaWs;
+  /** Override for building the well-known browser WS URL. */
+  buildBrowserWsUrl?: typeof buildBrowserWsUrl;
 }
 
 interface AttachedSession {
   transport: CdpWsTransport;
   sessionId: string;
   target: DevToolsTarget;
-  version: DevToolsVersionInfo;
+  /**
+   * Version info from HTTP `/json/version`. `null` when the session
+   * was established via the WS-only fallback path (no HTTP discovery).
+   */
+  version: DevToolsVersionInfo | null;
 }
 
 /**
@@ -132,6 +143,10 @@ export class CdpInspectClient implements ScopedCdpClient {
         options.helpers?.pickDefaultTarget ?? pickDefaultTarget,
       connectCdpWsTransport:
         options.helpers?.connectCdpWsTransport ?? connectCdpWsTransport,
+      discoverTargetsViaWs:
+        options.helpers?.discoverTargetsViaWs ?? discoverTargetsViaWs,
+      buildBrowserWsUrl:
+        options.helpers?.buildBrowserWsUrl ?? buildBrowserWsUrl,
     };
   }
 
@@ -257,6 +272,13 @@ export class CdpInspectClient implements ScopedCdpClient {
    * can map them to stable `CdpError` codes without double-wrapping
    * the already-typed discovery / ws-transport errors.
    *
+   * Two discovery strategies are tried in order:
+   *
+   * 1. **HTTP discovery** (primary): `/json/version` + `/json/list`.
+   * 2. **WS-only fallback**: direct WebSocket connect to the well-known
+   *    browser endpoint + CDP `Target.getTargets`. Only attempted when
+   *    HTTP discovery fails with `invalid_response` or `unreachable`.
+   *
    * The `signal` here is the shared, internal {@link PendingAttach}
    * signal — NOT the per-caller signal. It is aborted when the last
    * caller interested in this attach has given up, or when `dispose()`
@@ -267,39 +289,230 @@ export class CdpInspectClient implements ScopedCdpClient {
       this.options.discoveryTimeoutMs ?? DEFAULT_DISCOVERY_TIMEOUT_MS;
     const { host, port } = this.options;
 
-    const version = await this.helpers.probeDevToolsJsonVersion({
+    // --- Try HTTP discovery first ---
+    const httpResult = await this.tryHttpDiscovery(
       host,
       port,
-      timeoutMs: discoveryTimeoutMs,
+      discoveryTimeoutMs,
       signal,
-    });
+    );
+
+    if (httpResult.ok) {
+      return this.connectAndAttach(
+        httpResult.wsUrl,
+        httpResult.target,
+        httpResult.version,
+        signal,
+      );
+    }
+
+    // HTTP discovery failed — check if the error is eligible for the
+    // WS-only fallback.
+    if (!isHttpDiscoveryFallbackEligible(httpResult.error)) {
+      // Non-recoverable error (non_loopback, non_chrome, timeout) —
+      // rethrow without attempting the WS fallback.
+      throw httpResult.error;
+    }
+
     if (signal.aborted) {
       throw new CdpError("aborted", "CdpInspectClient attach aborted");
     }
-    const targets = await this.helpers.listDevToolsTargets({
-      host,
-      port,
-      timeoutMs: discoveryTimeoutMs,
-      signal,
-    });
-    if (signal.aborted) {
-      throw new CdpError("aborted", "CdpInspectClient attach aborted");
+
+    // --- WS-only fallback path ---
+    log.debug(
+      {
+        conversationId: this.conversationId,
+        httpErrorCode: httpResult.error.code,
+        httpErrorMessage: httpResult.error.message,
+      },
+      "HTTP discovery unavailable, attempting WS-only fallback",
+    );
+
+    return this.tryWsFallback(host, port, httpResult.error, signal);
+  }
+
+  /**
+   * Attempt HTTP-based discovery (probe `/json/version` + enumerate
+   * `/json/list`). Returns a discriminated result so the caller can
+   * branch on success vs. failure without try/catch nesting.
+   */
+  private async tryHttpDiscovery(
+    host: string,
+    port: number,
+    discoveryTimeoutMs: number,
+    signal: AbortSignal,
+  ): Promise<
+    | {
+        ok: true;
+        version: DevToolsVersionInfo;
+        target: DevToolsTarget;
+        wsUrl: string;
+      }
+    | { ok: false; error: unknown }
+  > {
+    try {
+      const version = await this.helpers.probeDevToolsJsonVersion({
+        host,
+        port,
+        timeoutMs: discoveryTimeoutMs,
+        signal,
+      });
+      if (signal.aborted) {
+        return {
+          ok: false,
+          error: new CdpError("aborted", "CdpInspectClient attach aborted"),
+        };
+      }
+      const targets = await this.helpers.listDevToolsTargets({
+        host,
+        port,
+        timeoutMs: discoveryTimeoutMs,
+        signal,
+      });
+      if (signal.aborted) {
+        return {
+          ok: false,
+          error: new CdpError("aborted", "CdpInspectClient attach aborted"),
+        };
+      }
+      const target = this.helpers.pickDefaultTarget(targets);
+      const wsUrl = version.webSocketDebuggerUrl || target.webSocketDebuggerUrl;
+      return { ok: true, version, target, wsUrl };
+    } catch (err) {
+      return { ok: false, error: err };
     }
+  }
+
+  /**
+   * WS-only fallback: connect directly to the well-known browser
+   * WebSocket endpoint, enumerate targets via CDP `Target.getTargets`,
+   * pick a default, and attach. Used when HTTP discovery endpoints
+   * (`/json/version`, `/json/list`) are absent.
+   */
+  private async tryWsFallback(
+    host: string,
+    port: number,
+    httpError: unknown,
+    signal: AbortSignal,
+  ): Promise<AttachedSession> {
+    let wsUrl: string;
+    try {
+      wsUrl = this.helpers.buildBrowserWsUrl(host, port);
+    } catch (err) {
+      // buildBrowserWsUrl enforces loopback — if it throws, the host
+      // is non-loopback and we should not attempt any WS connection.
+      throw err;
+    }
+
+    let transport: CdpWsTransport;
+    try {
+      transport = await this.helpers.connectCdpWsTransport(wsUrl, {
+        connectTimeoutMs: this.options.wsConnectTimeoutMs,
+        signal,
+      });
+    } catch (wsConnectErr) {
+      // WS connect also failed — surface a classified error that
+      // explains both the HTTP and WS failures.
+      const wsMsg =
+        wsConnectErr instanceof Error
+          ? wsConnectErr.message
+          : String(wsConnectErr);
+      const httpMsg =
+        httpError instanceof Error ? httpError.message : String(httpError);
+      throw new CdpError(
+        "transport_error",
+        `CDP endpoint unreachable: HTTP discovery failed (${httpMsg}) ` +
+          `and WS-only fallback also failed (${wsMsg}). ` +
+          `Ensure a Chrome/Chromium instance is listening on ${host}:${port} ` +
+          `with --remote-debugging-port or a compatible CDP proxy.`,
+        { underlying: wsConnectErr },
+      );
+    }
+
+    // dispose / abort checks after successful WS connect.
+    if (this.disposed) {
+      try {
+        transport.dispose();
+      } catch {
+        // best effort
+      }
+      throw new CdpError(
+        "disposed",
+        "CdpInspectClient disposed during WS fallback attach",
+      );
+    }
+    if (signal.aborted) {
+      try {
+        transport.dispose();
+      } catch {
+        // best effort
+      }
+      throw new CdpError(
+        "aborted",
+        "CdpInspectClient attach aborted during WS fallback",
+      );
+    }
+
+    // Discover targets via CDP Target.getTargets on the browser socket.
+    let targets: DevToolsTarget[];
+    try {
+      targets = await this.helpers.discoverTargetsViaWs({
+        transport,
+        host,
+        port,
+        signal,
+      });
+    } catch (err) {
+      try {
+        transport.dispose();
+      } catch {
+        // best effort
+      }
+      throw err;
+    }
+
+    if (signal.aborted) {
+      try {
+        transport.dispose();
+      } catch {
+        // best effort
+      }
+      throw new CdpError(
+        "aborted",
+        "CdpInspectClient attach aborted after WS target discovery",
+      );
+    }
+
     const target = this.helpers.pickDefaultTarget(targets);
 
-    // Prefer the browser-level ws URL from the version probe because
-    // it lets us multiplex multiple attached targets through a single
-    // transport. Fall back to the target-specific URL if (for some
-    // reason) the version probe omitted it.
-    const wsUrl = version.webSocketDebuggerUrl || target.webSocketDebuggerUrl;
+    log.debug(
+      {
+        conversationId: this.conversationId,
+        targetId: target.id,
+        targetCount: targets.length,
+      },
+      "WS-only fallback: discovered targets via CDP Target.getTargets",
+    );
+
+    // Attach to the selected target using the browser-level transport.
+    return this.attachToTarget(transport, target, null, signal);
+  }
+
+  /**
+   * Shared attach-to-target + session-id extraction logic. Used by both
+   * the HTTP discovery path and the WS-only fallback path.
+   */
+  private async connectAndAttach(
+    wsUrl: string,
+    target: DevToolsTarget,
+    version: DevToolsVersionInfo | null,
+    signal: AbortSignal,
+  ): Promise<AttachedSession> {
     const transport = await this.helpers.connectCdpWsTransport(wsUrl, {
       connectTimeoutMs: this.options.wsConnectTimeoutMs,
       signal,
     });
 
-    // If dispose() landed while connect was in flight, tear down the
-    // transport we just opened and surface a "disposed" CdpError to
-    // the caller so we don't leak a half-attached session.
     if (this.disposed) {
       try {
         transport.dispose();
@@ -320,6 +533,20 @@ export class CdpInspectClient implements ScopedCdpClient {
       );
     }
 
+    return this.attachToTarget(transport, target, version, signal);
+  }
+
+  /**
+   * Send `Target.attachToTarget` over the transport and extract the
+   * session ID. Disposes the transport on failure so we don't leak
+   * sockets.
+   */
+  private async attachToTarget(
+    transport: CdpWsTransport,
+    target: DevToolsTarget,
+    version: DevToolsVersionInfo | null,
+    signal: AbortSignal,
+  ): Promise<AttachedSession> {
     let attachResult: unknown;
     try {
       attachResult = await transport.send<unknown>(
@@ -331,8 +558,6 @@ export class CdpInspectClient implements ScopedCdpClient {
         { signal },
       );
     } catch (err) {
-      // Attach failed — drop the transport we just opened so we don't
-      // leak the socket on retry.
       try {
         transport.dispose();
       } catch {
@@ -360,6 +585,7 @@ export class CdpInspectClient implements ScopedCdpClient {
         conversationId: this.conversationId,
         targetId: target.id,
         sessionId,
+        discoveryMode: version ? "http" : "ws-only",
       },
       "Attached CdpInspectClient session",
     );
