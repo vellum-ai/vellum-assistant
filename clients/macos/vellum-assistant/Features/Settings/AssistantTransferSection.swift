@@ -147,7 +147,7 @@ struct AssistantTransferSection: View {
             }
             let lockfileSuccess = LockfileAssistant.ensureManagedEntry(
                 assistantId: platformAssistant.id,
-                runtimeUrl: AuthService.shared.baseURL,
+                runtimeUrl: VellumEnvironment.resolvedPlatformURL,
                 hatchedAt: platformAssistant.created_at ?? Date().iso8601String
             )
             guard lockfileSuccess else {

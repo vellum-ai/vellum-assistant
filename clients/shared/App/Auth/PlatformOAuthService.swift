@@ -53,12 +53,13 @@ public final class PlatformOAuthService {
 
     /// Resolve the platform base URL for OAuth endpoints.
     ///
-    /// Uses `AuthService.shared.baseURL` which respects `VELLUM_PLATFORM_URL`
-    /// env override, daemon-configured URL, and debug defaults.
+    /// Uses `VellumEnvironment.resolvedPlatformURL` which respects
+    /// `VELLUM_PLATFORM_URL` env override, then falls back to the
+    /// `VELLUM_ENVIRONMENT`-based canonical URL.
     /// Note: the lockfile `runtimeUrl` is the Assistant's Gateway URL,
     /// NOT the platform URL — it must not be used for platform API calls.
     private func resolvePlatformBaseURL() -> String {
-        return AuthService.shared.baseURL
+        return VellumEnvironment.resolvedPlatformURL
     }
 
     private func authenticatedRequest(url: URL, method: String) async throws -> URLRequest {

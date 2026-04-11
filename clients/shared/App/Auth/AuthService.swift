@@ -7,10 +7,6 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AuthS
 public final class AuthService {
     public static let shared = AuthService()
 
-    public var baseURL: String {
-        VellumEnvironment.resolvedPlatformURL
-    }
-
     private init() {}
 
     private struct AuthRequestConfig {
@@ -130,7 +126,7 @@ public final class AuthService {
 
     /// Fetch the current user's organizations. Does not require Vellum-Organization-Id header.
     public func getOrganizations() async throws -> [PlatformOrganization] {
-        let urlString = "\(baseURL)/v1/organizations/"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/organizations/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -265,7 +261,7 @@ public final class AuthService {
         body: Data? = nil,
         timeoutInterval: TimeInterval? = nil
     ) async throws -> PlatformResponse {
-        let urlString = "\(baseURL)/\(path)"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/\(path)"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -498,7 +494,7 @@ public final class AuthService {
         assistantId: String,
         organizationId: String
     ) async throws {
-        let urlString = "\(baseURL)/v1/assistants/\(assistantId)/\(path)/"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/assistants/\(assistantId)/\(path)/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -570,7 +566,7 @@ public final class AuthService {
         clientPlatform: String,
         assistantVersion: String? = nil
     ) async throws -> EnsureSelfHostedLocalRegistrationResponse {
-        let urlString = "\(baseURL)/v1/assistants/self-hosted-local/ensure-registration/"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/assistants/self-hosted-local/ensure-registration/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -633,7 +629,7 @@ public final class AuthService {
         clientPlatform: String,
         assistantVersion: String? = nil
     ) async throws -> ReprovisionSelfHostedLocalApiKeyResponse {
-        let urlString = "\(baseURL)/v1/assistants/self-hosted-local/reprovision-api-key/"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/assistants/self-hosted-local/reprovision-api-key/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -745,7 +741,7 @@ public final class AuthService {
         requestConfig: AuthRequestConfig,
         includeSessionToken: Bool
     ) async throws -> AuthAttemptResult {
-        let urlString = "\(baseURL)/_allauth/app/v1/\(requestConfig.path)"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/_allauth/app/v1/\(requestConfig.path)"
         guard let url = URL(string: urlString) else {
             throw AuthServiceError.invalidURL
         }
