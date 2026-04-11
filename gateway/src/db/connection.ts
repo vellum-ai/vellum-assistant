@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { getGatewaySecurityDir } from "../config.js";
+import { runDataMigrations } from "./data-migrations.js";
 
 let db: Database | null = null;
 
@@ -73,6 +74,7 @@ export function getGatewayDb(): Database {
     db.exec("PRAGMA busy_timeout=5000");
     db.exec("PRAGMA foreign_keys=ON");
     migrate(db);
+    runDataMigrations(db);
   }
   return db;
 }
@@ -91,6 +93,13 @@ function migrate(db: Database): void {
       event_id TEXT PRIMARY KEY,
       seen_at INTEGER NOT NULL,
       expires_at INTEGER NOT NULL
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS one_time_migrations (
+      key TEXT PRIMARY KEY,
+      ran_at INTEGER NOT NULL
     )
   `);
 }
