@@ -151,10 +151,13 @@ struct SettingsPrivacyTab: View {
     /// just-made selection. The `Binding(get:set:)` on the picker handles the
     /// inverse race (programmatic assignments do not trigger `syncRetention`).
     private func loadPrivacyConfig() async {
-        // Seed from UserDefaults for instant render. When UserDefaults has
-        // no entry (key removed for .keepForever), readCachedRetentionMs()
-        // returns nil, mapping through closest(toMs: nil) -> .keepForever.
-        retentionSelection = LlmLogRetentionOption.closest(toMs: readCachedRetentionMs())
+        // Seed from UserDefaults for instant render. Only override the
+        // @State default (.oneDay, matching the daemon schema default)
+        // when a cache entry actually exists — a missing key means "no
+        // prior user choice" (fresh install), not "user chose keep forever."
+        if UserDefaults.standard.object(forKey: llmRequestLogRetentionMsDefaultsKey) != nil {
+            retentionSelection = LlmLogRetentionOption.closest(toMs: readCachedRetentionMs())
+        }
 
         retentionLoadTask?.cancel()
         let task = Task { @MainActor in

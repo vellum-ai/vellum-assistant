@@ -2317,11 +2317,11 @@ export function buildSchema(): Record<string, unknown> {
                       collectUsageData: { type: "boolean" },
                       sendDiagnostics: { type: "boolean" },
                       llmRequestLogRetentionMs: {
-                        type: "integer",
+                        type: ["integer", "null"],
                         minimum: 0,
                         maximum: 31536000000,
                         description:
-                          "Retention window for LLM request logs, in milliseconds. 0 means never prune. Maximum is 365 days (31536000000 ms).",
+                          "Retention window for LLM request logs, in milliseconds. null keeps logs forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
                       },
                     },
                     required: [
@@ -2510,11 +2510,11 @@ export function buildSchema(): Record<string, unknown> {
                       collectUsageData: { type: "boolean" },
                       sendDiagnostics: { type: "boolean" },
                       llmRequestLogRetentionMs: {
-                        type: "integer",
+                        type: ["integer", "null"],
                         minimum: 0,
                         maximum: 31536000000,
                         description:
-                          "Retention window for LLM request logs, in milliseconds. 0 means never prune. Maximum is 365 days (31536000000 ms).",
+                          "Retention window for LLM request logs, in milliseconds. null keeps logs forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
                       },
                     },
                     required: [
