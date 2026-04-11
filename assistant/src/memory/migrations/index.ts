@@ -162,6 +162,10 @@ export { migrateConversationHostAccess } from "./217-conversation-host-access.js
 export { migrateOAuthProvidersLogoUrl } from "./218-oauth-providers-logo-url.js";
 export { migrateOAuthProvidersTokenExchangeBodyFormat } from "./219-oauth-providers-token-exchange-body-format.js";
 export {
+  downNormalizeUserFileByPrincipal,
+  migrateNormalizeUserFileByPrincipal,
+} from "./220-normalize-user-file-by-principal.js";
+export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
   type MigrationValidationResult,

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, like, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, like, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../memory/db.js";
@@ -273,10 +273,27 @@ export function upsertContact(params: {
 
   // Create new contact
   contactId = contactId ?? uuid();
-  const userFileValue =
-    params.userFile !== undefined
-      ? params.userFile
-      : generateUserFileSlug(params.displayName);
+  // Sibling contacts sharing a principal_id must share a user_file so every
+  // channel for one principal resolves to the same persona + journal slug.
+  let resolvedUserFile: string | null;
+  if (params.userFile !== undefined) {
+    resolvedUserFile = params.userFile;
+  } else if (params.principalId) {
+    const sibling = db
+      .select({ userFile: contacts.userFile })
+      .from(contacts)
+      .where(
+        and(
+          eq(contacts.principalId, params.principalId),
+          isNotNull(contacts.userFile),
+        ),
+      )
+      .get();
+    resolvedUserFile =
+      sibling?.userFile ?? generateUserFileSlug(params.displayName);
+  } else {
+    resolvedUserFile = generateUserFileSlug(params.displayName);
+  }
   db.insert(contacts)
     .values({
       id: contactId,
@@ -285,7 +302,7 @@ export function upsertContact(params: {
       role: params.role ?? "contact",
       contactType: params.contactType ?? "human",
       principalId: params.principalId ?? null,
-      userFile: userFileValue ?? null,
+      userFile: resolvedUserFile,
       createdAt: now,
       updatedAt: now,
     })
