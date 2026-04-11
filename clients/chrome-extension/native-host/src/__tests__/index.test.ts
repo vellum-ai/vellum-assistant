@@ -285,9 +285,12 @@ describe("native host — subprocess regression coverage", () => {
 
     // Exactly one error frame on stdout — never a token_response.
     expect(result.frames).toHaveLength(1);
-    const frame = result.frames[0] as { type?: unknown; message?: unknown };
+    const frame = result.frames[0] as { type?: unknown; message?: unknown; protocolVersion?: unknown };
     expect(frame.type).toBe("error");
     expect(frame.message).toBe("unauthorized_origin");
+    // Error frames must include the protocol version so the extension
+    // can detect incompatible native host versions even on error paths.
+    expect(frame.protocolVersion).toBe(1);
 
     // The critical invariant: the helper must NOT have POSTed anything
     // to /v1/browser-extension-pair. If the unauthorized branch falls
@@ -320,11 +323,13 @@ describe("native host — subprocess regression coverage", () => {
       token?: unknown;
       expiresAt?: unknown;
       guardianId?: unknown;
+      protocolVersion?: unknown;
     };
     expect(frame.type).toBe("token_response");
     expect(frame.token).toBe("tok-1");
     expect(frame.expiresAt).toBe("2026-12-31T00:00:00Z");
     expect(frame.guardianId).toBe("g-1");
+    expect(frame.protocolVersion).toBe(1);
 
     // The helper should have made exactly one POST to the pair
     // endpoint, carrying the extension origin we passed on argv.
@@ -390,10 +395,11 @@ describe("native host — subprocess regression coverage", () => {
 
     expect(result.exitCode).not.toBe(0);
     expect(result.frames).toHaveLength(1);
-    const frame = result.frames[0] as { type?: unknown; message?: unknown };
+    const frame = result.frames[0] as { type?: unknown; message?: unknown; protocolVersion?: unknown };
     expect(frame.type).toBe("error");
     expect(typeof frame.message).toBe("string");
     expect(frame.message).toMatch(/guardianId/);
+    expect(frame.protocolVersion).toBe(1);
   });
 });
 
@@ -476,10 +482,12 @@ describe("native host — list_assistants response framing", () => {
         isActive: boolean;
       }>;
       activeAssistantId: string | null;
+      protocolVersion: number;
     };
 
     expect(frame.type).toBe("assistants_response");
     expect(frame.activeAssistantId).toBe("local-one");
+    expect(frame.protocolVersion).toBe(1);
     expect(frame.assistants).toHaveLength(2);
 
     expect(frame.assistants[0]!.assistantId).toBe("local-one");
@@ -509,10 +517,12 @@ describe("native host — list_assistants response framing", () => {
       type: string;
       assistants: unknown[];
       activeAssistantId: unknown;
+      protocolVersion: unknown;
     };
     expect(frame.type).toBe("assistants_response");
     expect(frame.assistants).toEqual([]);
     expect(frame.activeAssistantId).toBeNull();
+    expect(frame.protocolVersion).toBe(1);
   });
 });
 
@@ -612,10 +622,12 @@ describe("native host — assistant-scoped token request", () => {
       type: string;
       token: string;
       assistantPort: number;
+      protocolVersion: number;
     };
     expect(frame.type).toBe("token_response");
     expect(frame.token).toBe("tok-b");
     expect(frame.assistantPort).toBe(srvB.port);
+    expect(frame.protocolVersion).toBe(1);
 
     // srvB should have received the pair request, not srvA.
     expect(srvB.requests).toHaveLength(1);
