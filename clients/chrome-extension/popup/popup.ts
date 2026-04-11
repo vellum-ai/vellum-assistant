@@ -69,6 +69,7 @@ const assistantSelect = document.getElementById(
 // connect and auth-refresh operations use the right assistant context.
 
 let currentAuthProfile: AssistantAuthProfile | null = null;
+let currentAssistantId: string | null = null;
 
 // ── Connection state helpers ────────────────────────────────────────
 
@@ -203,6 +204,8 @@ function loadAssistantCatalog(): void {
     const selected = response.selected ?? null;
     const authProfile = response.authProfile ?? null;
 
+    currentAssistantId = selected?.assistantId ?? null;
+
     renderAssistantSelector(assistants, selected);
     updateAuthSections(authProfile);
 
@@ -235,6 +238,7 @@ assistantSelect.addEventListener('change', () => {
         return;
       }
 
+      currentAssistantId = response.selected?.assistantId ?? assistantId;
       const authProfile = response.authProfile ?? null;
       updateAuthSections(authProfile);
 
@@ -278,7 +282,11 @@ btnConnect.addEventListener('click', async () => {
   // (vellum.cloudAuthToken) directly, so the popup must NOT try to hit
   // localhost — a cloud-only user may not have a local assistant running.
   if (currentAuthProfile === 'local-pair') {
-    const pairedToken = await getStoredLocalToken();
+    if (!currentAssistantId) {
+      showError('No assistant selected — please select an assistant first.');
+      return;
+    }
+    const pairedToken = await getStoredLocalToken(currentAssistantId);
     if (!pairedToken) {
       showError(
         'Local assistant is not paired yet — click "Pair with local assistant" below before connecting.',
@@ -344,8 +352,12 @@ function formatLocalTokenStatus(token: StoredLocalToken): string {
 }
 
 async function refreshLocalStatus(): Promise<void> {
+  if (!currentAssistantId) {
+    setLocalStatus('Not paired', 'neutral');
+    return;
+  }
   try {
-    const existing = await getStoredLocalToken();
+    const existing = await getStoredLocalToken(currentAssistantId);
     if (existing) {
       setLocalStatus(formatLocalTokenStatus(existing), 'paired');
     } else {
@@ -405,8 +417,12 @@ function setCloudStatus(text: string, signedIn: boolean): void {
 }
 
 async function refreshCloudStatus(): Promise<void> {
+  if (!currentAssistantId) {
+    setCloudStatus('Not signed in', false);
+    return;
+  }
   try {
-    const existing = await getStoredToken();
+    const existing = await getStoredToken(currentAssistantId);
     if (existing) {
       setCloudStatus(`Signed in as guardian:${existing.guardianId}`, true);
     } else {
