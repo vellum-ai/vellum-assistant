@@ -5,14 +5,14 @@
  * uniform {@link TtsProvider} interface, preserving its streaming chunk
  * callbacks for real-time call playback.
  *
- * Config comes from the workspace `fishAudio` section. The API key is read
+ * Config comes from `services.tts.providers['fish-audio']`. The API key is read
  * from the secure credential store (`fish-audio/api_key`) by the underlying
  * client.
  */
 
 import { synthesizeWithFishAudio } from "../../calls/fish-audio-client.js";
 import { getConfig } from "../../config/loader.js";
-import type { FishAudioConfig } from "../../config/schemas/fish-audio.js";
+import type { TtsFishAudioProviderConfig } from "../../config/schemas/tts.js";
 import { getLogger } from "../../util/logger.js";
 import type {
   TtsProvider,
@@ -59,7 +59,7 @@ const FORMAT_CONTENT_TYPE: Record<string, string> = {
  */
 function resolveReferenceId(
   request: TtsSynthesisRequest,
-  config: FishAudioConfig,
+  config: TtsFishAudioProviderConfig,
 ): string {
   const referenceId = request.voiceId?.trim() || config.referenceId;
   if (!referenceId) {
@@ -89,11 +89,11 @@ export function createFishAudioProvider(): TtsProvider {
     async synthesize(
       request: TtsSynthesisRequest,
     ): Promise<TtsSynthesisResult> {
-      const config = getConfig().fishAudio;
+      const config = getConfig().services.tts.providers["fish-audio"];
       const referenceId = resolveReferenceId(request, config);
 
       // Build an effective config with the resolved reference ID
-      const effectiveConfig: FishAudioConfig = {
+      const effectiveConfig: TtsFishAudioProviderConfig = {
         ...config,
         referenceId,
       };
@@ -128,10 +128,10 @@ export function createFishAudioProvider(): TtsProvider {
       request: TtsSynthesisRequest,
       onChunk: (chunk: Uint8Array) => void,
     ): Promise<TtsSynthesisResult> {
-      const config = getConfig().fishAudio;
+      const config = getConfig().services.tts.providers["fish-audio"];
       const referenceId = resolveReferenceId(request, config);
 
-      const effectiveConfig: FishAudioConfig = {
+      const effectiveConfig: TtsFishAudioProviderConfig = {
         ...config,
         referenceId,
       };
