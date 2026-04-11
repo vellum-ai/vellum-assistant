@@ -71,6 +71,11 @@ export const NotionOAuthServiceSchema = BaseServiceSchema.extend({
 });
 export type NotionOAuthService = z.infer<typeof NotionOAuthServiceSchema>;
 
+export const TwitterOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+export type TwitterOAuthService = z.infer<typeof TwitterOAuthServiceSchema>;
+
 export const ServicesSchema = z.object({
   inference: InferenceServiceSchema.default(InferenceServiceSchema.parse({})),
   "image-generation": ImageGenerationServiceSchema.default(
@@ -93,6 +98,9 @@ export const ServicesSchema = z.object({
   ),
   "notion-oauth": NotionOAuthServiceSchema.default(
     NotionOAuthServiceSchema.parse({}),
+  ),
+  "twitter-oauth": TwitterOAuthServiceSchema.default(
+    TwitterOAuthServiceSchema.parse({}),
   ),
 });
 export type Services = z.infer<typeof ServicesSchema>;

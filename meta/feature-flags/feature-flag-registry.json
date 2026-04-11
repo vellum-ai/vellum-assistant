@@ -328,6 +328,14 @@
       "label": "Fork from Message",
       "description": "Show the Fork from here option in message overflow menus",
       "defaultEnabled": false
+    },
+    {
+      "id": "managed-x-oauth-integration",
+      "scope": "assistant",
+      "key": "managed-x-oauth-integration",
+      "label": "Managed X/Twitter OAuth",
+      "description": "Enable platform-managed X/Twitter OAuth integration in Models & Services settings",
+      "defaultEnabled": false
     }
   ]
 }
