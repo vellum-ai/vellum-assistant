@@ -184,9 +184,11 @@ function updateTroubleshootSection(health: ConnectionHealthState): void {
 
   troubleshootSection.hidden = false;
 
-  // Auto-expand when action is required.
+  // Auto-expand when action is required, auto-collapse on recovery.
   if (shouldExpandTroubleshooting(health)) {
     expandTroubleshoot();
+  } else if (health === 'connected') {
+    collapseTroubleshoot();
   }
 }
 
