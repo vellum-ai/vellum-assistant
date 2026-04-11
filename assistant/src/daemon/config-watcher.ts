@@ -172,7 +172,6 @@ export class ConfigWatcher {
         onConversationEvict();
         onIdentityChanged?.();
       },
-      "USER.md": () => onConversationEvict(),
       "UPDATES.md": () => onConversationEvict(),
     };
 
