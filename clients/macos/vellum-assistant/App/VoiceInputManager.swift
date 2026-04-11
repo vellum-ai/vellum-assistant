@@ -120,14 +120,22 @@ final class VoiceInputManager {
         PTTActivator.cached
     }
 
-    private var speechRecognizer: SFSpeechRecognizer? = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+    /// Injected adapter wrapping SFSpeechRecognizer static APIs and instance creation.
+    private let speechRecognizerAdapter: any SpeechRecognizerAdapter
+
+    private var speechRecognizer: SFSpeechRecognizer?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private let engineController = AudioEngineController(label: "com.vellum.audioEngine.voiceInput")
     private var enginePrewarmed = false
 
-    init(dictationClient: any DictationClientProtocol = DictationClient()) {
+    init(
+        dictationClient: any DictationClientProtocol = DictationClient(),
+        speechRecognizerAdapter: any SpeechRecognizerAdapter = AppleSpeechRecognizerAdapter()
+    ) {
         self.dictationClient = dictationClient
+        self.speechRecognizerAdapter = speechRecognizerAdapter
+        self.speechRecognizer = speechRecognizerAdapter.makeRecognizer(locale: Locale(identifier: "en-US"))
     }
 
     func start() {
@@ -618,14 +626,15 @@ final class VoiceInputManager {
     private func beginRecording() {
         log.info("beginRecording() called — origin=\(String(describing: self.activeOrigin)) mode=\(String(describing: self.currentMode)) isRecording=\(self.isRecording)")
 
-        // Recreate speech recognizer if transiently unavailable (e.g. after
-        // sleep/wake, heavy use, or audio route changes).
-        if speechRecognizer?.isAvailable != true {
-            log.warning("Speech recognizer unavailable (nil=\(self.speechRecognizer == nil)) — recreating")
-            speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+        // Check recognizer availability through the adapter so tests can
+        // control the result without depending on a real SFSpeechRecognizer.
+        // When unavailable, attempt recreation before giving up.
+        if speechRecognizer == nil || !speechRecognizerAdapter.isRecognizerAvailable {
+            log.warning("Speech recognizer unavailable (nil=\(self.speechRecognizer == nil), adapterAvailable=\(self.speechRecognizerAdapter.isRecognizerAvailable)) — recreating")
+            speechRecognizer = speechRecognizerAdapter.makeRecognizer(locale: Locale(identifier: "en-US"))
         }
-        guard let speechRecognizer = speechRecognizer, speechRecognizer.isAvailable else {
-            log.error("Speech recognizer not available after recreation attempt (nil=\(self.speechRecognizer == nil), available=\(self.speechRecognizer?.isAvailable ?? false))")
+        guard speechRecognizerAdapter.isRecognizerAvailable else {
+            log.error("Speech recognizer not available after recreation attempt")
             currentDictationContext = nil
             return
         }
@@ -641,7 +650,7 @@ final class VoiceInputManager {
         // Show an informative overlay for first-use or denied states instead of
         // silently opening System Settings.
         let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-        let speechStatus = SFSpeechRecognizer.authorizationStatus()
+        let speechStatus = speechRecognizerAdapter.authorizationStatus()
         log.info("Permissions — mic=\(String(describing: micStatus)) speech=\(String(describing: speechStatus))")
 
         if micStatus == .notDetermined || speechStatus == .notDetermined {
@@ -764,7 +773,23 @@ final class VoiceInputManager {
             }
             self.hasInstalledTap = true
 
-            self.recognitionTask = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
+            // Ensure the concrete recognizer is still available. It may have
+            // been set to nil if the adapter recreated it between start and
+            // engine ready. In production the adapter ensures makeRecognizer
+            // returns a valid instance when isRecognizerAvailable is true.
+            guard let recognizer = self.speechRecognizer else {
+                log.error("Speech recognizer became nil after engine started — aborting")
+                self.isRecording = false
+                self.onRecordingStateChanged?(false)
+                self.currentDictationContext = nil
+                self.recognitionRequest = nil
+                self.overlayWindow.dismiss()
+                self.engineController.stopAndRemoveTap()
+                self.hasInstalledTap = false
+                return
+            }
+
+            self.recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
                 Task { @MainActor in
                     guard let self = self else { return }
                     // Ignore late callbacks delivered after recording was stopped
@@ -819,7 +844,7 @@ final class VoiceInputManager {
         }
 
         let speechGranted = await withCheckedContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { status in
+            speechRecognizerAdapter.requestAuthorization { status in
                 continuation.resume(returning: status == .authorized)
             }
         }

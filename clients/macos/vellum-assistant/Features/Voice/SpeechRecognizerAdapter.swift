@@ -17,6 +17,12 @@ protocol SpeechRecognizerAdapter: AnyObject, Sendable {
     /// Creates a new `SFSpeechRecognizer` for the given locale, or returns nil
     /// if the locale is not supported.
     func makeRecognizer(locale: Locale) -> SFSpeechRecognizer?
+
+    /// Whether a speech recognizer is currently available for the device locale.
+    /// Used by `VoiceInputManager` to gate recording without holding a reference
+    /// to the concrete `SFSpeechRecognizer` — enabling tests to control availability
+    /// independently of the real Speech framework.
+    var isRecognizerAvailable: Bool { get }
 }
 
 /// Default adapter backed by the real Apple Speech framework.
@@ -35,5 +41,10 @@ final class AppleSpeechRecognizerAdapter: SpeechRecognizerAdapter {
 
     func makeRecognizer(locale: Locale) -> SFSpeechRecognizer? {
         SFSpeechRecognizer(locale: locale)
+    }
+
+    var isRecognizerAvailable: Bool {
+        guard let recognizer = SFSpeechRecognizer() else { return false }
+        return recognizer.isAvailable
     }
 }
