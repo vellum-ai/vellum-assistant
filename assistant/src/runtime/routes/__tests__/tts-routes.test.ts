@@ -89,9 +89,14 @@ import { ttsRouteDefinitions } from "../tts-routes.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function getHandler() {
+function getMessageTtsHandler() {
   const routes = ttsRouteDefinitions();
   return routes[0].handler;
+}
+
+function getSynthesizeHandler() {
+  const routes = ttsRouteDefinitions();
+  return routes[1].handler;
 }
 
 function makeRouteContext(
@@ -127,6 +132,28 @@ function makeRouteContext(
   } as unknown as RouteContext;
 }
 
+function makeSynthesizeContext(body: Record<string, unknown>): RouteContext {
+  const url = new URL("http://localhost/v1/tts/synthesize");
+  return {
+    req: new Request(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+    url,
+    server: {} as RouteContext["server"],
+    authContext: {
+      subject: "test-user",
+      principalType: "local",
+      assistantId: "self",
+      scopeProfile: "local_v1",
+      scopes: new Set(["local.all" as const]),
+      policyEpoch: 0,
+    },
+    params: {},
+  } as unknown as RouteContext;
+}
+
 async function readErrorBody(
   response: Response,
 ): Promise<{ error: { code: string; message: string } }> {
@@ -159,11 +186,13 @@ afterEach(() => {
 describe("tts-routes", () => {
   // -- Route metadata -------------------------------------------------------
 
-  test("exports a single route definition for messages/:id/tts", () => {
+  test("exports route definitions for messages/:id/tts and tts/synthesize", () => {
     const routes = ttsRouteDefinitions();
-    expect(routes).toHaveLength(1);
+    expect(routes).toHaveLength(2);
     expect(routes[0].endpoint).toBe("messages/:id/tts");
     expect(routes[0].method).toBe("POST");
+    expect(routes[1].endpoint).toBe("tts/synthesize");
+    expect(routes[1].method).toBe("POST");
   });
 
   test("route description is provider-agnostic", () => {
@@ -177,7 +206,7 @@ describe("tts-routes", () => {
   test("returns 403 when message-tts flag is disabled", async () => {
     mockFeatureFlagEnabled = false;
 
-    const handler = getHandler();
+    const handler = getMessageTtsHandler();
     const res = await handler(makeRouteContext());
 
     expect(res.status).toBe(403);
@@ -191,7 +220,7 @@ describe("tts-routes", () => {
   test("returns 404 when message is not found", async () => {
     mockMessageContent = null;
 
-    const handler = getHandler();
+    const handler = getMessageTtsHandler();
     const res = await handler(makeRouteContext({ messageId: "missing-id" }));
 
     expect(res.status).toBe(404);
@@ -203,7 +232,7 @@ describe("tts-routes", () => {
   test("returns 400 when message has no text content", async () => {
     mockMessageContent = { text: undefined };
 
-    const handler = getHandler();
+    const handler = getMessageTtsHandler();
     const res = await handler(makeRouteContext());
 
     expect(res.status).toBe(400);
@@ -215,7 +244,7 @@ describe("tts-routes", () => {
   test("returns 400 when sanitized text is empty", async () => {
     mockMessageContent = { text: "   " };
 
-    const handler = getHandler();
+    const handler = getMessageTtsHandler();
     const res = await handler(makeRouteContext());
 
     expect(res.status).toBe(400);
@@ -227,7 +256,7 @@ describe("tts-routes", () => {
   // -- Provider selection via orchestration layer ---------------------------
 
   test("delegates to synthesizeText with message-playback use case", async () => {
-    const handler = getHandler();
+    const handler = getMessageTtsHandler();
     const res = await handler(makeRouteContext());
 
     expect(res.status).toBe(200);
@@ -242,7 +271,7 @@ describe("tts-routes", () => {
       contentType: "audio/wav",
     };
 
-    const handler = getHandler();
+    const handler = getMessageTtsHandler();
     const res = await handler(makeRouteContext());
 
     expect(res.status).toBe(200);
@@ -259,7 +288,7 @@ describe("tts-routes", () => {
     Object.assign(err, { code: "TTS_PROVIDER_NOT_CONFIGURED" });
     mockSynthesizeError = err;
 
-    const handler = getHandler();
+    const handler = getMessageTtsHandler();
     const res = await handler(makeRouteContext());
 
     expect(res.status).toBe(503);
@@ -273,8 +302,169 @@ describe("tts-routes", () => {
   test("returns 502 when synthesis fails with generic error", async () => {
     mockSynthesizeError = new Error("upstream failure");
 
-    const handler = getHandler();
+    const handler = getMessageTtsHandler();
     const res = await handler(makeRouteContext());
+
+    expect(res.status).toBe(502);
+    const body = await readErrorBody(res);
+    expect(body.error.code).toBe("INTERNAL_ERROR");
+    expect(body.error.message).toContain("synthesis failed");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /v1/tts/synthesize tests
+// ---------------------------------------------------------------------------
+
+describe("tts/synthesize", () => {
+  // -- Route metadata -------------------------------------------------------
+
+  test("route description is provider-agnostic", () => {
+    const routes = ttsRouteDefinitions();
+    const synthesizeRoute = routes[1];
+    expect(synthesizeRoute.description).not.toMatch(/elevenlabs/i);
+    expect(synthesizeRoute.description).not.toMatch(/fish/i);
+    expect(synthesizeRoute.description).toContain("configured TTS provider");
+  });
+
+  // -- Body validation ------------------------------------------------------
+
+  test("returns 400 for invalid JSON body", async () => {
+    const url = new URL("http://localhost/v1/tts/synthesize");
+    const ctx = {
+      req: new Request(url, {
+        method: "POST",
+        body: "not-json",
+      }),
+      url,
+      server: {} as RouteContext["server"],
+      authContext: {
+        subject: "test-user",
+        principalType: "local",
+        assistantId: "self",
+        scopeProfile: "local_v1",
+        scopes: new Set(["local.all" as const]),
+        policyEpoch: 0,
+      },
+      params: {},
+    } as unknown as RouteContext;
+
+    const handler = getSynthesizeHandler();
+    const res = await handler(ctx);
+
+    expect(res.status).toBe(400);
+    const body = await readErrorBody(res);
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toContain("Invalid JSON");
+  });
+
+  test("returns 400 when text is missing", async () => {
+    const handler = getSynthesizeHandler();
+    const res = await handler(makeSynthesizeContext({}));
+
+    expect(res.status).toBe(400);
+    const body = await readErrorBody(res);
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toContain("text is required");
+  });
+
+  test("returns 400 when text is not a string", async () => {
+    const handler = getSynthesizeHandler();
+    const res = await handler(makeSynthesizeContext({ text: 42 }));
+
+    expect(res.status).toBe(400);
+    const body = await readErrorBody(res);
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toContain("text is required");
+  });
+
+  test("returns 400 when text is empty after sanitization", async () => {
+    const handler = getSynthesizeHandler();
+    const res = await handler(makeSynthesizeContext({ text: "   " }));
+
+    expect(res.status).toBe(400);
+    const body = await readErrorBody(res);
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toContain("no speakable content");
+  });
+
+  // -- Context handling -----------------------------------------------------
+
+  test("accepts optional context without affecting synthesis", async () => {
+    const handler = getSynthesizeHandler();
+    const res = await handler(
+      makeSynthesizeContext({ text: "Hello", context: "voice-mode" }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(lastSynthesizeOptions).not.toBeNull();
+    expect(lastSynthesizeOptions!.text).toBe("Hello");
+    // context does not influence provider selection — useCase stays message-playback
+    expect(lastSynthesizeOptions!.useCase).toBe("message-playback");
+  });
+
+  test("accepts optional conversationId", async () => {
+    const handler = getSynthesizeHandler();
+    const res = await handler(
+      makeSynthesizeContext({ text: "Hello", conversationId: "conv-789" }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(lastSynthesizeOptions).not.toBeNull();
+    expect(lastSynthesizeOptions!.text).toBe("Hello");
+  });
+
+  // -- Provider-agnostic response behavior ----------------------------------
+
+  test("delegates to synthesizeText with message-playback use case", async () => {
+    const handler = getSynthesizeHandler();
+    const res = await handler(makeSynthesizeContext({ text: "Say this" }));
+
+    expect(res.status).toBe(200);
+    expect(lastSynthesizeOptions).not.toBeNull();
+    expect(lastSynthesizeOptions!.text).toBe("Say this");
+    expect(lastSynthesizeOptions!.useCase).toBe("message-playback");
+  });
+
+  test("returns audio response with correct content type", async () => {
+    mockSynthesizeResult = {
+      audio: Buffer.from("opus-audio"),
+      contentType: "audio/opus",
+    };
+
+    const handler = getSynthesizeHandler();
+    const res = await handler(makeSynthesizeContext({ text: "Say this" }));
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("audio/opus");
+
+    const body = await res.arrayBuffer();
+    expect(Buffer.from(body).toString()).toBe("opus-audio");
+  });
+
+  // -- Provider not configured ----------------------------------------------
+
+  test("returns 503 when TTS provider is not configured", async () => {
+    const err = new Error("TTS provider not configured");
+    Object.assign(err, { code: "TTS_PROVIDER_NOT_CONFIGURED" });
+    mockSynthesizeError = err;
+
+    const handler = getSynthesizeHandler();
+    const res = await handler(makeSynthesizeContext({ text: "Say this" }));
+
+    expect(res.status).toBe(503);
+    const body = await readErrorBody(res);
+    expect(body.error.code).toBe("SERVICE_UNAVAILABLE");
+    expect(body.error.message).toContain("not configured");
+  });
+
+  // -- Synthesis failure ----------------------------------------------------
+
+  test("returns 502 when synthesis fails with generic error", async () => {
+    mockSynthesizeError = new Error("upstream failure");
+
+    const handler = getSynthesizeHandler();
+    const res = await handler(makeSynthesizeContext({ text: "Say this" }));
 
     expect(res.status).toBe(502);
     const body = await readErrorBody(res);
