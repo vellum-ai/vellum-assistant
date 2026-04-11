@@ -197,6 +197,19 @@ export {
   RateLimitConfigSchema,
   TimeoutConfigSchema,
 } from "./schemas/timeouts.js";
+export type {
+  TtsElevenLabsProviderConfig,
+  TtsFishAudioProviderConfig,
+  TtsProviders,
+  TtsService,
+} from "./schemas/tts.js";
+export {
+  TtsElevenLabsProviderConfigSchema,
+  TtsFishAudioProviderConfigSchema,
+  TtsProvidersSchema,
+  TtsServiceSchema,
+  VALID_TTS_PROVIDERS as VALID_TTS_SERVICE_PROVIDERS,
+} from "./schemas/tts.js";
 export type { WorkspaceGitConfig } from "./schemas/workspace-git.js";
 export { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 
