@@ -49,6 +49,7 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
 }));
 
+import { resolveTelephonySttProfile } from "../calls/stt-profile.js";
 import {
   buildElevenLabsVoiceSpec,
   resolveVoiceQualityProfile,
@@ -1196,7 +1197,6 @@ describe("resolveVoiceQualityProfile", () => {
     const config = AssistantConfigSchema.parse({});
     const profile = resolveVoiceQualityProfile(config);
     expect(profile.ttsProvider).toBe("ElevenLabs");
-    expect(profile.transcriptionProvider).toBe("Deepgram");
   });
 
   test("uses services.tts.providers.elevenlabs.voiceId for voice", () => {
@@ -1236,6 +1236,64 @@ describe("resolveVoiceQualityProfile", () => {
     });
     const profile = resolveVoiceQualityProfile(config);
     expect(profile.voice).toBe("abc123-turbo_v2_5-0.9_0.8_0.9");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: resolveTelephonySttProfile (adapter + parsed config integration)
+// ---------------------------------------------------------------------------
+
+describe("resolveTelephonySttProfile with parsed config", () => {
+  test("Deepgram defaults produce provider Deepgram with nova-3", () => {
+    const config = AssistantConfigSchema.parse({});
+    const stt = resolveTelephonySttProfile(config.calls.voice);
+    expect(stt.provider).toBe("Deepgram");
+    expect(stt.speechModel).toBe("nova-3");
+  });
+
+  test("Google provider with no speechModel yields undefined speechModel", () => {
+    const config = AssistantConfigSchema.parse({
+      calls: { voice: { transcriptionProvider: "Google" } },
+    });
+    const stt = resolveTelephonySttProfile(config.calls.voice);
+    expect(stt.provider).toBe("Google");
+    expect(stt.speechModel).toBeUndefined();
+  });
+
+  test("Google provider with legacy nova-3 yields undefined speechModel", () => {
+    const config = AssistantConfigSchema.parse({
+      calls: {
+        voice: { transcriptionProvider: "Google", speechModel: "nova-3" },
+      },
+    });
+    const stt = resolveTelephonySttProfile(config.calls.voice);
+    expect(stt.provider).toBe("Google");
+    expect(stt.speechModel).toBeUndefined();
+  });
+
+  test("Google provider with explicit long model preserves it", () => {
+    const config = AssistantConfigSchema.parse({
+      calls: {
+        voice: { transcriptionProvider: "Google", speechModel: "long" },
+      },
+    });
+    const stt = resolveTelephonySttProfile(config.calls.voice);
+    expect(stt.provider).toBe("Google");
+    expect(stt.speechModel).toBe("long");
+  });
+
+  test("Deepgram with explicit speech model preserves it", () => {
+    const config = AssistantConfigSchema.parse({
+      calls: {
+        voice: {
+          transcriptionProvider: "Deepgram",
+          speechModel: "nova-2-phonecall",
+        },
+      },
+    });
+    const stt = resolveTelephonySttProfile(config.calls.voice);
+    expect(stt.provider).toBe("Deepgram");
+    expect(stt.speechModel).toBe("nova-2-phonecall");
   });
 });
 

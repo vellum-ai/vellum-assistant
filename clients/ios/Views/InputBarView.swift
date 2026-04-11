@@ -23,6 +23,10 @@ struct InputBarView: View {
     var onVoiceResult: ((String) -> Void)?
     var viewModel: ChatViewModel
 
+    /// Speech recognizer adapter — defaults to the Apple implementation backed by SFSpeechRecognizer.
+    /// Inject a mock for testing.
+    var speechRecognizer: any SpeechRecognizerAdapter = AppleSpeechRecognizerAdapter()
+
     @State private var isRecording = false
     /// True after the audio engine and tap have been torn down (set by finishRecordingForAutoStop
     /// and stopRecording). Prevents double-stop when the auto-stop path and the isFinal callback
@@ -35,7 +39,9 @@ struct InputBarView: View {
     /// the user has not typed anything in the interim.
     @State private var isAutoStopPending = false
     @State private var textAtAutoStop: String = ""
-    @State private var recognitionTask: SFSpeechRecognitionTask?
+    /// Cancellation closure returned by the adapter's startRecognitionTask — tears down the
+    /// recognition task without requiring a direct SFSpeechRecognitionTask reference.
+    @State private var cancelRecognitionTask: (() -> Void)?
     @State private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     @State private var audioEngine = AVAudioEngine()
     @State private var showPhotosPicker = false
@@ -116,7 +122,7 @@ struct InputBarView: View {
     }
 
     private var voiceOrbState: VoiceOrbState {
-        // The SFSpeechRecognizer pipeline only has listening and idle states in
+        // The speech recognizer pipeline only has listening and idle states in
         // this simplified implementation; thinking/processing is not separately
         // observable here, so we reflect the recording flag directly.
         isRecording ? .listening : .idle
@@ -290,17 +296,16 @@ struct InputBarView: View {
                 }
                 return
             }
-            // Request speech recognition access
-            SFSpeechRecognizer.requestAuthorization { status in
-                DispatchQueue.main.async {
-                    guard status == .authorized else {
-                        log.warning("Speech recognition not authorized: \(String(describing: status))")
-                        isVoiceOrbExpanded = false
-                        viewModel.errorText = "Speech recognition not authorized — enable it in Settings > Privacy > Speech Recognition."
-                        return
-                    }
-                    beginRecording()
+            // Request speech recognition access via the adapter
+            Task { @MainActor in
+                let status = await speechRecognizer.requestAuthorization()
+                guard status == .authorized else {
+                    log.warning("Speech recognition not authorized: \(String(describing: status))")
+                    isVoiceOrbExpanded = false
+                    viewModel.errorText = "Speech recognition not authorized — enable it in Settings > Privacy > Speech Recognition."
+                    return
                 }
+                beginRecording()
             }
         }
     }
@@ -313,7 +318,7 @@ struct InputBarView: View {
             return
         }
 
-        guard let recognizer = SFSpeechRecognizer(), recognizer.isAvailable else {
+        guard speechRecognizer.isAvailable else {
             log.error("Speech recognizer not available")
             isVoiceOrbExpanded = false
             viewModel.errorText = "Voice input is not available on this device."
@@ -331,9 +336,48 @@ struct InputBarView: View {
             return
         }
 
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
+        // Start the recognition task via the adapter. The adapter returns the audio buffer
+        // request (for appending mic samples) and a cancellation closure.
+        let taskResult: (request: SFSpeechAudioBufferRecognitionRequest, cancel: () -> Void)
+        do {
+            taskResult = try speechRecognizer.startRecognitionTask { result, error in
+                if let result = result {
+                    let transcribed = result.transcription
+                    if result.isFinal {
+                        log.info("Voice transcription final: \(transcribed, privacy: .public)")
+                        // Only apply the final transcription if the user has not typed anything
+                        // since auto-stop. When isAutoStopPending is true the voice orb has already
+                        // collapsed and the text field is visible, so the user may have started
+                        // editing; we respect their input by skipping the overwrite in that case.
+                        if !isAutoStopPending || text == textAtAutoStop {
+                            text = transcribed
+                            onVoiceResult?(transcribed)
+                        }
+                        stopRecording()
+                        isVoiceOrbExpanded = false
+                    }
+                }
+                if let error = error {
+                    // Code 1110 is "no speech detected" — not an error worth logging at error level
+                    let nsError = error as NSError
+                    if nsError.code != 1110 {
+                        log.error("Recognition error: \(error.localizedDescription)")
+                    }
+                    stopRecording()
+                    isVoiceOrbExpanded = false
+                }
+            }
+        } catch {
+            log.error("Failed to start recognition task: \(error.localizedDescription)")
+            isVoiceOrbExpanded = false
+            viewModel.errorText = "Voice input is not available on this device."
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            return
+        }
+
+        let request = taskResult.request
         recognitionRequest = request
+        cancelRecognitionTask = taskResult.cancel
 
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
@@ -342,6 +386,8 @@ struct InputBarView: View {
             log.error("No audio input channels available")
             isVoiceOrbExpanded = false
             viewModel.errorText = "No microphone input available."
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            cleanupRecognition()
             return
         }
 
@@ -396,36 +442,6 @@ struct InputBarView: View {
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             cleanupRecognition()
             return
-        }
-
-        recognitionTask = recognizer.recognitionTask(with: request) { result, error in
-            DispatchQueue.main.async {
-                if let result = result {
-                    let transcribed = result.bestTranscription.formattedString
-                    if result.isFinal {
-                        log.info("Voice transcription final: \(transcribed, privacy: .public)")
-                        // Only apply the final transcription if the user has not typed anything
-                        // since auto-stop. When isAutoStopPending is true the voice orb has already
-                        // collapsed and the text field is visible, so the user may have started
-                        // editing; we respect their input by skipping the overwrite in that case.
-                        if !isAutoStopPending || text == textAtAutoStop {
-                            text = transcribed
-                            onVoiceResult?(transcribed)
-                        }
-                        stopRecording()
-                        isVoiceOrbExpanded = false
-                    }
-                }
-                if let error = error {
-                    // Code 1110 is "no speech detected" — not an error worth logging at error level
-                    let nsError = error as NSError
-                    if nsError.code != 1110 {
-                        log.error("Recognition error: \(error.localizedDescription)")
-                    }
-                    stopRecording()
-                    isVoiceOrbExpanded = false
-                }
-            }
         }
 
         do {
@@ -533,8 +549,8 @@ struct InputBarView: View {
 
     private func cleanupRecognition() {
         recognitionRequest = nil
-        recognitionTask?.cancel()
-        recognitionTask = nil
+        cancelRecognitionTask?()
+        cancelRecognitionTask = nil
     }
 }
 

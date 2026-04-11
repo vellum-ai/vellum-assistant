@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { SpeechToTextProvider } from "../../../providers/speech-to-text/types.js";
+import type { BatchTranscriber } from "../../../stt/types.js";
+import { SttError } from "../../../stt/types.js";
 
 // ---------------------------------------------------------------------------
 // Mocks — must be set up before importing the module under test
@@ -17,7 +18,7 @@ let mockAttachments: Array<{
   thumbnailBase64: string | null;
   createdAt: number;
 }> = [];
-let mockProvider: SpeechToTextProvider | null = null;
+let mockTranscriber: BatchTranscriber | null = null;
 
 mock.module("../../../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => mockFeatureFlagEnabled,
@@ -35,7 +36,18 @@ mock.module("../../../memory/attachments-store.js", () => ({
 }));
 
 mock.module("../../../providers/speech-to-text/resolve.js", () => ({
-  resolveSpeechToTextProvider: async () => mockProvider,
+  resolveBatchTranscriber: async () => mockTranscriber,
+}));
+
+mock.module("../../../stt/daemon-batch-transcriber.js", () => ({
+  normalizeSttError: (err: unknown): SttError => {
+    if (err instanceof SttError) return err;
+    const message = err instanceof Error ? err.message : String(err);
+    if (err instanceof Error && err.name === "AbortError") {
+      return new SttError("timeout", message);
+    }
+    return new SttError("provider-error", message);
+  },
 }));
 
 mock.module("../../../util/logger.js", () => ({
@@ -105,7 +117,7 @@ describe("tryTranscribeAudioAttachments", () => {
   beforeEach(() => {
     mockFeatureFlagEnabled = true;
     mockAttachments = [];
-    mockProvider = null;
+    mockTranscriber = null;
   });
 
   afterEach(() => {
@@ -115,7 +127,9 @@ describe("tryTranscribeAudioAttachments", () => {
   test("audio attachment is transcribed and returns transcribed result", async () => {
     const audio = makeAudioAttachment("a1");
     mockAttachments = [audio];
-    mockProvider = {
+    mockTranscriber = {
+      providerId: "openai-whisper",
+      boundaryId: "daemon-batch",
       transcribe: async () => ({ text: "Hello, how are you?" }),
     };
 
@@ -131,7 +145,9 @@ describe("tryTranscribeAudioAttachments", () => {
     const doc = makeDocumentAttachment("d1");
     const img = makeImageAttachment("i1");
     mockAttachments = [doc, img];
-    mockProvider = {
+    mockTranscriber = {
+      providerId: "openai-whisper",
+      boundaryId: "daemon-batch",
       transcribe: async () => ({ text: "should not be called" }),
     };
 
@@ -143,7 +159,7 @@ describe("tryTranscribeAudioAttachments", () => {
   test("no API key returns no_provider with helpful reason string", async () => {
     const audio = makeAudioAttachment("a1");
     mockAttachments = [audio];
-    mockProvider = null; // No provider resolved
+    mockTranscriber = null; // No transcriber resolved
 
     const result = await tryTranscribeAudioAttachments(["a1"]);
 
@@ -156,7 +172,9 @@ describe("tryTranscribeAudioAttachments", () => {
   test("API failure returns error with reason", async () => {
     const audio = makeAudioAttachment("a1");
     mockAttachments = [audio];
-    mockProvider = {
+    mockTranscriber = {
+      providerId: "openai-whisper",
+      boundaryId: "daemon-batch",
       transcribe: async () => {
         throw new Error("API rate limit exceeded");
       },
@@ -183,29 +201,9 @@ describe("tryTranscribeAudioAttachments", () => {
   test("30-second timeout fires and returns error without blocking", async () => {
     const audio = makeAudioAttachment("a1");
     mockAttachments = [audio];
-    mockProvider = {
-      transcribe: async (_audio, _mime, signal) => {
-        // Simulate a provider that respects the abort signal
-        return new Promise((_resolve, reject) => {
-          if (signal?.aborted) {
-            reject(new DOMException("The operation was aborted", "AbortError"));
-            return;
-          }
-          const onAbort = () => {
-            reject(new DOMException("The operation was aborted", "AbortError"));
-          };
-          signal?.addEventListener("abort", onAbort, { once: true });
-        });
-      },
-    };
-
-    // The timeout is 30s in the real code, but the test's mock provider
-    // aborts immediately when signaled. We verify the error path works
-    // by checking the result type. For a true timeout test we'd need
-    // to override the timeout constant, but this confirms the abort
-    // path produces the correct result.
-    // Instead, let's test with a provider that checks signal state:
-    mockProvider = {
+    mockTranscriber = {
+      providerId: "openai-whisper",
+      boundaryId: "daemon-batch",
       transcribe: async () => {
         throw new DOMException("The operation was aborted", "AbortError");
       },
@@ -225,7 +223,9 @@ describe("tryTranscribeAudioAttachments", () => {
     mockAttachments = [a1, a2];
 
     let callCount = 0;
-    mockProvider = {
+    mockTranscriber = {
+      providerId: "openai-whisper",
+      boundaryId: "daemon-batch",
       transcribe: async () => {
         callCount++;
         return { text: callCount === 1 ? "First message" : "Second message" };
@@ -247,7 +247,9 @@ describe("tryTranscribeAudioAttachments", () => {
     mockAttachments = [audio, doc];
 
     let transcribeCallCount = 0;
-    mockProvider = {
+    mockTranscriber = {
+      providerId: "openai-whisper",
+      boundaryId: "daemon-batch",
       transcribe: async () => {
         transcribeCallCount++;
         return { text: "Voice transcription" };
@@ -264,7 +266,9 @@ describe("tryTranscribeAudioAttachments", () => {
   });
 
   test("empty attachment IDs returns no_audio", async () => {
-    mockProvider = {
+    mockTranscriber = {
+      providerId: "openai-whisper",
+      boundaryId: "daemon-batch",
       transcribe: async () => ({ text: "should not be called" }),
     };
 
@@ -276,7 +280,9 @@ describe("tryTranscribeAudioAttachments", () => {
   test("attachment with empty transcription returns no_audio", async () => {
     const audio = makeAudioAttachment("a1");
     mockAttachments = [audio];
-    mockProvider = {
+    mockTranscriber = {
+      providerId: "openai-whisper",
+      boundaryId: "daemon-batch",
       transcribe: async () => ({ text: "   " }), // whitespace-only
     };
 

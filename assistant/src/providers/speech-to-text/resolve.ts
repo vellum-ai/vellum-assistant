@@ -1,9 +1,16 @@
 import { getProviderKeyAsync } from "../../security/secure-keys.js";
-import { OpenAIWhisperProvider } from "./openai-whisper.js";
-import type { SpeechToTextProvider } from "./types.js";
+import { createDaemonBatchTranscriber } from "../../stt/daemon-batch-transcriber.js";
+import type { BatchTranscriber } from "../../stt/types.js";
 
-export async function resolveSpeechToTextProvider(): Promise<SpeechToTextProvider | null> {
+/**
+ * Resolve a `BatchTranscriber` for daemon-hosted batch transcription.
+ *
+ * Credential lookup is centralized here (an authorized secure-keys importer)
+ * so callers don't need to import secure-keys directly.
+ *
+ * Returns `null` when no STT credentials are configured.
+ */
+export async function resolveBatchTranscriber(): Promise<BatchTranscriber | null> {
   const apiKey = await getProviderKeyAsync("openai");
-  if (!apiKey) return null;
-  return new OpenAIWhisperProvider(apiKey);
+  return createDaemonBatchTranscriber(apiKey);
 }

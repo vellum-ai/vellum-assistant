@@ -1071,6 +1071,6 @@ The active TTS provider is determined by `services.tts.provider` (default: `"ele
 
 Providers that declare `supportsStreaming` in their capabilities (e.g. Fish Audio) use a synthesized-play path — `ttsProvider` is set to `"Google"` as a placeholder in TwiML and actual audio is delivered via `play` messages. Native providers (e.g. ElevenLabs) populate `ttsProvider` and `voice` directly so Twilio handles TTS natively.
 
-The voice webhook in `twilio-routes.ts` calls `resolveVoiceQualityProfile()` and passes the result directly to `generateTwiML()` to produce ConversationRelay TwiML.
+The voice webhook in `twilio-routes.ts` calls `resolveVoiceQualityProfile()` for TTS settings and separately resolves STT configuration via `resolveTelephonySttProfile()` + `buildTwilioRelaySpeechConfig()`. Both the voice quality profile and the resulting `TwilioRelaySpeechConfig` are passed to `generateTwiML()` to produce ConversationRelay TwiML. This separation keeps TTS and STT resolution independent — the voice quality profile controls the TTS provider, voice, and language, while the speech config controls the STT provider, model, and language for transcription.
 
 ---

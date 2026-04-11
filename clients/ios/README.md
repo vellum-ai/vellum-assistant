@@ -20,7 +20,7 @@ After editing `project.yml`, regenerate the Xcode project by running `xcodegen g
 - Inline media embeds (images, YouTube, Vimeo, Loom videos)
 - Settings: integrations, trust rules, scheduled tasks, reminders (Connected mode)
 - Attachment support (photos, files)
-- Voice input via `SFSpeechRecognizer`
+- Voice input via on-device speech recognition (`SpeechRecognizerAdapter`)
 - Onboarding flow with adaptive steps based on connection mode
 - Export conversation as markdown (copy to clipboard or share sheet)
 - Siri Shortcuts integration — "Ask Vellum..." via AppIntents framework
@@ -161,6 +161,14 @@ swift test --filter VellumAssistantSharedTests
 ## Dependencies
 
 The iOS app depends only on `VellumAssistantShared`. It must **not** import `VellumAssistantLib`, which links macOS-only frameworks (AppKit, ScreenCaptureKit, etc.).
+
+---
+
+## Speech Recognition (STT)
+
+Voice input uses the `SpeechRecognizerAdapter` protocol (`Services/SpeechRecognizerAdapter.swift`) to abstract on-device speech recognition. The protocol covers three phases: authorization, availability, and task construction. The production implementation (`AppleSpeechRecognizerAdapter`) delegates to Apple's `SFSpeechRecognizer`. `InputBarView` consumes the adapter via a stored property, enabling tests to substitute a mock without a live microphone or OS permission dialogs.
+
+To add a new on-device STT provider, implement `SpeechRecognizerAdapter` with the provider's SDK and inject it at the `InputBarView` call site.
 
 ---
 

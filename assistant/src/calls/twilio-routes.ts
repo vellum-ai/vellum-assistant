@@ -27,6 +27,11 @@ import {
   updateCallSession,
 } from "./call-store.js";
 import { resolveCallHints } from "./stt-hints.js";
+import { resolveTelephonySttProfile } from "./stt-profile.js";
+import {
+  buildTwilioRelaySpeechConfig,
+  type TwilioRelaySpeechConfig,
+} from "./twilio-relay-speech-config.js";
 import type { CallStatus } from "./types.js";
 import { resolveVoiceQualityProfile } from "./voice-quality.js";
 
@@ -49,15 +54,12 @@ export function generateTwiML(
   welcomeGreeting: string | null,
   profile: {
     language: string;
-    transcriptionProvider: string;
-    speechModel?: string;
     ttsProvider: string;
     voice: string;
-    interruptSensitivity: string;
   },
+  speechConfig: TwilioRelaySpeechConfig,
   relayToken?: string,
   customParameters?: Record<string, string>,
-  hints?: string,
 ): string {
   const greetingAttr =
     welcomeGreeting && welcomeGreeting.trim().length > 0
@@ -95,11 +97,11 @@ export function generateTwiML(
 ${greetingAttr}
       voice="${escapeXml(profile.voice)}"
       language="${escapeXml(profile.language)}"
-      transcriptionProvider="${escapeXml(profile.transcriptionProvider)}"${profile.speechModel ? `\n      speechModel="${escapeXml(profile.speechModel)}"` : ""}
+      transcriptionProvider="${escapeXml(speechConfig.transcriptionProvider)}"${speechConfig.speechModel ? `\n      speechModel="${escapeXml(speechConfig.speechModel)}"` : ""}
       ttsProvider="${escapeXml(profile.ttsProvider)}"
       interruptible="true"
       dtmfDetection="true"
-      interruptSensitivity="${escapeXml(profile.interruptSensitivity)}"${hints ? `\n      hints="${escapeXml(hints)}"` : ""}
+      interruptSensitivity="${escapeXml(speechConfig.interruptSensitivity)}"${speechConfig.hints ? `\n      hints="${escapeXml(speechConfig.hints)}"` : ""}
     ${relayClose}
   </Connect>
 </Response>`;
@@ -253,16 +255,26 @@ function buildVoiceWebhookTwiml(
   } | null,
   verificationSessionId?: string | null,
 ): Response {
-  const profile = resolveVoiceQualityProfile(loadConfig());
+  const cfg = loadConfig();
+  const profile = resolveVoiceQualityProfile(cfg);
 
   const hints = resolveCallHints(sessionContext, profile.hints);
+
+  // Build STT attributes via the serialization helper so that route code
+  // never mixes STT config resolution with XML attribute composition.
+  const sttProfile = resolveTelephonySttProfile(cfg.calls.voice);
+  const speechConfig = buildTwilioRelaySpeechConfig(
+    sttProfile,
+    profile.interruptSensitivity,
+    hints || undefined,
+  );
 
   log.info(
     { callSessionId, ttsProvider: profile.ttsProvider, voice: profile.voice },
     "Voice quality profile resolved",
   );
 
-  const relayUrl = getTwilioRelayUrl(loadConfig());
+  const relayUrl = getTwilioRelayUrl(cfg);
   const welcomeGreeting = buildWelcomeGreeting(sessionContext?.task ?? null);
 
   const relayToken = mintEdgeRelayToken();
@@ -278,9 +290,9 @@ function buildVoiceWebhookTwiml(
     relayUrl,
     welcomeGreeting,
     profile,
+    speechConfig,
     relayToken,
     customParameters,
-    hints || undefined,
   );
 
   log.info({ callSessionId }, "Returning ConversationRelay TwiML");

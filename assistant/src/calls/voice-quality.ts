@@ -5,8 +5,6 @@ import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 
 export interface VoiceQualityProfile {
   language: string;
-  transcriptionProvider: string;
-  speechModel?: string;
   ttsProvider: string;
   voice: string;
   interruptSensitivity: string;
@@ -56,6 +54,11 @@ export function buildElevenLabsVoiceSpec(config: {
  *
  * For native providers (e.g. ElevenLabs), `ttsProvider` and `voice` are
  * populated from config so Twilio handles TTS natively.
+ *
+ * NOTE: STT provider and speech model are intentionally NOT part of this
+ * profile. STT resolution is handled once in the voice webhook route
+ * (`twilio-routes.ts`) via `resolveTelephonySttProfile()` to maintain a
+ * single point of ownership.
  */
 export function resolveVoiceQualityProfile(
   config?: ReturnType<typeof loadConfig>,
@@ -76,19 +79,8 @@ export function resolveVoiceQualityProfile(
     // Config or provider not available — default to native (ElevenLabs) path.
   }
 
-  const isGoogle = voice.transcriptionProvider === "Google";
-  // Treat the legacy Deepgram default ("nova-3") as unset when provider is
-  // Google — upgraded workspaces may still have it persisted from prior defaults.
-  const effectiveSpeechModel =
-    voice.speechModel == null || (voice.speechModel === "nova-3" && isGoogle)
-      ? isGoogle
-        ? undefined
-        : "nova-3"
-      : voice.speechModel;
   return {
     language: voice.language,
-    transcriptionProvider: voice.transcriptionProvider,
-    speechModel: effectiveSpeechModel,
     ttsProvider: usesSynthesizedPath ? "Google" : "ElevenLabs",
     voice: usesSynthesizedPath
       ? ""
