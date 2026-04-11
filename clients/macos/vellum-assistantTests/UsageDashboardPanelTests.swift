@@ -220,6 +220,57 @@ struct UsageTabContentPopulatedTests {
     }
 }
 
+@Suite("UsageGroupBreakdownEntry — groupId decoding")
+struct UsageGroupBreakdownEntryGroupIdDecodingTests {
+
+    @Test
+    func decodesGroupIdWhenPresent() throws {
+        let json = """
+        {
+            "breakdown": [
+                {
+                    "group": "Conversation about SwiftUI",
+                    "groupId": "conv_abc",
+                    "totalInputTokens": 1000,
+                    "totalOutputTokens": 500,
+                    "totalCacheCreationTokens": 0,
+                    "totalCacheReadTokens": 0,
+                    "totalEstimatedCostUsd": 0.05,
+                    "eventCount": 3
+                }
+            ]
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(UsageBreakdownResponse.self, from: json)
+        #expect(decoded.breakdown.first?.groupId == "conv_abc")
+        #expect(decoded.breakdown.first?.group == "Conversation about SwiftUI")
+    }
+
+    @Test
+    func decodesLegacyJSONWithoutGroupId() throws {
+        let json = """
+        {
+            "breakdown": [
+                {
+                    "group": "claude-sonnet-4-20250514",
+                    "totalInputTokens": 1000,
+                    "totalOutputTokens": 500,
+                    "totalCacheCreationTokens": 0,
+                    "totalCacheReadTokens": 0,
+                    "totalEstimatedCostUsd": 0.05,
+                    "eventCount": 3
+                }
+            ]
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(UsageBreakdownResponse.self, from: json)
+        #expect(decoded.breakdown.first?.groupId == nil)
+        #expect(decoded.breakdown.first?.group == "claude-sonnet-4-20250514")
+    }
+}
+
 // MARK: - View Content Helper
 
 /// Dumps the tab's section view trees so that all Text content is captured
