@@ -10,9 +10,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AuthS
 private let _platformURLOverrideEnvironmentKey = "VELLUM_PLATFORM_URL"
 private let _authServiceBaseURLDefaultsName = "authServiceBaseURL"
 private let _defaultBaseURL: String = {
-    #if DEBUG && os(macOS)
-    return "http://localhost:8000"
-    #elseif DEBUG && os(iOS)
+    #if DEBUG 
     return "https://dev-platform.vellum.ai"
     #else
     return "https://platform.vellum.ai"
