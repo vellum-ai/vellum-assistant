@@ -24,8 +24,12 @@ import { SttError } from "./types.js";
 // ---------------------------------------------------------------------------
 
 /**
- * Wraps `OpenAIWhisperProvider` behind the `BatchTranscriber` contract and
- * normalizes its errors into `SttError` categories.
+ * Wraps `OpenAIWhisperProvider` behind the `BatchTranscriber` contract.
+ *
+ * Raw provider errors propagate unchanged so that legacy callers (e.g.
+ * `transcribe-audio.ts`) can continue detecting `AbortError` by name.
+ * Callers that want normalized categories should wrap calls with
+ * {@link normalizeSttError}.
  */
 class WhisperBatchTranscriber implements BatchTranscriber {
   readonly providerId = "openai-whisper" as const;
@@ -46,15 +50,7 @@ class WhisperBatchTranscriber implements BatchTranscriber {
       await import("../providers/speech-to-text/openai-whisper.js");
     const provider = new OpenAIWhisperProvider(this.apiKey);
 
-    try {
-      return await provider.transcribe(
-        request.audio,
-        request.mimeType,
-        request.signal,
-      );
-    } catch (err: unknown) {
-      throw normalizeSttError(err);
-    }
+    return provider.transcribe(request.audio, request.mimeType, request.signal);
   }
 }
 
@@ -62,7 +58,13 @@ class WhisperBatchTranscriber implements BatchTranscriber {
 // Error normalization
 // ---------------------------------------------------------------------------
 
-function normalizeSttError(err: unknown): SttError {
+/**
+ * Map a raw provider error into an {@link SttError} with a normalized category.
+ *
+ * Callers that need structured error categories should wrap
+ * `BatchTranscriber.transcribe()` calls with this utility.
+ */
+export function normalizeSttError(err: unknown): SttError {
   if (err instanceof SttError) return err;
 
   const message = err instanceof Error ? err.message : String(err);

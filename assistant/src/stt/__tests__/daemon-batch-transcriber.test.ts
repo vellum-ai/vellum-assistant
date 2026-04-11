@@ -20,7 +20,7 @@ mock.module("../../providers/speech-to-text/openai-whisper.js", () => ({
 }));
 
 // Dynamic import so mocks are active when the module loads.
-const { createDaemonBatchTranscriber } =
+const { createDaemonBatchTranscriber, normalizeSttError } =
   await import("../daemon-batch-transcriber.js");
 
 // ---------------------------------------------------------------------------
@@ -78,137 +78,15 @@ describe("createDaemonBatchTranscriber", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Normalized error mapping
+  // Error propagation — raw provider errors pass through unchanged so that
+  // legacy callers (e.g. transcribe-audio.ts) can still detect AbortError.
   // -------------------------------------------------------------------------
 
-  test("normalizes AbortError to timeout category", async () => {
-    mockTranscribeError = new DOMException(
+  test("propagates AbortError unchanged", async () => {
+    const original = new DOMException(
       "The operation was aborted",
       "AbortError",
     );
-
-    const transcriber = createDaemonBatchTranscriber("sk-test-key");
-
-    try {
-      await transcriber!.transcribe({
-        audio: Buffer.from("audio"),
-        mimeType: "audio/wav",
-      });
-      expect.unreachable("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(SttError);
-      expect((err as SttError).category).toBe("timeout");
-    }
-  });
-
-  test("normalizes 401 errors to auth category", async () => {
-    mockTranscribeError = new Error("Whisper API error (401): Unauthorized");
-
-    const transcriber = createDaemonBatchTranscriber("sk-test-key");
-
-    try {
-      await transcriber!.transcribe({
-        audio: Buffer.from("audio"),
-        mimeType: "audio/wav",
-      });
-      expect.unreachable("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(SttError);
-      expect((err as SttError).category).toBe("auth");
-    }
-  });
-
-  test("normalizes 403 errors to auth category", async () => {
-    mockTranscribeError = new Error("Whisper API error (403): Forbidden");
-
-    const transcriber = createDaemonBatchTranscriber("sk-test-key");
-
-    try {
-      await transcriber!.transcribe({
-        audio: Buffer.from("audio"),
-        mimeType: "audio/wav",
-      });
-      expect.unreachable("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(SttError);
-      expect((err as SttError).category).toBe("auth");
-    }
-  });
-
-  test("normalizes 429 errors to rate-limit category", async () => {
-    mockTranscribeError = new Error(
-      "Whisper API error (429): Too Many Requests",
-    );
-
-    const transcriber = createDaemonBatchTranscriber("sk-test-key");
-
-    try {
-      await transcriber!.transcribe({
-        audio: Buffer.from("audio"),
-        mimeType: "audio/wav",
-      });
-      expect.unreachable("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(SttError);
-      expect((err as SttError).category).toBe("rate-limit");
-    }
-  });
-
-  test("normalizes rate limit text to rate-limit category", async () => {
-    mockTranscribeError = new Error("Request rate-limited by provider");
-
-    const transcriber = createDaemonBatchTranscriber("sk-test-key");
-
-    try {
-      await transcriber!.transcribe({
-        audio: Buffer.from("audio"),
-        mimeType: "audio/wav",
-      });
-      expect.unreachable("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(SttError);
-      expect((err as SttError).category).toBe("rate-limit");
-    }
-  });
-
-  test("normalizes 400 audio errors to invalid-audio category", async () => {
-    mockTranscribeError = new Error(
-      "Whisper API error (400): Invalid audio format",
-    );
-
-    const transcriber = createDaemonBatchTranscriber("sk-test-key");
-
-    try {
-      await transcriber!.transcribe({
-        audio: Buffer.from("audio"),
-        mimeType: "audio/wav",
-      });
-      expect.unreachable("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(SttError);
-      expect((err as SttError).category).toBe("invalid-audio");
-    }
-  });
-
-  test("normalizes unknown errors to provider-error category", async () => {
-    mockTranscribeError = new Error("Something went wrong");
-
-    const transcriber = createDaemonBatchTranscriber("sk-test-key");
-
-    try {
-      await transcriber!.transcribe({
-        audio: Buffer.from("audio"),
-        mimeType: "audio/wav",
-      });
-      expect.unreachable("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(SttError);
-      expect((err as SttError).category).toBe("provider-error");
-    }
-  });
-
-  test("passes through SttError instances without re-wrapping", async () => {
-    const original = new SttError("auth", "Custom auth failure");
     mockTranscribeError = original;
 
     const transcriber = createDaemonBatchTranscriber("sk-test-key");
@@ -221,8 +99,90 @@ describe("createDaemonBatchTranscriber", () => {
       expect.unreachable("should have thrown");
     } catch (err) {
       expect(err).toBe(original);
-      expect((err as SttError).category).toBe("auth");
-      expect((err as SttError).message).toBe("Custom auth failure");
+      expect((err as Error).name).toBe("AbortError");
     }
+  });
+
+  test("propagates generic errors unchanged", async () => {
+    const original = new Error("Something went wrong");
+    mockTranscribeError = original;
+
+    const transcriber = createDaemonBatchTranscriber("sk-test-key");
+
+    try {
+      await transcriber!.transcribe({
+        audio: Buffer.from("audio"),
+        mimeType: "audio/wav",
+      });
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBe(original);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// normalizeSttError — callers use this explicitly when they need categories
+// ---------------------------------------------------------------------------
+
+describe("normalizeSttError", () => {
+  test("normalizes AbortError to timeout category", () => {
+    const err = new DOMException("The operation was aborted", "AbortError");
+    const result = normalizeSttError(err);
+    expect(result).toBeInstanceOf(SttError);
+    expect(result.category).toBe("timeout");
+  });
+
+  test("normalizes 401 errors to auth category", () => {
+    const result = normalizeSttError(
+      new Error("Whisper API error (401): Unauthorized"),
+    );
+    expect(result).toBeInstanceOf(SttError);
+    expect(result.category).toBe("auth");
+  });
+
+  test("normalizes 403 errors to auth category", () => {
+    const result = normalizeSttError(
+      new Error("Whisper API error (403): Forbidden"),
+    );
+    expect(result).toBeInstanceOf(SttError);
+    expect(result.category).toBe("auth");
+  });
+
+  test("normalizes 429 errors to rate-limit category", () => {
+    const result = normalizeSttError(
+      new Error("Whisper API error (429): Too Many Requests"),
+    );
+    expect(result).toBeInstanceOf(SttError);
+    expect(result.category).toBe("rate-limit");
+  });
+
+  test("normalizes rate limit text to rate-limit category", () => {
+    const result = normalizeSttError(
+      new Error("Request rate-limited by provider"),
+    );
+    expect(result).toBeInstanceOf(SttError);
+    expect(result.category).toBe("rate-limit");
+  });
+
+  test("normalizes 400 audio errors to invalid-audio category", () => {
+    const result = normalizeSttError(
+      new Error("Whisper API error (400): Invalid audio format"),
+    );
+    expect(result).toBeInstanceOf(SttError);
+    expect(result.category).toBe("invalid-audio");
+  });
+
+  test("normalizes unknown errors to provider-error category", () => {
+    const result = normalizeSttError(new Error("Something went wrong"));
+    expect(result).toBeInstanceOf(SttError);
+    expect(result.category).toBe("provider-error");
+  });
+
+  test("passes through SttError instances without re-wrapping", () => {
+    const original = new SttError("auth", "Custom auth failure");
+    const result = normalizeSttError(original);
+    expect(result).toBe(original);
+    expect(result.category).toBe("auth");
   });
 });
