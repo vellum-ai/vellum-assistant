@@ -120,9 +120,19 @@ mock.module("../skills/catalog-cache.js", () => ({
   getCatalog: async () => [],
 }));
 
+// The provider factory functions are called once at module init and the
+// returned objects are captured in the `fileProviders` array. To allow
+// per-test mock reassignment, return proxy objects that delegate every
+// method call to the CURRENT value of the mutable mock variable.
 mock.module("../skills/catalog-files.js", () => ({
   catalogSkillToSlim: () => ({}),
-  createVellumCatalogProvider: () => mockVellumProvider,
+  createVellumCatalogProvider: () => ({
+    canHandle: (id: string) => mockVellumProvider.canHandle(id),
+    listFiles: (id: string) => mockVellumProvider.listFiles(id),
+    readFileContent: (id: string, p: string) =>
+      mockVellumProvider.readFileContent(id, p),
+    toSlimSkill: (id: string) => mockVellumProvider.toSlimSkill(id),
+  }),
   hasHiddenOrSkippedSegment: () => false,
   readCatalogSkillFiles: async () => null,
   readCatalogSkillFileContent: async () => null,
@@ -131,11 +141,23 @@ mock.module("../skills/catalog-files.js", () => ({
 }));
 
 mock.module("../skills/skillssh-files.js", () => ({
-  createSkillsShProvider: () => mockSkillsshProvider,
+  createSkillsShProvider: () => ({
+    canHandle: (id: string) => mockSkillsshProvider.canHandle(id),
+    listFiles: (id: string) => mockSkillsshProvider.listFiles(id),
+    readFileContent: (id: string, p: string) =>
+      mockSkillsshProvider.readFileContent(id, p),
+    toSlimSkill: (id: string) => mockSkillsshProvider.toSlimSkill(id),
+  }),
 }));
 
 mock.module("../skills/clawhub-files.js", () => ({
-  createClawhubProvider: () => mockClawhubProvider,
+  createClawhubProvider: () => ({
+    canHandle: (id: string) => mockClawhubProvider.canHandle(id),
+    listFiles: (id: string) => mockClawhubProvider.listFiles(id),
+    readFileContent: (id: string, p: string) =>
+      mockClawhubProvider.readFileContent(id, p),
+    toSlimSkill: (id: string) => mockClawhubProvider.toSlimSkill(id),
+  }),
 }));
 
 mock.module("../skills/skill-file-provider.js", () => ({}));
@@ -207,7 +229,10 @@ mock.module("../daemon/handlers/shared.js", () => ({
 // Import after mocks
 // ---------------------------------------------------------------------------
 
-import { getSkillFiles } from "../daemon/handlers/skills.js";
+import {
+  _resetFileProvidersForTest,
+  getSkillFiles,
+} from "../daemon/handlers/skills.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -254,6 +279,8 @@ describe("getSkillFiles — provider chain fallback", () => {
     mockVellumProvider = makeNoopProvider("vellum");
     mockSkillsshProvider = makeNoopProvider("skillssh");
     mockClawhubProvider = makeNoopProvider("clawhub");
+    // Force provider chain re-creation from the (mocked) factory functions
+    _resetFileProvidersForTest();
   });
 
   test("returns catalog skill with files (content: null) when skill is uninstalled but present in vellum catalog", async () => {
@@ -329,7 +356,7 @@ describe("getSkillFiles — provider chain fallback", () => {
     expect(result.error).toContain("ghost-skill");
   });
 
-  test("returns 404 when vellum provider canHandle returns true but listFiles returns null", async () => {
+  test("returns 404 with 'files unavailable' when vellum provider canHandle returns true but listFiles returns null", async () => {
     mockVellumProvider = {
       canHandle: () => true,
       listFiles: async () => null,
@@ -343,6 +370,7 @@ describe("getSkillFiles — provider chain fallback", () => {
     if (!("error" in result)) return;
     expect(result.status).toBe(404);
     expect(result.error).toContain("broken-skill");
+    expect(result.error).toContain("unavailable");
   });
 
   test("installed skill returns inline disk content (no provider fallback)", async () => {

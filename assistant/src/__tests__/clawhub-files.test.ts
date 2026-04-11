@@ -157,18 +157,20 @@ describe("listFiles", () => {
     expect(entries).not.toBeNull();
     expect(entries!.length).toBe(3);
 
-    // Entries should be sorted by path
-    expect(entries![0].path).toBe("SKILL.md");
-    expect(entries![0].name).toBe("SKILL.md");
-    expect(entries![0].size).toBe(512);
-    expect(entries![0].isBinary).toBe(false);
-    expect(entries![0].content).toBeNull(); // content is null in listings
+    // Entries should be sorted by path (localeCompare: lowercase before uppercase)
+    const paths = entries!.map((e) => e.path);
+    expect(paths).toEqual([...paths].sort((a, b) => a.localeCompare(b)));
 
-    expect(entries![1].path).toBe("assets/icon.png");
-    expect(entries![1].isBinary).toBe(true);
+    // Verify all entries are present with expected metadata
+    const byPath = Object.fromEntries(entries!.map((e) => [e.path, e]));
+    expect(byPath["SKILL.md"].name).toBe("SKILL.md");
+    expect(byPath["SKILL.md"].size).toBe(512);
+    expect(byPath["SKILL.md"].isBinary).toBe(false);
+    expect(byPath["SKILL.md"].content).toBeNull(); // content is null in listings
 
-    expect(entries![2].path).toBe("tools/helper.ts");
-    expect(entries![2].isBinary).toBe(false);
+    expect(byPath["assets/icon.png"].isBinary).toBe(true);
+
+    expect(byPath["tools/helper.ts"].isBinary).toBe(false);
   });
 
   test("returns null when inspect fails", async () => {
@@ -241,7 +243,7 @@ describe("readFileContent", () => {
     expect(inspectFileCalls[0].filePath).toBe("tools/helper.ts");
   });
 
-  test("returns null when clawhubInspectFile fails", async () => {
+  test("returns null when clawhubInspectFile fails for a text file", async () => {
     const provider = createClawhubProvider();
     const slug = uniqueSlug("read-fail");
     mockInspectResult = { data: makeInspectData(slug) };
@@ -251,6 +253,23 @@ describe("readFileContent", () => {
 
     const entry = await provider.readFileContent(slug, "tools/missing.ts");
     expect(entry).toBeNull();
+  });
+
+  test("returns SkillFileEntry with content: null for binary files", async () => {
+    const provider = createClawhubProvider();
+    const slug = uniqueSlug("read-binary");
+    mockInspectResult = { data: makeInspectData(slug) };
+    mockInspectFileResult = null; // clawhubInspectFile returns null for binaries
+
+    await provider.listFiles(slug);
+
+    const entry = await provider.readFileContent(slug, "assets/icon.png");
+    expect(entry).not.toBeNull();
+    expect(entry!.path).toBe("assets/icon.png");
+    expect(entry!.name).toBe("icon.png");
+    expect(entry!.isBinary).toBe(true);
+    expect(entry!.content).toBeNull();
+    expect(entry!.size).toBe(2048); // from the inspect data files array
   });
 });
 

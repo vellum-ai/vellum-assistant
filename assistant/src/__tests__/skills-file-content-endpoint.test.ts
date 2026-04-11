@@ -155,22 +155,44 @@ function inlineHasHiddenOrSkippedSegment(sanitized: string): boolean {
   return false;
 }
 
+// The provider factory functions are called once at module init and the
+// returned objects are captured in the `fileProviders` array. To allow
+// per-test mock reassignment, return proxy objects that delegate every
+// method call to the CURRENT value of the mutable mock variable.
 mock.module("../skills/catalog-files.js", () => ({
   SKIP_DIRS: INLINE_SKIP_DIRS,
   sanitizeRelativePath: inlineSanitizeRelativePath,
   hasHiddenOrSkippedSegment: inlineHasHiddenOrSkippedSegment,
   catalogSkillToSlim: () => ({}),
-  createVellumCatalogProvider: () => mockVellumProvider,
+  createVellumCatalogProvider: () => ({
+    canHandle: (id: string) => mockVellumProvider.canHandle(id),
+    listFiles: (id: string) => mockVellumProvider.listFiles(id),
+    readFileContent: (id: string, p: string) =>
+      mockVellumProvider.readFileContent(id, p),
+    toSlimSkill: (id: string) => mockVellumProvider.toSlimSkill(id),
+  }),
   readCatalogSkillFiles: async () => null,
   readCatalogSkillFileContent: async () => null,
 }));
 
 mock.module("../skills/skillssh-files.js", () => ({
-  createSkillsShProvider: () => mockSkillsshProvider,
+  createSkillsShProvider: () => ({
+    canHandle: (id: string) => mockSkillsshProvider.canHandle(id),
+    listFiles: (id: string) => mockSkillsshProvider.listFiles(id),
+    readFileContent: (id: string, p: string) =>
+      mockSkillsshProvider.readFileContent(id, p),
+    toSlimSkill: (id: string) => mockSkillsshProvider.toSlimSkill(id),
+  }),
 }));
 
 mock.module("../skills/clawhub-files.js", () => ({
-  createClawhubProvider: () => mockClawhubProvider,
+  createClawhubProvider: () => ({
+    canHandle: (id: string) => mockClawhubProvider.canHandle(id),
+    listFiles: (id: string) => mockClawhubProvider.listFiles(id),
+    readFileContent: (id: string, p: string) =>
+      mockClawhubProvider.readFileContent(id, p),
+    toSlimSkill: (id: string) => mockClawhubProvider.toSlimSkill(id),
+  }),
 }));
 
 mock.module("../skills/skill-file-provider.js", () => ({}));
@@ -259,7 +281,10 @@ mock.module("../daemon/handlers/shared.js", () => ({
 // ---------------------------------------------------------------------------
 
 import type { SkillOperationContext } from "../daemon/handlers/skills.js";
-import { getSkillFileContent } from "../daemon/handlers/skills.js";
+import {
+  _resetFileProvidersForTest,
+  getSkillFileContent,
+} from "../daemon/handlers/skills.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -325,6 +350,8 @@ beforeEach(() => {
   mockVellumProvider = makeNoopProvider("vellum");
   mockSkillsshProvider = makeNoopProvider("skillssh");
   mockClawhubProvider = makeNoopProvider("clawhub");
+  // Force provider chain re-creation from the (mocked) factory functions
+  _resetFileProvidersForTest();
 });
 
 afterEach(() => {
@@ -539,6 +566,74 @@ describe("getSkillFileContent — uninstalled skill (provider chain)", () => {
     if ("error" in result) return;
     expect(result.content).toBe("# clawhub content yo\n");
     expect(result.path).toBe("SKILL.md");
+  });
+
+  test("returns 'File not found' when provider canHandle returns true but readFileContent returns null", async () => {
+    mockResolvedSkills = [];
+    installFetchForbidden();
+
+    // Vellum provider claims this skill but returns null for the specific file
+    mockVellumProvider = {
+      canHandle: () => true,
+      listFiles: async () => null,
+      readFileContent: async () => null,
+      toSlimSkill: async () => null,
+    };
+
+    const result = await getSkillFileContent(
+      "known-skill",
+      "nonexistent.txt",
+      dummyCtx,
+    );
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) return;
+    expect(result.status).toBe(404);
+    expect(result.error).toBe("File not found");
+  });
+
+  test("stop-on-first-match: does not try clawhub when vellum canHandle returns true", async () => {
+    mockResolvedSkills = [];
+    installFetchForbidden();
+
+    const clawhubReadCalls: string[] = [];
+
+    // Vellum provider claims the skill but returns null for file content
+    mockVellumProvider = {
+      canHandle: () => true,
+      listFiles: async () => null,
+      readFileContent: async () => null,
+      toSlimSkill: async () => null,
+    };
+
+    // Clawhub would return content if asked, but should NOT be consulted
+    mockClawhubProvider = {
+      canHandle: () => true,
+      listFiles: async () => null,
+      readFileContent: async (_skillId, path) => {
+        clawhubReadCalls.push(path);
+        return {
+          path,
+          name: "SKILL.md",
+          size: 10,
+          mimeType: "text/markdown",
+          isBinary: false,
+          content: "# from clawhub\n",
+        };
+      },
+      toSlimSkill: async () => null,
+    };
+
+    const result = await getSkillFileContent(
+      "simple-slug",
+      "SKILL.md",
+      dummyCtx,
+    );
+    // Should be "File not found" (vellum handled but returned null)
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) return;
+    expect(result.error).toBe("File not found");
+    // Clawhub should NOT have been called
+    expect(clawhubReadCalls).toEqual([]);
   });
 });
 

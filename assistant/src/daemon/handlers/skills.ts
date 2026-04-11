@@ -106,39 +106,57 @@ export interface SkillOperationContext {
 // ─── Provider chain for uninstalled skill file preview ───────────────────────
 // Ordered by priority: vellum first (most common and cheapest to check),
 // then skills.sh, then clawhub.
+//
+// Lazy-initialized on first access so that mock modules (in tests) can
+// replace the factory functions before providers are constructed.
 
-const fileProviders: SkillFileProvider[] = [
-  createVellumCatalogProvider(),
-  createSkillsShProvider(),
-  createClawhubProvider(),
-];
+let _fileProviders: SkillFileProvider[] | null = null;
+
+function getFileProviders(): SkillFileProvider[] {
+  if (!_fileProviders) {
+    _fileProviders = [
+      createVellumCatalogProvider(),
+      createSkillsShProvider(),
+      createClawhubProvider(),
+    ];
+  }
+  return _fileProviders;
+}
+
+/** @internal Exported for test use only — forces re-creation of providers. */
+export function _resetFileProvidersForTest(): void {
+  _fileProviders = null;
+}
 
 async function resolveSkillFiles(skillId: string): Promise<{
-  skill: SlimSkillResponse;
-  files: SkillFileEntry[];
-} | null> {
-  for (const provider of fileProviders) {
+  handled: boolean;
+  skill: SlimSkillResponse | null;
+  files: SkillFileEntry[] | null;
+}> {
+  for (const provider of getFileProviders()) {
     if (!provider.canHandle(skillId)) continue;
+    // Commit to this provider — don't fall through to subsequent providers.
     const files = await provider.listFiles(skillId);
-    if (files === null) continue;
+    if (files === null) return { handled: true, skill: null, files: null };
     const skill = await provider.toSlimSkill(skillId);
-    if (skill === null) continue;
+    if (skill === null) return { handled: true, skill: null, files: null };
     files.sort((a, b) => a.path.localeCompare(b.path));
-    return { skill, files };
+    return { handled: true, skill, files };
   }
-  return null;
+  return { handled: false, skill: null, files: null };
 }
 
 async function resolveSkillFileContent(
   skillId: string,
   sanitizedPath: string,
-): Promise<SkillFileEntry | null> {
-  for (const provider of fileProviders) {
+): Promise<{ handled: boolean; result: SkillFileEntry | null }> {
+  for (const provider of getFileProviders()) {
     if (!provider.canHandle(skillId)) continue;
+    // Commit to this provider — don't fall through to subsequent providers.
     const result = await provider.readFileContent(skillId, sanitizedPath);
-    if (result !== null) return result;
+    return { handled: true, result };
   }
-  return null;
+  return { handled: false, result: null };
 }
 
 // ─── Frontmatter parsing ─────────────────────────────────────────────────────
@@ -462,12 +480,14 @@ export async function getSkill(
   const found = findSkillById(skillId);
   if (!found) {
     // Fallback: skill is not installed. Try all file providers.
-    for (const provider of fileProviders) {
+    for (const provider of getFileProviders()) {
       if (!provider.canHandle(skillId)) continue;
+      // Commit to this provider — don't fall through to subsequent providers.
       const slim = await provider.toSlimSkill(skillId);
       if (slim) {
         return { skill: slim as SkillDetailResponse };
       }
+      return { error: `Skill "${skillId}" not found`, status: 404 };
     }
     return { error: `Skill "${skillId}" not found`, status: 404 };
   }
@@ -622,7 +642,7 @@ function readDirRecursive(dir: string, rootDir: string): SkillFileEntry[] {
  * realpath containment checks for defense in depth.
  *
  * Provider chain fallback: when the skill id is not backed by a local
- * directory, iterates the `fileProviders` chain (vellum catalog,
+ * directory, iterates the file-provider chain (vellum catalog,
  * skills.sh, clawhub) until one returns content.
  */
 export async function getSkillFileContent(
@@ -731,8 +751,8 @@ export async function getSkillFileContent(
   }
 
   // Fallback: skill is not installed. Try all file providers.
-  const result = await resolveSkillFileContent(skillId, sanitized);
-  if (result) {
+  const { handled, result } = await resolveSkillFileContent(skillId, sanitized);
+  if (handled && result) {
     return {
       path: result.path,
       name: result.name,
@@ -741,6 +761,10 @@ export async function getSkillFileContent(
       isBinary: result.isBinary,
       content: result.content,
     };
+  }
+  if (handled) {
+    // A provider claimed this skill but the specific file wasn't found.
+    return { error: "File not found", status: 404 };
   }
   return { error: "Skill not found", status: 404 };
 }
@@ -776,7 +800,13 @@ export async function getSkillFiles(
 
   // Fallback: skill is not installed. Try all file providers.
   const resolved = await resolveSkillFiles(skillId);
-  if (resolved) return resolved;
+  if (resolved.handled && resolved.skill && resolved.files) {
+    return { skill: resolved.skill, files: resolved.files };
+  }
+  if (resolved.handled) {
+    // A provider claimed this skill but couldn't produce files/metadata.
+    return { error: `Skill files unavailable for "${skillId}"`, status: 404 };
+  }
   return { error: `Skill "${skillId}" not found`, status: 404 };
 }
 

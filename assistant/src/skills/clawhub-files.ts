@@ -147,14 +147,35 @@ export function createClawhubProvider(): SkillFileProvider {
         };
       }
 
+      const name = basename(sanitizedPath);
+      const isBinary = classifyBinary(name);
+
       // For non-SKILL.md files (or when SKILL.md isn't cached), run
       // a dedicated inspect call for the specific file.
       const content = await clawhubInspectFile(skillId, sanitizedPath);
-      if (content == null) return null;
 
-      const name = basename(sanitizedPath);
-      const isBinary = classifyBinary(name);
-      if (isBinary) return null; // binary content can't be returned inline
+      // Binary files: return metadata with content: null (matching the
+      // contract followed by vellum and skills.sh providers). clawhubInspectFile
+      // returns null for binary files, which is expected.
+      if (isBinary) {
+        // Look up file metadata from cached inspect result if available.
+        const inspectData =
+          getCached(skillId) ?? (await inspectCached(skillId));
+        const fileMeta = inspectData?.files?.find(
+          (f) => f.path === sanitizedPath,
+        );
+        return {
+          path: sanitizedPath,
+          name,
+          size: fileMeta?.size ?? 0,
+          mimeType: fileMeta?.contentType ?? Bun.file(name).type,
+          isBinary: true,
+          content: null,
+        };
+      }
+
+      // Text file but content fetch failed — file doesn't exist.
+      if (content == null) return null;
 
       return {
         path: sanitizedPath,
