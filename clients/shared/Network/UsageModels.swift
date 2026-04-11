@@ -63,6 +63,7 @@ public struct UsageDailyResponse: Decodable, Equatable, Sendable {
 /// A single grouped breakdown row from `GET /v1/usage/breakdown`.
 public struct UsageGroupBreakdownEntry: Decodable, Equatable, Sendable {
     public let group: String
+    public let groupId: String?
     public let totalInputTokens: Int
     public let totalOutputTokens: Int
     public let totalCacheCreationTokens: Int
@@ -72,6 +73,7 @@ public struct UsageGroupBreakdownEntry: Decodable, Equatable, Sendable {
 
     public init(
         group: String,
+        groupId: String? = nil,
         totalInputTokens: Int,
         totalOutputTokens: Int,
         totalCacheCreationTokens: Int = 0,
@@ -80,6 +82,7 @@ public struct UsageGroupBreakdownEntry: Decodable, Equatable, Sendable {
         eventCount: Int
     ) {
         self.group = group
+        self.groupId = groupId
         self.totalInputTokens = totalInputTokens
         self.totalOutputTokens = totalOutputTokens
         self.totalCacheCreationTokens = totalCacheCreationTokens
@@ -90,6 +93,7 @@ public struct UsageGroupBreakdownEntry: Decodable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case group
+        case groupId
         case totalInputTokens
         case totalOutputTokens
         case totalCacheCreationTokens
@@ -101,6 +105,7 @@ public struct UsageGroupBreakdownEntry: Decodable, Equatable, Sendable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         group = try container.decode(String.self, forKey: .group)
+        groupId = try container.decodeIfPresent(String.self, forKey: .groupId)
         totalInputTokens = try container.decode(Int.self, forKey: .totalInputTokens)
         totalOutputTokens = try container.decode(Int.self, forKey: .totalOutputTokens)
         totalCacheCreationTokens = try container.decodeIfPresent(Int.self, forKey: .totalCacheCreationTokens) ?? 0
