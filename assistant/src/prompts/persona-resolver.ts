@@ -1,5 +1,10 @@
-import { existsSync, readFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, join } from "node:path";
 
 import {
   findContactByChannelExternalId,
@@ -15,6 +20,27 @@ import { getWorkspaceDir } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 
 const log = getLogger("persona-resolver");
+
+// ── Guardian persona template ─────────────────────────────────────
+//
+// Scaffold written to `users/<slug>.md` when a guardian is resolved
+// but no per-user persona file yet exists. Kept in sync with the
+// legacy workspace USER.md template so that upgrading users preserve
+// the same editable shape.
+const GUARDIAN_PERSONA_TEMPLATE = `_ Lines starting with _ are comments - they won't appear in the system prompt
+
+# User Profile
+
+Store details about your user here. Edit freely - build this over time as you learn about them. Don't be pushy about seeking details, but when you learn something, write it down. More context makes you more useful.
+
+- Preferred name/reference:
+- Pronouns:
+- Locale:
+- Work role:
+- Goals:
+- Hobbies/fun:
+- Daily tools:
+`;
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -96,6 +122,22 @@ function resolveUserFilename(
   }
 
   return null;
+}
+
+/**
+ * Resolve the absolute on-disk path to the guardian's per-user persona
+ * file (e.g. `<workspace>/users/sidd.md`). Returns `null` when no
+ * guardian is resolvable (no guardian contact, or its `userFile` is
+ * unusable / fails basename validation).
+ *
+ * This does not check whether the file exists — it only resolves the
+ * path. Callers use it alongside `ensureGuardianPersonaFile` to open
+ * or scaffold the file.
+ */
+export function resolveGuardianPersonaPath(): string | null {
+  const filename = resolveUserFilename(undefined);
+  if (!filename) return null;
+  return join(getWorkspaceDir(), "users", filename);
 }
 
 /**
@@ -191,4 +233,29 @@ export function resolvePersonaContext(
  */
 export function resolveGuardianPersona(): string | null {
   return resolveUserPersona(undefined);
+}
+
+/**
+ * Write the guardian persona template scaffold to `users/<slug>.md`
+ * when the file does not yet exist. No-op when the file already
+ * exists (safe against clobbering user edits).
+ *
+ * Rejects slugs that fail basename validation (path traversal guard).
+ * Creates the parent `users/` directory if missing.
+ */
+export function ensureGuardianPersonaFile(slug: string): void {
+  if (basename(slug) !== slug || slug === ".." || slug === ".") {
+    log.warn(
+      { slug },
+      "Guardian persona slug contains path traversal; refusing to write",
+    );
+    return;
+  }
+
+  const filePath = join(getWorkspaceDir(), "users", slug);
+  if (existsSync(filePath)) return;
+
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileSync(filePath, GUARDIAN_PERSONA_TEMPLATE, "utf-8");
+  log.debug({ path: filePath }, "Wrote guardian persona scaffold");
 }
