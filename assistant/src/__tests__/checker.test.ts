@@ -67,6 +67,15 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
+// Mutable guardian persona path so tests can toggle whether
+// getDefaultRuleTemplates emits the dynamic guardian-persona allow rules.
+// Defaults to null so existing tests see no extra rules, matching the
+// behaviour on a fresh install without a resolved guardian.
+let mockGuardianPersonaPath: string | null = null;
+mock.module("../prompts/persona-resolver.js", () => ({
+  resolveGuardianPersonaPath: () => mockGuardianPersonaPath,
+}));
+
 import {
   check,
   classifyRisk,
@@ -152,6 +161,8 @@ describe("Permission Checker", () => {
     // Reset permissions mode to workspace (default) so existing tests are not affected
     testConfig.permissions = { mode: "workspace" };
     testConfig.skills = { load: { extraDirs: [] } };
+    // Reset guardian persona mock so each test opts in explicitly
+    mockGuardianPersonaPath = null;
     loggerWarnCalls.length = 0;
     try {
       rmSync(join(checkerTestDir, "protected", "trust.json"));
@@ -1527,6 +1538,71 @@ describe("Permission Checker", () => {
       const result = await check("file_write", { path: otherPath }, "/home");
       // Low risk → auto-allowed even outside workspace
       expect(result.decision).toBe("allow");
+    });
+
+    // ── guardian persona file (users/<slug>.md) ──────────────────
+    // The drop-user-md migration replaces the legacy workspace USER.md
+    // with a per-user persona file at `users/<guardian-slug>.md`. The
+    // dynamic guardian-persona default rules make first-run onboarding
+    // and day-to-day persona edits frictionless.
+
+    test("file_edit of guardian users/<slug>.md is auto-allowed", async () => {
+      const guardianPath = join(checkerTestDir, "users", "alice.md");
+      mockGuardianPersonaPath = guardianPath;
+      const result = await check("file_edit", { path: guardianPath }, "/tmp");
+      expect(result.decision).toBe("allow");
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.id).toBe(
+        "default:allow-file_edit-guardian-persona",
+      );
+    });
+
+    test("file_read of guardian users/<slug>.md is auto-allowed", async () => {
+      const guardianPath = join(checkerTestDir, "users", "alice.md");
+      mockGuardianPersonaPath = guardianPath;
+      const result = await check("file_read", { path: guardianPath }, "/tmp");
+      expect(result.decision).toBe("allow");
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.id).toBe(
+        "default:allow-file_read-guardian-persona",
+      );
+    });
+
+    test("file_write of guardian users/<slug>.md is auto-allowed", async () => {
+      const guardianPath = join(checkerTestDir, "users", "alice.md");
+      mockGuardianPersonaPath = guardianPath;
+      const result = await check("file_write", { path: guardianPath }, "/tmp");
+      expect(result.decision).toBe("allow");
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.id).toBe(
+        "default:allow-file_write-guardian-persona",
+      );
+    });
+
+    test("getDefaultRuleTemplates emits guardian persona rules when guardian is resolved", () => {
+      const guardianPath = join(checkerTestDir, "users", "alice.md");
+      mockGuardianPersonaPath = guardianPath;
+      const templates = getDefaultRuleTemplates();
+      const guardianRules = templates.filter((t) =>
+        t.id.endsWith("-guardian-persona"),
+      );
+      // One rule each for file_read, file_write, file_edit.
+      expect(guardianRules).toHaveLength(3);
+      for (const rule of guardianRules) {
+        expect(rule.decision).toBe("allow");
+        expect(rule.priority).toBe(100);
+        expect(rule.scope).toBe("everywhere");
+        expect(rule.pattern).toBe(`${rule.tool}:${guardianPath}`);
+      }
+    });
+
+    test("getDefaultRuleTemplates emits no guardian persona rules when unresolved", () => {
+      mockGuardianPersonaPath = null;
+      const templates = getDefaultRuleTemplates();
+      const guardianRules = templates.filter((t) =>
+        t.id.endsWith("-guardian-persona"),
+      );
+      expect(guardianRules).toHaveLength(0);
     });
   });
 
