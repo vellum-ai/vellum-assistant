@@ -1,4 +1,4 @@
-import type { SpeechToTextResult } from "./types.js";
+import type { SttTranscribeResult } from "../../stt/types.js";
 
 const WHISPER_API_URL = "https://api.openai.com/v1/audio/transcriptions";
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -35,7 +35,7 @@ export class OpenAIWhisperProvider {
     audio: Buffer,
     mimeType: string,
     signal?: AbortSignal,
-  ): Promise<SpeechToTextResult> {
+  ): Promise<SttTranscribeResult> {
     const ext = extensionFromMime(mimeType);
 
     const formData = new FormData();
