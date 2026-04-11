@@ -16,15 +16,27 @@
  *      exit non-zero and emit an error frame, preventing a malformed
  *      token from reaching the extension's bootstrap path.
  *
+ *   4. `list_assistants` frames return the lockfile assistant inventory.
+ *
+ *   5. `request_token` frames with `assistantId` resolve the daemon port
+ *      from the lockfile and target the correct assistant.
+ *
  * The suite skips gracefully when `dist/index.js` is missing so cold
  * checkouts don't break CI.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
 import { decodeFrames, encodeFrame } from "../protocol.js";
 
@@ -161,23 +173,25 @@ interface HelperRunResult {
  */
 async function runHelper(options: {
   extensionOrigin: string;
-  assistantPort: number;
+  assistantPort?: number;
   stdinBytes: Buffer;
   timeoutMs?: number;
+  env?: Record<string, string | undefined>;
 }): Promise<HelperRunResult> {
   const args = [
     "node",
     HELPER_BINARY,
     options.extensionOrigin,
-    "--assistant-port",
-    String(options.assistantPort),
   ];
+  if (options.assistantPort !== undefined) {
+    args.push("--assistant-port", String(options.assistantPort));
+  }
 
   const proc = Bun.spawn(args, {
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env },
+    env: { ...process.env, ...options.env },
   });
 
   proc.stdin.write(options.stdinBytes);
@@ -380,5 +394,320 @@ describe("native host — subprocess regression coverage", () => {
     expect(frame.type).toBe("error");
     expect(typeof frame.message).toBe("string");
     expect(frame.message).toMatch(/guardianId/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// list_assistants and assistant-scoped token request tests
+// ---------------------------------------------------------------------------
+
+describe("native host — list_assistants response framing", () => {
+  let pair: MockPairServer | null = null;
+  let lockfileDir: string;
+
+  beforeAll(() => {
+    if (!HELPER_EXISTS) return;
+    pair = startMockPairServer();
+  });
+
+  afterAll(() => {
+    if (pair) pair.stop();
+  });
+
+  beforeEach(() => {
+    lockfileDir = mkdtempSync(join(tmpdir(), "native-host-lockfile-test-"));
+  });
+
+  afterEach(() => {
+    try {
+      rmSync(lockfileDir, { recursive: true, force: true });
+    } catch {
+      // Best-effort cleanup.
+    }
+  });
+
+  if (!HELPER_EXISTS) {
+    test.skip(`native helper binary not built — ${SKIP_REASON}`, () => {
+      /* intentionally empty */
+    });
+    return;
+  }
+
+  test("list_assistants returns assistant inventory from lockfile", async () => {
+    const lockfileData = {
+      assistants: [
+        {
+          assistantId: "local-one",
+          cloud: "local",
+          runtimeUrl: "http://localhost:7830",
+          resources: { daemonPort: 7821 },
+        },
+        {
+          assistantId: "cloud-one",
+          cloud: "vellum",
+          runtimeUrl: "https://cloud.example.com",
+        },
+      ],
+      activeAssistant: "local-one",
+    };
+    writeFileSync(
+      join(lockfileDir, ".vellum.lock.json"),
+      JSON.stringify(lockfileData),
+    );
+
+    const result = await runHelper({
+      extensionOrigin: ALLOWED_ORIGIN,
+      assistantPort: pair!.port,
+      stdinBytes: encodeFrame({ type: "list_assistants" }),
+      timeoutMs: 2000,
+      env: { VELLUM_LOCKFILE_DIR: lockfileDir },
+    });
+
+    expect(result.exitCode, `helper stderr: ${result.stderr}`).toBe(0);
+    expect(result.frames).toHaveLength(1);
+
+    const frame = result.frames[0] as {
+      type: string;
+      assistants: Array<{
+        assistantId: string;
+        cloud: string;
+        runtimeUrl: string;
+        daemonPort: number | null;
+        isActive: boolean;
+      }>;
+      activeAssistantId: string | null;
+    };
+
+    expect(frame.type).toBe("assistants_response");
+    expect(frame.activeAssistantId).toBe("local-one");
+    expect(frame.assistants).toHaveLength(2);
+
+    expect(frame.assistants[0]!.assistantId).toBe("local-one");
+    expect(frame.assistants[0]!.cloud).toBe("local");
+    expect(frame.assistants[0]!.daemonPort).toBe(7821);
+    expect(frame.assistants[0]!.isActive).toBe(true);
+
+    expect(frame.assistants[1]!.assistantId).toBe("cloud-one");
+    expect(frame.assistants[1]!.cloud).toBe("vellum");
+    expect(frame.assistants[1]!.isActive).toBe(false);
+  });
+
+  test("list_assistants returns empty inventory when no lockfile exists", async () => {
+    // Don't write any lockfile — the temp dir is empty.
+    const result = await runHelper({
+      extensionOrigin: ALLOWED_ORIGIN,
+      assistantPort: pair!.port,
+      stdinBytes: encodeFrame({ type: "list_assistants" }),
+      timeoutMs: 2000,
+      env: { VELLUM_LOCKFILE_DIR: lockfileDir },
+    });
+
+    expect(result.exitCode, `helper stderr: ${result.stderr}`).toBe(0);
+    expect(result.frames).toHaveLength(1);
+
+    const frame = result.frames[0] as {
+      type: string;
+      assistants: unknown[];
+      activeAssistantId: unknown;
+    };
+    expect(frame.type).toBe("assistants_response");
+    expect(frame.assistants).toEqual([]);
+    expect(frame.activeAssistantId).toBeNull();
+  });
+});
+
+describe("native host — assistant-scoped token request", () => {
+  let pairA: MockPairServer | null = null;
+  let pairB: MockPairServer | null = null;
+  let lockfileDir: string;
+
+  beforeAll(() => {
+    if (!HELPER_EXISTS) return;
+    pairA = startMockPairServer();
+    pairB = startMockPairServer();
+  });
+
+  afterAll(() => {
+    if (pairA) pairA.stop();
+    if (pairB) pairB.stop();
+  });
+
+  beforeEach(() => {
+    lockfileDir = mkdtempSync(join(tmpdir(), "native-host-scoped-test-"));
+  });
+
+  afterEach(() => {
+    try {
+      rmSync(lockfileDir, { recursive: true, force: true });
+    } catch {
+      // Best-effort cleanup.
+    }
+  });
+
+  if (!HELPER_EXISTS) {
+    test.skip(`native helper binary not built — ${SKIP_REASON}`, () => {
+      /* intentionally empty */
+    });
+    return;
+  }
+
+  test("request_token with assistantId uses the lockfile daemon port", async () => {
+    const srvA = pairA!;
+    const srvB = pairB!;
+    srvA.requests.length = 0;
+    srvB.requests.length = 0;
+
+    srvA.nextResponseBody = () => ({
+      token: "tok-a",
+      expiresAt: "2026-12-31T00:00:00Z",
+      guardianId: "g-a",
+    });
+    srvB.nextResponseBody = () => ({
+      token: "tok-b",
+      expiresAt: "2026-12-31T00:00:00Z",
+      guardianId: "g-b",
+    });
+
+    // Write a lockfile where assistant-b's daemonPort points at srvB.
+    const lockfileData = {
+      assistants: [
+        {
+          assistantId: "assistant-a",
+          cloud: "local",
+          runtimeUrl: "http://localhost:7830",
+          resources: { daemonPort: srvA.port },
+        },
+        {
+          assistantId: "assistant-b",
+          cloud: "local",
+          runtimeUrl: "http://localhost:7831",
+          resources: { daemonPort: srvB.port },
+        },
+      ],
+    };
+    writeFileSync(
+      join(lockfileDir, ".vellum.lock.json"),
+      JSON.stringify(lockfileData),
+    );
+
+    // Request a token scoped to assistant-b. The helper should use
+    // srvB's port (from the lockfile) rather than the --assistant-port
+    // flag, which we intentionally set to srvA's port to prove the
+    // lockfile takes precedence.
+    const result = await runHelper({
+      extensionOrigin: ALLOWED_ORIGIN,
+      assistantPort: srvA.port,
+      stdinBytes: encodeFrame({
+        type: "request_token",
+        assistantId: "assistant-b",
+      }),
+      timeoutMs: 2000,
+      env: { VELLUM_LOCKFILE_DIR: lockfileDir },
+    });
+
+    expect(result.exitCode, `helper stderr: ${result.stderr}`).toBe(0);
+    expect(result.frames).toHaveLength(1);
+
+    const frame = result.frames[0] as {
+      type: string;
+      token: string;
+      assistantPort: number;
+    };
+    expect(frame.type).toBe("token_response");
+    expect(frame.token).toBe("tok-b");
+    expect(frame.assistantPort).toBe(srvB.port);
+
+    // srvB should have received the pair request, not srvA.
+    expect(srvB.requests).toHaveLength(1);
+    expect(srvA.requests).toHaveLength(0);
+  });
+
+  test("request_token without assistantId falls back to --assistant-port", async () => {
+    const srvA = pairA!;
+    srvA.requests.length = 0;
+    srvA.nextResponseBody = () => ({
+      token: "tok-fallback",
+      expiresAt: "2026-12-31T00:00:00Z",
+      guardianId: "g-fallback",
+    });
+
+    // Even with a lockfile present, omitting assistantId from the
+    // frame should fall back to the --assistant-port CLI arg.
+    const lockfileData = {
+      assistants: [
+        {
+          assistantId: "some-assistant",
+          cloud: "local",
+          runtimeUrl: "http://localhost:7830",
+          resources: { daemonPort: 55555 }, // unreachable port
+        },
+      ],
+    };
+    writeFileSync(
+      join(lockfileDir, ".vellum.lock.json"),
+      JSON.stringify(lockfileData),
+    );
+
+    const result = await runHelper({
+      extensionOrigin: ALLOWED_ORIGIN,
+      assistantPort: srvA.port,
+      stdinBytes: encodeFrame({ type: "request_token" }),
+      timeoutMs: 2000,
+      env: { VELLUM_LOCKFILE_DIR: lockfileDir },
+    });
+
+    expect(result.exitCode, `helper stderr: ${result.stderr}`).toBe(0);
+    expect(result.frames).toHaveLength(1);
+
+    const frame = result.frames[0] as { type: string; token: string };
+    expect(frame.type).toBe("token_response");
+    expect(frame.token).toBe("tok-fallback");
+
+    // The request went to srvA (via --assistant-port), not the
+    // lockfile's unreachable port.
+    expect(srvA.requests).toHaveLength(1);
+  });
+
+  test("request_token with unknown assistantId falls back to --assistant-port", async () => {
+    const srvA = pairA!;
+    srvA.requests.length = 0;
+    srvA.nextResponseBody = () => ({
+      token: "tok-unknown-fallback",
+      expiresAt: "2026-12-31T00:00:00Z",
+      guardianId: "g-unknown",
+    });
+
+    // Lockfile has assistant-a but we request token for "nonexistent".
+    const lockfileData = {
+      assistants: [
+        {
+          assistantId: "assistant-a",
+          cloud: "local",
+          runtimeUrl: "http://localhost:7830",
+          resources: { daemonPort: 55555 },
+        },
+      ],
+    };
+    writeFileSync(
+      join(lockfileDir, ".vellum.lock.json"),
+      JSON.stringify(lockfileData),
+    );
+
+    const result = await runHelper({
+      extensionOrigin: ALLOWED_ORIGIN,
+      assistantPort: srvA.port,
+      stdinBytes: encodeFrame({
+        type: "request_token",
+        assistantId: "nonexistent",
+      }),
+      timeoutMs: 2000,
+      env: { VELLUM_LOCKFILE_DIR: lockfileDir },
+    });
+
+    expect(result.exitCode, `helper stderr: ${result.stderr}`).toBe(0);
+    const frame = result.frames[0] as { type: string; token: string };
+    expect(frame.type).toBe("token_response");
+    expect(frame.token).toBe("tok-unknown-fallback");
+    expect(srvA.requests).toHaveLength(1);
   });
 });

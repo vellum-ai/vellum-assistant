@@ -1,6 +1,16 @@
 /**
  * Popup UI for the Vellum browser-relay extension.
  *
+ * On open the popup loads the assistant catalog from the worker via the
+ * `assistants-get` message. When exactly one assistant exists it is
+ * auto-selected and no selector dropdown is shown. When multiple
+ * assistants exist a `<select>` dropdown is rendered in lockfile order.
+ *
+ * Switching assistants sends an `assistant-select` message to the
+ * worker, which persists the selection and returns the resolved
+ * descriptor + auth profile. The popup then refreshes the local/cloud
+ * auth status panels to match the newly selected assistant.
+ *
  * Self-hosted pairing is governed by the "Pair local assistant" button,
  * which spawns the native messaging helper and persists a capability
  * token (see self-hosted-auth.ts). Connect then reads that stored
@@ -21,8 +31,19 @@ import {
   getStoredLocalToken,
   type StoredLocalToken,
 } from '../background/self-hosted-auth.js';
+import type { AssistantDescriptor } from '../background/native-host-assistants.js';
+import type { AssistantAuthProfile } from '../background/assistant-auth-profile.js';
+import {
+  deriveSelectorDisplay,
+  shouldShowLocalSection,
+  shouldShowCloudSection,
+  type AssistantsGetResponse,
+  type AssistantSelectResponse,
+} from './popup-state.js';
 
 const DEFAULT_RELAY_PORT = 7830;
+
+// ── DOM references ──────────────────────────────────────────────────
 
 const portInput = document.getElementById('port-input') as HTMLInputElement;
 const btnConnect = document.getElementById('btn-connect') as HTMLButtonElement;
@@ -34,11 +55,23 @@ const btnCloudSignIn = document.getElementById('btn-cloud-signin') as HTMLButton
 const cloudStatus = document.getElementById('cloud-status') as HTMLParagraphElement;
 const btnPairLocal = document.getElementById('btn-pair-local') as HTMLButtonElement;
 const localStatus = document.getElementById('local-status') as HTMLParagraphElement;
-const modeSelfHosted = document.getElementById('mode-self-hosted') as HTMLInputElement;
-const modeCloud = document.getElementById('mode-cloud') as HTMLInputElement;
 
-const RELAY_MODE_KEY = 'vellum.relayMode';
-type RelayModeKind = 'self-hosted' | 'cloud';
+const assistantSelectorGroup = document.getElementById(
+  'assistant-selector-group',
+) as HTMLDivElement;
+const assistantSelect = document.getElementById(
+  'assistant-select',
+) as HTMLSelectElement;
+
+// ── Current assistant state ─────────────────────────────────────────
+//
+// Tracks the currently selected assistant and its auth profile so
+// connect and auth-refresh operations use the right assistant context.
+
+let currentAuthProfile: AssistantAuthProfile | null = null;
+let currentAssistantId: string | null = null;
+
+// ── Connection state helpers ────────────────────────────────────────
 
 function setConnected(connected: boolean): void {
   statusDot.className = `status-dot ${connected ? 'connected' : 'disconnected'}`;
@@ -65,6 +98,156 @@ function showErrorText(msg: string): void {
 function showError(msg: string): void {
   showErrorText(msg);
 }
+
+// ── Assistant selector ──────────────────────────────────────────────
+
+/**
+ * Render the assistant dropdown based on the catalog from the worker.
+ * Hides the dropdown when only one assistant exists.
+ */
+function renderAssistantSelector(
+  assistants: AssistantDescriptor[],
+  selected: AssistantDescriptor | null,
+): void {
+  const display = deriveSelectorDisplay(assistants, selected);
+
+  if (display.kind === 'hidden') {
+    assistantSelectorGroup.style.display = 'none';
+    return;
+  }
+
+  // Build <option> elements in lockfile order.
+  assistantSelect.innerHTML = '';
+  for (const opt of display.options) {
+    const el = document.createElement('option');
+    el.value = opt.assistantId;
+    el.textContent = opt.label;
+    if (opt.assistantId === display.selectedId) {
+      el.selected = true;
+    }
+    assistantSelect.appendChild(el);
+  }
+
+  assistantSelectorGroup.style.display = 'block';
+}
+
+/**
+ * Update the visibility of the Local and Cloud auth sections based on
+ * the selected assistant's auth profile.
+ */
+function updateAuthSections(authProfile: AssistantAuthProfile | null): void {
+  currentAuthProfile = authProfile;
+
+  // Find the section containers by walking from the section-label elements.
+  // The Local section = section-label "Local" + local-status + btn-pair-local + preceding divider.
+  // The Cloud section = section-label "Cloud" + cloud-status + btn-cloud-signin + preceding divider.
+  //
+  // We use a simpler approach: show/hide the local and cloud elements
+  // individually based on the auth profile.
+
+  const showLocal = shouldShowLocalSection(authProfile);
+  const showCloud = shouldShowCloudSection(authProfile);
+
+  // Walk DOM to find the divider before each section label.
+  const sectionLabels = document.querySelectorAll('.section-label');
+
+  // Find the local section's divider (the one before "Local")
+  // and the cloud section's divider (the one before "Cloud")
+  let localDividerEl: Element | null = null;
+  let cloudDividerEl: Element | null = null;
+  let localLabelEl: Element | null = null;
+  let cloudLabelEl: Element | null = null;
+
+  for (const label of sectionLabels) {
+    if (label.textContent?.trim() === 'Local') localLabelEl = label;
+    if (label.textContent?.trim() === 'Cloud') cloudLabelEl = label;
+  }
+
+  // The divider immediately before the Local label
+  if (localLabelEl?.previousElementSibling?.classList.contains('divider')) {
+    localDividerEl = localLabelEl.previousElementSibling;
+  }
+  // The divider immediately before the Cloud label
+  if (cloudLabelEl?.previousElementSibling?.classList.contains('divider')) {
+    cloudDividerEl = cloudLabelEl.previousElementSibling;
+  }
+
+  // Toggle Local section visibility
+  const localElements = [localDividerEl, localLabelEl, localStatus, btnPairLocal];
+  for (const el of localElements) {
+    if (el instanceof HTMLElement) {
+      el.style.display = showLocal ? '' : 'none';
+    }
+  }
+
+  // Toggle Cloud section visibility
+  const cloudElements = [cloudDividerEl, cloudLabelEl, cloudStatus, btnCloudSignIn];
+  for (const el of cloudElements) {
+    if (el instanceof HTMLElement) {
+      el.style.display = showCloud ? '' : 'none';
+    }
+  }
+}
+
+/**
+ * Load the assistant catalog from the worker and render the selector.
+ */
+function loadAssistantCatalog(): void {
+  chrome.runtime.sendMessage({ type: 'assistants-get' }, (response: AssistantsGetResponse) => {
+    if (chrome.runtime.lastError || !response?.ok) {
+      const errMsg = response?.error ?? chrome.runtime.lastError?.message ?? 'Failed to load assistants';
+      showError(errMsg);
+      return;
+    }
+
+    const assistants = response.assistants ?? [];
+    const selected = response.selected ?? null;
+    const authProfile = response.authProfile ?? null;
+
+    currentAssistantId = selected?.assistantId ?? null;
+
+    renderAssistantSelector(assistants, selected);
+    updateAuthSections(authProfile);
+
+    // Refresh status panels for the selected assistant.
+    void refreshLocalStatus();
+    void refreshCloudStatus();
+  });
+}
+
+// Load on popup open.
+loadAssistantCatalog();
+
+// ── Assistant selection change ──────────────────────────────────────
+
+assistantSelect.addEventListener('change', () => {
+  const assistantId = assistantSelect.value;
+  if (!assistantId) return;
+
+  errorText.style.display = 'none';
+
+  chrome.runtime.sendMessage(
+    { type: 'assistant-select', assistantId },
+    (response: AssistantSelectResponse) => {
+      if (chrome.runtime.lastError || !response?.ok) {
+        showError(
+          response?.error ??
+            chrome.runtime.lastError?.message ??
+            'Failed to select assistant',
+        );
+        return;
+      }
+
+      currentAssistantId = response.selected?.assistantId ?? assistantId;
+      const authProfile = response.authProfile ?? null;
+      updateAuthSections(authProfile);
+
+      // Refresh both status panels to reflect the new assistant.
+      void refreshLocalStatus();
+      void refreshCloudStatus();
+    },
+  );
+});
 
 // Load saved relay port on open.
 chrome.storage.local.get(['relayPort']).then((result) => {
@@ -94,32 +277,19 @@ btnConnect.addEventListener('click', async () => {
 
   errorText.style.display = 'none';
 
-  // Read the current relay mode so we know whether self-hosted pairing
-  // is required. In cloud mode the worker uses the stored cloud token
+  // Check whether pairing is required based on the selected assistant's
+  // auth profile. In cloud mode the worker uses the stored cloud token
   // (vellum.cloudAuthToken) directly, so the popup must NOT try to hit
   // localhost — a cloud-only user may not have a local assistant running.
-  //
-  // We prefer the radio button's checked state as a tiebreaker: if the
-  // user just toggled the radio, the async chrome.storage.local.set from
-  // handleModeChange() may not have landed yet. The DOM is the source of
-  // truth for the user's current intent.
-  const modeStorage = await chrome.storage.local.get(RELAY_MODE_KEY);
-  const storedMode = modeStorage[RELAY_MODE_KEY];
-  const relayMode: RelayModeKind = modeCloud.checked
-    ? 'cloud'
-    : modeSelfHosted.checked
-      ? 'self-hosted'
-      : storedMode === 'cloud'
-        ? 'cloud'
-        : 'self-hosted';
-
-  // Self-hosted now requires native-messaging pairing. There is no
-  // gateway JWT fallback path.
-  if (relayMode === 'self-hosted') {
-    const pairedToken = await getStoredLocalToken();
+  if (currentAuthProfile === 'local-pair') {
+    if (!currentAssistantId) {
+      showError('No assistant selected — please select an assistant first.');
+      return;
+    }
+    const pairedToken = await getStoredLocalToken(currentAssistantId);
     if (!pairedToken) {
       showError(
-        'Self-hosted relay is not paired yet — click "Pair local assistant" below before connecting.',
+        'Local assistant is not paired yet — click "Pair with local assistant" below before connecting.',
       );
       return;
     }
@@ -158,7 +328,7 @@ btnDisconnect.addEventListener('click', () => {
   });
 });
 
-// ── Self-hosted native-messaging pairing (new in Phase 2 PR 13) ─────
+// ── Self-hosted native-messaging pairing ────────────────────────────
 //
 // Pairing runs the local native messaging helper (com.vellum.daemon),
 // which POSTs the extension's origin to the assistant's
@@ -182,8 +352,12 @@ function formatLocalTokenStatus(token: StoredLocalToken): string {
 }
 
 async function refreshLocalStatus(): Promise<void> {
+  if (!currentAssistantId) {
+    setLocalStatus('Not paired', 'neutral');
+    return;
+  }
   try {
-    const existing = await getStoredLocalToken();
+    const existing = await getStoredLocalToken(currentAssistantId);
     if (existing) {
       setLocalStatus(formatLocalTokenStatus(existing), 'paired');
     } else {
@@ -205,7 +379,11 @@ interface LocalPairResponse {
 
 function requestLocalPair(): Promise<LocalPairResponse> {
   return new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type: 'self-hosted-pair' }, (response: LocalPairResponse) => {
+    const msg: Record<string, unknown> = { type: 'self-hosted-pair' };
+    if (currentAssistantId) {
+      msg.assistantId = currentAssistantId;
+    }
+    chrome.runtime.sendMessage(msg, (response: LocalPairResponse) => {
       if (chrome.runtime.lastError) {
         resolve({ ok: false, error: chrome.runtime.lastError.message ?? 'Unknown error' });
         return;
@@ -232,7 +410,7 @@ btnPairLocal.addEventListener('click', async () => {
 
 refreshLocalStatus();
 
-// ── Cloud sign-in (new in Phase 2 PR 8) ────────────────────────────
+// ── Cloud sign-in ───────────────────────────────────────────────────
 //
 // The token is persisted and consumed by the background worker when
 // opening cloud relay WebSocket connections.
@@ -243,8 +421,12 @@ function setCloudStatus(text: string, signedIn: boolean): void {
 }
 
 async function refreshCloudStatus(): Promise<void> {
+  if (!currentAssistantId) {
+    setCloudStatus('Not signed in', false);
+    return;
+  }
   try {
-    const existing = await getStoredToken();
+    const existing = await getStoredToken(currentAssistantId);
     if (existing) {
       setCloudStatus(`Signed in as guardian:${existing.guardianId}`, true);
     } else {
@@ -307,43 +489,3 @@ btnCloudSignIn.addEventListener('click', async () => {
 });
 
 refreshCloudStatus();
-
-// ── Relay mode switcher (Phase 2 PR 14) ────────────────────────────
-//
-// Flips `vellum.relayMode` in chrome.storage.local between
-// "self-hosted" (default) and "cloud". The service worker listens
-// for storage changes via chrome.storage.onChanged and closes the
-// current socket + reopens a new one against the selected transport.
-
-function isRelayModeKind(v: unknown): v is RelayModeKind {
-  return v === 'self-hosted' || v === 'cloud';
-}
-
-chrome.storage.local.get(RELAY_MODE_KEY).then((result) => {
-  const stored = result[RELAY_MODE_KEY];
-  const mode: RelayModeKind = isRelayModeKind(stored) ? stored : 'self-hosted';
-  if (mode === 'cloud') {
-    modeCloud.checked = true;
-  } else {
-    modeSelfHosted.checked = true;
-  }
-});
-
-async function handleModeChange(newMode: RelayModeKind): Promise<void> {
-  await chrome.storage.local.set({ [RELAY_MODE_KEY]: newMode });
-  // The service worker reacts to the storage change via
-  // chrome.storage.onChanged — we don't need to send an explicit
-  // disconnect/connect message here.
-}
-
-modeSelfHosted.addEventListener('change', () => {
-  if (modeSelfHosted.checked) {
-    void handleModeChange('self-hosted');
-  }
-});
-
-modeCloud.addEventListener('change', () => {
-  if (modeCloud.checked) {
-    void handleModeChange('cloud');
-  }
-});
