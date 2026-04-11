@@ -467,6 +467,7 @@ extension ChatBubble {
                         ThinkingBlockView(
                             content: joined,
                             isStreaming: message.isStreaming,
+                            expansionKey: "\(message.id.uuidString)-th\(indices.first ?? 0)",
                             typographyGeneration: typographyGeneration
                         )
                     }

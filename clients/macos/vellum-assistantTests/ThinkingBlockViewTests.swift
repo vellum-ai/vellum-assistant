@@ -3,15 +3,28 @@ import XCTest
 
 @MainActor
 final class ThinkingBlockViewTests: XCTestCase {
-    func testExpandedThinkingBlockBodyDoesNotCrashWithMarkdown() {
-        let view = ThinkingBlockView(
-            content: """
-            *gasps against the fabric*
+    /// Regression test for a crash where `parseMarkdownSegments` applied to
+    /// thinking-block content with italics separated by blank lines tripped
+    /// an NSRange assertion during expanded-card seeding.
+    /// (See commit `adaf6e796`.)
+    func testParseMarkdownSegmentsDoesNotCrashOnItalicsAcrossBlankLines() {
+        _ = parseMarkdownSegments("""
+        *gasps against the fabric*
 
-            *muffled, breathless*
-            """,
+        *muffled, breathless*
+        """)
+    }
+
+    /// Smoke test that `ThinkingBlockView.body` can be evaluated against
+    /// the store-backed expansion without crashing.
+    func testThinkingBlockBodyEvaluatesWithStoreInjection() {
+        let store = ThinkingBlockExpansionStore()
+        store.toggle("test-key")
+
+        let view = ThinkingBlockView(
+            content: "thinking content",
             isStreaming: false,
-            initiallyExpanded: true
+            expansionKey: "test-key"
         )
 
         _ = view.body

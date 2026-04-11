@@ -21,7 +21,7 @@ extension ChatBubble {
            MacOSClientFeatureFlagManager.shared.isEnabled("show-thinking-blocks") {
             let chunks = parseInlineThinkingTags(segmentText)
             VStack(alignment: .leading, spacing: VSpacing.sm) {
-                ForEach(Array(chunks.enumerated()), id: \.offset) { _, chunk in
+                ForEach(Array(chunks.enumerated()), id: \.offset) { offset, chunk in
                     switch chunk {
                     case .text(let body):
                         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -32,6 +32,7 @@ extension ChatBubble {
                         ThinkingBlockView(
                             content: body,
                             isStreaming: message.isStreaming,
+                            expansionKey: "\(message.id.uuidString)-txt\(segmentText.hashValue)-\(offset)",
                             typographyGeneration: typographyGeneration
                         )
                     }

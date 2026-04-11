@@ -4,29 +4,26 @@ import VellumAssistantShared
 /// A collapsible card that displays LLM thinking/reasoning content.
 /// Starts collapsed by default. Shows "Thinking..." during streaming
 /// and "Thought process" when complete.
+///
+/// Expansion state lives in a `ThinkingBlockExpansionStore` injected via
+/// `@Environment` rather than local `@State`, so manual expansion survives
+/// the view-tree destruction that happens when `MessageListContentView`
+/// flips its `.if` min-height wrapper at the start/end of an active turn.
 struct ThinkingBlockView: View {
     let content: String
     let isStreaming: Bool
+    let expansionKey: String
     var typographyGeneration: Int = 0
 
-    @State private var isExpanded: Bool
+    @Environment(\.thinkingBlockExpansionStore) private var expansionStore
+
     /// Cached parsed markdown segments — parsed lazily only when the block is
     /// expanded, avoiding synchronous O(n) work while collapsed (the default).
-    @State private var cachedSegments: [MarkdownSegment]
-    @State private var cachedContent: String
+    @State private var cachedSegments: [MarkdownSegment] = []
+    @State private var cachedContent: String = ""
 
-    init(content: String, isStreaming: Bool, typographyGeneration: Int = 0, initiallyExpanded: Bool = false) {
-        self.content = content
-        self.isStreaming = isStreaming
-        self.typographyGeneration = typographyGeneration
-        _isExpanded = State(initialValue: initiallyExpanded)
-        if initiallyExpanded {
-            _cachedSegments = State(initialValue: parseMarkdownSegments(content))
-            _cachedContent = State(initialValue: content)
-        } else {
-            _cachedSegments = State(initialValue: [])
-            _cachedContent = State(initialValue: "")
-        }
+    private var isExpanded: Bool {
+        expansionStore.isExpanded(expansionKey)
     }
 
     var body: some View {
@@ -74,7 +71,7 @@ struct ThinkingBlockView: View {
     private var headerRow: some View {
         Button(action: {
             withAnimation(VAnimation.fast) {
-                isExpanded.toggle()
+                expansionStore.toggle(expansionKey)
             }
         }) {
             HStack(spacing: VSpacing.sm) {
