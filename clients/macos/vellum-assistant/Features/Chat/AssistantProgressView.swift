@@ -865,6 +865,7 @@ private struct StepDetailRow: View {
             }
         }
         .padding(.bottom, VSpacing.sm)
+        .textSelection(.enabled)
     }
 
     // MARK: - Output Block
