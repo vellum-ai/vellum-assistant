@@ -118,7 +118,9 @@ A background screen-watching system that runs alongside the manual session loop:
 
 ### Voice Input
 
-`VoiceInputManager` — hold Fn (or Ctrl, configurable) for speech-to-text via `SFSpeechRecognizer`. Shows `VoiceTranscriptionWindow` during recording.
+`VoiceInputManager` — hold Fn (or Ctrl, configurable) for on-device speech recognition via `SFSpeechRecognizer`. Shows `VoiceTranscriptionWindow` during recording.
+
+**STT adapter:** All speech recognition access goes through the `SpeechRecognizerAdapter` protocol (`Features/Voice/SpeechRecognizerAdapter.swift`), which abstracts `SFSpeechRecognizer` static APIs and instance creation. The production implementation is `AppleSpeechRecognizerAdapter`. Both `VoiceInputManager` and `OpenAIVoiceService` accept the adapter via init injection, enabling tests to substitute a mock without hardware or permission dependencies. To add a new on-device STT provider, implement `SpeechRecognizerAdapter` with the provider's SDK and inject it at the call site.
 
 **Keyboard shortcut detection:** Uses defense-in-depth to distinguish voice activation from keyboard shortcuts (Control+C, Fn+arrow). Timer starts on key press, but recording only begins if no other keys are pressed during the 300ms hold period. Flag check (`otherKeyPressedDuringHold`) handles cases where apps consume keyDown events (e.g., Terminal).
 

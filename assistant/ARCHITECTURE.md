@@ -582,6 +582,53 @@ All guardian decisions for voice access requests flow through:
 | `src/runtime/actor-trust-resolver.ts`          | `resolveActorTrust` — caller trust classification                                      |
 | `src/memory/canonical-guardian-store.ts`       | Canonical request persistence and CAS resolution                                       |
 
+### Speech-to-Text (STT) Boundaries
+
+Audio-to-text conversion occurs in three distinct runtime boundaries, each with its own provider model and adapter layer. There is no global STT provider switch — each boundary resolves its provider independently based on its runtime context and available credentials.
+
+**Boundary overview:**
+
+| Boundary             | Runtime                               | Provider (current)                  | Adapter module                                                                                     | Caller                                                  |
+| -------------------- | ------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| **Telephony-native** | Twilio ConversationRelay              | Deepgram or Google (config-driven)  | `src/calls/stt-profile.ts`                                                                         | `src/calls/twilio-routes.ts`                            |
+| **Daemon batch**     | Daemon process (REST API to provider) | OpenAI Whisper                      | `src/stt/daemon-batch-transcriber.ts`                                                              | `src/runtime/routes/inbound-stages/transcribe-audio.ts` |
+| **Client-native**    | macOS / iOS on-device                 | Apple Speech (`SFSpeechRecognizer`) | `clients/macos/.../SpeechRecognizerAdapter.swift`, `clients/ios/.../SpeechRecognizerAdapter.swift` | `VoiceInputManager` (macOS), `InputBarView` (iOS)       |
+
+**Telephony-native boundary:**
+
+STT runs inside the telephony platform (Twilio ConversationRelay). The daemon does not receive raw audio — it receives transcribed text from the relay. Provider selection is config-driven (`calls.voice.transcriptionProvider`, `calls.voice.speechModel`).
+
+- `resolveTelephonySttProfile()` in `src/calls/stt-profile.ts` maps config values to a provider-agnostic `TelephonySttProfile` with provider-specific defaults (Deepgram defaults to `"nova-3"`; Google leaves the model undefined).
+- `buildTwilioRelaySpeechConfig()` in `src/calls/twilio-relay-speech-config.ts` serializes the profile into Twilio ConversationRelay TwiML attributes.
+- `twilio-routes.ts` calls both at call setup time.
+
+To add a new telephony STT provider: add a branch in `resolveEffectiveSpeechModel()` for the provider's default model behavior, then ensure `buildTwilioRelaySpeechConfig` passes the provider name through to the TwiML.
+
+**Daemon batch boundary:**
+
+The daemon transcribes audio attachments (e.g. voice messages from channel inbound) by calling a provider's REST API directly.
+
+- `src/stt/types.ts` defines provider-agnostic domain types: `BatchTranscriber` interface, `SttTranscribeRequest`, `SttTranscribeResult`, `SttError` with normalized categories (`auth`, `rate-limit`, `timeout`, `invalid-audio`, `provider-error`), and `SttProviderId` / `SttBoundaryId` discriminants.
+- `createDaemonBatchTranscriber()` in `src/stt/daemon-batch-transcriber.ts` is the factory that returns a `BatchTranscriber` backed by OpenAI Whisper (or `null` when no API key is available). `normalizeSttError()` maps raw provider errors to `SttError` categories.
+- `resolveBatchTranscriber()` in `src/providers/speech-to-text/resolve.ts` is the credential-aware entry point — it reads the OpenAI key from the secure key store and delegates to the factory.
+- `tryTranscribeAudioAttachments()` in `src/runtime/routes/inbound-stages/transcribe-audio.ts` is the callsite that uses the facade for channel audio attachment transcription.
+
+To add a new daemon batch STT provider: add a new `SttProviderId` variant in `types.ts`, implement `BatchTranscriber` in a new adapter class alongside `WhisperBatchTranscriber`, and update the factory in `daemon-batch-transcriber.ts` to select the adapter based on configuration or credential availability.
+
+**Client-native boundary:**
+
+On macOS and iOS, speech recognition runs on-device via Apple's Speech framework (`SFSpeechRecognizer`). The daemon never receives raw microphone audio from clients — it receives the final transcribed text.
+
+- macOS: `SpeechRecognizerAdapter` protocol in `clients/macos/vellum-assistant/Features/Voice/SpeechRecognizerAdapter.swift` abstracts `SFSpeechRecognizer` static APIs and instance creation. `AppleSpeechRecognizerAdapter` is the production implementation. `OpenAIVoiceService` and `VoiceInputManager` consume the adapter via dependency injection.
+- iOS: `SpeechRecognizerAdapter` protocol in `clients/ios/Services/SpeechRecognizerAdapter.swift` covers authorization, availability, and task construction. `AppleSpeechRecognizerAdapter` is the production implementation. `InputBarView` consumes the adapter.
+
+To add a new client-native STT provider: implement the `SpeechRecognizerAdapter` protocol with the new provider's SDK, then inject the new adapter at the call site (the protocol is already injected via init parameters on both platforms).
+
+**Cross-boundary notes:**
+
+- No global STT provider configuration exists. Each boundary resolves its provider independently. A future phase may introduce a unified config surface, but it is not part of the current architecture.
+- Terminology: "STT" and "transcription" refer to the same operation (converting audio to text). "Speech recognition" is used in client-native contexts where Apple's Speech framework terminology is canonical. All three terms map to the same conceptual operation.
+
 ### Update Bulletin System
 
 Release-driven update notification system that surfaces release notes to the assistant via the system prompt.
