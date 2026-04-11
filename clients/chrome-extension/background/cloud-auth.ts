@@ -5,6 +5,12 @@
  * persists the guardian-bound JWT in chrome.storage.local. The token is used
  * to authenticate the browser-relay WebSocket against the cloud gateway.
  *
+ * The gateway base URL is now resolved per-assistant: cloud-managed
+ * assistants carry a `runtimeUrl` in their lockfile entry, which the
+ * worker passes as `CloudAuthConfig.gatewayBaseUrl` when signing in or
+ * refreshing. When no assistant-specific URL is available, the caller
+ * falls back to the default cloud gateway (`https://api.vellum.ai`).
+ *
  * Also exposes {@link refreshCloudToken}, the non-interactive refresh helper
  * used by the relay reconnect path when the stored token has expired or the
  * server closed the socket with an auth-failure code. Non-interactive means
