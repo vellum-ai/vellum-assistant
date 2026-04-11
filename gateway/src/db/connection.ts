@@ -8,11 +8,16 @@ let db: Database | null = null;
 
 /**
  * @deprecated Only used for one-time migration from the legacy DB path.
- * Returns the old ~/.vellum root directory without depending on getRootDir()
- * (which is being removed as part of the BASE_DATA_DIR cleanup).
+ * Replicates the old getRootDir() logic inline so we don't depend on
+ * credential-reader.ts (getRootDir is being removed). Respects
+ * BASE_DATA_DIR for multi-instance local setups where the CLI sets it
+ * to the instance directory.
  */
 function getLegacyRootDir(): string {
-  return join(process.env.HOME ?? homedir(), ".vellum");
+  return join(
+    process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? homedir()),
+    ".vellum",
+  );
 }
 
 /**
