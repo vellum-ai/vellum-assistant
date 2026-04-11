@@ -3327,6 +3327,15 @@ public final class SettingsStore: ObservableObject {
             self.webSearchProvider = provider
         }
 
+        // Sync the global TTS provider from the daemon config so the client
+        // stays aligned after restart or reconnection. The canonical path
+        // is services.tts.provider.
+        if let services = config["services"] as? [String: Any],
+           let tts = services["tts"] as? [String: Any],
+           let ttsProvider = tts["provider"] as? String {
+            UserDefaults.standard.set(ttsProvider, forKey: "ttsProvider")
+        }
+
         Self.applyHostBrowserCdpInspectConfig(config, into: self)
 
         loadServiceModes(config: config)
