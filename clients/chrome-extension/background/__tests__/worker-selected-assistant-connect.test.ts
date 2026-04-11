@@ -219,10 +219,10 @@ describe('missing token error messages', () => {
   // testing without importing the side-effectful module.
   function missingTokenMessage(profile: AssistantAuthProfile | null): string {
     if (profile === 'cloud-oauth') {
-      return 'Sign in with Vellum (cloud) before connecting';
+      return "Automatic cloud sign-in failed \u2014 use 'Re-sign in' in Troubleshooting, then try Connect again";
     }
     if (profile === 'local-pair') {
-      return 'Pair the Vellum assistant (self-hosted) before connecting';
+      return "Automatic local pairing failed \u2014 use 'Re-pair' in Troubleshooting, then try Connect again";
     }
     if (profile === 'unsupported') {
       return 'This assistant uses an unsupported topology. Please update the Vellum extension.';
@@ -231,11 +231,11 @@ describe('missing token error messages', () => {
   }
 
   test('cloud-oauth produces cloud sign-in prompt', () => {
-    expect(missingTokenMessage('cloud-oauth')).toContain('Sign in');
+    expect(missingTokenMessage('cloud-oauth')).toContain('Re-sign in');
   });
 
   test('local-pair produces pair prompt', () => {
-    expect(missingTokenMessage('local-pair')).toContain('Pair');
+    expect(missingTokenMessage('local-pair')).toContain('Re-pair');
   });
 
   test('unsupported produces update prompt', () => {

@@ -50,10 +50,10 @@ class MissingTokenError extends Error {
 
 function missingTokenMessage(profile: AssistantAuthProfile | null): string {
   if (profile === 'cloud-oauth') {
-    return 'Sign in with Vellum (cloud) before connecting';
+    return "Automatic cloud sign-in failed \u2014 use 'Re-sign in' in Troubleshooting, then try Connect again";
   }
   if (profile === 'local-pair') {
-    return 'Pair the Vellum assistant (self-hosted) before connecting';
+    return "Automatic local pairing failed \u2014 use 'Re-pair' in Troubleshooting, then try Connect again";
   }
   if (profile === 'unsupported') {
     return 'This assistant uses an unsupported topology. Please update the Vellum extension.';
@@ -296,7 +296,7 @@ describe('connectPreflight — local-pair topology', () => {
       expect.unreachable('should have thrown');
     } catch (err) {
       expect(err).toBeInstanceOf(MissingTokenError);
-      expect((err as Error).message).toContain('Pair');
+      expect((err as Error).message).toContain('Re-pair');
     }
   });
 
@@ -443,7 +443,7 @@ describe('connectPreflight — cloud-oauth topology', () => {
       expect.unreachable('should have thrown');
     } catch (err) {
       expect(err).toBeInstanceOf(MissingTokenError);
-      expect((err as Error).message).toContain('Sign in');
+      expect((err as Error).message).toContain('Re-sign in');
     }
   });
 

@@ -239,10 +239,10 @@ If automatic bootstrap fails, use the Troubleshooting controls:
   - Chrome could not launch Node for a `dist/index.js` host path. Use a wrapper script with an absolute Node path in the manifest `path`.
 - `assistant pair request failed with HTTP 401`
   - The pair endpoint rejected `extensionOrigin`. Verify your extension ID is in `meta/browser-extension/chrome-extension-allowlist.json`, then restart the assistant so it reloads allowlist config.
-- `Sign in with Vellum (cloud) before connecting`
-  - The selected assistant uses cloud-oauth and the automatic sign-in failed. Use the "Re-sign in with Vellum (cloud)" troubleshooting button, then click Connect again.
-- `Pair the Vellum assistant (self-hosted) before connecting`
-  - The selected assistant uses local-pair and the automatic pairing failed. Use the "Re-pair with local assistant" troubleshooting button, then click Connect again.
+- `Automatic cloud sign-in failed — use 'Re-sign in' in Troubleshooting, then try Connect again`
+  - The selected assistant uses cloud-oauth and the automatic sign-in failed. Use the "Re-sign in" button in the Troubleshooting section of the popup, then click Connect again.
+- `Automatic local pairing failed — use 'Re-pair' in Troubleshooting, then try Connect again`
+  - The selected assistant uses local-pair and the automatic pairing failed. Use the "Re-pair" button in the Troubleshooting section of the popup, then click Connect again.
 - `Select an assistant before connecting`
   - No assistant is selected. The lockfile may be empty or the native messaging helper is unreachable.
 - `failed to reach assistant at http://127.0.0.1:<port>/v1/browser-extension-pair`
