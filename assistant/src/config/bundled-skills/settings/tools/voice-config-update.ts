@@ -15,10 +15,7 @@ import type {
 /**
  * Valid voice config settings and their UserDefaults key mappings.
  *
- * Canonical config paths (services.tts.*) are the source of truth.
- * Legacy aliases (tts_voice_id, fish_audio_reference_id) write to both
- * canonical and legacy config paths during the migration window. These
- * aliases will be removed in PR 10.
+ * All config paths are canonical (`services.tts.*`).
  */
 const VOICE_SETTINGS = {
   activation_key: {
@@ -177,42 +174,28 @@ export async function run(
   }
 
   // Persist to canonical config paths under services.tts.*
-  // Also write to legacy paths as temporary adapters until PR 10.
   const raw = loadRawConfig();
 
   if (setting === "tts_provider") {
-    // Canonical path
     setNestedValue(raw, "services.tts.provider", validation.coerced);
-    // Legacy alias (temporary — removed in PR 10)
-    setNestedValue(raw, "calls.voice.ttsProvider", validation.coerced);
     saveRawConfig(raw);
     invalidateConfigCache();
   }
 
   if (setting === "tts_voice_id") {
-    // Canonical path
     setNestedValue(
       raw,
       "services.tts.providers.elevenlabs.voiceId",
       validation.coerced,
     );
-    // Legacy alias (temporary — removed in PR 10)
-    setNestedValue(raw, "elevenlabs.voiceId", validation.coerced);
     saveRawConfig(raw);
     invalidateConfigCache();
   }
 
   if (setting === "conversation_timeout") {
-    // Canonical path
     setNestedValue(
       raw,
       "services.tts.providers.elevenlabs.conversationTimeoutSeconds",
-      validation.coerced,
-    );
-    // Legacy alias (temporary — removed in PR 10)
-    setNestedValue(
-      raw,
-      "elevenlabs.conversationTimeoutSeconds",
       validation.coerced,
     );
     saveRawConfig(raw);
@@ -220,14 +203,11 @@ export async function run(
   }
 
   if (setting === "fish_audio_reference_id") {
-    // Canonical path
     setNestedValue(
       raw,
       "services.tts.providers.fish-audio.referenceId",
       validation.coerced,
     );
-    // Legacy alias (temporary — removed in PR 10)
-    setNestedValue(raw, "fishAudio.referenceId", validation.coerced);
     saveRawConfig(raw);
     invalidateConfigCache();
   }

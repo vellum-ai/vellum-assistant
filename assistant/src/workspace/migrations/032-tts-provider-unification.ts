@@ -5,7 +5,7 @@ import type { WorkspaceMigration } from "./types.js";
 
 /**
  * Backfill `services.tts.provider` and `services.tts.providers.*` from
- * legacy config keys when missing.
+ * legacy config keys, then remove the legacy keys.
  *
  * Legacy keys consulted:
  *  - `calls.voice.ttsProvider`  -> `services.tts.provider`
@@ -16,8 +16,8 @@ import type { WorkspaceMigration } from "./types.js";
  * provider. Provider-specific values are copied from the legacy top-level
  * sections into their canonical `services.tts.providers.*` locations.
  *
- * Legacy fields are preserved during the transition — later PRs will
- * remove them once all callsites read from `services.tts`.
+ * After copying, legacy fields are removed so no compatibility shim is
+ * required in the runtime resolver.
  *
  * Idempotent: re-running the migration on an already-migrated config
  * produces no changes.
@@ -25,7 +25,7 @@ import type { WorkspaceMigration } from "./types.js";
 export const ttsProviderUnificationMigration: WorkspaceMigration = {
   id: "032-tts-provider-unification",
   description:
-    "Backfill services.tts.provider and services.tts.providers.* from legacy TTS config keys",
+    "Backfill services.tts.provider and services.tts.providers.* from legacy TTS config keys, then remove legacy keys",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
     if (!existsSync(configPath)) return;
@@ -85,6 +85,13 @@ export const ttsProviderUnificationMigration: WorkspaceMigration = {
       }
     }
 
+    // Clean up legacy fields — canonical paths are now fully materialised.
+    // Remove calls.voice.ttsProvider (but preserve the rest of calls.voice)
+    removeLegacyTtsProvider(config);
+    // Remove top-level elevenlabs and fishAudio sections
+    delete config.elevenlabs;
+    delete config.fishAudio;
+
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
   },
   down(workspaceDir: string): void {
@@ -100,12 +107,52 @@ export const ttsProviderUnificationMigration: WorkspaceMigration = {
       return;
     }
 
-    // Remove services.tts block added by this migration.
-    // We only remove the tts key from services — other service keys are
-    // unrelated.
+    // Restore legacy keys from canonical services.tts before removing it.
     const services = config.services;
     if (services && typeof services === "object" && !Array.isArray(services)) {
-      delete (services as Record<string, unknown>).tts;
+      const servicesObj = services as Record<string, unknown>;
+      const tts = servicesObj.tts;
+      if (tts && typeof tts === "object" && !Array.isArray(tts)) {
+        const ttsObj = tts as Record<string, unknown>;
+
+        // Restore calls.voice.ttsProvider from services.tts.provider
+        const provider = ttsObj.provider;
+        if (typeof provider === "string") {
+          const calls = ensureObj(config, "calls");
+          const voice = ensureObj(calls, "voice");
+          voice.ttsProvider = provider;
+        }
+
+        // Restore top-level elevenlabs and fishAudio from providers map
+        const providers = ttsObj.providers;
+        if (
+          providers &&
+          typeof providers === "object" &&
+          !Array.isArray(providers)
+        ) {
+          const providersObj = providers as Record<string, unknown>;
+
+          const elConfig = providersObj.elevenlabs;
+          if (
+            elConfig &&
+            typeof elConfig === "object" &&
+            !Array.isArray(elConfig)
+          ) {
+            config.elevenlabs = { ...(elConfig as Record<string, unknown>) };
+          }
+
+          const faConfig = providersObj["fish-audio"];
+          if (
+            faConfig &&
+            typeof faConfig === "object" &&
+            !Array.isArray(faConfig)
+          ) {
+            config.fishAudio = { ...(faConfig as Record<string, unknown>) };
+          }
+        }
+      }
+
+      delete servicesObj.tts;
     }
 
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
@@ -143,6 +190,19 @@ function resolveLegacyProvider(config: Record<string, unknown>): string | null {
 
   const provider = voiceObj.ttsProvider;
   return typeof provider === "string" ? provider : null;
+}
+
+/** Remove calls.voice.ttsProvider from config while preserving other voice fields. */
+function removeLegacyTtsProvider(config: Record<string, unknown>): void {
+  const calls = config.calls;
+  if (!calls || typeof calls !== "object" || Array.isArray(calls)) return;
+  const callsObj = calls as Record<string, unknown>;
+
+  const voice = callsObj.voice;
+  if (!voice || typeof voice !== "object" || Array.isArray(voice)) return;
+  const voiceObj = voice as Record<string, unknown>;
+
+  delete voiceObj.ttsProvider;
 }
 
 /** Extract legacy ElevenLabs config from top-level elevenlabs object. */

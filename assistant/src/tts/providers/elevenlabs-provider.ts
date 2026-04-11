@@ -4,12 +4,12 @@
  * Wraps the ElevenLabs REST text-to-speech API (`/v1/text-to-speech/:voiceId`)
  * behind the uniform {@link TtsProvider} interface. Reads the API key from the
  * secure credential store (`elevenlabs/api_key`) and the voice configuration
- * from the workspace `elevenlabs` config section.
+ * from `services.tts.providers.elevenlabs` config section.
  */
 
 import { getConfig } from "../../config/loader.js";
-import type { ElevenLabsConfig } from "../../config/schemas/elevenlabs.js";
 import { DEFAULT_ELEVENLABS_VOICE_ID } from "../../config/schemas/elevenlabs.js";
+import type { TtsElevenLabsProviderConfig } from "../../config/schemas/tts.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
@@ -77,7 +77,7 @@ const FORMAT_CONTENT_TYPE: Record<string, string> = {
  */
 function resolveVoiceId(
   request: TtsSynthesisRequest,
-  config: ElevenLabsConfig,
+  config: TtsElevenLabsProviderConfig,
 ): string {
   const voiceId =
     request.voiceId?.trim() || config.voiceId || DEFAULT_ELEVENLABS_VOICE_ID;
@@ -125,7 +125,7 @@ export function createElevenLabsProvider(): TtsProvider {
         );
       }
 
-      const config = getConfig().elevenlabs;
+      const config = getConfig().services.tts.providers.elevenlabs;
       const voiceId = resolveVoiceId(request, config);
       const outputFormat = resolveOutputFormat(request);
 

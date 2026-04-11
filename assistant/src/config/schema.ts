@@ -39,14 +39,10 @@ export {
   TwilioConfigSchema,
   WhatsAppConfigSchema,
 } from "./schemas/channels.js";
-export type { ElevenLabsConfig } from "./schemas/elevenlabs.js";
 export {
   DEFAULT_ELEVENLABS_VOICE_ID,
-  ElevenLabsConfigSchema,
   VALID_CONVERSATION_TIMEOUTS,
 } from "./schemas/elevenlabs.js";
-export type { FishAudioConfig } from "./schemas/fish-audio.js";
-export { FishAudioConfigSchema } from "./schemas/fish-audio.js";
 export type { HeartbeatConfig } from "./schemas/heartbeat.js";
 export { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
 export type {
@@ -222,9 +218,7 @@ import {
   TwilioConfigSchema,
   WhatsAppConfigSchema,
 } from "./schemas/channels.js";
-import { ElevenLabsConfigSchema } from "./schemas/elevenlabs.js";
 import { FilingConfigSchema } from "./schemas/filing.js";
-import { FishAudioConfigSchema } from "./schemas/fish-audio.js";
 import { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
 import { HostBrowserConfigSchema } from "./schemas/host-browser.js";
 import {
@@ -312,10 +306,6 @@ export const AssistantConfigSchema = z
     ),
     twilio: TwilioConfigSchema.default(TwilioConfigSchema.parse({})),
     calls: CallsConfigSchema.default(CallsConfigSchema.parse({})),
-    elevenlabs: ElevenLabsConfigSchema.default(
-      ElevenLabsConfigSchema.parse({}),
-    ),
-    fishAudio: FishAudioConfigSchema.default(FishAudioConfigSchema.parse({})),
     whatsapp: WhatsAppConfigSchema.default(WhatsAppConfigSchema.parse({})),
     telegram: TelegramConfigSchema.default(TelegramConfigSchema.parse({})),
     slack: SlackConfigSchema.default(SlackConfigSchema.parse({})),

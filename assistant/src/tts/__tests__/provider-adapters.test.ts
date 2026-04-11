@@ -32,8 +32,14 @@ let mockFishAudioConfig = {
 
 mock.module("../../config/loader.js", () => ({
   getConfig: () => ({
-    elevenlabs: mockElevenLabsConfig,
-    fishAudio: mockFishAudioConfig,
+    services: {
+      tts: {
+        providers: {
+          elevenlabs: mockElevenLabsConfig,
+          "fish-audio": mockFishAudioConfig,
+        },
+      },
+    },
   }),
 }));
 

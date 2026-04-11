@@ -669,7 +669,6 @@ describe("AssistantConfigSchema", () => {
       voice: {
         language: "en-US",
         transcriptionProvider: "Deepgram",
-        ttsProvider: "elevenlabs",
         hints: [],
         interruptSensitivity: "low",
       },
@@ -780,28 +779,6 @@ describe("AssistantConfigSchema", () => {
     expect(result.calls.voice.transcriptionProvider).toBe("Deepgram");
   });
 
-  test("elevenlabs tuning params have correct defaults", () => {
-    const result = AssistantConfigSchema.parse({});
-    expect(result.elevenlabs.voiceModelId).toBe("");
-    expect(result.elevenlabs.speed).toBe(1.0);
-    expect(result.elevenlabs.stability).toBe(0.5);
-    expect(result.elevenlabs.similarityBoost).toBe(0.75);
-  });
-
-  test("rejects elevenlabs.speed below 0.7", () => {
-    const result = AssistantConfigSchema.safeParse({
-      elevenlabs: { speed: 0.5 },
-    });
-    expect(result.success).toBe(false);
-  });
-
-  test("rejects elevenlabs.speed above 1.2", () => {
-    const result = AssistantConfigSchema.safeParse({
-      elevenlabs: { speed: 1.5 },
-    });
-    expect(result.success).toBe(false);
-  });
-
   test("accepts valid calls.voice overrides", () => {
     const result = AssistantConfigSchema.parse({
       calls: {
@@ -810,16 +787,9 @@ describe("AssistantConfigSchema", () => {
           transcriptionProvider: "Google",
         },
       },
-      elevenlabs: {
-        stability: 0.8,
-      },
     });
     expect(result.calls.voice.language).toBe("es-ES");
     expect(result.calls.voice.transcriptionProvider).toBe("Google");
-    expect(result.elevenlabs.stability).toBe(0.8);
-    // Defaults preserved for unset fields
-    expect(result.elevenlabs.voiceModelId).toBe("");
-    expect(result.elevenlabs.similarityBoost).toBe(0.75);
   });
 
   test("rejects invalid calls.voice.transcriptionProvider", () => {
@@ -833,13 +803,6 @@ describe("AssistantConfigSchema", () => {
         msgs.some((m) => m.includes("calls.voice.transcriptionProvider")),
       ).toBe(true);
     }
-  });
-
-  test("rejects elevenlabs.stability out of range", () => {
-    const result = AssistantConfigSchema.safeParse({
-      elevenlabs: { stability: 1.5 },
-    });
-    expect(result.success).toBe(false);
   });
 
   test("accepts optional calls.model", () => {
@@ -1141,9 +1104,13 @@ describe("resolveVoiceQualityProfile", () => {
     expect(profile.transcriptionProvider).toBe("Deepgram");
   });
 
-  test("uses shared elevenlabs.voiceId for voice", () => {
+  test("uses services.tts.providers.elevenlabs.voiceId for voice", () => {
     const config = AssistantConfigSchema.parse({
-      elevenlabs: { voiceId: "test-voice-id" },
+      services: {
+        tts: {
+          providers: { elevenlabs: { voiceId: "test-voice-id" } },
+        },
+      },
     });
     const profile = resolveVoiceQualityProfile(config);
     expect(profile.ttsProvider).toBe("ElevenLabs");
@@ -1156,14 +1123,20 @@ describe("resolveVoiceQualityProfile", () => {
     expect(profile.voice).toBe(DEFAULT_ELEVENLABS_VOICE_ID);
   });
 
-  test("applies voice tuning params from elevenlabs config", () => {
+  test("applies voice tuning params from services.tts.providers.elevenlabs config", () => {
     const config = AssistantConfigSchema.parse({
-      elevenlabs: {
-        voiceId: "abc123",
-        voiceModelId: "turbo_v2_5",
-        speed: 0.9,
-        stability: 0.8,
-        similarityBoost: 0.9,
+      services: {
+        tts: {
+          providers: {
+            elevenlabs: {
+              voiceId: "abc123",
+              voiceModelId: "turbo_v2_5",
+              speed: 0.9,
+              stability: 0.8,
+              similarityBoost: 0.9,
+            },
+          },
+        },
       },
     });
     const profile = resolveVoiceQualityProfile(config);
@@ -1211,9 +1184,15 @@ describe("buildElevenLabsVoiceSpec", () => {
 
   test("default config uses a bare voiceId when no model override is set", () => {
     const config = AssistantConfigSchema.parse({
-      elevenlabs: { voiceId: "test" },
+      services: {
+        tts: {
+          providers: { elevenlabs: { voiceId: "test" } },
+        },
+      },
     });
-    const spec = buildElevenLabsVoiceSpec(config.elevenlabs);
+    const spec = buildElevenLabsVoiceSpec(
+      config.services.tts.providers.elevenlabs,
+    );
     expect(spec).toBe("test");
   });
 });
@@ -1268,88 +1247,41 @@ describe("resolveTtsConfig", () => {
     });
   });
 
-  test("falls back to legacy elevenlabs config when voiceId differs", () => {
+  test("uses canonical elevenlabs config exclusively (no legacy fallback)", () => {
     const config = AssistantConfigSchema.parse({
-      elevenlabs: { voiceId: "legacy-voice", speed: 0.9 },
+      services: {
+        tts: {
+          providers: {
+            elevenlabs: { voiceId: "canonical-voice", speed: 0.9 },
+          },
+        },
+      },
     });
     const resolved = resolveTtsConfig(config);
     expect(resolved.provider).toBe("elevenlabs");
     expect(resolved.providerConfig).toMatchObject({
-      voiceId: "legacy-voice",
+      voiceId: "canonical-voice",
       speed: 0.9,
     });
   });
 
-  test("falls back to legacy fishAudio config when referenceId differs", () => {
-    const config = AssistantConfigSchema.parse({
-      services: { tts: { provider: "fish-audio" } },
-      fishAudio: { referenceId: "legacy-ref", format: "wav" },
-    });
-    const resolved = resolveTtsConfig(config);
-    expect(resolved.provider).toBe("fish-audio");
-    expect(resolved.providerConfig).toMatchObject({
-      referenceId: "legacy-ref",
-      format: "wav",
-    });
-  });
-
-  test("canonical config takes precedence when both are same", () => {
+  test("uses canonical fish-audio config exclusively (no legacy fallback)", () => {
     const config = AssistantConfigSchema.parse({
       services: {
         tts: {
-          provider: "elevenlabs",
+          provider: "fish-audio",
           providers: {
-            elevenlabs: {
-              voiceId: DEFAULT_ELEVENLABS_VOICE_ID,
-              stability: 0.8,
-            },
+            "fish-audio": { referenceId: "canonical-ref", format: "wav" },
           },
         },
       },
-      elevenlabs: {
-        voiceId: DEFAULT_ELEVENLABS_VOICE_ID,
-        stability: 0.5,
-      },
-    });
-    const resolved = resolveTtsConfig(config);
-    // Both have same voiceId, so canonical is returned
-    expect(resolved.providerConfig).toMatchObject({
-      voiceId: DEFAULT_ELEVENLABS_VOICE_ID,
-      stability: 0.8,
-    });
-  });
-
-  test("falls back to legacy calls.voice.ttsProvider when canonical is default", () => {
-    // Simulates a workspace where migration 032 hasn't run yet: the user
-    // configured fish-audio via the legacy key, but the canonical
-    // services.tts.provider is still the schema default ("elevenlabs").
-    const config = AssistantConfigSchema.parse({
-      calls: { voice: { ttsProvider: "fish-audio" } },
-      fishAudio: { referenceId: "legacy-fish-ref" },
     });
     const resolved = resolveTtsConfig(config);
     expect(resolved.provider).toBe("fish-audio");
     expect(resolved.providerConfig).toMatchObject({
-      referenceId: "legacy-fish-ref",
+      referenceId: "canonical-ref",
+      format: "wav",
     });
-  });
-
-  test("canonical provider takes precedence over legacy when explicitly set", () => {
-    // User has explicitly set services.tts.provider to "elevenlabs" — even
-    // though calls.voice.ttsProvider says "fish-audio", the canonical value
-    // is not just a schema default so it should win.
-    const config = AssistantConfigSchema.parse({
-      services: { tts: { provider: "elevenlabs" } },
-      calls: { voice: { ttsProvider: "fish-audio" } },
-    });
-    const resolved = resolveTtsConfig(config);
-    // Both canonical and legacy provider are populated, but the canonical
-    // value matches the default. Since we can't distinguish "explicitly set
-    // to elevenlabs" from "schema-defaulted to elevenlabs" via Zod, the
-    // legacy provider wins here. This is the safe-side behaviour: once
-    // migration 032 runs it will copy the legacy value into canonical,
-    // making them agree.
-    expect(resolved.provider).toBe("fish-audio");
   });
 
   test("returns empty config for unknown provider", () => {
@@ -1451,16 +1383,16 @@ describe("032-tts-provider-unification migration", () => {
     expect(providers["fish-audio"].format).toBe("wav");
   });
 
-  test("preserves legacy fields during migration", async () => {
+  test("removes legacy fields after migration", async () => {
     writeMigConfig({
-      calls: { voice: { ttsProvider: "elevenlabs" } },
+      calls: { voice: { ttsProvider: "elevenlabs", language: "en-US" } },
       elevenlabs: { voiceId: "my-voice" },
     });
     const { ttsProviderUnificationMigration } =
       await import("../workspace/migrations/032-tts-provider-unification.js");
     await ttsProviderUnificationMigration.run(migrationDir);
     const result = readMigConfig();
-    // Legacy keys still present
+    // Legacy keys removed
     expect(
       (
         (result.calls as Record<string, unknown>).voice as Record<
@@ -1468,10 +1400,17 @@ describe("032-tts-provider-unification migration", () => {
           unknown
         >
       ).ttsProvider,
-    ).toBe("elevenlabs");
-    expect((result.elevenlabs as Record<string, unknown>).voiceId).toBe(
-      "my-voice",
-    );
+    ).toBeUndefined();
+    expect(result.elevenlabs).toBeUndefined();
+    // Other voice fields preserved
+    expect(
+      (
+        (result.calls as Record<string, unknown>).voice as Record<
+          string,
+          unknown
+        >
+      ).language,
+    ).toBe("en-US");
   });
 
   test("is idempotent — repeated runs produce no changes", async () => {
@@ -1528,6 +1467,8 @@ describe("032-tts-provider-unification migration", () => {
     // Canonical voiceId preserved, legacy speed backfilled
     expect(providers.elevenlabs.voiceId).toBe("canonical-voice");
     expect(providers.elevenlabs.speed).toBe(0.8);
+    // Legacy top-level key removed
+    expect(result.elevenlabs).toBeUndefined();
   });
 
   test("skips config without any legacy TTS fields", async () => {
@@ -1764,6 +1705,9 @@ describe("loadConfig with schema validation", () => {
     expect(config.calls.safety.denyCategories).toEqual([]);
     expect(config.calls.voice.language).toBe("en-US");
     expect(config.calls.voice.transcriptionProvider).toBe("Deepgram");
+    expect(
+      (config.calls.voice as Record<string, unknown>).ttsProvider,
+    ).toBeUndefined();
     expect(config.calls.model).toBeUndefined();
     expect(config.calls.callerIdentity).toEqual({
       allowPerCallOverride: true,

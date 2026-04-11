@@ -1,4 +1,5 @@
 import { loadConfig } from "../config/loader.js";
+import { DEFAULT_ELEVENLABS_VOICE_ID } from "../config/schemas/elevenlabs.js";
 import { getTtsProvider } from "../tts/provider-registry.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 
@@ -89,7 +90,13 @@ export function resolveVoiceQualityProfile(
     transcriptionProvider: voice.transcriptionProvider,
     speechModel: effectiveSpeechModel,
     ttsProvider: usesSynthesizedPath ? "Google" : "ElevenLabs",
-    voice: usesSynthesizedPath ? "" : buildElevenLabsVoiceSpec(cfg.elevenlabs),
+    voice: usesSynthesizedPath
+      ? ""
+      : buildElevenLabsVoiceSpec(
+          cfg.services?.tts?.providers?.elevenlabs ?? {
+            voiceId: DEFAULT_ELEVENLABS_VOICE_ID,
+          },
+        ),
     interruptSensitivity: voice.interruptSensitivity ?? "low",
     hints: voice.hints ?? [],
   };
