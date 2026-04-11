@@ -604,14 +604,13 @@ async function buildRelayModeForAssistant(
         local = await bootstrapLocalToken(assistant.assistantId);
       } catch (err) {
         // Non-recoverable native-host failures (missing host, forbidden
-        // origin, pair endpoint failure) — fall through to the
-        // token-less error path below so the caller surfaces an
-        // actionable error.
+        // origin, pair endpoint failure) — leave the original `local`
+        // value unchanged so a stale-but-not-expired token can still be
+        // used. If the original was already null, nothing changes.
         const detail = err instanceof Error ? err.message : String(err);
         console.warn(
           `[vellum-relay] Silent local token refresh failed: ${detail}`,
         );
-        local = null;
       }
     }
 
@@ -886,11 +885,12 @@ function createRelayConnection(
         try {
           local = await bootstrapLocalToken(selectedId);
         } catch (err) {
+          // Leave original `local` value unchanged so a stale-but-not-expired
+          // token can still be used on reconnect.
           const detail = err instanceof Error ? err.message : String(err);
           console.warn(
             `[vellum-relay] Silent local token refresh on reconnect failed: ${detail}`,
           );
-          local = null;
         }
       }
 
