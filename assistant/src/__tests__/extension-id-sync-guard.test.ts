@@ -23,6 +23,7 @@ const CANONICAL_CONFIG_REL_PATH =
 const CANONICAL_CONFIG_ABS_PATH = join(repoRoot, CANONICAL_CONFIG_REL_PATH);
 
 const EXTENSION_ID_REGEX = /^[a-p]{32}$/;
+const PLACEHOLDER_ID_REGEX = /^TODO_[A-Z0-9_]+$/;
 
 type AllowlistConfig = {
   version: number;
@@ -48,19 +49,32 @@ function parseCanonicalConfig(): AllowlistConfig {
   }
 
   const seen = new Set<string>();
+  const validIds: string[] = [];
   for (const id of parsed.allowedExtensionIds) {
-    if (typeof id !== "string" || !EXTENSION_ID_REGEX.test(id)) {
+    if (typeof id !== "string") {
       throw new Error(`Invalid canonical extension id: ${String(id)}`);
     }
     if (seen.has(id)) {
       throw new Error(`Duplicate canonical extension id: ${id}`);
     }
     seen.add(id);
+
+    if (EXTENSION_ID_REGEX.test(id)) {
+      validIds.push(id);
+    } else if (!PLACEHOLDER_ID_REGEX.test(id)) {
+      throw new Error(`Invalid canonical extension id: ${id}`);
+    }
+  }
+
+  if (validIds.length === 0) {
+    throw new Error(
+      "Invalid canonical config: allowedExtensionIds must contain at least one real extension id",
+    );
   }
 
   return {
     version: parsed.version as number,
-    allowedExtensionIds: parsed.allowedExtensionIds as string[],
+    allowedExtensionIds: validIds,
   };
 }
 
