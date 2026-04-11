@@ -65,11 +65,12 @@ const createCdpInspectClientMock = mock(
 );
 
 /**
- * Mutable config state. Tests flip `cdpInspectEnabled` to control
- * the factory's config-based selection without needing a real config
- * file.
+ * Mutable config state. Tests flip `cdpInspectEnabled` and
+ * `desktopAutoConfig` to control the factory's config-based selection
+ * without needing a real config file.
  */
 let cdpInspectEnabled = false;
+let desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
 
 mock.module("../extension-cdp-client.js", () => ({
   createExtensionCdpClient: createExtensionCdpClientMock,
@@ -88,6 +89,7 @@ mock.module("../../../../config/loader.js", () => ({
         host: "localhost",
         port: 9222,
         probeTimeoutMs: 500,
+        desktopAuto: desktopAutoConfig,
       },
     },
   }),
@@ -95,8 +97,15 @@ mock.module("../../../../config/loader.js", () => ({
 
 // Import under test AFTER mock.module calls so that the factory's
 // top-level imports resolve to our fakes.
-const { getCdpClient, buildCandidateList, buildChainedClient } =
-  await import("../factory.js");
+const {
+  getCdpClient,
+  buildCandidateList,
+  buildChainedClient,
+  _resetDesktopAutoCooldown,
+  _getDesktopAutoCooldownSince,
+  recordDesktopAutoCooldown,
+  isDesktopAutoCooldownActive,
+} = await import("../factory.js");
 
 /**
  * Minimal ToolContext suitable for factory tests. Only the fields the
@@ -139,6 +148,8 @@ describe("getCdpClient", () => {
     lastLocalClient = undefined;
     lastCdpInspectClient = undefined;
     cdpInspectEnabled = false;
+    desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
+    _resetDesktopAutoCooldown();
   });
 
   // ── Candidate selection (kind reported before first send) ────────────
@@ -565,6 +576,8 @@ describe("getCdpClient", () => {
 describe("buildCandidateList", () => {
   beforeEach(() => {
     cdpInspectEnabled = false;
+    desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
+    _resetDesktopAutoCooldown();
   });
 
   test("includes extension candidate when proxy is present and available", () => {
@@ -642,6 +655,8 @@ describe("buildChainedClient failover", () => {
     lastLocalClient = undefined;
     lastCdpInspectClient = undefined;
     cdpInspectEnabled = false;
+    desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
+    _resetDesktopAutoCooldown();
   });
 
   test("fails over from extension to local on transport_error", async () => {
@@ -937,5 +952,243 @@ describe("buildChainedClient failover", () => {
     // failover (via manager.disposeAll()), and local's dispose should
     // be called now
     expect(lastLocalClient?.dispose).toHaveBeenCalled();
+  });
+});
+
+// ── Desktop-auto cdp-inspect for macOS ──────────────────────────────────
+
+describe("desktop-auto cdp-inspect (macOS)", () => {
+  beforeEach(() => {
+    createExtensionCdpClientMock.mockClear();
+    createLocalCdpClientMock.mockClear();
+    createCdpInspectClientMock.mockClear();
+    lastExtensionClient = undefined;
+    lastLocalClient = undefined;
+    lastCdpInspectClient = undefined;
+    cdpInspectEnabled = false;
+    desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
+    _resetDesktopAutoCooldown();
+  });
+
+  // ── buildCandidateList with desktopAuto ─────────────────────────────
+
+  test("macOS turn includes cdp-inspect candidate even when enabled is false", () => {
+    const ctx = makeContext({
+      conversationId: "macos-auto",
+      transportInterface: "macos",
+    });
+
+    const candidates = buildCandidateList(ctx);
+
+    expect(candidates.length).toBe(2);
+    expect(candidates[0].kind).toBe("cdp-inspect");
+    expect(candidates[0].reason).toContain("desktopAuto");
+    expect(candidates[1].kind).toBe("local");
+  });
+
+  test("macOS turn with extension available: extension > cdp-inspect > local", () => {
+    const fakeProxy = makeAvailableProxy();
+    const ctx = makeContext({
+      conversationId: "macos-all",
+      hostBrowserProxy: fakeProxy,
+      transportInterface: "macos",
+    });
+
+    const candidates = buildCandidateList(ctx);
+
+    expect(candidates.length).toBe(3);
+    expect(candidates[0].kind).toBe("extension");
+    expect(candidates[1].kind).toBe("cdp-inspect");
+    expect(candidates[1].reason).toContain("desktopAuto");
+    expect(candidates[2].kind).toBe("local");
+  });
+
+  test("macOS turn does NOT include cdp-inspect when desktopAuto.enabled is false", () => {
+    desktopAutoConfig = { enabled: false, cooldownMs: 30_000 };
+    const ctx = makeContext({
+      conversationId: "macos-no-auto",
+      transportInterface: "macos",
+    });
+
+    const candidates = buildCandidateList(ctx);
+
+    expect(candidates.length).toBe(1);
+    expect(candidates[0].kind).toBe("local");
+  });
+
+  test("non-macOS turn does NOT include cdp-inspect when enabled is false", () => {
+    const ctx = makeContext({
+      conversationId: "cli-no-auto",
+      transportInterface: "cli",
+    });
+
+    const candidates = buildCandidateList(ctx);
+
+    expect(candidates.length).toBe(1);
+    expect(candidates[0].kind).toBe("local");
+  });
+
+  test("non-macOS turn without transportInterface does NOT include cdp-inspect", () => {
+    const ctx = makeContext({
+      conversationId: "no-interface-no-auto",
+    });
+
+    const candidates = buildCandidateList(ctx);
+
+    expect(candidates.length).toBe(1);
+    expect(candidates[0].kind).toBe("local");
+  });
+
+  test("explicit cdpInspect.enabled takes precedence over desktopAuto on macOS", () => {
+    cdpInspectEnabled = true;
+    const ctx = makeContext({
+      conversationId: "macos-explicit",
+      transportInterface: "macos",
+    });
+
+    const candidates = buildCandidateList(ctx);
+
+    // Should include cdp-inspect via the explicit path, not desktopAuto
+    expect(candidates.length).toBe(2);
+    expect(candidates[0].kind).toBe("cdp-inspect");
+    expect(candidates[0].reason).toBe("cdpInspect enabled in config");
+    expect(candidates[1].kind).toBe("local");
+  });
+
+  // ── Cooldown behaviour ──────────────────────────────────────────────
+
+  test("macOS turn skips cdp-inspect when cooldown is active", () => {
+    // Record a cooldown
+    recordDesktopAutoCooldown();
+
+    const ctx = makeContext({
+      conversationId: "macos-cooldown",
+      transportInterface: "macos",
+    });
+
+    const candidates = buildCandidateList(ctx);
+
+    // Should skip cdp-inspect and only include local
+    expect(candidates.length).toBe(1);
+    expect(candidates[0].kind).toBe("local");
+  });
+
+  test("macOS turn includes cdp-inspect after cooldown expires", () => {
+    // Set cooldown to 0 (disabled)
+    desktopAutoConfig = { enabled: true, cooldownMs: 0 };
+
+    // Record a "cooldown" -- but with cooldownMs=0 it should be ignored
+    recordDesktopAutoCooldown();
+
+    const ctx = makeContext({
+      conversationId: "macos-expired-cooldown",
+      transportInterface: "macos",
+    });
+
+    const candidates = buildCandidateList(ctx);
+
+    // cooldownMs=0 means never suppress
+    expect(candidates.length).toBe(2);
+    expect(candidates[0].kind).toBe("cdp-inspect");
+    expect(candidates[1].kind).toBe("local");
+  });
+
+  // ── Cooldown recording on transport failures ───────────────────────
+
+  test("desktop-auto cdp-inspect transport failure records cooldown", async () => {
+    // Make cdp-inspect fail with transport_error
+    createCdpInspectClientMock.mockImplementationOnce(
+      (conversationId: string) => {
+        const c = makeFakeCdpInspectClient(conversationId);
+        c.send = mock(async () => {
+          throw new CdpError("transport_error", "Connection refused", {
+            cdpMethod: "Page.navigate",
+          });
+        });
+        lastCdpInspectClient = c;
+        return c;
+      },
+    );
+
+    const ctx = makeContext({
+      conversationId: "macos-cooldown-record",
+      transportInterface: "macos",
+    });
+
+    const client = getCdpClient(ctx);
+
+    // First send: cdp-inspect fails, falls over to local
+    const result = await client.send<{ ok: boolean; via: string }>(
+      "Page.navigate",
+    );
+    expect(result).toEqual({ ok: true, via: "local" });
+
+    // Cooldown should now be active
+    expect(_getDesktopAutoCooldownSince()).toBeGreaterThan(0);
+    expect(isDesktopAutoCooldownActive(30_000)).toBe(true);
+
+    // Subsequent buildCandidateList should skip cdp-inspect
+    client.dispose();
+    const ctx2 = makeContext({
+      conversationId: "macos-after-cooldown",
+      transportInterface: "macos",
+    });
+    const candidates = buildCandidateList(ctx2);
+    expect(candidates.length).toBe(1);
+    expect(candidates[0].kind).toBe("local");
+  });
+
+  test("explicit config cdp-inspect failure does NOT record desktop-auto cooldown", async () => {
+    cdpInspectEnabled = true;
+
+    // Make cdp-inspect fail with transport_error
+    createCdpInspectClientMock.mockImplementationOnce(
+      (conversationId: string) => {
+        const c = makeFakeCdpInspectClient(conversationId);
+        c.send = mock(async () => {
+          throw new CdpError("transport_error", "Connection refused", {
+            cdpMethod: "Page.navigate",
+          });
+        });
+        lastCdpInspectClient = c;
+        return c;
+      },
+    );
+
+    const ctx = makeContext({
+      conversationId: "explicit-no-cooldown",
+      transportInterface: "macos",
+    });
+
+    const client = getCdpClient(ctx);
+    await client.send<{ ok: boolean; via: string }>("Page.navigate");
+    client.dispose();
+
+    // Cooldown should NOT be recorded for explicit config candidates
+    expect(_getDesktopAutoCooldownSince()).toBe(0);
+  });
+
+  // ── Cooldown utility function tests ─────────────────────────────────
+
+  test("isDesktopAutoCooldownActive returns false when no cooldown recorded", () => {
+    expect(isDesktopAutoCooldownActive(30_000)).toBe(false);
+  });
+
+  test("isDesktopAutoCooldownActive returns false when cooldownMs is 0", () => {
+    recordDesktopAutoCooldown();
+    expect(isDesktopAutoCooldownActive(0)).toBe(false);
+  });
+
+  test("isDesktopAutoCooldownActive returns true within the window", () => {
+    recordDesktopAutoCooldown();
+    expect(isDesktopAutoCooldownActive(30_000)).toBe(true);
+  });
+
+  test("_resetDesktopAutoCooldown clears the cooldown", () => {
+    recordDesktopAutoCooldown();
+    expect(isDesktopAutoCooldownActive(30_000)).toBe(true);
+    _resetDesktopAutoCooldown();
+    expect(isDesktopAutoCooldownActive(30_000)).toBe(false);
+    expect(_getDesktopAutoCooldownSince()).toBe(0);
   });
 });

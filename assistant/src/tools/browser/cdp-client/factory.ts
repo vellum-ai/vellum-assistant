@@ -23,6 +23,58 @@ import type {
 
 const log = getLogger("cdp-factory");
 
+// ---------------------------------------------------------------------------
+// Desktop-auto cdp-inspect cooldown tracker
+// ---------------------------------------------------------------------------
+
+/**
+ * Module-level timestamp (epoch ms) of the last transport-level failure for
+ * a desktop-auto cdp-inspect attempt. While `Date.now() - _desktopAutoCooldownSince`
+ * is less than the configured `desktopAuto.cooldownMs`, the factory skips the
+ * automatic cdp-inspect candidate and goes straight to the local backend.
+ *
+ * Reset to 0 when the cooldown expires or when manually cleared via
+ * {@link _resetDesktopAutoCooldown} (for testing).
+ */
+let _desktopAutoCooldownSince = 0;
+
+/**
+ * Record a cooldown after a desktop-auto cdp-inspect transport failure.
+ * Called by {@link maybeRecordDesktopAutoCooldown} in production; also
+ * exported directly for use in tests.
+ */
+export function recordDesktopAutoCooldown(): void {
+  _desktopAutoCooldownSince = Date.now();
+}
+
+/**
+ * Whether the desktop-auto cdp-inspect cooldown is currently active.
+ * Returns `true` if a failure was recorded and the configured cooldown
+ * window has not yet elapsed.
+ */
+export function isDesktopAutoCooldownActive(cooldownMs: number): boolean {
+  if (_desktopAutoCooldownSince === 0 || cooldownMs <= 0) return false;
+  return Date.now() - _desktopAutoCooldownSince < cooldownMs;
+}
+
+/**
+ * Reset the desktop-auto cooldown state. Exported for testing only.
+ */
+export function _resetDesktopAutoCooldown(): void {
+  _desktopAutoCooldownSince = 0;
+}
+
+/**
+ * Get the raw cooldown-since timestamp. Exported for testing only.
+ */
+export function _getDesktopAutoCooldownSince(): number {
+  return _desktopAutoCooldownSince;
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
 /**
  * Select the appropriate CdpClient implementation for a tool
  * invocation based on the ToolContext and config. Three backends are
@@ -36,6 +88,9 @@ const log = getLogger("cdp-factory");
  *  2. **cdp-inspect** -- When `hostBrowser.cdpInspect.enabled` is
  *     `true` in config, construct a `CdpInspectClient` that attaches
  *     to an already-running Chrome via the DevTools JSON protocol.
+ *     On macOS, cdp-inspect is also included automatically when
+ *     `desktopAuto.enabled` is true (the default), even when the
+ *     top-level `enabled` flag is false.
  *  3. **Local** -- Default. Drives Playwright's CDPSession against
  *     the sacrificial-profile browser managed by browserManager.
  *
@@ -120,9 +175,10 @@ export function buildCandidateList(context: ToolContext): BackendCandidate[] {
     );
   }
 
-  // 2. cdp-inspect -- opt-in via config.
+  // 2. cdp-inspect -- opt-in via config OR desktop-auto for macOS turns.
   const cdpInspectConfig = getConfig().hostBrowser.cdpInspect;
   if (cdpInspectConfig.enabled) {
+    // Explicitly enabled in config -- always include regardless of platform.
     candidates.push({
       kind: "cdp-inspect",
       reason: "cdpInspect enabled in config",
@@ -141,6 +197,43 @@ export function buildCandidateList(context: ToolContext): BackendCandidate[] {
         return { client, backend };
       },
     });
+  } else if (
+    context.transportInterface === "macos" &&
+    cdpInspectConfig.desktopAuto.enabled
+  ) {
+    // macOS desktop-auto: include cdp-inspect as a candidate unless the
+    // cooldown from a recent failure is still active.
+    const { cooldownMs } = cdpInspectConfig.desktopAuto;
+    if (isDesktopAutoCooldownActive(cooldownMs)) {
+      log.debug(
+        {
+          conversationId,
+          cooldownMs,
+          cooldownSince: _desktopAutoCooldownSince,
+        },
+        "CDP factory: desktop-auto cdp-inspect skipped (cooldown active)",
+      );
+    } else {
+      candidates.push({
+        kind: "cdp-inspect",
+        reason: "desktopAuto: macOS turn, cdp-inspect auto-attempted",
+        create() {
+          const client = createCdpInspectClient(conversationId, {
+            host: cdpInspectConfig.host,
+            port: cdpInspectConfig.port,
+            discoveryTimeoutMs: cdpInspectConfig.probeTimeoutMs,
+            wsConnectTimeoutMs: cdpInspectConfig.probeTimeoutMs,
+          });
+          const backend = createCdpInspectBackend({
+            isAvailable: () => true,
+            sendCdp: (command, signal) =>
+              dispatchThroughClient(client, command, signal),
+            dispose: () => client.dispose(),
+          });
+          return { client, backend };
+        },
+      });
+    }
   }
 
   // 3. Local -- always present as the final fallback.
@@ -271,6 +364,10 @@ export function buildChainedClient(
  * Walk the candidate list attempting to execute a single CDP command.
  * Transport-level failures trigger failover to the next candidate;
  * CDP protocol errors propagate immediately.
+ *
+ * When a desktop-auto cdp-inspect candidate fails with a transport
+ * error, the factory records a cooldown so subsequent calls skip the
+ * probe until the window expires.
  */
 async function sendWithFailover<T>(
   candidates: BackendCandidate[],
@@ -323,6 +420,7 @@ async function sendWithFailover<T>(
         `Backend ${candidate.kind} construction failed: ${err instanceof Error ? err.message : String(err)}`,
         { cdpMethod: method, cdpParams: params, underlying: err },
       );
+      maybeRecordDesktopAutoCooldown(candidate);
       continue;
     }
 
@@ -347,6 +445,7 @@ async function sendWithFailover<T>(
         `Backend ${candidate.kind} send threw: ${err instanceof Error ? err.message : String(err)}`,
         { cdpMethod: method, cdpParams: params, underlying: err },
       );
+      maybeRecordDesktopAutoCooldown(candidate);
       continue;
     }
 
@@ -367,6 +466,7 @@ async function sendWithFailover<T>(
         );
         manager.disposeAll();
         lastError = cdpError;
+        maybeRecordDesktopAutoCooldown(candidate);
         continue;
       }
 
@@ -392,6 +492,22 @@ async function sendWithFailover<T>(
       cdpParams: params,
     })
   );
+}
+
+/**
+ * If the failed candidate is a desktop-auto cdp-inspect attempt,
+ * record the cooldown so subsequent calls skip the probe.
+ */
+function maybeRecordDesktopAutoCooldown(candidate: BackendCandidate): void {
+  if (
+    candidate.kind === "cdp-inspect" &&
+    candidate.reason.startsWith("desktopAuto:")
+  ) {
+    log.debug(
+      "CDP factory: recording desktop-auto cdp-inspect cooldown after transport failure",
+    );
+    recordDesktopAutoCooldown();
+  }
 }
 
 /**
