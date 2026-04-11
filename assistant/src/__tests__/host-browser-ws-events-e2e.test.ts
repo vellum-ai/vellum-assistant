@@ -299,8 +299,8 @@ describe("host_browser WS event + invalidation e2e", () => {
     await mockExt.waitForConnection();
     await waitForRegistryEntry(guardianId);
 
-    // Grab the initial lastActiveAt timestamp so we can verify it
-    // was bumped by the keepalive.
+    // Grab the initial timestamps so we can verify that keepalive
+    // bumps lastKeepaliveAt but NOT lastActiveAt (routing field).
     const connBefore = getChromeExtensionRegistry().get(guardianId)!;
     const lastActiveBefore = connBefore.lastActiveAt;
 
@@ -313,14 +313,17 @@ describe("host_browser WS event + invalidation e2e", () => {
     // runtime should silently ignore (lenient validation).
     mockExt.sendRaw(JSON.stringify({ type: "keepalive", ts: Date.now() }));
 
-    // Wait for the touch to propagate.
+    // Wait for the touch to propagate — touch() updates
+    // lastKeepaliveAt (not lastActiveAt) to avoid routing interference.
     await waitFor(() => {
       const conn = getChromeExtensionRegistry().get(guardianId);
-      return conn !== undefined && conn.lastActiveAt > lastActiveBefore;
+      return conn !== undefined && (conn.lastKeepaliveAt ?? 0) > 0;
     });
 
     const connAfter = getChromeExtensionRegistry().get(guardianId)!;
-    expect(connAfter.lastActiveAt).toBeGreaterThan(lastActiveBefore);
+    expect(connAfter.lastKeepaliveAt).toBeGreaterThan(0);
+    // lastActiveAt must remain unchanged — keepalives must not affect routing.
+    expect(connAfter.lastActiveAt).toBe(lastActiveBefore);
 
     // Verify the socket is still alive by sending a normal host_browser_event
     // frame after the keepalive — if the socket had been torn down, this
