@@ -105,6 +105,15 @@ private struct DeveloperSettingsSectionContent: View {
                     }
                 }
             }
+
+            Section("Auth State") {
+                let hasToken = SessionTokenManager.getToken() != nil
+                let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+                LabeledContent("Session Token", value: hasToken ? "Present" : "Missing")
+                    .foregroundStyle(hasToken ? VColor.contentDefault : VColor.systemNegativeStrong)
+                LabeledContent("Organization ID", value: orgId ?? "Missing")
+                    .foregroundStyle(orgId != nil ? VColor.contentDefault : VColor.systemNegativeStrong)
+            }
         }
         .navigationTitle("Developer")
         .navigationBarTitleDisplayMode(.inline)
