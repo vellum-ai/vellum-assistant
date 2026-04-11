@@ -390,7 +390,7 @@ export async function drainQueue(
     // inherit a stale override left by a prior extension-connected turn
     // and keep the proxy alive, causing cross-interface misrouting.
     const currentTurnCanServiceBrowser =
-      canServiceRegistryBrowser(sourceInterface);
+      !!sourceInterface && canServiceRegistryBrowser(sourceInterface);
     if (
       sourceInterface &&
       !supportsHostProxy(sourceInterface, "host_browser") &&
