@@ -85,3 +85,23 @@ public struct WorkspaceFileResponse: Codable, Sendable {
         self.isBinary = isBinary
     }
 }
+
+// MARK: - Workspace files list (distinct from tree)
+
+/// A single entry in the `GET /workspace-files` response.
+///
+/// This endpoint is distinct from the workspace tree API: it returns a flat,
+/// server-curated list of the well-known workspace files the UI cares about
+/// (`IDENTITY.md`, `SOUL.md`, the user persona file, `skills/`), including
+/// dynamic entries such as the guardian's per-user persona path at
+/// `users/<slug>.md`.
+public struct WorkspaceFilesListEntry: Codable, Sendable {
+    public let path: String
+    public let name: String
+    public let exists: Bool
+}
+
+/// Response shape from `GET /workspace-files`.
+public struct WorkspaceFilesListResponse: Codable, Sendable {
+    public let files: [WorkspaceFilesListEntry]
+}
