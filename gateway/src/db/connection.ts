@@ -20,15 +20,24 @@ function migrateLegacyDb(newPath: string): void {
 
   try {
     renameSync(legacyPath, newPath);
-    // Move WAL/SHM sidecar files if present
-    for (const suffix of ["-wal", "-shm"]) {
-      const old = legacyPath + suffix;
-      if (existsSync(old)) renameSync(old, newPath + suffix);
-    }
   } catch {
     // Cross-device rename not possible (e.g. Docker volumes) — the
     // legacy DB was on ephemeral storage anyway, so just let the
     // new DB be created fresh.
+    return;
+  }
+
+  // Move WAL/SHM sidecar files if present. Done in a separate
+  // try/catch so a sidecar failure doesn't mask that the main
+  // DB file was already moved successfully.
+  for (const suffix of ["-wal", "-shm"]) {
+    try {
+      const old = legacyPath + suffix;
+      if (existsSync(old)) renameSync(old, newPath + suffix);
+    } catch {
+      // Best-effort — SQLite will recover from a missing WAL/SHM
+      // by rolling back to the last checkpointed state.
+    }
   }
 }
 

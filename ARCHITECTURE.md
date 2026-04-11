@@ -149,7 +149,7 @@ Docker instances use dedicated volumes with per-service access boundaries instea
 ```
 
 - **Workspace volume** (`/workspace`): Shared state — config, conversations, apps, skills, database, logs. Set via `VELLUM_WORKSPACE_DIR=/workspace`. The assistant and gateway have read-write access; the CES mounts it read-only (for config reading).
-- **Gateway security volume** (`/gateway-security`): Trust rules (`trust.json`), actor token signing key, and guardian init lock. Only the gateway container mounts this volume. Set via `GATEWAY_SECURITY_DIR=/gateway-security`.
+- **Gateway security volume** (`/gateway-security`): Trust rules (`trust.json`), actor token signing key, guardian init lock, and the gateway SQLite database (`gateway.sqlite`). Only the gateway container mounts this volume. Set via `GATEWAY_SECURITY_DIR=/gateway-security`.
 - **CES security volume** (`/ces-security`): Credential encryption keys (`keys.enc`, `store.key`). Only the CES container mounts this volume. Set via `CREDENTIAL_SECURITY_DIR=/ces-security`.
 - **Socket volume** (`/run/ces-bootstrap`): CES bootstrap socket for initial service handshake between the assistant and CES containers.
 

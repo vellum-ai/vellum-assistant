@@ -57,7 +57,9 @@ function readWorkspaceConfig(): Record<string, unknown> {
 }
 
 /**
- * Directory containing gateway security files (trust.json, actor-token-signing-key).
+ * Directory containing gateway-owned persistent files: security files
+ * (trust.json, actor-token-signing-key) and the gateway SQLite database
+ * (gateway.sqlite).
  *
  * In Docker, this is a dedicated volume mounted at /gateway-security via the
  * GATEWAY_SECURITY_DIR env var. In local (non-Docker) mode, falls back to
