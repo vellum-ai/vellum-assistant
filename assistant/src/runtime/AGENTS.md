@@ -75,6 +75,27 @@ Capability token bootstrap for self-hosted deployments is handled by `routes/bro
 
 See `docs/browser-use-architecture-phase2.md` for the full wire diagram and component inventory.
 
+### Canonical browser backend precedence (macOS)
+
+On macOS-originated turns, the CDP factory (`tools/browser/cdp-client/factory.ts`) evaluates three browser backends in strict priority order. Each candidate is tried lazily; if the first command fails with a transport-level error, the factory falls over to the next candidate. CDP protocol errors (the browser understood the command but rejected it) do NOT trigger failover.
+
+| Priority | Backend         | Condition                                                                                                                                                                                           | Source                                                                                 |
+| -------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| 1        | **Extension**   | `hostBrowserProxy` present AND `isAvailable()` returns `true` (registry-routed WebSocket is connected)                                                                                              | `ChromeExtensionRegistry` via `resolveHostBrowserSender()` in `conversation-routes.ts` |
+| 2        | **cdp-inspect** | (a) `hostBrowser.cdpInspect.enabled` is `true` in config, OR (b) `transportInterface === "macos"` AND `desktopAuto.enabled` is `true` (default) AND the cooldown from a prior failure is not active | Config + `desktopAuto` policy in factory                                               |
+| 3        | **Local**       | Always present as the final fallback                                                                                                                                                                | Playwright sacrificial-profile browser managed by `browserManager`                     |
+
+**Fallback criteria for cdp-inspect (desktop-auto):**
+
+- On macOS, `desktopAuto.enabled` defaults to `true`, so cdp-inspect is attempted even when the top-level `cdpInspect.enabled` is `false`.
+- If the cdp-inspect probe fails (Chrome was not launched with `--remote-debugging-port`, or the endpoint is unreachable), the factory records a cooldown timestamp (`desktopAuto.cooldownMs`, default 30 seconds).
+- While the cooldown is active, subsequent macOS turns skip the cdp-inspect candidate entirely and go straight to local, bounding the per-call latency penalty to one `probeTimeoutMs` (default 500ms) per cooldown window.
+- The cooldown only applies to desktop-auto candidates (reason starts with `"desktopAuto:"`). Explicitly configured cdp-inspect (`enabled: true`) is never cooldown-suppressed.
+
+**After the first successful CDP command**, the selected backend becomes **sticky** for the remainder of the tool invocation. Subsequent commands always route through the same backend so multi-command tool flows do not hop transports mid-step.
+
+**Test coverage:** E2E regression tests for this precedence order live in `__tests__/host-browser-e2e-cloud.test.ts` (extension path) and `__tests__/conversation-routes-disk-view.test.ts` (macOS fallback path). Unit tests for candidate list construction and failover live in `tools/browser/cdp-client/__tests__/factory.test.ts`.
+
 ### Channel approvals (Telegram, Slack)
 
 Channel approval flows use `requestId` (not `runId`) as the primary identifier:
