@@ -37,6 +37,7 @@ import {
   shouldShowCloudSection,
   deriveCtaState,
   deriveStatusDisplay,
+  deriveSetupMessage,
   type ConnectionPhase,
   type AssistantsGetResponse,
   type AssistantSelectResponse,
@@ -52,6 +53,7 @@ const btnPause = document.getElementById('btn-pause') as HTMLButtonElement;
 const statusDot = document.getElementById('status-dot') as HTMLDivElement;
 const statusText = document.getElementById('status-text') as HTMLParagraphElement;
 const errorText = document.getElementById('error-text') as HTMLParagraphElement;
+const setupMessage = document.getElementById('setup-message') as HTMLParagraphElement;
 const btnCloudSignIn = document.getElementById('btn-cloud-signin') as HTMLButtonElement;
 const cloudStatus = document.getElementById('cloud-status') as HTMLParagraphElement;
 const btnPairLocal = document.getElementById('btn-pair-local') as HTMLButtonElement;
@@ -82,6 +84,19 @@ let currentAssistantId: string | null = null;
 // ── Connection phase management ─────────────────────────────────────
 
 /**
+ * Show or hide the setup-message element based on the current phase.
+ */
+function setSetupMessage(phase: ConnectionPhase): void {
+  const msg = deriveSetupMessage(phase);
+  if (msg) {
+    setupMessage.textContent = msg;
+    setupMessage.style.display = 'block';
+  } else {
+    setupMessage.style.display = 'none';
+  }
+}
+
+/**
  * Apply a connection phase to the UI. Derives button labels/enablement
  * and status indicator from the pure helpers in popup-state.ts.
  */
@@ -98,6 +113,8 @@ function setPhase(phase: ConnectionPhase): void {
   statusText.textContent = status.text;
 
   portInput.disabled = phase === 'connected' || phase === 'connecting';
+
+  setSetupMessage(phase);
 
   if (phase === 'connected') {
     errorText.style.display = 'none';
@@ -177,10 +194,22 @@ function updateAuthSections(authProfile: AssistantAuthProfile | null): void {
 /**
  * Load the assistant catalog from the worker and render the selector.
  */
+function isNativeHostUnavailable(error: string | undefined): boolean {
+  if (!error) return false;
+  const lower = error.toLowerCase();
+  return lower.includes('native messaging') || lower.includes('native host');
+}
+
 function loadAssistantCatalog(): void {
   chrome.runtime.sendMessage({ type: 'assistants-get' }, (response: AssistantsGetResponse) => {
     if (chrome.runtime.lastError || !response?.ok) {
       const errMsg = response?.error ?? chrome.runtime.lastError?.message ?? 'Failed to load assistants';
+
+      if (isNativeHostUnavailable(errMsg)) {
+        setPhase('no-native-host');
+        return;
+      }
+
       showError(errMsg);
       return;
     }
