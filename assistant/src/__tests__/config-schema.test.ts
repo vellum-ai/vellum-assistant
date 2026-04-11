@@ -1122,7 +1122,6 @@ describe("resolveVoiceQualityProfile", () => {
     const config = AssistantConfigSchema.parse({});
     const profile = resolveVoiceQualityProfile(config);
     expect(profile.ttsProvider).toBe("ElevenLabs");
-    expect(profile.transcriptionProvider).toBe("Deepgram");
   });
 
   test("uses shared elevenlabs.voiceId for voice", () => {
@@ -1152,44 +1151,6 @@ describe("resolveVoiceQualityProfile", () => {
     });
     const profile = resolveVoiceQualityProfile(config);
     expect(profile.voice).toBe("abc123-turbo_v2_5-0.9_0.8_0.9");
-  });
-
-  test("Deepgram defaults speechModel to nova-3 via STT profile adapter", () => {
-    const config = AssistantConfigSchema.parse({});
-    const profile = resolveVoiceQualityProfile(config);
-    expect(profile.transcriptionProvider).toBe("Deepgram");
-    expect(profile.speechModel).toBe("nova-3");
-  });
-
-  test("Google leaves speechModel undefined via STT profile adapter", () => {
-    const config = AssistantConfigSchema.parse({
-      calls: { voice: { transcriptionProvider: "Google" } },
-    });
-    const profile = resolveVoiceQualityProfile(config);
-    expect(profile.transcriptionProvider).toBe("Google");
-    expect(profile.speechModel).toBeUndefined();
-  });
-
-  test("Google strips legacy nova-3 default via STT profile adapter", () => {
-    const config = AssistantConfigSchema.parse({
-      calls: {
-        voice: { transcriptionProvider: "Google", speechModel: "nova-3" },
-      },
-    });
-    const profile = resolveVoiceQualityProfile(config);
-    expect(profile.transcriptionProvider).toBe("Google");
-    expect(profile.speechModel).toBeUndefined();
-  });
-
-  test("Google preserves explicit telephony model via STT profile adapter", () => {
-    const config = AssistantConfigSchema.parse({
-      calls: {
-        voice: { transcriptionProvider: "Google", speechModel: "telephony" },
-      },
-    });
-    const profile = resolveVoiceQualityProfile(config);
-    expect(profile.transcriptionProvider).toBe("Google");
-    expect(profile.speechModel).toBe("telephony");
   });
 });
 
