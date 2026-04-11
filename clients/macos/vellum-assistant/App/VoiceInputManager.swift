@@ -629,8 +629,15 @@ final class VoiceInputManager {
         // Check recognizer availability through the adapter so tests can
         // control the result without depending on a real SFSpeechRecognizer.
         // When unavailable, attempt recreation before giving up.
-        if speechRecognizer == nil || !speechRecognizerAdapter.isRecognizerAvailable {
-            log.warning("Speech recognizer unavailable (nil=\(self.speechRecognizer == nil), adapterAvailable=\(self.speechRecognizerAdapter.isRecognizerAvailable)) — recreating")
+        //
+        // The adapter's `isRecognizerAvailable` handles the case where no
+        // recognizer has been created yet. Additionally, after sleep/wake the
+        // cached `speechRecognizer` instance may become transiently unavailable
+        // while a freshly-created recognizer reports "available". Check the
+        // cached instance's `.isAvailable` to detect stale recognizers and
+        // recreate them before the recognition task fails.
+        if speechRecognizer == nil || !speechRecognizerAdapter.isRecognizerAvailable || speechRecognizer?.isAvailable == false {
+            log.warning("Speech recognizer unavailable (nil=\(self.speechRecognizer == nil), adapterAvailable=\(self.speechRecognizerAdapter.isRecognizerAvailable), cachedAvailable=\(String(describing: self.speechRecognizer?.isAvailable))) — recreating")
             speechRecognizer = speechRecognizerAdapter.makeRecognizer(locale: Locale(identifier: "en-US"))
         }
         guard speechRecognizerAdapter.isRecognizerAvailable else {
