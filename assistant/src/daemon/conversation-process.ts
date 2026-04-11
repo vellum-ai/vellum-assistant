@@ -137,8 +137,15 @@ export interface ProcessConversationContext {
   clearProxyAvailability(): void;
   /** Restore host proxy availability based on whether a real client is connected. */
   restoreProxyAvailability(): void;
-  /** Restore only the host browser proxy (used by chrome-extension drains). */
+  /** Restore only the host browser proxy (used by chrome-extension and macOS+extension drains). */
   restoreBrowserProxyAvailability(): void;
+  /**
+   * Registry-routed sender override for the host browser proxy. When set,
+   * `restoreBrowserProxyAvailability()` uses this function instead of
+   * `sendToClient`. Set by the POST /messages handler when the guardian
+   * has an active extension connection (regardless of interface).
+   */
+  hostBrowserSenderOverride?: (msg: ServerMessage) => void;
   /** Replace or clear the conversation's host browser proxy. */
   setHostBrowserProxy(
     proxy: import("./host-browser-proxy.js").HostBrowserProxy | undefined,
@@ -363,11 +370,31 @@ export async function drainQueue(
     // would re-enable the proxy and getCdpClient() would route browser
     // tools through host_browser_request and hang waiting for a client
     // that this turn's interface can't service.
+    //
+    // Skip teardown when `hostBrowserSenderOverride` is set — that
+    // indicates the conversation has a live registry-routed sender
+    // (e.g. a macOS turn with an active extension connection or an
+    // earlier chrome-extension turn). The override was established by
+    // the POST /messages handler and persists across queue drains so
+    // the browser proxy stays routed to the extension. Tearing it
+    // down here would orphan an available extension connection and
+    // force unnecessary fallback to cdp-inspect/local.
     if (
       sourceInterface &&
-      !supportsHostProxy(sourceInterface, "host_browser")
+      !supportsHostProxy(sourceInterface, "host_browser") &&
+      !conversation.hostBrowserSenderOverride
     ) {
       conversation.setHostBrowserProxy(undefined);
+    }
+    // When a macOS turn has a registry-routed sender override (active
+    // extension connection), restore the browser proxy so host_browser
+    // tools route through the extension rather than cdp-inspect/local.
+    if (
+      sourceInterface &&
+      supportsHostProxy(sourceInterface) &&
+      conversation.hostBrowserSenderOverride
+    ) {
+      conversation.restoreBrowserProxyAvailability();
     }
   }
 
