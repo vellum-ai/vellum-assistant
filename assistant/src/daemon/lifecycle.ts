@@ -1,5 +1,7 @@
 import { config as dotenvConfig } from "dotenv";
 
+import type { BackupWorkerHandle } from "../backup/backup-worker.js";
+import { startBackupWorker } from "../backup/backup-worker.js";
 import { setPointerMessageProcessor } from "../calls/call-pointer-messages.js";
 import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { setRelayBroadcast } from "../calls/relay-server.js";
@@ -638,12 +640,13 @@ export async function runDaemon(): Promise<void> {
     await server.start();
     log.info("Daemon startup: DaemonServer started");
 
-    // Mutable refs for Qdrant and memory worker so background init can assign
-    // them and the shutdown handler always sees the latest value.
+    // Mutable refs for Qdrant, memory worker, and backup worker so background
+    // init can assign them and the shutdown handler always sees the latest value.
     const bgRefs: {
       qdrantManager: QdrantManager | null;
       memoryWorker: { stop(): void } | null;
-    } = { qdrantManager: null, memoryWorker: null };
+      backupWorker: BackupWorkerHandle | null;
+    } = { qdrantManager: null, memoryWorker: null, backupWorker: null };
 
     // Initialize Qdrant vector store and memory worker in the background so the
     // RuntimeHttpServer can start accepting requests without waiting for Qdrant.
@@ -725,6 +728,16 @@ export async function runDaemon(): Promise<void> {
 
       log.info("Daemon startup: starting memory worker");
       bgRefs.memoryWorker = startMemoryJobsWorker();
+
+      log.info("Daemon startup: starting backup worker");
+      try {
+        bgRefs.backupWorker = startBackupWorker();
+      } catch (err) {
+        log.warn(
+          { err },
+          "Backup worker failed to start — continuing without backups",
+        );
+      }
 
       // Seed capability graph nodes (new memory graph system)
       try {
@@ -1369,6 +1382,7 @@ export async function runDaemon(): Promise<void> {
       runtimeHttp,
       scheduler,
       getMemoryWorker: () => bgRefs.memoryWorker,
+      getBackupWorker: () => bgRefs.backupWorker,
       getQdrantManager: () => bgRefs.qdrantManager,
       mcpManager,
       telemetryReporter,
