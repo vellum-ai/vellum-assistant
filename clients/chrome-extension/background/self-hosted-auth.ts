@@ -54,8 +54,11 @@ const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 5_000;
  * introduced. Existing users may have a token stored under this key from
  * a previous version of the extension. The migration helpers below
  * transparently promote it to the new scoped key on first read.
+ *
+ * Exported so the worker can fall back to reading/writing this key when
+ * no assistant is selected yet (backward-compatible connect/pair flow).
  */
-const LEGACY_LOCAL_STORAGE_KEY = 'vellum.localCapabilityToken';
+export const LEGACY_LOCAL_STORAGE_KEY = 'vellum.localCapabilityToken';
 
 /**
  * Build the assistant-scoped chrome.storage.local key for a local
@@ -79,7 +82,7 @@ export interface BootstrapLocalTokenOptions {
  * Validate and return a parsed {@link StoredLocalToken} from a raw storage
  * value, or `null` when the value is missing, malformed, or expired.
  */
-function validateLocalToken(raw: unknown): StoredLocalToken | null {
+export function validateLocalToken(raw: unknown): StoredLocalToken | null {
   if (!raw || typeof raw !== 'object') return null;
   const token = raw as StoredLocalToken;
   if (
@@ -162,8 +165,9 @@ export async function clearLocalToken(assistantId: string): Promise<void> {
   await chrome.storage.local.remove(localTokenStorageKey(assistantId));
 }
 
-async function persistLocalToken(assistantId: string, token: StoredLocalToken): Promise<void> {
-  await chrome.storage.local.set({ [localTokenStorageKey(assistantId)]: token });
+async function persistLocalToken(assistantId: string | null, token: StoredLocalToken): Promise<void> {
+  const key = assistantId ? localTokenStorageKey(assistantId) : LEGACY_LOCAL_STORAGE_KEY;
+  await chrome.storage.local.set({ [key]: token });
 }
 
 /**
@@ -203,7 +207,7 @@ function parseExpiresAt(raw: unknown): number | null {
  *   process doesn't leak.
  */
 export async function bootstrapLocalToken(
-  assistantId: string,
+  assistantId: string | null,
   options: BootstrapLocalTokenOptions = {},
 ): Promise<StoredLocalToken> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_BOOTSTRAP_TIMEOUT_MS;

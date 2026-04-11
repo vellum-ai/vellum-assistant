@@ -25,7 +25,9 @@ import {
   refreshCloudToken,
   getStoredToken as getStoredCloudToken,
   getStoredTokenRaw as getStoredCloudTokenRaw,
+  validateCloudToken,
   CLOUD_AUTH_FAILURE_CLOSE_CODES,
+  LEGACY_CLOUD_STORAGE_KEY,
   type CloudAuthConfig,
   type StoredCloudToken,
 } from './cloud-auth.js';
@@ -44,6 +46,8 @@ import {
 import {
   bootstrapLocalToken,
   getStoredLocalToken,
+  validateLocalToken,
+  LEGACY_LOCAL_STORAGE_KEY,
   type StoredLocalToken,
 } from './self-hosted-auth.js';
 import {
@@ -318,19 +322,20 @@ async function dispatchHostBrowserResult(
 
   // Self-hosted fallback: POST directly to the local daemon using the
   // capability token from the native-messaging pair flow. If no paired
-  // token is available the result is dropped.
+  // token is available the result is dropped. When no assistant is
+  // selected, fall back to the legacy unscoped token key.
   const selectedId = await loadSelectedAssistantId();
-  if (selectedId) {
-    const local = await getStoredLocalToken(selectedId);
-    if (local) {
-      const fallbackPort = local.assistantPort ?? (await getRelayPort());
-      const fallbackMode: RelayMode = {
-        kind: 'self-hosted',
-        baseUrl: `http://127.0.0.1:${fallbackPort}`,
-        token: local.token,
-      };
-      return postHostBrowserResult(fallbackMode, null, result);
-    }
+  const local = selectedId
+    ? await getStoredLocalToken(selectedId)
+    : await getLegacyLocalToken();
+  if (local) {
+    const fallbackPort = local.assistantPort ?? (await getRelayPort());
+    const fallbackMode: RelayMode = {
+      kind: 'self-hosted',
+      baseUrl: `http://127.0.0.1:${fallbackPort}`,
+      token: local.token,
+    };
+    return postHostBrowserResult(fallbackMode, null, result);
   }
   console.warn(
     '[vellum-relay] host_browser_result dropped: self-hosted relay not paired',
@@ -389,6 +394,39 @@ async function getRelayPort(): Promise<number> {
   return DEFAULT_RELAY_PORT;
 }
 
+/**
+ * Read a cloud auth token from the legacy unscoped storage key
+ * (`vellum.cloudAuthToken`). Used as a backward-compatible fallback when
+ * no assistant is selected — existing users who paired before
+ * assistant-scoped keys were introduced still have tokens under this key.
+ */
+async function getLegacyCloudToken(): Promise<StoredCloudToken | null> {
+  const result = await chrome.storage.local.get(LEGACY_CLOUD_STORAGE_KEY);
+  const token = validateCloudToken(result[LEGACY_CLOUD_STORAGE_KEY]);
+  if (!token) return null;
+  if (token.expiresAt <= Date.now()) return null;
+  return token;
+}
+
+/**
+ * Read the raw (no-expiry-check) cloud auth token from the legacy
+ * unscoped storage key. Used by the reconnect hook fallback.
+ */
+async function getLegacyCloudTokenRaw(): Promise<StoredCloudToken | null> {
+  const result = await chrome.storage.local.get(LEGACY_CLOUD_STORAGE_KEY);
+  return validateCloudToken(result[LEGACY_CLOUD_STORAGE_KEY]);
+}
+
+/**
+ * Read a local capability token from the legacy unscoped storage key
+ * (`vellum.localCapabilityToken`). Used as a backward-compatible
+ * fallback when no assistant is selected.
+ */
+async function getLegacyLocalToken(): Promise<StoredLocalToken | null> {
+  const result = await chrome.storage.local.get(LEGACY_LOCAL_STORAGE_KEY);
+  return validateLocalToken(result[LEGACY_LOCAL_STORAGE_KEY]);
+}
+
 // ── Relay connection lifecycle ──────────────────────────────────────
 
 async function loadRelayMode(): Promise<RelayModeKind> {
@@ -401,7 +439,13 @@ async function buildRelayModeConfig(kind: RelayModeKind): Promise<RelayMode> {
   const selectedId = await loadSelectedAssistantId();
 
   if (kind === 'cloud') {
-    const stored = selectedId ? await getStoredCloudToken(selectedId) : null;
+    // When an assistant is selected, read from the assistant-scoped key.
+    // Otherwise fall back to the legacy unscoped key so existing users
+    // who signed in before assistant-scoped storage was introduced still
+    // get their token picked up.
+    const stored = selectedId
+      ? await getStoredCloudToken(selectedId)
+      : await getLegacyCloudToken();
     return {
       kind: 'cloud',
       baseUrl: CLOUD_GATEWAY_BASE_URL,
@@ -414,18 +458,19 @@ async function buildRelayModeConfig(kind: RelayModeKind): Promise<RelayMode> {
   // carries the assistant runtime port the helper used when it
   // pair-bootstrapped, so we target the runtime directly.
   //
-  // No compatibility fallback: self-hosted relay now requires pairing
-  // through the native-messaging capability-token flow.
-  if (selectedId) {
-    const local = await getStoredLocalToken(selectedId);
-    if (local) {
-      const port = local.assistantPort ?? (await getRelayPort());
-      return {
-        kind: 'self-hosted',
-        baseUrl: `http://127.0.0.1:${port}`,
-        token: local.token,
-      };
-    }
+  // When no assistant is selected, fall back to the legacy unscoped
+  // storage key so existing users who paired before assistant-scoped
+  // keys were introduced can still connect.
+  const local = selectedId
+    ? await getStoredLocalToken(selectedId)
+    : await getLegacyLocalToken();
+  if (local) {
+    const port = local.assistantPort ?? (await getRelayPort());
+    return {
+      kind: 'self-hosted',
+      baseUrl: `http://127.0.0.1:${port}`,
+      token: local.token,
+    };
   }
   const port = await getRelayPort();
   return {
@@ -493,7 +538,9 @@ async function cloudReconnectHook(
   ctx: RelayReconnectContext,
 ): Promise<RelayReconnectDecision> {
   const selectedId = await loadSelectedAssistantId();
-  const stored = selectedId ? await getStoredCloudTokenRaw(selectedId) : null;
+  const stored = selectedId
+    ? await getStoredCloudTokenRaw(selectedId)
+    : await getLegacyCloudTokenRaw();
   const action = decideCloudReconnectAction({
     ctx,
     stored,
@@ -513,6 +560,10 @@ async function cloudReconnectHook(
 
   // action.kind === 'refresh'
   cloudRefreshAttempts += 1;
+  // refreshCloudToken requires an assistantId to persist the refreshed
+  // token under the correct scoped key. When no assistant is selected
+  // we can't scope the refresh, so we skip it — the user will be
+  // prompted to sign in again (abort path on the next reconnect).
   const refreshed = selectedId
     ? await refreshCloudToken(selectedId, {
         gatewayBaseUrl: CLOUD_GATEWAY_BASE_URL,
@@ -614,7 +665,9 @@ function createRelayConnection(
         return cloudReconnectHook(ctx);
       }
       const selectedId = await loadSelectedAssistantId();
-      const local = selectedId ? await getStoredLocalToken(selectedId) : null;
+      const local = selectedId
+        ? await getStoredLocalToken(selectedId)
+        : await getLegacyLocalToken();
       if (local?.token) {
         return { kind: 'refreshed', token: local.token };
       }
@@ -821,18 +874,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     // can't tear down the awaited promise before the token is persisted.
     // chrome.runtime.connectNative also requires the "nativeMessaging"
     // permission, which is declared in manifest.json.
+    //
+    // When no assistant is selected (legacy popup flow), fall back to
+    // bootstrapping without an assistantId — the token is persisted to
+    // the legacy unscoped key so existing connect behavior is preserved.
     const assistantId =
       typeof message.assistantId === 'string' ? message.assistantId : null;
     (assistantId
       ? Promise.resolve(assistantId)
       : loadSelectedAssistantId()
     )
-      .then((resolvedId) => {
-        if (!resolvedId) {
-          throw new Error('No assistant selected. Fetch the assistant catalog first.');
-        }
-        return bootstrapLocalToken(resolvedId);
-      })
+      .then((resolvedId) => bootstrapLocalToken(resolvedId))
       .then((stored: StoredLocalToken) => sendResponseFn({ ok: true, token: stored }))
       .catch((err) => sendResponseFn({ ok: false, error: err instanceof Error ? err.message : String(err) }));
     return true; // async
