@@ -1055,11 +1055,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
         }
         sendResponseFn({ ok: true });
       })
-      .catch((err) => {
+      .catch(async (err) => {
         // Reset shouldConnect so a subsequent storage change or
         // bootstrap doesn't silently retry a doomed connect. The user
         // will press Connect again after signing in / pairing.
         shouldConnect = false;
+        // Undo the popup's eager autoConnect write — a failed connect
+        // must not leave the flag set, otherwise the next bootstrap
+        // would retry a doomed connect.
+        await setAutoConnect(false);
         const errorMessage = err instanceof Error ? err.message : String(err);
         sendResponseFn({ ok: false, error: errorMessage });
       });
@@ -1072,10 +1076,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
   // — both actions perform identical state transitions.
   if (message.type === 'pause' || message.type === 'disconnect') {
     shouldConnect = false;
-    void setAutoConnect(false);
-    disconnect();
-    sendResponseFn({ ok: true });
-    return false;
+    // Await the storage write so MV3 can't terminate the worker before
+    // the autoConnect flag is persisted to false.
+    setAutoConnect(false)
+      .then(() => {
+        disconnect();
+        sendResponseFn({ ok: true });
+      })
+      .catch(() => {
+        // Even if the storage write fails, still disconnect and respond.
+        disconnect();
+        sendResponseFn({ ok: true });
+      });
+    return true; // async
   }
   if (message.type === 'get_status') {
     sendResponseFn({
