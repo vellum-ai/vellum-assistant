@@ -124,6 +124,12 @@ export interface MockChromeExtension {
    * command.
    */
   sendSessionInvalidated(event: { targetId?: string; reason?: string }): void;
+  /**
+   * Send an arbitrary pre-serialized JSON string over the active
+   * WebSocket. Used by tests that need to send frame types not covered
+   * by the fixture's typed helpers (e.g. keepalive frames).
+   */
+  sendRaw(json: string): void;
 }
 
 // ── Defaults ────────────────────────────────────────────────────────
@@ -370,6 +376,11 @@ export function createMockChromeExtension(
           ...(event.reason !== undefined ? { reason: event.reason } : {}),
         }),
       );
+    },
+    sendRaw(json: string) {
+      const sock = ws;
+      if (!sock || sock.readyState !== WebSocket.OPEN) return;
+      sock.send(json);
     },
   };
 }
