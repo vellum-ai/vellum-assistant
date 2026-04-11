@@ -1,6 +1,7 @@
 import Containerization
 import ContainerizationError
 import ContainerizationOCI
+import ContainerizationOS
 import Foundation
 import os
 
@@ -258,11 +259,75 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
         lock.withLock { _gatewayURL }
     }
 
+    // MARK: - Exec
+
+    /// An active exec session inside a running container.
+    ///
+    /// Owns the host-side PTY and the `LinuxProcess`. The management socket
+    /// server (PR 2) reads/writes `hostTerminal` and forwards resize events.
+    struct ExecSession: Sendable {
+        /// Host-side PTY file handle — read for stdout, write for stdin.
+        let hostTerminal: Terminal
+        /// The spawned process inside the container.
+        let process: LinuxProcess
+
+        /// Resize the container PTY to match the client's terminal dimensions.
+        func resize(width: UInt16, height: UInt16) async throws {
+            try await process.resize(to: Terminal.Size(width: width, height: height))
+        }
+
+        /// Wait for the process to exit and clean up.
+        @discardableResult
+        func wait() async throws -> ExitStatus {
+            let status = try await process.wait()
+            try await process.delete()
+            try hostTerminal.close()
+            return status
+        }
+    }
+
+    /// Spawn an interactive process in a running container with a real PTY.
+    ///
+    /// - Parameters:
+    ///   - service: Which container to exec into (defaults to `.assistant`).
+    ///   - command: The command and arguments to run (defaults to `["/bin/sh"]`).
+    ///   - initialSize: Initial terminal dimensions for the PTY.
+    /// - Returns: An `ExecSession` whose `hostTerminal` can be relayed over
+    ///   the management socket.
+    func exec(
+        service: VellumServiceName = .assistant,
+        command: [String] = ["/bin/sh"],
+        initialSize: Terminal.Size = Terminal.Size(width: 120, height: 40)
+    ) async throws -> ExecSession {
+        let pod: LinuxPod = try lock.withLock {
+            guard let pod = _pod else {
+                throw PodRuntimeError.podNotRunning
+            }
+            return pod
+        }
+
+        let cid = containerID(service)
+        let processID = "exec-\(UUID().uuidString.prefix(8))"
+
+        let (parentTerminal, childTerminal) = try Terminal.create(initialSize: initialSize)
+
+        let process = try await pod.execInContainer(cid, processID: processID) { config in
+            config.arguments = command
+            config.setTerminalIO(terminal: childTerminal)
+        }
+
+        try await process.start()
+        log.info("Exec session \(processID, privacy: .public) started in \(cid, privacy: .public)")
+
+        return ExecSession(hostTerminal: parentTerminal, process: process)
+    }
+
     // MARK: - Errors
 
     enum PodRuntimeError: LocalizedError {
         case missingImageRef(VellumServiceName)
         case networkSetupFailed
+        case podNotRunning
 
         var errorDescription: String? {
             switch self {
@@ -270,6 +335,8 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
                 return "No image reference provided for \(service.rawValue)."
             case .networkSetupFailed:
                 return "Failed to create vmnet network interface for pod."
+            case .podNotRunning:
+                return "Cannot exec: pod is not running."
             }
         }
     }
