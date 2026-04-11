@@ -1354,8 +1354,18 @@ jobs:
       DMG_PATH: build/vellum-assistant.dmg
       KEYCHAIN_NAME: build.keychain
       KEYCHAIN_PASSWORD: temporary-ci-password
+      CHROME_EXTENSION_IDS_CSV: ${{ vars.CWS_EXTENSION_ID != '' && format('ccfbbgpdcnnfnnnodmkjkcpnbkmbjecp,{0}', vars.CWS_EXTENSION_ID) || 'ccfbbgpdcnnfnnnodmkjkcpnbkmbjecp' }}
     steps:
       - uses: actions/checkout@v6
+
+      - name: Inject CWS extension ID into allowlist
+        if: vars.CWS_EXTENSION_ID != ''
+        working-directory: .
+        run: |
+          jq --arg id "${{ vars.CWS_EXTENSION_ID }}" \
+            '.allowedExtensionIds += [$id]' \
+            meta/browser-extension/chrome-extension-allowlist.json > tmp.json \
+            && mv tmp.json meta/browser-extension/chrome-extension-allowlist.json
 
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
@@ -1722,8 +1732,18 @@ jobs:
       DMG_PATH: build/vellum-assistant-x64.dmg
       KEYCHAIN_NAME: build-x64.keychain
       KEYCHAIN_PASSWORD: temporary-ci-password
+      CHROME_EXTENSION_IDS_CSV: ${{ vars.CWS_EXTENSION_ID != '' && format('ccfbbgpdcnnfnnnodmkjkcpnbkmbjecp,{0}', vars.CWS_EXTENSION_ID) || 'ccfbbgpdcnnfnnnodmkjkcpnbkmbjecp' }}
     steps:
       - uses: actions/checkout@v6
+
+      - name: Inject CWS extension ID into allowlist
+        if: vars.CWS_EXTENSION_ID != ''
+        working-directory: .
+        run: |
+          jq --arg id "${{ vars.CWS_EXTENSION_ID }}" \
+            '.allowedExtensionIds += [$id]' \
+            meta/browser-extension/chrome-extension-allowlist.json > tmp.json \
+            && mv tmp.json meta/browser-extension/chrome-extension-allowlist.json
 
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
