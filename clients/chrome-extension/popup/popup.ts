@@ -375,14 +375,14 @@ btnConnect.addEventListener('click', async () => {
     }
   } catch (err) {
     showError(err instanceof Error ? err.message : String(err));
-    setPhase('disconnected');
+    applyHealthState('error');
     return;
   }
 
   chrome.runtime.sendMessage({ type: 'connect' }, (response: { ok: boolean; error?: string }) => {
     if (chrome.runtime.lastError || !response?.ok) {
       showError(response?.error ?? chrome.runtime.lastError?.message ?? 'Unknown error');
-      setPhase('disconnected');
+      applyHealthState('error');
       return;
     }
     // Poll briefly for health state convergence.
