@@ -187,6 +187,43 @@ jobs:
             echo "::warning::Release start Slack notification failed to send."
           fi
 
+  build-chrome-extension:
+    needs: [extract-version]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Build extension
+        working-directory: clients/chrome-extension
+        env:
+          VERSION: ${{ needs.extract-version.outputs.version }}
+        run: bash build.sh
+
+      - name: Verify manifest version
+        working-directory: clients/chrome-extension
+        run: |
+          EXPECTED="${{ needs.extract-version.outputs.version }}"
+          ACTUAL=$(jq -r '.version' dist/manifest.json)
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::Manifest version mismatch: expected $EXPECTED, got $ACTUAL"
+            exit 1
+          fi
+
+      - name: Package extension zip
+        working-directory: clients/chrome-extension
+        run: cd dist && zip -r ../vellum-browser-relay-${{ needs.extract-version.outputs.version }}.zip .
+
+      - name: Upload extension zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-extension-zip
+          path: clients/chrome-extension/vellum-browser-relay-${{ needs.extract-version.outputs.version }}.zip
+          retention-days: 90
+
   push-assistant-image:
     needs: [extract-version, ci-assistant]
     runs-on: ubuntu-latest-8-cores
@@ -1953,8 +1990,8 @@ jobs:
           rm -rf ~/.private_keys 2>/dev/null || true
 
   release:
-    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, ci-playwright]
-    if: ${{ !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.extract-version.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos-arm64.result == 'success' && needs.ci-playwright.result == 'success' }}
+    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, ci-playwright, build-chrome-extension]
+    if: ${{ !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.extract-version.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos-arm64.result == 'success' && needs.ci-playwright.result == 'success' && needs.build-chrome-extension.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -2005,6 +2042,12 @@ jobs:
           name: macos-build-x64
           path: macos-artifacts-x64
 
+      - name: Download Chrome extension zip
+        uses: actions/download-artifact@v4
+        with:
+          name: chrome-extension-zip
+          path: chrome-extension-artifacts
+
       - name: Create GitHub Releases
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -2031,6 +2074,12 @@ jobs:
 
           INSTALL_SH="cli/src/adapters/install.sh"
           [ -f "$INSTALL_SH" ] && ASSETS+=("$INSTALL_SH#install.sh")
+
+          # Add Chrome extension zip if available
+          if [ -d "chrome-extension-artifacts" ]; then
+            CRX_ZIP=$(find chrome-extension-artifacts -name "vellum-browser-relay-*.zip" -type f | sort | head -1)
+            [ -n "$CRX_ZIP" ] && ASSETS+=("$CRX_ZIP#vellum-browser-relay-${VERSION}.zip")
+          fi
 
           echo "Release assets: ${ASSETS[*]}"
 
@@ -2631,7 +2680,7 @@ jobs:
   notify-release:
     name: Slack Notification (Release)
     if: ${{ always() && !cancelled() }}
-    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
+    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright, build-chrome-extension]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
