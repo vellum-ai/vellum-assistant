@@ -84,7 +84,7 @@ public final class AuthManager {
             }
         }
         // All retries exhausted — network likely still unavailable
-        log.error("Session check failed after 3 attempts: baseURL=\(self.authService.baseURL, privacy: .public) error=\(lastError?.localizedDescription ?? "unknown", privacy: .public)")
+        log.error("Session check failed after 3 attempts: baseURL=\(VellumEnvironment.resolvedPlatformURL, privacy: .public) error=\(lastError?.localizedDescription ?? "unknown", privacy: .public)")
         state = .unauthenticated
     }
 
@@ -158,7 +158,7 @@ public final class AuthManager {
             )
 
             log.info(
-                "Provider-token auth completed with platformURL=\(self.authService.baseURL, privacy: .public) status=\(response.status, privacy: .public) isAuthenticated=\(response.meta?.is_authenticated == true, privacy: .public) hasUser=\(response.data?.user != nil, privacy: .public)"
+                "Provider-token auth completed with platformURL=\(VellumEnvironment.resolvedPlatformURL, privacy: .public) status=\(response.status, privacy: .public) isAuthenticated=\(response.meta?.is_authenticated == true, privacy: .public) hasUser=\(response.data?.user != nil, privacy: .public)"
             )
 
             if response.status == 200, response.meta?.is_authenticated != false {
@@ -189,7 +189,7 @@ public final class AuthManager {
         } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
             log.info("User cancelled WorkOS login")
         } catch {
-            log.error("WorkOS login failed: baseURL=\(self.authService.baseURL, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+            log.error("WorkOS login failed: baseURL=\(VellumEnvironment.resolvedPlatformURL, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             let bundlePath = Bundle.main.bundlePath
             let isTranslocated = bundlePath.contains("/AppTranslocation/")
             log.error("WorkOS login failed environment: bundlePath=\(bundlePath, privacy: .public) isTranslocated=\(isTranslocated, privacy: .public)")
@@ -210,7 +210,7 @@ public final class AuthManager {
         do {
             _ = try await authService.logout()
         } catch {
-            log.error("Logout request failed: baseURL=\(self.authService.baseURL, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+            log.error("Logout request failed: baseURL=\(VellumEnvironment.resolvedPlatformURL, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             logoutError = error.localizedDescription
         }
         await SessionTokenManager.deleteTokenAsync()
