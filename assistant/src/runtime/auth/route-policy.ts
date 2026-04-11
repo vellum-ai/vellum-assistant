@@ -438,6 +438,12 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "migrations/import-preflight", scopes: ["settings.write"] },
   { endpoint: "migrations/import", scopes: ["settings.write"] },
 
+  // Backups
+  { endpoint: "backups", scopes: ["settings.read"] },
+  { endpoint: "backups/create", scopes: ["settings.write"] },
+  { endpoint: "backups/restore", scopes: ["settings.write"] },
+  { endpoint: "backups/verify", scopes: ["settings.read"] },
+
   // Settings (voice, avatar, client settings)
   { endpoint: "settings/voice", scopes: ["settings.write"] },
   { endpoint: "settings/avatar/generate", scopes: ["settings.write"] },
