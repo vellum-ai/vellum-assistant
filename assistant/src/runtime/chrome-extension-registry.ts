@@ -20,8 +20,10 @@
  *   - When a caller does not pin a specific instance, the registry picks
  *     the "most recently active" instance for the guardian (highest
  *     `lastActiveAt` timestamp). `lastActiveAt` is bumped on register and
- *     on every successful `send()`, which is a good enough stand-in for
- *     WebSocket heartbeats under the current load profile.
+ *     on every successful `send()` — but NOT by keepalive pings. Keepalive
+ *     frames update a separate `lastKeepaliveAt` field that is used only
+ *     for liveness checks, preventing idle instances from stealing the
+ *     routing default via periodic keepalive traffic.
  *   - When no `clientInstanceId` is present on the handshake (older
  *     extension builds, dev bypass paths), we synthesize a placeholder
  *     `legacy:<connectionId>` key. The send/lookup path treats it the
@@ -65,8 +67,20 @@ export interface ChromeExtensionConnection {
    * connection — updated on register and on each successful `send()`.
    * Used by the default-send routing path to pick the "most recently
    * active" instance when the caller does not pin a specific one.
+   *
+   * Crucially, this is NOT updated by keepalive pings — those update
+   * `lastKeepaliveAt` instead. This separation prevents idle instances
+   * from stealing the routing default via periodic keepalive traffic.
    */
   lastActiveAt: number;
+  /**
+   * Wall-clock timestamp (ms) of the most recent keepalive ping
+   * received on this connection. Updated exclusively by `touch()`
+   * (i.e. keepalive frames). Does NOT affect routing — used only for
+   * liveness checks (e.g. a future stale-connection sweep can evict
+   * connections whose `lastKeepaliveAt` is too far in the past).
+   */
+  lastKeepaliveAt?: number;
   /**
    * Monotonic registration sequence number assigned by the registry
    * on each `register()` call. Used as a tuple-secondary tiebreaker
@@ -199,18 +213,21 @@ export class ChromeExtensionRegistry {
   }
 
   /**
-   * Update the `lastActiveAt` timestamp for the connection identified by
-   * `connectionId`, without changing routing semantics or registration
+   * Update the `lastKeepaliveAt` timestamp for the connection identified
+   * by `connectionId`, without changing routing semantics or registration
    * state. Used by keepalive frames to signal that the extension is still
-   * alive and reachable. No-op if no connection with the given id is
-   * currently registered (e.g. after a race between disconnect and a
-   * trailing keepalive frame).
+   * alive and reachable. Deliberately does NOT update `lastActiveAt` — that
+   * field is reserved for actual CDP traffic (register, send) so that idle
+   * instances cannot steal the routing default via periodic keepalive pings.
+   *
+   * No-op if no connection with the given id is currently registered
+   * (e.g. after a race between disconnect and a trailing keepalive frame).
    */
   touch(connectionId: string): void {
     for (const instances of this.byGuardian.values()) {
       for (const conn of instances.values()) {
         if (conn.id === connectionId) {
-          conn.lastActiveAt = Date.now();
+          conn.lastKeepaliveAt = Date.now();
           return;
         }
       }
