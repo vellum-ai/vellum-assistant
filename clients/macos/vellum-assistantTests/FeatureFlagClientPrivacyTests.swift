@@ -28,9 +28,9 @@ final class FeatureFlagClientPrivacyTests: XCTestCase {
         XCTAssertEqual(config.llmRequestLogRetentionMs, 86_400_000)
     }
 
-    /// A retention value of 0 (meaning "never retain") must round-trip through
-    /// the decoder unchanged. This guards against accidental truthy-coercion
-    /// regressions if someone swaps `Int64` for a Boolean-ish type.
+    /// A retention value of 0 (meaning "prune immediately") must round-trip
+    /// through the decoder unchanged. This guards against accidental
+    /// truthy-coercion regressions if someone swaps `Int64?` for a Boolean-ish type.
     func testPrivacyConfigDecodesZeroRetention() throws {
         // GIVEN a payload with llmRequestLogRetentionMs = 0
         let json = """
@@ -48,6 +48,26 @@ final class FeatureFlagClientPrivacyTests: XCTestCase {
         XCTAssertFalse(config.collectUsageData)
         XCTAssertTrue(config.sendDiagnostics)
         XCTAssertEqual(config.llmRequestLogRetentionMs, 0)
+    }
+
+    /// A retention value of null (meaning "keep forever") must decode to nil.
+    func testPrivacyConfigDecodesNullRetention() throws {
+        // GIVEN a payload with llmRequestLogRetentionMs = null
+        let json = """
+        {
+            "collectUsageData": true,
+            "sendDiagnostics": true,
+            "llmRequestLogRetentionMs": null
+        }
+        """.data(using: .utf8)!
+
+        // WHEN we decode it
+        let config = try JSONDecoder().decode(PrivacyConfig.self, from: json)
+
+        // THEN retention is nil (keep forever)
+        XCTAssertTrue(config.collectUsageData)
+        XCTAssertTrue(config.sendDiagnostics)
+        XCTAssertNil(config.llmRequestLogRetentionMs)
     }
 
     // MARK: - Equatable

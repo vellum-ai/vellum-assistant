@@ -214,6 +214,26 @@ describe("AssistantConfigSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  test("accepts null memory.cleanup.llmRequestLogRetentionMs (keep forever)", () => {
+    const result = AssistantConfigSchema.safeParse({
+      memory: { cleanup: { llmRequestLogRetentionMs: null } },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.memory.cleanup.llmRequestLogRetentionMs).toBeNull();
+    }
+  });
+
+  test("accepts memory.cleanup.llmRequestLogRetentionMs: 0 (prune immediately)", () => {
+    const result = AssistantConfigSchema.safeParse({
+      memory: { cleanup: { llmRequestLogRetentionMs: 0 } },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.memory.cleanup.llmRequestLogRetentionMs).toBe(0);
+    }
+  });
+
   test("rejects invalid provider", () => {
     const result = AssistantConfigSchema.safeParse({
       services: { inference: { provider: "invalid" } },

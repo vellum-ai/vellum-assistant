@@ -17,7 +17,7 @@ const DEFAULT_LLM_REQUEST_LOG_RETENTION_MS = 1 * 24 * 60 * 60 * 1000;
 
 // Upper bound for llmRequestLogRetentionMs: 365 days (in ms).
 // Prevents accidental values like Number.MAX_SAFE_INTEGER.
-// The daemon treats 0 as "never prune".
+// The daemon treats null as "keep forever" and 0 as "prune immediately".
 const MAX_LLM_REQUEST_LOG_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
 
 /**
@@ -27,7 +27,8 @@ const MAX_LLM_REQUEST_LOG_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
  * handlers so both endpoints produce the same response shape for
  * `llmRequestLogRetentionMs`.
  *
- * A value of 0 is valid (it means "never prune") and is returned verbatim.
+ * A value of 0 is valid (it means "prune immediately") and is returned
+ * verbatim. A `null` leaf means "keep forever" and is returned as `null`.
  *
  * When `options.maxValue` is provided, any leaf value exceeding it is treated
  * as invalid and replaced with `defaultValue`. This prevents the gateway from
@@ -36,12 +37,12 @@ const MAX_LLM_REQUEST_LOG_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
  * snaps it to the nearest supported option, and the next PATCH silently
  * truncates the on-disk value with no UI warning).
  */
-function parseNestedNumber(
+function parseNestedNullableNumber(
   config: Record<string, unknown>,
   path: readonly string[],
   defaultValue: number,
   options?: { maxValue?: number },
-): number {
+): number | null {
   let current: unknown = config;
   for (const key of path) {
     if (
@@ -53,6 +54,10 @@ function parseNestedNumber(
     }
     current = (current as Record<string, unknown>)[key];
   }
+  // null means "keep forever"
+  if (current === null) return null;
+  // undefined or missing path → default
+  if (current === undefined) return defaultValue;
   if (
     typeof current !== "number" ||
     !Number.isInteger(current) ||
@@ -142,33 +147,38 @@ export function createPrivacyConfigPatchHandler() {
     }
 
     if (hasLlmRequestLogRetentionMs) {
-      if (
-        typeof llmRequestLogRetentionMs !== "number" ||
-        !Number.isFinite(llmRequestLogRetentionMs) ||
-        !Number.isInteger(llmRequestLogRetentionMs)
-      ) {
-        return Response.json(
-          { error: '"llmRequestLogRetentionMs" must be an integer' },
-          { status: 400 },
-        );
+      if (llmRequestLogRetentionMs !== null) {
+        if (
+          typeof llmRequestLogRetentionMs !== "number" ||
+          !Number.isFinite(llmRequestLogRetentionMs) ||
+          !Number.isInteger(llmRequestLogRetentionMs)
+        ) {
+          return Response.json(
+            {
+              error: '"llmRequestLogRetentionMs" must be an integer or null',
+            },
+            { status: 400 },
+          );
+        }
+        if (llmRequestLogRetentionMs < 0) {
+          return Response.json(
+            {
+              error:
+                '"llmRequestLogRetentionMs" must be greater than or equal to 0',
+            },
+            { status: 400 },
+          );
+        }
+        if (llmRequestLogRetentionMs > MAX_LLM_REQUEST_LOG_RETENTION_MS) {
+          return Response.json(
+            {
+              error: `"llmRequestLogRetentionMs" must be less than or equal to ${MAX_LLM_REQUEST_LOG_RETENTION_MS} (365 days)`,
+            },
+            { status: 400 },
+          );
+        }
       }
-      if (llmRequestLogRetentionMs < 0) {
-        return Response.json(
-          {
-            error:
-              '"llmRequestLogRetentionMs" must be greater than or equal to 0',
-          },
-          { status: 400 },
-        );
-      }
-      if (llmRequestLogRetentionMs > MAX_LLM_REQUEST_LOG_RETENTION_MS) {
-        return Response.json(
-          {
-            error: `"llmRequestLogRetentionMs" must be less than or equal to ${MAX_LLM_REQUEST_LOG_RETENTION_MS} (365 days)`,
-          },
-          { status: 400 },
-        );
-      }
+      // null passes through without validation — it means "keep forever"
     }
 
     const writeResult = new Promise<Response>((resolve) => {
@@ -229,7 +239,7 @@ export function createPrivacyConfigPatchHandler() {
               "sendDiagnostics",
               DEFAULT_SEND_DIAGNOSTICS,
             ),
-            llmRequestLogRetentionMs: parseNestedNumber(
+            llmRequestLogRetentionMs: parseNestedNullableNumber(
               config,
               ["memory", "cleanup", "llmRequestLogRetentionMs"],
               DEFAULT_LLM_REQUEST_LOG_RETENTION_MS,
@@ -280,10 +290,11 @@ export function createPrivacyConfigGetHandler() {
     );
 
     // Extract nested memory.cleanup.llmRequestLogRetentionMs safely.
-    // A value of 0 is valid (means "never prune") and is returned verbatim.
-    // Clamp out-of-range values to the default so a manually-edited
-    // config.json cannot trick clients into snapping-and-truncating.
-    const llmRequestLogRetentionMs = parseNestedNumber(
+    // A value of 0 is valid (means "prune immediately") and is returned
+    // verbatim. null means "keep forever". Clamp out-of-range values to the
+    // default so a manually-edited config.json cannot trick clients into
+    // snapping-and-truncating.
+    const llmRequestLogRetentionMs = parseNestedNullableNumber(
       config,
       ["memory", "cleanup", "llmRequestLogRetentionMs"],
       DEFAULT_LLM_REQUEST_LOG_RETENTION_MS,

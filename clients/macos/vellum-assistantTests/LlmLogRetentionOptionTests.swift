@@ -2,10 +2,15 @@ import XCTest
 @testable import VellumAssistantLib
 
 /// Unit tests for `LlmLogRetentionOption` — covers `closest(toMs:)` snapping
-/// logic, label/case invariants, and the `.never` zero-value special case.
+/// logic, label/case invariants, the `.keepForever` nil-value special case,
+/// and the `.dontRetain` zero-value special case.
 final class LlmLogRetentionOptionTests: XCTestCase {
 
-    // MARK: - Exact raw-value matches
+    // MARK: - Exact value matches
+
+    func testClosestReturnsDontRetainForZero() {
+        XCTAssertEqual(LlmLogRetentionOption.closest(toMs: 0), .dontRetain)
+    }
 
     func testClosestReturnsOneDayForExactOneDayMs() {
         XCTAssertEqual(LlmLogRetentionOption.closest(toMs: 86_400_000), .oneDay)
@@ -23,10 +28,20 @@ final class LlmLogRetentionOptionTests: XCTestCase {
         XCTAssertEqual(LlmLogRetentionOption.closest(toMs: 7_776_000_000), .ninetyDays)
     }
 
-    // MARK: - Zero / never
+    // MARK: - Nil / keep forever
 
-    func testClosestReturnsNeverForZero() {
-        XCTAssertEqual(LlmLogRetentionOption.closest(toMs: 0), .never)
+    func testClosestReturnsKeepForeverForNil() {
+        XCTAssertEqual(LlmLogRetentionOption.closest(toMs: nil), .keepForever)
+    }
+
+    // MARK: - retentionMs values
+
+    func testDontRetainRetentionMsIsZero() {
+        XCTAssertEqual(LlmLogRetentionOption.dontRetain.retentionMs, 0)
+    }
+
+    func testKeepForeverRetentionMsIsNil() {
+        XCTAssertNil(LlmLogRetentionOption.keepForever.retentionMs)
     }
 
     // MARK: - Off-grid snapping
@@ -40,29 +55,29 @@ final class LlmLogRetentionOptionTests: XCTestCase {
     // MARK: - Tie-breaking (snap up to larger retention)
 
     /// 4 days (345_600_000 ms) is exactly halfway between 1 day and 7 days.
-    /// Tie-breaking rule: snap up to the larger retention → `.sevenDays`.
+    /// Tie-breaking rule: snap up to the larger retention -> `.sevenDays`.
     func testClosestSnapsExactMidpointBetweenOneAndSevenDaysToSevenDays() {
         XCTAssertEqual(LlmLogRetentionOption.closest(toMs: 345_600_000), .sevenDays)
     }
 
     /// Exact midpoint between 7 days (604_800_000) and 30 days (2_592_000_000):
-    /// (604_800_000 + 2_592_000_000) / 2 = 1_598_400_000 ms (≈18.5 days).
-    /// Tie-breaking rule: snap up to the larger retention → `.thirtyDays`.
+    /// (604_800_000 + 2_592_000_000) / 2 = 1_598_400_000 ms.
+    /// Tie-breaking rule: snap up to the larger retention -> `.thirtyDays`.
     func testClosestSnapsExactMidpointBetweenSevenAndThirtyDaysToThirtyDays() {
         XCTAssertEqual(LlmLogRetentionOption.closest(toMs: 1_598_400_000), .thirtyDays)
     }
 
     /// Exact midpoint between 30 days (2_592_000_000) and 90 days (7_776_000_000):
     /// (2_592_000_000 + 7_776_000_000) / 2 = 5_184_000_000 ms (60 days).
-    /// Tie-breaking rule: snap up to the larger retention → `.ninetyDays`.
+    /// Tie-breaking rule: snap up to the larger retention -> `.ninetyDays`.
     func testClosestSnapsExactMidpointBetweenThirtyAndNinetyDaysToNinetyDays() {
         XCTAssertEqual(LlmLogRetentionOption.closest(toMs: 5_184_000_000), .ninetyDays)
     }
 
     // MARK: - Invariants
 
-    func testAllCasesHasFiveEntries() {
-        XCTAssertEqual(LlmLogRetentionOption.allCases.count, 5)
+    func testAllCasesHasSixEntries() {
+        XCTAssertEqual(LlmLogRetentionOption.allCases.count, 6)
     }
 
     func testAllCasesLabelsAreNonEmpty() {

@@ -480,7 +480,7 @@ export function maybeEnqueueScheduledCleanupJobs(
       ? enqueuePruneOldConversationsJob(cleanup.conversationRetentionDays)
       : null;
   const pruneLlmRequestLogsJobId =
-    cleanup.llmRequestLogRetentionMs > 0
+    cleanup.llmRequestLogRetentionMs !== null
       ? enqueuePruneOldLlmRequestLogsJob(cleanup.llmRequestLogRetentionMs)
       : null;
   markScheduledCleanupEnqueued(nowMs);
