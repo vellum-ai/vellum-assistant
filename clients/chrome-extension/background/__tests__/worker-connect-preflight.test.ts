@@ -18,7 +18,9 @@
  *   - Cloud interactive: auto-signs-in when token is missing/stale.
  *   - Cloud non-interactive: attempts refresh, succeeds if provider
  *     session is live.
- *   - Cloud non-interactive: fails when refresh also fails.
+ *   - Cloud non-interactive: fails when refresh also fails (no token).
+ *   - Cloud non-interactive: falls back to stale-but-valid token when
+ *     refresh fails (token present but within staleness window).
  *   - Preflight is a no-op when valid token already exists.
  */
 
@@ -128,6 +130,12 @@ async function connectPreflight(
       if (refreshed) {
         const baseUrl = assistant?.runtimeUrl || CLOUD_GATEWAY_BASE_URL;
         return { kind: 'cloud', baseUrl, token: refreshed.token };
+      }
+      // If the token is stale but still technically valid, fall back to
+      // the existing mode rather than discarding a usable token. The
+      // onReconnect hook will handle actual expiry later.
+      if (mode.token) {
+        return mode;
       }
       throw new MissingTokenError(missingTokenMessage('cloud-oauth'));
     }
@@ -437,6 +445,45 @@ describe('connectPreflight — cloud-oauth topology', () => {
       expect(err).toBeInstanceOf(MissingTokenError);
       expect((err as Error).message).toContain('Sign in');
     }
+  });
+
+  test('non-interactive: falls back to stale-but-valid token when refresh fails', async () => {
+    const assistant = makeCloudAssistant();
+    // Mode has a token — stale but still technically valid
+    const mode: RelayMode = {
+      kind: 'cloud',
+      baseUrl: 'https://rt.vellum.cloud',
+      token: 'stale-but-valid-jwt',
+    };
+    const staleToken = makeStoredCloudToken({
+      token: 'stale-but-valid-jwt',
+      // Expires in 50 seconds — within the 60-second stale window
+      expiresAt: Date.now() + 50_000,
+    });
+    let refreshCalled = false;
+    const deps = makeDeps({
+      getStoredCloudToken: async () => staleToken,
+      // Refresh fails (e.g. provider session expired)
+      refreshCloudToken: async () => {
+        refreshCalled = true;
+        return null;
+      },
+    });
+
+    const result = await connectPreflight(
+      assistant,
+      'cloud-oauth',
+      mode,
+      { interactive: false },
+      deps,
+    );
+
+    // Should have attempted refresh
+    expect(refreshCalled).toBe(true);
+    // Should fall back to the original mode with the stale-but-valid token
+    expect(result).toBe(mode);
+    expect(result.token).toBe('stale-but-valid-jwt');
+    expect(result.baseUrl).toBe('https://rt.vellum.cloud');
   });
 
   test('skips preflight when valid cloud token exists and is not stale', async () => {

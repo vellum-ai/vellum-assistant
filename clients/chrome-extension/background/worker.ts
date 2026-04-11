@@ -826,8 +826,12 @@ interface ConnectOptions {
  *     `signInCloud(...)` and rebuilds the mode.
  *   - If the token is missing/stale and `interactive=false`, attempts
  *     `refreshCloudToken(...)` first. If the non-interactive refresh
- *     succeeds, rebuilds the mode with the fresh token. Otherwise
- *     throws a {@link MissingTokenError}.
+ *     succeeds, rebuilds the mode with the fresh token. If the refresh
+ *     fails but the original mode still carries a token (stale but not
+ *     yet expired), the existing mode is returned as-is so the
+ *     `onReconnect` hook can handle actual expiry later. Only when
+ *     both the refresh fails and no token exists does it throw a
+ *     {@link MissingTokenError}.
  *
  * Returns the (possibly refreshed) {@link RelayMode} ready for socket
  * open.
@@ -884,6 +888,12 @@ async function connectPreflight(
       if (refreshed) {
         const baseUrl = assistant?.runtimeUrl || CLOUD_GATEWAY_BASE_URL;
         return { kind: 'cloud', baseUrl, token: refreshed.token };
+      }
+      // If the token is stale but still technically valid, fall back to
+      // the existing mode rather than discarding a usable token. The
+      // onReconnect hook will handle actual expiry later.
+      if (mode.token) {
+        return mode;
       }
       throw new MissingTokenError(missingTokenMessage('cloud-oauth'));
     }
