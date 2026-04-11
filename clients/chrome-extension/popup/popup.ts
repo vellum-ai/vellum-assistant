@@ -38,7 +38,6 @@ import {
   shouldShowLocalSection,
   shouldShowCloudSection,
   deriveCtaState,
-  deriveStatusDisplay,
   deriveSetupMessage,
   deriveHealthStatusDisplay,
   healthToPhase,
