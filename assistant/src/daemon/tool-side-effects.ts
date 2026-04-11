@@ -215,7 +215,9 @@ registerHook(
     const SETTING_TO_KEY: Record<string, string> = {
       activation_key: "pttActivationKey",
       tts_voice_id: "ttsVoiceId",
+      tts_provider: "ttsProvider",
       conversation_timeout: "voiceConversationTimeoutSeconds",
+      fish_audio_reference_id: "fishAudioReferenceId",
     };
     const key = SETTING_TO_KEY[setting];
     if (!key) return;
@@ -227,6 +229,13 @@ registerHook(
     if (setting === "conversation_timeout") {
       coerced = typeof raw === "number" ? raw : Number(raw);
     } else if (setting === "tts_voice_id" && typeof raw === "string") {
+      coerced = raw.trim();
+    } else if (
+      setting === "fish_audio_reference_id" &&
+      typeof raw === "string"
+    ) {
+      coerced = raw.trim();
+    } else if (setting === "tts_provider" && typeof raw === "string") {
       coerced = raw.trim();
     }
     broadcastToAllClients?.({

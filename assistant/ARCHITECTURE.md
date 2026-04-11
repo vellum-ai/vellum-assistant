@@ -2026,6 +2026,64 @@ The guardian trust system uses a three-valued `TrustClass` — `'guardian'`, `'t
 | `src/memory/channel-verification-sessions.ts` | `GuardianBinding` with required `guardianPrincipalId` |
 | `src/__tests__/trust-context-guards.test.ts`  | Guard tests enforcing trust-context type invariants   |
 
+### TTS Provider Abstraction (`services.tts`)
+
+All text-to-speech functionality (in-app message playback and phone call voice) routes through a provider-agnostic TTS abstraction. The abstraction consists of four layers: a config schema, a config resolver, a provider registry, and a top-level synthesis orchestrator.
+
+**Config schema (`services.tts`):** The canonical config block lives at `services.tts` in the assistant config. It contains:
+
+| Field                               | Type   | Default        | Description                                                   |
+| ----------------------------------- | ------ | -------------- | ------------------------------------------------------------- |
+| `services.tts.mode`                 | enum   | `"your-own"`   | Service mode (only `"your-own"` is supported)                 |
+| `services.tts.provider`             | enum   | `"elevenlabs"` | Active TTS provider used for speech synthesis                 |
+| `services.tts.providers.elevenlabs` | object | _(defaults)_   | ElevenLabs-specific settings (voiceId, speed, stability, etc) |
+| `services.tts.providers.fish-audio` | object | _(defaults)_   | Fish Audio-specific settings (referenceId, format, etc)       |
+
+Provider-specific config is nested under `services.tts.providers.<id>`. All legacy top-level keys (`elevenlabs.*`, `fishAudio.*`) were removed by workspace migration 032 — only canonical `services.tts` paths are supported at runtime.
+
+**Config resolver (`tts-config-resolver.ts`):** `resolveTtsConfig(config)` reads `services.tts.provider` to determine the active provider and returns a `ResolvedTtsConfig` containing the provider ID and its provider-specific config object from `services.tts.providers.<id>`. No legacy fallback logic exists.
+
+**Provider registry (`provider-registry.ts`):** A runtime registry where provider adapters self-register at startup via `registerTtsProvider()`. Callers resolve a provider by ID with `getTtsProvider()`, which throws for unknown IDs so misconfiguration surfaces immediately. Built-in providers (ElevenLabs, Fish Audio) are registered in `providers/register-builtins.ts` during daemon initialization.
+
+**Provider interface (`types.ts`):** Every provider implements the `TtsProvider` interface:
+
+- `id` — unique provider identifier (matches `TtsProviderId`)
+- `capabilities` — static capability advertisement (`supportsStreaming`, `supportedFormats`)
+- `synthesize(request)` — buffer-oriented synthesis (required for all providers)
+- `synthesizeStream?(request, onChunk)` — optional chunk-level streaming for real-time use cases
+
+The `TtsUseCase` discriminator (`"phone-call"` or `"message-playback"`) lets providers tailor format, latency, and quality trade-offs per product surface.
+
+**Synthesis orchestrator (`synthesize-text.ts`):** `synthesizeText()` is the top-level entry point. It resolves the globally configured provider via the config resolver, looks up the adapter in the registry, and delegates synthesis. Provider selection is always global — per-use-case policy only gates capabilities (e.g. format checks), never overrides the chosen provider.
+
+**Phone call integration:** `resolveVoiceQualityProfile()` in `voice-quality.ts` uses the TTS abstraction to determine the active provider and its capabilities. Providers that declare `supportsStreaming` (e.g. Fish Audio) use a synthesized-play path where audio is streamed via `play` messages; native providers (e.g. ElevenLabs) populate `ttsProvider` and `voice` in TwiML so Twilio handles TTS natively.
+
+**Adding a new TTS provider:**
+
+1. Define the provider's config schema in `src/config/schemas/tts.ts` — add a new Zod object under `TtsProvidersSchema` and append the provider ID to `VALID_TTS_PROVIDERS`.
+2. Create the provider adapter in `src/tts/providers/<id>-provider.ts` — implement `TtsProvider` with the appropriate `capabilities` and `synthesize`/`synthesizeStream` methods.
+3. Register the adapter in `src/tts/providers/register-builtins.ts`.
+4. Add provider-specific config resolution in `tts-config-resolver.ts`.
+5. Update `TtsProviderId` union in `src/tts/types.ts`.
+6. If the new provider is a **native** (non-streaming) provider, update `resolveVoiceQualityProfile()` in `src/calls/voice-quality.ts`. The native path currently hardcodes ElevenLabs voice spec for the Twilio ConversationRelay `ttsProvider`/`voice` fields — a new native provider will need its own branch or the hardcoded ElevenLabs fallback will produce incorrect TwiML.
+
+The registry, resolver, and orchestrator will automatically pick up the new provider when selected via `services.tts.provider`. Streaming providers require no `voice-quality.ts` changes because they bypass Twilio's built-in TTS entirely.
+
+**Key source files:**
+
+| File                                                       | Purpose                                                                         |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `src/tts/types.ts`                                         | Core domain types: `TtsProvider`, `TtsProviderId`, `TtsUseCase`, capabilities   |
+| `src/tts/provider-registry.ts`                             | Runtime provider registry: register, lookup, list                               |
+| `src/tts/tts-config-resolver.ts`                           | Config resolver: `resolveTtsConfig()` reads `services.tts` and returns resolved |
+| `src/tts/synthesize-text.ts`                               | Top-level orchestrator: `synthesizeText()` entry point                          |
+| `src/tts/providers/register-builtins.ts`                   | Startup registration of built-in providers                                      |
+| `src/tts/providers/elevenlabs-provider.ts`                 | ElevenLabs adapter implementation                                               |
+| `src/tts/providers/fish-audio-provider.ts`                 | Fish Audio adapter implementation                                               |
+| `src/config/schemas/tts.ts`                                | Zod schema for `services.tts` config block                                      |
+| `src/calls/voice-quality.ts`                               | Phone call integration: `resolveVoiceQualityProfile()`                          |
+| `src/workspace/migrations/032-tts-provider-unification.ts` | Migration that materialised canonical `services.tts` fields                     |
+
 ### Managed Profiler Runtime
 
 Managed cloud assistants use Bun's built-in CPU and heap profiling to capture runtime performance data. The profiler subsystem consists of a persistent on-disk run store, a retention/pruning sweep, and HTTP routes for remote management.

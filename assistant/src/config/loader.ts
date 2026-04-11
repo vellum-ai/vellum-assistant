@@ -26,6 +26,7 @@ export const API_KEY_PROVIDERS = [
   "fireworks",
   "openrouter",
   "brave",
+  "elevenlabs",
   "perplexity",
 ] as const;
 

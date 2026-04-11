@@ -1,13 +1,36 @@
 import SwiftUI
 import VellumAssistantShared
 
+/// TTS provider options for the unified global provider selector.
+private enum TTSProviderOption: String, CaseIterable {
+    case elevenlabs = "elevenlabs"
+    case fishAudio = "fish-audio"
+
+    var displayName: String {
+        switch self {
+        case .elevenlabs: return "ElevenLabs"
+        case .fishAudio: return "Fish Audio"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .elevenlabs:
+            return "High-quality voice synthesis for conversations and read-aloud. Requires an ElevenLabs API key."
+        case .fishAudio:
+            return "Natural-sounding voice synthesis with custom voice cloning. Requires a Fish Audio API key and voice reference ID."
+        }
+    }
+}
+
 /// Voice settings tab — configure push-to-talk activation key,
-/// conversation timeout, and text-to-speech.
+/// conversation timeout, and text-to-speech provider.
 struct VoiceSettingsView: View {
     @ObservedObject var store: SettingsStore
 
     @AppStorage("activationKey") private var activationKey: String = "fn"
     @AppStorage("voiceConversationTimeoutSeconds") private var conversationTimeoutSeconds: Int = 30
+    @AppStorage("ttsProvider") private var ttsProviderRaw: String = TTSProviderOption.elevenlabs.rawValue
 
     @State private var elevenLabsKeyText: String = ""
     @State private var ttsSetupExpanded: Bool = false
@@ -16,6 +39,10 @@ struct VoiceSettingsView: View {
     @State private var isRecordingCustomKey: Bool = false
     @State private var recordingMonitors: [Any] = []
     @State private var modifierHoldTimer: Timer? = nil
+
+    private var ttsProvider: TTSProviderOption {
+        TTSProviderOption(rawValue: ttsProviderRaw) ?? .elevenlabs
+    }
 
     private var currentActivator: PTTActivator {
         // Read activationKey to establish SwiftUI dependency tracking —
@@ -40,15 +67,12 @@ struct VoiceSettingsView: View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             pttCard
             conversationTimeoutCard
-            ttsCard
-            readAloudCard
+            ttsProviderCard
         }
         .onDisappear {
             stopRecordingCustomKey()
         }
         .onAppear {
-            // ElevenLabs key is still saved locally (not yet synced to daemon),
-            // so use the sync check until 22a-3 migrates saveElevenLabsKey.
             elevenLabsHasKey = APIKeyManager.getKey(for: "elevenlabs") != nil
         }
         .onChange(of: conversationTimeoutSeconds) {
@@ -282,10 +306,79 @@ struct VoiceSettingsView: View {
         (label: "60 seconds", value: 60),
     ]
 
-    // MARK: - Voice Conversation TTS Card
+    // MARK: - Unified TTS Provider Card
 
-    private var ttsCard: some View {
-        SettingsCard(title: "Text-to-Speech", subtitle: "ElevenLabs provides high-quality voice responses during voice conversations. An API key is required.") {
+    private var ttsProviderCard: some View {
+        SettingsCard(title: "Text-to-Speech", subtitle: "Choose a TTS provider for voice conversations and read-aloud. The selected provider is used globally across all speech features.") {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                // Provider selector
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Text("Provider:")
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentSecondary)
+
+                    HStack(spacing: VSpacing.sm) {
+                        ForEach(TTSProviderOption.allCases, id: \.rawValue) { provider in
+                            let isSelected = ttsProvider == provider
+                            providerOption(label: provider.displayName, isSelected: isSelected) {
+                                ttsProviderRaw = provider.rawValue
+                                store.setTTSProvider(provider.rawValue)
+                            }
+                        }
+                    }
+                }
+
+                // Provider-specific subtitle
+                Text(ttsProvider.subtitle)
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+
+                // Provider-specific configuration
+                switch ttsProvider {
+                case .elevenlabs:
+                    elevenLabsProviderConfig
+                case .fishAudio:
+                    fishAudioProviderConfig
+                }
+            }
+        }
+    }
+
+    private func providerOption(label: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: VSpacing.sm) {
+                Circle()
+                    .fill(isSelected ? VColor.primaryBase : Color.clear)
+                    .frame(width: 10, height: 10)
+                    .overlay(
+                        Circle()
+                            .strokeBorder(isSelected ? VColor.primaryBase : VColor.borderHover, lineWidth: 1.5)
+                    )
+
+                Text(label)
+                    .font(VFont.bodyMediumLighter)
+                    .foregroundStyle(VColor.contentDefault)
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .fill(isSelected ? VColor.surfaceActive : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .strokeBorder(VColor.borderBase, lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+    }
+
+    // MARK: - ElevenLabs Provider Config
+
+    private var elevenLabsProviderConfig: some View {
+        Group {
             if elevenLabsHasKey {
                 HStack(spacing: VSpacing.sm) {
                     VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
@@ -335,40 +428,38 @@ struct VoiceSettingsView: View {
         }
     }
 
-    // MARK: - Read Aloud Card
+    // MARK: - Fish Audio Provider Config
 
-    private var readAloudCard: some View {
-        SettingsCard(title: "Read Aloud", subtitle: "Fish Audio powers natural-sounding read-aloud for any assistant message. Requires a Fish Audio account with an API key and a voice reference ID.") {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("1. Create a Fish Audio account at fish.audio")
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                    Text("2. Generate an API key from your Fish Audio dashboard")
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                    Text("3. Choose or create a voice and copy its reference ID")
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                    Text("4. Run the setup commands in your terminal:")
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                }
-
-                Text("assistant credentials set --service fish-audio --field api_key YOUR_KEY\nassistant config set fishAudio.referenceId YOUR_VOICE_ID")
-                    .font(.system(size: 12, design: .monospaced))
+    private var fishAudioProviderConfig: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("1. Create a Fish Audio account at fish.audio")
+                    .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentSecondary)
-                    .padding(VSpacing.md)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .fill(VColor.surfaceBase)
-                    )
-                    .textSelection(.enabled)
+                Text("2. Generate an API key from your Fish Audio dashboard")
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                Text("3. Choose or create a voice and copy its reference ID")
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                Text("4. Run the setup commands in your terminal:")
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+            }
 
-                VButton(label: "Visit Fish Audio", rightIcon: VIcon.arrowUpRight.rawValue, style: .outlined) {
-                    NSWorkspace.shared.open(URL(string: "https://fish.audio")!)
-                }
+            Text("assistant credentials set --service fish-audio --field api_key YOUR_KEY\nassistant config set services.tts.providers.fish-audio.referenceId YOUR_VOICE_ID")
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(VColor.contentSecondary)
+                .padding(VSpacing.md)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .fill(VColor.surfaceBase)
+                )
+                .textSelection(.enabled)
+
+            VButton(label: "Visit Fish Audio", rightIcon: VIcon.arrowUpRight.rawValue, style: .outlined) {
+                NSWorkspace.shared.open(URL(string: "https://fish.audio")!)
             }
         }
     }

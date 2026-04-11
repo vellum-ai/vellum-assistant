@@ -4801,7 +4801,7 @@ paths:
     post:
       operationId: messages_by_id_tts_post
       summary: Synthesize message to speech
-      description: Synthesize a message's text content to audio using Fish Audio TTS.
+      description: Synthesize a message's text content to audio using the configured TTS provider.
       tags:
         - messages
       responses:
@@ -7826,6 +7826,39 @@ paths:
                 - scope
                 - decision
                 - priority
+              additionalProperties: false
+  /v1/tts/synthesize:
+    post:
+      operationId: tts_synthesize_post
+      summary: Synthesize text to speech
+      description:
+        Synthesize arbitrary text to audio using the configured TTS provider. Provider selection is resolved
+        globally via config — callers do not specify a provider.
+      tags:
+        - tts
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                  description: Text to synthesize into speech
+                context:
+                  description:
+                    Optional context hint for output policy or capability selection (e.g. voice-mode). Does not affect provider
+                    selection.
+                  type: string
+                conversationId:
+                  description: Optional conversation ID for scoping or analytics.
+                  type: string
+              required:
+                - text
               additionalProperties: false
   /v1/usage/breakdown:
     get:

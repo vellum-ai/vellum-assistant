@@ -43,6 +43,7 @@ import {
 } from "./call-constants.js";
 import { CallController } from "./call-controller.js";
 import { addPointerMessage, formatDuration } from "./call-pointer-messages.js";
+import { speakSystemPrompt } from "./call-speech-output.js";
 import { fireCallTranscriptNotifier } from "./call-state.js";
 import { isTerminalState } from "./call-state-machine.js";
 import {
@@ -594,7 +595,7 @@ export class RelayConnection {
         await this.startVerification(session, outcome.verificationConfig);
         return;
       case "deny":
-        this.denyInboundCall(msg.from, resolved, outcome);
+        await this.denyInboundCall(msg.from, resolved, outcome);
         return;
       case "invite_redemption":
         this.startInviteRedemption(
@@ -690,24 +691,24 @@ export class RelayConnection {
   }
 
   /** Deny an inbound call with a TTS message and schedule disconnect. */
-  private denyInboundCall(
+  private async denyInboundCall(
     from: string,
     resolved: import("./relay-setup-router.js").SetupResolved,
     outcome: { message: string; logReason: string },
-  ): void {
+  ): Promise<void> {
     recordCallEvent(this.callSessionId, "inbound_acl_denied", {
       from,
       trustClass: resolved.actorTrust.trustClass,
       channelId: resolved.actorTrust.memberRecord?.channel.id,
       memberPolicy: resolved.actorTrust.memberRecord?.channel.policy,
     });
-    this.sendTextToken(outcome.message, true);
     this.connectionState = "disconnecting";
     updateCallSession(this.callSessionId, {
       status: "failed",
       endedAt: Date.now(),
       lastError: outcome.logReason,
     });
+    await speakSystemPrompt(this, outcome.message);
     setTimeout(() => {
       this.endSession(outcome.logReason);
     }, getTtsPlaybackDelayMs());
@@ -740,9 +741,9 @@ export class RelayConnection {
 
     // Send a TTS prompt with the code spoken digit by digit
     const spokenCode = code.split("").join(". ");
-    this.sendTextToken(
+    void speakSystemPrompt(
+      this,
       `Please enter the verification code: ${spokenCode}.`,
-      true,
     );
 
     // Post the verification code to the initiating conversation so the
@@ -861,7 +862,7 @@ export class RelayConnection {
       handoffText = `Great! ${guardianLabel} said I can speak with you. How can I help?`;
     }
 
-    this.sendTextToken(handoffText, true);
+    void speakSystemPrompt(this, handoffText);
 
     recordCallEvent(this.callSessionId, "assistant_spoke", {
       text: handoffText,
@@ -904,9 +905,9 @@ export class RelayConnection {
       maxAttempts: this.verificationMaxAttempts,
     });
 
-    this.sendTextToken(
+    void speakSystemPrompt(
+      this,
       "Welcome. Please enter your six-digit verification code using your keypad, or speak the digits now.",
-      true,
     );
 
     log.info(
@@ -946,7 +947,7 @@ export class RelayConnection {
       GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_CALL_INTRO,
       { codeDigits: this.verificationCodeLength },
     );
-    this.sendTextToken(introText, true);
+    void speakSystemPrompt(this, introText);
 
     log.info(
       {
@@ -963,7 +964,9 @@ export class RelayConnection {
    * Delegates to the extracted attemptVerificationCode() and
    * interprets the structured result to drive side-effects.
    */
-  private handleVerificationCodeResult(enteredCode: string): void {
+  private async handleVerificationCodeResult(
+    enteredCode: string,
+  ): Promise<void> {
     if (!this.verificationAssistantId || !this.verificationFromNumber) {
       return;
     }
@@ -1102,8 +1105,6 @@ export class RelayConnection {
         "Guardian voice verification failed — max attempts reached",
       );
 
-      this.sendTextToken(result.ttsMessage, true);
-
       updateCallSession(this.callSessionId, {
         status: "failed",
         endedAt: Date.now(),
@@ -1135,6 +1136,7 @@ export class RelayConnection {
         }
       }
 
+      await speakSystemPrompt(this, result.ttsMessage);
       setTimeout(() => {
         this.endSession("Verification failed — challenge rejected");
       }, getTtsPlaybackDelayMs());
@@ -1151,7 +1153,7 @@ export class RelayConnection {
         },
         "Guardian voice verification attempt failed — retrying",
       );
-      this.sendTextToken(result.ttsMessage, true);
+      void speakSystemPrompt(this, result.ttsMessage);
     }
   }
 
@@ -1196,7 +1198,7 @@ export class RelayConnection {
     } else {
       promptText = `Welcome ${displayFriend}. Please enter the 6-digit code that ${displayGuardian} provided you to verify your identity.`;
     }
-    this.sendTextToken(promptText, true);
+    void speakSystemPrompt(this, promptText);
 
     log.info(
       { callSessionId: this.callSessionId, assistantId },
@@ -1221,7 +1223,7 @@ export class RelayConnection {
       ? `Hi, this is ${assistantName}, ${guardianLabel}'s assistant. Sorry, I don't recognize this number. I'll let ${guardianLabel} know you called and see if I have permission to speak with you. Can I get your name?`
       : `Hi, this is ${guardianLabel}'s assistant. Sorry, I don't recognize this number. I'll let ${guardianLabel} know you called and see if I have permission to speak with you. Can I get your name?`;
 
-    this.sendTextToken(greeting, true);
+    void speakSystemPrompt(this, greeting);
 
     // Start a timeout so silent callers don't keep the call open indefinitely.
     // Uses a 30-second window — enough time to speak a name but short enough
@@ -1229,7 +1231,7 @@ export class RelayConnection {
     const NAME_CAPTURE_TIMEOUT_MS = 30_000;
     this.nameCaptureTimeoutTimer = setTimeout(() => {
       if (this.connectionState !== "awaiting_name") return;
-      this.handleNameCaptureTimeout();
+      void this.handleNameCaptureTimeout();
     }, NAME_CAPTURE_TIMEOUT_MS);
 
     log.info(
@@ -1307,7 +1309,7 @@ export class RelayConnection {
         { callSessionId: this.callSessionId },
         "Access request ID is null after notification attempt — failing closed",
       );
-      this.handleAccessRequestTimeout();
+      void this.handleAccessRequestTimeout();
       return;
     }
 
@@ -1327,9 +1329,9 @@ export class RelayConnection {
     const pollIntervalMs = getAccessRequestPollIntervalMs();
 
     const guardianLabel = this.resolveGuardianLabel();
-    this.sendTextToken(
+    void speakSystemPrompt(
+      this,
       `Thank you. I've let ${guardianLabel} know. Please hold while I check if I have permission to speak with you.`,
-      true,
     );
 
     updateCallSession(this.callSessionId, { status: "waiting_on_user" });
@@ -1363,7 +1365,7 @@ export class RelayConnection {
       if (request.status === "approved") {
         this.handleAccessRequestApproved();
       } else if (request.status === "denied") {
-        this.handleAccessRequestDenied();
+        void this.handleAccessRequestDenied();
       }
       // 'pending' continues polling; 'expired'/'cancelled' handled by timeout
     }, pollIntervalMs);
@@ -1377,7 +1379,7 @@ export class RelayConnection {
         "Access request in-call wait timed out",
       );
 
-      this.handleAccessRequestTimeout();
+      void this.handleAccessRequestTimeout();
     }, timeoutMs);
 
     log.info(
@@ -1450,7 +1452,7 @@ export class RelayConnection {
   /**
    * Handle a denied access request: deliver deterministic copy and hang up.
    */
-  private handleAccessRequestDenied(): void {
+  private async handleAccessRequestDenied(): Promise<void> {
     this.clearAccessRequestWait();
 
     const guardianLabel = this.resolveGuardianLabel();
@@ -1459,11 +1461,6 @@ export class RelayConnection {
       from: this.accessRequestFromNumber,
       requestId: this.accessRequestId,
     });
-
-    this.sendTextToken(
-      `Sorry, ${guardianLabel} says I'm not allowed to speak with you. Goodbye.`,
-      true,
-    );
 
     this.connectionState = "disconnecting";
 
@@ -1478,6 +1475,10 @@ export class RelayConnection {
       "Access request denied — ending call",
     );
 
+    await speakSystemPrompt(
+      this,
+      `Sorry, ${guardianLabel} says I'm not allowed to speak with you. Goodbye.`,
+    );
     setTimeout(() => {
       this.endSession("Access request denied");
     }, getTtsPlaybackDelayMs());
@@ -1486,7 +1487,7 @@ export class RelayConnection {
   /**
    * Handle an access request timeout: deliver deterministic copy and hang up.
    */
-  private handleAccessRequestTimeout(): void {
+  private async handleAccessRequestTimeout(): Promise<void> {
     // Emit callback handoff notification before clearing wait state
     this.emitAccessRequestCallbackHandoffForReason("timeout");
 
@@ -1503,10 +1504,6 @@ export class RelayConnection {
     const callbackNote = this.callbackOptIn
       ? ` I've noted that you'd like a callback — I'll pass that along to ${guardianLabel}.`
       : "";
-    this.sendTextToken(
-      `Sorry, I can't get ahold of ${guardianLabel} right now. I'll let them know you called.${callbackNote}`,
-      true,
-    );
 
     this.connectionState = "disconnecting";
 
@@ -1521,6 +1518,10 @@ export class RelayConnection {
       "Access request timed out — ending call",
     );
 
+    await speakSystemPrompt(
+      this,
+      `Sorry, I can't get ahold of ${guardianLabel} right now. I'll let them know you called.${callbackNote}`,
+    );
     setTimeout(() => {
       this.endSession("Access request timed out");
     }, getTtsPlaybackDelayMs());
@@ -1546,7 +1547,7 @@ export class RelayConnection {
    * Handle a name capture timeout: the caller never provided their name
    * within the allotted window. Deliver deterministic copy and hang up.
    */
-  private handleNameCaptureTimeout(): void {
+  private async handleNameCaptureTimeout(): Promise<void> {
     if (this.nameCaptureTimeoutTimer) {
       clearTimeout(this.nameCaptureTimeoutTimer);
       this.nameCaptureTimeoutTimer = null;
@@ -1555,11 +1556,6 @@ export class RelayConnection {
     recordCallEvent(this.callSessionId, "inbound_acl_name_capture_timeout", {
       from: this.accessRequestFromNumber,
     });
-
-    this.sendTextToken(
-      "Sorry, I didn't catch your name. Please try calling back. Goodbye.",
-      true,
-    );
 
     this.connectionState = "disconnecting";
 
@@ -1574,6 +1570,10 @@ export class RelayConnection {
       "Name capture timed out — ending call",
     );
 
+    await speakSystemPrompt(
+      this,
+      "Sorry, I didn't catch your name. Please try calling back. Goodbye.",
+    );
     setTimeout(() => {
       this.endSession("Name capture timed out");
     }, getTtsPlaybackDelayMs());
@@ -1584,7 +1584,9 @@ export class RelayConnection {
    * Delegates to the extracted attemptInviteCodeRedemption() and
    * interprets the structured result to drive side-effects.
    */
-  private handleInviteCodeRedemptionResult(enteredCode: string): void {
+  private async handleInviteCodeRedemptionResult(
+    enteredCode: string,
+  ): Promise<void> {
     if (!this.inviteRedemptionAssistantId || !this.inviteRedemptionFromNumber) {
       return;
     }
@@ -1634,8 +1636,6 @@ export class RelayConnection {
         "Voice invite redemption failed — invalid or expired code",
       );
 
-      this.sendTextToken(result.ttsMessage, true);
-
       this.connectionState = "disconnecting";
 
       updateCallSession(this.callSessionId, {
@@ -1649,6 +1649,7 @@ export class RelayConnection {
         finalizeCall(this.callSessionId, failSession.conversationId);
       }
 
+      await speakSystemPrompt(this, result.ttsMessage);
       setTimeout(() => {
         this.endSession("Invite redemption failed");
       }, getTtsPlaybackDelayMs());
@@ -1691,7 +1692,7 @@ export class RelayConnection {
       callSessionId: this.callSessionId,
       consumeSequence: () => this.heartbeatSequence++,
       resolveGuardianLabel: () => this.resolveGuardianLabel(),
-      sendTextToken: (text, last) => this.sendTextToken(text, last),
+      sendTextToken: (text, _last) => void speakSystemPrompt(this, text),
       scheduleNext: () => this.scheduleNextHeartbeat(),
     });
   }
@@ -1737,9 +1738,9 @@ export class RelayConnection {
           clearTimeout(this.accessRequestHeartbeatTimer);
           this.accessRequestHeartbeatTimer = null;
         }
-        this.sendTextToken(
+        void speakSystemPrompt(
+          this,
           `Noted, I'll make sure ${guardianLabel} knows you'd like a callback. For now, I'll keep trying to reach them.`,
-          true,
         );
         this.scheduleNextHeartbeat();
         return;
@@ -1756,9 +1757,9 @@ export class RelayConnection {
           clearTimeout(this.accessRequestHeartbeatTimer);
           this.accessRequestHeartbeatTimer = null;
         }
-        this.sendTextToken(
+        void speakSystemPrompt(
+          this,
           `No problem, I'll keep holding. Still waiting on ${guardianLabel}.`,
-          true,
         );
         this.scheduleNextHeartbeat();
         return;
@@ -1793,15 +1794,15 @@ export class RelayConnection {
             "voice_guardian_wait_callback_offer_sent",
             {},
           );
-          this.sendTextToken(
+          void speakSystemPrompt(
+            this,
             `I understand this is taking a while. I can have ${guardianLabel} call you back once I hear from them. Would you like that, or would you prefer to keep holding?`,
-            true,
           );
         } else {
           // Already offered callback — just reassure
-          this.sendTextToken(
+          void speakSystemPrompt(
+            this,
             `I hear you, I'm sorry for the wait. Still trying to reach ${guardianLabel}.`,
-            true,
           );
         }
         this.scheduleNextHeartbeat();
@@ -1814,9 +1815,9 @@ export class RelayConnection {
           clearTimeout(this.accessRequestHeartbeatTimer);
           this.accessRequestHeartbeatTimer = null;
         }
-        this.sendTextToken(
+        void speakSystemPrompt(
+          this,
           `Yes, I'm still here. Still waiting to hear back from ${guardianLabel}.`,
-          true,
         );
         this.scheduleNextHeartbeat();
         break;
@@ -1827,9 +1828,9 @@ export class RelayConnection {
           clearTimeout(this.accessRequestHeartbeatTimer);
           this.accessRequestHeartbeatTimer = null;
         }
-        this.sendTextToken(
+        void speakSystemPrompt(
+          this,
           `Thanks for that. I'm still waiting on ${guardianLabel}. I'll let you know as soon as I hear back.`,
-          true,
         );
         this.scheduleNextHeartbeat();
         break;
@@ -1888,11 +1889,11 @@ export class RelayConnection {
       );
       if (spokenDigits.length >= this.verificationCodeLength) {
         const enteredCode = spokenDigits.slice(0, this.verificationCodeLength);
-        this.handleVerificationCodeResult(enteredCode);
+        void this.handleVerificationCodeResult(enteredCode);
       } else if (spokenDigits.length > 0) {
-        this.sendTextToken(
+        void speakSystemPrompt(
+          this,
           `I heard ${spokenDigits.length} digits. Please enter all ${this.verificationCodeLength} digits of your code.`,
-          true,
         );
       }
       return;
@@ -1918,11 +1919,11 @@ export class RelayConnection {
           0,
           this.inviteRedemptionCodeLength,
         );
-        this.handleInviteCodeRedemptionResult(enteredCode);
+        void this.handleInviteCodeRedemptionResult(enteredCode);
       } else if (spokenDigits.length > 0) {
-        this.sendTextToken(
+        void speakSystemPrompt(
+          this,
           `I heard ${spokenDigits.length} digits. Please enter all ${this.inviteRedemptionCodeLength} digits of your code.`,
-          true,
         );
       }
       return;
@@ -2014,7 +2015,7 @@ export class RelayConnection {
           );
         }
       }
-      this.sendTextToken("I'm still setting up. Please hold.", true);
+      void speakSystemPrompt(this, "I'm still setting up. Please hold.");
     }
   }
 
@@ -2073,7 +2074,7 @@ export class RelayConnection {
           this.verificationCodeLength,
         );
         this.dtmfBuffer = "";
-        this.handleVerificationCodeResult(enteredCode);
+        void this.handleVerificationCodeResult(enteredCode);
       }
       return;
     }
@@ -2092,7 +2093,7 @@ export class RelayConnection {
           this.inviteRedemptionCodeLength,
         );
         this.dtmfBuffer = "";
-        this.handleInviteCodeRedemptionResult(enteredCode);
+        void this.handleInviteCodeRedemptionResult(enteredCode);
       }
       return;
     }
@@ -2155,8 +2156,6 @@ export class RelayConnection {
               "Callee verification failed — max attempts reached",
             );
 
-            this.sendTextToken("Verification failed. Goodbye.", true);
-
             // Mark failed immediately so a relay close during the goodbye TTS
             // window cannot race this into a terminal "completed" status.
             updateCallSession(this.callSessionId, {
@@ -2188,10 +2187,23 @@ export class RelayConnection {
               }
             }
 
-            // End the call with failed status after TTS plays
-            setTimeout(() => {
-              this.endSession("Verification failed");
-            }, getTtsPlaybackDelayMs());
+            // Wait for synthesis to complete before starting teardown timer
+            // so the caller hears the goodbye message.
+            void speakSystemPrompt(this, "Verification failed. Goodbye.")
+              .then(() => {
+                setTimeout(() => {
+                  this.endSession("Verification failed");
+                }, getTtsPlaybackDelayMs());
+              })
+              .catch((err) => {
+                log.error(
+                  { err, callSessionId: this.callSessionId },
+                  "System prompt TTS failed during verification teardown",
+                );
+                setTimeout(() => {
+                  this.endSession("Verification failed");
+                }, getTtsPlaybackDelayMs());
+              });
           } else {
             // Allow another attempt
             log.info(
@@ -2202,9 +2214,9 @@ export class RelayConnection {
               },
               "Callee verification attempt failed — retrying",
             );
-            this.sendTextToken(
+            void speakSystemPrompt(
+              this,
               "That code was incorrect. Please try again.",
-              true,
             );
           }
         }

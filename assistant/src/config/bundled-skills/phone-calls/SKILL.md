@@ -25,7 +25,7 @@ When speaking on behalf of your user during calls, refer to yourself as an "assi
 
 # Overview
 
-The calling system uses Twilio's ConversationRelay for both **outbound** and **inbound** voice calls with **ElevenLabs** providing the text-to-speech voice. After Twilio setup, the assistant configures ElevenLabs as the TTS provider and prompts the user to choose a voice from a curated list of supported options.
+The calling system uses Twilio's ConversationRelay for both **outbound** and **inbound** voice calls. The text-to-speech voice is provided by the globally configured TTS provider (set via `services.tts.provider`, default: ElevenLabs). After Twilio setup, the assistant prompts the user to choose a voice from a curated list of supported options.
 
 # Initial Setup
 

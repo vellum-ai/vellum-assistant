@@ -112,6 +112,29 @@ const mockConfigObj = {
       elevenlabs: {},
     },
   },
+  services: {
+    tts: {
+      mode: "your-own" as const,
+      provider: "elevenlabs" as const,
+      providers: {
+        elevenlabs: {
+          voiceId: DEFAULT_ELEVENLABS_VOICE_ID,
+          voiceModelId: "",
+          speed: 1.0,
+          stability: 0.5,
+          similarityBoost: 0.75,
+          conversationTimeoutSeconds: 30,
+        },
+        "fish-audio": {
+          referenceId: "",
+          chunkLength: 200,
+          format: "mp3" as const,
+          latency: "normal" as const,
+          speed: 1.0,
+        },
+      },
+    },
+  },
 };
 
 mock.module("../config/loader.js", () => ({
