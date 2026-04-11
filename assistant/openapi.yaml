@@ -2114,6 +2114,56 @@ paths:
           required: true
           schema:
             type: string
+  /v1/contacts/guardian/channel:
+    post:
+      operationId: contacts_guardian_channel_post
+      summary: Add a channel to the guardian contact
+      description: Used by the guardian to auto-verify their own channel.
+      tags:
+        - contacts
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  contact:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                    description: Updated guardian contact
+                required:
+                  - ok
+                  - contact
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  description: Channel type, e.g. 'email'
+                address:
+                  type: string
+                  description: Channel address, e.g. 'user@example.com'
+                externalUserId:
+                  type: string
+                  description: External user ID for trust resolution
+                status:
+                  description: "Channel status (default: active)"
+                  type: string
+              required:
+                - type
+                - address
+                - externalUserId
+              additionalProperties: false
   /v1/contacts/invites:
     get:
       operationId: contacts_invites_get
