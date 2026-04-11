@@ -264,18 +264,16 @@ function getPort(): number {
 
 btnConnect.addEventListener('click', async () => {
   const port = getPort();
-  const storageUpdate: Record<string, unknown> = { autoConnect: true };
 
   errorText.style.display = 'none';
   setPhase('connecting');
 
   try {
     if (portInput.value.trim()) {
-      storageUpdate.relayPort = port;
+      await chrome.storage.local.set({ relayPort: port });
     } else {
       await chrome.storage.local.remove('relayPort');
     }
-    await chrome.storage.local.set(storageUpdate);
   } catch (err) {
     showError(err instanceof Error ? err.message : String(err));
     setPhase('disconnected');
@@ -308,7 +306,6 @@ btnConnect.addEventListener('click', async () => {
 // preserved so the next Connect is instant.
 
 btnPause.addEventListener('click', () => {
-  chrome.storage.local.set({ autoConnect: false });
   chrome.runtime.sendMessage({ type: 'pause' }, () => {
     setPhase('paused');
   });
