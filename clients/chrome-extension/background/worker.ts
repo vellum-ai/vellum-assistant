@@ -234,13 +234,9 @@ async function getAssistantCatalogAndSelection(): Promise<{
 // ── Connection state ───────────────────────────────────────────────
 //
 // The connect path is driven entirely by the selected assistant's auth
-// profile. The legacy `vellum.relayMode` storage key is no longer the
-// source of truth — the auth profile (`local-pair` | `cloud-oauth` |
-// `unsupported`) derived from the selected assistant's lockfile
-// topology determines both the relay target and the token source.
-//
-// Legacy relay-mode storage is preserved read-only for backward
-// compatibility during the deprecation window (PR 6 will remove it).
+// profile (`local-pair` | `cloud-oauth` | `unsupported`) derived from
+// the selected assistant's lockfile topology. This determines both the
+// relay target and the token source.
 
 /**
  * The auth profile of the currently connected (or last-attempted)
