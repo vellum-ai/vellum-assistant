@@ -10,7 +10,7 @@ metadata:
 
 ## Overview
 
-ElevenLabs provides text-to-speech voices for both **in-app TTS** and **phone calls**. The shared config key `elevenlabs.voiceId` controls the voice across all channels. Use the `voice_config_update` tool to change the voice - it writes to the config file and pushes to the macOS app via SSE in one call.
+ElevenLabs provides text-to-speech voices for both **in-app TTS** and **phone calls**. The config key `services.tts.providers.elevenlabs.voiceId` controls the voice across all channels. Use the `voice_config_update` tool to change the voice - it writes to the config file and pushes to the macOS app via SSE in one call.
 
 ## Choose a Voice
 
@@ -18,14 +18,14 @@ Pick a voice that matches the your identity and the user's preferences. Offer to
 
 ### Female voices
 
-| Voice     | Style                              | Voice ID               |
-| --------- | ---------------------------------- | ---------------------- |
-| Amelia    | Expressive, enthusiastic, British  | `ZF6FPAbjXT4488VcRRnw` |
-| Sarah     | Soft, young, approachable          | `EXAVITQu4vr4xnSDxMaL` |
-| Charlotte | Warm, Swedish-accented             | `XB0fDUnXU5powFXDhCwa` |
-| Alice     | Confident, British                 | `Xb7hH8MSUJpSbSDYk0k2` |
-| Matilda   | Warm, friendly, young              | `XrExE9yKIg1WjnnlVkGX` |
-| Lily      | Warm, British                      | `pFZP5JQG7iQjIQuC4Bku` |
+| Voice     | Style                             | Voice ID               |
+| --------- | --------------------------------- | ---------------------- |
+| Amelia    | Expressive, enthusiastic, British | `ZF6FPAbjXT4488VcRRnw` |
+| Sarah     | Soft, young, approachable         | `EXAVITQu4vr4xnSDxMaL` |
+| Charlotte | Warm, Swedish-accented            | `XB0fDUnXU5powFXDhCwa` |
+| Alice     | Confident, British                | `Xb7hH8MSUJpSbSDYk0k2` |
+| Matilda   | Warm, friendly, young             | `XrExE9yKIg1WjnnlVkGX` |
+| Lily      | Warm, British                     | `pFZP5JQG7iQjIQuC4Bku` |
 
 ### Male voices
 
@@ -43,7 +43,7 @@ Pick a voice that matches the your identity and the user's preferences. Offer to
 
 ### Setting the voice
 
-To set the chosen voice, use `voice_config_update`. This writes to the config file (`elevenlabs.voiceId`) for phone calls **and** pushes to the macOS app via SSE (`ttsVoiceId`) for in-app TTS in one call:
+To set the chosen voice, use `voice_config_update`. This writes to the config file (`services.tts.providers.elevenlabs.voiceId`) for phone calls **and** pushes to the macOS app via SSE (`ttsVoiceId`) for in-app TTS in one call:
 
 ```
 voice_config_update setting="tts_voice_id" value="<selected-voice-id>"
@@ -52,7 +52,7 @@ voice_config_update setting="tts_voice_id" value="<selected-voice-id>"
 Verify it worked:
 
 ```bash
-assistant config get elevenlabs.voiceId
+assistant config get services.tts.providers.elevenlabs.voiceId
 ```
 
 Tell the user what voice you chose and why, but also offer to show all available voices so they can choose for themselves.
@@ -113,13 +113,13 @@ Fine-tune how the selected voice sounds. These parameters apply to all ElevenLab
 
 ```bash
 # Playback speed (0.7 = slower, 1.0 = normal, 1.2 = faster)
-assistant config set elevenlabs.speed 1.0
+assistant config set services.tts.providers.elevenlabs.speed 1.0
 
 # Stability (0.0 = more expressive/variable, 1.0 = more consistent/monotone)
-assistant config set elevenlabs.stability 0.5
+assistant config set services.tts.providers.elevenlabs.stability 0.5
 
 # Similarity boost (0.0 = more creative, 1.0 = closer to original voice)
-assistant config set elevenlabs.similarityBoost 0.75
+assistant config set services.tts.providers.elevenlabs.similarityBoost 0.75
 ```
 
 Lower stability makes the voice more expressive but less predictable - good for conversational calls. Higher stability is better for scripted or formal contexts.
@@ -131,7 +131,7 @@ By default, the system sends a **bare** `voiceId` to Twilio ConversationRelay (n
 To optionally force Twilio's extended voice spec, set a model ID:
 
 ```bash
-assistant config set elevenlabs.voiceModelId "flash_v2_5"
+assistant config set services.tts.providers.elevenlabs.voiceModelId "flash_v2_5"
 ```
 
 When `voiceModelId` is set, the emitted voice string becomes: `voiceId-model-speed_stability_similarity`.
@@ -139,5 +139,5 @@ When `voiceModelId` is set, the emitted voice string becomes: `voiceId-model-spe
 To clear and revert to the bare voiceId default:
 
 ```bash
-assistant config set elevenlabs.voiceModelId ""
+assistant config set services.tts.providers.elevenlabs.voiceModelId ""
 ```

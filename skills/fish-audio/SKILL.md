@@ -20,7 +20,7 @@ This skill lets you create audio clips on demand — narration, announcements, p
 
 - **API Endpoint:** `https://api.fish.audio/v1/tts`
 - **Model:** `s2-pro`
-- **Voice Reference ID:** Configured via `assistant config get fishAudio.referenceId`
+- **Voice Reference ID:** Configured via `assistant config get services.tts.providers.fish-audio.referenceId`
 - **API Key:** Stored as credential `fish-audio/api_key`
 - **Default Format:** `mp3` at 192kbps
 - **Default Output Directory:** `scratch/`
@@ -52,7 +52,7 @@ curl -s -X POST "https://api.fish.audio/v1/tts" \
   -H "model: s2-pro" \
   -d '{
     "text": "YOUR TEXT WITH [bracket] TAGS HERE",
-    "reference_id": "'"$(assistant config get fishAudio.referenceId)"'",
+    "reference_id": "'"$(assistant config get services.tts.providers.fish-audio.referenceId)"'",
     "format": "mp3",
     "mp3_bitrate": 192,
     "temperature": 0.8
@@ -131,19 +131,19 @@ These tags consistently produce strong results. Organized by category:
 
 #### Voice Quality & Style
 
-| Tag                    | Effect                | Best For                     |
-| ---------------------- | --------------------- | ---------------------------- |
-| `[soft]`               | Gentle, tender        | Intimate moments, kindness   |
-| `[whisper]`            | Very quiet, close     | Secrets, tension, suspense   |
-| `[breathy]`            | Airy, expressive      | Vulnerability, emphasis      |
-| `[low voice]`          | Deep, quiet register  | Gravity, seriousness         |
-| `[loud]`               | Raised volume         | Emphasis, excitement         |
-| `[screaming]`          | Full volume yelling   | Anger, extreme excitement    |
-| `[shouting]`           | Forceful projection   | Arguments, calling out       |
-| `[emphasis]`           | Stressed delivery     | Key words, making a point    |
-| `[singing]`            | Musical quality       | Playfulness, joy             |
-| `[echo]`               | Reverberant effect    | Dramatic moments             |
-| `[with strong accent]` | Pronounced accent     | Character work               |
+| Tag                    | Effect               | Best For                   |
+| ---------------------- | -------------------- | -------------------------- |
+| `[soft]`               | Gentle, tender       | Intimate moments, kindness |
+| `[whisper]`            | Very quiet, close    | Secrets, tension, suspense |
+| `[breathy]`            | Airy, expressive     | Vulnerability, emphasis    |
+| `[low voice]`          | Deep, quiet register | Gravity, seriousness       |
+| `[loud]`               | Raised volume        | Emphasis, excitement       |
+| `[screaming]`          | Full volume yelling  | Anger, extreme excitement  |
+| `[shouting]`           | Forceful projection  | Arguments, calling out     |
+| `[emphasis]`           | Stressed delivery    | Key words, making a point  |
+| `[singing]`            | Musical quality      | Playfulness, joy           |
+| `[echo]`               | Reverberant effect   | Dramatic moments           |
+| `[with strong accent]` | Pronounced accent    | Character work             |
 
 #### Paralinguistic Sounds (Non-Speech Vocalizations)
 
@@ -323,16 +323,16 @@ S2 excels at dynamic emotional shifts. Use this for natural-feeling monologues:
 
 ## API Parameters
 
-| Parameter      | Default            | Description                                   |
-| -------------- | ------------------ | --------------------------------------------- |
-| `text`         | (required)         | The text to synthesize, with [bracket] tags   |
-| `reference_id` | (from config)      | Voice model ID                                |
-| `format`       | `mp3`              | Output format: `mp3`, `wav`, `pcm`, `opus`    |
-| `mp3_bitrate`  | `192`              | MP3 quality: `64`, `128`, `192`               |
-| `temperature`  | `0.8`              | Expressiveness (higher = more varied)         |
-| `top_p`        | `0.7`              | Diversity via nucleus sampling                |
-| `chunk_length` | `300`              | Text segment size (100-300)                   |
-| `latency`      | `normal`           | Quality tradeoff: `normal`, `balanced`, `low` |
+| Parameter      | Default       | Description                                   |
+| -------------- | ------------- | --------------------------------------------- |
+| `text`         | (required)    | The text to synthesize, with [bracket] tags   |
+| `reference_id` | (from config) | Voice model ID                                |
+| `format`       | `mp3`         | Output format: `mp3`, `wav`, `pcm`, `opus`    |
+| `mp3_bitrate`  | `192`         | MP3 quality: `64`, `128`, `192`               |
+| `temperature`  | `0.8`         | Expressiveness (higher = more varied)         |
+| `top_p`        | `0.7`         | Diversity via nucleus sampling                |
+| `chunk_length` | `300`         | Text segment size (100-300)                   |
+| `latency`      | `normal`      | Quality tradeoff: `normal`, `balanced`, `low` |
 
 ## Tips
 
