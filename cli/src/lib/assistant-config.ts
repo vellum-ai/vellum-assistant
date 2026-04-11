@@ -286,6 +286,18 @@ function readAssistants(): AssistantEntry[] {
     writeLockfile(data);
   }
 
+  // Apple-container entries may lack runtimeUrl (the macOS app only sets it
+  // once the gateway is ready). Backfill with an empty string so they pass
+  // the type guard and appear in `vellum ps` / `vellum ssh` output.
+  for (const entry of entries) {
+    if (
+      entry.cloud === "apple-container" &&
+      typeof entry.runtimeUrl !== "string"
+    ) {
+      entry.runtimeUrl = "";
+    }
+  }
+
   return entries.filter(
     (e): e is AssistantEntry =>
       typeof e.assistantId === "string" && typeof e.runtimeUrl === "string",
