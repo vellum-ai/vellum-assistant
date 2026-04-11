@@ -5,7 +5,7 @@
  * `meta/feature-flags/feature-flag-registry.json` and resolves the effective
  * enabled/disabled state for each declared assistant-scope flag by consulting
  * (in priority order):
- *   1. Override values from the gateway HTTP API (or local file fallback)
+ *   1. Override values from the gateway IPC (or local file fallback)
  *   2. Remote values from `feature-flags-remote.json` (platform-pushed,
  *      cached locally; only used in local mode — containerized mode gets
  *      remote values via the gateway)
@@ -110,7 +110,7 @@ function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
 }
 
 // ---------------------------------------------------------------------------
-// Override loading — reads from gateway HTTP API or local file
+// Override loading — reads from gateway IPC or local file
 // ---------------------------------------------------------------------------
 
 /**
@@ -354,7 +354,7 @@ export function _setOverridesForTesting(
  * Resolve whether an assistant feature flag is enabled.
  *
  * Resolution order:
- *   1. Override from gateway HTTP API (or local file fallback)
+ *   1. Override from gateway IPC (or local file fallback)
  *   2. Remote value from `feature-flags-remote.json` (platform-pushed,
  *      cached locally)
  *   3. defaults registry `defaultEnabled`         (for declared assistant-scope keys)
