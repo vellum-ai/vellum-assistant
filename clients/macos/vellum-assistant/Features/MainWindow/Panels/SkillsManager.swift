@@ -316,9 +316,10 @@ final class SkillsManager {
 
     private func dispatchSearch(query: String) {
         searchDebounceTask?.cancel()
-        // Always clear stale results immediately so previous search terms
-        // don't linger during the debounce window or after clearing the bar.
-        skillsStore.searchResults = []
+        // Cancel any in-flight network search and clear stale results
+        // immediately so previous search terms don't linger during the
+        // debounce window or after clearing the bar.
+        skillsStore.cancelSearch()
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             isSearching = false
@@ -331,6 +332,7 @@ final class SkillsManager {
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
             skillsStore.searchSkills(query: trimmed, force: true)
+            searchDebounceTask = nil
         }
     }
 

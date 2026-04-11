@@ -165,6 +165,17 @@ public final class SkillsStore: ObservableObject {
         }
     }
 
+    /// Cancels any in-flight search task and clears search state.
+    ///
+    /// Called by `SkillsManager.dispatchSearch` when the user types a new
+    /// query before the previous search completes, preventing stale results
+    /// from the earlier query from briefly appearing.
+    public func cancelSearch() {
+        searchTask?.cancel()
+        searchResults = []
+        isSearching = false
+    }
+
     // MARK: - Install Skill
 
     public func installSkill(slug: String) {
