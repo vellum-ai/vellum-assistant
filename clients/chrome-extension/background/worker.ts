@@ -327,8 +327,10 @@ function setConnectionHealth(
     ...detail,
     lastChangeAt: Date.now(),
   };
-  // Clear stale error fields when entering a healthy state.
-  if (state === 'connected') {
+  // Clear stale error fields when entering a non-error state so
+  // previous `lastErrorMessage` / `lastDisconnectCode` values don't
+  // bleed into unrelated transitions (e.g. auth_required → paused).
+  if (state === 'connected' || state === 'paused' || state === 'connecting') {
     delete connectionHealthDetail.lastDisconnectCode;
     delete connectionHealthDetail.lastErrorMessage;
   }
@@ -1388,9 +1390,22 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
             // transient. In both cases, log and continue — the user can
             // manually reconnect via the Connect button.
             shouldConnect = false;
+            const errorMessage =
+              err instanceof Error ? err.message : String(err);
             console.warn(
-              `[vellum-relay] Assistant switch left disconnected: ${err instanceof Error ? err.message : String(err)}`,
+              `[vellum-relay] Assistant switch left disconnected: ${errorMessage}`,
             );
+            // Transition health so the popup reflects the actual state
+            // instead of remaining stuck at 'connecting'.
+            if (err instanceof MissingTokenError) {
+              setConnectionHealth('auth_required', {
+                lastErrorMessage: errorMessage,
+              });
+            } else {
+              setConnectionHealth('error', {
+                lastErrorMessage: errorMessage,
+              });
+            }
           }
         }
 

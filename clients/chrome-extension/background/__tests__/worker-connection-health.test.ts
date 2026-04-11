@@ -152,7 +152,7 @@ function setConnectionHealth(
     ...detail,
     lastChangeAt: Date.now(),
   };
-  if (health === 'connected') {
+  if (health === 'connected' || health === 'paused' || health === 'connecting') {
     delete state.connectionHealthDetail.lastDisconnectCode;
     delete state.connectionHealthDetail.lastErrorMessage;
   }
