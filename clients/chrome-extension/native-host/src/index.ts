@@ -428,7 +428,7 @@ async function main(): Promise<void> {
       `vellum-chrome-native-host: unauthorized_origin (got ${extensionOrigin ?? "<none>"})\n`,
     );
     writeErrorFrameAndExit(
-      { type: "error", message: "unauthorized_origin" },
+      { type: "error", message: "unauthorized_origin", protocolVersion: PROTOCOL_VERSION },
       1,
     );
     // Defense-in-depth: even though writeErrorFrameAndExit calls
