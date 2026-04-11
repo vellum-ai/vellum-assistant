@@ -12,8 +12,8 @@
  * to drive against tmp directories.
  */
 
-import { readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { readdir, stat, unlink } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 import { parseBackupTimestamp } from "./paths.js";
 
@@ -82,4 +82,66 @@ export async function listSnapshotsInDir(
   // since we don't depend on inode/mtime ordering from `readdir`.
   entries.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   return entries;
+}
+
+/**
+ * Apply retention policy to a backup directory.
+ *
+ * Lists snapshots newest-first, keeps the first `retention` entries, and
+ * `unlink`s the rest. Returns a `{ kept, deleted }` split so callers can
+ * log/report what happened without re-listing the directory.
+ *
+ * The `skipped` flag distinguishes two missing-directory cases:
+ *
+ * - **Parent missing** (`skipped: true`): the parent of `dir` does not exist.
+ *   For offsite destinations this typically means the backing volume is not
+ *   available (e.g. iCloud Drive not enabled, external SSD unplugged). The
+ *   caller should treat the destination as temporarily unavailable rather
+ *   than silently creating it.
+ * - **`dir` missing, parent exists** (no `skipped` flag): the destination is
+ *   just empty. Returns `{ kept: [], deleted: [] }`. This is the normal
+ *   fresh-install case for local backups, where `writeLocalSnapshot` creates
+ *   the directory on demand.
+ *
+ * Treats both `.vbundle` and `.vbundle.enc` files as one pool ordered by
+ * parsed timestamp, so mixing plaintext and encrypted snapshots in the same
+ * directory retains the newest `retention` regardless of extension.
+ */
+export async function pruneDir(
+  dir: string,
+  retention: number,
+): Promise<{
+  kept: SnapshotEntry[];
+  deleted: SnapshotEntry[];
+  skipped?: boolean;
+}> {
+  // If the parent of `dir` does not exist, the destination is unreachable
+  // (e.g. iCloud Drive disabled, external volume unplugged). Signal the
+  // skipped state so callers can surface a useful error rather than treating
+  // an unavailable destination as an empty one.
+  try {
+    await stat(dirname(dir));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return { kept: [], deleted: [], skipped: true };
+    }
+    throw err;
+  }
+
+  const snapshots = await listSnapshotsInDir(dir);
+  const kept = snapshots.slice(0, retention);
+  const deleted = snapshots.slice(retention);
+
+  for (const entry of deleted) {
+    try {
+      await unlink(entry.path);
+    } catch (err) {
+      // Tolerate races with concurrent prunes / external deletions: a file
+      // we just stat'd may have been removed before we could unlink.
+      // Anything else (EACCES, EBUSY, ...) should still propagate.
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    }
+  }
+
+  return { kept, deleted };
 }
