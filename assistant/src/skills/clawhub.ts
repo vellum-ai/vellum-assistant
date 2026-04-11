@@ -23,7 +23,7 @@ function getClawhubProjectRoot(): string {
 }
 
 // Validate slug format (alphanumeric, hyphens, dots, underscores; optional namespace with single slash)
-function validateSlug(slug: string): boolean {
+export function validateSlug(slug: string): boolean {
   return /^[a-zA-Z0-9]([a-zA-Z0-9._-]*(\/[a-zA-Z0-9][a-zA-Z0-9._-]*)?)?$/.test(
     slug,
   );
@@ -472,6 +472,44 @@ export async function clawhubInspect(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { error: message };
+  }
+}
+
+/**
+ * Fetch a single file's content from a published clawhub skill.
+ * Calls `npx clawhub inspect <slug> --json --file <filePath>` and returns
+ * the file content string, or `null` on failure.
+ */
+export async function clawhubInspectFile(
+  slug: string,
+  filePath: string,
+): Promise<string | null> {
+  if (!validateSlug(slug)) return null;
+
+  try {
+    const result = await runClawhub([
+      "inspect",
+      slug,
+      "--json",
+      "--file",
+      filePath,
+    ]);
+    if (result.exitCode !== 0) return null;
+
+    try {
+      const parsed = JSON.parse(result.stdout);
+      // The CLI returns the file content in one of these fields
+      const content =
+        parsed.skillMdContent ??
+        parsed.fileContents?.[filePath] ??
+        parsed.file?.content ??
+        null;
+      return typeof content === "string" ? content : null;
+    } catch {
+      return null;
+    }
+  } catch {
+    return null;
   }
 }
 

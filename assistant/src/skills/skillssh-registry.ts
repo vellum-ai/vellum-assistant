@@ -189,14 +189,14 @@ export function resolveSkillSource(source: string): ResolvedSkillSource {
 
 // ─── GitHub fetch ───────────────────────────────────────────────────────────
 
-interface GitHubContentsEntry {
+export interface GitHubContentsEntry {
   name: string;
   type: "file" | "dir";
   download_url: string | null;
 }
 
 /** Build common headers for GitHub API requests (User-Agent + optional auth). */
-function githubHeaders(): Record<string, string> {
+export function githubHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     Accept: "application/vnd.github.v3+json",
     "User-Agent": "vellum-assistant",
@@ -208,7 +208,7 @@ function githubHeaders(): Record<string, string> {
   return headers;
 }
 
-interface GitHubTreeEntry {
+export interface GitHubTreeEntry {
   path: string;
   type: "blob" | "tree";
 }
@@ -217,7 +217,7 @@ interface GitHubTreeEntry {
  * Search the repo tree for a directory containing `<slug>/SKILL.md`.
  * Returns the directory path (e.g. "examples/skills-tool/skills/csv") or null.
  */
-async function findSkillDirInTree(
+export async function findSkillDirInTree(
   owner: string,
   repo: string,
   skillSlug: string,
