@@ -22,6 +22,7 @@ struct LogsAndUsagePanel: View {
     let activeSessionId: String?
     let usageDashboardStore: UsageDashboardStore
     var onClose: () -> Void
+    var onSelectConversation: (String) -> Void
 
     @State private var selectedTab: LogsAndUsageTab = .logs
 
@@ -97,7 +98,7 @@ struct LogsAndUsagePanel: View {
                 activeSessionId: activeSessionId
             )
         case .usage:
-            UsageTabContent(store: usageDashboardStore)
+            UsageTabContent(store: usageDashboardStore, onSelectConversation: onSelectConversation)
         }
     }
 }
@@ -301,6 +302,7 @@ struct LogsTabContent: View {
 @MainActor
 struct UsageTabContent: View {
     let store: UsageDashboardStore
+    let onSelectConversation: (String) -> Void
 
     @State private var refreshTask: Task<Void, Never>?
     @State private var breakdownTask: Task<Void, Never>?
