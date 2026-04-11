@@ -1,10 +1,10 @@
 /**
  * Tests for the worker's assistant-driven connect routing.
  *
- * Exercises the connect path logic introduced in PR 4 — the worker now
- * resolves the selected assistant's auth profile to determine the relay
- * transport and token source, replacing the old global `vellum.relayMode`
- * toggle.
+ * Exercises the connect path logic where the worker resolves the selected
+ * assistant's auth profile to determine the relay transport and token
+ * source. The auth profile is derived from the assistant's lockfile
+ * topology — there is no separate relay-mode toggle.
  *
  * Coverage:
  *   - Connect routes to `local-pair` (self-hosted) when the selected
