@@ -374,4 +374,65 @@ describe("getCdpClient", () => {
       code: "disposed",
     });
   });
+
+  // ── transportInterface backwards compatibility ──────────────────────
+
+  test("context without transportInterface still routes to local backend", () => {
+    // Contexts that omit transportInterface (backwards-compat for existing
+    // call sites) must continue to select the correct backend based on
+    // hostBrowserProxy and config alone.
+    const ctx = makeContext({ conversationId: "no-interface" });
+    // Verify the field is truly absent, not just undefined-as-value.
+    expect(ctx.transportInterface).toBeUndefined();
+
+    const client = getCdpClient(ctx);
+
+    expect(client.kind).toBe("local");
+    expect(client.conversationId).toBe("no-interface");
+    expect(createLocalCdpClientMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("context with transportInterface set routes normally to extension backend", () => {
+    const fakeProxy = {
+      request: mock(async () => ({})),
+    } as unknown as HostBrowserProxy;
+    const ctx = makeContext({
+      conversationId: "macos-ext",
+      hostBrowserProxy: fakeProxy,
+      transportInterface: "macos",
+    });
+
+    const client = getCdpClient(ctx);
+
+    expect(client.kind).toBe("extension");
+    expect(client.conversationId).toBe("macos-ext");
+    expect(createExtensionCdpClientMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("context with transportInterface set routes normally to local backend when no proxy", () => {
+    const ctx = makeContext({
+      conversationId: "macos-local",
+      transportInterface: "macos",
+    });
+
+    const client = getCdpClient(ctx);
+
+    expect(client.kind).toBe("local");
+    expect(client.conversationId).toBe("macos-local");
+    expect(createLocalCdpClientMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("context with transportInterface set routes to cdp-inspect when enabled", () => {
+    cdpInspectEnabled = true;
+    const ctx = makeContext({
+      conversationId: "macos-inspect",
+      transportInterface: "macos",
+    });
+
+    const client = getCdpClient(ctx);
+
+    expect(client.kind).toBe("cdp-inspect");
+    expect(client.conversationId).toBe("macos-inspect");
+    expect(createCdpInspectClientMock).toHaveBeenCalledTimes(1);
+  });
 });
