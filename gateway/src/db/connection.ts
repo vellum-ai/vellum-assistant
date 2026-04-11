@@ -1,19 +1,28 @@
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { getGatewaySecurityDir } from "../config.js";
-import { getRootDir } from "../credential-reader.js";
 
 let db: Database | null = null;
 
 /**
+ * @deprecated Only used for one-time migration from the legacy DB path.
+ * Returns the old ~/.vellum root directory without depending on getRootDir()
+ * (which is being removed as part of the BASE_DATA_DIR cleanup).
+ */
+function getLegacyRootDir(): string {
+  return join(process.env.HOME ?? homedir(), ".vellum");
+}
+
+/**
  * One-time migration: move gateway.sqlite from the legacy path
- * ({rootDir}/data/gateway.sqlite) to the new PVC-backed path
+ * (~/.vellum/data/gateway.sqlite) to the new PVC-backed path
  * ({gatewaySecurityDir}/gateway.sqlite). Idempotent — skips if
  * the new path already exists or the old path doesn't.
  */
 function migrateLegacyDb(newPath: string): void {
-  const legacyPath = join(getRootDir(), "data", "gateway.sqlite");
+  const legacyPath = join(getLegacyRootDir(), "data", "gateway.sqlite");
   if (legacyPath === newPath) return;
   if (existsSync(newPath)) return;
   if (!existsSync(legacyPath)) return;
