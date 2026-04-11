@@ -109,11 +109,37 @@ struct OnboardingView: View {
         .padding(VSpacing.xl)
     }
 
+    /// Persist the selected assistant's config, rebuild the daemon client,
+    /// and advance to the permissions step.
+    private func finalizeAssistantSelection(_ assistant: PlatformAssistant) {
+        let platformBaseURL = AuthService.shared.baseURL
+
+        // Persist managed assistant config so GatewayHTTPClient.resolveConnection()
+        // can build a ConnectionInfo for outbound requests.
+        UserDefaults.standard.set(assistant.id, forKey: UserDefaultsKeys.managedAssistantId)
+        UserDefaults.standard.set(platformBaseURL, forKey: UserDefaultsKeys.managedPlatformBaseURL)
+
+        // Rebuild the daemon client with managed transport config.
+        // ContentView.attemptInitialConnection() handles connecting with
+        // proper retries and timeout once onboarding completes.
+        clientProvider.rebuildClient()
+
+        isBootstrappingManaged = false
+        currentStep = .permissions
+    }
+
     private func performManagedBootstrap() async {
         isBootstrappingManaged = true
         managedBootstrapError = nil
 
         do {
+            let orgId = try await AuthService.shared.resolveOrganizationId()
+            let activeResult = try await AuthService.shared.getActiveAssistant(organizationId: orgId)
+            if case .found(let existing) = activeResult {
+                finalizeAssistantSelection(existing)
+                return
+            }
+
             let outcome = try await ManagedAssistantBootstrapService.shared.ensureManagedAssistant()
 
             let assistant: PlatformAssistant
@@ -124,22 +150,7 @@ struct OnboardingView: View {
                 assistant = created
             }
 
-            let platformBaseURL = AuthService.shared.baseURL
-
-            // Persist managed assistant config so DaemonConfig.fromUserDefaults() picks it up.
-            UserDefaults.standard.set(assistant.id, forKey: UserDefaultsKeys.managedAssistantId)
-            UserDefaults.standard.set(platformBaseURL, forKey: UserDefaultsKeys.managedPlatformBaseURL)
-            // TODO: Migrate to LockfileAssistant.setActiveAssistantId() when
-            // LockfileAssistant is available on iOS (currently macOS-only).
-            UserDefaults.standard.set(assistant.id, forKey: "connectedAssistantId")
-
-            // Rebuild the daemon client with managed transport config.
-            // ContentView.attemptInitialConnection() handles connecting with
-            // proper retries and timeout once onboarding completes.
-            clientProvider.rebuildClient()
-
-            isBootstrappingManaged = false
-            currentStep = .permissions
+            finalizeAssistantSelection(assistant)
         } catch {
             managedBootstrapError = error.localizedDescription
         }
