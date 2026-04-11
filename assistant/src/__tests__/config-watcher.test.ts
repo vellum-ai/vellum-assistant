@@ -1,4 +1,5 @@
 import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import {
   afterEach,
   beforeAll,
@@ -272,6 +273,48 @@ describe("ConfigWatcher watcher lifecycle", () => {
     await new Promise((r) => setTimeout(r, 300));
     // Each file has its own debounce key, so both should fire
     expect(evictCallCount).toBe(2);
+  });
+});
+
+describe("ConfigWatcher users directory watcher", () => {
+  const USERS_DIR = join(WORKSPACE_DIR, "users");
+
+  test("editing users/<slug>.md triggers onConversationEvict", async () => {
+    watcher.start(onConversationEvict);
+    simulateFileChange(USERS_DIR, "alice.md");
+
+    await new Promise((r) => setTimeout(r, 300));
+    expect(evictCallCount).toBe(1);
+  });
+
+  test("non-.md files in users/ do NOT trigger eviction", async () => {
+    watcher.start(onConversationEvict);
+    simulateFileChange(USERS_DIR, "alice.json");
+    simulateFileChange(USERS_DIR, "notes.txt");
+    simulateFileChange(USERS_DIR, "README");
+
+    await new Promise((r) => setTimeout(r, 300));
+    expect(evictCallCount).toBe(0);
+  });
+
+  test("null filename in users/ does not trigger eviction", async () => {
+    watcher.start(onConversationEvict);
+    const usersWatcher = findWatcher(USERS_DIR);
+    expect(usersWatcher).toBeDefined();
+    usersWatcher!.callback("change", null);
+
+    await new Promise((r) => setTimeout(r, 300));
+    expect(evictCallCount).toBe(0);
+  });
+
+  test("multiple rapid changes to the same persona file are debounced", async () => {
+    watcher.start(onConversationEvict);
+    simulateFileChange(USERS_DIR, "bob.md");
+    simulateFileChange(USERS_DIR, "bob.md");
+    simulateFileChange(USERS_DIR, "bob.md");
+
+    await new Promise((r) => setTimeout(r, 300));
+    expect(evictCallCount).toBe(1);
   });
 });
 

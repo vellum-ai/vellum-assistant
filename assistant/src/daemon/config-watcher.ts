@@ -217,6 +217,7 @@ export class ConfigWatcher {
 
     this.startFeatureFlagsWatcher(onFeatureFlagsChanged);
     this.startSignalsWatcher();
+    this.startUsersWatcher(onConversationEvict);
     this.startSkillsWatchers(onConversationEvict);
   }
 
@@ -256,6 +257,37 @@ export class ConfigWatcher {
       log.warn(
         { err, dir: soundsDir },
         "Failed to watch sounds directory. Sound config changes will require a restart.",
+      );
+    }
+  }
+
+  private startUsersWatcher(onConversationEvict: () => void): void {
+    const usersDir = join(getWorkspaceDir(), "users");
+    try {
+      if (!existsSync(usersDir)) {
+        mkdirSync(usersDir, { recursive: true });
+      }
+    } catch {
+      // If we can't create it, watching will also fail — handled below.
+    }
+
+    try {
+      const watcher = watch(usersDir, (_eventType, filename) => {
+        if (!filename) return;
+        const file = String(filename);
+        if (!file.endsWith(".md")) return;
+        this.debounceTimers.schedule(`file:users/${file}`, () => {
+          log.info({ file }, "Users persona file changed, reloading");
+          onConversationEvict();
+        });
+      });
+      attachWatcherErrorHandler(watcher, usersDir);
+      this.watchers.push(watcher);
+      log.info({ dir: usersDir }, "Watching users directory for persona changes");
+    } catch (err) {
+      log.warn(
+        { err, dir: usersDir },
+        "Failed to watch users directory. Persona file changes will require a restart.",
       );
     }
   }
