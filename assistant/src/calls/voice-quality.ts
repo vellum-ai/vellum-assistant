@@ -1,4 +1,6 @@
 import { loadConfig } from "../config/loader.js";
+import { getTtsProvider } from "../tts/provider-registry.js";
+import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 
 export interface VoiceQualityProfile {
   language: string;
@@ -45,28 +47,39 @@ export function buildElevenLabsVoiceSpec(config: {
 /**
  * Resolve the effective voice quality profile from config.
  *
- * Supports ElevenLabs (default) and Fish Audio TTS providers.
- * When Fish Audio is selected, `ttsProvider` is set to `"Google"` as a
- * placeholder — ConversationRelay requires a valid provider in TwiML, but
- * actual audio is delivered via `play` messages from the call-controller.
- * The voice string is left empty since it is unused in that mode.
+ * Uses the global TTS provider abstraction to determine which provider is
+ * active. Providers that declare streaming support (e.g. Fish Audio) use
+ * the synthesized-play path — ConversationRelay needs a valid TTS provider
+ * in TwiML, so we set `ttsProvider` to `"Google"` as a placeholder and
+ * leave `voice` empty since actual audio is delivered via `play` messages.
  *
- * For ElevenLabs, the voice ID comes from the shared `elevenlabs.voiceId`
- * config (defaults to Amelia — ZF6FPAbjXT4488VcRRnw).
+ * For native providers (e.g. ElevenLabs), `ttsProvider` and `voice` are
+ * populated from config so Twilio handles TTS natively.
  */
 export function resolveVoiceQualityProfile(
   config?: ReturnType<typeof loadConfig>,
 ): VoiceQualityProfile {
   const cfg = config ?? loadConfig();
   const voice = cfg.calls.voice;
-  const configuredTts = voice.ttsProvider ?? "elevenlabs";
-  const fishAudio = configuredTts === "fish-audio";
+
+  // Resolve the active TTS provider through the global abstraction.
+  // When the config lacks the `services.tts` block (e.g. test mocks or
+  // pre-migration configs) or the provider registry has not been initialised,
+  // we fall back to the native ElevenLabs profile.
+  let usesSynthesizedPath = false;
+  try {
+    const resolved = resolveTtsConfig(cfg);
+    const provider = getTtsProvider(resolved.provider);
+    usesSynthesizedPath = provider.capabilities.supportsStreaming;
+  } catch {
+    // Config or provider not available — default to native (ElevenLabs) path.
+  }
+
   const isGoogle = voice.transcriptionProvider === "Google";
   // Treat the legacy Deepgram default ("nova-3") as unset when provider is
   // Google — upgraded workspaces may still have it persisted from prior defaults.
   const effectiveSpeechModel =
-    voice.speechModel == null ||
-    (voice.speechModel === "nova-3" && isGoogle)
+    voice.speechModel == null || (voice.speechModel === "nova-3" && isGoogle)
       ? isGoogle
         ? undefined
         : "nova-3"
@@ -75,19 +88,9 @@ export function resolveVoiceQualityProfile(
     language: voice.language,
     transcriptionProvider: voice.transcriptionProvider,
     speechModel: effectiveSpeechModel,
-    ttsProvider: fishAudio ? "Google" : "ElevenLabs",
-    voice: fishAudio ? "" : buildElevenLabsVoiceSpec(cfg.elevenlabs),
+    ttsProvider: usesSynthesizedPath ? "Google" : "ElevenLabs",
+    voice: usesSynthesizedPath ? "" : buildElevenLabsVoiceSpec(cfg.elevenlabs),
     interruptSensitivity: voice.interruptSensitivity ?? "low",
     hints: voice.hints ?? [],
   };
-}
-
-/**
- * Check whether Fish Audio TTS is configured for phone calls.
- */
-export function isFishAudioTts(
-  config?: ReturnType<typeof loadConfig>,
-): boolean {
-  const cfg = config ?? loadConfig();
-  return cfg.calls.voice?.ttsProvider === "fish-audio";
 }
