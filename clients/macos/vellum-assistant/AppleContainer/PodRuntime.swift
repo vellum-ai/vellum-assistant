@@ -323,7 +323,12 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
                 config.setTerminalIO(terminal: childTerminal)
             }
 
-            try await process.start()
+            do {
+                try await process.start()
+            } catch {
+                try? await process.delete()
+                throw error
+            }
             // Close the host's copy of the child PTY fd now that the container
             // process has inherited it. Keeping it open would leak the fd and
             // prevent EOF on the parent terminal when the process exits.
