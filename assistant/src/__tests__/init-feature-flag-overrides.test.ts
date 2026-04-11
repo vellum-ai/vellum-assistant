@@ -127,7 +127,7 @@ describe("initFeatureFlagOverrides", () => {
 
     client.connect();
 
-    // Should not throw
+    // Should not throw — waits up to 5s for connection then falls back
     await initFeatureFlagOverrides();
 
     // Without gateway data or file, undeclared flags default to true
@@ -135,7 +135,7 @@ describe("initFeatureFlagOverrides", () => {
     expect(isAssistantFeatureFlagEnabled("foo-enabled", config)).toBe(true);
 
     client.stop();
-  });
+  }, 10_000);
 
   it("receives feature_flags_changed event and updates cache", async () => {
     testServer = createTestIpcServer(socketPath, (req) => {
