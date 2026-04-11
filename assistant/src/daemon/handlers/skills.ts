@@ -37,6 +37,7 @@ import {
 } from "../../runtime/routes/workspace-utils.js";
 import { getCatalog } from "../../skills/catalog-cache.js";
 import {
+  catalogSkillToSlim,
   hasHiddenOrSkippedSegment,
   readCatalogSkillFileContent,
   readCatalogSkillFiles,
@@ -563,25 +564,6 @@ function readDirRecursive(dir: string, rootDir: string): SkillFileEntry[] {
     }
   }
   return entries;
-}
-
-/**
- * Map a `CatalogSkill` (from the Vellum platform API) to a `SlimSkillResponse`
- * shaped for the "available catalog skill" case. Shared between
- * `listSkillsWithCatalog` (merging catalog entries into the installed list)
- * and `getSkillFiles` (catalog fallback for preview listings). Keeping the
- * mapping in one place avoids divergence between the list and detail paths.
- */
-function catalogSkillToSlim(cs: CatalogSkill): SlimSkillResponse {
-  return {
-    id: cs.id,
-    name: cs.metadata?.vellum?.["display-name"] ?? cs.name,
-    description: cs.description,
-    emoji: cs.emoji,
-    kind: "catalog",
-    origin: "vellum",
-    status: "available",
-  };
 }
 
 /**

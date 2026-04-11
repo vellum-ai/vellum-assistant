@@ -29,14 +29,16 @@ import {
 import { basename, join, posix, sep } from "node:path";
 
 import { getPlatformBaseUrl } from "../config/env.js";
+import type { SlimSkillResponse } from "../daemon/message-types/skills.js";
 import {
   isTextMimeType as isTextMime,
   MAX_INLINE_TEXT_SIZE,
 } from "../runtime/routes/workspace-utils.js";
 import { getLogger } from "../util/logger.js";
 import { readPlatformToken } from "../util/platform.js";
-import { getCatalog } from "./catalog-cache.js";
-import { getRepoSkillsDir } from "./catalog-install.js";
+import { getCachedCatalogSync, getCatalog } from "./catalog-cache.js";
+import { type CatalogSkill, getRepoSkillsDir } from "./catalog-install.js";
+import type { SkillFileProvider } from "./skill-file-provider.js";
 
 const log = getLogger("catalog-files");
 
@@ -488,5 +490,65 @@ export async function readCatalogSkillFileContent(
     mimeType: response.mime_type,
     isBinary: response.is_binary,
     content: response.content,
+  };
+}
+
+// ─── Catalog-to-slim conversion ──────────────────────────────────────────────
+
+/**
+ * Map a `CatalogSkill` (from the Vellum platform API) to a `SlimSkillResponse`
+ * shaped for the "available catalog skill" case. Shared between
+ * `listSkillsWithCatalog` (merging catalog entries into the installed list),
+ * `getSkillFiles` (catalog fallback for preview listings), and the
+ * `VellumCatalogProvider`. Keeping the mapping in one place avoids divergence
+ * between the list and detail paths.
+ *
+ * Extracted here (rather than in `daemon/handlers/skills.ts`) to avoid a
+ * circular import — catalog-files depends on `catalog-cache.ts`, which would
+ * otherwise be reachable via the handler module.
+ */
+export function catalogSkillToSlim(cs: CatalogSkill): SlimSkillResponse {
+  return {
+    id: cs.id,
+    name: cs.metadata?.vellum?.["display-name"] ?? cs.name,
+    description: cs.description,
+    emoji: cs.emoji,
+    kind: "catalog",
+    origin: "vellum",
+    status: "available",
+  };
+}
+
+// ─── Vellum Catalog Provider ─────────────────────────────────────────────────
+
+/**
+ * Create a `SkillFileProvider` that wraps the existing catalog-files functions
+ * for the Vellum first-party catalog. This is the first provider implementation
+ * in the unified file-preview chain.
+ */
+export function createVellumCatalogProvider(): SkillFileProvider {
+  return {
+    canHandle(skillId: string): boolean {
+      const cached = getCachedCatalogSync();
+      return cached.some((s) => s.id === skillId);
+    },
+
+    listFiles(skillId: string): Promise<SkillFileEntry[] | null> {
+      return readCatalogSkillFiles(skillId);
+    },
+
+    readFileContent(
+      skillId: string,
+      sanitizedPath: string,
+    ): Promise<SkillFileEntry | null> {
+      return readCatalogSkillFileContent(skillId, sanitizedPath);
+    },
+
+    async toSlimSkill(skillId: string): Promise<SlimSkillResponse | null> {
+      const catalog = await getCatalog();
+      const cs = catalog.find((s) => s.id === skillId);
+      if (!cs) return null;
+      return catalogSkillToSlim(cs);
+    },
   };
 }
