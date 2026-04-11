@@ -32,13 +32,10 @@ export class FeatureFlagWatcher {
   private remoteFlagFilename: string;
   /** Accumulates which files changed during the debounce window. */
   private pendingFilenames = new Set<string>();
-  /** Optional callback invoked after cache invalidation. */
-  private onChange: (() => void) | null;
 
-  constructor(options?: { onChange?: () => void }) {
+  constructor() {
     this.localFlagFilename = basename(getFeatureFlagStorePath());
     this.remoteFlagFilename = basename(getRemoteFeatureFlagStorePath());
-    this.onChange = options?.onChange ?? null;
   }
 
   start(): void {
@@ -103,10 +100,6 @@ export class FeatureFlagWatcher {
         { filenames: [...filenames] },
         "Feature flag cache invalidated due to file change",
       );
-
-      if (this.onChange) {
-        this.onChange();
-      }
     }, DEBOUNCE_MS);
   }
 }

@@ -3,7 +3,6 @@ import * as Sentry from "@sentry/node";
 import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import type { HookManager } from "../hooks/manager.js";
-import { stopGatewayIpcClient } from "../ipc/gateway-client.js";
 import type { McpServerManager } from "../mcp/manager.js";
 import { getSqlite, resetDb } from "../memory/db.js";
 import type { QdrantManager } from "../memory/qdrant-manager.js";
@@ -123,9 +122,6 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     }
 
     await deps.getQdrantManager()?.stop();
-
-    // Stop the gateway IPC client so reconnect timers don't fire during exit.
-    stopGatewayIpcClient();
 
     // Checkpoint WAL and close SQLite so no writes are lost on exit.
     // Checkpoint and close are in separate try blocks so that close()

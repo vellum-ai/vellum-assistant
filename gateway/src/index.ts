@@ -106,10 +106,7 @@ import { isNewCommand, handleNewCommand } from "./webhook-pipeline.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 import { registerEmailCallbackRoute } from "./email/register-callback.js";
 import { GatewayIpcServer } from "./ipc/server.js";
-import {
-  registerFeatureFlagHandlers,
-  getMergedFeatureFlags,
-} from "./ipc/feature-flag-handlers.js";
+import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
 
 const log = getLogger("main");
 
@@ -1604,15 +1601,10 @@ async function main() {
   configFileWatcher.start();
 
   // ── IPC server ──
-  const ipcServer = new GatewayIpcServer();
-  registerFeatureFlagHandlers(ipcServer);
+  const ipcServer = new GatewayIpcServer(undefined, [...featureFlagRoutes]);
   ipcServer.start();
 
-  const featureFlagWatcher = new FeatureFlagWatcher({
-    onChange: () => {
-      ipcServer.emit("feature_flags_changed", getMergedFeatureFlags());
-    },
-  });
+  const featureFlagWatcher = new FeatureFlagWatcher();
   featureFlagWatcher.start();
 
   const remoteFeatureFlagSync = new RemoteFeatureFlagSync({

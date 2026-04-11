@@ -1,15 +1,15 @@
 /**
- * IPC method handlers for feature flags.
+ * IPC route definitions for feature flags.
  *
- * Registers `getFeatureFlags` and `getFeatureFlag` methods on the gateway
- * IPC server. These return the same merged flag state that the HTTP
- * GET /v1/feature-flags endpoint returns.
+ * Exports a list of `IpcRoute` objects that the gateway IPC server
+ * registers at startup. These return the same merged flag state that
+ * the HTTP GET /v1/feature-flags endpoint returns.
  */
 
 import { loadFeatureFlagDefaults } from "../feature-flag-defaults.js";
 import { readRemoteFeatureFlags } from "../feature-flag-remote-store.js";
 import { readPersistedFeatureFlags } from "../feature-flag-store.js";
-import type { GatewayIpcServer } from "./server.js";
+import type { IpcRoute } from "./server.js";
 
 /**
  * Compute the merged feature flag state: defaults < remote < persisted.
@@ -34,21 +34,21 @@ export function getMergedFeatureFlags(): Record<string, boolean> {
 }
 
 /**
- * Register feature-flag IPC methods on the given server.
+ * IPC routes for feature flag queries.
  */
-export function registerFeatureFlagHandlers(server: GatewayIpcServer): void {
-  server.handle("getFeatureFlags", () => {
-    return getMergedFeatureFlags();
-  });
-
-  server.handle(
-    "getFeatureFlag",
-    (params?: Record<string, unknown>): boolean | null => {
+export const featureFlagRoutes: IpcRoute[] = [
+  {
+    method: "getFeatureFlags",
+    handler: () => getMergedFeatureFlags(),
+  },
+  {
+    method: "getFeatureFlag",
+    handler: (params?: Record<string, unknown>): boolean | null => {
       const flag = params?.flag;
       if (typeof flag !== "string") return null;
 
       const flags = getMergedFeatureFlags();
       return flag in flags ? flags[flag] : null;
     },
-  );
-}
+  },
+];

@@ -45,23 +45,29 @@ export type IpcMethodHandler = (
   params?: Record<string, unknown>,
 ) => unknown | Promise<unknown>;
 
+/** A single IPC route definition — method name + handler function. */
+export type IpcRoute = {
+  method: string;
+  handler: IpcMethodHandler;
+};
+
 // ---------------------------------------------------------------------------
 // Server
 // ---------------------------------------------------------------------------
 
 export class GatewayIpcServer {
   private server: Server | null = null;
-  private clients = new Set<Socket>();
+  private client: Socket | null = null;
   private methods = new Map<string, IpcMethodHandler>();
   private socketPath: string;
 
-  constructor(socketPath?: string) {
+  constructor(socketPath?: string, routes?: IpcRoute[]) {
     this.socketPath = socketPath ?? getDefaultSocketPath();
-  }
-
-  /** Register an IPC method handler. */
-  handle(method: string, handler: IpcMethodHandler): void {
-    this.methods.set(method, handler);
+    if (routes) {
+      for (const route of routes) {
+        this.methods.set(route.method, route.handler);
+      }
+    }
   }
 
   /** Start listening on the Unix domain socket. */
@@ -76,7 +82,12 @@ export class GatewayIpcServer {
     }
 
     this.server = createServer((socket) => {
-      this.clients.add(socket);
+      // Only one assistant daemon is expected; replace any stale connection.
+      if (this.client && !this.client.destroyed) {
+        log.warn("New IPC client connected, replacing previous connection");
+        this.client.destroy();
+      }
+      this.client = socket;
       log.debug("IPC client connected");
 
       let buffer = "";
@@ -95,13 +106,17 @@ export class GatewayIpcServer {
       });
 
       socket.on("close", () => {
-        this.clients.delete(socket);
+        if (this.client === socket) {
+          this.client = null;
+        }
         log.debug("IPC client disconnected");
       });
 
       socket.on("error", (err) => {
         log.warn({ err }, "IPC client socket error");
-        this.clients.delete(socket);
+        if (this.client === socket) {
+          this.client = null;
+        }
       });
     });
 
@@ -114,12 +129,12 @@ export class GatewayIpcServer {
     });
   }
 
-  /** Stop the server and disconnect all clients. */
+  /** Stop the server and disconnect the client. */
   stop(): void {
-    for (const client of this.clients) {
-      client.destroy();
+    if (this.client && !this.client.destroyed) {
+      this.client.destroy();
     }
-    this.clients.clear();
+    this.client = null;
 
     if (this.server) {
       this.server.close();
@@ -136,14 +151,11 @@ export class GatewayIpcServer {
     }
   }
 
-  /** Broadcast an event to all connected clients. */
+  /** Push an event to the connected client. */
   emit(event: string, data?: unknown): void {
-    const msg: IpcEvent = { event, data };
-    const line = JSON.stringify(msg) + "\n";
-    for (const client of this.clients) {
-      if (!client.destroyed) {
-        client.write(line);
-      }
+    if (this.client && !this.client.destroyed) {
+      const msg: IpcEvent = { event, data };
+      this.client.write(JSON.stringify(msg) + "\n");
     }
   }
 
