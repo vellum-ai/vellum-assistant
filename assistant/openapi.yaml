@@ -7862,6 +7862,14 @@ paths:
               - daily
               - hourly
           description: 'Bucket granularity: "daily" (default) or "hourly"'
+        - name: tz
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            IANA timezone identifier (e.g. "America/Los_Angeles"). Bucket boundaries and display labels are computed in
+            this timezone. Defaults to "UTC" for backwards compatibility.
   /v1/usage/totals:
     get:
       operationId: usage_totals_get
