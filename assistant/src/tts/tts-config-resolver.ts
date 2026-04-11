@@ -9,6 +9,7 @@
  * legacy keys are deleted.
  */
 
+import { DEFAULT_ELEVENLABS_VOICE_ID } from "../config/schemas/elevenlabs.js";
 import type { AssistantConfig } from "../config/types.js";
 import type { TtsProviderId } from "./types.js";
 
@@ -79,10 +80,15 @@ function resolveProviderConfig(
 
   if (provider === "elevenlabs") {
     const canonical = ttsProviders.elevenlabs;
-    // If the legacy top-level elevenlabs config has a non-default voiceId
-    // that differs from canonical, prefer legacy (temporary compat).
+    // If the legacy top-level elevenlabs config has a voiceId that differs
+    // from the schema default, the user customised legacy settings before
+    // migration.  Prefer those legacy values (temporary compat).
     const legacy = config.elevenlabs;
-    if (legacy && legacy.voiceId !== canonical.voiceId) {
+    if (
+      legacy &&
+      legacy.voiceId !== DEFAULT_ELEVENLABS_VOICE_ID &&
+      legacy.voiceId !== canonical.voiceId
+    ) {
       return { ...legacy } as unknown as Record<string, unknown>;
     }
     return { ...canonical } as unknown as Record<string, unknown>;
@@ -90,9 +96,14 @@ function resolveProviderConfig(
 
   if (provider === "fish-audio") {
     const canonical = ttsProviders["fish-audio"];
-    // Fall back to legacy fishAudio if it has a non-default referenceId.
+    // Fall back to legacy fishAudio only when it has been explicitly
+    // customised (non-empty referenceId that differs from canonical).
     const legacy = config.fishAudio;
-    if (legacy && legacy.referenceId !== canonical.referenceId) {
+    if (
+      legacy &&
+      legacy.referenceId !== "" &&
+      legacy.referenceId !== canonical.referenceId
+    ) {
       return { ...legacy } as unknown as Record<string, unknown>;
     }
     return { ...canonical } as unknown as Record<string, unknown>;

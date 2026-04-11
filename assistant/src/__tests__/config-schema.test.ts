@@ -1320,8 +1320,12 @@ describe("resolveTtsConfig", () => {
   });
 
   test("returns empty config for unknown provider", () => {
-    // Force an unknown provider via type assertion for coverage
-    const config = AssistantConfigSchema.parse({}) as AssistantConfig;
+    // Force an unknown provider via type assertion for coverage.
+    // structuredClone prevents mutation from leaking into Zod's shared
+    // default objects (Zod 4 stores defaults by reference).
+    const config = structuredClone(
+      AssistantConfigSchema.parse({}),
+    ) as AssistantConfig;
     (config.services.tts as { provider: string }).provider = "aws-polly";
     const resolved = resolveTtsConfig(config);
     expect(resolved.provider).toBe("aws-polly");
