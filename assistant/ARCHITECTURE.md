@@ -617,12 +617,18 @@ To add a new daemon batch STT provider: add a new `SttProviderId` variant in `ty
 
 **Client-native boundary:**
 
-On macOS and iOS, speech recognition runs on-device via Apple's Speech framework (`SFSpeechRecognizer`). The daemon never receives raw microphone audio from clients — it receives the final transcribed text.
+On macOS and iOS, speech recognition runs on-device via Apple's Speech framework (`SFSpeechRecognizer`). The daemon never receives raw microphone audio from clients — it receives the final transcribed text. The `SpeechRecognizerAdapter` protocols on each platform abstract Apple Speech for **testability and dependency injection**, not for provider-agnostic pluggability. The two platform adapters have intentionally different API shapes reflecting their different UI integration patterns.
 
-- macOS: `SpeechRecognizerAdapter` protocol in `clients/macos/vellum-assistant/Features/Voice/SpeechRecognizerAdapter.swift` abstracts `SFSpeechRecognizer` static APIs and instance creation. `AppleSpeechRecognizerAdapter` is the production implementation. `OpenAIVoiceService` and `VoiceInputManager` consume the adapter via dependency injection.
-- iOS: `SpeechRecognizerAdapter` protocol in `clients/ios/Services/SpeechRecognizerAdapter.swift` covers authorization, availability, and task construction. `AppleSpeechRecognizerAdapter` is the production implementation. `InputBarView` consumes the adapter.
+- macOS: `SpeechRecognizerAdapter` protocol in `clients/macos/vellum-assistant/Features/Voice/SpeechRecognizerAdapter.swift` abstracts `SFSpeechRecognizer` static APIs and instance creation. `AppleSpeechRecognizerAdapter` is the production implementation. `OpenAIVoiceService` and `VoiceInputManager` consume the adapter via dependency injection. **Note:** The macOS protocol leaks Apple Speech types through its surface — `authorizationStatus()` returns `SFSpeechRecognizerAuthorizationStatus` and `makeRecognizer(locale:)` returns `SFSpeechRecognizer?` directly. This means callers depend on the Speech framework at compile time.
+- iOS: `SpeechRecognizerAdapter` protocol in `clients/ios/Services/SpeechRecognizerAdapter.swift` covers authorization, availability, and task construction. `AppleSpeechRecognizerAdapter` is the production implementation. `InputBarView` consumes the adapter. **Note:** The iOS protocol defines its own framework-agnostic types (`SpeechRecognizerAuthorizationStatus`, `SpeechRecognitionResult`) so callers never see `SFSpeechRecognizer` directly. However, `startRecognitionTask` still returns `SFSpeechAudioBufferRecognitionRequest` in its tuple, so full framework decoupling is not yet achieved.
 
-To add a new client-native STT provider: implement the `SpeechRecognizerAdapter` protocol with the new provider's SDK, then inject the new adapter at the call site (the protocol is already injected via init parameters on both platforms).
+Platform divergence summary:
+
+- **Auth API:** macOS uses a callback-based `requestAuthorization(completion:)` returning `SFSpeechRecognizerAuthorizationStatus`; iOS uses `async requestAuthorization()` returning a custom `SpeechRecognizerAuthorizationStatus` enum.
+- **Recognizer exposure:** macOS exposes the raw `SFSpeechRecognizer?` via `makeRecognizer(locale:)`; iOS fully encapsulates recognizer construction inside `startRecognitionTask`.
+- **Concurrency model:** The iOS protocol is `@MainActor`-annotated; the macOS protocol is not.
+
+These differences are intentional — the adapters were designed for their respective platform integration needs, not for cross-platform uniformity. Adding a non-Apple STT provider (e.g., a third-party on-device engine) would require refactoring both protocols to remove Apple Speech types from their public surfaces and converging on a shared provider-agnostic interface. The current adapters are suitable for swapping in test doubles for Apple Speech, but not for swapping in an entirely different speech engine without protocol changes.
 
 **Cross-boundary notes:**
 
