@@ -206,14 +206,24 @@ describe('deriveCtaState', () => {
     expect(state.pauseEnabled).toBe(false);
   });
 
+  test('reconnecting: shows Reconnecting\u2026 label, both buttons disabled', () => {
+    const state = deriveCtaState('reconnecting');
+    expect(state.connectLabel).toBe('Reconnecting\u2026');
+    expect(state.connectEnabled).toBe(false);
+    expect(state.pauseLabel).toBe('Pause');
+    expect(state.pauseEnabled).toBe(false);
+  });
+
   test('all phases produce consistent label/enablement pairs', () => {
-    const phases: ConnectionPhase[] = ['disconnected', 'connecting', 'connected', 'paused'];
+    const phases: ConnectionPhase[] = ['disconnected', 'connecting', 'reconnecting', 'connected', 'paused'];
     for (const phase of phases) {
       const state = deriveCtaState(phase);
       // Pause should only be enabled when connected
       expect(state.pauseEnabled).toBe(phase === 'connected');
-      // Connect should be disabled only when connecting or connected
-      expect(state.connectEnabled).toBe(phase !== 'connecting' && phase !== 'connected');
+      // Connect should be disabled when connecting, reconnecting, or connected
+      expect(state.connectEnabled).toBe(
+        phase !== 'connecting' && phase !== 'reconnecting' && phase !== 'connected',
+      );
     }
   });
 });
@@ -233,6 +243,12 @@ describe('deriveStatusDisplay', () => {
     expect(status.text).toBe('Connecting\u2026');
   });
 
+  test('reconnecting: amber dot, Reconnecting automatically\u2026', () => {
+    const status = deriveStatusDisplay('reconnecting');
+    expect(status.dotClass).toBe('paused');
+    expect(status.text).toBe('Reconnecting automatically\u2026');
+  });
+
   test('connected: green dot, Connected to relay server', () => {
     const status = deriveStatusDisplay('connected');
     expect(status.dotClass).toBe('connected');
@@ -245,18 +261,22 @@ describe('deriveStatusDisplay', () => {
     expect(status.text).toBe('Paused');
   });
 
-  test('display transitions: disconnected -> connecting -> connected -> paused -> disconnected', () => {
+  test('display transitions: disconnected -> connecting -> connected -> reconnecting -> connected -> paused -> disconnected', () => {
     const transitions: ConnectionPhase[] = [
       'disconnected',
       'connecting',
       'connected',
+      'reconnecting',
+      'connected',
       'paused',
       'disconnected',
     ];
-    const expectedDots = ['disconnected', 'disconnected', 'connected', 'paused', 'disconnected'];
+    const expectedDots = ['disconnected', 'disconnected', 'connected', 'paused', 'connected', 'paused', 'disconnected'];
     const expectedTexts = [
       'Not connected',
       'Connecting\u2026',
+      'Connected to relay server',
+      'Reconnecting automatically\u2026',
       'Connected to relay server',
       'Paused',
       'Not connected',
@@ -281,8 +301,8 @@ describe('healthToPhase', () => {
     expect(healthToPhase('connecting')).toBe('connecting');
   });
 
-  test('reconnecting health maps to connecting phase', () => {
-    expect(healthToPhase('reconnecting')).toBe('connecting');
+  test('reconnecting health maps to reconnecting phase', () => {
+    expect(healthToPhase('reconnecting')).toBe('reconnecting');
   });
 
   test('paused health maps to paused phase', () => {
@@ -301,7 +321,7 @@ describe('healthToPhase', () => {
     const healthStates: ConnectionHealthState[] = [
       'paused', 'connecting', 'connected', 'reconnecting', 'auth_required', 'error',
     ];
-    const validPhases = new Set<ConnectionPhase>(['disconnected', 'connecting', 'connected', 'paused']);
+    const validPhases = new Set<ConnectionPhase>(['disconnected', 'connecting', 'reconnecting', 'connected', 'paused']);
 
     for (const health of healthStates) {
       const phase = healthToPhase(health);
@@ -316,9 +336,11 @@ describe('healthToPhase', () => {
     expect(cta.pauseEnabled).toBe(false);
   });
 
-  test('CTA enablement via healthToPhase: reconnecting disables both', () => {
+  test('CTA enablement via healthToPhase: reconnecting disables both buttons', () => {
     const phase = healthToPhase('reconnecting');
+    expect(phase).toBe('reconnecting');
     const cta = deriveCtaState(phase);
+    expect(cta.connectLabel).toBe('Reconnecting\u2026');
     expect(cta.connectEnabled).toBe(false);
     expect(cta.pauseEnabled).toBe(false);
   });

@@ -165,13 +165,14 @@ export function shouldShowCloudSection(
  * The popup's connection lifecycle phase. Drives the primary/secondary
  * button labels, enablement, and status indicator.
  *
- * - `disconnected` — idle, no active relay connection.
- * - `connecting`   — connect in progress (waiting for socket open).
- * - `connected`    — relay WebSocket is open and active.
- * - `paused`       — user explicitly paused; credentials are preserved
- *                    so reconnect is instant.
+ * - `disconnected`  — idle, no active relay connection.
+ * - `connecting`    — connect in progress (waiting for socket open).
+ * - `reconnecting`  — transient disconnect, automatic recovery in progress.
+ * - `connected`     — relay WebSocket is open and active.
+ * - `paused`        — user explicitly paused; credentials are preserved
+ *                     so reconnect is instant.
  */
-export type ConnectionPhase = 'disconnected' | 'connecting' | 'connected' | 'paused';
+export type ConnectionPhase = 'disconnected' | 'connecting' | 'reconnecting' | 'connected' | 'paused';
 
 /**
  * Derived view state for the popup's primary and secondary action buttons.
@@ -194,6 +195,7 @@ export interface CtaState {
  * |--------------|---------------|---------------|
  * | disconnected | Connect (on)  | Pause (off)   |
  * | connecting   | Connecting... (off) | Pause (off) |
+ * | reconnecting | Reconnecting... (off) | Pause (off) |
  * | connected    | Connect (off) | Pause (on)    |
  * | paused       | Connect (on)  | Pause (off)   |
  */
@@ -209,6 +211,13 @@ export function deriveCtaState(phase: ConnectionPhase): CtaState {
     case 'connecting':
       return {
         connectLabel: 'Connecting\u2026',
+        connectEnabled: false,
+        pauseLabel: 'Pause',
+        pauseEnabled: false,
+      };
+    case 'reconnecting':
+      return {
+        connectLabel: 'Reconnecting\u2026',
         connectEnabled: false,
         pauseLabel: 'Pause',
         pauseEnabled: false,
@@ -249,6 +258,8 @@ export function deriveStatusDisplay(phase: ConnectionPhase): StatusDisplay {
       return { dotClass: 'disconnected', text: 'Not connected' };
     case 'connecting':
       return { dotClass: 'disconnected', text: 'Connecting\u2026' };
+    case 'reconnecting':
+      return { dotClass: 'paused', text: 'Reconnecting automatically\u2026' };
     case 'connected':
       return { dotClass: 'connected', text: 'Connected to relay server' };
     case 'paused':
@@ -267,11 +278,11 @@ export function deriveStatusDisplay(phase: ConnectionPhase): StatusDisplay {
  * Map the worker's health state to the popup's connection phase.
  *
  * The popup phase is a simplified view of the health state:
- *   - `connected` and `reconnecting` both map to phases that keep
- *     the user informed without requiring action.
+ *   - `connected`, `reconnecting`, and `connecting` map directly to
+ *     their respective phases.
  *   - `auth_required` and `error` map to `disconnected` since the
  *     user may need to take action.
- *   - `paused` and `connecting` map directly.
+ *   - `paused` maps directly.
  */
 export function healthToPhase(health: ConnectionHealthState): ConnectionPhase {
   switch (health) {
@@ -280,7 +291,7 @@ export function healthToPhase(health: ConnectionHealthState): ConnectionPhase {
     case 'connecting':
       return 'connecting';
     case 'reconnecting':
-      return 'connecting';
+      return 'reconnecting';
     case 'paused':
       return 'paused';
     case 'auth_required':
