@@ -1028,6 +1028,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
               console.warn(
                 `[vellum-relay] Assistant switch left disconnected: ${err.message}`,
               );
+            } else {
+              throw err;
             }
           }
         }
