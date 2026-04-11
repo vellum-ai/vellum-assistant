@@ -265,6 +265,75 @@ async function getAssistantCatalogAndSelection(): Promise<{
   return { assistants: catalog.assistants, selected, authProfile };
 }
 
+// ── Connection health state ──────────────────────────────────────────
+//
+// Explicit state machine for the relay connection lifecycle. The popup
+// consumes this via `get_status` instead of inferring state from the
+// `connected` boolean and ad-hoc error fields.
+//
+// States:
+//   - `paused`       — user explicitly paused; autoConnect is false.
+//   - `connecting`    — initial connect attempt in progress.
+//   - `connected`     — relay WebSocket is OPEN.
+//   - `reconnecting`  — socket dropped unexpectedly; reconnect in progress.
+//   - `auth_required` — credentials are missing/expired and non-interactive
+//                       refresh failed. User must sign in / re-pair.
+//   - `error`         — unrecoverable non-auth error (e.g. native host
+//                       not installed, unsupported topology).
+
+/**
+ * Structured connection health state exposed to the popup via
+ * `get_status`. Transitions are driven by the connect, reconnect,
+ * close, and pause actions in the worker.
+ */
+export type ConnectionHealthState =
+  | 'paused'
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'auth_required'
+  | 'error';
+
+/**
+ * Detail fields attached to the current health state. Populated on
+ * disconnect / error transitions and cleared on successful connect.
+ */
+export interface ConnectionHealthDetail {
+  /** WebSocket close code from the last unexpected disconnect. */
+  lastDisconnectCode?: number;
+  /** Human-readable error message from the last failure. */
+  lastErrorMessage?: string;
+  /** Epoch ms of the most recent health state change. */
+  lastChangeAt: number;
+}
+
+let connectionHealth: ConnectionHealthState = 'paused';
+let connectionHealthDetail: ConnectionHealthDetail = {
+  lastChangeAt: Date.now(),
+};
+
+/**
+ * Transition the connection health state. Every transition updates
+ * `lastChangeAt`. Additional detail fields (disconnect code, error
+ * message) are set by the caller via the optional `detail` argument.
+ */
+function setConnectionHealth(
+  state: ConnectionHealthState,
+  detail?: Partial<Omit<ConnectionHealthDetail, 'lastChangeAt'>>,
+): void {
+  connectionHealth = state;
+  connectionHealthDetail = {
+    ...connectionHealthDetail,
+    ...detail,
+    lastChangeAt: Date.now(),
+  };
+  // Clear stale error fields when entering a healthy state.
+  if (state === 'connected') {
+    delete connectionHealthDetail.lastDisconnectCode;
+    delete connectionHealthDetail.lastErrorMessage;
+  }
+}
+
 // ── Connection state ───────────────────────────────────────────────
 //
 // The connect path is driven entirely by the selected assistant's auth
@@ -734,6 +803,7 @@ function createRelayConnection(
     clientInstanceId,
     onOpen: () => {
       console.log(`[vellum-relay] Connected (${mode.kind})`);
+      setConnectionHealth('connected');
       // A successful connect means any persisted auth-error is stale
       // — clear it so the popup stops showing the sign-in prompt.
       void clearRelayAuthError();
@@ -762,6 +832,10 @@ function createRelayConnection(
         // after re-signing in.
         console.warn(`[vellum-relay] Auth refresh impossible: ${authError}`);
         shouldConnect = false;
+        setConnectionHealth('auth_required', {
+          lastDisconnectCode: code,
+          lastErrorMessage: authError,
+        });
         void setRelayAuthError({
           message: authError,
           mode: currentAuthProfile === 'cloud-oauth' ? 'cloud' : 'self-hosted',
@@ -771,6 +845,12 @@ function createRelayConnection(
         // connect() starts from a clean slate instead of trying to
         // reuse a connection we've already marked dead.
         relayConnection = null;
+      } else if (shouldConnect) {
+        // Unexpected disconnect but we intend to stay connected —
+        // the RelayConnection will attempt to reconnect automatically.
+        setConnectionHealth('reconnecting', {
+          lastDisconnectCode: code,
+        });
       }
     },
     onReconnect: async (ctx) => {
@@ -1016,6 +1096,7 @@ async function connect(options: ConnectOptions = { interactive: false }): Promis
 
 async function doConnect(options: ConnectOptions): Promise<void> {
   if (relayConnection && relayConnection.isOpen()) return;
+  setConnectionHealth('connecting');
   // Defensive: a fresh connect() always starts the 1006 refresh
   // budget from scratch. The counter is normally reset from onOpen,
   // but if a previous session exhausted the cap (so onOpen never
@@ -1129,6 +1210,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
         // would retry a doomed connect.
         await setAutoConnect(false);
         const errorMessage = err instanceof Error ? err.message : String(err);
+        // Classify the failure: auth-related errors (MissingTokenError)
+        // surface as `auth_required`; everything else is a generic `error`.
+        if (err instanceof MissingTokenError) {
+          setConnectionHealth('auth_required', {
+            lastErrorMessage: errorMessage,
+          });
+        } else {
+          setConnectionHealth('error', {
+            lastErrorMessage: errorMessage,
+          });
+        }
         sendResponseFn({ ok: false, error: errorMessage });
       });
     return true; // async
@@ -1140,6 +1232,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
   // — both actions perform identical state transitions.
   if (message.type === 'pause' || message.type === 'disconnect') {
     shouldConnect = false;
+    setConnectionHealth('paused');
     // Await the storage write so MV3 can't terminate the worker before
     // the autoConnect flag is persisted to false.
     setAutoConnect(false)
@@ -1158,6 +1251,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     sendResponseFn({
       connected: relayConnection !== null && relayConnection.isOpen(),
       authProfile: currentAuthProfile,
+      health: connectionHealth,
+      healthDetail: connectionHealthDetail,
     });
     return false;
   }
@@ -1335,6 +1430,9 @@ async function bootstrap(): Promise<void> {
     shouldConnect = false;
     if (err instanceof MissingTokenError) {
       console.warn(`[vellum-relay] Skipping auto-connect: ${err.message}`);
+      setConnectionHealth('auth_required', {
+        lastErrorMessage: err.message,
+      });
       void setRelayAuthError({
         message: err.message,
         mode: currentAuthProfile === 'cloud-oauth' ? 'cloud' : 'self-hosted',
@@ -1348,6 +1446,9 @@ async function bootstrap(): Promise<void> {
     // an unhandled rejection.
     const detail = err instanceof Error ? err.message : String(err);
     console.warn(`[vellum-relay] Auto-connect failed: ${detail}`);
+    setConnectionHealth('error', {
+      lastErrorMessage: detail,
+    });
     void setRelayAuthError({
       message: detail,
       mode: currentAuthProfile === 'cloud-oauth' ? 'cloud' : 'self-hosted',
