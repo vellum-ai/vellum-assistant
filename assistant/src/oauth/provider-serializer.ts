@@ -156,6 +156,7 @@ function isManagedModeEnabled(
   config?: AssistantConfig,
 ): boolean {
   if (!row.managedServiceConfigKey) return false;
-  if (!row.featureFlag || !config) return true;
+  if (!row.featureFlag) return true;
+  if (!config) return false;
   return isAssistantFeatureFlagEnabled(row.featureFlag, config);
 }
