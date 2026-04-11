@@ -118,10 +118,8 @@ public struct LockfileAssistant {
     public var isCurrentEnvironment: Bool {
         guard isManaged else { return true }
         guard let runtimeUrl = runtimeUrl, !runtimeUrl.isEmpty else { return true }
-        let expected = AuthService.resolveBaseURL(
-            environment: ProcessInfo.processInfo.environment,
-            userDefaults: .standard
-        ).lowercased().replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
+        let expected = VellumEnvironment.resolvedPlatformURL
+            .lowercased().replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
         let actual = runtimeUrl.lowercased()
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "/+$", with: "", options: .regularExpression)

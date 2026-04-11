@@ -151,7 +151,7 @@ enum LogExporter {
         formData: LogReportFormData,
         connectedAssistantId: String?
     ) async throws {
-        let baseURL = AuthService.shared.baseURL
+        let baseURL = VellumEnvironment.resolvedPlatformURL
         guard let url = URL(string: "\(baseURL)/v1/upload/feedback/") else {
             log.warning("Failed to construct platform feedback URL")
             throw URLError(.badURL)
@@ -851,7 +851,7 @@ enum LogExporter {
             return
         }
 
-        let baseURL = await MainActor.run { AuthService.shared.baseURL }
+        let baseURL = VellumEnvironment.resolvedPlatformURL
 
         guard let url = URL(string: "\(baseURL)/v1/assistants/\(assistantId)/logs/export/") else {
             log.warning("Failed to construct platform log export URL")

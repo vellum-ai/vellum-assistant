@@ -105,7 +105,7 @@ final class ManagedAssistantConnectionCoordinator {
         self.init(
             bootstrapService: ManagedAssistantBootstrapService.shared,
             userDefaults: userDefaults,
-            runtimeURLProvider: { AuthService.shared.baseURL },
+            runtimeURLProvider: { VellumEnvironment.resolvedPlatformURL },
             updateAssistantTag: updateAssistantTag,
             lockfilePath: lockfilePath,
             dateProvider: dateProvider,

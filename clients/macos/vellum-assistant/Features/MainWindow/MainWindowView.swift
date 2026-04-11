@@ -755,7 +755,7 @@ private struct AssistantLoadingOverlayContent: View {
             return nil
         }
 
-        let configuredURL = AuthService.shared.baseURL
+        let configuredURL = VellumEnvironment.resolvedPlatformURL
         let normalizedConfigured = normalizeURL(configuredURL)
         let normalizedLockfile = normalizeURL(lockfileURL)
 

@@ -448,7 +448,7 @@ struct AssistantUpgradeSection: View {
         isLoadingReleases = true
         defer { isLoadingReleases = false }
 
-        let platformBase = AuthService.shared.baseURL
+        let platformBase = VellumEnvironment.resolvedPlatformURL
         guard let url = URL(string: "\(platformBase)/v1/releases/?stable=true") else {
             errorMessage = "Failed to check for updates"
             return

@@ -3,54 +3,11 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AuthService")
 
-// MARK: - Module-private constants (nonisolated by default)
-// These live outside the @MainActor class so nonisolated static functions
-// (resolveBaseURL, normalizedBaseURL) can reference them without crossing
-// into @MainActor isolation — which is an error in Swift 6 language mode.
-private let _platformURLOverrideEnvironmentKey = "VELLUM_PLATFORM_URL"
-private let _authServiceBaseURLDefaultsName = "authServiceBaseURL"
-
 @MainActor
 public final class AuthService {
     public static let shared = AuthService()
 
-    public var baseURL: String {
-        Self.resolveBaseURL(
-            environment: ProcessInfo.processInfo.environment,
-            userDefaults: .standard
-        )
-    }
-
     private init() {}
-
-    /// Pure URL resolution logic — safe to call from any isolation context.
-    /// All inputs are value types; no mutable shared state is accessed.
-    ///
-    /// Resolution order:
-    /// 1. `VELLUM_PLATFORM_URL` environment variable (explicit override)
-    /// 2. `authServiceBaseURL` UserDefaults key (DEBUG builds only)
-    /// 3. `VELLUM_ENVIRONMENT`-based default
-    nonisolated static func resolveBaseURL(
-        environment: [String: String],
-        userDefaults: UserDefaults
-    ) -> String {
-        if let override = normalizedBaseURL(environment[_platformURLOverrideEnvironmentKey]) {
-            return override
-        }
-        #if DEBUG
-        // Keep the UserDefaults override as a fallback for direct debug sessions.
-        if let override = normalizedBaseURL(userDefaults.string(forKey: _authServiceBaseURLDefaultsName)) {
-            return override
-        }
-        #endif
-        return VellumEnvironment.resolve(from: environment).platformURL
-    }
-
-    nonisolated private static func normalizedBaseURL(_ raw: String?) -> String? {
-        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let normalized = trimmed.replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
-        return normalized.isEmpty ? nil : normalized
-    }
 
     private struct AuthRequestConfig {
         let path: String
@@ -169,7 +126,7 @@ public final class AuthService {
 
     /// Fetch the current user's organizations. Does not require Vellum-Organization-Id header.
     public func getOrganizations() async throws -> [PlatformOrganization] {
-        let urlString = "\(baseURL)/v1/organizations/"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/organizations/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -304,7 +261,7 @@ public final class AuthService {
         body: Data? = nil,
         timeoutInterval: TimeInterval? = nil
     ) async throws -> PlatformResponse {
-        let urlString = "\(baseURL)/\(path)"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/\(path)"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -537,7 +494,7 @@ public final class AuthService {
         assistantId: String,
         organizationId: String
     ) async throws {
-        let urlString = "\(baseURL)/v1/assistants/\(assistantId)/\(path)/"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/assistants/\(assistantId)/\(path)/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -609,7 +566,7 @@ public final class AuthService {
         clientPlatform: String,
         assistantVersion: String? = nil
     ) async throws -> EnsureSelfHostedLocalRegistrationResponse {
-        let urlString = "\(baseURL)/v1/assistants/self-hosted-local/ensure-registration/"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/assistants/self-hosted-local/ensure-registration/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -672,7 +629,7 @@ public final class AuthService {
         clientPlatform: String,
         assistantVersion: String? = nil
     ) async throws -> ReprovisionSelfHostedLocalApiKeyResponse {
-        let urlString = "\(baseURL)/v1/assistants/self-hosted-local/reprovision-api-key/"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/assistants/self-hosted-local/reprovision-api-key/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -784,7 +741,7 @@ public final class AuthService {
         requestConfig: AuthRequestConfig,
         includeSessionToken: Bool
     ) async throws -> AuthAttemptResult {
-        let urlString = "\(baseURL)/_allauth/app/v1/\(requestConfig.path)"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/_allauth/app/v1/\(requestConfig.path)"
         guard let url = URL(string: urlString) else {
             throw AuthServiceError.invalidURL
         }

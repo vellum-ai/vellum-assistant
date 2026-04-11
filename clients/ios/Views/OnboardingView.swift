@@ -112,7 +112,7 @@ struct OnboardingView: View {
     /// Persist the selected assistant's config, rebuild the daemon client,
     /// and advance to the permissions step.
     private func finalizeAssistantSelection(_ assistant: PlatformAssistant) {
-        let platformBaseURL = AuthService.shared.baseURL
+        let platformBaseURL = VellumEnvironment.resolvedPlatformURL
 
         // Persist managed assistant config so GatewayHTTPClient.resolveConnection()
         // can build a ConnectionInfo for outbound requests.

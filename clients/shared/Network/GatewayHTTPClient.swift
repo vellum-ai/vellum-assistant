@@ -578,14 +578,7 @@ public enum GatewayHTTPClient {
             if let runtimeUrl = assistant.runtimeUrl {
                 baseURL = runtimeUrl
             } else {
-                // Call the nonisolated pure function directly to avoid
-                // crossing into @MainActor isolation. The instance property
-                // `AuthService.shared.baseURL` is @MainActor-isolated and
-                // cannot be read from a nonisolated synchronous context.
-                baseURL = AuthService.resolveBaseURL(
-                    environment: ProcessInfo.processInfo.environment,
-                    userDefaults: .standard
-                )
+                baseURL = VellumEnvironment.resolvedPlatformURL
             }
             return ConnectionInfo(baseURL: baseURL, authHeader: ("X-Session-Token", token), assistantId: assistant.assistantId, isManaged: true)
         } else {
