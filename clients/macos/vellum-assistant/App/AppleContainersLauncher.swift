@@ -147,6 +147,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
         // already known — it is derived from the pod IP assigned during
         // start(). We will NOT update the entry again later; all fields
         // that matter are populated here.
+        let previousActiveId = LockfileAssistant.loadActiveAssistantId()
         let hatchedAt = ISO8601DateFormatter().string(from: Date())
         Self.writeLockfileEntry(
             assistantId: assistantName,
@@ -174,6 +175,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
             )
             if !gatewayReady {
                 Self.removeLockfileEntry(assistantId: assistantName)
+                LockfileAssistant.setActiveAssistantId(previousActiveId)
                 mgmtServer?.stop()
                 mgmtServer = nil
                 try? await runtime.stop()
@@ -191,6 +193,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
             )
             if !tokenLeased {
                 Self.removeLockfileEntry(assistantId: assistantName)
+                LockfileAssistant.setActiveAssistantId(previousActiveId)
                 mgmtServer?.stop()
                 mgmtServer = nil
                 try? await runtime.stop()
@@ -496,15 +499,6 @@ final class AppleContainersLauncher: AssistantManagementClient {
         var assistants = lockfile["assistants"] as? [[String: Any]] ?? []
         assistants.removeAll { ($0["assistantId"] as? String) == assistantId }
         lockfile["assistants"] = assistants
-
-        // If the removed entry was the active assistant, clear or reassign.
-        if (lockfile["activeAssistant"] as? String) == assistantId {
-            if let next = assistants.first?["assistantId"] as? String {
-                lockfile["activeAssistant"] = next
-            } else {
-                lockfile.removeValue(forKey: "activeAssistant")
-            }
-        }
 
         if let updated = try? JSONSerialization.data(
             withJSONObject: lockfile, options: [.prettyPrinted, .sortedKeys]
