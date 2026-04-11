@@ -38,9 +38,8 @@ import {
 import { getCatalog } from "../../skills/catalog-cache.js";
 import {
   catalogSkillToSlim,
+  createVellumCatalogProvider,
   hasHiddenOrSkippedSegment,
-  readCatalogSkillFileContent,
-  readCatalogSkillFiles,
   sanitizeRelativePath,
   type SkillFileEntry,
   SKIP_DIRS,
@@ -59,6 +58,7 @@ import {
   clawhubSearch,
   clawhubUpdate,
 } from "../../skills/clawhub.js";
+import { createClawhubProvider } from "../../skills/clawhub-files.js";
 import {
   readInstallMeta,
   type SkillInstallMeta,
@@ -69,6 +69,8 @@ import {
   removeSkillsIndexEntry,
   validateManagedSkillId,
 } from "../../skills/managed-store.js";
+import type { SkillFileProvider } from "../../skills/skill-file-provider.js";
+import { createSkillsShProvider } from "../../skills/skillssh-files.js";
 import {
   installExternalSkill,
   resolveSkillSource,
@@ -99,6 +101,44 @@ export interface SkillOperationContext {
   setSuppressConfigReload(value: boolean): void;
   updateConfigFingerprint(): void;
   broadcast: HandlerContext["broadcast"];
+}
+
+// ─── Provider chain for uninstalled skill file preview ───────────────────────
+// Ordered by priority: vellum first (most common and cheapest to check),
+// then skills.sh, then clawhub.
+
+const fileProviders: SkillFileProvider[] = [
+  createVellumCatalogProvider(),
+  createSkillsShProvider(),
+  createClawhubProvider(),
+];
+
+async function resolveSkillFiles(skillId: string): Promise<{
+  skill: SlimSkillResponse;
+  files: SkillFileEntry[];
+} | null> {
+  for (const provider of fileProviders) {
+    if (!provider.canHandle(skillId)) continue;
+    const files = await provider.listFiles(skillId);
+    if (files === null) continue;
+    const skill = await provider.toSlimSkill(skillId);
+    if (skill === null) continue;
+    files.sort((a, b) => a.path.localeCompare(b.path));
+    return { skill, files };
+  }
+  return null;
+}
+
+async function resolveSkillFileContent(
+  skillId: string,
+  sanitizedPath: string,
+): Promise<SkillFileEntry | null> {
+  for (const provider of fileProviders) {
+    if (!provider.canHandle(skillId)) continue;
+    const result = await provider.readFileContent(skillId, sanitizedPath);
+    if (result !== null) return result;
+  }
+  return null;
 }
 
 // ─── Frontmatter parsing ─────────────────────────────────────────────────────
@@ -421,6 +461,14 @@ export async function getSkill(
 ): Promise<{ skill: SkillDetailResponse } | { error: string; status: number }> {
   const found = findSkillById(skillId);
   if (!found) {
+    // Fallback: skill is not installed. Try all file providers.
+    for (const provider of fileProviders) {
+      if (!provider.canHandle(skillId)) continue;
+      const slim = await provider.toSlimSkill(skillId);
+      if (slim) {
+        return { skill: slim as SkillDetailResponse };
+      }
+    }
     return { error: `Skill "${skillId}" not found`, status: 404 };
   }
 
@@ -567,16 +615,15 @@ function readDirRecursive(dir: string, rootDir: string): SkillFileEntry[] {
 }
 
 /**
- * Read a single file's content from an installed or catalog skill.
+ * Read a single file's content from an installed or uninstalled skill.
  *
  * Installed-skill path (eager): reads the file directly from the skill's
  * on-disk directory. Applies lexical containment, symlink rejection, and
  * realpath containment checks for defense in depth.
  *
- * Catalog fallback: when the skill id is not backed by a local directory
- * (e.g. an uninstalled Vellum catalog skill), delegates to
- * `readCatalogSkillFileContent`, which handles both the dev-mode repo
- * checkout path and the platform preview API path internally.
+ * Provider chain fallback: when the skill id is not backed by a local
+ * directory, iterates the `fileProviders` chain (vellum catalog,
+ * skills.sh, clawhub) until one returns content.
  */
 export async function getSkillFileContent(
   skillId: string,
@@ -683,32 +730,19 @@ export async function getSkillFileContent(
     };
   }
 
-  // Catalog fallback: skill is not installed locally. Try the catalog
-  // preview helper, which handles both dev-mode repo checkouts and the
-  // platform preview API.
-  let catalog: Awaited<ReturnType<typeof getCatalog>> = [];
-  try {
-    catalog = await getCatalog();
-  } catch {
-    catalog = [];
+  // Fallback: skill is not installed. Try all file providers.
+  const result = await resolveSkillFileContent(skillId, sanitized);
+  if (result) {
+    return {
+      path: result.path,
+      name: result.name,
+      size: result.size,
+      mimeType: result.mimeType,
+      isBinary: result.isBinary,
+      content: result.content,
+    };
   }
-  const inCatalog = catalog.some((s) => s.id === skillId);
-  if (!inCatalog) {
-    return { error: "Skill not found", status: 404 };
-  }
-
-  const result = await readCatalogSkillFileContent(skillId, sanitized);
-  if (!result) {
-    return { error: "File not found", status: 404 };
-  }
-  return {
-    path: result.path,
-    name: result.name,
-    size: result.size,
-    mimeType: result.mimeType,
-    isBinary: result.isBinary,
-    content: result.content,
-  };
+  return { error: "Skill not found", status: 404 };
 }
 
 export async function getSkillFiles(
@@ -740,31 +774,10 @@ export async function getSkillFiles(
     };
   }
 
-  // Fallback: skill is not installed. Try the Vellum catalog — this covers
-  // previewing files for an uninstalled catalog skill without touching the
-  // install flow.
-  let catalog: CatalogSkill[];
-  try {
-    catalog = await getCatalog();
-  } catch {
-    return { error: `Skill "${skillId}" not found`, status: 404 };
-  }
-  const cs = catalog.find((c) => c.id === skillId);
-  if (!cs) {
-    return { error: `Skill "${skillId}" not found`, status: 404 };
-  }
-
-  const files = await readCatalogSkillFiles(skillId);
-  if (files === null) {
-    return {
-      error: `Skill files unavailable for "${skillId}"`,
-      status: 404,
-    };
-  }
-
-  const skill = catalogSkillToSlim(cs);
-  files.sort((a, b) => a.path.localeCompare(b.path));
-  return { skill, files };
+  // Fallback: skill is not installed. Try all file providers.
+  const resolved = await resolveSkillFiles(skillId);
+  if (resolved) return resolved;
+  return { error: `Skill "${skillId}" not found`, status: 404 };
 }
 
 export function enableSkill(
