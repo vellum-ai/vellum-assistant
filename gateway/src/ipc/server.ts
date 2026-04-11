@@ -15,6 +15,8 @@ import { existsSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
 
+import type { z } from "zod";
+
 import { getWorkspaceDir } from "../credential-reader.js";
 import { getLogger } from "../logger.js";
 
@@ -48,6 +50,7 @@ export type IpcMethodHandler = (
 /** A single IPC route definition — method name + handler function. */
 export type IpcRoute = {
   method: string;
+  schema?: z.ZodType;
   handler: IpcMethodHandler;
 };
 
@@ -59,13 +62,17 @@ export class GatewayIpcServer {
   private server: Server | null = null;
   private client: Socket | null = null;
   private methods = new Map<string, IpcMethodHandler>();
+  private schemas = new Map<string, z.ZodType>();
   private socketPath: string;
 
-  constructor(socketPath?: string, routes?: IpcRoute[]) {
-    this.socketPath = socketPath ?? getDefaultSocketPath();
+  constructor(routes?: IpcRoute[]) {
+    this.socketPath = getDefaultSocketPath();
     if (routes) {
       for (const route of routes) {
         this.methods.set(route.method, route.handler);
+        if (route.schema) {
+          this.schemas.set(route.method, route.schema);
+        }
       }
     }
   }
@@ -195,8 +202,23 @@ export class GatewayIpcServer {
       return;
     }
 
+    // Validate params against Zod schema if one was registered for this method.
+    const schema = this.schemas.get(req.method);
+    let parsedParams: Record<string, unknown> | undefined = req.params;
+    if (schema) {
+      const result = schema.safeParse(req.params);
+      if (!result.success) {
+        this.sendResponse(socket, {
+          id: req.id,
+          error: `Invalid params: ${result.error.message}`,
+        });
+        return;
+      }
+      parsedParams = result.data as Record<string, unknown>;
+    }
+
     try {
-      const result = handler(req.params);
+      const result = handler(parsedParams);
       if (result instanceof Promise) {
         result
           .then((value) => {

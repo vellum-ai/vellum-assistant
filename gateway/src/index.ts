@@ -1601,7 +1601,7 @@ async function main() {
   configFileWatcher.start();
 
   // ── IPC server ──
-  const ipcServer = new GatewayIpcServer(undefined, [...featureFlagRoutes]);
+  const ipcServer = new GatewayIpcServer([...featureFlagRoutes]);
   ipcServer.start();
 
   const featureFlagWatcher = new FeatureFlagWatcher();

@@ -6,10 +6,16 @@
  * the HTTP GET /v1/feature-flags endpoint returns.
  */
 
+import { z } from "zod";
+
 import { loadFeatureFlagDefaults } from "../feature-flag-defaults.js";
 import { readRemoteFeatureFlags } from "../feature-flag-remote-store.js";
 import { readPersistedFeatureFlags } from "../feature-flag-store.js";
 import type { IpcRoute } from "./server.js";
+
+const GetFeatureFlagParamsSchema = z.object({
+  flag: z.string(),
+});
 
 /**
  * Compute the merged feature flag state: defaults < remote < persisted.
@@ -38,14 +44,15 @@ export function getMergedFeatureFlags(): Record<string, boolean> {
  */
 export const featureFlagRoutes: IpcRoute[] = [
   {
-    method: "getFeatureFlags",
+    method: "get_feature_flags",
     handler: () => getMergedFeatureFlags(),
   },
   {
-    method: "getFeatureFlag",
+    method: "get_feature_flag",
+    schema: GetFeatureFlagParamsSchema,
     handler: (params?: Record<string, unknown>): boolean | null => {
-      const flag = params?.flag;
-      if (typeof flag !== "string") return null;
+      const flag = params?.flag as string | undefined;
+      if (!flag) return null;
 
       const flags = getMergedFeatureFlags();
       return Object.hasOwn(flags, flag) ? flags[flag] : null;
