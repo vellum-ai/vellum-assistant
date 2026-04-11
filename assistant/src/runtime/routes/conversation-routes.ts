@@ -14,6 +14,7 @@ import {
 import {
   CHANNEL_IDS,
   INTERFACE_IDS,
+  type InterfaceId,
   isInteractiveInterface,
   parseChannelId,
   parseInterfaceId,
@@ -1109,6 +1110,13 @@ function makeHubPublisher(
  * WebSocket to the connected extension. Otherwise returns the SSE hub
  * emitter (`onEvent`).
  *
+ * For `chrome-extension` turns the registry sender is **always** returned
+ * regardless of the POST-time connection check. The chrome-extension
+ * interface has no SSE consumer for `host_browser_request` frames, so
+ * falling back to `onEvent` would cause CDP calls to stall until the proxy
+ * timeout (30 s) instead of failing immediately at send time when the
+ * registry throws on a missing connection.
+ *
  * This helper is interface-agnostic: both chrome-extension and macOS turns
  * can obtain a registry-routed sender when extension connectivity exists.
  * The `isRegistryRouted` flag lets the caller decide whether to set
@@ -1119,6 +1127,7 @@ function resolveHostBrowserSender(
   conversation: import("../../daemon/conversation.js").Conversation,
   authContext: AuthContext,
   onEvent: (msg: ServerMessage) => void,
+  sourceInterface: InterfaceId,
 ): { sender: (msg: ServerMessage) => void; isRegistryRouted: boolean } {
   // Check whether the guardian has any active extension connection.
   const guardianId =
@@ -1127,7 +1136,11 @@ function resolveHostBrowserSender(
   const hasExtensionConnection =
     !!guardianId && !!getChromeExtensionRegistry().get(guardianId);
 
-  if (!hasExtensionConnection) {
+  // For chrome-extension, always use the registry sender so that send-time
+  // failures produce immediate errors rather than 30-second proxy timeouts.
+  // The SSE hub has no extension consumer, so falling back to onEvent is
+  // never correct for this interface.
+  if (!hasExtensionConnection && sourceInterface !== "chrome-extension") {
     return { sender: onEvent, isRegistryRouted: false };
   }
 
@@ -1389,7 +1402,12 @@ export async function handleSendMessage(
   // chrome-extension and macOS interfaces so that macOS turns can route
   // browser automation through the user's real Chrome session when available.
   const { sender: browserProxySendToClient, isRegistryRouted } =
-    resolveHostBrowserSender(conversation, authContext, onEvent);
+    resolveHostBrowserSender(
+      conversation,
+      authContext,
+      onEvent,
+      sourceInterface,
+    );
 
   // Stash the registry-routed sender on the conversation so queue-drain
   // restores (which run outside of conversation-routes.ts and only have

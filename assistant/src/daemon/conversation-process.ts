@@ -365,24 +365,25 @@ export async function drainQueue(
       conversation.addPreactivatedSkillId("computer-use");
     }
     // Tear down a stale hostBrowserProxy inherited from a prior turn on a
-    // different interface (e.g. chrome-extension installed one, then a
-    // macos turn drains). Without this, restoreProxyAvailability() above
-    // would re-enable the proxy and getCdpClient() would route browser
-    // tools through host_browser_request and hang waiting for a client
-    // that this turn's interface can't service.
+    // different interface (e.g. chrome-extension installed one, then a CLI
+    // turn drains). Without this, restoreProxyAvailability() above would
+    // re-enable the proxy and getCdpClient() would route browser tools
+    // through host_browser_request and hang waiting for a client that this
+    // turn's interface can't service.
     //
-    // Skip teardown when `hostBrowserSenderOverride` is set — that
-    // indicates the conversation has a live registry-routed sender
-    // (e.g. a macOS turn with an active extension connection or an
-    // earlier chrome-extension turn). The override was established by
-    // the POST /messages handler and persists across queue drains so
-    // the browser proxy stays routed to the extension. Tearing it
-    // down here would orphan an available extension connection and
-    // force unnecessary fallback to cdp-inspect/local.
+    // Skip teardown only when BOTH conditions hold:
+    //   1. `hostBrowserSenderOverride` is set (live registry-routed sender)
+    //   2. The current turn's interface can service host_browser frames
+    //      (chrome-extension or macOS).
+    // Without the interface check, queued turns from CLI/iOS/Vellum would
+    // inherit a stale override left by a prior extension-connected turn
+    // and keep the proxy alive, causing cross-interface misrouting.
+    const currentTurnCanServiceBrowser =
+      sourceInterface === "chrome-extension" || sourceInterface === "macos";
     if (
       sourceInterface &&
       !supportsHostProxy(sourceInterface, "host_browser") &&
-      !conversation.hostBrowserSenderOverride
+      !(conversation.hostBrowserSenderOverride && currentTurnCanServiceBrowser)
     ) {
       conversation.setHostBrowserProxy(undefined);
     }
