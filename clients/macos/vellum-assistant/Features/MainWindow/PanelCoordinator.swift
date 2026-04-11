@@ -42,7 +42,14 @@ extension MainWindowView {
                 connectionManager: connectionManager,
                 activeSessionId: conversationManager.activeViewModel?.conversationId,
                 usageDashboardStore: usageDashboardStore,
-                onClose: { windowState.selection = nil }
+                onClose: { windowState.selection = nil },
+                onSelectConversation: { conversationId in
+                    Task { @MainActor in
+                        let found = await conversationManager.selectConversationByConversationIdAsync(conversationId)
+                        guard found, let id = conversationManager.activeConversationId else { return }
+                        windowState.selection = .conversation(id)
+                    }
+                }
             )
         case .generated:
             GeneratedPanel(
@@ -507,7 +514,14 @@ extension MainWindowView {
                 connectionManager: connectionManager,
                 activeSessionId: conversationManager.activeViewModel?.conversationId,
                 usageDashboardStore: usageDashboardStore,
-                onClose: { windowState.dismissOverlay() }
+                onClose: { windowState.dismissOverlay() },
+                onSelectConversation: { conversationId in
+                    Task { @MainActor in
+                        let found = await conversationManager.selectConversationByConversationIdAsync(conversationId)
+                        guard found, let id = conversationManager.activeConversationId else { return }
+                        windowState.selection = .conversation(id)
+                    }
+                }
             )
         case .avatarCustomization:
             AvatarCustomizationPanel(onClose: { windowState.selection = .panel(windowState.avatarCustomizationReturnPanel) })
