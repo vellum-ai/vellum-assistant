@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import Speech
+import VellumAssistantShared
 import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "OpenAIVoiceService")
@@ -8,9 +9,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "OpenA
 enum VoiceServiceError: Error, LocalizedError {
     case speechRecognitionUnavailable
     case notAuthorized
-    case noAPIKey
     case invalidResponse
-    case apiError(statusCode: Int, message: String)
     case noAudioData
     case noTranscription
 
@@ -18,17 +17,16 @@ enum VoiceServiceError: Error, LocalizedError {
         switch self {
         case .speechRecognitionUnavailable: return "Speech recognition unavailable"
         case .notAuthorized: return "Speech recognition not authorized"
-        case .noAPIKey: return "API key not configured"
         case .invalidResponse: return "Invalid API response"
-        case .apiError(let code, let msg): return "API error (\(code)): \(msg)"
         case .noAudioData: return "No audio data recorded"
         case .noTranscription: return "No transcription result"
         }
     }
 }
 
-/// Voice service: SFSpeechRecognizer STT (on-device) + TTS (ElevenLabs REST API).
-/// Records audio, detects silence, transcribes via SFSpeechRecognizer, speaks via ElevenLabs.
+/// Voice service: SFSpeechRecognizer STT (on-device) + gateway TTS.
+/// Records audio, detects silence, transcribes via SFSpeechRecognizer,
+/// speaks via the assistant's `/v1/tts/synthesize` endpoint.
 @MainActor
 @Observable
 final class OpenAIVoiceService: VoiceServiceProtocol {
@@ -70,36 +68,25 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
     /// Continuation to deliver the final transcription when recording stops.
     @ObservationIgnored private var transcriptionContinuation: CheckedContinuation<String?, Never>?
 
-    // MARK: - ElevenLabs TTS State
+    // MARK: - TTS State
 
-    /// Accumulated text from streaming deltas — sent to ElevenLabs when response completes.
+    /// Accumulated text from streaming deltas — sent to the gateway when response completes.
     @ObservationIgnored private var ttsTextBuffer = ""
     @ObservationIgnored private var ttsOnComplete: (() -> Void)?
     @ObservationIgnored private var audioPlayer: AVAudioPlayer?
     @ObservationIgnored private var speakingTimer: Timer?
     @ObservationIgnored private var ttsTask: Task<Void, Never>?
 
-    /// Default ElevenLabs voice — "Amelia" (expressive, enthusiastic, British English).
-    /// Mirrored from: assistant/src/config/elevenlabs-schema.ts (DEFAULT_ELEVENLABS_VOICE_ID)
-    private static let defaultVoiceId = "ZF6FPAbjXT4488VcRRnw"
+    /// Gateway TTS client — routes through the provider selected by `services.tts.provider`.
+    @ObservationIgnored private let ttsClient: any TTSClientProtocol
 
-    /// Override voice ID set by daemon broadcasts (client_settings_update).
-    static var overrideVoiceId: String?
+    /// Current conversation ID, set by VoiceModeManager on activation.
+    /// Passed to TTSClient for provider context.
+    @ObservationIgnored var conversationId: String?
 
-    /// ElevenLabs voice ID — reads from daemon-provided override, then UserDefaults
-    /// (so the user's last-configured value survives app restarts), falls back to Amelia.
-    private static var elevenLabsVoiceId: String {
-        overrideVoiceId.flatMap { $0.isEmpty ? nil : $0 }
-            ?? UserDefaults.standard.string(forKey: "ttsVoiceId").flatMap { $0.isEmpty ? nil : $0 }
-            ?? Self.defaultVoiceId
+    nonisolated init(ttsClient: any TTSClientProtocol = TTSClient()) {
+        self.ttsClient = ttsClient
     }
-
-    nonisolated init() {}
-
-    // MARK: - API Keys
-
-    func elevenLabsKey() async -> String? { APIKeyManager.getKey(for: "elevenlabs") }
-    func hasElevenLabsKey() async -> Bool { await elevenLabsKey() != nil }
 
     // MARK: - Speech Recognition Authorization
 
@@ -358,14 +345,14 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         livePartialText = ""
     }
 
-    // MARK: - ElevenLabs TTS (REST API)
+    // MARK: - Gateway TTS
 
     /// Called with each text delta — just accumulates text.
     func feedTextDelta(_ delta: String) {
         ttsTextBuffer += delta
     }
 
-    /// Called when the full response is complete — sends accumulated text to ElevenLabs.
+    /// Called when the full response is complete — sends accumulated text to the gateway TTS endpoint.
     func finishTextStream(onComplete: @escaping () -> Void) {
         let raw = ttsTextBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
         let text = TTSRedactor.redact(raw)
@@ -381,32 +368,39 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         startSpeakingAmplitudePolling()
 
         ttsTask = Task {
-            // Fetch the key once at the start of the task.
-            guard await elevenLabsKey() != nil else {
-                log.info("TTS: no ElevenLabs key, completing immediately")
-                self.finishSpeaking()
-                self.ttsOnComplete?()
-                self.ttsOnComplete = nil
-                return
-            }
             guard !Task.isCancelled else { return }
             do {
-                let audioData = try await fetchElevenLabsTTS(text: text)
+                let result = await ttsClient.synthesizeText(text, context: "voice-mode", conversationId: conversationId)
                 guard !Task.isCancelled else { return }
 
-                let player = try AVAudioPlayer(data: audioData)
-                self.audioPlayer = player
-                player.delegate = nil // We poll for completion below
-                player.play()
-                log.info("TTS: playing \(audioData.count) bytes of audio")
+                switch result {
+                case .success(let audioData):
+                    let player = try AVAudioPlayer(data: audioData)
+                    self.audioPlayer = player
+                    player.delegate = nil // We poll for completion below
+                    player.play()
+                    log.info("TTS: playing \(audioData.count) bytes of audio")
 
-                // Poll until playback finishes
-                while player.isPlaying && !Task.isCancelled {
-                    try await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                    // Poll until playback finishes
+                    while player.isPlaying && !Task.isCancelled {
+                        try await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                    }
+
+                    guard !Task.isCancelled else { return }
+                    log.info("TTS: playback complete")
+
+                case .notConfigured:
+                    log.info("TTS: provider not configured, completing immediately")
+
+                case .featureDisabled:
+                    log.info("TTS: feature disabled, completing immediately")
+
+                case .notFound:
+                    log.warning("TTS: endpoint returned not found")
+
+                case .error(let statusCode, let message):
+                    log.error("TTS endpoint error (HTTP \(statusCode ?? 0)): \(message)")
                 }
-
-                guard !Task.isCancelled else { return }
-                log.info("TTS: playback complete")
             } catch {
                 if !Task.isCancelled {
                     log.error("TTS error: \(error.localizedDescription)")
@@ -489,51 +483,6 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         guard bargeInMonitorActive else { return }
         bargeInMonitorActive = false
         engineController.stopAndRemoveTap()
-    }
-
-    /// Call ElevenLabs REST API to convert text to speech. Returns MP3 audio data.
-    private func fetchElevenLabsTTS(text: String) async throws -> Data {
-        guard let elevenLabsKey = await elevenLabsKey() else {
-            throw VoiceServiceError.noAPIKey
-        }
-
-        let voiceId = Self.elevenLabsVoiceId
-        let url = URL(string: "https://api.elevenlabs.io/v1/text-to-speech/\(voiceId)")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue(elevenLabsKey, forHTTPHeaderField: "xi-api-key")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("audio/mpeg", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 30
-
-        let body: [String: Any] = [
-            "text": text,
-            "model_id": "eleven_flash_v2_5",
-            "voice_settings": [
-                "stability": 0.5,
-                "similarity_boost": 0.75,
-                "speed": 1.1
-            ]
-        ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw VoiceServiceError.invalidResponse
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
-            log.error("ElevenLabs API error (\(httpResponse.statusCode)): \(errorBody)")
-            throw VoiceServiceError.apiError(statusCode: httpResponse.statusCode, message: errorBody)
-        }
-
-        guard !data.isEmpty else {
-            throw VoiceServiceError.noAudioData
-        }
-
-        return data
     }
 
     // MARK: - Speaking Amplitude

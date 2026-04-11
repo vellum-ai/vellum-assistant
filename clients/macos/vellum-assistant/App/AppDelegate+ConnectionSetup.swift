@@ -290,10 +290,7 @@ extension AppDelegate {
                 case .recordingResume(let msg):
                     self.handleRecordingResume(msg)
                 case .clientSettingsUpdate(let msg):
-                    if msg.key == "ttsVoiceId" {
-                        OpenAIVoiceService.overrideVoiceId = msg.value
-                        UserDefaults.standard.set(msg.value, forKey: msg.key)
-                    } else if msg.key == "voiceConversationTimeoutSeconds" {
+                    if msg.key == "voiceConversationTimeoutSeconds" {
                         let parsed = Int(msg.value)
                         if let parsed {
                             UserDefaults.standard.set(parsed, forKey: msg.key)
