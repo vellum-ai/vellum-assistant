@@ -1,16 +1,18 @@
-import { readTextFileSync } from "../util/fs.js";
-import { getWorkspacePromptPath } from "../util/platform.js";
+import { resolveGuardianPersona } from "./persona-resolver.js";
 
 export const DEFAULT_USER_REFERENCE = "my human";
 export const DECLINED_BY_USER_SENTINEL = "declined_by_user";
 
 /**
- * Read the raw "Preferred name/reference:" value from USER.md.
- * Returns the trimmed value when present, or `null` when the file
- * is missing, unreadable, or the field is empty.
+ * Read the raw "Preferred name/reference:" value from the guardian's
+ * per-user persona file (`users/<slug>.md`).
+ *
+ * Returns the trimmed value when present, or `null` when no guardian
+ * is resolvable, the persona file is missing / empty, or the field
+ * itself is blank.
  */
 function readPreferredNameFromUserMd(): string | null {
-  const content = readTextFileSync(getWorkspacePromptPath("USER.md"));
+  const content = resolveGuardianPersona();
   if (content != null) {
     const match = content.match(/Preferred name\/reference:[ \t]*(.*)/);
     if (match && match[1].trim()) {
@@ -24,9 +26,9 @@ function readPreferredNameFromUserMd(): string | null {
  * Resolve the name/reference the assistant uses when referring to
  * the human it represents in external communications.
  *
- * Reads the "Preferred name/reference:" field from USER.md.
- * Falls back to "my human" when the file is missing, unreadable,
- * or the field is empty.
+ * Reads the "Preferred name/reference:" field from the guardian's
+ * persona file. Falls back to "my human" when the file is missing,
+ * unreadable, or the field is empty.
  */
 export function resolveUserReference(): string {
   const preferredName = readPreferredNameFromUserMd();
@@ -37,9 +39,9 @@ export function resolveUserReference(): string {
 }
 
 /**
- * Resolve the user's pronouns from USER.md.  Returns `null` when the
- * file is missing, the field is empty, or the value is a sentinel like
- * `declined_by_user`.
+ * Resolve the user's pronouns from the guardian's per-user persona file.
+ * Returns `null` when no guardian is resolvable, the file is missing,
+ * the field is empty, or the value is a sentinel like `declined_by_user`.
  *
  * When a legacy `## Onboarding Snapshot` section exists, a `Pronouns:`
  * line *above* that section takes priority (explicit post-onboarding edit).
@@ -47,7 +49,7 @@ export function resolveUserReference(): string {
  * in the file.
  */
 export function resolveUserPronouns(): string | null {
-  const content = readTextFileSync(getWorkspacePromptPath("USER.md"));
+  const content = resolveGuardianPersona();
   if (content == null) return null;
 
   const snapshotIdx = content.indexOf("## Onboarding Snapshot");
@@ -82,10 +84,11 @@ function cleanPronounValue(raw: string): string | null {
  * Resolve the guardian's display name.
  *
  * Priority:
- *   1. USER.md "Preferred name/reference:" — the user-editable, actively
- *      maintained source of truth.
- *   2. guardianDisplayName (fallback for when USER.md is missing or empty,
- *      e.g. pre-onboarding). Callers pass in Contact.displayName.
+ *   1. Guardian persona file "Preferred name/reference:" — the
+ *      user-editable, actively maintained source of truth.
+ *   2. guardianDisplayName (fallback for when the persona file is
+ *      missing or empty, e.g. pre-onboarding). Callers pass in
+ *      Contact.displayName.
  *   3. DEFAULT_USER_REFERENCE ("my human").
  */
 export function resolveGuardianName(
