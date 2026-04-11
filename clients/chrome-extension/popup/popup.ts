@@ -58,6 +58,10 @@ const cloudStatus = document.getElementById('cloud-status') as HTMLParagraphElem
 const btnPairLocal = document.getElementById('btn-pair-local') as HTMLButtonElement;
 const localStatus = document.getElementById('local-status') as HTMLParagraphElement;
 
+const troubleshootingLabel = document.getElementById(
+  'troubleshooting-label',
+) as HTMLParagraphElement;
+
 const assistantSelectorGroup = document.getElementById(
   'assistant-selector-group',
 ) as HTMLDivElement;
@@ -165,6 +169,9 @@ function updateAuthSections(authProfile: AssistantAuthProfile | null): void {
   // Toggle Cloud troubleshooting elements visibility.
   cloudStatus.style.display = showCloud ? '' : 'none';
   btnCloudSignIn.style.display = showCloud ? '' : 'none';
+
+  // Hide the Troubleshooting heading when no controls are shown.
+  troubleshootingLabel.style.display = showLocal || showCloud ? '' : 'none';
 }
 
 /**
@@ -262,12 +269,18 @@ btnConnect.addEventListener('click', async () => {
   errorText.style.display = 'none';
   setPhase('connecting');
 
-  if (portInput.value.trim()) {
-    storageUpdate.relayPort = port;
-  } else {
-    await chrome.storage.local.remove('relayPort');
+  try {
+    if (portInput.value.trim()) {
+      storageUpdate.relayPort = port;
+    } else {
+      await chrome.storage.local.remove('relayPort');
+    }
+    await chrome.storage.local.set(storageUpdate);
+  } catch (err) {
+    showError(err instanceof Error ? err.message : String(err));
+    setPhase('disconnected');
+    return;
   }
-  await chrome.storage.local.set(storageUpdate);
 
   chrome.runtime.sendMessage({ type: 'connect' }, (response: { ok: boolean; error?: string }) => {
     if (chrome.runtime.lastError || !response?.ok) {
