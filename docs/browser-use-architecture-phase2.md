@@ -47,9 +47,10 @@ Phase 2 ships:
    the extension transport when it is provisioned. When the extension
    proxy exists but is temporarily unavailable (mid-reconnect), the
    factory intentionally skips `cdp-inspect` to prevent silent backend
-   drift; only when no extension proxy exists at all does `cdp-inspect`
-   enter the candidate list (via the macOS desktop-auto path or explicit
-   config enablement).
+   drift. `cdp-inspect` enters the candidate list when no extension proxy
+   exists at all (macOS desktop-auto path) or when explicitly enabled in
+   config (`hostBrowser.cdpInspect.enabled`), but it is not used as a
+   fallback during transient extension disconnects.
 8. **Structured connection health**: The worker maintains a six-state
    health machine (`paused`, `connecting`, `connected`, `reconnecting`,
    `auth_required`, `error`) surfaced to the popup via `get_status`.
