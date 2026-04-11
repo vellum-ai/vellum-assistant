@@ -226,16 +226,8 @@ public final class AuthManager {
     }
 
     /// Best-effort org resolution after a successful authentication.
-    ///
-    /// Called from every `state = .authenticated(user)` transition so
-    /// downstream clients (billing, gateway, OAuth, migration) can read
-    /// `connectedOrganizationId` from `UserDefaults` without each caller
-    /// having to trigger resolution as a side effect of some other flow.
-    ///
-    /// Failures are logged and swallowed — a transient network error here
-    /// must not prevent the user from being considered authenticated, and
-    /// the bootstrap paths will retry resolution if `UserDefaults` is still
-    /// empty by the time they run.
+    /// Failures are logged, not thrown: a transient network error here
+    /// must not block the transition to `.authenticated`.
     private func resolveOrganizationIdAfterAuth() async {
         do {
             _ = try await authService.resolveOrganizationId()
