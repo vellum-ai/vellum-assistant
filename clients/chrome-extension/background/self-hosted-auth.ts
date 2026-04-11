@@ -338,6 +338,14 @@ export async function bootstrapLocalToken(
       finish(() => reject(new Error(message)));
     });
 
-    port.postMessage({ type: 'request_token' });
+    // Include the assistantId in the pair request so the native host
+    // can scope the pairing to a specific assistant's runtime. When
+    // assistantId is null (legacy flow), the field is omitted and the
+    // native host falls back to the default assistant.
+    const pairMessage: Record<string, unknown> = { type: 'request_token' };
+    if (assistantId) {
+      pairMessage.assistantId = assistantId;
+    }
+    port.postMessage(pairMessage);
   });
 }

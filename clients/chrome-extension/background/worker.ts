@@ -7,10 +7,10 @@
  *   - the cloud gateway's browser-relay endpoint
  *     (`wss://<cloud-gateway>/v1/browser-relay`)
  *
- * depending on the `vellum.relayMode` key in chrome.storage.local
- * (default `"self-hosted"` for back-compat). Both transports share the
- * same envelope vocabulary — the choice is strictly about where the
- * socket points and which token is presented on the handshake.
+ * depending on the selected assistant's auth profile derived from
+ * `assistant-auth-profile.ts`. Both transports share the same envelope
+ * vocabulary — the choice is strictly about where the socket points and
+ * which token is presented on the handshake.
  *
  * Once connected, the worker routes incoming server messages:
  *   - `host_browser_request` / `host_browser_cancel` envelopes are
@@ -215,8 +215,8 @@ async function resolveSelectedAssistant(
 
 /**
  * Convenience: fetch the catalog and resolve the selected assistant in
- * one call. Used by the `assistants-get` message handler and (in future
- * PRs) by the connect flow.
+ * one call. Used by the `assistants-get` message handler and by the
+ * connect flow.
  */
 async function getAssistantCatalogAndSelection(): Promise<{
   assistants: AssistantDescriptor[];
@@ -231,19 +231,24 @@ async function getAssistantCatalogAndSelection(): Promise<{
   return { assistants: catalog.assistants, selected, authProfile };
 }
 
-// ── Mode selection ─────────────────────────────────────────────────
+// ── Connection state ───────────────────────────────────────────────
 //
-// Existing installs have no `vellum.relayMode` key and must keep using
-// the local daemon transport. New installs can flip to cloud via the
-// popup radio group.
-const RELAY_MODE_KEY = 'vellum.relayMode';
-type RelayModeKind = 'self-hosted' | 'cloud';
+// The connect path is driven entirely by the selected assistant's auth
+// profile. The legacy `vellum.relayMode` storage key is no longer the
+// source of truth — the auth profile (`local-pair` | `cloud-oauth` |
+// `unsupported`) derived from the selected assistant's lockfile
+// topology determines both the relay target and the token source.
+//
+// Legacy relay-mode storage is preserved read-only for backward
+// compatibility during the deprecation window (PR 6 will remove it).
 
-function isRelayModeKind(v: unknown): v is RelayModeKind {
-  return v === 'self-hosted' || v === 'cloud';
-}
+/**
+ * The auth profile of the currently connected (or last-attempted)
+ * assistant. Updated on every `connect()` call. Used by the onClose
+ * handler to determine the error mode label.
+ */
+let currentAuthProfile: AssistantAuthProfile | null = null;
 
-let relayMode: RelayModeKind = 'self-hosted';
 let relayConnection: RelayConnection | null = null;
 let shouldConnect = false;
 
@@ -292,12 +297,12 @@ async function resolveHostBrowserTarget(
  * silently 401/403 forever.
  *
  * When no relay connection exists yet (e.g. a stale result arriving
- * after `disconnect()`), we fall back per the configured relay mode:
+ * after `disconnect()`), we fall back per the current auth profile:
  *
- *   - `self-hosted`: POST directly to the local daemon using live
+ *   - `local-pair`: POST directly to the local daemon using live
  *     creds resolved from storage.
- *   - `cloud`: warn and drop the envelope. POSTing to localhost in
- *     cloud mode would always fail, and we have no WebSocket to
+ *   - `cloud-oauth`: warn and drop the envelope. POSTing to localhost
+ *     in cloud mode would always fail, and we have no WebSocket to
  *     round-trip through without an active connection.
  */
 async function dispatchHostBrowserResult(
@@ -313,7 +318,7 @@ async function dispatchHostBrowserResult(
 
   // Fallback path: no active connection (e.g. a stale result arriving
   // after `disconnect()`).
-  if (relayMode === 'cloud') {
+  if (currentAuthProfile === 'cloud-oauth') {
     console.warn(
       '[vellum-relay] host_browser_result dropped: cloud mode but relay not connected',
     );
@@ -429,53 +434,100 @@ async function getLegacyLocalToken(): Promise<StoredLocalToken | null> {
 
 // ── Relay connection lifecycle ──────────────────────────────────────
 
-async function loadRelayMode(): Promise<RelayModeKind> {
-  const result = await chrome.storage.local.get(RELAY_MODE_KEY);
-  const stored = result[RELAY_MODE_KEY];
-  return isRelayModeKind(stored) ? stored : 'self-hosted';
-}
+/**
+ * Build the {@link RelayMode} for a given assistant descriptor. The
+ * auth profile derived from the assistant's lockfile topology drives
+ * which token to read and which base URL to target.
+ *
+ * For `local-pair`:
+ *   - Read the assistant-scoped local capability token.
+ *   - Target the local assistant runtime at `http://127.0.0.1:<port>`.
+ *
+ * For `cloud-oauth`:
+ *   - Read the assistant-scoped cloud auth token.
+ *   - Use the assistant's `runtimeUrl` as the base URL when present,
+ *     falling back to the default cloud gateway.
+ *
+ * When no assistant is selected (legacy fallback), the behavior mirrors
+ * the pre-assistant-selection logic: read from legacy unscoped token
+ * keys and use default endpoints.
+ */
+async function buildRelayModeForAssistant(
+  assistant: AssistantDescriptor | null,
+): Promise<RelayMode> {
+  if (!assistant) {
+    // No assistant selected — legacy fallback path. Try local token
+    // first (matches the pre-PR4 default of `self-hosted`).
+    const local = await getLegacyLocalToken();
+    if (local) {
+      const port = local.assistantPort ?? (await getRelayPort());
+      return {
+        kind: 'self-hosted',
+        baseUrl: `http://127.0.0.1:${port}`,
+        token: local.token,
+      };
+    }
+    const cloud = await getLegacyCloudToken();
+    if (cloud) {
+      return {
+        kind: 'cloud',
+        baseUrl: CLOUD_GATEWAY_BASE_URL,
+        token: cloud.token,
+      };
+    }
+    // No token at all — return a token-less self-hosted mode so the
+    // caller can surface a missing-token error.
+    const port = await getRelayPort();
+    return {
+      kind: 'self-hosted',
+      baseUrl: `http://127.0.0.1:${port}`,
+      token: null,
+    };
+  }
 
-async function buildRelayModeConfig(kind: RelayModeKind): Promise<RelayMode> {
-  const selectedId = await loadSelectedAssistantId();
+  const profile = resolveAuthProfile({
+    cloud: assistant.cloud,
+    runtimeUrl: assistant.runtimeUrl,
+  });
 
-  if (kind === 'cloud') {
-    // When an assistant is selected, read from the assistant-scoped key.
-    // Otherwise fall back to the legacy unscoped key so existing users
-    // who signed in before assistant-scoped storage was introduced still
-    // get their token picked up.
-    const stored = selectedId
-      ? await getStoredCloudToken(selectedId)
-      : await getLegacyCloudToken();
+  if (profile === 'local-pair') {
+    const local = await getStoredLocalToken(assistant.assistantId);
+    if (local) {
+      const port = local.assistantPort ?? assistant.daemonPort ?? (await getRelayPort());
+      return {
+        kind: 'self-hosted',
+        baseUrl: `http://127.0.0.1:${port}`,
+        token: local.token,
+      };
+    }
+    // No local token yet — return token-less mode for the error path.
+    const port = assistant.daemonPort ?? (await getRelayPort());
+    return {
+      kind: 'self-hosted',
+      baseUrl: `http://127.0.0.1:${port}`,
+      token: null,
+    };
+  }
+
+  if (profile === 'cloud-oauth') {
+    const stored = await getStoredCloudToken(assistant.assistantId);
+    // Use the assistant's runtime URL as the relay base when available.
+    // This allows cloud-managed assistants to point to their specific
+    // gateway endpoint. Fall back to the default cloud gateway.
+    const baseUrl = assistant.runtimeUrl || CLOUD_GATEWAY_BASE_URL;
     return {
       kind: 'cloud',
-      baseUrl: CLOUD_GATEWAY_BASE_URL,
+      baseUrl,
       token: stored?.token ?? null,
     };
   }
 
-  // Self-hosted: prefer the capability token the native-messaging pair
-  // flow persisted (see self-hosted-auth.ts). The stored token already
-  // carries the assistant runtime port the helper used when it
-  // pair-bootstrapped, so we target the runtime directly.
-  //
-  // When no assistant is selected, fall back to the legacy unscoped
-  // storage key so existing users who paired before assistant-scoped
-  // keys were introduced can still connect.
-  const local = selectedId
-    ? await getStoredLocalToken(selectedId)
-    : await getLegacyLocalToken();
-  if (local) {
-    const port = local.assistantPort ?? (await getRelayPort());
-    return {
-      kind: 'self-hosted',
-      baseUrl: `http://127.0.0.1:${port}`,
-      token: local.token,
-    };
-  }
-  const port = await getRelayPort();
+  // profile === 'unsupported'
+  // Return a token-less mode — the connect path will surface an
+  // actionable error.
   return {
     kind: 'self-hosted',
-    baseUrl: `http://127.0.0.1:${port}`,
+    baseUrl: `http://127.0.0.1:${await getRelayPort()}`,
     token: null,
   };
 }
@@ -520,6 +572,29 @@ function resetCloudRefreshAttempts(): void {
 }
 
 /**
+ * Resolve the gateway base URL for the cloud reconnect hook. When a
+ * selected assistant has a runtime URL, use it as the OAuth/gateway
+ * base. Otherwise fall back to the default cloud gateway.
+ */
+async function resolveCloudGatewayBase(): Promise<string> {
+  const selectedId = await loadSelectedAssistantId();
+  if (!selectedId) return CLOUD_GATEWAY_BASE_URL;
+
+  // Re-resolve the assistant catalog to get the runtime URL. This is
+  // cheap (native messaging round-trip) and ensures we get the latest
+  // lockfile state.
+  try {
+    const catalog = await listAssistants();
+    const match = catalog.assistants.find((a) => a.assistantId === selectedId);
+    if (match?.runtimeUrl) return match.runtimeUrl;
+  } catch {
+    // Fall back to the default gateway if the native host is
+    // unreachable during a reconnect attempt.
+  }
+  return CLOUD_GATEWAY_BASE_URL;
+}
+
+/**
  * Reconnect hook for cloud mode. Called by {@link RelayConnection} when
  * the WebSocket closes unexpectedly — responsible for deciding whether
  * to reuse the existing token, swap in a freshly refreshed one, or
@@ -560,13 +635,17 @@ async function cloudReconnectHook(
 
   // action.kind === 'refresh'
   cloudRefreshAttempts += 1;
+  // Resolve the gateway base URL from the selected assistant's runtime
+  // URL when available. This ensures refresh requests go to the correct
+  // gateway for the assistant's topology.
+  const gatewayBaseUrl = await resolveCloudGatewayBase();
   // refreshCloudToken requires an assistantId to persist the refreshed
   // token under the correct scoped key. When no assistant is selected
   // we can't scope the refresh, so we skip it — the user will be
   // prompted to sign in again (abort path on the next reconnect).
   const refreshed = selectedId
     ? await refreshCloudToken(selectedId, {
-        gatewayBaseUrl: CLOUD_GATEWAY_BASE_URL,
+        gatewayBaseUrl,
         clientId: CLOUD_OAUTH_CLIENT_ID,
       })
     : null;
@@ -633,11 +712,7 @@ function createRelayConnection(
         shouldConnect = false;
         void setRelayAuthError({
           message: authError,
-          // Read the live mode from the connection if it's still
-          // around — by the time onClose fires the connection will
-          // have already flipped its own closedByCaller flag, so the
-          // module-level `relayMode` is a safe fallback.
-          mode: relayMode === 'cloud' ? 'cloud' : 'self-hosted',
+          mode: currentAuthProfile === 'cloud-oauth' ? 'cloud' : 'self-hosted',
           at: Date.now(),
         });
         // Clear the module-level reference so a subsequent
@@ -657,9 +732,8 @@ function createRelayConnection(
       // missing/expired we abort reconnects and surface an actionable
       // error.
       //
-      // Pull the live mode through getCurrentMode so a setMode() that
-      // flipped us to cloud mid-reconnect still routes through the
-      // right branch — mirrors dispatchHostBrowserResult's pattern.
+      // Pull the live mode through getCurrentMode so a mid-reconnect
+      // token refresh still routes through the right branch.
       const liveMode = relayConnection?.getCurrentMode()?.kind ?? mode.kind;
       if (liveMode === 'cloud') {
         return cloudReconnectHook(ctx);
@@ -681,11 +755,11 @@ function createRelayConnection(
 }
 
 /**
- * Thrown by `connect()` when the selected relay mode has no usable
- * token yet. Callers (e.g. the popup connect handler) surface the
- * message verbatim to the user so they can take action — signing in
- * to cloud or re-pairing the local daemon — instead of seeing a
- * silent no-op after pressing "Connect".
+ * Thrown by `connect()` when the selected assistant's auth profile
+ * has no usable token yet, or when the topology is unsupported.
+ * Callers (e.g. the popup connect handler) surface the message
+ * verbatim to the user so they can take action — signing in to cloud,
+ * re-pairing the local daemon, or updating the extension.
  */
 class MissingTokenError extends Error {
   constructor(message: string) {
@@ -694,11 +768,22 @@ class MissingTokenError extends Error {
   }
 }
 
-function missingTokenMessage(kind: RelayModeKind): string {
-  if (kind === 'cloud') {
+/**
+ * Generate an actionable error message for a missing token, scoped
+ * to the selected assistant's auth profile.
+ */
+function missingTokenMessage(profile: AssistantAuthProfile | null): string {
+  if (profile === 'cloud-oauth') {
     return 'Sign in with Vellum (cloud) before connecting';
   }
-  return 'Pair the Vellum assistant (self-hosted) before connecting';
+  if (profile === 'local-pair') {
+    return 'Pair the Vellum assistant (self-hosted) before connecting';
+  }
+  if (profile === 'unsupported') {
+    return 'This assistant uses an unsupported topology. Please update the Vellum extension.';
+  }
+  // No assistant selected
+  return 'Select an assistant before connecting';
 }
 
 async function connect(): Promise<void> {
@@ -716,20 +801,24 @@ async function connect(): Promise<void> {
   // auth-error — the user either just signed back in or is explicitly
   // retrying, and we want the popup to stop nagging.
   await clearRelayAuthError();
-  // Re-read the live relay mode from storage at connect time. The
-  // module-level `relayMode` variable is only refreshed asynchronously
-  // via chrome.storage.onChanged, so trusting it races against a popup
-  // that toggles the radio and immediately clicks Connect. Reading from
-  // storage here makes the connect flow deterministic.
-  //
-  // The module-level `relayMode` is still updated to match so other code
-  // paths (status queries, disconnect, result routing) stay consistent
-  // with the mode we're about to connect with.
-  const liveMode = await loadRelayMode();
-  relayMode = liveMode;
-  const mode = await buildRelayModeConfig(liveMode);
+
+  // Resolve the selected assistant and derive the auth profile + relay
+  // mode. This replaces the old `loadRelayMode()` call — the assistant's
+  // lockfile topology is now the single source of truth for which
+  // transport and token to use.
+  const { selected, authProfile } = await getAssistantCatalogAndSelection();
+  currentAuthProfile = authProfile;
+
+  // Guard: unsupported topology produces an actionable error.
+  if (authProfile === 'unsupported') {
+    const msg = missingTokenMessage('unsupported');
+    console.warn(`[vellum-relay] ${msg}`);
+    throw new MissingTokenError(msg);
+  }
+
+  const mode = await buildRelayModeForAssistant(selected);
   if (!mode.token) {
-    const msg = missingTokenMessage(mode.kind);
+    const msg = missingTokenMessage(authProfile);
     console.warn(`[vellum-relay] ${msg}`);
     throw new MissingTokenError(msg);
   }
@@ -751,33 +840,6 @@ function disconnect(): void {
   if (relayConnection) {
     relayConnection.close(1000, 'User disconnected');
     relayConnection = null;
-  }
-}
-
-/**
- * Handle a runtime switch of `vellum.relayMode` (e.g. the popup radio
- * group flipped). Closes any current socket and opens a new one in the
- * new mode — see plan PR 14 step 2.
- */
-async function applyModeChange(newKind: RelayModeKind): Promise<void> {
-  if (newKind === relayMode) return;
-  relayMode = newKind;
-  if (!shouldConnect) return;
-  disconnect();
-  try {
-    await connect();
-  } catch (err) {
-    // The user switched modes before signing in / pairing. Leave the
-    // extension disconnected and let the next user-initiated connect
-    // bubble the error up through the popup message handler.
-    if (err instanceof MissingTokenError) {
-      shouldConnect = false;
-      console.warn(
-        `[vellum-relay] Mode switch to ${newKind} left disconnected: ${err.message}`,
-      );
-      return;
-    }
-    throw err;
   }
 }
 
@@ -838,7 +900,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
   if (message.type === 'get_status') {
     sendResponseFn({
       connected: relayConnection !== null && relayConnection.isOpen(),
-      mode: relayMode,
+      authProfile: currentAuthProfile,
     });
     return false;
   }
@@ -846,22 +908,35 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     // Run the OAuth flow in the service worker — not the popup — so the
     // awaited promise survives the popup losing focus during the Chrome
     // identity window. The popup just awaits this message response.
-    const config: CloudAuthConfig = {
-      gatewayBaseUrl:
-        typeof message.gatewayBaseUrl === 'string' ? message.gatewayBaseUrl : CLOUD_GATEWAY_BASE_URL,
-      clientId:
-        typeof message.clientId === 'string' ? message.clientId : CLOUD_OAUTH_CLIENT_ID,
-    };
     const assistantId =
       typeof message.assistantId === 'string' ? message.assistantId : null;
     (assistantId
       ? Promise.resolve(assistantId)
       : loadSelectedAssistantId()
     )
-      .then((resolvedId) => {
+      .then(async (resolvedId) => {
         if (!resolvedId) {
           throw new Error('No assistant selected. Fetch the assistant catalog first.');
         }
+        // Resolve the gateway base URL from the assistant's runtime URL
+        // when available. This scopes the OAuth flow to the correct
+        // gateway for cloud-managed assistants.
+        let gatewayBaseUrl = CLOUD_GATEWAY_BASE_URL;
+        try {
+          const catalog = await listAssistants();
+          const match = catalog.assistants.find((a) => a.assistantId === resolvedId);
+          if (match?.runtimeUrl) {
+            gatewayBaseUrl = match.runtimeUrl;
+          }
+        } catch {
+          // Fall back to default gateway if native host unreachable.
+        }
+        const config: CloudAuthConfig = {
+          gatewayBaseUrl:
+            typeof message.gatewayBaseUrl === 'string' ? message.gatewayBaseUrl : gatewayBaseUrl,
+          clientId:
+            typeof message.clientId === 'string' ? message.clientId : CLOUD_OAUTH_CLIENT_ID,
+        };
         return signInCloud(resolvedId, config);
       })
       .then((stored: StoredCloudToken) => sendResponseFn({ ok: true, token: stored }))
@@ -941,6 +1016,26 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
           cloud: match.cloud,
           runtimeUrl: match.runtimeUrl,
         });
+
+        // When connected and the user switches assistants, tear down
+        // the current connection so the next connect targets the new
+        // assistant's relay endpoint and token.
+        if (shouldConnect && relayConnection) {
+          disconnect();
+          // Attempt a reconnect to the newly selected assistant.
+          // Errors are non-fatal — the user can manually reconnect.
+          try {
+            await connect();
+          } catch (err) {
+            if (err instanceof MissingTokenError) {
+              shouldConnect = false;
+              console.warn(
+                `[vellum-relay] Assistant switch left disconnected: ${err.message}`,
+              );
+            }
+          }
+        }
+
         sendResponseFn({
           ok: true,
           selected: match,
@@ -959,7 +1054,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
 
 // Auto-connect on service worker start if previously connected.
 async function bootstrap(): Promise<void> {
-  relayMode = await loadRelayMode();
   const { autoConnect } = await chrome.storage.local.get('autoConnect');
   if (autoConnect !== true) return;
   shouldConnect = true;
@@ -979,16 +1073,3 @@ async function bootstrap(): Promise<void> {
 }
 
 bootstrap();
-
-// Keep relay mode live-updatable from the popup without requiring the
-// service worker to restart.
-chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName !== 'local') return;
-  if (RELAY_MODE_KEY in changes) {
-    const newValue = changes[RELAY_MODE_KEY]?.newValue;
-    if (isRelayModeKind(newValue)) {
-      console.log(`[vellum-relay] Relay mode updated: ${newValue}`);
-      void applyModeChange(newValue);
-    }
-  }
-});

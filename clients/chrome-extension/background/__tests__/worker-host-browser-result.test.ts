@@ -18,14 +18,14 @@
  * so the test can import it directly without dragging in the chrome
  * service worker module surface.
  *
- * Related: worker.ts's `connect()` re-reads `vellum.relayMode` from
- * chrome.storage.local at entry to close a race where the popup toggles
- * the mode radio and immediately clicks Connect before the async
- * `chrome.storage.onChanged` listener updates the module-level
- * `relayMode` variable. That live-read cannot be unit-tested here
- * without dragging in the entire service worker module surface
- * (chrome.* globals, bootstrap(), native messaging, etc.), but the
- * behaviour is verifiable by reading `connect()` in worker.ts.
+ * Related: worker.ts's `connect()` resolves the selected assistant's
+ * auth profile at entry to determine the relay transport and token
+ * source. The assistant selection is re-read from chrome.storage.local
+ * on every connect to avoid stale state. That resolution cannot be
+ * unit-tested here without dragging in the entire service worker
+ * module surface (chrome.* globals, bootstrap(), native messaging,
+ * etc.), but the behaviour is verifiable by reading `connect()` in
+ * worker.ts.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
