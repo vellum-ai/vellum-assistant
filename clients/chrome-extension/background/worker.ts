@@ -2,7 +2,7 @@
  * Chrome MV3 service worker — browser-relay bridge.
  *
  * Connects to either
- *   - the local daemon's browser-relay endpoint
+ *   - the local assistant's browser-relay endpoint
  *     (`ws://127.0.0.1:<relayPort>/v1/browser-relay`), or
  *   - the cloud gateway's browser-relay endpoint
  *     (`wss://<cloud-gateway>/v1/browser-relay`)
@@ -12,11 +12,24 @@
  * vocabulary — the choice is strictly about where the socket points and
  * which token is presented on the handshake.
  *
+ * The worker owns the full connect lifecycle:
+ *   - **One-click Connect**: When the popup sends `connect` with
+ *     `interactive=true`, the worker auto-bootstraps credentials
+ *     (local pair or cloud OAuth) before opening the socket. The user
+ *     never needs to manually pair or sign in.
+ *   - **Auto-connect on reopen**: After a successful connect, the
+ *     `autoConnect` storage flag is set. On service-worker startup
+ *     the `bootstrap()` function reads this flag and reconnects
+ *     non-interactively using stored credentials.
+ *   - **Pause**: The `pause` message clears the `autoConnect` flag
+ *     and tears down the socket. Credentials are preserved so the
+ *     next Connect is instant.
+ *
  * Once connected, the worker routes incoming server messages:
  *   - `host_browser_request` / `host_browser_cancel` envelopes are
  *     dispatched to the CDP proxy dispatcher, which drives a
  *     `chrome.debugger` session and POSTs a result envelope back to
- *     the daemon's `/v1/host-browser-result` endpoint.
+ *     the assistant's `/v1/host-browser-result` endpoint.
  *   - Every other payload is logged and discarded.
  */
 
@@ -273,7 +286,7 @@ let shouldConnect = false;
 // `host_browser_request` / `host_browser_cancel` envelopes arriving on
 // the relay WebSocket are routed into the CDP proxy dispatcher, which
 // drives a chrome.debugger session and POSTs a result envelope back to
-// the daemon's `/v1/host-browser-result` endpoint.
+// the assistant's `/v1/host-browser-result` endpoint.
 
 async function resolveHostBrowserTarget(
   cdpSessionId: string | undefined,
@@ -315,7 +328,7 @@ async function resolveHostBrowserTarget(
  * When no relay connection exists yet (e.g. a stale result arriving
  * after `disconnect()`), we fall back per the current auth profile:
  *
- *   - `local-pair`: POST directly to the local daemon using live
+ *   - `local-pair`: POST directly to the local assistant using live
  *     creds resolved from storage.
  *   - `cloud-oauth`: warn and drop the envelope. POSTing to localhost
  *     in cloud mode would always fail, and we have no WebSocket to
@@ -341,7 +354,7 @@ async function dispatchHostBrowserResult(
     return;
   }
 
-  // Self-hosted fallback: POST directly to the local daemon using the
+  // Self-hosted fallback: POST directly to the local assistant using the
   // capability token from the native-messaging pair flow. If no paired
   // token is available the result is dropped. When no assistant is
   // selected, fall back to the legacy unscoped token key.
@@ -772,10 +785,11 @@ function createRelayConnection(
 
 /**
  * Thrown by `connect()` when the selected assistant's auth profile
- * has no usable token yet, or when the topology is unsupported.
- * Callers (e.g. the popup connect handler) surface the message
- * verbatim to the user so they can take action — signing in to cloud,
- * re-pairing the local daemon, or updating the extension.
+ * has no usable token and the interactive bootstrap also failed, or
+ * when the topology is unsupported. Callers (e.g. the popup connect
+ * handler) surface the message verbatim so the user can take action
+ * via the Troubleshooting controls (re-pair or re-sign-in) or by
+ * updating the extension.
  */
 class MissingTokenError extends Error {
   constructor(message: string) {

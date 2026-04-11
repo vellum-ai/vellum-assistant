@@ -5,10 +5,9 @@
  * one click even when the user hasn't previously paired or signed in.
  * The worker handles auth bootstrap automatically when `interactive=true`.
  *
- * The secondary action is **Pause**, which halts the relay but preserves
- * credentials for instant reconnect. Under the hood this sends the
- * existing `disconnect` message to the worker; once PR 2 lands it will
- * migrate to the dedicated `pause` message.
+ * The secondary action is **Pause**, which halts the relay and clears the
+ * auto-connect flag so the extension stays quiet until the user explicitly
+ * reconnects. Credentials are preserved for instant reconnect.
  *
  * Manual recovery controls (local re-pair and cloud re-sign-in) are
  * available under a Troubleshooting section, but are not required for
@@ -307,14 +306,13 @@ btnConnect.addEventListener('click', async () => {
 
 // ── Pause (secondary action) ────────────────────────────────────────
 //
-// Sends the existing disconnect/stop message to the worker while
-// presenting the action as "Pause" in the UI. Credentials are
-// preserved so reconnect is instant. Once PR 2 lands, this will
-// migrate to the dedicated `pause` message.
+// Sends the `pause` message to the worker, which tears down the relay
+// WebSocket and clears the `autoConnect` flag. Credentials are
+// preserved so the next Connect is instant.
 
 btnPause.addEventListener('click', () => {
   chrome.storage.local.set({ autoConnect: false });
-  chrome.runtime.sendMessage({ type: 'disconnect' }, () => {
+  chrome.runtime.sendMessage({ type: 'pause' }, () => {
     setPhase('paused');
   });
 });
