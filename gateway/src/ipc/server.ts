@@ -185,9 +185,22 @@ export class GatewayIpcServer {
       return;
     }
 
-    if (!req.id || !req.method) {
+    if (
+      !req ||
+      typeof req !== "object" ||
+      Array.isArray(req) ||
+      !req.id ||
+      !req.method
+    ) {
+      const id =
+        req &&
+        typeof req === "object" &&
+        !Array.isArray(req) &&
+        typeof req.id === "string"
+          ? req.id
+          : "unknown";
       this.sendResponse(socket, {
-        id: req.id ?? "unknown",
+        id,
         error: "Missing 'id' or 'method' field",
       });
       return;
