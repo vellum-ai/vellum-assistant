@@ -5,9 +5,9 @@
     "": {
       "name": "@vellumai/chrome-extension",
       "devDependencies": {
-        "eslint": "^10.0.0",
-        "typescript": "^5.9.3",
-        "typescript-eslint": "^8.55.0",
+        "eslint": "10.2.0",
+        "typescript": "5.9.3",
+        "typescript-eslint": "8.58.1",
       },
     },
   },
