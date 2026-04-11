@@ -81,14 +81,11 @@ let currentAssistantId: string | null = null;
 
 // ── Connection phase management ─────────────────────────────────────
 
-let currentPhase: ConnectionPhase = 'disconnected';
-
 /**
  * Apply a connection phase to the UI. Derives button labels/enablement
  * and status indicator from the pure helpers in popup-state.ts.
  */
 function setPhase(phase: ConnectionPhase): void {
-  currentPhase = phase;
 
   const cta = deriveCtaState(phase);
   btnConnect.textContent = cta.connectLabel;
