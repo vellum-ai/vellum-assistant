@@ -1,4 +1,4 @@
-import type { SpeechToTextProvider, SpeechToTextResult } from "./types.js";
+import type { SpeechToTextResult } from "./types.js";
 
 const WHISPER_API_URL = "https://api.openai.com/v1/audio/transcriptions";
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -24,7 +24,7 @@ function extensionFromMime(mimeType: string): string {
   return map[base] ?? "audio";
 }
 
-export class OpenAIWhisperProvider implements SpeechToTextProvider {
+export class OpenAIWhisperProvider {
   private readonly apiKey: string;
 
   constructor(apiKey: string) {
