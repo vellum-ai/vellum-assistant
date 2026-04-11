@@ -318,6 +318,10 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
             }
 
             try await process.start()
+            // Close the host's copy of the child PTY fd now that the container
+            // process has inherited it. Keeping it open would leak the fd and
+            // prevent EOF on the parent terminal when the process exits.
+            try? childTerminal.close()
             log.info("Exec session \(processID, privacy: .public) started in \(cid, privacy: .public)")
 
             return ExecSession(hostTerminal: parentTerminal, process: process)
