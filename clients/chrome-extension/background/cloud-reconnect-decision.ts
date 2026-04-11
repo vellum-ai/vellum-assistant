@@ -77,7 +77,7 @@ export function decideCloudReconnectAction(
       kind: 'abort',
       error:
         `Cloud relay kept closing with abnormal closure (code 1006) after ${CLOUD_REFRESH_ATTEMPT_CAP} ` +
-        'token refresh attempts. Please sign in with Vellum (cloud) again from the extension popup to reconnect.',
+        "token refresh attempts. Use 'Re-sign in' in Troubleshooting, then try Connect again.",
     };
   }
 
