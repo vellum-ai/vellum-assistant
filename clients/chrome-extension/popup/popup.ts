@@ -58,6 +58,9 @@ const cloudStatus = document.getElementById('cloud-status') as HTMLParagraphElem
 const btnPairLocal = document.getElementById('btn-pair-local') as HTMLButtonElement;
 const localStatus = document.getElementById('local-status') as HTMLParagraphElement;
 
+const troubleshootingDivider = document.getElementById(
+  'troubleshooting-divider',
+) as HTMLDivElement;
 const troubleshootingLabel = document.getElementById(
   'troubleshooting-label',
 ) as HTMLParagraphElement;
@@ -170,7 +173,8 @@ function updateAuthSections(authProfile: AssistantAuthProfile | null): void {
   cloudStatus.style.display = showCloud ? '' : 'none';
   btnCloudSignIn.style.display = showCloud ? '' : 'none';
 
-  // Hide the Troubleshooting heading when no controls are shown.
+  // Hide the Troubleshooting divider and heading when no controls are shown.
+  troubleshootingDivider.style.display = showLocal || showCloud ? '' : 'none';
   troubleshootingLabel.style.display = showLocal || showCloud ? '' : 'none';
 }
 
