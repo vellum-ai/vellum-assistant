@@ -222,6 +222,7 @@ export function buildCandidateList(context: ToolContext): BackendCandidate[] {
             host: cdpInspectConfig.host,
             port: cdpInspectConfig.port,
             discoveryTimeoutMs: cdpInspectConfig.probeTimeoutMs,
+            wsConnectTimeoutMs: cdpInspectConfig.probeTimeoutMs,
           });
           const backend = createCdpInspectBackend({
             isAvailable: () => true,
