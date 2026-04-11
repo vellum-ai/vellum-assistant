@@ -20,7 +20,7 @@ This skill lets you create audio clips on demand — narration, announcements, p
 
 - **API Endpoint:** `https://api.fish.audio/v1/tts`
 - **Model:** `s2-pro`
-- **Voice Reference ID:** Configured via `assistant config get fishAudio.referenceId`
+- **Voice Reference ID:** Configured via `assistant config get services.tts.providers.fish-audio.referenceId`
 - **API Key:** Stored as credential `fish-audio/api_key`
 - **Default Format:** `mp3` at 192kbps
 - **Default Output Directory:** `scratch/`
@@ -52,7 +52,7 @@ curl -s -X POST "https://api.fish.audio/v1/tts" \
   -H "model: s2-pro" \
   -d '{
     "text": "YOUR TEXT WITH [bracket] TAGS HERE",
-    "reference_id": "'"$(assistant config get fishAudio.referenceId)"'",
+    "reference_id": "'"$(assistant config get services.tts.providers.fish-audio.referenceId)"'",
     "format": "mp3",
     "mp3_bitrate": 192,
     "temperature": 0.8
