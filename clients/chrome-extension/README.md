@@ -41,7 +41,7 @@ Then in Chrome:
 The extension discovers available assistants from the lockfile via the native
 messaging helper (`com.vellum.daemon`). The lockfile lists every assistant
 configured on the machine, along with its hosting topology (`cloud` field),
-runtime URL, and daemon port.
+runtime URL, and local assistant port.
 
 ### Assistant Discovery And Selection
 
