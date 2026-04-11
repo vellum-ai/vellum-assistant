@@ -322,6 +322,7 @@ struct VoiceSettingsView: View {
                             let isSelected = ttsProvider == provider
                             providerOption(label: provider.displayName, isSelected: isSelected) {
                                 ttsProviderRaw = provider.rawValue
+                                store.setTTSProvider(provider.rawValue)
                             }
                         }
                     }

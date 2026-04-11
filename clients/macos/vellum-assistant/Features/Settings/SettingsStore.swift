@@ -2906,6 +2906,23 @@ public final class SettingsStore: ObservableObject {
         return task
     }
 
+    /// Persists the selected TTS provider to the daemon config so synthesis
+    /// routes through the correct backend. The canonical config path is
+    /// `services.tts.provider`.
+    @discardableResult
+    func setTTSProvider(_ provider: String) -> Task<Bool, Never> {
+        let task = Task {
+            let success = await settingsClient.patchConfig([
+                "services": ["tts": ["provider": provider]]
+            ])
+            if !success {
+                log.error("Failed to patch config for TTS provider")
+            }
+            return success
+        }
+        return task
+    }
+
     /// Schedules a delayed refresh of provider routing sources, giving the
     /// daemon time to re-initialize providers after a key change.
     private func scheduleRoutingSourceRefresh() {
