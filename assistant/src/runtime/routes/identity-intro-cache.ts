@@ -4,7 +4,8 @@
  * The intro (a short identity tagline) is generated via the
  * /v1/btw endpoint and displayed on the Identity panel. To avoid redundant LLM
  * calls, we cache the result for 4 hours with content-hash-based invalidation:
- * when USER.md, IDENTITY.md, or SOUL.md change, the cache is busted.
+ * when IDENTITY.md, SOUL.md, or the guardian's per-user persona file change,
+ * the cache is busted.
  *
  * Storage uses the existing `memory_checkpoints` table (simple key-value store).
  */
@@ -16,6 +17,7 @@ import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
 } from "../../memory/checkpoints.js";
+import { resolveGuardianPersona } from "../../prompts/persona-resolver.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";
 
 // ---------------------------------------------------------------------------
@@ -29,7 +31,7 @@ const CHECKPOINT_KEY_HASH = "identity:intro:content_hash";
 const CHECKPOINT_KEY_TIMESTAMP = "identity:intro:cached_at";
 
 /** Workspace files whose content influences the identity intro. */
-const IDENTITY_FILES = ["USER.md", "IDENTITY.md", "SOUL.md"] as const;
+const IDENTITY_FILES = ["IDENTITY.md", "SOUL.md"] as const;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -48,7 +50,9 @@ function readWorkspaceFile(name: string): string {
 
 /** Compute a SHA-256 hex hash of the concatenated identity file contents. */
 export function computeIdentityContentHash(): string {
-  const combined = IDENTITY_FILES.map(readWorkspaceFile).join("\n---\n");
+  const staticFiles = IDENTITY_FILES.map(readWorkspaceFile).join("\n---\n");
+  const guardianPersona = resolveGuardianPersona() ?? "";
+  const combined = staticFiles + "\n---\n" + guardianPersona;
   return createHash("sha256").update(combined).digest("hex");
 }
 
