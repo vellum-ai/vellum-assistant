@@ -43,7 +43,11 @@ function migrateProxyCa(): MigrationResult {
   const srcDir = join(getWorkspaceDir(), "data", "proxy-ca");
   const destDir = join(getGatewaySecurityDir(), "proxy-ca");
 
-  if (existsSync(destDir)) {
+  // Only treat as "done" if the destination contains the expected CA files.
+  // A bare directory (from a failed partial copy) should not short-circuit.
+  const destCert = join(destDir, "ca.pem");
+  const destKey = join(destDir, "ca-key.pem");
+  if (existsSync(destCert) && existsSync(destKey)) {
     log.debug("proxy-ca already exists in gateway-security dir — skipping");
     return "done";
   }
