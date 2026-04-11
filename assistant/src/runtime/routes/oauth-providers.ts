@@ -27,7 +27,7 @@ export function oauthProvidersRouteDefinitions(): RouteDefinition[] {
         const config = loadConfig();
         const visibleRows = rows.filter((r) => isProviderVisible(r, config));
         let serialized = visibleRows
-          .map((row) => serializeProviderSummary(row))
+          .map((row) => serializeProviderSummary(row, config))
           .filter((s): s is NonNullable<typeof s> => s !== null);
 
         const supportsManagedModeParam = url.searchParams.get(
@@ -61,7 +61,8 @@ export function oauthProvidersRouteDefinitions(): RouteDefinition[] {
           );
         }
 
-        if (!isProviderVisible(row, loadConfig())) {
+        const config = loadConfig();
+        if (!isProviderVisible(row, config)) {
           return httpError(
             "NOT_FOUND",
             `No OAuth provider registered for "${params.providerKey}"`,
@@ -69,7 +70,9 @@ export function oauthProvidersRouteDefinitions(): RouteDefinition[] {
           );
         }
 
-        return Response.json({ provider: serializeProviderSummary(row) });
+        return Response.json({
+          provider: serializeProviderSummary(row, config),
+        });
       },
     },
   ];

@@ -6,6 +6,8 @@
  * the database.
  */
 
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import type { AssistantConfig } from "../config/schema.js";
 import type { OAuthProviderRow } from "./oauth-store.js";
 
 /**
@@ -85,7 +87,7 @@ function _serializeProvider(
     logoUrl: row.logoUrl ?? null,
     clientIdPlaceholder: row.clientIdPlaceholder ?? null,
     requiresClientSecret: !!(row.requiresClientSecret ?? 1),
-    supportsManagedMode: !!row.managedServiceConfigKey,
+    supportsManagedMode: isManagedModeEnabled(row),
     defaultScopes: row.defaultScopes ? JSON.parse(row.defaultScopes) : [],
     scopePolicy: row.scopePolicy ? JSON.parse(row.scopePolicy) : {},
     scopeSeparator: row.scopeSeparator,
@@ -129,6 +131,7 @@ function _serializeProvider(
  */
 export function serializeProviderSummary(
   row: OAuthProviderRow | null | undefined,
+  config?: AssistantConfig,
 ): SerializedProviderSummary | null {
   if (!row) return null;
   return {
@@ -139,7 +142,20 @@ export function serializeProviderSummary(
     client_id_placeholder: row.clientIdPlaceholder ?? null,
     requires_client_secret: !!(row.requiresClientSecret ?? 1),
     logo_url: row.logoUrl ?? null,
-    supports_managed_mode: !!row.managedServiceConfigKey,
+    supports_managed_mode: isManagedModeEnabled(row, config),
     feature_flag: row.featureFlag ?? null,
   };
+}
+
+/**
+ * A provider supports managed mode when it has a managedServiceConfigKey
+ * and either has no feature flag or the flag is enabled.
+ */
+function isManagedModeEnabled(
+  row: OAuthProviderRow,
+  config?: AssistantConfig,
+): boolean {
+  if (!row.managedServiceConfigKey) return false;
+  if (!row.featureFlag || !config) return true;
+  return isAssistantFeatureFlagEnabled(row.featureFlag, config);
 }
