@@ -10,6 +10,8 @@ export {
 } from "../permissions/permission-mode.js";
 export type { AcpAgentConfig, AcpConfig } from "./acp-schema.js";
 export { AcpAgentConfigSchema, AcpConfigSchema } from "./acp-schema.js";
+export type { BackupConfig, BackupDestination } from "./schemas/backup.js";
+export { BackupConfigSchema } from "./schemas/backup.js";
 export type {
   CallerIdentityConfig,
   CallsConfig,
@@ -213,6 +215,7 @@ export { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 
 // Imports for AssistantConfigSchema composition
 import { AcpConfigSchema } from "./acp-schema.js";
+import { BackupConfigSchema } from "./schemas/backup.js";
 import { CallsConfigSchema } from "./schemas/calls.js";
 import {
   SlackConfigSchema,
@@ -300,6 +303,7 @@ export const AssistantConfigSchema = z
       HostBrowserConfigSchema.parse({}),
     ),
     journal: JournalConfigSchema.default(JournalConfigSchema.parse({})),
+    backup: BackupConfigSchema.default(BackupConfigSchema.parse({})),
     mcp: McpConfigSchema.default(McpConfigSchema.parse({})),
     acp: AcpConfigSchema.default(AcpConfigSchema.parse({})),
     skills: SkillsConfigSchema.default(SkillsConfigSchema.parse({})),
