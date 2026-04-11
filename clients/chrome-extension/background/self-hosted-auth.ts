@@ -25,6 +25,10 @@
  * We parse it into an epoch-millis number here so the in-memory and
  * on-disk representation matches `StoredCloudToken` and downstream code
  * can rely on a single numeric expiry type across both transports.
+ *
+ * Storage is assistant-scoped: each assistant ID gets its own storage key
+ * (`vellum.localCapabilityToken:<assistantId>`) so switching between
+ * assistants never clobbers another assistant's credentials.
  */
 
 export interface StoredLocalToken {
@@ -41,9 +45,18 @@ export interface StoredLocalToken {
   assistantPort?: number;
 }
 
-const STORAGE_KEY = 'vellum.localCapabilityToken';
+const STORAGE_KEY_PREFIX = 'vellum.localCapabilityToken';
 const NATIVE_HOST_NAME = 'com.vellum.daemon';
 const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 5_000;
+
+/**
+ * Build the assistant-scoped chrome.storage.local key for a local
+ * capability token. Uses a colon separator so the key is
+ * `vellum.localCapabilityToken:<assistantId>`.
+ */
+export function localTokenStorageKey(assistantId: string): string {
+  return `${STORAGE_KEY_PREFIX}:${assistantId}`;
+}
 
 export interface BootstrapLocalTokenOptions {
   /**
@@ -54,9 +67,11 @@ export interface BootstrapLocalTokenOptions {
   timeoutMs?: number;
 }
 
-export async function getStoredLocalToken(): Promise<StoredLocalToken | null> {
-  const result = await chrome.storage.local.get(STORAGE_KEY);
-  const raw = result[STORAGE_KEY];
+/**
+ * Validate and return a parsed {@link StoredLocalToken} from a raw storage
+ * value, or `null` when the value is missing, malformed, or expired.
+ */
+function validateLocalToken(raw: unknown): StoredLocalToken | null {
   if (!raw || typeof raw !== 'object') return null;
   const token = raw as StoredLocalToken;
   if (
@@ -84,12 +99,26 @@ export async function getStoredLocalToken(): Promise<StoredLocalToken | null> {
   return token;
 }
 
-export async function clearLocalToken(): Promise<void> {
-  await chrome.storage.local.remove(STORAGE_KEY);
+/**
+ * Read the stored local capability token for a specific assistant.
+ * Returns `null` when nothing is stored, the value is malformed, or it
+ * has expired.
+ */
+export async function getStoredLocalToken(assistantId: string): Promise<StoredLocalToken | null> {
+  const key = localTokenStorageKey(assistantId);
+  const result = await chrome.storage.local.get(key);
+  return validateLocalToken(result[key]);
 }
 
-async function persistLocalToken(token: StoredLocalToken): Promise<void> {
-  await chrome.storage.local.set({ [STORAGE_KEY]: token });
+/**
+ * Remove the stored local capability token for a specific assistant.
+ */
+export async function clearLocalToken(assistantId: string): Promise<void> {
+  await chrome.storage.local.remove(localTokenStorageKey(assistantId));
+}
+
+async function persistLocalToken(assistantId: string, token: StoredLocalToken): Promise<void> {
+  await chrome.storage.local.set({ [localTokenStorageKey(assistantId)]: token });
 }
 
 /**
@@ -129,6 +158,7 @@ function parseExpiresAt(raw: unknown): number | null {
  *   process doesn't leak.
  */
 export async function bootstrapLocalToken(
+  assistantId: string,
   options: BootstrapLocalTokenOptions = {},
 ): Promise<StoredLocalToken> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_BOOTSTRAP_TIMEOUT_MS;
@@ -226,7 +256,7 @@ export async function bootstrapLocalToken(
         // couldn't durably save it. This also matches the comment
         // above: a storage failure shouldn't block the caller from
         // getting a token they just successfully negotiated.
-        persistLocalToken(stored).then(
+        persistLocalToken(assistantId, stored).then(
           () => resolve(stored),
           (err: unknown) => {
             const detail = err instanceof Error ? err.message : String(err);

@@ -12,6 +12,10 @@
  * return a fresh token from an existing provider session or immediately
  * reject with "interaction required", in which case the caller must prompt
  * the user to sign in again instead of silently looping.
+ *
+ * Storage is assistant-scoped: each assistant ID gets its own storage key
+ * (`vellum.cloudAuthToken:<assistantId>`) so switching between assistants
+ * never clobbers another assistant's credentials.
  */
 
 export interface CloudAuthConfig {
@@ -72,11 +76,24 @@ export const CLOUD_AUTH_FAILURE_CLOSE_CODES: ReadonlySet<number> = new Set([
   1008, 4001, 4002, 4003,
 ]);
 
-const STORAGE_KEY = 'vellum.cloudAuthToken';
+const STORAGE_KEY_PREFIX = 'vellum.cloudAuthToken';
 
-export async function getStoredToken(): Promise<StoredCloudToken | null> {
-  const result = await chrome.storage.local.get(STORAGE_KEY);
-  const raw = result[STORAGE_KEY];
+/**
+ * Build the assistant-scoped chrome.storage.local key for a cloud auth
+ * token. Uses a colon separator so the key is
+ * `vellum.cloudAuthToken:<assistantId>`.
+ */
+export function cloudTokenStorageKey(assistantId: string): string {
+  return `${STORAGE_KEY_PREFIX}:${assistantId}`;
+}
+
+/**
+ * Validate and return a parsed {@link StoredCloudToken} from a raw storage
+ * value, or `null` when the value is missing, malformed, or does not pass
+ * type checks. Does NOT check expiry — callers that need expiry filtering
+ * should check separately.
+ */
+function validateCloudToken(raw: unknown): StoredCloudToken | null {
   if (!raw || typeof raw !== 'object') return null;
   const token = raw as StoredCloudToken;
   if (
@@ -86,6 +103,14 @@ export async function getStoredToken(): Promise<StoredCloudToken | null> {
   ) {
     return null;
   }
+  return token;
+}
+
+export async function getStoredToken(assistantId: string): Promise<StoredCloudToken | null> {
+  const key = cloudTokenStorageKey(assistantId);
+  const result = await chrome.storage.local.get(key);
+  const token = validateCloudToken(result[key]);
+  if (!token) return null;
   if (token.expiresAt <= Date.now()) return null;
   return token;
 }
@@ -97,19 +122,10 @@ export async function getStoredToken(): Promise<StoredCloudToken | null> {
  * refresh decision — a `null` return from `getStoredToken()` would
  * indiscriminately conflate "never signed in" with "signed in but expired".
  */
-export async function getStoredTokenRaw(): Promise<StoredCloudToken | null> {
-  const result = await chrome.storage.local.get(STORAGE_KEY);
-  const raw = result[STORAGE_KEY];
-  if (!raw || typeof raw !== 'object') return null;
-  const token = raw as StoredCloudToken;
-  if (
-    typeof token.token !== 'string' ||
-    typeof token.expiresAt !== 'number' ||
-    typeof token.guardianId !== 'string'
-  ) {
-    return null;
-  }
-  return token;
+export async function getStoredTokenRaw(assistantId: string): Promise<StoredCloudToken | null> {
+  const key = cloudTokenStorageKey(assistantId);
+  const result = await chrome.storage.local.get(key);
+  return validateCloudToken(result[key]);
 }
 
 /**
@@ -125,12 +141,12 @@ export function isCloudTokenStale(
   return token.expiresAt - now <= CLOUD_TOKEN_STALE_WINDOW_MS;
 }
 
-export async function clearStoredToken(): Promise<void> {
-  await chrome.storage.local.remove(STORAGE_KEY);
+export async function clearStoredToken(assistantId: string): Promise<void> {
+  await chrome.storage.local.remove(cloudTokenStorageKey(assistantId));
 }
 
-async function persistToken(token: StoredCloudToken): Promise<void> {
-  await chrome.storage.local.set({ [STORAGE_KEY]: token });
+async function persistToken(assistantId: string, token: StoredCloudToken): Promise<void> {
+  await chrome.storage.local.set({ [cloudTokenStorageKey(assistantId)]: token });
 }
 
 function parseAuthResponseUrl(responseUrl: string): StoredCloudToken {
@@ -162,14 +178,14 @@ function buildAuthUrl(config: CloudAuthConfig): string {
  * Launches chrome.identity.launchWebAuthFlow to obtain a guardian-bound JWT.
  * The extension receives the token via the redirect URI fragment.
  */
-export async function signInCloud(config: CloudAuthConfig): Promise<StoredCloudToken> {
+export async function signInCloud(assistantId: string, config: CloudAuthConfig): Promise<StoredCloudToken> {
   const authUrl = buildAuthUrl(config);
 
   const responseUrl = await chrome.identity.launchWebAuthFlow({ url: authUrl, interactive: true });
   if (!responseUrl) throw new Error('cloud sign-in cancelled');
 
   const stored = parseAuthResponseUrl(responseUrl);
-  await persistToken(stored);
+  await persistToken(assistantId, stored);
   return stored;
 }
 
@@ -189,6 +205,7 @@ export async function signInCloud(config: CloudAuthConfig): Promise<StoredCloudT
  * gateway response) so they bubble up to the service worker logs.
  */
 export async function refreshCloudToken(
+  assistantId: string,
   config: CloudAuthConfig,
 ): Promise<StoredCloudToken | null> {
   const authUrl = buildAuthUrl(config);
@@ -220,6 +237,6 @@ export async function refreshCloudToken(
   }
 
   const stored = parseAuthResponseUrl(responseUrl);
-  await persistToken(stored);
+  await persistToken(assistantId, stored);
   return stored;
 }
