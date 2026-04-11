@@ -259,3 +259,34 @@ export function ensureGuardianPersonaFile(slug: string): void {
   writeFileSync(filePath, GUARDIAN_PERSONA_TEMPLATE, "utf-8");
   log.debug({ path: filePath }, "Wrote guardian persona scaffold");
 }
+
+/**
+ * Return `true` when the persona file at `filePath` has been edited by
+ * the user (its stripped content differs from the bare scaffold
+ * template). Returns `false` when the file is missing, unreadable,
+ * empty after stripping, or byte-identical to the template after
+ * stripping comment lines.
+ *
+ * Used by the vbundle importer to decide whether a legacy
+ * `prompts/USER.md` entry may safely overwrite `users/<slug>.md`.
+ */
+export function isGuardianPersonaCustomized(filePath: string): boolean {
+  if (!existsSync(filePath)) return false;
+
+  let content: string;
+  try {
+    content = readFileSync(filePath, "utf-8");
+  } catch (err) {
+    log.warn(
+      { err, path: filePath },
+      "Failed to read persona file while checking customization",
+    );
+    return false;
+  }
+
+  const stripped = stripCommentLines(content);
+  if (stripped.length === 0) return false;
+
+  const templateStripped = stripCommentLines(GUARDIAN_PERSONA_TEMPLATE);
+  return stripped !== templateStripped;
+}

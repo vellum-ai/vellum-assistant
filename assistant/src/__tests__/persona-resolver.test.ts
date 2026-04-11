@@ -62,6 +62,7 @@ mock.module("../contacts/contact-store.js", () => ({
 // implementations.
 import {
   ensureGuardianPersonaFile,
+  isGuardianPersonaCustomized,
   resolveGuardianPersonaPath,
 } from "../prompts/persona-resolver.js";
 
@@ -144,5 +145,55 @@ describe("ensureGuardianPersonaFile", () => {
 
     const content = readFileSync(filePath, "utf-8");
     expect(content).toBe(existingContent);
+  });
+});
+
+// ── isGuardianPersonaCustomized ────────────────────────────────────
+
+describe("isGuardianPersonaCustomized", () => {
+  test("returns false when the file does not exist", () => {
+    const filePath = join(mockWorkspaceDir, "users", "nobody.md");
+    expect(isGuardianPersonaCustomized(filePath)).toBe(false);
+  });
+
+  test("returns false for the bare scaffold template (no user edits)", () => {
+    const slug = "sidd.md";
+    const filePath = join(mockWorkspaceDir, "users", slug);
+
+    // ensureGuardianPersonaFile writes the canonical template — the
+    // exact bytes that "not customized" accepts.
+    ensureGuardianPersonaFile(slug);
+
+    expect(isGuardianPersonaCustomized(filePath)).toBe(false);
+  });
+
+  test("returns false when the file contains only comment lines", () => {
+    const slug = "sidd.md";
+    const dir = join(mockWorkspaceDir, "users");
+    const filePath = join(dir, slug);
+
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      filePath,
+      "_ only comments here\n_ nothing meaningful\n",
+      "utf-8",
+    );
+
+    expect(isGuardianPersonaCustomized(filePath)).toBe(false);
+  });
+
+  test("returns true when the file has user-authored content", () => {
+    const slug = "sidd.md";
+    const dir = join(mockWorkspaceDir, "users");
+    const filePath = join(dir, slug);
+
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      filePath,
+      "# My profile\n\n- Preferred name/reference: Real User\n",
+      "utf-8",
+    );
+
+    expect(isGuardianPersonaCustomized(filePath)).toBe(true);
   });
 });
