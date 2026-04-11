@@ -1354,7 +1354,6 @@ jobs:
       DMG_PATH: build/vellum-assistant.dmg
       KEYCHAIN_NAME: build.keychain
       KEYCHAIN_PASSWORD: temporary-ci-password
-      CHROME_EXTENSION_IDS_CSV: ${{ vars.CWS_EXTENSION_ID != '' && format('ccfbbgpdcnnfnnnodmkjkcpnbkmbjecp,{0}', vars.CWS_EXTENSION_ID) || 'ccfbbgpdcnnfnnnodmkjkcpnbkmbjecp' }}
     steps:
       - uses: actions/checkout@v6
 
@@ -1366,6 +1365,12 @@ jobs:
             '.allowedExtensionIds += [$id]' \
             meta/browser-extension/chrome-extension-allowlist.json > tmp.json \
             && mv tmp.json meta/browser-extension/chrome-extension-allowlist.json
+
+      - name: Build extension ID CSV for compiled binaries
+        working-directory: .
+        run: |
+          IDS_CSV=$(jq -r '.allowedExtensionIds | join(",")' meta/browser-extension/chrome-extension-allowlist.json)
+          echo "CHROME_EXTENSION_IDS_CSV=$IDS_CSV" >> "$GITHUB_ENV"
 
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
@@ -1732,7 +1737,6 @@ jobs:
       DMG_PATH: build/vellum-assistant-x64.dmg
       KEYCHAIN_NAME: build-x64.keychain
       KEYCHAIN_PASSWORD: temporary-ci-password
-      CHROME_EXTENSION_IDS_CSV: ${{ vars.CWS_EXTENSION_ID != '' && format('ccfbbgpdcnnfnnnodmkjkcpnbkmbjecp,{0}', vars.CWS_EXTENSION_ID) || 'ccfbbgpdcnnfnnnodmkjkcpnbkmbjecp' }}
     steps:
       - uses: actions/checkout@v6
 
@@ -1744,6 +1748,12 @@ jobs:
             '.allowedExtensionIds += [$id]' \
             meta/browser-extension/chrome-extension-allowlist.json > tmp.json \
             && mv tmp.json meta/browser-extension/chrome-extension-allowlist.json
+
+      - name: Build extension ID CSV for compiled binaries
+        working-directory: .
+        run: |
+          IDS_CSV=$(jq -r '.allowedExtensionIds | join(",")' meta/browser-extension/chrome-extension-allowlist.json)
+          echo "CHROME_EXTENSION_IDS_CSV=$IDS_CSV" >> "$GITHUB_ENV"
 
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
