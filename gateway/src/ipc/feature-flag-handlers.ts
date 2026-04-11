@@ -48,7 +48,7 @@ export const featureFlagRoutes: IpcRoute[] = [
       if (typeof flag !== "string") return null;
 
       const flags = getMergedFeatureFlags();
-      return flag in flags ? flags[flag] : null;
+      return Object.hasOwn(flags, flag) ? flags[flag] : null;
     },
   },
 ];
