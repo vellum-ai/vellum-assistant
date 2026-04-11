@@ -44,7 +44,7 @@ final class AppleSpeechRecognizerAdapter: SpeechRecognizerAdapter {
     }
 
     var isRecognizerAvailable: Bool {
-        guard let recognizer = SFSpeechRecognizer() else { return false }
+        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US")) else { return false }
         return recognizer.isAvailable
     }
 }
