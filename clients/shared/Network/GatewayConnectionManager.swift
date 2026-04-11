@@ -153,7 +153,9 @@ public final class GatewayConnectionManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshCachedAssistant()
+            MainActor.assumeIsolated {
+                self?.refreshCachedAssistant()
+            }
         }
         #endif
     }
