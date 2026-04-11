@@ -135,13 +135,25 @@ function assertWsUrlLoopback(wsUrl: string): void {
 }
 
 /**
+ * Normalize a loopback host string for use in a URL. IPv6 bare form
+ * (`::1`) is wrapped in square brackets (`[::1]`) as required by
+ * RFC 3986; all other hosts are lowercased and returned as-is.
+ *
+ * This is the single source of truth for IPv6 bracket normalization
+ * across both HTTP and WS URL construction in this module.
+ */
+function normalizeHostForWsUrl(host: string): string {
+  const normalized = host.toLowerCase();
+  return normalized === "::1" ? "[::1]" : normalized;
+}
+
+/**
  * Build a fetch-ready loopback URL. `host` is assumed to have already
  * been validated by {@link assertLoopback}. IPv6 bare form (`::1`) is
  * wrapped in square brackets for URL correctness.
  */
 function buildUrl(host: string, port: number, pathname: string): string {
-  const normalized = host.toLowerCase();
-  const hostSegment = normalized === "::1" ? "[::1]" : normalized;
+  const hostSegment = normalizeHostForWsUrl(host);
   return `http://${hostSegment}:${port}${pathname}`;
 }
 
@@ -603,8 +615,7 @@ function isUtilityTarget(target: DevToolsTarget): boolean {
  */
 export function buildBrowserWsUrl(host: string, port: number): string {
   assertLoopback(host);
-  const normalized = host.toLowerCase();
-  const hostSegment = normalized === "::1" ? "[::1]" : normalized;
+  const hostSegment = normalizeHostForWsUrl(host);
   return `ws://${hostSegment}:${port}/devtools/browser`;
 }
 
@@ -676,8 +687,7 @@ export async function discoverTargetsViaWs(opts: {
     );
   }
 
-  const normalized = opts.host.toLowerCase();
-  const hostSegment = normalized === "::1" ? "[::1]" : normalized;
+  const hostSegment = normalizeHostForWsUrl(opts.host);
 
   const targets: DevToolsTarget[] = [];
   for (const info of targetInfos) {

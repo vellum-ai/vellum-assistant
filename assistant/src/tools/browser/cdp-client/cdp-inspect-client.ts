@@ -314,6 +314,13 @@ export class CdpInspectClient implements ScopedCdpClient {
       throw httpResult.error;
     }
 
+    // Guard against the narrow race where tryHttpDiscovery returned a
+    // fallback-eligible error (unreachable / invalid_response) but the
+    // signal was aborted between that return and this check. The abort
+    // CdpError from tryHttpDiscovery itself only surfaces when the signal
+    // is already aborted *during* a fetch/probe; this covers the gap
+    // between the last await inside tryHttpDiscovery and the fallback
+    // eligibility check above.
     if (signal.aborted) {
       throw new CdpError("aborted", "CdpInspectClient attach aborted");
     }
