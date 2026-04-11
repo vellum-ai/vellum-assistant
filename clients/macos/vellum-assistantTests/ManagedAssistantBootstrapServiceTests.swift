@@ -214,10 +214,8 @@ private final class MockBootstrapAuthService: ManagedAssistantBootstrapAuthServi
         organizations
     }
 
-    // Mirrors `AuthService.resolveOrganizationId` — reads the persisted
-    // test value from UserDefaults, validates it against `organizations`,
-    // and falls back to the single-org case. Throws the same typed errors
-    // the bootstrap's private wrapper expects to translate.
+    // Mirrors `AuthService.resolveOrganizationId` so the bootstrap's
+    // error-translation layer gets exercised.
     func resolveOrganizationId() async throws -> String {
         let persisted = UserDefaults.standard.string(forKey: "connectedOrganizationId")
         if let persisted, organizations.contains(where: { $0.id == persisted }) {

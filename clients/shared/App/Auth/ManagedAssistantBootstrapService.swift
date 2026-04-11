@@ -247,10 +247,9 @@ public final class ManagedAssistantBootstrapService {
         log.warning("Provisioning poll timed out for \(assistantId, privacy: .public) after \(timeout)s — proceeding to health check")
     }
 
-    /// Resolve the organization ID, delegating to `AuthService.resolveOrganizationId()`
-    /// so that `AuthManager` (post-login) and bootstrap share a single
-    /// validator/persister. Translates `AuthService` errors into the bootstrap's
-    /// typed `ManagedBootstrapError` shape so UI surfaces the right message.
+    /// Adapts `AuthService.resolveOrganizationId()` errors into the
+    /// bootstrap's `ManagedBootstrapError` shape so existing UI messages
+    /// keep working.
     private func resolveOrganizationId() async throws -> String {
         do {
             return try await authService.resolveOrganizationId()

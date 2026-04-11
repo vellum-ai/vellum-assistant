@@ -221,8 +221,6 @@ public final class AuthService {
         }
     }
 
-    /// Typed errors raised by `resolveOrganizationId()` when the user's org
-    /// list can't be narrowed to a single organization.
     public enum OrganizationResolutionError: LocalizedError, Sendable {
         case noOrganizations
         case multipleOrganizations
@@ -237,20 +235,11 @@ public final class AuthService {
         }
     }
 
-    /// Resolve the caller's organization ID, persisting the result in
-    /// `UserDefaults` under `connectedOrganizationId` so downstream clients
-    /// (billing, gateway, OAuth, migration) can read it synchronously.
+    /// Resolve the caller's organization ID, persisting it under
+    /// `connectedOrganizationId` in UserDefaults for synchronous readers.
     ///
-    /// Behavior:
-    /// - Fetches the authenticated user's organization list.
-    /// - If a persisted `connectedOrganizationId` is still present in that
-    ///   list, returns it (validates cache against current server state so
-    ///   stale cross-environment IDs don't leak through).
-    /// - Otherwise, for the single-org case, persists and returns the one
-    ///   org's ID.
-    /// - Throws `OrganizationResolutionError.noOrganizations` for 0 orgs and
-    ///   `.multipleOrganizations` for >1 (multi-org is not yet supported).
-    /// - Network / auth failures surface as `PlatformAPIError`.
+    /// A persisted value is re-validated against the current org list on
+    /// every call so stale cross-environment IDs don't leak through.
     @discardableResult
     public func resolveOrganizationId() async throws -> String {
         let orgs = try await getOrganizations()
