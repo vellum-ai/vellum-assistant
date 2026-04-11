@@ -1,4 +1,5 @@
 import XCTest
+import Speech
 import VellumAssistantShared
 @testable import VellumAssistantLib
 
@@ -19,21 +20,51 @@ private final class MockDictationClient: DictationClientProtocol {
     }
 }
 
+/// A controllable mock of `SpeechRecognizerAdapter` for testing VoiceInputManager's
+/// authorization and recognizer-creation paths without hitting real Speech framework APIs.
+private final class MockSpeechRecognizerAdapter: SpeechRecognizerAdapter {
+    var stubbedAuthorizationStatus: SFSpeechRecognizerAuthorizationStatus = .authorized
+    var stubbedRecognizer: SFSpeechRecognizer? = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+    var requestAuthorizationResult: SFSpeechRecognizerAuthorizationStatus = .authorized
+    var makeRecognizerCallCount = 0
+    var requestAuthorizationCallCount = 0
+
+    func authorizationStatus() -> SFSpeechRecognizerAuthorizationStatus {
+        stubbedAuthorizationStatus
+    }
+
+    func requestAuthorization(completion: @escaping @Sendable (SFSpeechRecognizerAuthorizationStatus) -> Void) {
+        requestAuthorizationCallCount += 1
+        completion(requestAuthorizationResult)
+    }
+
+    func makeRecognizer(locale: Locale) -> SFSpeechRecognizer? {
+        makeRecognizerCallCount += 1
+        return stubbedRecognizer
+    }
+}
+
 @MainActor
 final class VoiceInputManagerTests: XCTestCase {
 
     private var manager: VoiceInputManager!
     private var dictationClient: MockDictationClient!
+    private var speechAdapter: MockSpeechRecognizerAdapter!
 
     override func setUp() {
         super.setUp()
         dictationClient = MockDictationClient()
-        manager = VoiceInputManager(dictationClient: dictationClient)
+        speechAdapter = MockSpeechRecognizerAdapter()
+        manager = VoiceInputManager(
+            dictationClient: dictationClient,
+            speechRecognizerAdapter: speechAdapter
+        )
     }
 
     override func tearDown() {
         manager = nil
         dictationClient = nil
+        speechAdapter = nil
         super.tearDown()
     }
 
@@ -301,5 +332,53 @@ final class VoiceInputManagerTests: XCTestCase {
     func testModeCanBeSwitchedToConversation() {
         manager.currentMode = .conversation
         XCTAssertEqual(manager.currentMode, .conversation)
+    }
+
+    // MARK: - Speech Recognizer Adapter Integration
+
+    func testInitUsesAdapterToCreateRecognizer() {
+        // The mock adapter's makeRecognizer is called once during init
+        XCTAssertEqual(speechAdapter.makeRecognizerCallCount, 1,
+                       "VoiceInputManager should use the adapter to create the initial speech recognizer")
+    }
+
+    func testUnavailableRecognizerDoesNotStartRecording() {
+        // Configure the adapter to return nil (unavailable recognizer)
+        speechAdapter.stubbedRecognizer = nil
+        let freshManager = VoiceInputManager(
+            dictationClient: dictationClient,
+            speechRecognizerAdapter: speechAdapter
+        )
+
+        // Attempt to toggle recording — should not start because recognizer is nil
+        freshManager.toggleRecording()
+
+        XCTAssertFalse(freshManager.isRecording,
+                       "Recording should not start when the speech recognizer is unavailable")
+    }
+
+    func testAdapterAuthorizationStatusIsUsedForPermissionCheck() {
+        // Configure the adapter to report denied status
+        speechAdapter.stubbedAuthorizationStatus = .denied
+
+        // The manager checks adapter.authorizationStatus() in beginRecording().
+        // When denied, it should not start recording (shows permission overlay instead).
+        manager.toggleRecording()
+
+        // Recording should not proceed when speech authorization is denied
+        XCTAssertFalse(manager.isRecording,
+                       "Recording should not start when speech recognition authorization is denied via adapter")
+    }
+
+    func testAdapterAuthorizationNotDeterminedShowsPermissionPrompt() {
+        // Configure the adapter to report notDetermined status
+        speechAdapter.stubbedAuthorizationStatus = .notDetermined
+
+        // When authorization is notDetermined, beginRecording() should show the
+        // permission primer and NOT start recording immediately.
+        manager.toggleRecording()
+
+        XCTAssertFalse(manager.isRecording,
+                       "Recording should not start immediately when speech authorization is notDetermined")
     }
 }
