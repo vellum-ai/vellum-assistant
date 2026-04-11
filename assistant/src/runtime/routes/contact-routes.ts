@@ -1,11 +1,12 @@
 /**
  * Route handlers for contact management endpoints.
  *
- * GET    /v1/contacts              — list contacts
- * POST   /v1/contacts              — create or update a contact
- * GET    /v1/contacts/:id          — get a contact by ID
- * DELETE /v1/contacts/:id          — delete a contact
- * POST   /v1/contacts/merge        — merge two contacts
+ * GET    /v1/contacts                      — list contacts
+ * POST   /v1/contacts                      — create or update a contact
+ * GET    /v1/contacts/:id                  — get a contact by ID
+ * DELETE /v1/contacts/:id                  — delete a contact
+ * POST   /v1/contacts/merge                — merge two contacts
+ * POST   /v1/contacts/guardian/channel      — add a channel to the guardian contact
  * PATCH  /v1/contact-channels/:contactChannelId — update a contact channel's status/policy
  */
 
@@ -426,8 +427,13 @@ export async function handleAddGuardianChannel(
   req: Request,
   authContext: AuthContext,
 ): Promise<Response> {
-  const guardianError = requireBoundGuardian(authContext);
-  if (guardianError) return guardianError;
+  // Service tokens (gateway control-plane proxy) are trusted — the platform
+  // has already authenticated the caller. Only enforce guardian binding for
+  // direct actor calls.
+  if (authContext.principalType === "actor") {
+    const guardianError = requireBoundGuardian(authContext);
+    if (guardianError) return guardianError;
+  }
 
   const body = (await req.json()) as {
     type: string;
@@ -440,6 +446,14 @@ export async function handleAddGuardianChannel(
 
   if (!body.type || !body.address) {
     return httpError("BAD_REQUEST", "type and address are required", 400);
+  }
+
+  if (!body.externalUserId) {
+    return httpError(
+      "BAD_REQUEST",
+      "externalUserId is required for trust resolution",
+      400,
+    );
   }
 
   if (body.status !== undefined && !isChannelStatus(body.status)) {
@@ -569,7 +583,6 @@ export function contactRouteDefinitions(): RouteDefinition[] {
           .describe("Channel address, e.g. 'user@example.com'"),
         externalUserId: z
           .string()
-          .optional()
           .describe("External user ID for trust resolution"),
         status: z
           .string()

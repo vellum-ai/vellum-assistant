@@ -838,6 +838,7 @@ export function findGuardianContact(): ContactWithChannels | null {
     .select()
     .from(contacts)
     .where(eq(contacts.role, "guardian"))
+    .orderBy(asc(contacts.createdAt))
     .limit(1)
     .get();
   if (!row) return null;

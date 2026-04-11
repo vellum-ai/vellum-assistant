@@ -1,7 +1,7 @@
 /**
  * Tests for POST /v1/contacts/guardian/channel endpoint.
  */
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../../util/logger.js", () => ({
   getLogger: () =>
@@ -26,7 +26,7 @@ mock.module("../../config/env.js", () => ({
 
 import { and, eq } from "drizzle-orm";
 
-import { getDb, initializeDb } from "../../memory/db.js";
+import { getDb } from "../../memory/db.js";
 import { contactChannels, contacts } from "../../memory/schema.js";
 import type { AuthContext } from "../auth/types.js";
 import { handleAddGuardianChannel } from "./contact-routes.js";
@@ -46,10 +46,10 @@ function makeRequest(body: unknown): Request {
 function makeAuthContext(overrides: Partial<AuthContext> = {}): AuthContext {
   return {
     subject: "test-subject",
-    principalType: "user",
+    principalType: "actor",
     assistantId: "test-assistant",
     actorPrincipalId: "guardian-principal-001",
-    scopeProfile: "guardian",
+    scopeProfile: "actor_client_v1",
     scopes: new Set(),
     policyEpoch: 0,
     ...overrides,
@@ -115,10 +115,6 @@ function seedVellumGuardianChannel(
 // ---------------------------------------------------------------------------
 
 describe("POST /v1/contacts/guardian/channel", () => {
-  beforeAll(() => {
-    initializeDb();
-  });
-
   beforeEach(() => {
     const db = getDb();
     db.delete(contactChannels).run();
@@ -194,10 +190,24 @@ describe("POST /v1/contacts/guardian/channel", () => {
     seedGuardian();
 
     const res = await handleAddGuardianChannel(
-      makeRequest({ type: "email" }),
+      makeRequest({ type: "email", externalUserId: "owner@example.com" }),
       makeAuthContext(),
     );
     expect(res.status).toBe(400);
+  });
+
+  test("returns 400 when externalUserId is missing", async () => {
+    seedGuardian();
+
+    const res = await handleAddGuardianChannel(
+      makeRequest({ type: "email", address: "owner@example.com" }),
+      makeAuthContext(),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; message: string };
+    };
+    expect(body.error.message).toContain("externalUserId is required");
   });
 
   test("preserves existing channels when adding new ones", async () => {
