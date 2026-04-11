@@ -280,8 +280,14 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
         @discardableResult
         func wait() async throws -> ExitStatus {
             defer { try? hostTerminal.close() }
-            let status = try await process.wait()
-            try await process.delete()
+            let status: ExitStatus
+            do {
+                status = try await process.wait()
+            } catch {
+                try? await process.delete()
+                throw error
+            }
+            try? await process.delete()
             return status
         }
     }
