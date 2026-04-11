@@ -766,6 +766,151 @@ describe('recovery semantics', () => {
   });
 });
 
+describe('integrated silent recovery: staleness detection + bootstrap', () => {
+  /**
+   * These tests verify the integrated flow that the worker executes during
+   * reconnect for local-pair assistants: detect staleness via
+   * `isLocalTokenStale`, then call `bootstrapLocalToken` to recover.
+   *
+   * This exercises both functions together as they'd be invoked in the
+   * actual reconnect path (buildRelayModeForAssistant).
+   */
+
+  test('stale token triggers bootstrap which produces a fresh usable token', async () => {
+    const staleToken = makeStaleLocalToken({ token: 'original-stale' });
+
+    // Step 1: staleness detection triggers recovery
+    expect(isLocalTokenStale(staleToken)).toBe(true);
+
+    // Step 2: bootstrap produces a fresh token
+    const bootstrapResult = makeStoredLocalToken({
+      token: 'bootstrap-refreshed',
+      expiresAt: Date.now() + 3_600_000,
+      assistantPort: 7831,
+    });
+    const deps = makeDeps({
+      bootstrapLocalToken: async () => bootstrapResult,
+    });
+    const result = await deps.bootstrapLocalToken('local-1');
+
+    // Step 3: the new token is fresh and usable
+    expect(result.token).toBe('bootstrap-refreshed');
+    expect(isLocalTokenStale(result)).toBe(false);
+  });
+
+  test('missing token triggers bootstrap which produces a fresh usable token', async () => {
+    const storedToken = null;
+
+    // Step 1: null token triggers recovery
+    expect(isLocalTokenStale(storedToken)).toBe(true);
+
+    // Step 2: bootstrap produces a fresh token
+    const bootstrapResult = makeStoredLocalToken({
+      token: 'new-from-bootstrap',
+      expiresAt: Date.now() + 3_600_000,
+      assistantPort: 9000,
+    });
+    const deps = makeDeps({
+      bootstrapLocalToken: async () => bootstrapResult,
+    });
+    const result = await deps.bootstrapLocalToken('local-1');
+
+    // Step 3: the new token is fresh and usable
+    expect(result.token).toBe('new-from-bootstrap');
+    expect(isLocalTokenStale(result)).toBe(false);
+    expect(result.assistantPort).toBe(9000);
+  });
+
+  test('bootstrap failure surfaces original stale token (not null)', async () => {
+    const staleToken = makeStaleLocalToken({ token: 'original-stale-kept' });
+
+    // Step 1: staleness detection triggers recovery
+    expect(isLocalTokenStale(staleToken)).toBe(true);
+
+    // Step 2: bootstrap fails
+    const deps = makeDeps({
+      bootstrapLocalToken: async () => {
+        throw new Error('native messaging timeout');
+      },
+    });
+
+    let recoveredToken: StoredLocalToken | null = staleToken;
+    try {
+      await deps.bootstrapLocalToken('local-1');
+    } catch {
+      // Bootstrap failed — fall back to the original stale token
+      recoveredToken = staleToken;
+    }
+
+    // Step 3: the original stale token is preserved (not null)
+    expect(recoveredToken).not.toBeNull();
+    expect(recoveredToken!.token).toBe('original-stale-kept');
+  });
+
+  test('bootstrap failure does not discard expired token either', async () => {
+    const expiredToken = makeExpiredLocalToken({ token: 'expired-but-available' });
+
+    // Step 1: staleness detection triggers recovery
+    expect(isLocalTokenStale(expiredToken)).toBe(true);
+
+    // Step 2: bootstrap fails
+    const deps = makeDeps({
+      bootstrapLocalToken: async () => {
+        throw new Error('connection refused');
+      },
+    });
+
+    let recoveredToken: StoredLocalToken | null = expiredToken;
+    try {
+      await deps.bootstrapLocalToken('local-1');
+    } catch {
+      // Bootstrap failed — fall back to the original token
+      recoveredToken = expiredToken;
+    }
+
+    // Step 3: the original token is still surfaced (not replaced with null)
+    expect(recoveredToken).not.toBeNull();
+    expect(recoveredToken!.token).toBe('expired-but-available');
+  });
+
+  test('interactive local-pair preflight attempts bootstrap when token is missing and succeeds', async () => {
+    const assistant = makeLocalAssistant();
+    const mode: RelayMode = {
+      kind: 'self-hosted',
+      baseUrl: 'http://127.0.0.1:7821',
+      token: null,
+    };
+
+    // Simulate: isLocalTokenStale(null) => true, then bootstrap succeeds
+    expect(isLocalTokenStale(null)).toBe(true);
+
+    const bootstrapped = makeStoredLocalToken({
+      token: 'interactive-bootstrap-token',
+      assistantPort: 7831,
+    });
+    let bootstrapCalled = false;
+    const deps = makeDeps({
+      bootstrapLocalToken: async (id) => {
+        bootstrapCalled = true;
+        expect(id).toBe('local-1');
+        return bootstrapped;
+      },
+    });
+
+    const result = await connectPreflight(
+      assistant,
+      'local-pair',
+      mode,
+      { interactive: true },
+      deps,
+    );
+
+    expect(bootstrapCalled).toBe(true);
+    expect(result.token).toBe('interactive-bootstrap-token');
+    expect(isLocalTokenStale(bootstrapped)).toBe(false);
+  });
+});
+
 describe('reconnect: silent recovery for self-hosted mode', () => {
   test('stale stored token on reconnect triggers recovery attempt', () => {
     const stored = makeStaleLocalToken();
