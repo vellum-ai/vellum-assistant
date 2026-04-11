@@ -199,6 +199,25 @@ export class ChromeExtensionRegistry {
   }
 
   /**
+   * Update the `lastActiveAt` timestamp for the connection identified by
+   * `connectionId`, without changing routing semantics or registration
+   * state. Used by keepalive frames to signal that the extension is still
+   * alive and reachable. No-op if no connection with the given id is
+   * currently registered (e.g. after a race between disconnect and a
+   * trailing keepalive frame).
+   */
+  touch(connectionId: string): void {
+    for (const instances of this.byGuardian.values()) {
+      for (const conn of instances.values()) {
+        if (conn.id === connectionId) {
+          conn.lastActiveAt = Date.now();
+          return;
+        }
+      }
+    }
+  }
+
+  /**
    * Return the default "active" connection for a guardian — the
    * instance with the most recent `lastActiveAt` timestamp. Ties on
    * `lastActiveAt` (common when two sibling instances register or

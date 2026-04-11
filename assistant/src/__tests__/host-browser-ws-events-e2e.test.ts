@@ -284,6 +284,106 @@ describe("host_browser WS event + invalidation e2e", () => {
     await mockExt.stop();
   });
 
+  test("keepalive frames are accepted without closing the socket or producing warnings", async () => {
+    const guardianId = `guardian-${crypto.randomUUID()}`;
+    const { token } = mintHostBrowserCapability(guardianId);
+
+    const { createMockChromeExtension } =
+      await import("./fixtures/mock-chrome-extension.js");
+    const mockExt = createMockChromeExtension({
+      runtimeBaseUrl,
+      token,
+      resultTransport: "ws",
+    });
+    await mockExt.start();
+    await mockExt.waitForConnection();
+    await waitForRegistryEntry(guardianId);
+
+    // Grab the initial lastActiveAt timestamp so we can verify it
+    // was bumped by the keepalive.
+    const connBefore = getChromeExtensionRegistry().get(guardianId)!;
+    const lastActiveBefore = connBefore.lastActiveAt;
+
+    // Small delay to ensure Date.now() advances at least 1ms.
+    await new Promise((r) => setTimeout(r, 15));
+
+    // Send a keepalive frame (the extension sends these periodically
+    // to prevent the runtime from considering the connection stale).
+    // The frame may contain extra keys (e.g. timestamp) that the
+    // runtime should silently ignore (lenient validation).
+    mockExt.sendRaw(JSON.stringify({ type: "keepalive", ts: Date.now() }));
+
+    // Wait for the touch to propagate.
+    await waitFor(() => {
+      const conn = getChromeExtensionRegistry().get(guardianId);
+      return conn !== undefined && conn.lastActiveAt > lastActiveBefore;
+    });
+
+    const connAfter = getChromeExtensionRegistry().get(guardianId)!;
+    expect(connAfter.lastActiveAt).toBeGreaterThan(lastActiveBefore);
+
+    // Verify the socket is still alive by sending a normal host_browser_event
+    // frame after the keepalive — if the socket had been torn down, this
+    // would never arrive.
+    const observed: ForwardedCdpEvent[] = [];
+    const unsubscribe = onCdpEvent((event) => observed.push(event));
+
+    mockExt.sendHostBrowserEvent({ method: "Page.loadEventFired" });
+    await waitFor(() => observed.length === 1);
+    expect(observed[0].method).toBe("Page.loadEventFired");
+
+    unsubscribe();
+    await mockExt.stop();
+  });
+
+  test("normal host_browser flows still pass after keepalive traffic", async () => {
+    const guardianId = `guardian-${crypto.randomUUID()}`;
+    const { token } = mintHostBrowserCapability(guardianId);
+
+    const { createMockChromeExtension } =
+      await import("./fixtures/mock-chrome-extension.js");
+    const mockExt = createMockChromeExtension({
+      runtimeBaseUrl,
+      token,
+      resultTransport: "ws",
+    });
+    await mockExt.start();
+    await mockExt.waitForConnection();
+    await waitForRegistryEntry(guardianId);
+
+    // Simulate a burst of keepalive frames (as would happen during an
+    // idle period with the extension's alarm-based keepalive ticker).
+    for (let i = 0; i < 5; i++) {
+      mockExt.sendRaw(JSON.stringify({ type: "keepalive" }));
+    }
+
+    // Small delay to let all keepalive frames process.
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Now send a host_browser_event and verify it still fans out
+    // correctly — proving keepalive traffic does not interfere with
+    // normal message processing.
+    const observed: ForwardedCdpEvent[] = [];
+    const unsubscribe = onCdpEvent((event) => observed.push(event));
+
+    mockExt.sendHostBrowserEvent({
+      method: "Network.requestWillBeSent",
+      params: { requestId: "req-42", url: "https://example.com/api" },
+      cdpSessionId: "session-xyz",
+    });
+
+    await waitFor(() => observed.length === 1);
+    expect(observed[0].method).toBe("Network.requestWillBeSent");
+    expect(observed[0].params).toEqual({
+      requestId: "req-42",
+      url: "https://example.com/api",
+    });
+    expect(observed[0].cdpSessionId).toBe("session-xyz");
+
+    unsubscribe();
+    await mockExt.stop();
+  });
+
   test("malformed host_browser_event frames are dropped without tearing down the socket", async () => {
     const guardianId = `guardian-${crypto.randomUUID()}`;
     const { token } = mintHostBrowserCapability(guardianId);
