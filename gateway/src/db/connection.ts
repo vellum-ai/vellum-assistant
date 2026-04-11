@@ -1,16 +1,45 @@
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { getGatewaySecurityDir } from "../config.js";
+import { getRootDir } from "../credential-reader.js";
 
 let db: Database | null = null;
+
+/**
+ * One-time migration: move gateway.sqlite from the legacy path
+ * ({rootDir}/data/gateway.sqlite) to the new PVC-backed path
+ * ({gatewaySecurityDir}/gateway.sqlite). Idempotent — skips if
+ * the new path already exists or the old path doesn't.
+ */
+function migrateLegacyDb(newPath: string): void {
+  const legacyPath = join(getRootDir(), "data", "gateway.sqlite");
+  if (legacyPath === newPath) return;
+  if (existsSync(newPath)) return;
+  if (!existsSync(legacyPath)) return;
+
+  try {
+    renameSync(legacyPath, newPath);
+    // Move WAL/SHM sidecar files if present
+    for (const suffix of ["-wal", "-shm"]) {
+      const old = legacyPath + suffix;
+      if (existsSync(old)) renameSync(old, newPath + suffix);
+    }
+  } catch {
+    // Cross-device rename not possible (e.g. Docker volumes) — the
+    // legacy DB was on ephemeral storage anyway, so just let the
+    // new DB be created fresh.
+  }
+}
 
 function getDbPath(): string {
   const securityDir = getGatewaySecurityDir();
   if (!existsSync(securityDir)) {
     mkdirSync(securityDir, { recursive: true });
   }
-  return join(securityDir, "gateway.sqlite");
+  const dbPath = join(securityDir, "gateway.sqlite");
+  migrateLegacyDb(dbPath);
+  return dbPath;
 }
 
 export function getGatewayDb(): Database {
