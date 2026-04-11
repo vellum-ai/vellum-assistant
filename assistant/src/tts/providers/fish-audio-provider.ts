@@ -66,7 +66,7 @@ function resolveReferenceId(
     throw new FishAudioTtsError(
       "FISH_AUDIO_TTS_NO_REFERENCE_ID",
       "No Fish Audio reference ID provided. " +
-        "Set fishAudio.referenceId in config or pass voiceId in the request.",
+        "Set services.tts.providers.fish-audio.referenceId in config or pass voiceId in the request.",
     );
   }
   return referenceId;

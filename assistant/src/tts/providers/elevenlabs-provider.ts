@@ -85,7 +85,7 @@ function resolveVoiceId(
     throw new ElevenLabsTtsError(
       "ELEVENLABS_TTS_NO_VOICE_ID",
       "No voice ID provided and no default configured. " +
-        "Set elevenlabs.voiceId in config or pass voiceId in the request.",
+        "Set services.tts.providers.elevenlabs.voiceId in config or pass voiceId in the request.",
     );
   }
   return voiceId;

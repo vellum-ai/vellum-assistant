@@ -869,14 +869,27 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    func saveElevenLabsKey(_ raw: String) {
+    func saveElevenLabsKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed, for: "elevenlabs")
+        removeDeletionTombstone(type: "api_key", name: "elevenlabs")
+        Task {
+            let result = await APIKeyManager.setKey(trimmed, for: "elevenlabs")
+            if result.success {
+                onSuccess?()
+            } else if let error = result.error {
+                log.error("Failed to sync ElevenLabs key to daemon: \(error, privacy: .public)")
+            }
+        }
     }
 
     func clearElevenLabsKey() {
         APIKeyManager.deleteKey(for: "elevenlabs")
+        Task {
+            let deleted = await APIKeyManager.deleteKey(for: "elevenlabs")
+            if !deleted { addDeletionTombstone(type: "api_key", name: "elevenlabs") }
+        }
     }
 
     func clearAPIKeyForProvider(_ provider: String) {
