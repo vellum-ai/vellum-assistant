@@ -30,7 +30,7 @@ struct SettingsPrivacyTab: View {
     /// Seeded from UserDefaults on view appear for instant render, then
     /// reconciled against the daemon's authoritative value via
     /// `loadPrivacyConfig()`.
-    @State private var retentionSelection: LlmLogRetentionOption = .oneDay
+    @State private var retentionSelection: LlmLogRetentionOption = .oneHour
 
     /// In-flight retention sync task so rapid picker changes cancel the
     /// previous write and only the latest selection reaches the daemon.

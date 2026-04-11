@@ -12,6 +12,10 @@ final class LlmLogRetentionOptionTests: XCTestCase {
         XCTAssertEqual(LlmLogRetentionOption.closest(toMs: 0), .dontRetain)
     }
 
+    func testClosestReturnsOneHourForExactOneHourMs() {
+        XCTAssertEqual(LlmLogRetentionOption.closest(toMs: 3_600_000), .oneHour)
+    }
+
     func testClosestReturnsOneDayForExactOneDayMs() {
         XCTAssertEqual(LlmLogRetentionOption.closest(toMs: 86_400_000), .oneDay)
     }
@@ -76,8 +80,8 @@ final class LlmLogRetentionOptionTests: XCTestCase {
 
     // MARK: - Invariants
 
-    func testAllCasesHasSixEntries() {
-        XCTAssertEqual(LlmLogRetentionOption.allCases.count, 6)
+    func testAllCasesHasSevenEntries() {
+        XCTAssertEqual(LlmLogRetentionOption.allCases.count, 7)
     }
 
     func testAllCasesLabelsAreNonEmpty() {

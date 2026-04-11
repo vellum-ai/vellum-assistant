@@ -65,8 +65,8 @@ function readConfig(): Record<string, unknown> {
 }
 
 // The default value for memory.cleanup.llmRequestLogRetentionMs in the
-// daemon schema (assistant/src/config/schemas/memory-lifecycle.ts): 1 day.
-const DEFAULT_RETENTION_MS = 1 * 24 * 60 * 60 * 1000;
+// daemon schema (assistant/src/config/schemas/memory-lifecycle.ts): 1 hour.
+const DEFAULT_RETENTION_MS = 1 * 60 * 60 * 1000;
 
 describe("GET /v1/config/privacy handler", () => {
   test("returns schema defaults when config.json does not exist", async () => {
@@ -86,8 +86,8 @@ describe("GET /v1/config/privacy handler", () => {
       sendDiagnostics: true,
       llmRequestLogRetentionMs: DEFAULT_RETENTION_MS,
     });
-    // Sanity check: 1 day in ms.
-    expect(body.llmRequestLogRetentionMs).toBe(86_400_000);
+    // Sanity check: 1 hour in ms.
+    expect(body.llmRequestLogRetentionMs).toBe(3_600_000);
   });
 
   test("returns explicit values from config.json", async () => {
@@ -811,7 +811,7 @@ describe("GET /v1/config/privacy handler — Gap 2a-2 out-of-range clamp", () =>
     const body = await res.json();
     // Clamped to default, not the bogus value on disk.
     expect(body.llmRequestLogRetentionMs).toBe(DEFAULT_RETENTION_MS);
-    expect(body.llmRequestLogRetentionMs).toBe(86_400_000);
+    expect(body.llmRequestLogRetentionMs).toBe(3_600_000);
   });
 
   test("clamps a 10-year retention (e.g. 315360000000) to the default on GET", async () => {

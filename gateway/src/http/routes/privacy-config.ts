@@ -13,7 +13,7 @@ const log = getLogger("privacy-config");
 // (memory.cleanup.llmRequestLogRetentionMs). Keep them in sync.
 const DEFAULT_COLLECT_USAGE_DATA = true;
 const DEFAULT_SEND_DIAGNOSTICS = true;
-const DEFAULT_LLM_REQUEST_LOG_RETENTION_MS = 1 * 24 * 60 * 60 * 1000;
+const DEFAULT_LLM_REQUEST_LOG_RETENTION_MS = 1 * 60 * 60 * 1000;
 
 // Upper bound for llmRequestLogRetentionMs: 365 days (in ms).
 // Prevents accidental values like Number.MAX_SAFE_INTEGER.
