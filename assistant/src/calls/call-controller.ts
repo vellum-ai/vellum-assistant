@@ -539,6 +539,7 @@ export class CallController {
   private resolveCallTtsProvider(): {
     provider: TtsProvider | null;
     useSynthesizedPath: boolean;
+    audioFormat: "mp3" | "wav" | "opus";
   } {
     try {
       const config = loadConfig();
@@ -547,12 +548,22 @@ export class CallController {
       // Providers with streaming support synthesize audio themselves; others
       // rely on the relay's native (Twilio-managed) TTS engine.
       const useSynthesizedPath = provider.capabilities.supportsStreaming;
-      return { provider, useSynthesizedPath };
+      // Read the user-configured audio format from the resolved provider
+      // config so the streaming store entry's content-type matches the
+      // actual audio bytes the provider produces.
+      const configuredFormat = (resolved.providerConfig as { format?: string })
+        .format;
+      const audioFormat = (
+        configuredFormat && ["mp3", "wav", "opus"].includes(configuredFormat)
+          ? configuredFormat
+          : "mp3"
+      ) as "mp3" | "wav" | "opus";
+      return { provider, useSynthesizedPath, audioFormat };
     } catch {
       // Config missing `services.tts` block or provider not registered
       // (e.g. unit tests or early startup) — fall back to the native
       // (non-streaming) path where the provider object is not used.
-      return { provider: null, useSynthesizedPath: false };
+      return { provider: null, useSynthesizedPath: false, audioFormat: "mp3" };
     }
   }
 
@@ -571,7 +582,8 @@ export class CallController {
     // path (buffer text, synthesize via provider API, stream audio chunks
     // to Twilio via play-URL). Native providers stream text tokens to
     // the relay for Twilio's built-in TTS.
-    const { provider, useSynthesizedPath } = this.resolveCallTtsProvider();
+    const { provider, useSynthesizedPath, audioFormat } =
+      this.resolveCallTtsProvider();
 
     // Buffer incoming tokens so we can strip control markers ([ASK_GUARDIAN:...], [END_CALL])
     // before they reach TTS. We hold text whenever an unmatched '[' appears, since it
@@ -713,6 +725,7 @@ export class CallController {
         provider,
         sanitizedSynthText,
         runVersion,
+        audioFormat,
       );
     }
 
@@ -741,15 +754,10 @@ export class CallController {
     provider: TtsProvider,
     text: string,
     _runVersion: number,
+    format: "mp3" | "wav" | "opus" = "mp3",
   ): Promise<void> {
     let handle: ReturnType<typeof createStreamingEntry> | null = null;
     try {
-      // Determine audio format from provider capabilities (prefer mp3).
-      const formats = provider.capabilities.supportedFormats;
-      const format = (
-        formats.includes("mp3") ? "mp3" : (formats[0] ?? "mp3")
-      ) as "mp3" | "wav" | "opus";
-
       handle = createStreamingEntry(format);
       const config = loadConfig();
       const baseUrl = getPublicBaseUrl(config);

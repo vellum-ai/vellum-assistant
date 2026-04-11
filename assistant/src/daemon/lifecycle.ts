@@ -89,6 +89,7 @@ import {
   setCesReconnect,
 } from "../security/secure-keys.js";
 import { UsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
+import { registerBuiltinTtsProviders } from "../tts/providers/register-builtins.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
@@ -1206,6 +1207,17 @@ export async function runDaemon(): Promise<void> {
         "Failed to start runtime HTTP server, continuing without it",
       );
       runtimeHttp = null;
+    }
+
+    // Register built-in TTS providers so the provider abstraction can resolve
+    // them by ID. Must happen before call controllers or routes are created.
+    try {
+      registerBuiltinTtsProviders();
+    } catch (err) {
+      log.warn(
+        { err },
+        "TTS provider registration failed — continuing with degraded TTS",
+      );
     }
 
     // Initialize providers and tools after the HTTP server is listening so
