@@ -1660,8 +1660,9 @@ export class RelayConnection {
 
   /**
    * Resolve a human-readable guardian label for voice wait copy.
-   * Delegates to the shared resolveGuardianName() which checks USER.md
-   * first, then falls back to Contact.displayName, then DEFAULT_USER_REFERENCE.
+   * Delegates to the shared resolveGuardianName() which checks the
+   * guardian's per-user persona file (users/<slug>.md) first, then falls
+   * back to Contact.displayName, then DEFAULT_USER_REFERENCE.
    */
   private resolveGuardianLabel(): string {
     // Look up the guardian contact for a displayName fallback

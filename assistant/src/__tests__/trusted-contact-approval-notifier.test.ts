@@ -117,7 +117,7 @@ mock.module("../prompts/user-reference.js", () => ({
   ...realUserReference,
   resolveUserReference: () => "my human",
   resolveGuardianName: (guardianDisplayName?: string | null): string => {
-    // Mirror the real implementation: USER.md name > guardianDisplayName > default
+    // Mirror the real implementation: guardian persona name (from users/<slug>.md) > guardianDisplayName > default
     const userRef = "my human"; // In tests, resolveUserReference() returns this
     if (userRef !== "my human") return userRef;
     if (guardianDisplayName && guardianDisplayName.trim().length > 0) {

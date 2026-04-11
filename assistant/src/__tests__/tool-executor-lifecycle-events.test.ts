@@ -621,11 +621,11 @@ describe("ToolExecutor lifecycle events", () => {
     expect(events.map((e) => e.type)).toEqual(["start", "executed"]);
   });
 
-  test("file_edit to USER.md emits permission_prompt under forcePromptSideEffects", async () => {
-    // Security invariant: editing USER.md in a private thread must always
-    // prompt, even when a trust rule would auto-allow.
+  test("file_edit to guardian persona emits permission_prompt under forcePromptSideEffects", async () => {
+    // Security invariant: editing the guardian persona file in a private
+    // thread must always prompt, even when a trust rule would auto-allow.
     checkerDecision = "allow";
-    checkerReason = "Matched trust rule: file_edit:*/USER.md";
+    checkerReason = "Matched trust rule: file_edit:*/users/*.md";
     checkerRisk = "low";
     promptDecision = "allow";
 
@@ -635,7 +635,7 @@ describe("ToolExecutor lifecycle events", () => {
     const result = await executor.execute(
       "file_edit",
       {
-        path: "/Users/sidd/.vellum/workspace/USER.md",
+        path: "/Users/sidd/.vellum/workspace/users/sidd.md",
         old_string: "old",
         new_string: "new",
       },

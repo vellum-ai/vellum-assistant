@@ -323,7 +323,7 @@ export function getConversationsDir(): string {
   return join(getWorkspaceDir(), "conversations");
 }
 
-/** Returns the workspace path for a prompt file (e.g. IDENTITY.md, SOUL.md, USER.md). */
+/** Returns the workspace path for a prompt file (e.g. IDENTITY.md, SOUL.md). */
 export function getWorkspacePromptPath(file: string): string {
   return join(getWorkspaceDir(), file);
 }

@@ -44,7 +44,7 @@ mock.module("../daemon/identity-helpers.js", () => ({
   getAssistantName: () => mockAssistantName,
 }));
 
-// ── User-reference mock (isolate from real USER.md) ──────────────────
+// ── User-reference mock (isolate from real guardian persona) ────────
 
 let mockUserReference = "my human";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -4156,7 +4156,7 @@ describe("relay-server", () => {
 
   // ── resolveGuardianLabel resolution priority ─────────────────────────
 
-  test("guardian label: USER.md name takes precedence over Contact.displayName", async () => {
+  test("guardian label: guardian persona name takes precedence over Contact.displayName", async () => {
     mockUserReference = "Alice";
 
     // Create a guardian binding with a different displayName
@@ -4190,7 +4190,7 @@ describe("relay-server", () => {
 
     expect(relay.getConnectionState()).toBe("awaiting_name");
 
-    // The greeting should use the USER.md name ("Alice"), not Contact.displayName ("Bob")
+    // The greeting should use the guardian persona name ("Alice"), not Contact.displayName ("Bob")
     const textMessages = ws.sentMessages
       .map((raw) => JSON.parse(raw) as { type: string; token?: string })
       .filter((m) => m.type === "text");
@@ -4201,7 +4201,7 @@ describe("relay-server", () => {
     relay.destroy();
   });
 
-  test("guardian label: Contact.displayName used when USER.md is empty", async () => {
+  test("guardian label: Contact.displayName used when guardian persona name is empty", async () => {
     mockUserReference = "my human";
 
     // Create a guardian binding with a displayName
@@ -4245,7 +4245,7 @@ describe("relay-server", () => {
     relay.destroy();
   });
 
-  test("guardian label: DEFAULT_USER_REFERENCE used when both USER.md and Contact.displayName are empty", async () => {
+  test("guardian label: DEFAULT_USER_REFERENCE used when both guardian persona name and Contact.displayName are empty", async () => {
     mockUserReference = "my human";
 
     // No guardian binding — no Contact.displayName available
