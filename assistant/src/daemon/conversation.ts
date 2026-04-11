@@ -574,11 +574,18 @@ export class Conversation {
     this.hostFileProxy?.updateSender(this.sendToClient, false);
   }
 
-  /** Restore host proxy availability based on whether a real client is connected. */
-  restoreProxyAvailability(): void {
+  /**
+   * Restore host proxy availability based on whether a real client is connected.
+   * When `skipBrowser` is true, the browser proxy is left untouched — use this
+   * when `restoreBrowserProxyAvailability()` will handle the browser proxy
+   * separately with the correct registry-routed sender.
+   */
+  restoreProxyAvailability(options?: { skipBrowser?: boolean }): void {
     if (!this.hasNoClient) {
       this.hostBashProxy?.updateSender(this.sendToClient, true);
-      this.hostBrowserProxy?.updateSender(this.sendToClient, true);
+      if (!options?.skipBrowser) {
+        this.hostBrowserProxy?.updateSender(this.sendToClient, true);
+      }
       this.hostCuProxy?.updateSender(this.sendToClient, true);
       this.hostFileProxy?.updateSender(this.sendToClient, true);
     }

@@ -12,6 +12,7 @@ import {
   createUserMessage,
 } from "../../agent/message-types.js";
 import {
+  canServiceRegistryBrowser,
   CHANNEL_IDS,
   INTERFACE_IDS,
   type InterfaceId,
@@ -1432,7 +1433,7 @@ export async function handleSendMessage(
   // provisioning and browser tools fall through to cdp-inspect/local.
   const shouldProvisionBrowserProxy =
     supportsHostProxy(sourceInterface, "host_browser") ||
-    (sourceInterface === "macos" && isRegistryRouted);
+    (canServiceRegistryBrowser(sourceInterface) && isRegistryRouted);
   if (shouldProvisionBrowserProxy) {
     if (!conversation.isProcessing() || !conversation.hostBrowserProxy) {
       const browserProxy = new HostBrowserProxy(

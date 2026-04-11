@@ -11,14 +11,13 @@ import {
   createAssistantMessage,
   createUserMessage,
 } from "../agent/message-types.js";
-import type {
-  TurnChannelContext,
-  TurnInterfaceContext,
-} from "../channels/types.js";
 import {
+  canServiceRegistryBrowser,
   parseChannelId,
   parseInterfaceId,
   supportsHostProxy,
+  type TurnChannelContext,
+  type TurnInterfaceContext,
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import type { ContextWindowResult } from "../context/window-manager.js";
@@ -135,8 +134,13 @@ export interface ProcessConversationContext {
   setTurnInterfaceContext(ctx: TurnInterfaceContext): void;
   /** Mark host proxies as unavailable so tool execution uses local fallback. */
   clearProxyAvailability(): void;
-  /** Restore host proxy availability based on whether a real client is connected. */
-  restoreProxyAvailability(): void;
+  /**
+   * Restore host proxy availability based on whether a real client is connected.
+   * When `skipBrowser` is true, the browser proxy is left untouched — use this
+   * when `restoreBrowserProxyAvailability()` will handle the browser proxy
+   * separately with the correct registry-routed sender.
+   */
+  restoreProxyAvailability(options?: { skipBrowser?: boolean }): void;
   /** Restore only the host browser proxy (used by chrome-extension and macOS+extension drains). */
   restoreBrowserProxyAvailability(): void;
   /**
@@ -361,7 +365,14 @@ export async function drainQueue(
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
     const sourceInterface = interfaceCtx?.userMessageInterface;
     if (sourceInterface && supportsHostProxy(sourceInterface)) {
-      conversation.restoreProxyAvailability();
+      // When hostBrowserSenderOverride is set, skip the browser proxy here
+      // — restoreBrowserProxyAvailability() below will handle it with the
+      // correct registry-routed sender instead of the SSE hub emitter.
+      conversation.restoreProxyAvailability(
+        conversation.hostBrowserSenderOverride
+          ? { skipBrowser: true }
+          : undefined,
+      );
       conversation.addPreactivatedSkillId("computer-use");
     }
     // Tear down a stale hostBrowserProxy inherited from a prior turn on a
@@ -379,7 +390,7 @@ export async function drainQueue(
     // inherit a stale override left by a prior extension-connected turn
     // and keep the proxy alive, causing cross-interface misrouting.
     const currentTurnCanServiceBrowser =
-      sourceInterface === "chrome-extension" || sourceInterface === "macos";
+      !!sourceInterface && canServiceRegistryBrowser(sourceInterface);
     if (
       sourceInterface &&
       !supportsHostProxy(sourceInterface, "host_browser") &&
