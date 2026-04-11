@@ -520,6 +520,14 @@ export class RuntimeHttpServer {
                 }
                 return;
               }
+              case "keepalive": {
+                // Extension keepalive frames refresh the connection's
+                // activity timestamp without producing log noise or
+                // altering routing semantics. Unknown extra keys on
+                // the frame are silently ignored (lenient validation).
+                getChromeExtensionRegistry().touch(data.connectionId);
+                return;
+              }
               default: {
                 log.debug(
                   { connectionId: data.connectionId, type: frame.type },

@@ -1,17 +1,19 @@
 /**
  * Popup UI for the Vellum browser-relay extension.
  *
- * The popup exposes a single primary CTA — **Connect** — that works in
- * one click even when the user hasn't previously paired or signed in.
- * The worker handles auth bootstrap automatically when `interactive=true`.
+ * The popup renders a concise primary status derived from the worker's
+ * structured connection health state:
+ *   - **Connected** — relay active, everything working.
+ *   - **Reconnecting automatically** — transient disconnect, auto-recovery
+ *     in progress. No user action needed.
+ *   - **Paused** — user explicitly paused the relay.
+ *   - **Action required** — auth or host error requiring manual recovery.
  *
- * The secondary action is **Pause**, which halts the relay and clears the
- * auto-connect flag so the extension stays quiet until the user explicitly
- * reconnects. Credentials are preserved for instant reconnect.
- *
- * Manual recovery controls (local re-pair and cloud re-sign-in) are
- * available under a Troubleshooting section, but are not required for
- * the normal connect flow.
+ * Primary controls are **Connect** and **Pause**. Manual recovery
+ * controls (local re-pair and cloud re-sign-in) live in a collapsible
+ * Troubleshoot section that is hidden by default. The section auto-
+ * expands when the health state is `auth_required` or `error`, making
+ * break-glass recovery accessible without cluttering the happy path.
  *
  * On open the popup loads the assistant catalog from the worker via the
  * `assistants-get` message. When exactly one assistant exists it is
@@ -38,7 +40,14 @@ import {
   deriveCtaState,
   deriveStatusDisplay,
   deriveSetupMessage,
+  deriveHealthStatusDisplay,
+  healthToPhase,
+  shouldExpandTroubleshooting,
+  hasTroubleshootingControls,
+  type ConnectionHealthState,
+  type ConnectionHealthDetail,
   type ConnectionPhase,
+  type GetStatusResponse,
   type AssistantsGetResponse,
   type AssistantSelectResponse,
 } from './popup-state.js';
@@ -59,12 +68,15 @@ const cloudStatus = document.getElementById('cloud-status') as HTMLParagraphElem
 const btnPairLocal = document.getElementById('btn-pair-local') as HTMLButtonElement;
 const localStatus = document.getElementById('local-status') as HTMLParagraphElement;
 
-const troubleshootingDivider = document.getElementById(
-  'troubleshooting-divider',
+const troubleshootSection = document.getElementById(
+  'troubleshoot-section',
 ) as HTMLDivElement;
-const troubleshootingLabel = document.getElementById(
-  'troubleshooting-label',
-) as HTMLParagraphElement;
+const troubleshootToggle = document.getElementById(
+  'troubleshoot-toggle',
+) as HTMLButtonElement;
+const troubleshootBody = document.getElementById(
+  'troubleshoot-body',
+) as HTMLDivElement;
 
 const assistantSelectorGroup = document.getElementById(
   'assistant-selector-group',
@@ -78,8 +90,15 @@ const assistantSelect = document.getElementById(
 // Tracks the currently selected assistant and its auth profile so
 // connect and auth-refresh operations use the right assistant context.
 
-let currentAuthProfile: AssistantAuthProfile | null = null;
 let currentAssistantId: string | null = null;
+let currentAuthProfile: AssistantAuthProfile | null = null;
+
+// ── Current health state ────────────────────────────────────────────
+//
+// Tracks the latest health state from the worker so the troubleshoot
+// section can react to state changes.
+
+let currentHealthState: ConnectionHealthState = 'paused';
 
 // ── Connection phase management ─────────────────────────────────────
 
@@ -97,18 +116,26 @@ function setSetupMessage(phase: ConnectionPhase): void {
 }
 
 /**
- * Apply a connection phase to the UI. Derives button labels/enablement
- * and status indicator from the pure helpers in popup-state.ts.
+ * Apply the worker's health state to the full popup UI. Derives button
+ * labels/enablement, status indicator, and troubleshooting section
+ * visibility from the pure helpers in popup-state.ts.
  */
-function setPhase(phase: ConnectionPhase): void {
+function applyHealthState(
+  health: ConnectionHealthState,
+  detail?: ConnectionHealthDetail,
+): void {
+  currentHealthState = health;
 
+  // Derive phase for CTA button states.
+  const phase = healthToPhase(health);
   const cta = deriveCtaState(phase);
   btnConnect.textContent = cta.connectLabel;
   btnConnect.disabled = !cta.connectEnabled;
   btnPause.textContent = cta.pauseLabel;
   btnPause.disabled = !cta.pauseEnabled;
 
-  const status = deriveStatusDisplay(phase);
+  // Derive health-aware status display (richer than phase-based).
+  const status = deriveHealthStatusDisplay(health, detail);
   statusDot.className = `status-dot ${status.dotClass}`;
   statusText.textContent = status.text;
 
@@ -116,15 +143,36 @@ function setPhase(phase: ConnectionPhase): void {
 
   setSetupMessage(phase);
 
-  if (phase === 'connected') {
+  if (health === 'connected') {
     errorText.style.display = 'none';
   }
+
+  // Update troubleshooting section visibility and expansion.
+  updateTroubleshootSection(health);
+}
+
+/**
+ * Backward-compatible wrapper: apply a connection phase to the UI
+ * when only phase information is available (e.g. during the
+ * connecting -> polling -> connected flow initiated by the popup).
+ */
+function setPhase(phase: ConnectionPhase): void {
+  // Map phase back to a health state for the unified path.
+  const healthMap: Record<ConnectionPhase, ConnectionHealthState> = {
+    connected: 'connected',
+    connecting: 'connecting',
+    reconnecting: 'reconnecting',
+    disconnected: 'paused',
+    paused: 'paused',
+    'no-native-host': 'error',
+  };
+  applyHealthState(healthMap[phase]);
 }
 
 /**
  * Render an inline error message without touching any other UI.
  *
- * Use this for generic popup errors — e.g. cloud OAuth failures,
+ * Use this for generic popup errors -- e.g. cloud OAuth failures,
  * refresh exceptions, or generic service-worker messages.
  */
 function showErrorText(msg: string): void {
@@ -135,6 +183,54 @@ function showErrorText(msg: string): void {
 function showError(msg: string): void {
   showErrorText(msg);
 }
+
+// ── Troubleshoot section ────────────────────────────────────────────
+
+/**
+ * Update the troubleshoot section visibility and expansion state.
+ *
+ * The section is shown when there are auth controls to display
+ * (local-pair or cloud-oauth). It auto-expands when the health
+ * state is `auth_required` or `error` so the user can access
+ * recovery controls.
+ */
+function updateTroubleshootSection(health: ConnectionHealthState): void {
+  const hasControls = hasTroubleshootingControls(currentAuthProfile);
+
+  if (!hasControls) {
+    troubleshootSection.hidden = true;
+    return;
+  }
+
+  troubleshootSection.hidden = false;
+
+  // Auto-expand when action is required, auto-collapse on recovery.
+  if (shouldExpandTroubleshooting(health)) {
+    expandTroubleshoot();
+  } else if (health === 'connected') {
+    collapseTroubleshoot();
+  }
+}
+
+function expandTroubleshoot(): void {
+  troubleshootBody.hidden = false;
+  troubleshootToggle.setAttribute('aria-expanded', 'true');
+}
+
+function collapseTroubleshoot(): void {
+  troubleshootBody.hidden = true;
+  troubleshootToggle.setAttribute('aria-expanded', 'false');
+}
+
+// Toggle on click.
+troubleshootToggle.addEventListener('click', () => {
+  const expanded = troubleshootToggle.getAttribute('aria-expanded') === 'true';
+  if (expanded) {
+    collapseTroubleshoot();
+  } else {
+    expandTroubleshoot();
+  }
+});
 
 // ── Assistant selector ──────────────────────────────────────────────
 
@@ -174,7 +270,6 @@ function renderAssistantSelector(
  */
 function updateAuthSections(authProfile: AssistantAuthProfile | null): void {
   currentAuthProfile = authProfile;
-
   const showLocal = shouldShowLocalSection(authProfile);
   const showCloud = shouldShowCloudSection(authProfile);
 
@@ -186,9 +281,8 @@ function updateAuthSections(authProfile: AssistantAuthProfile | null): void {
   cloudStatus.style.display = showCloud ? '' : 'none';
   btnCloudSignIn.style.display = showCloud ? '' : 'none';
 
-  // Hide the Troubleshooting divider and heading when no controls are shown.
-  troubleshootingDivider.style.display = showLocal || showCloud ? '' : 'none';
-  troubleshootingLabel.style.display = showLocal || showCloud ? '' : 'none';
+  // Update troubleshoot section with current health state.
+  updateTroubleshootSection(currentHealthState);
 }
 
 /**
@@ -278,10 +372,17 @@ chrome.storage.local.get(['relayPort']).then((result) => {
   }
 });
 
-// Query current status from service worker
-chrome.runtime.sendMessage({ type: 'get_status' }, (response: { connected: boolean }) => {
+// Query current health state from service worker.
+chrome.runtime.sendMessage({ type: 'get_status' }, (response: GetStatusResponse) => {
   if (chrome.runtime.lastError) return;
-  setPhase(response?.connected ? 'connected' : 'disconnected');
+
+  // Use the structured health state if available, fall back to boolean.
+  if (response?.health) {
+    applyHealthState(response.health, response.healthDetail);
+  } else {
+    // Backward compatibility: older workers may not expose health.
+    setPhase(response?.connected ? 'connected' : 'disconnected');
+  }
 });
 
 function getPort(): number {
@@ -295,7 +396,7 @@ function getPort(): number {
 
 // ── Connect (primary CTA) ───────────────────────────────────────────
 //
-// No local precheck — the worker handles auth bootstrap (pairing/sign-in)
+// No local precheck -- the worker handles auth bootstrap (pairing/sign-in)
 // automatically when interactive=true. Users can connect in one click
 // even when not previously paired or signed in.
 
@@ -313,23 +414,39 @@ btnConnect.addEventListener('click', async () => {
     }
   } catch (err) {
     showError(err instanceof Error ? err.message : String(err));
-    setPhase('disconnected');
+    applyHealthState('error');
     return;
   }
 
   chrome.runtime.sendMessage({ type: 'connect' }, (response: { ok: boolean; error?: string }) => {
     if (chrome.runtime.lastError || !response?.ok) {
       showError(response?.error ?? chrome.runtime.lastError?.message ?? 'Unknown error');
-      setPhase('disconnected');
+      applyHealthState('error');
       return;
     }
-    // Poll briefly for open state
+    // Poll briefly for health state convergence.
     let attempts = 0;
     const poll = setInterval(() => {
-      chrome.runtime.sendMessage({ type: 'get_status' }, (r: { connected: boolean }) => {
-        if (r?.connected || ++attempts > 10) {
+      chrome.runtime.sendMessage({ type: 'get_status' }, (r: GetStatusResponse) => {
+        if (chrome.runtime.lastError) {
+          if (++attempts > 10) {
+            clearInterval(poll);
+            // Fall back to a recoverable state so the user can retry.
+            applyHealthState('paused');
+          }
+          return;
+        }
+
+        const health = r?.health ?? (r?.connected ? 'connected' : 'connecting');
+        if (health === 'connected' || health === 'error' || health === 'auth_required') {
           clearInterval(poll);
-          setPhase(r?.connected ? 'connected' : 'disconnected');
+          applyHealthState(health as ConnectionHealthState, r?.healthDetail);
+        } else if (++attempts > 10) {
+          clearInterval(poll);
+          // Polling exhausted without reaching a terminal health state.
+          // Fall back to paused so the Connect button re-enables and
+          // the user can retry instead of being stuck on "Connecting...".
+          applyHealthState('paused');
         }
       });
     }, 300);
@@ -344,7 +461,7 @@ btnConnect.addEventListener('click', async () => {
 
 btnPause.addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'pause' }, () => {
-    setPhase('paused');
+    applyHealthState('paused');
   });
 });
 
@@ -357,7 +474,7 @@ btnPause.addEventListener('click', () => {
 // `vellum.localCapabilityToken` and is used directly by the
 // self-hosted relay WebSocket connection.
 //
-// This is a manual recovery control — normal connect handles pairing
+// This is a manual recovery control -- normal connect handles pairing
 // automatically via the worker's interactive bootstrap.
 
 function setLocalStatus(text: string, state: 'neutral' | 'paired' | 'error'): void {
@@ -420,7 +537,7 @@ btnPairLocal.addEventListener('click', async () => {
   btnPairLocal.disabled = true;
   setLocalStatus('Pairing\u2026', 'neutral');
   // Delegate to the service worker so the native-messaging bootstrap
-  // survives the popup teardown race — see the `self-hosted-pair`
+  // survives the popup teardown race -- see the `self-hosted-pair`
   // handler in worker.ts, and the matching cloud-auth-sign-in pattern.
   const response = await requestLocalPair();
   if (response.ok && response.token) {
@@ -438,7 +555,7 @@ refreshLocalStatus();
 // The token is persisted and consumed by the background worker when
 // opening cloud relay WebSocket connections.
 //
-// This is a manual recovery control — normal connect handles cloud
+// This is a manual recovery control -- normal connect handles cloud
 // sign-in automatically via the worker's interactive bootstrap.
 
 function setCloudStatus(text: string, signedIn: boolean): void {
@@ -502,9 +619,9 @@ btnCloudSignIn.addEventListener('click', async () => {
   setCloudStatus('Signing in\u2026', false);
   errorText.style.display = 'none';
   // Clear any stale auth-error the worker persisted during a failed
-  // reconnect — the user is explicitly retrying sign-in now.
+  // reconnect -- the user is explicitly retrying sign-in now.
   await chrome.storage.local.remove('vellum.relayAuthError');
-  // Delegate to the service worker — see header comment for the rationale.
+  // Delegate to the service worker -- see header comment for the rationale.
   const response = await requestCloudSignIn();
   if (response.ok && response.token) {
     setCloudStatus(`Signed in as guardian:${response.token.guardianId}`, true);

@@ -6,6 +6,16 @@ already-running Chrome instance via the DevTools JSON protocol
 that the Chrome extension transport shows, at the cost of broader
 session-level access.
 
+**This is an explicit, advanced backend.** The Chrome extension is the
+default and preferred transport for browser use. The extension maintains a
+long-lived background connection with automatic reconnect and silent token
+refresh, so users never need to fall back to `cdp-inspect` during transient
+extension interruptions. The assistant's CDP client factory enforces this:
+when the extension transport is provisioned for a conversation but
+temporarily unavailable (e.g. mid-reconnect), `cdp-inspect` is
+intentionally skipped in the desktop-auto candidate list to prevent silent
+takeover.
+
 ## Backend comparison
 
 | | **Extension** | **cdp-inspect** | **Local** |
@@ -15,13 +25,14 @@ session-level access.
 | Debugger infobar | Yes (per tab) | No | No (dedicated profile) |
 | Tab scope | Single active tab | Any open tab | Dedicated browser |
 | Auth/session access | Active tab only | All tabs, all cookies | Isolated profile |
-| Selection priority | 1st (highest) | 2nd (when enabled) | 3rd (default) |
+| Selection priority | 1st (highest) | 2nd (when explicitly enabled) | 3rd (default) |
 
 ## When to use this backend
 
 **Prefer the Chrome extension.** It provides the best security boundary
 (single-tab scope, visible debugger infobar, chrome.debugger permission
-model) and requires no special Chrome launch flags.
+model), requires no special Chrome launch flags, and handles all lifecycle
+management automatically (keepalive, reconnect, token refresh).
 
 Use `cdp-inspect` only when:
 
@@ -31,6 +42,27 @@ Use `cdp-inspect` only when:
   that `chrome.debugger.attach` displays.
 - You are running in a headless/CI environment where a user-profile
   Chrome is already running with `--remote-debugging-port`.
+- You are intentionally opting into broad session-level access for
+  advanced debugging or automation workflows.
+
+## Relationship to extension transport
+
+The CDP client factory (`cdp-client/factory.ts`) builds an ordered
+candidate list for each browser tool invocation:
+
+1. **Extension** — always first when the extension proxy is connected.
+2. **cdp-inspect** — included only when *explicitly enabled* in config,
+   OR via the macOS desktop-auto path when no extension proxy exists
+   for the conversation. When the extension proxy exists but is
+   temporarily unavailable (reconnecting), cdp-inspect is deliberately
+   **excluded** to prevent silent backend drift during transient
+   extension disconnects.
+3. **Local** (Playwright) — default fallback.
+
+This means `cdp-inspect` does not silently "take over" when the extension
+has a brief interruption. The extension's automatic recovery (keepalive +
+exponential-backoff reconnect + silent token refresh) is given time to
+restore the connection before any fallback is considered.
 
 ## Security considerations
 

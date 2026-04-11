@@ -154,14 +154,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "managed-google-oauth",
-      "scope": "assistant",
-      "key": "managed-google-oauth",
-      "label": "Managed Google OAuth",
-      "description": "Show the Google OAuth service card in Models & Services settings",
-      "defaultEnabled": true
-    },
-    {
       "id": "settings-embedding-provider",
       "scope": "assistant",
       "key": "settings-embedding-provider",

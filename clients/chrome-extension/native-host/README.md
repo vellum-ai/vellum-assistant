@@ -9,11 +9,37 @@ serves two purposes:
    assistant selector dropdown.
 2. **Self-hosted pairing** (`request_token`): bootstraps a scoped
    capability token for the local-assistant transport without shipping a
-   long-lived secret in the extension package. In the normal one-click
-   Connect flow, the extension's service worker invokes this
-   automatically — users never need to trigger pairing manually. The
-   `request_token` message also serves as a recovery mechanism when
-   the popup's Troubleshooting "Re-pair" button is used.
+   long-lived secret in the extension package.
+
+### Automatic maintenance path (normal operation)
+
+In the shipped seamless-extension architecture, native pairing is an
+**automatic maintenance operation** — not a user-initiated step. The
+extension's service worker invokes `request_token` silently in two
+scenarios:
+
+- **First connect**: When the user clicks Connect for the first time, the
+  worker auto-bootstraps the local capability token via native messaging
+  as part of the one-click flow. No separate "Pair" action is needed.
+- **Silent token refresh**: When a stored token is expired or stale (at
+  connect time, reconnect time, or auto-connect on browser reopen), the
+  worker attempts a non-interactive `bootstrapLocalToken()` call that
+  re-invokes the native helper under the hood. If the assistant is
+  reachable, the token is refreshed silently and the relay reconnects
+  without user involvement.
+
+### Manual invocation (diagnostics only)
+
+The popup's Troubleshooting section includes a "Re-pair with local
+assistant" button that also invokes `request_token`. This is reserved for
+cases where automatic recovery has failed — e.g. the native messaging
+host was uninstalled, the assistant was unreachable during all automatic
+refresh attempts, or the pair endpoint rejected the extension origin. The
+popup only surfaces this control when the health state is `auth_required`
+or `error`; during normal `connected` or `reconnecting` states the
+Troubleshooting section stays collapsed.
+
+### Bundling
 
 The macOS installer bundles this helper into the Mac `.app` under
 `Contents/MacOS/vellum-chrome-native-host` via `clients/macos/build.sh`

@@ -57,6 +57,27 @@ const NATIVE_HOST_NAME = 'com.vellum.daemon';
 const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 5_000;
 
 /**
+ * Window (ms) before `expiresAt` inside which we treat the stored local token
+ * as "stale" and proactively re-bootstrap it. 60 seconds mirrors the cloud
+ * token stale semantics — gives enough headroom that an in-flight reconnect
+ * doesn't race the runtime's own expiry check.
+ */
+export const LOCAL_TOKEN_STALE_WINDOW_MS = 60_000;
+
+/**
+ * Return `true` when the stored local token is expired or within
+ * {@link LOCAL_TOKEN_STALE_WINDOW_MS} of expiring. `null`/missing tokens
+ * also count as stale so callers can treat them uniformly.
+ */
+export function isLocalTokenStale(
+  token: StoredLocalToken | null,
+  now: number = Date.now(),
+): boolean {
+  if (!token) return true;
+  return token.expiresAt - now <= LOCAL_TOKEN_STALE_WINDOW_MS;
+}
+
+/**
  * The legacy unscoped storage key used before assistant-scoped keys were
  * introduced. Existing users may have a token stored under this key from
  * a previous version of the extension. The migration helpers below

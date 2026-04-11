@@ -541,7 +541,7 @@ describe("getCdpClient", () => {
     expect(createExtensionCdpClientMock).toHaveBeenCalledTimes(1);
   });
 
-  test("context with transportInterface set routes normally to local backend when no proxy", async () => {
+  test("context with transportInterface=macos routes to desktop-auto cdp-inspect when no proxy", async () => {
     const ctx = makeContext({
       conversationId: "macos-local",
       transportInterface: "macos",
@@ -549,10 +549,12 @@ describe("getCdpClient", () => {
 
     const client = getCdpClient(ctx);
 
-    expect(client.kind).toBe("local");
+    // desktopAuto.enabled is true by default and no proxy is provisioned,
+    // so cdp-inspect is the first candidate (desktop-auto path).
+    expect(client.kind).toBe("cdp-inspect");
     expect(client.conversationId).toBe("macos-local");
-    await client.send("Runtime.evaluate");
-    expect(createLocalCdpClientMock).toHaveBeenCalledTimes(1);
+    await client.send("Page.navigate");
+    expect(createCdpInspectClientMock).toHaveBeenCalledTimes(1);
   });
 
   test("context with transportInterface set routes to cdp-inspect when enabled", async () => {
@@ -1003,6 +1005,55 @@ describe("desktop-auto cdp-inspect (macOS)", () => {
     expect(candidates[2].kind).toBe("local");
   });
 
+  test("macOS turn with proxy unavailable skips desktop-auto cdp-inspect (extension intent)", () => {
+    const fakeProxy = makeUnavailableProxy();
+    const ctx = makeContext({
+      conversationId: "macos-proxy-unavailable-no-inspect",
+      hostBrowserProxy: fakeProxy,
+      transportInterface: "macos",
+    });
+
+    const candidates = buildCandidateList(ctx);
+
+    // Should only include local -- cdp-inspect is suppressed because extension
+    // transport is expected (proxy exists) but temporarily unavailable.
+    expect(candidates.length).toBe(1);
+    expect(candidates[0].kind).toBe("local");
+  });
+
+  test("macOS turn with no proxy still includes desktop-auto cdp-inspect", () => {
+    const ctx = makeContext({
+      conversationId: "macos-no-proxy-inspect-allowed",
+      transportInterface: "macos",
+    });
+
+    const candidates = buildCandidateList(ctx);
+
+    // No proxy provisioned => cdp-inspect remains available as fallback
+    expect(candidates.length).toBe(2);
+    expect(candidates[0].kind).toBe("cdp-inspect");
+    expect(candidates[0].reason).toContain("desktopAuto");
+    expect(candidates[1].kind).toBe("local");
+  });
+
+  test("macOS turn with extension available still includes cdp-inspect as fallback", () => {
+    const fakeProxy = makeAvailableProxy();
+    const ctx = makeContext({
+      conversationId: "macos-ext-available-inspect-fallback",
+      hostBrowserProxy: fakeProxy,
+      transportInterface: "macos",
+    });
+
+    const candidates = buildCandidateList(ctx);
+
+    // Extension is available => extension + cdp-inspect (desktop-auto) + local
+    expect(candidates.length).toBe(3);
+    expect(candidates[0].kind).toBe("extension");
+    expect(candidates[1].kind).toBe("cdp-inspect");
+    expect(candidates[1].reason).toContain("desktopAuto");
+    expect(candidates[2].kind).toBe("local");
+  });
+
   test("macOS turn does NOT include cdp-inspect when desktopAuto.enabled is false", () => {
     desktopAutoConfig = { enabled: false, cooldownMs: 30_000 };
     const ctx = makeContext({
@@ -1136,6 +1187,28 @@ describe("desktop-auto cdp-inspect (macOS)", () => {
     const candidates = buildCandidateList(ctx2);
     expect(candidates.length).toBe(1);
     expect(candidates[0].kind).toBe("local");
+  });
+
+  test("macOS turn with proxy unavailable routes to local without trying cdp-inspect", async () => {
+    const fakeProxy = makeUnavailableProxy();
+    const ctx = makeContext({
+      conversationId: "macos-proxy-unavail-route",
+      hostBrowserProxy: fakeProxy,
+      transportInterface: "macos",
+    });
+
+    const client = getCdpClient(ctx);
+
+    // Should go straight to local -- no cdp-inspect candidate inserted
+    expect(client.kind).toBe("local");
+    const result = await client.send<{ ok: boolean; via: string }>(
+      "Page.navigate",
+    );
+    expect(result).toEqual({ ok: true, via: "local" });
+    expect(createCdpInspectClientMock).not.toHaveBeenCalled();
+    expect(createExtensionCdpClientMock).not.toHaveBeenCalled();
+    expect(createLocalCdpClientMock).toHaveBeenCalledTimes(1);
+    client.dispose();
   });
 
   test("explicit config cdp-inspect failure does NOT record desktop-auto cooldown", async () => {
