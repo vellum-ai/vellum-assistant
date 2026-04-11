@@ -1,6 +1,19 @@
 /**
  * Popup UI for the Vellum browser-relay extension.
  *
+ * The popup exposes a single primary CTA — **Connect** — that works in
+ * one click even when the user hasn't previously paired or signed in.
+ * The worker handles auth bootstrap automatically when `interactive=true`.
+ *
+ * The secondary action is **Pause**, which halts the relay but preserves
+ * credentials for instant reconnect. Under the hood this sends the
+ * existing `disconnect` message to the worker; once PR 2 lands it will
+ * migrate to the dedicated `pause` message.
+ *
+ * Manual recovery controls (local re-pair and cloud re-sign-in) are
+ * available under a Troubleshooting section, but are not required for
+ * the normal connect flow.
+ *
  * On open the popup loads the assistant catalog from the worker via the
  * `assistants-get` message. When exactly one assistant exists it is
  * auto-selected and no selector dropdown is shown. When multiple
@@ -10,20 +23,6 @@
  * worker, which persists the selection and returns the resolved
  * descriptor + auth profile. The popup then refreshes the local/cloud
  * auth status panels to match the newly selected assistant.
- *
- * Self-hosted pairing is governed by the "Pair local assistant" button,
- * which spawns the native messaging helper and persists a capability
- * token (see self-hosted-auth.ts). Connect then reads that stored
- * capability token directly. If the user hasn't paired yet we surface
- * an inline error pointing them at the Pair button.
- *
- * Also exposes a "Sign in with Vellum (cloud)" button. The actual OAuth
- * flow runs in the background service worker (see worker.ts) — the popup
- * only sends a message asking the worker to start it. This avoids the
- * MV3 popup teardown race where closing the popup mid-auth would kill
- * the awaited launchWebAuthFlow promise before the token was persisted.
- * Cloud sign-in and self-hosted Pair coexist — they represent the two
- * possible relay transports.
  */
 
 import { getStoredToken, type StoredCloudToken } from '../background/cloud-auth.js';
@@ -37,6 +36,9 @@ import {
   deriveSelectorDisplay,
   shouldShowLocalSection,
   shouldShowCloudSection,
+  deriveCtaState,
+  deriveStatusDisplay,
+  type ConnectionPhase,
   type AssistantsGetResponse,
   type AssistantSelectResponse,
 } from './popup-state.js';
@@ -47,7 +49,7 @@ const DEFAULT_RELAY_PORT = 7830;
 
 const portInput = document.getElementById('port-input') as HTMLInputElement;
 const btnConnect = document.getElementById('btn-connect') as HTMLButtonElement;
-const btnDisconnect = document.getElementById('btn-disconnect') as HTMLButtonElement;
+const btnPause = document.getElementById('btn-pause') as HTMLButtonElement;
 const statusDot = document.getElementById('status-dot') as HTMLDivElement;
 const statusText = document.getElementById('status-text') as HTMLParagraphElement;
 const errorText = document.getElementById('error-text') as HTMLParagraphElement;
@@ -71,15 +73,30 @@ const assistantSelect = document.getElementById(
 let currentAuthProfile: AssistantAuthProfile | null = null;
 let currentAssistantId: string | null = null;
 
-// ── Connection state helpers ────────────────────────────────────────
+// ── Connection phase management ─────────────────────────────────────
 
-function setConnected(connected: boolean): void {
-  statusDot.className = `status-dot ${connected ? 'connected' : 'disconnected'}`;
-  statusText.textContent = connected ? 'Connected to relay server' : 'Not connected';
-  btnConnect.disabled = connected;
-  btnDisconnect.disabled = !connected;
-  portInput.disabled = connected;
-  if (connected) {
+let currentPhase: ConnectionPhase = 'disconnected';
+
+/**
+ * Apply a connection phase to the UI. Derives button labels/enablement
+ * and status indicator from the pure helpers in popup-state.ts.
+ */
+function setPhase(phase: ConnectionPhase): void {
+  currentPhase = phase;
+
+  const cta = deriveCtaState(phase);
+  btnConnect.textContent = cta.connectLabel;
+  btnConnect.disabled = !cta.connectEnabled;
+  btnPause.textContent = cta.pauseLabel;
+  btnPause.disabled = !cta.pauseEnabled;
+
+  const status = deriveStatusDisplay(phase);
+  statusDot.className = `status-dot ${status.dotClass}`;
+  statusText.textContent = status.text;
+
+  portInput.disabled = phase === 'connected' || phase === 'connecting';
+
+  if (phase === 'connected') {
     errorText.style.display = 'none';
   }
 }
@@ -132,61 +149,22 @@ function renderAssistantSelector(
 }
 
 /**
- * Update the visibility of the Local and Cloud auth sections based on
- * the selected assistant's auth profile.
+ * Update the visibility of the Local and Cloud troubleshooting controls
+ * based on the selected assistant's auth profile.
  */
 function updateAuthSections(authProfile: AssistantAuthProfile | null): void {
   currentAuthProfile = authProfile;
 
-  // Find the section containers by walking from the section-label elements.
-  // The Local section = section-label "Local" + local-status + btn-pair-local + preceding divider.
-  // The Cloud section = section-label "Cloud" + cloud-status + btn-cloud-signin + preceding divider.
-  //
-  // We use a simpler approach: show/hide the local and cloud elements
-  // individually based on the auth profile.
-
   const showLocal = shouldShowLocalSection(authProfile);
   const showCloud = shouldShowCloudSection(authProfile);
 
-  // Walk DOM to find the divider before each section label.
-  const sectionLabels = document.querySelectorAll('.section-label');
+  // Toggle Local troubleshooting elements visibility.
+  localStatus.style.display = showLocal ? '' : 'none';
+  btnPairLocal.style.display = showLocal ? '' : 'none';
 
-  // Find the local section's divider (the one before "Local")
-  // and the cloud section's divider (the one before "Cloud")
-  let localDividerEl: Element | null = null;
-  let cloudDividerEl: Element | null = null;
-  let localLabelEl: Element | null = null;
-  let cloudLabelEl: Element | null = null;
-
-  for (const label of sectionLabels) {
-    if (label.textContent?.trim() === 'Local') localLabelEl = label;
-    if (label.textContent?.trim() === 'Cloud') cloudLabelEl = label;
-  }
-
-  // The divider immediately before the Local label
-  if (localLabelEl?.previousElementSibling?.classList.contains('divider')) {
-    localDividerEl = localLabelEl.previousElementSibling;
-  }
-  // The divider immediately before the Cloud label
-  if (cloudLabelEl?.previousElementSibling?.classList.contains('divider')) {
-    cloudDividerEl = cloudLabelEl.previousElementSibling;
-  }
-
-  // Toggle Local section visibility
-  const localElements = [localDividerEl, localLabelEl, localStatus, btnPairLocal];
-  for (const el of localElements) {
-    if (el instanceof HTMLElement) {
-      el.style.display = showLocal ? '' : 'none';
-    }
-  }
-
-  // Toggle Cloud section visibility
-  const cloudElements = [cloudDividerEl, cloudLabelEl, cloudStatus, btnCloudSignIn];
-  for (const el of cloudElements) {
-    if (el instanceof HTMLElement) {
-      el.style.display = showCloud ? '' : 'none';
-    }
-  }
+  // Toggle Cloud troubleshooting elements visibility.
+  cloudStatus.style.display = showCloud ? '' : 'none';
+  btnCloudSignIn.style.display = showCloud ? '' : 'none';
 }
 
 /**
@@ -259,7 +237,7 @@ chrome.storage.local.get(['relayPort']).then((result) => {
 // Query current status from service worker
 chrome.runtime.sendMessage({ type: 'get_status' }, (response: { connected: boolean }) => {
   if (chrome.runtime.lastError) return;
-  setConnected(response?.connected ?? false);
+  setPhase(response?.connected ? 'connected' : 'disconnected');
 });
 
 function getPort(): number {
@@ -271,29 +249,18 @@ function getPort(): number {
   return DEFAULT_RELAY_PORT;
 }
 
+// ── Connect (primary CTA) ───────────────────────────────────────────
+//
+// No local precheck — the worker handles auth bootstrap (pairing/sign-in)
+// automatically when interactive=true. Users can connect in one click
+// even when not previously paired or signed in.
+
 btnConnect.addEventListener('click', async () => {
   const port = getPort();
   const storageUpdate: Record<string, unknown> = { autoConnect: true };
 
   errorText.style.display = 'none';
-
-  // Check whether pairing is required based on the selected assistant's
-  // auth profile. In cloud mode the worker uses the stored cloud token
-  // (vellum.cloudAuthToken) directly, so the popup must NOT try to hit
-  // localhost — a cloud-only user may not have a local assistant running.
-  if (currentAuthProfile === 'local-pair') {
-    if (!currentAssistantId) {
-      showError('No assistant selected — please select an assistant first.');
-      return;
-    }
-    const pairedToken = await getStoredLocalToken(currentAssistantId);
-    if (!pairedToken) {
-      showError(
-        'Local assistant is not paired yet — click "Pair with local assistant" below before connecting.',
-      );
-      return;
-    }
-  }
+  setPhase('connecting');
 
   if (portInput.value.trim()) {
     storageUpdate.relayPort = port;
@@ -305,7 +272,7 @@ btnConnect.addEventListener('click', async () => {
   chrome.runtime.sendMessage({ type: 'connect' }, (response: { ok: boolean; error?: string }) => {
     if (chrome.runtime.lastError || !response?.ok) {
       showError(response?.error ?? chrome.runtime.lastError?.message ?? 'Unknown error');
-      btnConnect.disabled = false;
+      setPhase('disconnected');
       return;
     }
     // Poll briefly for open state
@@ -314,21 +281,28 @@ btnConnect.addEventListener('click', async () => {
       chrome.runtime.sendMessage({ type: 'get_status' }, (r: { connected: boolean }) => {
         if (r?.connected || ++attempts > 10) {
           clearInterval(poll);
-          setConnected(r?.connected ?? false);
+          setPhase(r?.connected ? 'connected' : 'disconnected');
         }
       });
     }, 300);
   });
 });
 
-btnDisconnect.addEventListener('click', () => {
+// ── Pause (secondary action) ────────────────────────────────────────
+//
+// Sends the existing disconnect/stop message to the worker while
+// presenting the action as "Pause" in the UI. Credentials are
+// preserved so reconnect is instant. Once PR 2 lands, this will
+// migrate to the dedicated `pause` message.
+
+btnPause.addEventListener('click', () => {
   chrome.storage.local.set({ autoConnect: false });
   chrome.runtime.sendMessage({ type: 'disconnect' }, () => {
-    setConnected(false);
+    setPhase('paused');
   });
 });
 
-// ── Self-hosted native-messaging pairing ────────────────────────────
+// ── Self-hosted native-messaging pairing (troubleshooting) ──────────
 //
 // Pairing runs the local native messaging helper (com.vellum.daemon),
 // which POSTs the extension's origin to the assistant's
@@ -336,6 +310,9 @@ btnDisconnect.addEventListener('click', () => {
 // The token is persisted in chrome.storage.local under
 // `vellum.localCapabilityToken` and is used directly by the
 // self-hosted relay WebSocket connection.
+//
+// This is a manual recovery control — normal connect handles pairing
+// automatically via the worker's interactive bootstrap.
 
 function setLocalStatus(text: string, state: 'neutral' | 'paired' | 'error'): void {
   localStatus.textContent = text;
@@ -395,7 +372,7 @@ function requestLocalPair(): Promise<LocalPairResponse> {
 
 btnPairLocal.addEventListener('click', async () => {
   btnPairLocal.disabled = true;
-  setLocalStatus('Pairing…', 'neutral');
+  setLocalStatus('Pairing\u2026', 'neutral');
   // Delegate to the service worker so the native-messaging bootstrap
   // survives the popup teardown race — see the `self-hosted-pair`
   // handler in worker.ts, and the matching cloud-auth-sign-in pattern.
@@ -410,10 +387,13 @@ btnPairLocal.addEventListener('click', async () => {
 
 refreshLocalStatus();
 
-// ── Cloud sign-in ───────────────────────────────────────────────────
+// ── Cloud sign-in (troubleshooting) ─────────────────────────────────
 //
 // The token is persisted and consumed by the background worker when
 // opening cloud relay WebSocket connections.
+//
+// This is a manual recovery control — normal connect handles cloud
+// sign-in automatically via the worker's interactive bootstrap.
 
 function setCloudStatus(text: string, signedIn: boolean): void {
   cloudStatus.textContent = text;
@@ -473,7 +453,7 @@ function requestCloudSignIn(): Promise<CloudSignInResponse> {
 
 btnCloudSignIn.addEventListener('click', async () => {
   btnCloudSignIn.disabled = true;
-  setCloudStatus('Signing in…', false);
+  setCloudStatus('Signing in\u2026', false);
   errorText.style.display = 'none';
   // Clear any stale auth-error the worker persisted during a failed
   // reconnect — the user is explicitly retrying sign-in now.
