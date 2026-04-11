@@ -12,6 +12,16 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+// Route trust-store file writes at the test workspace's protected dir
+// instead of the real ~/.vellum/protected/trust.json. Must be set before
+// importing ../permissions/trust-store.js so getGatewaySecurityDir() picks
+// up the override at module load time. Matches the pattern in
+// checker.test.ts, trust-store.test.ts, etc.
+process.env.GATEWAY_SECURITY_DIR = join(
+  process.env.VELLUM_WORKSPACE_DIR!,
+  "protected",
+);
+
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
