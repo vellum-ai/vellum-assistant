@@ -213,7 +213,7 @@ describe('listAssistants', () => {
 
     const catalog = await listAssistants();
 
-    expect(catalog.assistants).toHaveLength(2);
+    expect(catalog.assistants.length).toBe(2);
     expect(catalog.activeAssistantId).toBe('a-1');
 
     // First assistant: local with daemon port
@@ -245,7 +245,7 @@ describe('listAssistants', () => {
     };
 
     const catalog = await listAssistants();
-    expect(catalog.assistants).toHaveLength(0);
+    expect(catalog.assistants.length).toBe(0);
     expect(catalog.activeAssistantId).toBeNull();
   });
 
@@ -267,7 +267,7 @@ describe('listAssistants', () => {
     };
 
     const catalog = await listAssistants();
-    expect(catalog.assistants).toHaveLength(2);
+    expect(catalog.assistants.length).toBe(2);
     expect(catalog.assistants[0]!.assistantId).toBe('valid');
     expect(catalog.assistants[1]!.assistantId).toBe('also-valid');
   });
@@ -321,7 +321,7 @@ describe('listAssistants', () => {
     };
 
     const catalog = await listAssistants();
-    expect(catalog.assistants).toHaveLength(0);
+    expect(catalog.assistants.length).toBe(0);
     expect(catalog.activeAssistantId).toBe('orphan');
   });
 
