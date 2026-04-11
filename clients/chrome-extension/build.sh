@@ -19,6 +19,11 @@ else
   EXT_VERSION=$(jq -r '.version' "$SCRIPT_DIR/manifest.json")
 fi
 
+# Chrome manifest requires 1-4 dot-separated integers. Strip any
+# prerelease suffix (e.g. "0.6.0-staging.3" -> "0.6.0") so staging
+# builds produce a valid extension zip.
+EXT_VERSION="${EXT_VERSION%%-*}"
+
 echo "Building Vellum browser-relay extension…"
 
 # Type-check with tsc --noEmit before bundling so type errors fail fast
