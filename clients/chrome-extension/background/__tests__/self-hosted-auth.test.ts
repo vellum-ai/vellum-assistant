@@ -13,10 +13,12 @@ import {
   getStoredLocalToken,
   clearLocalToken,
   bootstrapLocalToken,
+  localTokenStorageKey,
   type StoredLocalToken,
 } from '../self-hosted-auth.js';
 
-const STORAGE_KEY = 'vellum.localCapabilityToken';
+const ASSISTANT_A = 'assistant-alpha';
+const ASSISTANT_B = 'assistant-beta';
 
 interface FakeStorage {
   data: Record<string, unknown>;
@@ -165,6 +167,14 @@ afterEach(() => {
   (globalThis as { chrome?: unknown }).chrome = originalChrome;
 });
 
+describe('localTokenStorageKey', () => {
+  test('builds a colon-separated key', () => {
+    expect(localTokenStorageKey('my-assistant')).toBe(
+      'vellum.localCapabilityToken:my-assistant',
+    );
+  });
+});
+
 describe('bootstrapLocalToken', () => {
   test('happy path persists and returns the token', async () => {
     const issuedAt = Date.now();
@@ -183,7 +193,7 @@ describe('bootstrapLocalToken', () => {
       });
     };
 
-    const result = await bootstrapLocalToken();
+    const result = await bootstrapLocalToken(ASSISTANT_A);
     expect(result.token).toBe('abc123');
     expect(result.guardianId).toBe('g-42');
     expect(result.expiresAt).toBe(Date.parse(expiresAtIso));
@@ -192,8 +202,9 @@ describe('bootstrapLocalToken', () => {
     expect(fakeRuntime.connectCalls).toEqual(['com.vellum.daemon']);
     expect(fakeRuntime.currentPort?.sent).toEqual([{ type: 'request_token' }]);
 
-    // Token was persisted.
-    expect(fakeStorage.data[STORAGE_KEY]).toEqual(result);
+    // Token was persisted under assistant-scoped key.
+    const key = localTokenStorageKey(ASSISTANT_A);
+    expect(fakeStorage.data[key]).toEqual(result);
 
     // Port was cleaned up.
     expect(fakeRuntime.currentPort?.disconnected).toBe(true);
@@ -213,16 +224,11 @@ describe('bootstrapLocalToken', () => {
       });
     };
 
-    const result = await bootstrapLocalToken();
+    const result = await bootstrapLocalToken(ASSISTANT_A);
     expect(result.expiresAt).toBe(expiresAt);
   });
 
   test('persists assistantPort when the helper frame includes it', async () => {
-    // PR 3 of the browser-use remediation plan added `assistantPort`
-    // to the native-messaging `token_response` frame so the worker
-    // can open the relay socket against the runtime port the helper
-    // actually used (instead of the hard-coded DEFAULT_RELAY_PORT).
-    // This test exercises that round-trip end-to-end.
     const expiresAtIso = new Date(Date.now() + 60_000).toISOString();
 
     fakeRuntime.onConnect = (port) => {
@@ -237,21 +243,17 @@ describe('bootstrapLocalToken', () => {
       });
     };
 
-    const result = await bootstrapLocalToken();
+    const result = await bootstrapLocalToken(ASSISTANT_A);
     expect(result.assistantPort).toBe(7821);
     expect(result.guardianId).toBe('g-port');
 
     // And the stored value must round-trip through getStoredLocalToken.
-    const loaded = await getStoredLocalToken();
+    const loaded = await getStoredLocalToken(ASSISTANT_A);
     expect(loaded).not.toBeNull();
     expect(loaded!.assistantPort).toBe(7821);
   });
 
   test('omits assistantPort when the helper frame is missing it', async () => {
-    // Native helpers that omit the optional assistantPort field must
-    // still produce a valid StoredLocalToken — the worker will fall
-    // back to the stored `relayPort` / default value when
-    // assistantPort is undefined.
     const expiresAtIso = new Date(Date.now() + 60_000).toISOString();
 
     fakeRuntime.onConnect = (port) => {
@@ -265,16 +267,12 @@ describe('bootstrapLocalToken', () => {
       });
     };
 
-    const result = await bootstrapLocalToken();
+    const result = await bootstrapLocalToken(ASSISTANT_A);
     expect(result.assistantPort).toBeUndefined();
     expect(result.guardianId).toBe('g-legacy');
   });
 
   test('drops malformed assistantPort from the helper frame', async () => {
-    // Belt-and-braces: if a future native helper ships a value we
-    // can't parse (e.g. a string or an out-of-range port), we must
-    // still accept the token and drop the malformed port rather than
-    // rejecting the whole frame.
     const expiresAtIso = new Date(Date.now() + 60_000).toISOString();
 
     fakeRuntime.onConnect = (port) => {
@@ -290,7 +288,7 @@ describe('bootstrapLocalToken', () => {
       });
     };
 
-    const result = await bootstrapLocalToken();
+    const result = await bootstrapLocalToken(ASSISTANT_A);
     expect(result.assistantPort).toBeUndefined();
   });
 
@@ -306,8 +304,8 @@ describe('bootstrapLocalToken', () => {
       });
     };
 
-    await expect(bootstrapLocalToken()).rejects.toThrow('malformed token_response');
-    expect(fakeStorage.data[STORAGE_KEY]).toBeUndefined();
+    await expect(bootstrapLocalToken(ASSISTANT_A)).rejects.toThrow('malformed token_response');
+    expect(fakeStorage.data[localTokenStorageKey(ASSISTANT_A)]).toBeUndefined();
     expect(fakeRuntime.currentPort?.disconnected).toBe(true);
   });
 
@@ -318,8 +316,8 @@ describe('bootstrapLocalToken', () => {
       });
     };
 
-    await expect(bootstrapLocalToken()).rejects.toThrow('unauthorized_origin');
-    expect(fakeStorage.data[STORAGE_KEY]).toBeUndefined();
+    await expect(bootstrapLocalToken(ASSISTANT_A)).rejects.toThrow('unauthorized_origin');
+    expect(fakeStorage.data[localTokenStorageKey(ASSISTANT_A)]).toBeUndefined();
     expect(fakeRuntime.currentPort?.disconnected).toBe(true);
   });
 
@@ -330,7 +328,7 @@ describe('bootstrapLocalToken', () => {
       });
     };
 
-    await expect(bootstrapLocalToken()).rejects.toThrow('native messaging error');
+    await expect(bootstrapLocalToken(ASSISTANT_A)).rejects.toThrow('native messaging error');
   });
 
   test('timeout rejects and disconnects the port', async () => {
@@ -339,10 +337,10 @@ describe('bootstrapLocalToken', () => {
       // Intentionally silent.
     };
 
-    await expect(bootstrapLocalToken({ timeoutMs: 20 })).rejects.toThrow(
+    await expect(bootstrapLocalToken(ASSISTANT_A, { timeoutMs: 20 })).rejects.toThrow(
       'native messaging timeout',
     );
-    expect(fakeStorage.data[STORAGE_KEY]).toBeUndefined();
+    expect(fakeStorage.data[localTokenStorageKey(ASSISTANT_A)]).toBeUndefined();
     expect(fakeRuntime.currentPort?.disconnected).toBe(true);
   });
 
@@ -354,10 +352,10 @@ describe('bootstrapLocalToken', () => {
       });
     };
 
-    await expect(bootstrapLocalToken()).rejects.toThrow(
+    await expect(bootstrapLocalToken(ASSISTANT_A)).rejects.toThrow(
       'Specified native messaging host not found.',
     );
-    expect(fakeStorage.data[STORAGE_KEY]).toBeUndefined();
+    expect(fakeStorage.data[localTokenStorageKey(ASSISTANT_A)]).toBeUndefined();
   });
 
   test('disconnect with no lastError falls back to generic message', async () => {
@@ -367,7 +365,7 @@ describe('bootstrapLocalToken', () => {
       });
     };
 
-    await expect(bootstrapLocalToken()).rejects.toThrow(
+    await expect(bootstrapLocalToken(ASSISTANT_A)).rejects.toThrow(
       'native messaging disconnected before response',
     );
   });
@@ -387,31 +385,19 @@ describe('bootstrapLocalToken', () => {
       });
     };
 
-    // The caller should still receive a usable token even though we
-    // failed to save it to chrome.storage.local. Persistence is
-    // best-effort from the pair flow's perspective — the in-memory
-    // token is still valid for the current session and the popup
-    // surfaces the same record to the user.
-    const result = await bootstrapLocalToken();
+    const result = await bootstrapLocalToken(ASSISTANT_A);
     expect(result.token).toBe('persist-fail');
     expect(result.guardianId).toBe('g-persist');
     expect(result.expiresAt).toBe(Date.parse(expiresAtIso));
 
     // But nothing was actually written to storage.
-    expect(fakeStorage.data[STORAGE_KEY]).toBeUndefined();
+    expect(fakeStorage.data[localTokenStorageKey(ASSISTANT_A)]).toBeUndefined();
 
     // And the port was torn down as part of marking the promise settled.
     expect(fakeRuntime.currentPort?.disconnected).toBe(true);
   });
 
   test('ignores onDisconnect after a valid token_response (race)', async () => {
-    // Simulates the real-world race where the native helper writes its
-    // token_response frame and then immediately exits, causing Chrome
-    // to fire onDisconnect on the same turn as onMessage. Before the
-    // fix, `settled` was only flipped after the async storage write
-    // resolved, so a fast disconnect could win the race and reject a
-    // valid pairing. Now `settled` is set synchronously the moment the
-    // token frame is validated, so the subsequent disconnect is a no-op.
     fakeRuntime.lastError = { message: 'port closed' };
 
     const expiresAtIso = new Date(Date.now() + 60_000).toISOString();
@@ -424,18 +410,15 @@ describe('bootstrapLocalToken', () => {
           expiresAt: expiresAtIso,
           guardianId: 'g-race',
         });
-        // Emitted on the same microtask turn as the token frame, before
-        // the persistLocalToken promise has a chance to resolve. If the
-        // disconnect handler rejects here, the test fails.
         port.emitDisconnect();
       });
     };
 
-    const result = await bootstrapLocalToken();
+    const result = await bootstrapLocalToken(ASSISTANT_A);
     expect(result.token).toBe('race-winner');
     expect(result.guardianId).toBe('g-race');
     // Token was still persisted despite the racing disconnect.
-    expect(fakeStorage.data[STORAGE_KEY]).toEqual(result);
+    expect(fakeStorage.data[localTokenStorageKey(ASSISTANT_A)]).toEqual(result);
   });
 
   test('ignores unknown frame types until a recognised frame arrives', async () => {
@@ -455,14 +438,14 @@ describe('bootstrapLocalToken', () => {
       });
     };
 
-    const result = await bootstrapLocalToken();
+    const result = await bootstrapLocalToken(ASSISTANT_A);
     expect(result.token).toBe('late');
   });
 });
 
 describe('getStoredLocalToken', () => {
   test('returns null when nothing is stored', async () => {
-    expect(await getStoredLocalToken()).toBeNull();
+    expect(await getStoredLocalToken(ASSISTANT_A)).toBeNull();
   });
 
   test('returns the stored token when valid', async () => {
@@ -471,30 +454,30 @@ describe('getStoredLocalToken', () => {
       expiresAt: Date.now() + 60_000,
       guardianId: 'g-1',
     };
-    fakeStorage.data[STORAGE_KEY] = token;
-    expect(await getStoredLocalToken()).toEqual(token);
+    fakeStorage.data[localTokenStorageKey(ASSISTANT_A)] = token;
+    expect(await getStoredLocalToken(ASSISTANT_A)).toEqual(token);
   });
 
   test('returns null when the token is expired', async () => {
-    fakeStorage.data[STORAGE_KEY] = {
+    fakeStorage.data[localTokenStorageKey(ASSISTANT_A)] = {
       token: 'expired',
       expiresAt: Date.now() - 1_000,
       guardianId: 'g-1',
     } satisfies StoredLocalToken;
-    expect(await getStoredLocalToken()).toBeNull();
+    expect(await getStoredLocalToken(ASSISTANT_A)).toBeNull();
   });
 
   test('returns null when the stored value is malformed', async () => {
-    fakeStorage.data[STORAGE_KEY] = { token: 42, expiresAt: 'soon' };
-    expect(await getStoredLocalToken()).toBeNull();
+    fakeStorage.data[localTokenStorageKey(ASSISTANT_A)] = { token: 42, expiresAt: 'soon' };
+    expect(await getStoredLocalToken(ASSISTANT_A)).toBeNull();
   });
 
   test('returns null when guardianId is missing', async () => {
-    fakeStorage.data[STORAGE_KEY] = {
+    fakeStorage.data[localTokenStorageKey(ASSISTANT_A)] = {
       token: 'valid',
       expiresAt: Date.now() + 60_000,
     };
-    expect(await getStoredLocalToken()).toBeNull();
+    expect(await getStoredLocalToken(ASSISTANT_A)).toBeNull();
   });
 
   test('returns the stored token including assistantPort when present', async () => {
@@ -504,19 +487,19 @@ describe('getStoredLocalToken', () => {
       guardianId: 'g-port',
       assistantPort: 7821,
     };
-    fakeStorage.data[STORAGE_KEY] = token;
-    const loaded = await getStoredLocalToken();
+    fakeStorage.data[localTokenStorageKey(ASSISTANT_A)] = token;
+    const loaded = await getStoredLocalToken(ASSISTANT_A);
     expect(loaded?.assistantPort).toBe(7821);
   });
 
   test('strips a malformed assistantPort rather than rejecting the token', async () => {
-    fakeStorage.data[STORAGE_KEY] = {
+    fakeStorage.data[localTokenStorageKey(ASSISTANT_A)] = {
       token: 'bad-port',
       expiresAt: Date.now() + 60_000,
       guardianId: 'g-bad',
       assistantPort: -1,
     };
-    const loaded = await getStoredLocalToken();
+    const loaded = await getStoredLocalToken(ASSISTANT_A);
     // Token still loads, but the bogus port was dropped.
     expect(loaded).not.toBeNull();
     expect(loaded?.token).toBe('bad-port');
@@ -526,17 +509,182 @@ describe('getStoredLocalToken', () => {
 
 describe('clearLocalToken', () => {
   test('removes the key from storage', async () => {
-    fakeStorage.data[STORAGE_KEY] = {
+    const key = localTokenStorageKey(ASSISTANT_A);
+    fakeStorage.data[key] = {
       token: 'to-clear',
       expiresAt: Date.now() + 60_000,
       guardianId: 'g-1',
     } satisfies StoredLocalToken;
-    await clearLocalToken();
-    expect(fakeStorage.data[STORAGE_KEY]).toBeUndefined();
+    await clearLocalToken(ASSISTANT_A);
+    expect(fakeStorage.data[key]).toBeUndefined();
   });
 
   test('is a no-op when nothing is stored', async () => {
-    await clearLocalToken();
-    expect(fakeStorage.data[STORAGE_KEY]).toBeUndefined();
+    await clearLocalToken(ASSISTANT_A);
+    expect(fakeStorage.data[localTokenStorageKey(ASSISTANT_A)]).toBeUndefined();
+  });
+});
+
+describe('assistant token isolation', () => {
+  test('tokens stored for different assistants do not interfere', async () => {
+    const tokenA: StoredLocalToken = {
+      token: 'token-for-alpha',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-alpha',
+    };
+    const tokenB: StoredLocalToken = {
+      token: 'token-for-beta',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-beta',
+    };
+    fakeStorage.data[localTokenStorageKey(ASSISTANT_A)] = tokenA;
+    fakeStorage.data[localTokenStorageKey(ASSISTANT_B)] = tokenB;
+
+    const loadedA = await getStoredLocalToken(ASSISTANT_A);
+    const loadedB = await getStoredLocalToken(ASSISTANT_B);
+
+    expect(loadedA?.token).toBe('token-for-alpha');
+    expect(loadedB?.token).toBe('token-for-beta');
+  });
+
+  test('clearing one assistant token does not affect another', async () => {
+    const tokenA: StoredLocalToken = {
+      token: 'alpha-token',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-alpha',
+    };
+    const tokenB: StoredLocalToken = {
+      token: 'beta-token',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-beta',
+    };
+    fakeStorage.data[localTokenStorageKey(ASSISTANT_A)] = tokenA;
+    fakeStorage.data[localTokenStorageKey(ASSISTANT_B)] = tokenB;
+
+    await clearLocalToken(ASSISTANT_A);
+
+    expect(await getStoredLocalToken(ASSISTANT_A)).toBeNull();
+    expect(await getStoredLocalToken(ASSISTANT_B)).toEqual(tokenB);
+  });
+
+  test('bootstrap persists under the correct assistant-scoped key', async () => {
+    const expiresAtIso = new Date(Date.now() + 60_000).toISOString();
+
+    fakeRuntime.onConnect = (port) => {
+      queueMicrotask(() => {
+        port.emitMessage({
+          type: 'token_response',
+          token: 'scoped-token',
+          expiresAt: expiresAtIso,
+          guardianId: 'g-scoped',
+        });
+      });
+    };
+
+    await bootstrapLocalToken(ASSISTANT_B);
+
+    // Only ASSISTANT_B's key should be populated.
+    expect(fakeStorage.data[localTokenStorageKey(ASSISTANT_B)]).toBeDefined();
+    expect(fakeStorage.data[localTokenStorageKey(ASSISTANT_A)]).toBeUndefined();
+  });
+});
+
+describe('legacy token migration (self-hosted)', () => {
+  const LEGACY_KEY = 'vellum.localCapabilityToken';
+
+  test('getStoredLocalToken migrates a valid legacy token to the scoped key', async () => {
+    const legacyToken: StoredLocalToken = {
+      token: 'legacy-cap',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-legacy',
+    };
+    fakeStorage.data[LEGACY_KEY] = legacyToken;
+
+    const result = await getStoredLocalToken(ASSISTANT_A);
+    expect(result).toEqual(legacyToken);
+
+    // Legacy key was removed.
+    expect(fakeStorage.data[LEGACY_KEY]).toBeUndefined();
+    // Scoped key was populated.
+    expect(fakeStorage.data[localTokenStorageKey(ASSISTANT_A)]).toEqual(legacyToken);
+  });
+
+  test('migration preserves assistantPort from the legacy token', async () => {
+    const legacyToken: StoredLocalToken = {
+      token: 'legacy-with-port',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-legacy-port',
+      assistantPort: 7821,
+    };
+    fakeStorage.data[LEGACY_KEY] = legacyToken;
+
+    const result = await getStoredLocalToken(ASSISTANT_A);
+    expect(result?.assistantPort).toBe(7821);
+    expect(fakeStorage.data[LEGACY_KEY]).toBeUndefined();
+    expect(fakeStorage.data[localTokenStorageKey(ASSISTANT_A)]).toEqual(legacyToken);
+  });
+
+  test('migration does not clobber an existing scoped token', async () => {
+    const scopedToken: StoredLocalToken = {
+      token: 'scoped-cap',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-scoped',
+    };
+    const legacyToken: StoredLocalToken = {
+      token: 'legacy-cap',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-legacy',
+    };
+    fakeStorage.data[localTokenStorageKey(ASSISTANT_A)] = scopedToken;
+    fakeStorage.data[LEGACY_KEY] = legacyToken;
+
+    const result = await getStoredLocalToken(ASSISTANT_A);
+    expect(result).toEqual(scopedToken);
+    // Legacy key is NOT removed because the scoped key already existed.
+    expect(fakeStorage.data[LEGACY_KEY]).toEqual(legacyToken);
+  });
+
+  test('migration is idempotent — second call is a no-op', async () => {
+    const legacyToken: StoredLocalToken = {
+      token: 'legacy-cap',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-legacy',
+    };
+    fakeStorage.data[LEGACY_KEY] = legacyToken;
+
+    // First call migrates.
+    await getStoredLocalToken(ASSISTANT_A);
+    expect(fakeStorage.data[LEGACY_KEY]).toBeUndefined();
+
+    // Second call is a no-op — the scoped key exists and the legacy key
+    // is gone.
+    const result = await getStoredLocalToken(ASSISTANT_A);
+    expect(result).toEqual(legacyToken);
+    expect(fakeStorage.data[localTokenStorageKey(ASSISTANT_A)]).toEqual(legacyToken);
+  });
+
+  test('migration ignores a malformed legacy value', async () => {
+    fakeStorage.data[LEGACY_KEY] = { token: 42, expiresAt: 'soon' };
+
+    const result = await getStoredLocalToken(ASSISTANT_A);
+    expect(result).toBeNull();
+  });
+
+  test('migration returns null for an expired legacy token', async () => {
+    fakeStorage.data[LEGACY_KEY] = {
+      token: 'expired-legacy',
+      expiresAt: Date.now() - 1_000,
+      guardianId: 'g-expired',
+    } satisfies StoredLocalToken;
+
+    // validateLocalToken checks expiry, so expired legacy tokens are
+    // not migrated.
+    const result = await getStoredLocalToken(ASSISTANT_A);
+    expect(result).toBeNull();
+  });
+
+  test('migration returns null when no legacy key exists', async () => {
+    const result = await getStoredLocalToken(ASSISTANT_A);
+    expect(result).toBeNull();
   });
 });
