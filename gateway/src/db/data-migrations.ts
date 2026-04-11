@@ -16,9 +16,13 @@ import { getLogger } from "../logger.js";
 
 const log = getLogger("data-migrations");
 
+/** Return value from a migration's run function. */
+type MigrationResult = "done" | "skip";
+
 type Migration = {
   key: string;
-  run: () => void;
+  /** Return "done" to record the key permanently, "skip" to retry next startup. */
+  run: () => MigrationResult;
 };
 
 // ---------------------------------------------------------------------------
@@ -35,25 +39,27 @@ type Migration = {
  * and removes the old copy. Uses copy-then-delete (not rename) because the
  * source and destination are on different Docker volumes.
  */
-function migrateProxyCa(): void {
+function migrateProxyCa(): MigrationResult {
   const srcDir = join(getWorkspaceDir(), "data", "proxy-ca");
   const destDir = join(getGatewaySecurityDir(), "proxy-ca");
 
   if (existsSync(destDir)) {
     log.debug("proxy-ca already exists in gateway-security dir — skipping");
-    return;
+    return "done";
   }
 
   if (!existsSync(srcDir)) {
-    log.debug("No legacy proxy-ca directory found — skipping");
-    return;
+    // Source doesn't exist yet — the assistant may not have generated the
+    // CA cert. Return "skip" so the migration retries on next startup.
+    log.debug("No legacy proxy-ca directory found — will retry next startup");
+    return "skip";
   }
 
   // Verify the source has at least one file before copying
   const entries = readdirSync(srcDir);
   if (entries.length === 0) {
-    log.debug("Legacy proxy-ca directory is empty — skipping");
-    return;
+    log.debug("Legacy proxy-ca directory is empty — will retry next startup");
+    return "skip";
   }
 
   try {
@@ -81,6 +87,7 @@ function migrateProxyCa(): void {
     { from: srcDir, to: destDir, fileCount: entries.length },
     "Migrated proxy-ca to gateway-security directory",
   );
+  return "done";
 }
 
 // ---------------------------------------------------------------------------
@@ -114,9 +121,16 @@ export function runDataMigrations(db: Database): void {
 
     log.info({ key: migration.key }, "Running one-time data migration");
     try {
-      migration.run();
-      insert.run(migration.key, Date.now());
-      log.info({ key: migration.key }, "Data migration completed");
+      const result = migration.run();
+      if (result === "done") {
+        insert.run(migration.key, Date.now());
+        log.info({ key: migration.key }, "Data migration completed");
+      } else {
+        log.info(
+          { key: migration.key },
+          "Data migration skipped — will retry on next startup",
+        );
+      }
     } catch (err) {
       log.error(
         { err, key: migration.key },
