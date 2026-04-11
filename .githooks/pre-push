@@ -6,7 +6,7 @@
 # 1. Swift build (clients/) — when .swift files changed (macOS SPM)
 # 2. iOS build (clients/ios/) — when .swift files changed (xcodebuild for simulator)
 # 3. TypeScript type check (assistant/) — when .ts/.tsx files changed
-# 4. Lint (assistant/, cli/, gateway/) — eslint on changed .ts/.tsx/.js/.jsx/.mjs files
+# 4. Lint (assistant/, cli/, gateway/, clients/chrome-extension/) — eslint on changed .ts/.tsx/.js/.jsx/.mjs files
 # 5. Related test discovery and execution — via dependency graph + filename heuristics
 #
 # Skip Swift build only:  SKIP_SWIFT_BUILD=1 git push
@@ -258,10 +258,10 @@ if [ -n "$CHANGED_FILES" ]; then
         _debug_log "tsc --noEmit done (passed)"
     fi
 
-    # --- Lint check for assistant/, cli/, gateway/ ---
+    # --- Lint check for assistant/, cli/, gateway/, clients/chrome-extension/ ---
     # Runs eslint on changed files to catch import-sort, unused-vars, and other
     # lint issues that tsc doesn't cover. Scoped to only the changed files for speed.
-    LINT_PACKAGES=("assistant" "cli" "gateway")
+    LINT_PACKAGES=("assistant" "cli" "gateway" "clients/chrome-extension")
     for lint_pkg in "${LINT_PACKAGES[@]}"; do
         lint_files=()
         while IFS= read -r file; do
@@ -304,7 +304,7 @@ if [ -n "$CHANGED_FILES" ]; then
     # readFileSync (invisible to the import graph). For a changed source file like
     # `src/foo/bar-baz.ts`, looks for `bar-baz.test.ts` or `bar-baz-*.test.ts`.
 
-    PACKAGES=("assistant" "cli" "gateway")
+    PACKAGES=("assistant" "cli" "gateway" "clients/chrome-extension")
     overall_exit=0
 
     for pkg in "${PACKAGES[@]}"; do
@@ -386,6 +386,12 @@ if [ -n "$CHANGED_FILES" ]; then
         fi
 
         if [ ${#stems[@]} -gt 0 ]; then
+            # Search src/ for packages that have it, otherwise the package root.
+            # Always exclude node_modules to avoid false positives.
+            _find_root="${REPO_ROOT}/${pkg}/src"
+            if [ ! -d "$_find_root" ]; then
+                _find_root="${REPO_ROOT}/${pkg}"
+            fi
             for stem in "${stems[@]}"; do
                 while IFS= read -r tf; do
                     if [ -n "$tf" ] && [ -z "${seen_tests[$tf]:-}" ]; then
@@ -393,10 +399,10 @@ if [ -n "$CHANGED_FILES" ]; then
                         seen_tests["$tf"]=1
                     fi
                 done < <(
-                    find "${REPO_ROOT}/${pkg}/src" -type f \( \
+                    find "$_find_root" -path '*/node_modules' -prune -o -type f \( \
                         -name "${stem}.test.ts" -o \
                         -name "${stem}-*.test.ts" \
-                    \) 2>/dev/null
+                    \) -print 2>/dev/null
                 )
             done
         fi
