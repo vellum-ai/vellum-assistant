@@ -117,14 +117,14 @@ function makeRouteContext(
     server: {} as RouteContext["server"],
     authContext: {
       subject: "test-user",
-      principalType: "host",
+      principalType: "local",
       assistantId: "self",
-      scopeProfile: "host",
-      scopes: new Set(),
+      scopeProfile: "local_v1",
+      scopes: new Set(["local.all" as const]),
       policyEpoch: 0,
     },
     params: { id: messageId },
-  } as RouteContext;
+  } as unknown as RouteContext;
 }
 
 async function readErrorBody(
