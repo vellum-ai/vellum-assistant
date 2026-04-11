@@ -9,6 +9,7 @@ import { registerAuditCommand } from "./commands/audit.js";
 import { registerAuthCommand } from "./commands/auth.js";
 import { registerAutonomyCommand } from "./commands/autonomy.js";
 import { registerAvatarCommand } from "./commands/avatar.js";
+import { registerBackupCommand } from "./commands/backup.js";
 import { registerBashCommand } from "./commands/bash.js";
 import { registerChannelVerificationSessionsCommand } from "./commands/channel-verification-sessions.js";
 import { registerCompletionsCommand } from "./commands/completions.js";
@@ -58,6 +59,7 @@ Examples:
   );
 
   registerDefaultAction(program);
+  registerBackupCommand(program);
   registerBashCommand(program);
   registerConversationsCommand(program);
   registerConfigCommand(program);
