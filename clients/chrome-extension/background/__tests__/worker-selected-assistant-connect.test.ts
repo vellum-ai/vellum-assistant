@@ -20,7 +20,7 @@
  *   - `get_status` returns the current auth profile.
  */
 
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, test, expect } from 'bun:test';
 
 // ── Fake Chrome primitives ──────────────────────────────────────────
 
@@ -34,7 +34,7 @@ interface FakeStorage {
   };
 }
 
-function createFakeStorage(): FakeStorage {
+function _createFakeStorage(): FakeStorage {
   const data: Record<string, unknown> = {};
   return {
     data,
@@ -79,7 +79,7 @@ interface FakePort {
   emitDisconnect(): void;
 }
 
-function createFakePort(): FakePort {
+function _createFakePort(): FakePort {
   const messageListeners: Array<(msg: unknown) => void> = [];
   const disconnectListeners: Array<(port: FakePort) => void> = [];
   const port: FakePort = {
