@@ -183,6 +183,14 @@ export class GatewayIpcClient extends EventEmitter {
     socket.on("close", () => {
       this.connected = false;
       this.socket = null;
+
+      // Reject all pending calls — they can never receive a response
+      for (const [id, pending] of this.pendingCalls) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error("IPC socket closed"));
+        this.pendingCalls.delete(id);
+      }
+
       if (!this.stopped) {
         log.debug(
           { delayMs: this.reconnectDelay },
