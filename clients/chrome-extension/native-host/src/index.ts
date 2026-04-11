@@ -12,14 +12,18 @@
  *   1. Verify that the calling extension's origin (passed by Chrome as the
  *      first command-line argument, e.g. `chrome-extension://<id>/`) is on a
  *      hard-coded allowlist of known Vellum extension IDs.
- *   2. Listen on stdin for `{ type: "request_token" }` frames.
- *   3. POST the calling extension's origin to the running assistant's
- *      `/v1/browser-extension-pair` endpoint (port resolved from
- *      `--assistant-port`, then `~/.vellum/runtime-port`, then defaulting to
- *      7821).
- *   4. Echo the assistant's response back to Chrome as a
+ *   2. Listen on stdin for `{ type: "request_token" }` and
+ *      `{ type: "list_assistants" }` frames.
+ *   3. For `request_token`: POST the calling extension's origin to the
+ *      running assistant's `/v1/browser-extension-pair` endpoint (port
+ *      resolved from optional `assistantId` lockfile lookup, then
+ *      `--assistant-port`, then `~/.vellum/runtime-port`, then defaulting
+ *      to 7821).
+ *   4. For `list_assistants`: read the lockfile and return the assistant
+ *      inventory as `{ type: "assistants_response", assistants, activeAssistantId }`.
+ *   5. Echo the assistant's response back to Chrome as a
  *      `{ type: "token_response", token, expiresAt, guardianId }` frame.
- *   5. On any unrecoverable error, write a `{ type: "error", message }` frame
+ *   6. On any unrecoverable error, write a `{ type: "error", message }` frame
  *      and exit with a non-zero status.
  *
  * The helper deliberately does NOT persist tokens — the extension is
@@ -37,6 +41,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { readAssistantInventory, resolveDaemonPort } from "./lockfile.js";
 import { decodeFrames, encodeFrame, FrameDecodeError } from "./protocol.js";
 
 /**
@@ -323,8 +328,25 @@ function fail(message: string, code = 1): never {
 async function requestToken(
   extensionOrigin: string,
   argv: readonly string[],
+  assistantId?: string,
 ): Promise<TokenResponse> {
-  const port = resolveAssistantPort(argv);
+  // When an assistantId is provided, attempt to resolve the daemon port
+  // from the lockfile first. This lets the extension target a specific
+  // assistant in multi-instance setups. Falls back to the standard
+  // resolution chain (--assistant-port, runtime-port file, default) when
+  // the assistantId is absent or the lockfile doesn't have a daemon port
+  // for that assistant.
+  let port: number;
+  if (assistantId) {
+    const lockfilePort = resolveDaemonPort(assistantId);
+    if (lockfilePort !== undefined) {
+      port = lockfilePort;
+    } else {
+      port = resolveAssistantPort(argv);
+    }
+  } else {
+    port = resolveAssistantPort(argv);
+  }
   const url = `http://127.0.0.1:${port}/v1/browser-extension-pair`;
 
   let response: Response;
@@ -436,30 +458,57 @@ async function main(): Promise<void> {
         }
         handling = true;
 
-        if (
-          !frame ||
-          typeof frame !== "object" ||
-          (frame as { type?: unknown }).type !== "request_token"
-        ) {
+        if (!frame || typeof frame !== "object") {
           fail("unsupported_frame_type");
         }
 
-        try {
-          const { token, expiresAt, guardianId, assistantPort } =
-            await requestToken(extensionOrigin!, process.argv);
-          await writeFrameAndExitAsync(
-            {
-              type: "token_response",
-              token,
-              expiresAt,
-              guardianId,
-              assistantPort,
-            },
-            0,
-          );
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          fail(message);
+        const frameType = (frame as { type?: unknown }).type;
+
+        if (frameType === "list_assistants") {
+          // Return the assistant inventory from the lockfile. This is a
+          // synchronous read — no network call needed.
+          try {
+            const inventory = readAssistantInventory();
+            await writeFrameAndExitAsync(
+              {
+                type: "assistants_response",
+                assistants: inventory.assistants,
+                activeAssistantId: inventory.activeAssistantId,
+              },
+              0,
+            );
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            fail(message);
+          }
+        } else if (frameType === "request_token") {
+          // Extract optional assistantId from the request frame. When
+          // present, the helper resolves the target daemon port from the
+          // lockfile instead of the default resolution chain.
+          const assistantId =
+            typeof (frame as { assistantId?: unknown }).assistantId === "string"
+              ? ((frame as { assistantId: string }).assistantId)
+              : undefined;
+
+          try {
+            const { token, expiresAt, guardianId, assistantPort } =
+              await requestToken(extensionOrigin!, process.argv, assistantId);
+            await writeFrameAndExitAsync(
+              {
+                type: "token_response",
+                token,
+                expiresAt,
+                guardianId,
+                assistantPort,
+              },
+              0,
+            );
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            fail(message);
+          }
+        } else {
+          fail("unsupported_frame_type");
         }
       }
     } catch (err) {
