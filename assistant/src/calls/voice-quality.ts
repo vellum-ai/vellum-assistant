@@ -89,7 +89,9 @@ export function resolveVoiceQualityProfile(
     transcriptionProvider: voice.transcriptionProvider,
     speechModel: effectiveSpeechModel,
     ttsProvider: usesSynthesizedPath ? "Google" : "ElevenLabs",
-    voice: usesSynthesizedPath ? "" : buildElevenLabsVoiceSpec(cfg.elevenlabs),
+    voice: usesSynthesizedPath
+      ? ""
+      : buildElevenLabsVoiceSpec(cfg.services.tts.providers.elevenlabs),
     interruptSensitivity: voice.interruptSensitivity ?? "low",
     hints: voice.hints ?? [],
   };

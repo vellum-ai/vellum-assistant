@@ -88,7 +88,7 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests: tts_provider persists to canonical and legacy paths
+// Tests: tts_provider persists to canonical path only
 // ---------------------------------------------------------------------------
 
 describe("voice_config_update — tts_provider", () => {
@@ -106,7 +106,7 @@ describe("voice_config_update — tts_provider", () => {
     expect((config.services as any)?.tts?.provider).toBe("fish-audio");
   });
 
-  test("persists tts_provider to legacy calls.voice.ttsProvider", async () => {
+  test("does not write to legacy calls.voice.ttsProvider", async () => {
     writeConfig({});
     invalidateConfigCache();
 
@@ -117,7 +117,7 @@ describe("voice_config_update — tts_provider", () => {
 
     expect(result.isError).toBe(false);
     const config = readConfig();
-    expect((config.calls as any)?.voice?.ttsProvider).toBe("fish-audio");
+    expect((config.calls as any)?.voice?.ttsProvider).toBeUndefined();
   });
 
   test("rejects invalid tts_provider", async () => {
@@ -145,7 +145,7 @@ describe("voice_config_update — tts_provider", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests: tts_voice_id persists to canonical and legacy paths
+// Tests: tts_voice_id persists to canonical path only
 // ---------------------------------------------------------------------------
 
 describe("voice_config_update — tts_voice_id", () => {
@@ -165,7 +165,7 @@ describe("voice_config_update — tts_voice_id", () => {
     );
   });
 
-  test("persists to legacy elevenlabs.voiceId", async () => {
+  test("does not write to legacy elevenlabs.voiceId", async () => {
     writeConfig({});
     invalidateConfigCache();
 
@@ -176,7 +176,7 @@ describe("voice_config_update — tts_voice_id", () => {
 
     expect(result.isError).toBe(false);
     const config = readConfig();
-    expect((config.elevenlabs as any)?.voiceId).toBe("abc123");
+    expect((config.elevenlabs as any)?.voiceId).toBeUndefined();
   });
 
   test("rejects non-alphanumeric voice ID", async () => {
@@ -191,7 +191,7 @@ describe("voice_config_update — tts_voice_id", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests: fish_audio_reference_id persists to canonical and legacy paths
+// Tests: fish_audio_reference_id persists to canonical path only
 // ---------------------------------------------------------------------------
 
 describe("voice_config_update — fish_audio_reference_id", () => {
@@ -211,7 +211,7 @@ describe("voice_config_update — fish_audio_reference_id", () => {
     ).toBe("voice-ref-123");
   });
 
-  test("persists to legacy fishAudio.referenceId", async () => {
+  test("does not write to legacy fishAudio.referenceId", async () => {
     writeConfig({});
     invalidateConfigCache();
 
@@ -222,7 +222,7 @@ describe("voice_config_update — fish_audio_reference_id", () => {
 
     expect(result.isError).toBe(false);
     const config = readConfig();
-    expect((config.fishAudio as any)?.referenceId).toBe("voice-ref-123");
+    expect((config.fishAudio as any)?.referenceId).toBeUndefined();
   });
 
   test("rejects empty reference ID", async () => {
@@ -237,7 +237,7 @@ describe("voice_config_update — fish_audio_reference_id", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests: conversation_timeout persists to canonical and legacy paths
+// Tests: conversation_timeout persists to canonical path only
 // ---------------------------------------------------------------------------
 
 describe("voice_config_update — conversation_timeout", () => {
@@ -258,7 +258,7 @@ describe("voice_config_update — conversation_timeout", () => {
     ).toBe(15);
   });
 
-  test("persists to legacy elevenlabs.conversationTimeoutSeconds", async () => {
+  test("does not write to legacy elevenlabs.conversationTimeoutSeconds", async () => {
     writeConfig({});
     invalidateConfigCache();
 
@@ -269,7 +269,9 @@ describe("voice_config_update — conversation_timeout", () => {
 
     expect(result.isError).toBe(false);
     const config = readConfig();
-    expect((config.elevenlabs as any)?.conversationTimeoutSeconds).toBe(15);
+    expect(
+      (config.elevenlabs as any)?.conversationTimeoutSeconds,
+    ).toBeUndefined();
   });
 
   test("rejects invalid timeout", async () => {
