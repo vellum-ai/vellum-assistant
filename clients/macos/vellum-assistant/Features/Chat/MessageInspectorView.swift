@@ -555,14 +555,32 @@ struct MessageInspectorView: View {
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
     }
 
+    private static let timeOnlyFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = .autoupdatingCurrent
+        f.dateStyle = .none
+        f.timeStyle = .medium
+        return f
+    }()
+
+    private static let dateTimeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = .autoupdatingCurrent
+        f.dateStyle = .medium
+        f.timeStyle = .medium
+        return f
+    }()
+
     private func formattedTimestamp(_ epochMs: Int) -> String {
-        Date(timeIntervalSince1970: TimeInterval(epochMs) / 1000.0)
-            .formatted(date: .omitted, time: .standard)
+        let date = Date(timeIntervalSince1970: TimeInterval(epochMs) / 1000.0)
+        Self.timeOnlyFormatter.timeZone = ChatTimestampTimeZone.resolve()
+        return Self.timeOnlyFormatter.string(from: date)
     }
 
     private func formattedDateTime(_ epochMs: Int) -> String {
-        Date(timeIntervalSince1970: TimeInterval(epochMs) / 1000.0)
-            .formatted(date: .abbreviated, time: .standard)
+        let date = Date(timeIntervalSince1970: TimeInterval(epochMs) / 1000.0)
+        Self.dateTimeFormatter.timeZone = ChatTimestampTimeZone.resolve()
+        return Self.dateTimeFormatter.string(from: date)
     }
 }
 
