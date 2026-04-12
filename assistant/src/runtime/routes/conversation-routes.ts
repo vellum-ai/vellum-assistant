@@ -1050,30 +1050,8 @@ function makeHubPublisher(
         conversationId,
         kind: "secret",
       });
-    } else if (msg.type === "host_bash_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "host_bash",
-      });
-    } else if (msg.type === "host_browser_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "host_browser",
-      });
-    } else if (msg.type === "host_file_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "host_file",
-      });
-    } else if (msg.type === "host_cu_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "host_cu",
-      });
+    } else {
+      registerHostProxyPendingInteraction(msg, conversation, conversationId);
     }
 
     // ServerMessage is a large union; conversationId exists on most but not all variants.
@@ -1103,6 +1081,54 @@ function makeHubPublisher(
 }
 
 /**
+ * Register pending interactions for host proxy request envelopes so
+ * standalone result endpoints can resolve by requestId.
+ *
+ * Returns the registered requestId when a host proxy request was registered.
+ * Callers that route through non-hub transports (e.g. registry-routed
+ * host_browser sends) can use this to clean up the registration if send fails.
+ */
+function registerHostProxyPendingInteraction(
+  msg: ServerMessage,
+  conversation: import("../../daemon/conversation.js").Conversation,
+  conversationId: string,
+): string | undefined {
+  if (msg.type === "host_bash_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversation,
+      conversationId,
+      kind: "host_bash",
+    });
+    return msg.requestId;
+  }
+  if (msg.type === "host_browser_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversation,
+      conversationId,
+      kind: "host_browser",
+    });
+    return msg.requestId;
+  }
+  if (msg.type === "host_file_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversation,
+      conversationId,
+      kind: "host_file",
+    });
+    return msg.requestId;
+  }
+  if (msg.type === "host_cu_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversation,
+      conversationId,
+      kind: "host_cu",
+    });
+    return msg.requestId;
+  }
+  return undefined;
+}
+
+/**
  * Resolve the host_browser sender function for a conversation turn.
  *
  * When the guardian has an active extension connection in the
@@ -1126,6 +1152,7 @@ function makeHubPublisher(
  */
 function resolveHostBrowserSender(
   conversation: import("../../daemon/conversation.js").Conversation,
+  conversationId: string,
   authContext: AuthContext,
   onEvent: (msg: ServerMessage) => void,
   sourceInterface: InterfaceId,
@@ -1151,16 +1178,23 @@ function resolveHostBrowserSender(
   // the conversation's bound guardian identity rather than a stale
   // authContext.actorPrincipalId.
   const registrySender = (msg: ServerMessage): void => {
+    const requestId = registerHostProxyPendingInteraction(
+      msg,
+      conversation,
+      conversationId,
+    );
     const gid =
       conversation.trustContext?.guardianPrincipalId ??
       authContext.actorPrincipalId;
     if (!gid) {
+      if (requestId) pendingInteractions.resolve(requestId);
       throw new Error(
         "host_browser send skipped: no guardianId on AuthContext",
       );
     }
     const ok = getChromeExtensionRegistry().send(gid, msg);
     if (!ok) {
+      if (requestId) pendingInteractions.resolve(requestId);
       throw new Error(
         `host_browser send failed: no active connection for guardian ${gid}`,
       );
@@ -1405,6 +1439,7 @@ export async function handleSendMessage(
   const { sender: browserProxySendToClient, isRegistryRouted } =
     resolveHostBrowserSender(
       conversation,
+      mapping.conversationId,
       authContext,
       onEvent,
       sourceInterface,
@@ -1931,10 +1966,7 @@ export async function handleSendMessage(
         onEvent({ type: "assistant_text_delta", text: responseText });
         onEvent({ type: "message_complete", conversationId });
       } catch (err) {
-        log.error(
-          { err, conversationId },
-          "Compact command failed",
-        );
+        log.error({ err, conversationId }, "Compact command failed");
         onEvent({
           type: "conversation_error",
           conversationId,
