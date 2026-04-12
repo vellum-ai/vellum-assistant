@@ -490,23 +490,20 @@ struct VoiceSettingsView: View {
             }
         }
 
-        // Persist API key if entered
+        // Persist API key if entered. Clear the field and update hasKey
+        // optimistically so the UI reflects the save immediately; the
+        // async daemon sync validates the key in the background.
         let trimmedKey = ttsApiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedKey.isEmpty {
+            ttsApiKeyText = ""
+            ttsProviderHasKey = true
             switch draftTTSProvider {
             case "elevenlabs":
-                store.saveElevenLabsKey(trimmedKey, onSuccess: {
-                    ttsApiKeyText = ""
-                    ttsProviderHasKey = true
-                })
+                store.saveElevenLabsKey(trimmedKey)
             case "fish-audio":
-                store.saveFishAudioKey(trimmedKey, onSuccess: {
-                    ttsApiKeyText = ""
-                    ttsProviderHasKey = true
-                })
+                store.saveFishAudioKey(trimmedKey)
             default:
-                // For unknown providers, just clear the field
-                ttsApiKeyText = ""
+                break
             }
         }
 
@@ -623,13 +620,13 @@ struct VoiceSettingsView: View {
             sttProviderRaw = draftSTTProvider
         }
 
-        // Persist API key if provided
+        // Persist API key if provided. Clear the field and update hasKey
+        // optimistically so the UI reflects the save immediately.
         let trimmedKey = sttApiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedKey.isEmpty {
-            store.saveSTTOpenAIKey(trimmedKey) {
-                sttProviderHasKey = true
-                sttApiKeyText = ""
-            }
+            sttApiKeyText = ""
+            sttProviderHasKey = true
+            store.saveSTTOpenAIKey(trimmedKey)
         }
 
         initialSTTProvider = draftSTTProvider
