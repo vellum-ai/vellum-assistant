@@ -2,27 +2,30 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// A small pill badge that displays the current environment and app version
-/// on setup/onboarding screens for non-production builds.
+/// A small pill badge that displays the current environment and resolved
+/// platform URL on setup/onboarding screens for non-production builds.
 ///
 /// Hidden entirely when the environment is `.production` (i.e. `displayLabel` is `nil`).
 struct EnvironmentBadge: View {
     private let environment = VellumEnvironment.current
-
-    private var appVersion: String? {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
-    }
+    private let platformURL = VellumEnvironment.resolvedPlatformURL
 
     var body: some View {
         if let envLabel = environment.displayLabel {
-            HStack(spacing: VSpacing.xs) {
-                Circle()
-                    .fill(badgeColor)
-                    .frame(width: 6, height: 6)
+            VStack(spacing: VSpacing.xxs) {
+                HStack(spacing: VSpacing.xs) {
+                    Circle()
+                        .fill(badgeColor)
+                        .frame(width: 6, height: 6)
 
-                Text(badgeText(envLabel: envLabel))
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentSecondary)
+                    Text(envLabel)
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentSecondary)
+                }
+
+                Text(platformURL)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(VColor.contentTertiary)
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.xs)
@@ -34,13 +37,6 @@ struct EnvironmentBadge: View {
             )
             .padding(.top, VSpacing.md)
         }
-    }
-
-    private func badgeText(envLabel: String) -> String {
-        if let version = appVersion {
-            return "\(envLabel) \u{2022} v\(version)"
-        }
-        return envLabel
     }
 
     private var badgeColor: Color {
