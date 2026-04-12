@@ -52,7 +52,7 @@ For the full managed sign-in architecture, see `clients/ARCHITECTURE.md`.
 
 To install the pre-built macOS app, download the signed and notarized DMG:
 
-**[Download Vellum.dmg](https://github.com/vellum-ai/velly/releases/latest/download/vellum-assistant.dmg)**
+**[Download Vellum.dmg](https://github.com/vellum-ai/vellum-assistant/releases/latest/download/vellum-assistant.dmg)**
 
 1. Open the DMG and drag **Vellum.app** to your Applications folder
 2. Launch Vellum — macOS may prompt "are you sure?" on first launch (click Open)
@@ -62,7 +62,7 @@ The app includes **Sparkle auto-update** — after the initial install, updates 
 
 > **Note (local mode):** You need the daemon running for the app to function in local mode. See the [Local Assistant (Daemon)](#local-assistant-daemon) section below for setup. In managed mode, the assistant runs on the Vellum platform and no local daemon is required.
 
-All releases are available at [github.com/vellum-ai/velly/releases](https://github.com/vellum-ai/velly/releases).
+All releases are available at [github.com/vellum-ai/vellum-assistant/releases](https://github.com/vellum-ai/vellum-assistant/releases).
 
 ---
 

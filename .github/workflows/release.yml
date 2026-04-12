@@ -1676,7 +1676,7 @@ jobs:
             SIZE=$(stat -f%z dist/vellum-assistant.zip)
           fi
 
-          REPO="vellum-ai/velly"
+          REPO="vellum-ai/vellum-assistant"
           FILENAME="appcast.xml"
           cat > "dist/$FILENAME" << EOF
           <?xml version="1.0" encoding="utf-8"?>
@@ -2164,18 +2164,21 @@ jobs:
             echo "Release $VERSION_TAG already exists on ${{ github.repository }}, skipping"
           fi
 
-          # Create release on velly
-          VELLY_REPO="vellum-ai/velly"
-          if ! gh release view "$VERSION_TAG" --repo "$VELLY_REPO" &>/dev/null; then
+          # Mirror release to the legacy public updates repo so that older
+          # Sparkle clients still pointing at vellum-ai/velly can pick up new
+          # versions.  This block can be removed once all clients have been
+          # updated to point at vellum-ai/vellum-assistant.
+          LEGACY_REPO="vellum-ai/velly"
+          if ! gh release view "$VERSION_TAG" --repo "$LEGACY_REPO" &>/dev/null; then
             gh release create "$VERSION_TAG" \
               "${ASSETS[@]}" \
-              --repo "$VELLY_REPO" \
+              --repo "$LEGACY_REPO" \
               --title "Vellum $VERSION" \
               --notes-file "$NOTES_FILE" \
               --latest
-            echo "Release created at https://github.com/$VELLY_REPO/releases/tag/$VERSION_TAG"
+            echo "Release mirrored to https://github.com/$LEGACY_REPO/releases/tag/$VERSION_TAG"
           else
-            echo "Release $VERSION_TAG already exists on $VELLY_REPO, skipping"
+            echo "Release $VERSION_TAG already exists on $LEGACY_REPO, skipping"
           fi
 
           rm -f "$NOTES_FILE"

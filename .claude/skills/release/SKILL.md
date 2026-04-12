@@ -47,7 +47,7 @@ This triggers the unified Release workflow which automatically handles:
 - Tagging the release
 - Publishing npm packages
 - Building, signing, notarizing, and publishing the macOS DMG
-- Creating GitHub Releases on both `vellum-ai/vellum-assistant` and `vellum-ai/velly`
+- Creating GitHub Releases on `vellum-ai/vellum-assistant`
 - Updating the `vellum-assistant-platform` dependency
 
 ### 4. Verify the workflow started
