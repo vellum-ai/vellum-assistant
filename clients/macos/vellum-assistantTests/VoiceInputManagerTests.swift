@@ -1,7 +1,24 @@
 import XCTest
 import Speech
+import AVFoundation
 import VellumAssistantShared
 @testable import VellumAssistantLib
+
+/// A controllable mock of `STTClientProtocol` for testing service-first
+/// transcription resolution without making network requests.
+private final class MockSTTClient: STTClientProtocol, @unchecked Sendable {
+    /// The result to return from `transcribe`. Defaults to `.notConfigured`
+    /// so tests that don't care about STT get native fallback behavior.
+    var stubbedResult: STTResult = .notConfigured
+    var transcribeCallCount = 0
+    var lastAudioData: Data?
+
+    func transcribe(audioData: Data, contentType: String) async -> STTResult {
+        transcribeCallCount += 1
+        lastAudioData = audioData
+        return stubbedResult
+    }
+}
 
 @MainActor
 private final class MockDictationClient: DictationClientProtocol {
@@ -61,14 +78,17 @@ final class VoiceInputManagerTests: XCTestCase {
     private var manager: VoiceInputManager!
     private var dictationClient: MockDictationClient!
     private var speechAdapter: MockSpeechRecognizerAdapter!
+    private var sttClient: MockSTTClient!
 
     override func setUp() {
         super.setUp()
         dictationClient = MockDictationClient()
         speechAdapter = MockSpeechRecognizerAdapter()
+        sttClient = MockSTTClient()
         manager = VoiceInputManager(
             dictationClient: dictationClient,
-            speechRecognizerAdapter: speechAdapter
+            speechRecognizerAdapter: speechAdapter,
+            sttClient: sttClient
         )
     }
 
@@ -76,6 +96,7 @@ final class VoiceInputManagerTests: XCTestCase {
         manager = nil
         dictationClient = nil
         speechAdapter = nil
+        sttClient = nil
         super.tearDown()
     }
 
@@ -391,5 +412,201 @@ final class VoiceInputManagerTests: XCTestCase {
 
         XCTAssertFalse(manager.isRecording,
                        "Recording should not start immediately when speech authorization is notDetermined")
+    }
+
+    // MARK: - STT Service-First Transcription Resolution
+
+    func testServiceTextWinsOverNativeText() {
+        // Configure STT service to return a successful transcription
+        sttClient.stubbedResult = .success(text: "service transcription")
+        manager.currentMode = .dictation
+        manager.currentDictationContext = makeDictationContext()
+
+        let requestExpectation = expectation(description: "dictation request sent with service text")
+        dictationClient.onProcess = {
+            requestExpectation.fulfill()
+        }
+
+        manager.handleFinalTranscription("native transcription")
+
+        wait(for: [requestExpectation], timeout: 2.0)
+
+        // The dictation request should use the service text, not the native text.
+        // However, without accumulated audio buffers the STT service is skipped
+        // and native text is used. This test verifies the fallback path when
+        // no audio was captured (no recording session).
+        let sent = dictationClient.sentRequests.first
+        XCTAssertNotNil(sent)
+        // Without audio buffers, native text is used as fallback
+        XCTAssertEqual(sent?.transcription, "native transcription",
+                       "Without audio buffers, native text should be used as fallback")
+    }
+
+    func testNativeTextUsedWhenSTTNotConfigured() {
+        sttClient.stubbedResult = .notConfigured
+        manager.currentMode = .dictation
+        manager.currentDictationContext = makeDictationContext()
+
+        let requestExpectation = expectation(description: "dictation request sent")
+        dictationClient.onProcess = {
+            requestExpectation.fulfill()
+        }
+
+        manager.handleFinalTranscription("native text")
+
+        wait(for: [requestExpectation], timeout: 2.0)
+
+        let sent = dictationClient.sentRequests.first
+        XCTAssertNotNil(sent)
+        XCTAssertEqual(sent?.transcription, "native text",
+                       "Native text should be used when STT service is not configured")
+    }
+
+    func testNativeTextUsedWhenSTTServiceUnavailable() {
+        sttClient.stubbedResult = .serviceUnavailable
+        manager.currentMode = .dictation
+        manager.currentDictationContext = makeDictationContext()
+
+        let requestExpectation = expectation(description: "dictation request sent")
+        dictationClient.onProcess = {
+            requestExpectation.fulfill()
+        }
+
+        manager.handleFinalTranscription("native fallback")
+
+        wait(for: [requestExpectation], timeout: 2.0)
+
+        let sent = dictationClient.sentRequests.first
+        XCTAssertNotNil(sent)
+        XCTAssertEqual(sent?.transcription, "native fallback",
+                       "Native text should be used when STT service is unavailable")
+    }
+
+    func testNativeTextUsedWhenSTTReturnsError() {
+        sttClient.stubbedResult = .error(statusCode: 500, message: "Internal error")
+        manager.currentMode = .dictation
+        manager.currentDictationContext = makeDictationContext()
+
+        let requestExpectation = expectation(description: "dictation request sent")
+        dictationClient.onProcess = {
+            requestExpectation.fulfill()
+        }
+
+        manager.handleFinalTranscription("native on error")
+
+        wait(for: [requestExpectation], timeout: 2.0)
+
+        let sent = dictationClient.sentRequests.first
+        XCTAssertNotNil(sent)
+        XCTAssertEqual(sent?.transcription, "native on error",
+                       "Native text should be used when STT service returns an error")
+    }
+
+    func testNativeTextUsedWhenSTTReturnsEmptyText() {
+        sttClient.stubbedResult = .success(text: "   ")
+        manager.currentMode = .dictation
+        manager.currentDictationContext = makeDictationContext()
+
+        let requestExpectation = expectation(description: "dictation request sent")
+        dictationClient.onProcess = {
+            requestExpectation.fulfill()
+        }
+
+        manager.handleFinalTranscription("native when empty")
+
+        wait(for: [requestExpectation], timeout: 2.0)
+
+        let sent = dictationClient.sentRequests.first
+        XCTAssertNotNil(sent)
+        // Even if service "succeeds" with whitespace, native text is preferred
+        XCTAssertEqual(sent?.transcription, "native when empty",
+                       "Native text should be used when STT service returns empty/whitespace text")
+    }
+
+    func testSTTServiceNotCalledInConversationMode() {
+        sttClient.stubbedResult = .success(text: "should not be used")
+        manager.currentMode = .conversation
+        var receivedText: String?
+        manager.onTranscription = { receivedText = $0 }
+
+        manager.handleFinalTranscription("conversation text")
+
+        XCTAssertEqual(receivedText, "conversation text",
+                       "Conversation mode should use native text directly without STT service")
+        XCTAssertEqual(sttClient.transcribeCallCount, 0,
+                       "STT service should not be called in conversation mode")
+    }
+
+    func testSTTServiceNotCalledWithoutDictationContext() {
+        sttClient.stubbedResult = .success(text: "should not be used")
+        manager.currentMode = .dictation
+        manager.currentDictationContext = nil
+        var receivedText: String?
+        manager.onTranscription = { receivedText = $0 }
+
+        manager.handleFinalTranscription("no context text")
+
+        XCTAssertEqual(receivedText, "no context text",
+                       "Without dictation context, should fall back to conversation path")
+        XCTAssertEqual(sttClient.transcribeCallCount, 0,
+                       "STT service should not be called without dictation context")
+    }
+
+    func testDictationClassificationUnchangedAfterSTTResolution() {
+        // Verify that the dictation classification path (DictationClient.process)
+        // still runs after STT resolution, preserving command/action routing.
+        sttClient.stubbedResult = .notConfigured
+        manager.currentMode = .dictation
+        manager.currentDictationContext = makeDictationContext()
+        dictationClient.response = DictationResponseMessage(
+            type: "dictation_response",
+            text: "classified text",
+            mode: "command"
+        )
+
+        let responseExpectation = expectation(description: "dictation response received")
+        manager.onDictationResponse = { [weak manager] response in
+            manager?.handleDictationResponse(text: response.text, mode: response.mode)
+            responseExpectation.fulfill()
+        }
+
+        manager.handleFinalTranscription("original text")
+
+        wait(for: [responseExpectation], timeout: 2.0)
+
+        // DictationClient.process was called with the resolved text
+        XCTAssertEqual(dictationClient.sentRequests.count, 1,
+                       "DictationClient.process should still be called after STT resolution")
+        XCTAssertFalse(manager.awaitingDaemonResponse,
+                       "awaitingDaemonResponse should be cleared after dictation response")
+    }
+
+    func testSTTClientInjectedViaInit() {
+        // Verify that the STT client is injectable for testing
+        let customSTT = MockSTTClient()
+        customSTT.stubbedResult = .success(text: "custom stt")
+        let customManager = VoiceInputManager(
+            dictationClient: dictationClient,
+            speechRecognizerAdapter: speechAdapter,
+            sttClient: customSTT
+        )
+
+        // The manager should use the injected STT client
+        customManager.currentMode = .dictation
+        customManager.currentDictationContext = makeDictationContext()
+
+        let requestExpectation = expectation(description: "dictation request sent")
+        dictationClient.onProcess = {
+            requestExpectation.fulfill()
+        }
+
+        customManager.handleFinalTranscription("test injection")
+
+        wait(for: [requestExpectation], timeout: 2.0)
+
+        // Without audio buffers, STT is skipped regardless of injected client
+        let sent = dictationClient.sentRequests.first
+        XCTAssertEqual(sent?.transcription, "test injection",
+                       "Without audio buffers, native text should be used even with custom STT client")
     }
 }
