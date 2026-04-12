@@ -1,28 +1,6 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// TTS provider options for the unified global provider selector.
-private enum TTSProviderOption: String, CaseIterable {
-    case elevenlabs = "elevenlabs"
-    case fishAudio = "fish-audio"
-
-    var displayName: String {
-        switch self {
-        case .elevenlabs: return "ElevenLabs"
-        case .fishAudio: return "Fish Audio"
-        }
-    }
-
-    var subtitle: String {
-        switch self {
-        case .elevenlabs:
-            return "High-quality voice synthesis for conversations and read-aloud. Requires an ElevenLabs API key."
-        case .fishAudio:
-            return "Natural-sounding voice synthesis with custom voice cloning. Requires a Fish Audio API key and voice reference ID."
-        }
-    }
-}
-
 /// Voice settings tab — configure push-to-talk activation key,
 /// conversation timeout, and text-to-speech provider.
 struct VoiceSettingsView: View {
@@ -30,7 +8,7 @@ struct VoiceSettingsView: View {
 
     @AppStorage("activationKey") private var activationKey: String = "fn"
     @AppStorage("voiceConversationTimeoutSeconds") private var conversationTimeoutSeconds: Int = 30
-    @AppStorage("ttsProvider") private var ttsProviderRaw: String = TTSProviderOption.elevenlabs.rawValue
+    @AppStorage("ttsProvider") private var ttsProviderRaw: String = "elevenlabs"
 
     @State private var elevenLabsKeyText: String = ""
     @State private var ttsSetupExpanded: Bool = false
@@ -40,8 +18,12 @@ struct VoiceSettingsView: View {
     @State private var recordingMonitors: [Any] = []
     @State private var modifierHoldTimer: Timer? = nil
 
-    private var ttsProvider: TTSProviderOption {
-        TTSProviderOption(rawValue: ttsProviderRaw) ?? .elevenlabs
+    /// The shared TTS provider registry loaded from the bundled catalog.
+    private let registry = loadTTSProviderRegistry()
+
+    /// The currently selected provider entry from the registry.
+    private var selectedProvider: TTSProviderCatalogEntry? {
+        registry.provider(withId: ttsProviderRaw)
     }
 
     private var currentActivator: PTTActivator {
@@ -311,35 +293,50 @@ struct VoiceSettingsView: View {
     private var ttsProviderCard: some View {
         SettingsCard(title: "Text-to-Speech", subtitle: "Choose a TTS provider for voice conversations and read-aloud. The selected provider is used globally across all speech features.") {
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                // Provider selector
+                // Provider selector — data-driven from the shared registry
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Provider:")
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentSecondary)
 
                     HStack(spacing: VSpacing.sm) {
-                        ForEach(TTSProviderOption.allCases, id: \.rawValue) { provider in
-                            let isSelected = ttsProvider == provider
-                            providerOption(label: provider.displayName, isSelected: isSelected) {
-                                ttsProviderRaw = provider.rawValue
-                                store.setTTSProvider(provider.rawValue)
+                        ForEach(registry.providers, id: \.id) { entry in
+                            let isSelected = ttsProviderRaw == entry.id
+                            providerOption(label: entry.displayName, isSelected: isSelected) {
+                                ttsProviderRaw = entry.id
+                                store.setTTSProvider(entry.id)
                             }
                         }
                     }
                 }
 
-                // Provider-specific subtitle
-                Text(ttsProvider.subtitle)
-                    .font(VFont.bodySmallDefault)
-                    .foregroundStyle(VColor.contentTertiary)
-
-                // Provider-specific configuration
-                switch ttsProvider {
-                case .elevenlabs:
-                    elevenLabsProviderConfig
-                case .fishAudio:
-                    fishAudioProviderConfig
+                // Provider-specific subtitle from registry metadata
+                if let provider = selectedProvider {
+                    Text(provider.subtitle)
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
+
+                // Provider-specific configuration panels.
+                // Existing providers retain their bespoke setup UX;
+                // new registry providers get a generic fallback panel.
+                providerConfigPanel
+            }
+        }
+    }
+
+    /// Routes to bespoke setup panels for known providers, or a generic
+    /// fallback for providers added to the registry without custom UI.
+    @ViewBuilder
+    private var providerConfigPanel: some View {
+        switch ttsProviderRaw {
+        case "elevenlabs":
+            elevenLabsProviderConfig
+        case "fish-audio":
+            fishAudioProviderConfig
+        default:
+            if let provider = selectedProvider {
+                genericProviderConfig(for: provider)
             }
         }
     }
@@ -460,6 +457,43 @@ struct VoiceSettingsView: View {
 
             VButton(label: "Visit Fish Audio", rightIcon: VIcon.arrowUpRight.rawValue, style: .outlined) {
                 NSWorkspace.shared.open(URL(string: "https://fish.audio")!)
+            }
+        }
+    }
+
+    // MARK: - Generic Provider Config (Fallback)
+
+    /// Generic setup panel for providers added to the registry that do not
+    /// have bespoke UI. Shows the setup hint from the catalog metadata and
+    /// renders either an inline API key field or CLI instructions depending
+    /// on the provider's `setupMode`.
+    private func genericProviderConfig(for entry: TTSProviderCatalogEntry) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text(entry.setupHint)
+                .font(VFont.bodyMediumDefault)
+                .foregroundStyle(VColor.contentSecondary)
+
+            switch entry.setupMode {
+            case .apiKey:
+                Text("Configure this provider via the CLI:")
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+
+                Text("assistant credentials set --service \(entry.id) --field api_key YOUR_KEY")
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(VColor.contentSecondary)
+                    .padding(VSpacing.md)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .fill(VColor.surfaceBase)
+                    )
+                    .textSelection(.enabled)
+
+            case .cli:
+                Text("Follow your provider's documentation to complete setup via the CLI.")
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentTertiary)
             }
         }
     }
