@@ -156,7 +156,7 @@ describe("tryTranscribeAudioAttachments", () => {
     expect(result).toEqual({ status: "no_audio" });
   });
 
-  test("no API key returns no_provider with helpful reason string", async () => {
+  test("no provider returns no_provider with service-agnostic reason", async () => {
     const audio = makeAudioAttachment("a1");
     mockAttachments = [audio];
     mockTranscriber = null; // No transcriber resolved
@@ -164,9 +164,10 @@ describe("tryTranscribeAudioAttachments", () => {
     const result = await tryTranscribeAudioAttachments(["a1"]);
 
     expect(result.status).toBe("no_provider");
-    expect((result as { reason: string }).reason).toContain(
-      "No OpenAI API key configured",
-    );
+    const reason = (result as { reason: string }).reason;
+    expect(reason).toContain("speech-to-text");
+    expect(reason).toContain("voice message transcription");
+    expect(reason).not.toContain("OpenAI");
   });
 
   test("API failure returns error with reason", async () => {
