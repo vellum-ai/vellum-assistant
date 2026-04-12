@@ -513,13 +513,18 @@ describe("browser_mode wiring through tool execution", () => {
       },
     );
 
+    // Use selector (not element_id) so resolveElement succeeds and
+    // execution reaches acquireCdpClientWithMode where the factory
+    // throws the pinned-mode CdpError.
     const result = await executeBrowserClick(
-      { element_id: "e1", browser_mode: "extension" },
+      { selector: "#btn", browser_mode: "extension" },
       ctx,
     );
-    // Note: click tries resolveElement first (which returns null for e1)
-    // so the error comes from element resolution, not mode selection
-    // Let's test with selector instead
     expect(result.isError).toBe(true);
+    expect(result.content).toContain('Browser mode "extension" failed');
+    expect(result.content).toContain(
+      "extension: FAILED at candidate_selection",
+    );
+    expect(result.content).toContain("Remediation:");
   });
 });
