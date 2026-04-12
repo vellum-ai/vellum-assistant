@@ -614,49 +614,68 @@ export function serviceDockerRunArgs(opts: {
       args.push(imageTags.assistant);
       return args;
     },
-    gateway: () => [
-      "run",
-      "--init",
-      "-d",
-      "--name",
-      res.gatewayContainer,
-      `--network=container:${res.assistantContainer}`,
-      "-v",
-      `${res.workspaceVolume}:/workspace`,
-      "-v",
-      `${res.gatewaySecurityVolume}:/gateway-security`,
-      "-v",
-      "/var/run/docker.sock:/var/run/docker.sock",
-      "-e",
-      "VELLUM_WORKSPACE_DIR=/workspace",
-      "-e",
-      "GATEWAY_SECURITY_DIR=/gateway-security",
-      "-e",
-      `ASSISTANT_CONTAINER_NAME=${res.assistantContainer}`,
-      "-e",
-      `GATEWAY_PORT=${GATEWAY_INTERNAL_PORT}`,
-      "-e",
-      "ASSISTANT_HOST=localhost",
-      "-e",
-      `RUNTIME_HTTP_PORT=${ASSISTANT_INTERNAL_PORT}`,
-      "-e",
-      "RUNTIME_PROXY_ENABLED=true",
-      "-e",
-      "CES_CREDENTIAL_URL=http://localhost:8090",
-      ...(cesServiceToken
-        ? ["-e", `CES_SERVICE_TOKEN=${cesServiceToken}`]
-        : []),
-      ...(opts.signingKey
-        ? ["-e", `ACTOR_TOKEN_SIGNING_KEY=${opts.signingKey}`]
-        : []),
-      ...(opts.bootstrapSecret
-        ? ["-e", `GUARDIAN_BOOTSTRAP_SECRET=${opts.bootstrapSecret}`]
-        : []),
-      ...(process.env.VELLUM_PLATFORM_URL
-        ? ["-e", `VELLUM_PLATFORM_URL=${process.env.VELLUM_PLATFORM_URL}`]
-        : []),
-      imageTags.gateway,
-    ],
+    gateway: () => {
+      // Resolve the Docker socket's group ID so the non-root gateway user
+      // can query the Docker Engine API for OOM detection.
+      let dockerSockGid: string | undefined;
+      try {
+        const stat = Bun.spawnSync([
+          "stat",
+          "-c",
+          "%g",
+          "/var/run/docker.sock",
+        ]);
+        const gid = stat.stdout.toString().trim();
+        if (/^\d+$/.test(gid)) dockerSockGid = gid;
+      } catch {
+        // Docker socket may not exist (e.g. non-Docker topology)
+      }
+
+      return [
+        "run",
+        "--init",
+        "-d",
+        "--name",
+        res.gatewayContainer,
+        `--network=container:${res.assistantContainer}`,
+        "-v",
+        `${res.workspaceVolume}:/workspace`,
+        "-v",
+        `${res.gatewaySecurityVolume}:/gateway-security`,
+        "-v",
+        "/var/run/docker.sock:/var/run/docker.sock",
+        ...(dockerSockGid ? ["--group-add", dockerSockGid] : []),
+        "-e",
+        "VELLUM_WORKSPACE_DIR=/workspace",
+        "-e",
+        "GATEWAY_SECURITY_DIR=/gateway-security",
+        "-e",
+        `ASSISTANT_CONTAINER_NAME=${res.assistantContainer}`,
+        "-e",
+        `GATEWAY_PORT=${GATEWAY_INTERNAL_PORT}`,
+        "-e",
+        "ASSISTANT_HOST=localhost",
+        "-e",
+        `RUNTIME_HTTP_PORT=${ASSISTANT_INTERNAL_PORT}`,
+        "-e",
+        "RUNTIME_PROXY_ENABLED=true",
+        "-e",
+        "CES_CREDENTIAL_URL=http://localhost:8090",
+        ...(cesServiceToken
+          ? ["-e", `CES_SERVICE_TOKEN=${cesServiceToken}`]
+          : []),
+        ...(opts.signingKey
+          ? ["-e", `ACTOR_TOKEN_SIGNING_KEY=${opts.signingKey}`]
+          : []),
+        ...(opts.bootstrapSecret
+          ? ["-e", `GUARDIAN_BOOTSTRAP_SECRET=${opts.bootstrapSecret}`]
+          : []),
+        ...(process.env.VELLUM_PLATFORM_URL
+          ? ["-e", `VELLUM_PLATFORM_URL=${process.env.VELLUM_PLATFORM_URL}`]
+          : []),
+        imageTags.gateway,
+      ];
+    },
     "credential-executor": () => [
       "run",
       "--init",
