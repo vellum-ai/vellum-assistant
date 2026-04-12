@@ -187,6 +187,96 @@ enum APIKeyManager {
         }
     }
 
+    // MARK: - Credential access (service:field secrets)
+
+    private static let credentialPrefix = "vellum_credential_"
+
+    /// Sync local read for a credential (FileCredentialStorage).
+    static func getCredential(service: String, field: String) -> String? {
+        storage.get(account: credentialPrefix + service + ":" + field)
+    }
+
+    /// Sync local write for a credential (FileCredentialStorage).
+    static func setCredential(_ value: String, service: String, field: String) {
+        _ = storage.set(account: credentialPrefix + service + ":" + field, value: value)
+        notifyKeyDidChange()
+    }
+
+    /// Sync local delete for a credential (FileCredentialStorage).
+    static func deleteCredential(service: String, field: String) {
+        _ = storage.delete(account: credentialPrefix + service + ":" + field)
+        notifyKeyDidChange()
+    }
+
+    /// Calls `secrets/read` with credential type and returns existence + masked value.
+    private static func readCredentialSecret(service: String, field: String) async -> SecretReadResult {
+        do {
+            let body: [String: Any] = ["type": "credential", "name": "\(service):\(field)"]
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/secrets/read", json: body, timeout: 5
+            )
+            guard response.isSuccess,
+                  let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                  let found = json["found"] as? Bool else {
+                return SecretReadResult(found: false, masked: nil)
+            }
+            let masked = json["masked"] as? String
+            return SecretReadResult(found: found, masked: masked)
+        } catch {
+            apiKeyLog.error("readCredentialSecret(\(service, privacy: .public):\(field, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
+            return SecretReadResult(found: false, masked: nil)
+        }
+    }
+
+    /// Check whether the assistant's secret store has a credential.
+    static func hasCredential(service: String, field: String) async -> Bool {
+        await readCredentialSecret(service: service, field: field).found
+    }
+
+    /// Read a masked credential from the assistant's secret store.
+    static func maskedCredential(service: String, field: String) async -> String? {
+        let result = await readCredentialSecret(service: service, field: field)
+        guard result.found, let masked = result.masked, !masked.isEmpty else { return nil }
+        return masked
+    }
+
+    /// Write a credential to the daemon's secret store via the gateway API.
+    static func setCredential(_ value: String, service: String, field: String) async -> SetKeyResult {
+        do {
+            let body: [String: Any] = ["type": "credential", "name": "\(service):\(field)", "value": value]
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/secrets", json: body, timeout: 5
+            )
+            if response.isSuccess {
+                return SetKeyResult(success: true, error: nil, isTransient: false)
+            }
+            let isServerError = response.statusCode >= 500
+            if let parsed = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+               let errorMsg = parsed["error"] as? String {
+                return SetKeyResult(success: false, error: errorMsg, isTransient: isServerError)
+            }
+            return SetKeyResult(success: false, error: "Failed to save credential (HTTP \(response.statusCode)).", isTransient: isServerError)
+        } catch {
+            apiKeyLog.error("setCredential(\(service, privacy: .public):\(field, privacy: .public)) async failed: \(error.localizedDescription, privacy: .public)")
+            return SetKeyResult(success: false, error: "Could not reach assistant. Please check that it is running.", isTransient: true)
+        }
+    }
+
+    /// Delete a credential from the daemon's secret store via the gateway API.
+    @discardableResult
+    static func deleteCredential(service: String, field: String) async -> Bool {
+        do {
+            let body: [String: Any] = ["type": "credential", "name": "\(service):\(field)"]
+            let response = try await GatewayHTTPClient.delete(
+                path: "assistants/{assistantId}/secrets", json: body, timeout: 5
+            )
+            return response.isSuccess
+        } catch {
+            apiKeyLog.error("deleteCredential(\(service, privacy: .public):\(field, privacy: .public)) async failed: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
     private static func notifyKeyDidChange() {
         NotificationCenter.default.post(name: .apiKeyManagerDidChange, object: nil)
     }
