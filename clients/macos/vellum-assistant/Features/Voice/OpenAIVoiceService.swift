@@ -326,12 +326,15 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         let sampleRate = capturedSampleRate
         capturedPCMData = Data()
 
-        // Collect the local recognizer's best text (may be partial if final
-        // callback hasn't fired yet).
-        let localText = await resolveLocalTranscription()
+        // Run local and service transcriptions concurrently so the total wait
+        // time is max(local, service) instead of local + service. Under
+        // degraded conditions this avoids blocking in .processing for up to
+        // 17 s (2 s local + 15 s service) — instead the ceiling is ~15 s.
+        async let localTextTask = resolveLocalTranscription()
+        async let serviceTextTask = resolveServiceTranscription(pcmData: pcmData, sampleRate: sampleRate)
 
-        // Service-first: try the gateway STT service with captured audio
-        let serviceText = await resolveServiceTranscription(pcmData: pcmData, sampleRate: sampleRate)
+        let localText = await localTextTask
+        let serviceText = await serviceTextTask
 
         tearDownRecognition()
         recordingStartTime = nil

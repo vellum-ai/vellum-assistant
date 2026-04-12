@@ -81,6 +81,12 @@ struct InputBarView: View {
     /// build a correct WAV header when encoding the collected buffers.
     @State private var recordingSampleRate: Int = 0
 
+    /// Monotonically increasing generation counter that identifies the current STT recording
+    /// session. Incremented each time a new recording starts. The async STT resolution task
+    /// captures this value at launch and checks it on completion — if it no longer matches,
+    /// a newer session has started and the stale result is silently discarded.
+    @State private var sttSessionId: Int = 0
+
     var body: some View {
         VStack(spacing: 0) {
             // Attachment strip (shown only when there are pending attachments)
@@ -396,6 +402,7 @@ struct InputBarView: View {
         }
 
         // Reset per-session state for the new recording session.
+        sttSessionId += 1
         lastSpeechTime = Date()
         hasSpeechOccurred = false
         isAudioEngineStopped = false
@@ -530,12 +537,24 @@ struct InputBarView: View {
         let wasAutoStopPending = isAutoStopPending
         let savedTextAtAutoStop = textAtAutoStop
 
+        // Capture the current session generation so we can detect if a new recording
+        // started while this async STT request was in-flight.
+        let sessionAtLaunch = sttSessionId
+
         Task { @MainActor in
             let serviceText = await transcribeViaService(
                 buffers: capturedBuffers,
                 sampleRate: sampleRate,
                 client: client
             )
+
+            // If a new recording session started while the service request was
+            // in-flight, discard this stale result to avoid tearing down the new
+            // session's state.
+            guard sttSessionId == sessionAtLaunch else {
+                log.info("STT session \(sessionAtLaunch) superseded by session \(sttSessionId) — discarding stale result")
+                return
+            }
 
             // Determine which transcript to use: service result if non-empty, else native fallback.
             let finalTranscript: String
