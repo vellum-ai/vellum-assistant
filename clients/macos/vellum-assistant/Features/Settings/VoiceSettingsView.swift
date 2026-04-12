@@ -116,6 +116,12 @@ struct VoiceSettingsView: View {
             ttsSaveError = nil
             ttsProviderHasKey = ttsCredentialExists(for: draftTTSProvider)
         }
+        .onChange(of: draftSTTProvider) { _, _ in
+            // Clear stale fields when STT provider changes
+            sttApiKeyText = ""
+            sttSaveError = nil
+            sttProviderHasKey = APIKeyManager.getKey(for: "openai") != nil
+        }
         .onChange(of: conversationTimeoutSeconds) {
             VoiceModeManager.conversationTimeoutOverride = conversationTimeoutSeconds
         }
@@ -492,22 +498,19 @@ struct VoiceSettingsView: View {
                 store.saveElevenLabsKey(trimmedKey, onSuccess: {
                     ttsApiKeyText = ""
                     ttsProviderHasKey = true
-                    ttsSaving = false
                 })
             case "fish-audio":
                 store.saveFishAudioKey(trimmedKey, onSuccess: {
                     ttsApiKeyText = ""
                     ttsProviderHasKey = true
-                    ttsSaving = false
                 })
             default:
-                // For unknown providers, just clear and finish
+                // For unknown providers, just clear the field
                 ttsApiKeyText = ""
-                ttsSaving = false
             }
-        } else {
-            ttsSaving = false
         }
+
+        ttsSaving = false
 
         // Update baseline for change detection
         initialTTSProvider = draftTTSProvider
@@ -563,6 +566,11 @@ struct VoiceSettingsView: View {
                         }
                     )
                 }
+
+                // Provider-specific subtitle
+                Text("High-accuracy speech-to-text transcription. Requires an OpenAI API key.")
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentTertiary)
 
                 // API key field
                 VTextField(
