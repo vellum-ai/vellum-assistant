@@ -18,7 +18,7 @@ public enum TTSResult: Sendable {
 }
 
 /// Client for text-to-speech synthesis routed through the gateway.
-public protocol TTSClientProtocol {
+public protocol TTSClientProtocol: Sendable {
     /// Synthesize a specific message's text to audio.
     func synthesize(messageId: String, conversationId: String?) async -> TTSResult
 
