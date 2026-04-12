@@ -536,6 +536,66 @@ describe("getUsageDayBuckets — timezone-aware", () => {
     expect(buckets[1].eventCount).toBe(0);
     expect(buckets[2].totalInputTokens).toBe(200);
   });
+
+  test("DST spring forward: mid-day `from` anchors correctly to local midnight", () => {
+    // America/Los_Angeles 2026-03-08 spring-forward: 02:00 PST -> 03:00 PDT.
+    // Naive day alignment (subtract current wall-clock hours from epoch)
+    // would misplace events around the transition when `from` is mid-day on
+    // the transition day. (PR #24722 review feedback from Codex.)
+
+    // Event at 17:00 UTC = 10:00 PDT on 2026-03-08 (post-DST).
+    insertEventAt(Date.UTC(2026, 2, 8, 17), { inputTokens: 500 });
+    // Event at 23:00 UTC = 16:00 PDT on 2026-03-08 (post-DST).
+    insertEventAt(Date.UTC(2026, 2, 8, 23), { inputTokens: 700 });
+    // Event at 06:00 UTC = 22:00 PST on 2026-03-07 (pre-DST, previous local day).
+    insertEventAt(Date.UTC(2026, 2, 8, 6), { inputTokens: 300 });
+
+    // `from` is mid-day on the transition day.
+    const buckets = getUsageDayBuckets(
+      { from: Date.UTC(2026, 2, 8, 18), to: Date.UTC(2026, 2, 9, 23) },
+      "America/Los_Angeles",
+      { fillEmpty: true },
+    );
+
+    // fillEmpty should seed a 2026-03-08 bucket aligned to 08:00 UTC (local
+    // midnight PST) — not to some post-transition offset that yields a prior
+    // local day. No "2026-03-07" bucket should appear.
+    const dates = buckets.map((b) => b.date);
+    expect(dates).not.toContain("2026-03-07");
+    expect(dates).toContain("2026-03-08");
+    // The 23:00-UTC event on March 8 must land in the 2026-03-08 bucket, not
+    // drift into 2026-03-09 due to offset/midnight misalignment.
+    const map = Object.fromEntries(buckets.map((b) => [b.date, b]));
+    // Events inserted at 17:00 and 23:00 UTC on March 8 are both after `from`
+    // (18:00 UTC) only for the second one; we mainly care that the 23:00-UTC
+    // event correctly lands on March 8 local.
+    expect(map["2026-03-08"]?.totalInputTokens).toBeGreaterThanOrEqual(700);
+  });
+
+  test("DST spring forward: day-midnight alignment works across the jump", () => {
+    // Direct regression test: an event at the FIRST moment of post-DST (just
+    // after 03:00 PDT = 10:00 UTC) on 2026-03-08 should bucket to 2026-03-08,
+    // not 2026-03-07.
+    insertEventAt(Date.UTC(2026, 2, 8, 10, 1), { inputTokens: 42 });
+
+    const buckets = getUsageDayBuckets(
+      { from: Date.UTC(2026, 2, 8, 10), to: Date.UTC(2026, 2, 9, 0) },
+      "America/Los_Angeles",
+    );
+
+    const map = Object.fromEntries(buckets.map((b) => [b.date, b]));
+    expect(map["2026-03-08"]?.totalInputTokens).toBe(42);
+    expect(map["2026-03-07"]).toBeUndefined();
+  });
+
+  test("bucketId: daily bucketId equals the date string", () => {
+    insertEventAt(Date.UTC(2026, 3, 10, 12), { inputTokens: 10 });
+    const buckets = getUsageDayBuckets(
+      { from: Date.UTC(2026, 3, 10, 0), to: Date.UTC(2026, 3, 10, 23) },
+      "UTC",
+    );
+    expect(buckets[0].bucketId).toBe(buckets[0].date);
+  });
 });
 
 describe("getUsageHourBuckets — timezone-aware", () => {
@@ -634,6 +694,18 @@ describe("getUsageHourBuckets — timezone-aware", () => {
     // Both should share the "1am" display label.
     expect(oneAmBuckets[0].displayLabel).toBe("1am");
     expect(oneAmBuckets[1].displayLabel).toBe("1am");
+    // But their bucketIds MUST be distinct so SwiftUI ForEach(id:\.bucketId)
+    // doesn't collapse them. (PR #24722 review feedback from Codex.)
+    expect(oneAmBuckets[0].bucketId).not.toBe(oneAmBuckets[1].bucketId);
+    expect(oneAmBuckets.map((b) => b.bucketId).sort()).toEqual([
+      "2026-11-01 01:00|-240",
+      "2026-11-01 01:00|-300",
+    ]);
+    // Daily/non-dup-hour bucketIds default to the date key.
+    const nonDupHour = buckets.find((b) => b.date === "2026-11-01 00:00");
+    if (nonDupHour) {
+      expect(nonDupHour.bucketId).toBe(`${nonDupHour.date}|-240`);
+    }
   });
 
   test("fillEmpty seeds zero buckets for empty hours in range", () => {

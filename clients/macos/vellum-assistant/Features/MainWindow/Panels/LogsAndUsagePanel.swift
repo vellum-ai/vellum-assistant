@@ -471,7 +471,7 @@ struct UsageTabContent: View {
         ScrollView(.horizontal, showsIndicators: false) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 HStack(alignment: .bottom, spacing: VSpacing.xs) {
-                    ForEach(sorted, id: \.date) { bucket in
+                    ForEach(sorted, id: \.bucketId) { bucket in
                         let fraction = maxCost > 0 ? bucket.totalEstimatedCostUsd / maxCost : 0
                         VStack(spacing: VSpacing.xxs) {
                             Spacer(minLength: 0)
@@ -484,7 +484,7 @@ struct UsageTabContent: View {
                 .frame(height: barChartHeight)
 
                 HStack(alignment: .top, spacing: VSpacing.xs) {
-                    ForEach(sorted, id: \.date) { bucket in
+                    ForEach(sorted, id: \.bucketId) { bucket in
                         VStack(spacing: VSpacing.xxs) {
                             Text(formatCost(bucket.totalEstimatedCostUsd))
                                 .font(VFont.labelSmall)
