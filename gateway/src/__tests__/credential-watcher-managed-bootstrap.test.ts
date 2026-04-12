@@ -63,10 +63,12 @@ function assignPorts(): void {
 async function startGateway(): Promise<void> {
   assignPorts();
 
+  const protectedDir = join(testDir, ".vellum", "protected");
   gatewayProc = spawn("bun", ["run", gatewayEntry], {
     env: {
       ...process.env,
       BASE_DATA_DIR: testDir,
+      GATEWAY_SECURITY_DIR: protectedDir,
       GATEWAY_PORT: String(gatewayPort),
       CES_CREDENTIAL_URL: `http://127.0.0.1:${cesPort}`,
       CES_SERVICE_TOKEN: TEST_SERVICE_TOKEN,

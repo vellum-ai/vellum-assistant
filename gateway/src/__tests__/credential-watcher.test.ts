@@ -192,10 +192,12 @@ let port = 0;
 
 async function startGateway(): Promise<void> {
   port = 49152 + Math.floor(Math.random() * 16383);
+  const protectedDir = join(testDir, ".vellum", "protected");
   gatewayProc = spawn("bun", ["run", gatewayEntry], {
     env: {
       ...process.env,
       BASE_DATA_DIR: testDir,
+      GATEWAY_SECURITY_DIR: protectedDir,
       GATEWAY_PORT: String(port),
       // Ensure Telegram is NOT configured via env vars
       TELEGRAM_BOT_TOKEN: "",
