@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "providers": [
+    {
+      "id": "elevenlabs",
+      "displayName": "ElevenLabs",
+      "subtitle": "High-quality voice synthesis for conversations and read-aloud. Requires an ElevenLabs API key.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your ElevenLabs API key to get started."
+    },
+    {
+      "id": "fish-audio",
+      "displayName": "Fish Audio",
+      "subtitle": "Natural-sounding voice synthesis with custom voice cloning. Requires a Fish Audio API key and voice reference ID.",
+      "setupMode": "cli",
+      "setupHint": "Run the setup commands in your terminal to configure Fish Audio."
+    }
+  ]
+}
