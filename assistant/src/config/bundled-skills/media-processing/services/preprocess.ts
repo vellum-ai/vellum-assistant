@@ -92,8 +92,6 @@ export interface PreprocessOptions {
   detectDeadTime?: boolean;
   shortEdge?: number;
   includeAudio?: boolean;
-  transcriptionMode?: "api" | "local";
-  openaiApiKey?: string;
 }
 
 // ---------------------------------------------------------------------------

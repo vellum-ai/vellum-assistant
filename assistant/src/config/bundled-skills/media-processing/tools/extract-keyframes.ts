@@ -4,7 +4,6 @@ import {
   getKeyframesForAsset,
   getMediaAssetById,
 } from "../../../../memory/media-store.js";
-import { getProviderKeyAsync } from "../../../../security/secure-keys.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -26,13 +25,6 @@ export async function run(
   }
 
   const includeAudio = Boolean(input.include_audio);
-  const transcriptionMode =
-    (input.transcription_mode as "api" | "local") || undefined;
-
-  let openaiApiKey: string | undefined;
-  if (includeAudio && (!transcriptionMode || transcriptionMode === "api")) {
-    openaiApiKey = await getProviderKeyAsync("openai");
-  }
 
   const options: PreprocessOptions = {
     intervalSeconds: (input.interval_seconds as number) || undefined,
@@ -45,8 +37,6 @@ export async function run(
         : undefined,
     shortEdge: (input.short_edge as number) || undefined,
     includeAudio,
-    transcriptionMode,
-    openaiApiKey,
   };
 
   try {
