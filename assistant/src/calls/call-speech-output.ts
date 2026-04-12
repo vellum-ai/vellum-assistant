@@ -16,51 +16,13 @@
 
 import { loadConfig } from "../config/loader.js";
 import { getPublicBaseUrl } from "../inbound/public-ingress-urls.js";
-import { getTtsProvider } from "../tts/provider-registry.js";
-import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 import type { TtsProvider } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
 import { createStreamingEntry } from "./audio-store.js";
 import type { RelayConnection } from "./relay-server.js";
+import { resolveCallTtsProvider } from "./resolve-call-tts-provider.js";
 
 const log = getLogger("call-speech-output");
-
-// ---------------------------------------------------------------------------
-// Provider resolution (shared logic with call-controller)
-// ---------------------------------------------------------------------------
-
-interface ResolvedCallTts {
-  provider: TtsProvider | null;
-  useSynthesizedPath: boolean;
-  audioFormat: "mp3" | "wav" | "opus";
-}
-
-/**
- * Resolve the active TTS provider via the global provider abstraction.
- *
- * Mirrors the resolution logic in CallController.resolveCallTtsProvider()
- * so deterministic prompts use the same provider path as LLM-generated
- * speech.
- */
-function resolveCallTtsProvider(): ResolvedCallTts {
-  try {
-    const config = loadConfig();
-    const resolved = resolveTtsConfig(config);
-    const provider = getTtsProvider(resolved.provider);
-    const useSynthesizedPath = provider.capabilities.supportsStreaming;
-    const configuredFormat = (resolved.providerConfig as { format?: string })
-      .format;
-    const audioFormat = (
-      configuredFormat && ["mp3", "wav", "opus"].includes(configuredFormat)
-        ? configuredFormat
-        : "mp3"
-    ) as "mp3" | "wav" | "opus";
-    return { provider, useSynthesizedPath, audioFormat };
-  } catch {
-    // Config missing or provider not registered — fall back to native path.
-    return { provider: null, useSynthesizedPath: false, audioFormat: "mp3" };
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Public API
