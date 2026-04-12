@@ -12,9 +12,9 @@ import { hostname, userInfo } from "node:os";
 import { join } from "node:path";
 import { credentialKey } from "./credential-key.js";
 import { getLogger } from "./logger.js";
-import { getRootDir, getWorkspaceDir } from "./paths.js";
+import { getGatewaySecurityDir, getWorkspaceDir } from "./paths.js";
 
-export { getRootDir, getWorkspaceDir } from "./paths.js";
+export { getGatewaySecurityDir, getRootDir, getWorkspaceDir } from "./paths.js";
 
 const log = getLogger("credential-reader");
 
@@ -83,7 +83,7 @@ function deriveKey(salt: Buffer): Buffer {
  * Returns null if the file doesn't exist or isn't exactly 32 bytes.
  */
 function readStoreKey(): Buffer | null {
-  const keyPath = join(getRootDir(), "protected", STORE_KEY_FILENAME);
+  const keyPath = join(getGatewaySecurityDir(), STORE_KEY_FILENAME);
   if (!existsSync(keyPath)) return null;
   try {
     const buf = readFileSync(keyPath);
@@ -134,7 +134,7 @@ function readStore(storePath: string): StoreFile | null {
 }
 
 export function getEncryptedStorePath(): string {
-  return join(getRootDir(), "protected", "keys.enc");
+  return join(getGatewaySecurityDir(), "keys.enc");
 }
 
 export function getMetadataPath(): string {

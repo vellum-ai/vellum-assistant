@@ -105,9 +105,14 @@ function encryptEntries(
   return encryptedEntries;
 }
 
+function protectedDir(): string {
+  return join(testDir, ".vellum", "protected");
+}
+
 function writeEncryptedStore(entries: Record<string, string>): void {
-  const storePath = join(testDir, ".vellum", "protected", "keys.enc");
-  mkdirSync(join(testDir, ".vellum", "protected"), { recursive: true });
+  const dir = protectedDir();
+  mkdirSync(dir, { recursive: true });
+  const storePath = join(dir, "keys.enc");
 
   const salt = randomBytes(16);
   const key = pbkdf2Sync(
@@ -131,17 +136,17 @@ function writeEncryptedStore(entries: Record<string, string>): void {
  * The store.key is used directly as the AES-256-GCM key (no PBKDF2).
  */
 function writeEncryptedStoreV2(entries: Record<string, string>): void {
-  const protectedDir = join(testDir, ".vellum", "protected");
-  mkdirSync(protectedDir, { recursive: true });
+  const dir = protectedDir();
+  mkdirSync(dir, { recursive: true });
 
   const storeKey = randomBytes(KEY_LENGTH);
-  writeFileSync(join(protectedDir, "store.key"), storeKey);
+  writeFileSync(join(dir, "store.key"), storeKey);
 
   const store = {
     version: 2,
     entries: encryptEntries(entries, storeKey),
   };
-  writeFileSync(join(protectedDir, "keys.enc"), JSON.stringify(store));
+  writeFileSync(join(dir, "keys.enc"), JSON.stringify(store));
 }
 
 // ---------------------------------------------------------------------------
@@ -150,11 +155,13 @@ function writeEncryptedStoreV2(entries: Record<string, string>): void {
 
 beforeEach(() => {
   process.env.BASE_DATA_DIR = testDir;
+  process.env.GATEWAY_SECURITY_DIR = protectedDir();
   logCalls.length = 0;
 });
 
 afterEach(() => {
   delete process.env.BASE_DATA_DIR;
+  delete process.env.GATEWAY_SECURITY_DIR;
   try {
     rmSync(testDir, { recursive: true, force: true });
   } catch {
@@ -178,8 +185,8 @@ describe("v2 encrypted store with store.key", () => {
 
   test("returns undefined for v2 store when store.key is missing", async () => {
     // Write a v2 store but without the store.key file
-    const protectedDir = join(testDir, ".vellum", "protected");
-    mkdirSync(protectedDir, { recursive: true });
+    const dir = protectedDir();
+    mkdirSync(dir, { recursive: true });
 
     const storeKey = randomBytes(KEY_LENGTH);
     const store = {
@@ -189,7 +196,7 @@ describe("v2 encrypted store with store.key", () => {
         storeKey,
       ),
     };
-    writeFileSync(join(protectedDir, "keys.enc"), JSON.stringify(store));
+    writeFileSync(join(dir, "keys.enc"), JSON.stringify(store));
     // Deliberately do NOT write store.key
 
     const result = await readCredential(credentialKey("test", "key"));

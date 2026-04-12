@@ -23,7 +23,7 @@ import {
   ALL_CREDENTIAL_SPECS,
   getMetadataPath,
 } from "./credential-reader.js";
-import { getGatewaySecurityDir } from "./config.js";
+import { getGatewaySecurityDir } from "./paths.js";
 
 const log = getLogger("credential-watcher");
 
