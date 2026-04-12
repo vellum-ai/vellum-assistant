@@ -1475,10 +1475,18 @@ if [ "$CMD" = "run" ]; then
             $still_running || break
             sleep 0.1
         done
-        # Force-kill any stragglers
+        # Force-kill any stragglers — recompute which PIDs are actually
+        # still alive to avoid SIGKILLing a reused PID.
         if $still_running; then
             echo "Force-killing remaining sibling process(es)..."
-            echo "$other_vellum" | awk '{print $1}' | xargs kill -9 2>/dev/null || true
+            survivors=""
+            while IFS= read -r pid_line; do
+                sib_pid=${pid_line%% *}
+                kill -0 "$sib_pid" 2>/dev/null && survivors="${survivors}${sib_pid} "
+            done <<< "$other_vellum"
+            if [ -n "$survivors" ]; then
+                echo "$survivors" | xargs kill -9 2>/dev/null || true
+            fi
             sleep 0.3
         fi
     fi
