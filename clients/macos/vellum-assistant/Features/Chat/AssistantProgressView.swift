@@ -664,7 +664,7 @@ private struct StepDetailRow: View {
     private var cachedColoredResult: AttributedString? {
         guard let result = toolCall.result, !result.isEmpty else { return nil }
         let key = Self.coloredOutputCacheKey(
-            toolCallID: toolCall.id,
+            toolCallID: toolCall.id.uuidString,
             resultCount: result.utf8.count,
             isError: toolCall.isError
         )
