@@ -80,7 +80,7 @@ struct VoiceSettingsView: View {
             stopRecordingCustomKey()
         }
         .onAppear {
-            elevenLabsHasKey = APIKeyManager.getKey(for: "elevenlabs") != nil
+            elevenLabsHasKey = APIKeyManager.getCredential(service: "elevenlabs", field: "api_key") != nil
             fishAudioHasKey = APIKeyManager.getCredential(service: "fish-audio", field: "api_key") != nil
         }
         .onChange(of: conversationTimeoutSeconds) {

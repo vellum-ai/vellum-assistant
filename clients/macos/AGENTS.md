@@ -34,7 +34,10 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter Ses
 ./build.sh lint
 
 # Watch logs from a running instance
+# Production:
 log stream --predicate 'subsystem == "com.vellum.vellum-assistant"' --level debug
+# Local dev:
+log stream --predicate 'subsystem == "com.vellum.vellum-assistant-local"' --level debug
 ```
 
 ---

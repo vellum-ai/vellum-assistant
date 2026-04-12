@@ -4,7 +4,6 @@ import {
   findAssistantByName,
   getActiveAssistant,
   loadAllAssistants,
-  updateServiceGroupVersion,
   type AssistantEntry,
 } from "../lib/assistant-config";
 import { loadGuardianToken } from "../lib/guardian-token";
@@ -484,10 +483,6 @@ async function listAllAssistants(): Promise<void> {
       } else {
         const token = loadGuardianToken(a.assistantId)?.accessToken;
         health = await checkHealth(a.localUrl ?? a.runtimeUrl, token);
-      }
-
-      if (health.status === "healthy" && health.version) {
-        updateServiceGroupVersion(a.assistantId, health.version);
       }
 
       const infoParts: string[] = [];

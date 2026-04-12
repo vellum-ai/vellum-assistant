@@ -37,7 +37,6 @@ enum APIKeyManager {
     static let allSyncableProviders = [
         "anthropic",
         "brave",
-        "elevenlabs",
         "fireworks",
         "gemini",
         "openai",
@@ -63,7 +62,32 @@ enum APIKeyManager {
         for provider in allSyncableProviders {
             migrateProviderFromUserDefaults(provider)
         }
-        migrateProviderFromUserDefaults("elevenlabs")
+        migrateElevenLabsToCredential()
+    }
+
+    /// Migrate ElevenLabs key from api_key storage to credential storage.
+    /// Handles keys stored in UserDefaults or FileCredentialStorage under the
+    /// old `vellum_provider_elevenlabs` account.
+    private static func migrateElevenLabsToCredential() {
+        let oldAccount = udPrefix + "elevenlabs"
+        let newAccount = credentialPrefix + "elevenlabs:api_key"
+
+        // First migrate from UserDefaults if present
+        if let udValue = UserDefaults.standard.string(forKey: oldAccount), !udValue.isEmpty {
+            if storage.get(account: newAccount) == nil {
+                guard storage.set(account: newAccount, value: udValue) else { return }
+            }
+            UserDefaults.standard.removeObject(forKey: oldAccount)
+            _ = storage.delete(account: oldAccount)
+            return
+        }
+
+        // Then migrate from old FileCredentialStorage format
+        if let oldValue = storage.get(account: oldAccount),
+           storage.get(account: newAccount) == nil {
+            guard storage.set(account: newAccount, value: oldValue) else { return }
+        }
+        _ = storage.delete(account: oldAccount)
     }
 
     /// Migrate a single provider's key from UserDefaults to credential storage.
