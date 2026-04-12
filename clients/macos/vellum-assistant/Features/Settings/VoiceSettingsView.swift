@@ -557,7 +557,6 @@ struct VoiceSettingsView: View {
         }
     }
 
-<<<<<<< HEAD
     // MARK: - Generic Provider Config (Fallback)
 
     /// Generic setup panel for providers added to the registry that do not
