@@ -682,6 +682,21 @@ describe("ensurePromptFiles", () => {
     expect(existsSync(bootstrapPath)).toBe(false);
   });
 
+  test("does not treat a workspace with populated users/ as a first run", () => {
+    // Upgraded workspaces may have dropped USER.md but still carry a
+    // populated users/ directory.  Presence of users/<slug>.md signals an
+    // existing install, so BOOTSTRAP.md must not be re-seeded even when
+    // SOUL.md and IDENTITY.md are absent (they will be freshly seeded from
+    // templates, but onboarding should not re-trigger).
+    mkdirSync(join(TEST_DIR, "users"), { recursive: true });
+    writeFileSync(join(TEST_DIR, "users", "sidd.md"), "# Sidd persona");
+
+    ensurePromptFiles();
+
+    const bootstrapPath = join(TEST_DIR, "BOOTSTRAP.md");
+    expect(existsSync(bootstrapPath)).toBe(false);
+  });
+
   test("auto-deletes stale BOOTSTRAP.md when prior conversations exist", () => {
     // Simulate a non-first-run workspace: core files + BOOTSTRAP.md still present
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "My identity");
@@ -698,15 +713,18 @@ describe("ensurePromptFiles", () => {
     expect(existsSync(join(TEST_DIR, "BOOTSTRAP.md"))).toBe(false);
   });
 
-  test("keeps BOOTSTRAP.md on first run even if conversations dir exists", () => {
-    // First run: no core files exist, BOOTSTRAP.md should be created and kept
+  test("does not seed BOOTSTRAP.md when conversations exist even if core files are missing", () => {
+    // An upgraded workspace might have dropped SOUL.md/IDENTITY.md (they
+    // will be re-seeded from templates) but still carries prior
+    // conversations.  Existing conversation history signals a non-fresh
+    // install, so onboarding must not re-trigger.
     const convDir = join(TEST_DIR, "conversations");
     mkdirSync(convDir, { recursive: true });
     writeFileSync(join(convDir, "conv-001.json"), "{}");
 
     ensurePromptFiles();
 
-    expect(existsSync(join(TEST_DIR, "BOOTSTRAP.md"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, "BOOTSTRAP.md"))).toBe(false);
   });
 
   test("keeps BOOTSTRAP.md when no conversations exist yet", () => {

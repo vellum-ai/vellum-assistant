@@ -27,6 +27,26 @@ const log = getLogger("system-prompt");
 
 const PROMPT_FILES = ["SOUL.md", "IDENTITY.md"] as const;
 
+function hasPopulatedUsersDir(): boolean {
+  try {
+    const usersDir = join(getWorkspaceDir(), "users");
+    if (!existsSync(usersDir)) return false;
+    return readdirSync(usersDir).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function hasExistingConversations(): boolean {
+  try {
+    const convDir = getConversationsDir();
+    if (!existsSync(convDir)) return false;
+    return readdirSync(convDir).length > 0;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Copy template prompt files into the data directory if they don't already exist.
  * Called once during daemon startup so users always have discoverable files to edit.
@@ -43,10 +63,16 @@ export function ensurePromptFiles(): void {
     "templates",
   );
 
-  // Track whether this is a fresh workspace (no core prompt files exist yet).
-  const isFirstRun = PROMPT_FILES.every(
-    (file) => !existsSync(getWorkspacePromptPath(file)),
-  );
+  // Track whether this is a fresh workspace.  A workspace counts as fresh
+  // only when none of these signals are present: core prompt files, a
+  // populated `users/` directory, or existing conversations.  Upgraded
+  // workspaces that dropped USER.md but still carry personas or history
+  // would otherwise be mistaken for fresh installs and re-trigger
+  // onboarding.
+  const isFirstRun =
+    PROMPT_FILES.every((file) => !existsSync(getWorkspacePromptPath(file))) &&
+    !hasPopulatedUsersDir() &&
+    !hasExistingConversations();
 
   for (const file of PROMPT_FILES) {
     const dest = getWorkspacePromptPath(file);
