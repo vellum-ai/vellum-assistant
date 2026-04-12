@@ -231,7 +231,7 @@ export async function run(
   if (!transcriber) {
     return {
       content:
-        "No speech-to-text provider is configured. Set up an STT provider (e.g. OpenAI API key) in your assistant settings to enable transcription.",
+        "No speech-to-text provider is configured. Set up an STT provider (e.g. OpenAI Whisper or Deepgram) in your assistant settings to enable transcription.",
       isError: true,
     };
   }

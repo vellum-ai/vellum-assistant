@@ -8,7 +8,7 @@ metadata:
     display-name: "Transcribe"
 ---
 
-Transcribe audio and video files using the configured speech-to-text provider (e.g. OpenAI Whisper).
+Transcribe audio and video files using the configured speech-to-text provider. Supports multiple STT providers including OpenAI Whisper and Deepgram — the active provider is selected in Settings under Speech-to-Text (`services.stt`).
 
 ## Usage Notes
 
@@ -17,3 +17,4 @@ Transcribe audio and video files using the configured speech-to-text provider (e
 - For video files, audio is automatically extracted via ffmpeg before transcription.
 - Large files are automatically split into chunks for processing.
 - If no STT provider credentials are configured, the tool will return an error with setup instructions.
+- The STT provider used here (`services.stt`) is independent of the telephony transcription provider (`calls.voice.transcriptionProvider`), which is configured separately for phone call STT.

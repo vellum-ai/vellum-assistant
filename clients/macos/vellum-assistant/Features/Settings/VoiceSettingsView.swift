@@ -1,17 +1,6 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// STT provider options for the speech-to-text service card.
-private enum STTProviderOption: String, CaseIterable {
-    case openaiWhisper = "openai-whisper"
-
-    var displayName: String {
-        switch self {
-        case .openaiWhisper: return "OpenAI Whisper"
-        }
-    }
-}
-
 /// Voice settings tab — configure push-to-talk activation key,
 /// conversation timeout, text-to-speech provider, and speech-to-text provider.
 struct VoiceSettingsView: View {
@@ -21,7 +10,7 @@ struct VoiceSettingsView: View {
     @AppStorage("activationKey") private var activationKey: String = "fn"
     @AppStorage("voiceConversationTimeoutSeconds") private var conversationTimeoutSeconds: Int = 30
     @AppStorage("ttsProvider") private var ttsProviderRaw: String = "elevenlabs"
-    @AppStorage("sttProvider") private var sttProviderRaw: String = STTProviderOption.openaiWhisper.rawValue
+    @AppStorage("sttProvider") private var sttProviderRaw: String = "openai-whisper"
 
     // TTS draft-based state (mirrors Inference card pattern)
     /// Uncommitted provider selection — only persisted on Save.
@@ -58,13 +47,23 @@ struct VoiceSettingsView: View {
     @State private var sttSaveError: String? = nil
 
     /// The shared TTS provider registry loaded from the bundled catalog.
-    private let registry = loadTTSProviderRegistry()
+    private let ttsRegistry = loadTTSProviderRegistry()
 
-    /// The currently selected provider entry from the registry, based on
+    /// The shared STT provider registry loaded from the bundled catalog.
+    private let sttRegistry = loadSTTProviderRegistry()
+
+    /// The currently selected TTS provider entry from the registry, based on
     /// the draft selection. Falls back to the first provider in the registry
     /// if the value does not match any known entry (matching iOS behavior).
-    private var selectedProvider: TTSProviderCatalogEntry? {
-        registry.provider(withId: draftTTSProvider) ?? registry.providers.first
+    private var selectedTTSProvider: TTSProviderCatalogEntry? {
+        ttsRegistry.provider(withId: draftTTSProvider) ?? ttsRegistry.providers.first
+    }
+
+    /// The currently selected STT provider entry from the registry, based on
+    /// the draft selection. Falls back to the first provider in the registry
+    /// if the value does not match any known entry.
+    private var selectedSTTProvider: STTProviderCatalogEntry? {
+        sttRegistry.provider(withId: draftSTTProvider) ?? sttRegistry.providers.first
     }
 
     private var currentActivator: PTTActivator {
@@ -374,7 +373,7 @@ struct VoiceSettingsView: View {
                     VDropdown(
                         placeholder: "Select a provider\u{2026}",
                         selection: $draftTTSProvider,
-                        options: registry.providers.map { entry in
+                        options: ttsRegistry.providers.map { entry in
                             (label: entry.displayName, value: entry.id)
                         }
                     )
@@ -413,7 +412,7 @@ struct VoiceSettingsView: View {
             return "Enter your API key"
         }()
         return VTextField(
-            "\(selectedProvider?.displayName ?? "Provider") API Key",
+            "\(selectedTTSProvider?.displayName ?? "Provider") API Key",
             placeholder: placeholder,
             text: $ttsApiKeyText,
             isSecure: true,
@@ -429,7 +428,7 @@ struct VoiceSettingsView: View {
         if draftTTSProvider == "elevenlabs" || draftTTSProvider == "fish-audio" {
             VTextField(
                 "Voice ID",
-                placeholder: "\(selectedProvider?.displayName ?? "Provider") Voice ID (optional)",
+                placeholder: "\(selectedTTSProvider?.displayName ?? "Provider") Voice ID (optional)",
                 text: $ttsVoiceIdText
             )
         }
@@ -528,7 +527,7 @@ struct VoiceSettingsView: View {
     private var sttProviderCard: some View {
         SettingsCard(title: "Speech-to-Text", subtitle: "Choose an STT provider for audio transcription. The selected provider is used globally across all transcription features.") {
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                // Provider dropdown selector
+                // Provider dropdown — data-driven from the shared STT registry
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Provider")
                         .font(VFont.labelDefault)
@@ -536,49 +535,60 @@ struct VoiceSettingsView: View {
                     VDropdown(
                         placeholder: "Select a provider\u{2026}",
                         selection: $draftSTTProvider,
-                        options: STTProviderOption.allCases.map { provider in
-                            (label: provider.displayName, value: provider.rawValue)
+                        options: sttRegistry.providers.map { entry in
+                            (label: entry.displayName, value: entry.id)
                         }
                     )
                 }
 
-                // API key field
-                VTextField(
-                    "OpenAI API Key",
-                    placeholder: sttProviderHasKey ? "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}" : "Your OpenAI API key",
-                    text: $sttApiKeyText,
-                    isSecure: true,
-                    errorMessage: sttSaveError,
-                    maxWidth: 400
-                )
+                // API key field — label and placeholder adapt to the selected provider
+                sttApiKeyField
 
-                // Informational note about shared key
-                if sttProviderHasKey {
-                    HStack(alignment: .top, spacing: VSpacing.xs) {
+                // Provider-specific setup hint
+                if let hint = selectedSTTProvider?.setupHint, !hint.isEmpty {
+                    HStack(spacing: VSpacing.xs) {
                         VIconView(.info, size: 10)
                             .foregroundStyle(VColor.contentTertiary)
-                        Text("The OpenAI key is shared with inference. Use inference settings to manage it.")
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.contentTertiary)
-                    }
-                } else {
-                    HStack(spacing: VSpacing.xs) {
-                        VIconView(.lock, size: 10)
-                            .foregroundStyle(VColor.contentTertiary)
-                        Text("This API key is shared with inference settings.")
+                        Text(hint)
                             .font(VFont.labelDefault)
                             .foregroundStyle(VColor.contentTertiary)
                     }
                 }
 
-                // Save action — no Reset for STT since the key is shared with inference
+                // Save + Reset actions
                 ServiceCardActions(
                     hasChanges: sttHasChanges,
                     isSaving: sttSaving,
-                    onSave: { saveSTT() }
+                    onSave: { saveSTT() },
+                    savingLabel: "Saving...",
+                    onReset: {
+                        store.clearSTTKey(sttProviderId: draftSTTProvider)
+                        sttProviderHasKey = false
+                        sttApiKeyText = ""
+                    },
+                    showReset: sttProviderHasKey
                 )
             }
         }
+    }
+
+    // MARK: - STT API Key Field
+
+    private var sttApiKeyField: some View {
+        let placeholder: String = {
+            if sttProviderHasKey {
+                return "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}"
+            }
+            return "Enter your API key"
+        }()
+        return VTextField(
+            "\(selectedSTTProvider?.displayName ?? "Provider") API Key",
+            placeholder: placeholder,
+            text: $sttApiKeyText,
+            isSecure: true,
+            errorMessage: sttSaveError
+        )
+        .disabled(sttSaving)
     }
 
     // MARK: - STT Save
