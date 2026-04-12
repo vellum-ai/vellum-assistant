@@ -21,6 +21,13 @@ struct InlineFilePreviewView: View {
     @State private var isLoading: Bool = false
     @State private var loadError: Bool = false
 
+    /// Cached parsed markdown segments — parsed lazily only when the card is
+    /// expanded, avoiding synchronous O(n) work on every render pass.
+    @State private var cachedSegments: [MarkdownSegment] = []
+    /// Tracks the content string that `cachedSegments` was built from, so we
+    /// only re-parse when content actually changes.
+    @State private var lastParsedContent: String? = nil
+
     private var expansionKey: String {
         "file-preview-\(messageId.uuidString)-\(attachment.id)"
     }
@@ -43,8 +50,15 @@ struct InlineFilePreviewView: View {
         .background(isExpanded ? VColor.surfaceOverlay : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: isExpanded ? VRadius.md : VRadius.sm))
         .animation(VAnimation.fast, value: isExpanded)
-        .onAppear { loadContentIfNeeded() }
-        .onChange(of: isExpanded) { _, _ in loadContentIfNeeded() }
+        .onAppear {
+            loadContentIfNeeded()
+            syncSegmentsIfNeeded()
+        }
+        .onChange(of: isExpanded) { _, _ in
+            loadContentIfNeeded()
+            syncSegmentsIfNeeded()
+        }
+        .onChange(of: cachedContent) { _, _ in syncSegmentsIfNeeded() }
     }
 
     // MARK: - Header
@@ -73,7 +87,9 @@ struct InlineFilePreviewView: View {
                 if isExpanded {
                     Spacer()
 
-                    VCopyButton(text: cachedContent ?? "", iconSize: 20)
+                    if let content = cachedContent, !isLoading {
+                        VCopyButton(text: content, iconSize: 20)
+                    }
 
                     VButton(
                         label: "Save",
@@ -116,10 +132,10 @@ struct InlineFilePreviewView: View {
                     loadingView
                 } else if loadError {
                     errorView
-                } else if let content = cachedContent {
-                    // Render content via MarkdownSegmentView
+                } else if cachedContent != nil {
+                    // Render content via MarkdownSegmentView using cached segments
                     MarkdownSegmentView(
-                        segments: segmentsForContent(content),
+                        segments: cachedSegments,
                         isStreaming: false,
                         maxContentWidth: nil,
                         textColor: VColor.contentDefault,
@@ -186,6 +202,15 @@ struct InlineFilePreviewView: View {
                 loadError = true
             }
         }
+    }
+
+    /// Sync the segment cache when content changes. Mirrors the
+    /// `ThinkingBlockView.syncCacheIfExpanded()` pattern: only re-parses when
+    /// `cachedContent` has drifted from what was last parsed.
+    private func syncSegmentsIfNeeded() {
+        guard isExpanded, let content = cachedContent, content != lastParsedContent else { return }
+        lastParsedContent = content
+        cachedSegments = segmentsForContent(content)
     }
 
     // MARK: - Content Rendering
