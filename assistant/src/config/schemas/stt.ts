@@ -12,10 +12,9 @@ export const VALID_STT_PROVIDERS = ["openai-whisper"] as const;
  * Each provider's schema is the full provider-specific config (tuning
  * params, etc.). New providers add sibling schemas without restructuring.
  *
- * NOTE: `model` and `language` were intentionally removed — the runtime
- * hardcodes `"whisper-1"` and auto-detect, so exposing config fields for
- * them was misleading (values were silently ignored). Re-add them here
- * once the provider adapter actually consumes them.
+ * The provider config is an empty object. Per-provider tuning params
+ * (e.g., model, language) can be added here once the provider adapter
+ * consumes them at runtime.
  */
 export const SttOpenAiWhisperProviderConfigSchema = z
   .object({})
