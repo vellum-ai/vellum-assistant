@@ -5,7 +5,7 @@
  * - Success: valid .vbundle archive returns is_valid: true with manifest
  * - Validation failures: invalid gzip, missing entries, bad manifest, checksum mismatches
  * - Request errors: empty body, invalid multipart
- * - Auth: route policy enforcement (settings.write scope required)
+ * - Auth: route policy enforcement (settings.read scope required)
  * - Integration: existing routes are unaffected by the new endpoint
  */
 import { createHash } from "node:crypto";
