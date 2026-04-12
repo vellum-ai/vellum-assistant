@@ -261,14 +261,14 @@ final class SkillsManager {
                     $0.name.lowercased().contains(query) ||
                     $0.description.lowercased().contains(query) ||
                     $0.id.lowercased().contains(query) ||
-                    Self.sourceLabel($0.origin).lowercased().contains(query)
+                    Self.originMatchesQuery($0.origin, query: query)
                 }
             } else {
                 searchFiltered = baseSkills.filter {
                     $0.name.lowercased().contains(query) ||
                     $0.description.lowercased().contains(query) ||
                     $0.id.lowercased().contains(query) ||
-                    Self.sourceLabel($0.origin).lowercased().contains(query)
+                    Self.originMatchesQuery($0.origin, query: query)
                 }
             }
         } else {
@@ -316,6 +316,15 @@ final class SkillsManager {
         default:
             return origin.replacingOccurrences(of: "-", with: " ").capitalized
         }
+    }
+
+    /// Whether a search query matches any searchable term for a skill origin.
+    /// Includes both the display label (e.g. "Clawhub") and the umbrella
+    /// category "community" so users can still search for community skills.
+    static func originMatchesQuery(_ origin: String, query: String) -> Bool {
+        if sourceLabel(origin).lowercased().contains(query) { return true }
+        if (origin == "clawhub" || origin == "skillssh") && "community".contains(query) { return true }
+        return false
     }
 
     // MARK: - Debounced Search
