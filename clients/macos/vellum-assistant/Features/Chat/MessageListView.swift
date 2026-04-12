@@ -115,6 +115,10 @@ struct MessageListView: View {
     /// destruction that happens when `state.isActiveTurn` flips at the
     /// start/end of an active turn. See `ThinkingBlockExpansionStore.swift`.
     @State var thinkingBlockExpansionStore = ThinkingBlockExpansionStore()
+    /// Tracks expand/collapse state for file preview cards in this list.
+    /// Owned here (same level as `thinkingBlockExpansionStore`) so the state
+    /// survives view-tree destruction. See `FilePreviewExpansionStore.swift`.
+    @State var filePreviewExpansionStore = FilePreviewExpansionStore()
 
     // MARK: - Body
 
@@ -157,6 +161,7 @@ struct MessageListView: View {
             .defaultScrollAnchor(.bottom, for: .initialOffset)
             .scrollPosition($scrollPosition)
             .environment(\.thinkingBlockExpansionStore, thinkingBlockExpansionStore)
+            .environment(\.filePreviewExpansionStore, filePreviewExpansionStore)
             .environment(\.suppressAutoScroll, { [self] in
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=manualExpansionDetach")
                 let intents = scrollCoordinator.handle(.manualExpansion)
