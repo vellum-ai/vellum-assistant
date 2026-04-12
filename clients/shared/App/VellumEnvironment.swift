@@ -56,6 +56,20 @@ public enum VellumEnvironment: String {
         }
     }
 
+    /// The macOS bundle identifier for this environment.
+    ///
+    /// Production uses the bare `com.vellum.vellum-assistant`; all other
+    /// environments append a suffix (e.g. `com.vellum.vellum-assistant-dev`)
+    /// so that preferences, log streams, and keychain items stay isolated.
+    public var bundleIdentifier: String {
+        switch self {
+        case .production:
+            return "com.vellum.vellum-assistant"
+        default:
+            return "com.vellum.vellum-assistant-\(rawValue)"
+        }
+    }
+
     /// The canonical Vellum platform API base URL for this environment.
     public var platformURL: String {
         switch self {

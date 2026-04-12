@@ -872,10 +872,10 @@ public final class SettingsStore: ObservableObject {
     func saveElevenLabsKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        APIKeyManager.setKey(trimmed, for: "elevenlabs")
-        removeDeletionTombstone(type: "api_key", name: "elevenlabs")
+        APIKeyManager.setCredential(trimmed, service: "elevenlabs", field: "api_key")
+        removeDeletionTombstone(type: "credential", name: "elevenlabs:api_key")
         Task {
-            let result = await APIKeyManager.setKey(trimmed, for: "elevenlabs")
+            let result = await APIKeyManager.setCredential(trimmed, service: "elevenlabs", field: "api_key")
             if result.success {
                 onSuccess?()
             } else if let error = result.error {
@@ -885,10 +885,33 @@ public final class SettingsStore: ObservableObject {
     }
 
     func clearElevenLabsKey() {
-        APIKeyManager.deleteKey(for: "elevenlabs")
+        APIKeyManager.deleteCredential(service: "elevenlabs", field: "api_key")
         Task {
-            let deleted = await APIKeyManager.deleteKey(for: "elevenlabs")
-            if !deleted { addDeletionTombstone(type: "api_key", name: "elevenlabs") }
+            let deleted = await APIKeyManager.deleteCredential(service: "elevenlabs", field: "api_key")
+            if !deleted { addDeletionTombstone(type: "credential", name: "elevenlabs:api_key") }
+        }
+    }
+
+    func saveFishAudioKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        APIKeyManager.setCredential(trimmed, service: "fish-audio", field: "api_key")
+        removeDeletionTombstone(type: "credential", name: "fish-audio:api_key")
+        Task {
+            let result = await APIKeyManager.setCredential(trimmed, service: "fish-audio", field: "api_key")
+            if result.success {
+                onSuccess?()
+            } else if let error = result.error {
+                log.error("Failed to sync Fish Audio key to daemon: \(error, privacy: .public)")
+            }
+        }
+    }
+
+    func clearFishAudioKey() {
+        APIKeyManager.deleteCredential(service: "fish-audio", field: "api_key")
+        Task {
+            let deleted = await APIKeyManager.deleteCredential(service: "fish-audio", field: "api_key")
+            if !deleted { addDeletionTombstone(type: "credential", name: "fish-audio:api_key") }
         }
     }
 
@@ -2934,6 +2957,30 @@ public final class SettingsStore: ObservableObject {
             return success
         }
         return task
+    }
+
+    func setElevenLabsVoiceId(_ voiceId: String) {
+        let trimmed = voiceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task {
+            let success = await settingsClient.patchConfig([
+                "services": ["tts": ["providers": ["elevenlabs": ["voiceId": trimmed]]]]
+            ])
+            if !success {
+                log.error("Failed to patch config for ElevenLabs voice ID")
+            }
+        }
+    }
+
+    func setFishAudioReferenceId(_ referenceId: String) {
+        let trimmed = referenceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task {
+            let success = await settingsClient.patchConfig([
+                "services": ["tts": ["providers": ["fish-audio": ["referenceId": trimmed]]]]
+            ])
+            if !success {
+                log.error("Failed to patch config for Fish Audio reference ID")
+            }
+        }
     }
 
     /// Schedules a delayed refresh of provider routing sources, giving the

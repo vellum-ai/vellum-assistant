@@ -7,6 +7,7 @@ set -euo pipefail
 #
 # Usage:
 #   ./build.sh              Build debug (simulator)
+#   ./build.sh run          Build, install, and launch on simulator + open Xcode
 #   ./build.sh release      Build release .ipa for TestFlight
 #   ./build.sh test         Run iOS tests (via xcodebuild)
 #   ./build.sh clean        Remove build artifacts
@@ -68,10 +69,10 @@ case "$CMD" in
         echo "Done."
         exit 0
         ;;
-    build|release|test)
+    build|run|release|test)
         ;;
     *)
-        echo "Usage: $0 [build|release|test|clean]"
+        echo "Usage: $0 [build|run|release|test|clean]"
         exit 1
         ;;
 esac
@@ -125,7 +126,81 @@ resolve_simulator_destination() {
     fi
 }
 
-# ── Run command ───────────────────────────────────────────────────────
+# ── Resolve simulator UUID ──────────────────────────────────────────
+# Returns the device UUID of the first available iPhone simulator.
+# Used by the `run` command to boot/install/launch via simctl.
+resolve_simulator_udid() {
+    local udid
+    udid=$(xcrun simctl list devices available 2>/dev/null \
+        | grep 'iPhone' \
+        | sed -n 's/.*\([0-9A-Fa-f]\{8\}-[0-9A-Fa-f]\{4\}-[0-9A-Fa-f]\{4\}-[0-9A-Fa-f]\{4\}-[0-9A-Fa-f]\{12\}\).*/\1/p' \
+        | head -1 || true)
+    if [ -n "$udid" ]; then
+        echo "$udid"
+    else
+        echo "ERROR: No available iPhone simulator found. Install one via Xcode > Settings > Platforms." >&2
+        return 1
+    fi
+}
+
+# ── Run command (build + install + launch on simulator) ──────────────
+if [ "$CMD" = "run" ]; then
+    SIM_DEST=$(resolve_simulator_destination)
+    SIM_UDID=$(resolve_simulator_udid)
+    BUNDLE_ID="ai.vocify-inc.vellum-assistant-ios"
+
+    echo "Building for simulator (destination: $SIM_DEST)..."
+    mkdir -p "$DIST_DIR"
+    xcodebuild build \
+        -project "$PROJECT" \
+        -scheme "$SCHEME" \
+        -destination "$SIM_DEST" \
+        -configuration Debug \
+        CODE_SIGNING_ALLOWED=NO \
+        -derivedDataPath "$DIST_DIR/DerivedData" \
+        MARKETING_VERSION="$DISPLAY_VERSION" \
+        CURRENT_PROJECT_VERSION="$BUILD_VERSION"
+
+    # Locate the built .app inside DerivedData
+    APP_PATH=$(find "$DIST_DIR/DerivedData/Build/Products/Debug-iphonesimulator" \
+        -name "*.app" -maxdepth 1 2>/dev/null | head -1)
+    if [ -z "$APP_PATH" ]; then
+        echo "ERROR: Could not find built .app in DerivedData."
+        exit 1
+    fi
+
+    # Boot the simulator (no-op if already booted)
+    echo "Booting simulator $SIM_UDID..."
+    xcrun simctl boot "$SIM_UDID" 2>/dev/null || true
+
+    # Wait for the simulator to finish booting before installing.
+    # simctl boot only initiates boot — bootstatus blocks until ready.
+    xcrun simctl bootstatus "$SIM_UDID" -b 2>/dev/null || true
+
+    # Open Simulator.app so the user can see it
+    open -a Simulator
+
+    # Install and launch
+    echo "Installing $APP_PATH..."
+    xcrun simctl install "$SIM_UDID" "$APP_PATH"
+
+    echo "Launching $BUNDLE_ID..."
+    # SIMCTL_CHILD_ prefix passes env vars to the launched app
+    SIMCTL_CHILD_VELLUM_ENVIRONMENT="${VELLUM_ENVIRONMENT:-local}" \
+        xcrun simctl launch "$SIM_UDID" "$BUNDLE_ID"
+
+    # Open the Xcode project for debugging / log viewing
+    echo "Opening Xcode project..."
+    open "$PROJECT"
+
+    echo ""
+    echo "App launched on simulator."
+    echo "  Xcode is open for debugging — use Debug > Attach to Process > vellum-assistant-ios"
+    echo "  to attach the debugger to the running app."
+    exit 0
+fi
+
+# ── Test command ─────────────────────────────────────────────────────
 if [ "$CMD" = "test" ]; then
     SIM_DEST=$(resolve_simulator_destination)
     echo "Running iOS tests (destination: $SIM_DEST)..."

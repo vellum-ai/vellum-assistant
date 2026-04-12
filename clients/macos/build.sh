@@ -579,11 +579,14 @@ if [ "$CMD" = "release" ] || [ "$CMD" = "release-application" ]; then
     fi
 fi
 
-# Use a distinct bundle ID for debug builds so that `log stream` filtering
-# does not pick up logs from the production app running on the same machine.
-if [ "$CONFIG" = "debug" ]; then
-    BUNDLE_ID="com.vellum.vellum-assistant-dev"
-fi
+# Derive a per-environment bundle ID so that non-production builds are
+# isolated from each other (separate preferences, log stream filters, etc.).
+# Production keeps the bare identifier; everything else gets a suffix.
+case "$VELLUM_ENVIRONMENT" in
+    production) ;; # keep default BUNDLE_ID
+    *)          BUNDLE_ID="com.vellum.vellum-assistant-${VELLUM_ENVIRONMENT}" ;;
+esac
+echo "BUNDLE_ID=$BUNDLE_ID"
 
 # 1. Build with SPM (or use prebuilt binaries if PREBUILT_BIN_PATH is set)
 if [ -n "${PREBUILT_BIN_PATH:-}" ]; then
@@ -1078,7 +1081,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Vellum uses speech recognition to convert voice commands into tasks.</string>
     <key>SUFeedURL</key>
-    <string>${SU_FEED_URL:-https://github.com/vellum-ai/velly/releases/latest/download/appcast.xml}</string>
+    <string>${SU_FEED_URL:-https://github.com/vellum-ai/vellum-assistant/releases/latest/download/appcast.xml}</string>
     <key>SUPublicEDKey</key>
     <string>${SU_PUBLIC_ED_KEY:-}</string>
     <key>SUEnableAutomaticChecks</key>
@@ -1479,10 +1482,28 @@ if [ "$CMD" = "run" ]; then
             $still_running || break
             sleep 0.1
         done
-        # Force-kill any stragglers
+        # Force-kill any stragglers — re-read ps and re-match the bundle
+        # ID so we never SIGKILL a PID that was reused by an unrelated
+        # process since the original snapshot.
         if $still_running; then
             echo "Force-killing remaining sibling process(es)..."
-            echo "$other_vellum" | awk '{print $1}' | xargs kill -9 2>/dev/null || true
+            survivors=""
+            while IFS= read -r line; do
+                pid=${line%% *}
+                exe_path=${line#* }
+                case "$exe_path" in
+                    */Contents/MacOS/*) ;;
+                    *) continue ;;
+                esac
+                bundle_root=${exe_path%/Contents/MacOS/*}
+                other_id=$(plutil -extract CFBundleIdentifier raw "$bundle_root/Contents/Info.plist" 2>/dev/null || true)
+                [ "$other_id" = "$BUNDLE_ID" ] || continue
+                [ "$exe_path" != "$bundle_root/Contents/MacOS/$BUNDLE_DISPLAY_NAME" ] || continue
+                survivors+="$pid "
+            done < <(ps -ax -o pid=,comm=)
+            if [ -n "$survivors" ]; then
+                echo "$survivors" | xargs kill -9 2>/dev/null || true
+            fi
             sleep 0.3
         fi
     fi

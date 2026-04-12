@@ -329,11 +329,6 @@ public final class GatewayConnectionManager: ObservableObject {
             if let decoded = try? JSONDecoder().decode(HealthVersionResponse.self, from: response.data) {
                 if let newVersion = decoded.version, newVersion != assistantVersion {
                     assistantVersion = newVersion
-                    #if os(macOS)
-                    if let id = cachedAssistant?.assistantId, !id.isEmpty {
-                        LockfilePaths.updateServiceGroupVersion(assistantId: id, version: newVersion)
-                    }
-                    #endif
                     handleDaemonVersionChanged(newVersion)
                 }
             }

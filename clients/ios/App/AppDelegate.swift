@@ -5,7 +5,7 @@ import UIKit
 import UserNotifications
 import VellumAssistantShared
 
-private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "AppDelegate")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDelegate")
 
 /// Resolve the conversation key from UserDefaults for host tool filtering.
 private func resolveConversationKey() -> String? {

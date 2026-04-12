@@ -192,9 +192,10 @@ let port = 0;
 
 async function startGateway(): Promise<void> {
   port = 49152 + Math.floor(Math.random() * 16383);
+  const { GATEWAY_SECURITY_DIR: _, ...parentEnv } = process.env;
   gatewayProc = spawn("bun", ["run", gatewayEntry], {
     env: {
-      ...process.env,
+      ...parentEnv,
       BASE_DATA_DIR: testDir,
       GATEWAY_PORT: String(port),
       // Ensure Telegram is NOT configured via env vars

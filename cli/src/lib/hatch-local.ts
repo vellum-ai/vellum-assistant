@@ -333,7 +333,6 @@ export async function hatchLocal(
     cloud: "local",
     species,
     hatchedAt: new Date().toISOString(),
-    serviceGroupVersion: cliPkg.version ? `v${cliPkg.version}` : undefined,
     resources: { ...resources, signingKey },
   };
   emitProgress(7, 7, "Saving configuration...");

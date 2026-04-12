@@ -21,10 +21,10 @@ struct FileCredentialStorage: CredentialStorage {
 
     /// Returns the file URL for a given credential account name.
     /// The account name is sanitized to a safe filename by replacing
-    /// characters that are not alphanumerics, hyphens, or underscores.
+    /// characters that are not alphanumerics, hyphens, underscores, or colons.
     private func fileURL(for account: String) -> URL {
         let safeName = account.replacingOccurrences(
-            of: "[^a-zA-Z0-9_\\-]",
+            of: "[^a-zA-Z0-9_\\-:]",
             with: "_",
             options: .regularExpression
         )

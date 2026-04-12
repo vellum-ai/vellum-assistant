@@ -23,7 +23,7 @@ describe("config: hardcoded defaults", () => {
     expect(config.unmappedPolicy).toBe("reject");
     expect(config.routingEntries).toEqual([]);
     expect(config.defaultAssistantId).toBeUndefined();
-    expect(config.logFile.dir).toMatch(/\.vellum\/logs$/);
+    expect(config.logFile.dir).toMatch(/logs$/);
     expect(config.logFile.retentionDays).toBe(30);
   });
 

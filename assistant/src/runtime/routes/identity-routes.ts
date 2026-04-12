@@ -4,8 +4,6 @@
 
 import { existsSync, readFileSync, statfsSync, statSync } from "node:fs";
 import { availableParallelism, cpus, totalmem } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { z } from "zod";
 
@@ -17,6 +15,7 @@ import {
   getWorkspaceDir,
   getWorkspacePromptPath,
 } from "../../util/platform.js";
+import { APP_VERSION } from "../../version.js";
 import { WORKSPACE_MIGRATIONS } from "../../workspace/migrations/registry.js";
 import { getLastWorkspaceMigrationId } from "../../workspace/migrations/runner.js";
 import { httpError } from "../http-errors.js";
@@ -370,19 +369,6 @@ function getCpuInfo(): CpuInfo {
   };
 }
 
-function getPackageVersion(): string | undefined {
-  try {
-    const pkgPath = join(
-      dirname(fileURLToPath(import.meta.url)),
-      "../../../package.json",
-    );
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-    return pkg.version;
-  } catch {
-    return undefined;
-  }
-}
-
 export function handleHealth(): Response {
   return Response.json({ status: "ok" });
 }
@@ -398,7 +384,7 @@ export function handleDetailedHealth(): Response {
   return Response.json({
     status: "healthy",
     timestamp: new Date().toISOString(),
-    version: getPackageVersion(),
+    version: APP_VERSION,
     disk: getDiskSpaceInfo(),
     memory: getMemoryInfo(),
     cpu: getCpuInfo(),
@@ -424,7 +410,7 @@ export function handleGetIdentity(): Response {
   const content = readFileSync(identityPath, "utf-8");
   const fields = parseIdentityFields(content);
 
-  const version = getPackageVersion();
+  const version = APP_VERSION;
 
   // Read createdAt from IDENTITY.md file birthtime
   let createdAt: string | undefined;

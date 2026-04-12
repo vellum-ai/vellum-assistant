@@ -186,11 +186,6 @@ enum LogExporter {
             appendFormField(&body, boundary: boundary, name: "client_version", value: clientVersion)
         }
 
-        if let assistantId = connectedAssistantId,
-           let assistantVersion = LockfileAssistant.loadByName(assistantId)?.serviceGroupVersion {
-            appendFormField(&body, boundary: boundary, name: "assistant_version", value: assistantVersion)
-        }
-
         if let assistantId = connectedAssistantId {
             appendFormField(&body, boundary: boundary, name: "assistant_id", value: assistantId)
         }
@@ -378,9 +373,6 @@ enum LogExporter {
             if daemonUnreachable {
                 metadata["daemon-unreachable"] = true
             }
-            if let assistantVersion = connectedAssistant?.serviceGroupVersion {
-                metadata["assistant_version"] = assistantVersion
-            }
             if let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
                 metadata["client_version"] = clientVersion
             }
@@ -394,9 +386,6 @@ enum LogExporter {
                 // Write a minimal manifest when no form data is available so the
                 // receiving end still knows the daemon was unreachable during export.
             var manifest: [String: Any] = ["daemon-unreachable": true]
-            if let assistantVersion = connectedAssistant?.serviceGroupVersion {
-                manifest["assistant_version"] = assistantVersion
-            }
             if let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
                 manifest["client_version"] = clientVersion
             }
