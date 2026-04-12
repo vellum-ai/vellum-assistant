@@ -600,6 +600,25 @@ describe("handleBackupCreate", () => {
     expect(body.error.code).toBe("CONFLICT");
   });
 
+  test("cross-process conflict ('locked by pid N') is still mapped to 409", async () => {
+    // Regression test for the startsWith matcher in handleBackupCreate: the
+    // cross-process file lock in snapshot-lock.ts throws
+    // "snapshot in progress (locked by pid N)" rather than the bare
+    // "snapshot in progress" message the in-process flag emits. Both must
+    // map to 409 / CONFLICT — pin the matcher against future drift.
+    mockBackupConfig = makeConfig({ localDirectory: LOCAL_DIR });
+    mockCreateSnapshotError = new Error(
+      "snapshot in progress (locked by pid 12345)",
+    );
+
+    const res = await handleBackupCreate(
+      new Request("http://localhost/v1/backups/create", { method: "POST" }),
+    );
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("CONFLICT");
+  });
+
   test("other errors are surfaced as 500", async () => {
     mockCreateSnapshotError = new Error("disk full");
     const res = await handleBackupCreate(

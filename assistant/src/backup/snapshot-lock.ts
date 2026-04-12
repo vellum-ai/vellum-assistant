@@ -27,16 +27,41 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  renameSync,
   unlinkSync,
   writeSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { kill } from "node:process";
+import { setTimeout as sleep } from "node:timers/promises";
 
 import { getLogger } from "../util/logger.js";
 import { getLocalBackupsDir } from "./paths.js";
 
 const log = getLogger("snapshot-lock");
+
+/**
+ * Upper bound on acquire-loop iterations. Each stale-takeover attempt that
+ * loses a rename race or re-acquire race counts as one iteration. The loop
+ * is bounded so that a pathological contention pattern (many processes each
+ * racing into a newly freed slot) cannot turn into an unbounded spin.
+ */
+const MAX_ACQUIRE_ITERATIONS = 8;
+
+/**
+ * Delay between acquire-loop iterations when we lose a race and need to
+ * retry. Small enough that legitimate contention resolves quickly and large
+ * enough that we don't hammer the filesystem.
+ */
+const ACQUIRE_RETRY_DELAY_MS = 10;
+
+/**
+ * Extra delay when we see an empty lock file (suggesting another process
+ * is mid-write between `openSync(O_EXCL)` succeeding and `writeSync(payload)`
+ * completing). 20ms is plenty of time for the writer to finish a
+ * fixed-size `<pid> <timestamp>` payload.
+ */
+const EMPTY_FILE_RETRY_DELAY_MS = 20;
 
 /**
  * Returns the canonical path to the snapshot lock file. The lock lives one
@@ -79,6 +104,12 @@ function isProcessAlive(pid: number): boolean {
  * Try to atomically create the lock file with mode `0o600` and the current
  * PID as its contents. Returns `true` on success, `false` if the file
  * already exists (EEXIST), and rethrows any other error.
+ *
+ * The write-then-close sequence is ordered so that the payload is flushed
+ * before any other process can read the file. Callers must still verify
+ * ownership after a successful create to defend against the (theoretical)
+ * case where an atomic rename replaces the file between our close and our
+ * next action.
  */
 function tryAtomicCreateLock(lockPath: string): boolean {
   let fd: number | null = null;
@@ -106,6 +137,22 @@ function tryAtomicCreateLock(lockPath: string): boolean {
       }
     }
   }
+}
+
+/**
+ * Read back the lock file after a successful `tryAtomicCreateLock` and
+ * confirm that the holder PID matches `process.pid`. Returns `true` if we
+ * own the lock, `false` otherwise. Used as a defense-in-depth check against
+ * the (theoretical) case where another process atomically replaced our
+ * lock file between our `writeSync` and the next caller's `readFileSync`.
+ *
+ * Returns `false` for an empty file as well — if the contents have not yet
+ * been flushed (which should not happen since we `writeSync` before
+ * returning), we conservatively treat it as "not our lock".
+ */
+function verifyLockOwnership(lockPath: string): boolean {
+  const pid = readLockHolderPid(lockPath);
+  return pid === process.pid;
 }
 
 /**
@@ -138,11 +185,43 @@ function readLockHolderPid(lockPath: string): number | null {
  * "snapshot in progress" so existing consumers that match on that prefix
  * (HTTP 409 mapping, CLI error output) continue to work without change.
  *
- * Stale lock handling: if the holder PID is dead (or unparseable), the lock
- * file is removed and acquisition is retried exactly once. We do not loop
- * indefinitely — a second EEXIST after stale cleanup means a legitimate
- * concurrent caller raced us into the newly freed slot, and we report the
- * conflict rather than sit-spinning.
+ * ## Stale-lock takeover (TOCTOU-safe)
+ *
+ * The naive "detect stale → unlink → re-acquire" pattern has a TOCTOU
+ * race: two processes can both observe the same stale lock, both call
+ * `unlink`, and the second unlink removes the *fresh* lock the first
+ * process just re-acquired. Both then succeed at `O_EXCL` create and
+ * believe they own the lock.
+ *
+ * This implementation uses a **rename-aside-then-verify** pattern instead:
+ *
+ *   1. Atomically rename the stale lock to a unique sideband path
+ *      (`<lockPath>.stale.<pid>.<timestamp>`). `rename(2)` is atomic; if two
+ *      processes race, only one wins. The loser sees `ENOENT` and retries
+ *      the acquire loop from the top.
+ *   2. The winner attempts `O_EXCL` create on the now-empty `lockPath`. On
+ *      success it unlinks the sideband file and verifies ownership by
+ *      reading back the PID it wrote.
+ *   3. Post-acquire verification runs for *every* successful create (not
+ *      just the takeover path). If the read-back PID doesn't match
+ *      `process.pid`, we release our idea-of-a-lock as a race and throw —
+ *      crucially, without unlinking, so we don't destroy whoever does own
+ *      it.
+ *
+ * ## Partial-write handling
+ *
+ * There is a tiny window between `openSync(O_EXCL)` succeeding and
+ * `writeSync(payload)` completing where another reader could observe a
+ * zero-byte lock file. If we see an empty file on inspection, we sleep
+ * briefly and re-read — if it's still empty, we treat it as stale and
+ * proceed with the rename-aside takeover.
+ *
+ * ## Bounded retry
+ *
+ * The loop is bounded by `MAX_ACQUIRE_ITERATIONS`. A pathological contention
+ * pattern (e.g. many backup processes each taking over each other's leftovers
+ * faster than we can verify ownership) cannot turn into an unbounded spin.
+ * After the bound is exhausted we surface a conflict so callers retry.
  *
  * The lock directory is created on demand so first-run scenarios (no
  * `~/.vellum/backups` yet) work without a separate bootstrap step.
@@ -154,47 +233,94 @@ export async function acquireSnapshotLock(
   // idempotent — it will not fail if the directory already exists.
   mkdirSync(dirname(lockPath), { recursive: true, mode: 0o700 });
 
-  const tryAcquire = (): boolean => tryAtomicCreateLock(lockPath);
+  let lastHolderPid: number | null = null;
 
-  if (tryAcquire()) {
-    return makeRelease(lockPath);
-  }
+  for (let attempt = 0; attempt < MAX_ACQUIRE_ITERATIONS; attempt += 1) {
+    // --- Step 1: try fresh atomic create ---
+    if (tryAtomicCreateLock(lockPath)) {
+      // Post-acquire verification. If another process managed to atomically
+      // replace our lock between our `writeSync` and now (which should not
+      // happen under O_EXCL, but we verify as defense in depth), someone
+      // else owns it — report conflict without unlinking so we don't
+      // destroy their lock.
+      if (verifyLockOwnership(lockPath)) {
+        return makeRelease(lockPath);
+      }
+      const winnerPid = readLockHolderPid(lockPath);
+      throw new Error(
+        winnerPid != null
+          ? `snapshot in progress (locked by pid ${winnerPid})`
+          : "snapshot in progress (race detected)",
+      );
+    }
 
-  // Lock already exists — probe the holder. If it's a dead PID or the file
-  // is unreadable, take it over and try once more.
-  const holderPid = readLockHolderPid(lockPath);
-  if (holderPid != null && isProcessAlive(holderPid)) {
-    throw new Error(
-      `snapshot in progress (locked by pid ${holderPid})`,
+    // --- Step 2: inspect the existing lock ---
+    let holderPid = readLockHolderPid(lockPath);
+
+    // Partial-write window: the file exists but has no parseable PID. This
+    // can happen in the tiny window between `O_EXCL` create and the payload
+    // write, so we retry once after a short sleep.
+    if (holderPid == null) {
+      await sleep(EMPTY_FILE_RETRY_DELAY_MS);
+      holderPid = readLockHolderPid(lockPath);
+    }
+
+    if (holderPid != null && isProcessAlive(holderPid)) {
+      throw new Error(
+        `snapshot in progress (locked by pid ${holderPid})`,
+      );
+    }
+
+    // --- Step 3: stale takeover via rename-aside ---
+    //
+    // Atomically rename the stale lock to a unique sideband path. If two
+    // processes race, only one wins the rename — the loser sees ENOENT and
+    // retries the acquire loop from the top. The winner's next `tryAcquire`
+    // can then succeed on the empty slot.
+    lastHolderPid = holderPid;
+    const sidebandPath = `${lockPath}.stale.${process.pid}.${Date.now()}.${attempt}`;
+    log.info(
+      { lockPath, holderPid, sidebandPath },
+      "Taking over stale snapshot lock via rename-aside",
     );
+    try {
+      renameSync(lockPath, sidebandPath);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") {
+        // Another process already renamed the stale lock away. Retry the
+        // whole loop — the slot may be free or may have a new legitimate
+        // holder.
+        await sleep(ACQUIRE_RETRY_DELAY_MS);
+        continue;
+      }
+      throw err;
+    }
+
+    // The sideband file is ours to clean up. Best-effort unlink; if it
+    // fails, the file will sit around as orphaned debris, but it does not
+    // affect correctness (the name includes our pid and timestamp so it
+    // won't collide with a future run).
+    try {
+      unlinkSync(sidebandPath);
+    } catch {
+      // best-effort
+    }
+
+    // Loop back to attempt the acquire on the now-empty slot. Do not break
+    // out here — control flow falls through to the next iteration which
+    // calls `tryAtomicCreateLock` again.
+    await sleep(ACQUIRE_RETRY_DELAY_MS);
   }
 
-  // Stale lock — the holder PID is dead or the file is corrupt. Remove it
-  // and retry once. Any error on unlink (e.g. another process raced us to
-  // clean it up) is ignored; the retry will discover the real state.
-  log.info(
-    { lockPath, holderPid },
-    "Taking over stale snapshot lock",
+  // Ran out of attempts. This should be vanishingly rare — it would require
+  // sustained multi-way contention with every attempt losing a rename or
+  // acquire race. Surface as a conflict so the caller can retry.
+  throw new Error(
+    lastHolderPid != null
+      ? `snapshot in progress (contended, last seen pid ${lastHolderPid})`
+      : "snapshot in progress (lock contended)",
   );
-  try {
-    unlinkSync(lockPath);
-  } catch {
-    // best-effort
-  }
-
-  if (tryAcquire()) {
-    return makeRelease(lockPath);
-  }
-
-  // Someone legitimately raced us into the cleaned slot. Report as a
-  // conflict so the caller can retry.
-  const racePid = readLockHolderPid(lockPath);
-  if (racePid != null) {
-    throw new Error(
-      `snapshot in progress (locked by pid ${racePid})`,
-    );
-  }
-  throw new Error("snapshot in progress (lock contended)");
 }
 
 /**
