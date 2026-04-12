@@ -1,7 +1,7 @@
 import { createWriteStream, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { pipeline } from "node:stream/promises";
 import type { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 import type { Command } from "commander";
 
