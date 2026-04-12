@@ -231,8 +231,13 @@ async function showLocalLogs(
     lines.push(line);
   }
 
-  // Apply --tail
-  const output = opts.tail != null ? lines.slice(-opts.tail) : lines;
+  // Apply --tail (explicit check for 0 since slice(-0) returns the whole array)
+  const output =
+    opts.tail != null
+      ? opts.tail === 0
+        ? []
+        : lines.slice(-opts.tail)
+      : lines;
   for (const line of output) {
     console.log(line);
   }
@@ -376,16 +381,35 @@ async function showDockerLogs(
       return { target, child };
     });
 
-    // Wait for all children to exit (or handle follow mode)
+    // Wait for all children to exit and track failures
+    const errors: string[] = [];
     await Promise.all(
       children.map(
-        ({ child }) =>
+        ({ target, child }) =>
           new Promise<void>((resolve) => {
-            child.on("close", () => resolve());
-            child.on("error", () => resolve());
+            child.on("close", (code) => {
+              if (code !== 0 && code !== null) {
+                errors.push(
+                  `docker logs for ${target.name} exited with code ${code}`,
+                );
+              }
+              resolve();
+            });
+            child.on("error", (err) => {
+              errors.push(
+                `docker logs for ${target.name} failed: ${err.message}`,
+              );
+              resolve();
+            });
           }),
       ),
     );
+    if (errors.length > 0) {
+      for (const msg of errors) {
+        console.error(msg);
+      }
+      process.exit(1);
+    }
   }
 }
 
@@ -450,9 +474,15 @@ async function showGcpLogs(
   if (opts.follow) {
     // For follow mode, stream output directly to terminal
     const child = spawn("gcloud", args, { stdio: "inherit" });
-    await new Promise<void>((resolve) => {
-      child.on("close", () => resolve());
-      child.on("error", () => resolve());
+    await new Promise<void>((resolve, reject) => {
+      child.on("close", (code) => {
+        if (code !== 0 && code !== null) {
+          reject(new Error(`gcloud ssh exited with code ${code}`));
+        } else {
+          resolve();
+        }
+      });
+      child.on("error", (err) => reject(err));
     });
   } else {
     try {
@@ -490,9 +520,15 @@ async function showCustomLogs(
     const child = spawn("ssh", [...SSH_OPTS, sshTarget, remoteCmd], {
       stdio: "inherit",
     });
-    await new Promise<void>((resolve) => {
-      child.on("close", () => resolve());
-      child.on("error", () => resolve());
+    await new Promise<void>((resolve, reject) => {
+      child.on("close", (code) => {
+        if (code !== 0 && code !== null) {
+          reject(new Error(`ssh exited with code ${code}`));
+        } else {
+          resolve();
+        }
+      });
+      child.on("error", (err) => reject(err));
     });
   } else {
     try {
@@ -525,9 +561,15 @@ async function showAwsLogs(
     const child = spawn("ssh", [...SSH_OPTS, sshTarget, remoteCmd], {
       stdio: "inherit",
     });
-    await new Promise<void>((resolve) => {
-      child.on("close", () => resolve());
-      child.on("error", () => resolve());
+    await new Promise<void>((resolve, reject) => {
+      child.on("close", (code) => {
+        if (code !== 0 && code !== null) {
+          reject(new Error(`ssh exited with code ${code}`));
+        } else {
+          resolve();
+        }
+      });
+      child.on("error", (err) => reject(err));
     });
   } else {
     try {
