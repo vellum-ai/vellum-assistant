@@ -1,5 +1,6 @@
+import { join } from "node:path";
 import { describe, test, expect } from "bun:test";
-import { loadConfig } from "../config.js";
+import { loadConfig, getGatewaySecurityDir } from "../config.js";
 
 describe("config: hardcoded defaults", () => {
   test("returns expected hardcoded values", () => {
@@ -23,7 +24,7 @@ describe("config: hardcoded defaults", () => {
     expect(config.unmappedPolicy).toBe("reject");
     expect(config.routingEntries).toEqual([]);
     expect(config.defaultAssistantId).toBeUndefined();
-    expect(config.logFile.dir).toMatch(/\.vellum\/protected\/logs$/);
+    expect(config.logFile.dir).toBe(join(getGatewaySecurityDir(), "logs"));
     expect(config.logFile.retentionDays).toBe(30);
   });
 
