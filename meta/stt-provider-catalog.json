@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "providers": [
+    {
+      "id": "openai-whisper",
+      "displayName": "OpenAI Whisper",
+      "subtitle": "High-accuracy speech-to-text powered by OpenAI Whisper. Requires an OpenAI API key.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your OpenAI API key to enable Whisper transcription."
+    },
+    {
+      "id": "deepgram",
+      "displayName": "Deepgram",
+      "subtitle": "Fast, real-time speech-to-text with streaming support. Requires a Deepgram API key.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your Deepgram API key to enable speech-to-text."
+    }
+  ]
+}
