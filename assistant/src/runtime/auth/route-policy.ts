@@ -465,6 +465,9 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Dictation
   { endpoint: "dictation", scopes: ["chat.write"] },
 
+  // Speech-to-text
+  { endpoint: "stt/transcribe", scopes: ["chat.write"] },
+
   // OAuth / integrations
   { endpoint: "oauth/start", scopes: ["settings.write"] },
   { endpoint: "integrations/oauth/start", scopes: ["settings.write"] }, // legacy alias
