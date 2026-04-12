@@ -113,6 +113,9 @@ export class MediaStreamSttSession {
   /** Capability snapshot — resolved lazily on first turn end. */
   private capabilityPromise: Promise<TelephonySttCapability> | null = null;
 
+  /** Session-level abort controller for the active transcription request. */
+  private activeTranscriptionAbort: AbortController | null = null;
+
   constructor(
     config: MediaStreamSttSessionConfig = {},
     callbacks: MediaStreamSttSessionCallbacks = {},
@@ -170,6 +173,8 @@ export class MediaStreamSttSession {
    */
   dispose(): void {
     this.disposed = true;
+    this.activeTranscriptionAbort?.abort();
+    this.activeTranscriptionAbort = null;
     this.turnDetector.dispose();
     this.currentTurnChunks = [];
   }
@@ -230,6 +235,7 @@ export class MediaStreamSttSession {
       this.capabilityPromise = resolveTelephonySttCapability();
     }
     const capability = await this.capabilityPromise;
+    if (this.disposed) return;
 
     if (capability.status !== "supported") {
       const reason =
@@ -246,17 +252,25 @@ export class MediaStreamSttSession {
     }
 
     // Decode the base64 audio chunks into a single buffer.
-    const audioBuffer = this.decodeAudioChunks(chunks);
+    const rawAudio = this.decodeAudioChunks(chunks);
+
+    // Wrap raw μ-law PCM in a WAV container so downstream transcribers
+    // (e.g. Whisper) receive a recognised audio format with correct headers.
+    const isMulaw = this.encoding === "audio/x-mulaw";
+    const audioBuffer = isMulaw ? wrapMulawWav(rawAudio) : rawAudio;
+    const mimeType = isMulaw ? "audio/wav" : "audio/raw";
 
     // Resolve a batch transcriber for the configured provider.
     let transcriber;
     try {
       transcriber = await resolveBatchTranscriber();
     } catch (err) {
+      if (this.disposed) return;
       const normalized = normalizeSttError(err);
       this.callbacks.onError?.(normalized.category, normalized.message);
       return;
     }
+    if (this.disposed) return;
 
     if (!transcriber) {
       this.callbacks.onError?.(
@@ -266,8 +280,10 @@ export class MediaStreamSttSession {
       return;
     }
 
-    // Transcribe with a timeout
+    // Transcribe with a timeout, using a session-level abort controller
+    // so dispose() can cancel in-flight requests.
     const controller = new AbortController();
+    this.activeTranscriptionAbort = controller;
     const timeoutId = setTimeout(
       () => controller.abort(),
       this.transcriptionTimeoutMs,
@@ -276,18 +292,22 @@ export class MediaStreamSttSession {
     try {
       const result = await transcriber.transcribe({
         audio: audioBuffer,
-        mimeType:
-          this.encoding === "audio/x-mulaw" ? "audio/mulaw" : "audio/raw",
+        mimeType,
         signal: controller.signal,
         callContext: this.config.callContextHints,
       });
 
+      if (this.disposed) return;
       this.callbacks.onTranscriptFinal?.(result.text, durationMs);
     } catch (err) {
+      if (this.disposed) return;
       const normalized = normalizeSttError(err);
       this.callbacks.onError?.(normalized.category, normalized.message);
     } finally {
       clearTimeout(timeoutId);
+      if (this.activeTranscriptionAbort === controller) {
+        this.activeTranscriptionAbort = null;
+      }
     }
   }
 
@@ -300,4 +320,66 @@ export class MediaStreamSttSession {
     const buffers = chunks.map((chunk) => Buffer.from(chunk, "base64"));
     return Buffer.concat(buffers);
   }
+}
+
+// ---------------------------------------------------------------------------
+// WAV helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Wrap raw μ-law PCM data in a minimal WAV container (44-byte RIFF header).
+ *
+ * Twilio sends 8 kHz, mono, 8-bit μ-law audio. The WAV format code for
+ * μ-law is 0x0007.
+ *
+ * This ensures downstream transcribers that inspect the MIME type or file
+ * extension (e.g. Whisper) receive a recognised container format.
+ */
+function wrapMulawWav(pcm: Buffer): Buffer {
+  const SAMPLE_RATE = 8000;
+  const NUM_CHANNELS = 1;
+  const BITS_PER_SAMPLE = 8;
+  const MULAW_FORMAT_TAG = 0x0007;
+  const HEADER_SIZE = 44;
+
+  const byteRate = SAMPLE_RATE * NUM_CHANNELS * (BITS_PER_SAMPLE / 8);
+  const blockAlign = NUM_CHANNELS * (BITS_PER_SAMPLE / 8);
+  const dataSize = pcm.length;
+  const fileSize = HEADER_SIZE + dataSize - 8; // RIFF chunk size excludes first 8 bytes
+
+  const header = Buffer.alloc(HEADER_SIZE);
+  let offset = 0;
+
+  // RIFF header
+  header.write("RIFF", offset);
+  offset += 4;
+  header.writeUInt32LE(fileSize, offset);
+  offset += 4;
+  header.write("WAVE", offset);
+  offset += 4;
+
+  // fmt sub-chunk
+  header.write("fmt ", offset);
+  offset += 4;
+  header.writeUInt32LE(16, offset); // sub-chunk size (PCM = 16)
+  offset += 4;
+  header.writeUInt16LE(MULAW_FORMAT_TAG, offset); // audio format: μ-law
+  offset += 2;
+  header.writeUInt16LE(NUM_CHANNELS, offset);
+  offset += 2;
+  header.writeUInt32LE(SAMPLE_RATE, offset);
+  offset += 4;
+  header.writeUInt32LE(byteRate, offset);
+  offset += 4;
+  header.writeUInt16LE(blockAlign, offset);
+  offset += 2;
+  header.writeUInt16LE(BITS_PER_SAMPLE, offset);
+  offset += 2;
+
+  // data sub-chunk
+  header.write("data", offset);
+  offset += 4;
+  header.writeUInt32LE(dataSize, offset);
+
+  return Buffer.concat([header, pcm]);
 }
