@@ -2,12 +2,12 @@ import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getLogger } from "../util/logger.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
-import { maybeRunDbMaintenance } from "./db-maintenance.js";
 import {
   getLastScheduledCleanupEnqueueMs,
   markScheduledCleanupEnqueued,
   resetCleanupScheduleThrottle as resetCleanupScheduleThrottleImpl,
 } from "./cleanup-schedule-state.js";
+import { maybeRunDbMaintenance } from "./db-maintenance.js";
 import { bootstrapFromHistory } from "./graph/bootstrap.js";
 import { runConsolidation } from "./graph/consolidation.js";
 import { runDecayTick } from "./graph/decay.js";
