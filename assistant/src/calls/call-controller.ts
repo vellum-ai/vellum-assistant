@@ -23,8 +23,6 @@ import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { mintDaemonDeliveryToken } from "../runtime/auth/token-service.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
-import { getTtsProvider } from "../tts/provider-registry.js";
-import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 import type { TtsProvider } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
 import { createStreamingEntry } from "./audio-store.js";
@@ -51,6 +49,7 @@ import { finalizeCall } from "./finalize-call.js";
 import { sendGuardianExpiryNotices } from "./guardian-action-sweep.js";
 import { dispatchGuardianQuestion } from "./guardian-dispatch.js";
 import type { RelayConnection } from "./relay-server.js";
+import { resolveCallTtsProvider } from "./resolve-call-tts-provider.js";
 import type { PromptSpeakerContext } from "./speaker-identification.js";
 import { sanitizeForTts } from "./tts-text-sanitizer.js";
 import {
@@ -528,46 +527,6 @@ export class CallController {
   }
 
   /**
-   * Resolve the active TTS provider via the global provider abstraction.
-   *
-   * Providers that declare streaming support are treated as "synthesized"
-   * providers — their audio is streamed through the audio store and played
-   * via `sendPlayUrl`. Providers without streaming support are "native"
-   * providers — text tokens are streamed directly to the relay for Twilio's
-   * built-in TTS.
-   */
-  private resolveCallTtsProvider(): {
-    provider: TtsProvider | null;
-    useSynthesizedPath: boolean;
-    audioFormat: "mp3" | "wav" | "opus";
-  } {
-    try {
-      const config = loadConfig();
-      const resolved = resolveTtsConfig(config);
-      const provider = getTtsProvider(resolved.provider);
-      // Providers with streaming support synthesize audio themselves; others
-      // rely on the relay's native (Twilio-managed) TTS engine.
-      const useSynthesizedPath = provider.capabilities.supportsStreaming;
-      // Read the user-configured audio format from the resolved provider
-      // config so the streaming store entry's content-type matches the
-      // actual audio bytes the provider produces.
-      const configuredFormat = (resolved.providerConfig as { format?: string })
-        .format;
-      const audioFormat = (
-        configuredFormat && ["mp3", "wav", "opus"].includes(configuredFormat)
-          ? configuredFormat
-          : "mp3"
-      ) as "mp3" | "wav" | "opus";
-      return { provider, useSynthesizedPath, audioFormat };
-    } catch {
-      // Config missing `services.tts` block or provider not registered
-      // (e.g. unit tests or early startup) — fall back to the native
-      // (non-streaming) path where the provider object is not used.
-      return { provider: null, useSynthesizedPath: false, audioFormat: "mp3" };
-    }
-  }
-
-  /**
    * Stream TTS tokens from the conversation pipeline, buffering to strip
    * control markers before they reach the relay. Returns the full
    * accumulated response text for post-turn marker detection.
@@ -578,12 +537,12 @@ export class CallController {
     runSignal: AbortSignal,
   ): Promise<string> {
     // Resolve the active TTS provider through the global abstraction.
-    // Providers that declare streaming support use the synthesized-play
-    // path (buffer text, synthesize via provider API, stream audio chunks
-    // to Twilio via play-URL). Native providers stream text tokens to
-    // the relay for Twilio's built-in TTS.
+    // The catalog's callMode determines the call path: synthesized-play
+    // providers buffer text, synthesize via provider API, and stream
+    // audio chunks to Twilio via play-URL. Native-twilio providers
+    // stream text tokens to the relay for Twilio's built-in TTS.
     const { provider, useSynthesizedPath, audioFormat } =
-      this.resolveCallTtsProvider();
+      resolveCallTtsProvider();
 
     // Buffer incoming tokens so we can strip control markers ([ASK_GUARDIAN:...], [END_CALL])
     // before they reach TTS. We hold text whenever an unmatched '[' appears, since it
@@ -779,7 +738,7 @@ export class CallController {
       } else {
         // Fallback: buffer-oriented synthesis for providers that don't
         // implement streaming (shouldn't normally reach here since
-        // useSynthesizedPath is gated on supportsStreaming).
+        // useSynthesizedPath is gated on catalog callMode).
         const result = await provider.synthesize({
           text,
           useCase: "phone-call",

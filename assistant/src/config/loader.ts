@@ -15,19 +15,9 @@ import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import { AssistantConfigSchema } from "./schema.js";
 import type { AssistantConfig } from "./types.js";
 
-const log = getLogger("config");
+export { API_KEY_PROVIDERS } from "../providers/provider-secret-catalog.js";
 
-// Providers that store API keys in secure storage (superset of VALID_PROVIDERS)
-export const API_KEY_PROVIDERS = [
-  "anthropic",
-  "openai",
-  "gemini",
-  "ollama",
-  "fireworks",
-  "openrouter",
-  "brave",
-  "perplexity",
-] as const;
+const log = getLogger("config");
 
 let cached: AssistantConfig | null = null;
 let loading = false;

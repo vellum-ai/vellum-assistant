@@ -60,9 +60,11 @@ import {
   DEFAULT_ELEVENLABS_VOICE_ID,
   SttServiceSchema,
   TtsServiceSchema,
+  VALID_TTS_SERVICE_PROVIDERS,
 } from "../config/schema.js";
 import type { AssistantConfig } from "../config/types.js";
 import { _setStorePath } from "../security/encrypted-store.js";
+import { listCatalogProviderIds } from "../tts/provider-catalog.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 
 // ---------------------------------------------------------------------------
@@ -1517,6 +1519,108 @@ describe("resolveTtsConfig", () => {
     const resolved = resolveTtsConfig(config);
     expect(resolved.provider).toBe("aws-polly");
     expect(resolved.providerConfig).toEqual({});
+  });
+
+  test("unknown provider resolution is deterministic across repeated calls", () => {
+    const config = structuredClone(
+      AssistantConfigSchema.parse({}),
+    ) as AssistantConfig;
+    (config.services.tts as { provider: string }).provider = "nonexistent";
+    const first = resolveTtsConfig(config);
+    const second = resolveTtsConfig(config);
+    expect(first).toEqual(second);
+    expect(first.providerConfig).toEqual({});
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: TTS provider catalog integration
+// ---------------------------------------------------------------------------
+
+describe("TTS provider catalog integration", () => {
+  test("VALID_TTS_SERVICE_PROVIDERS matches catalog provider IDs", () => {
+    const catalogIds = listCatalogProviderIds();
+    expect([...VALID_TTS_SERVICE_PROVIDERS]).toEqual(catalogIds);
+  });
+
+  test("schema accepts all catalog provider IDs as services.tts.provider", () => {
+    for (const providerId of listCatalogProviderIds()) {
+      const result = AssistantConfigSchema.safeParse({
+        services: { tts: { provider: providerId } },
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.services.tts.provider).toBe(providerId);
+      }
+    }
+  });
+
+  test("TtsProvidersSchema has a key for every catalog provider", () => {
+    const parsed = AssistantConfigSchema.parse({});
+    const providerKeys = Object.keys(parsed.services.tts.providers);
+    for (const providerId of listCatalogProviderIds()) {
+      expect(providerKeys).toContain(providerId);
+    }
+  });
+
+  test("resolveTtsConfig returns correct defaults for each catalog provider", () => {
+    for (const providerId of listCatalogProviderIds()) {
+      const config = AssistantConfigSchema.parse({
+        services: { tts: { provider: providerId } },
+      });
+      const resolved = resolveTtsConfig(config);
+      expect(resolved.provider).toBe(providerId);
+      // Every catalog provider should resolve to a non-empty config object
+      expect(Object.keys(resolved.providerConfig).length).toBeGreaterThan(0);
+    }
+  });
+
+  test("resolveTtsConfig returns overridden values for elevenlabs", () => {
+    const config = AssistantConfigSchema.parse({
+      services: {
+        tts: {
+          provider: "elevenlabs",
+          providers: {
+            elevenlabs: { voiceId: "override-voice", speed: 0.7 },
+          },
+        },
+      },
+    });
+    const resolved = resolveTtsConfig(config);
+    expect(resolved.provider).toBe("elevenlabs");
+    expect(resolved.providerConfig).toMatchObject({
+      voiceId: "override-voice",
+      speed: 0.7,
+      // Defaults still present for unset fields
+      stability: 0.5,
+      similarityBoost: 0.75,
+    });
+  });
+
+  test("resolveTtsConfig returns overridden values for fish-audio", () => {
+    const config = AssistantConfigSchema.parse({
+      services: {
+        tts: {
+          provider: "fish-audio",
+          providers: {
+            "fish-audio": {
+              referenceId: "override-ref",
+              format: "opus",
+              speed: 1.5,
+            },
+          },
+        },
+      },
+    });
+    const resolved = resolveTtsConfig(config);
+    expect(resolved.provider).toBe("fish-audio");
+    expect(resolved.providerConfig).toMatchObject({
+      referenceId: "override-ref",
+      format: "opus",
+      speed: 1.5,
+      // Defaults for unset fields
+      chunkLength: 200,
+    });
   });
 });
 

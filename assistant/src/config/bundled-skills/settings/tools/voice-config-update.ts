@@ -5,12 +5,12 @@ import {
   setNestedValue,
 } from "../../../../config/loader.js";
 import { VALID_CONVERSATION_TIMEOUTS } from "../../../../config/schemas/elevenlabs.js";
-import { VALID_TTS_PROVIDERS } from "../../../../config/schemas/tts.js";
 import { normalizeActivationKey } from "../../../../daemon/handlers/config-voice.js";
 import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
+import { listCatalogProviderIds } from "../../../../tts/provider-catalog.js";
 
 /**
  * Valid voice config settings and their UserDefaults key mappings.
@@ -108,11 +108,11 @@ function validateSetting(
       return { ok: true, coerced: trimmed };
     }
     case "tts_provider": {
-      const valid: readonly string[] = VALID_TTS_PROVIDERS;
-      if (typeof value !== "string" || !valid.includes(value.trim())) {
+      const catalogIds = listCatalogProviderIds();
+      if (typeof value !== "string" || !catalogIds.includes(value.trim())) {
         return {
           ok: false,
-          error: `tts_provider must be one of: ${valid.join(", ")}`,
+          error: `tts_provider must be one of: ${catalogIds.join(", ")}`,
         };
       }
       return { ok: true, coerced: value.trim() };

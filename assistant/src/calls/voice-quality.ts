@@ -2,6 +2,10 @@ import { loadConfig } from "../config/loader.js";
 import { DEFAULT_ELEVENLABS_VOICE_ID } from "../config/schemas/elevenlabs.js";
 import { getTtsProvider } from "../tts/provider-registry.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
+import {
+  getNativeTwilioVoiceSpec,
+  resolveCallStrategy,
+} from "./tts-call-strategy.js";
 
 export interface VoiceQualityProfile {
   language: string;
@@ -46,14 +50,22 @@ export function buildElevenLabsVoiceSpec(config: {
 /**
  * Resolve the effective voice quality profile from config.
  *
- * Uses the global TTS provider abstraction to determine which provider is
- * active. Providers that declare streaming support (e.g. Fish Audio) use
- * the synthesized-play path — ConversationRelay needs a valid TTS provider
- * in TwiML, so we set `ttsProvider` to `"Google"` as a placeholder and
- * leave `voice` empty since actual audio is delivered via `play` messages.
+ * Uses the explicit call strategy from the TTS provider catalog to
+ * determine the call path. The catalog's `callMode` field
+ * (`"native-twilio"` vs `"synthesized-play"`) drives the decision
+ * rather than inferring behavior from runtime `supportsStreaming`
+ * capability.
  *
- * For native providers (e.g. ElevenLabs), `ttsProvider` and `voice` are
- * populated from config so Twilio handles TTS natively.
+ * For **synthesized-play** providers (e.g. Fish Audio),
+ * ConversationRelay needs a valid TTS provider in TwiML, so we set
+ * `ttsProvider` to `"Google"` as a placeholder and leave `voice` empty
+ * since actual audio is delivered via `play` messages.
+ *
+ * For **native-twilio** providers (e.g. ElevenLabs), `ttsProvider` and
+ * `voice` are populated via the provider's registered
+ * {@link NativeTwilioVoiceSpec} builder so Twilio handles TTS natively.
+ * New native providers plug in by registering a voice-spec builder --
+ * no edits to this module required.
  *
  * NOTE: STT provider and speech model are intentionally NOT part of this
  * profile. STT resolution is handled once in the voice webhook route
@@ -66,29 +78,58 @@ export function resolveVoiceQualityProfile(
   const cfg = config ?? loadConfig();
   const voice = cfg.calls.voice;
 
-  // Resolve the active TTS provider through the global abstraction.
-  // When the config lacks the `services.tts` block (e.g. test mocks or
-  // pre-migration configs) or the provider registry has not been initialised,
-  // we fall back to the native ElevenLabs profile.
-  let usesSynthesizedPath = false;
+  // Resolve the call strategy from catalog metadata.
+  // Falls back to native ElevenLabs when config/catalog is unavailable.
+  const strategy = resolveCallStrategy(cfg);
+
+  // Before committing to the catalog-derived strategy, verify the
+  // runtime provider is actually registered. If the provider registry
+  // hasn't been initialised (early startup, test mocks), fall back to
+  // native mode so this function and resolveCallTtsProvider agree on
+  // the same degraded-mode path.
+  let runtimeAvailable = false;
   try {
     const resolved = resolveTtsConfig(cfg);
-    const provider = getTtsProvider(resolved.provider);
-    usesSynthesizedPath = provider.capabilities.supportsStreaming;
+    getTtsProvider(resolved.provider);
+    runtimeAvailable = true;
   } catch {
-    // Config or provider not available — default to native (ElevenLabs) path.
+    // Provider not registered — will fall through to native path below.
+  }
+
+  let ttsProvider: string;
+  let voiceSpec: string;
+
+  if (runtimeAvailable && strategy.callMode === "synthesized-play") {
+    // Synthesized providers stream audio via `play` messages.
+    // Twilio still needs a valid ttsProvider in TwiML, so use a
+    // placeholder and leave voice empty.
+    ttsProvider = "Google";
+    voiceSpec = "";
+  } else {
+    // Native providers: delegate voice-spec building to the
+    // provider's registered builder.
+    try {
+      const spec = getNativeTwilioVoiceSpec(strategy.providerId);
+      ttsProvider = spec.twilioProviderName;
+
+      const resolved = resolveTtsConfig(cfg);
+      voiceSpec = spec.buildVoiceSpec(resolved.providerConfig);
+    } catch {
+      // Voice-spec builder not registered or config unavailable --
+      // fall back to ElevenLabs using the config's elevenlabs block.
+      ttsProvider = "ElevenLabs";
+      voiceSpec = buildElevenLabsVoiceSpec(
+        cfg.services?.tts?.providers?.elevenlabs ?? {
+          voiceId: DEFAULT_ELEVENLABS_VOICE_ID,
+        },
+      );
+    }
   }
 
   return {
     language: voice.language,
-    ttsProvider: usesSynthesizedPath ? "Google" : "ElevenLabs",
-    voice: usesSynthesizedPath
-      ? ""
-      : buildElevenLabsVoiceSpec(
-          cfg.services?.tts?.providers?.elevenlabs ?? {
-            voiceId: DEFAULT_ELEVENLABS_VOICE_ID,
-          },
-        ),
+    ttsProvider,
+    voice: voiceSpec,
     interruptSensitivity: voice.interruptSensitivity ?? "low",
     hints: voice.hints ?? [],
   };

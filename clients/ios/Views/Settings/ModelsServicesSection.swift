@@ -3,6 +3,10 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Settings section for managing API keys and the active LLM model.
+///
+/// TTS-related API key providers are derived from the shared
+/// ``TTSProviderRegistry`` so that new providers with `apiKey` setup
+/// mode are surfaced automatically without code changes.
 struct ModelsServicesSection: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @State private var currentModel: String?
@@ -10,11 +14,22 @@ struct ModelsServicesSection: View {
     @State private var selectedProvider: APIKeyProvider?
     @State private var loading = false
 
-    /// The two API key providers currently supported by `APIKeyManager`.
-    private let providers: [APIKeyProvider] = [
-        APIKeyProvider(id: "anthropic", displayName: "Claude (Anthropic)"),
-        APIKeyProvider(id: "elevenlabs", displayName: "ElevenLabs"),
-    ]
+    /// API key providers shown in the settings list.
+    ///
+    /// Static entries (e.g. Claude/Anthropic) are listed first, followed
+    /// by TTS providers whose ``TTSProviderSetupMode`` is `.apiKey` —
+    /// pulled from the shared registry so new providers appear without
+    /// adding enum cases.
+    private let providers: [APIKeyProvider] = {
+        var list: [APIKeyProvider] = [
+            APIKeyProvider(id: "anthropic", displayName: "Claude (Anthropic)"),
+        ]
+        let registry = loadTTSProviderRegistry()
+        for entry in registry.providers where entry.setupMode == .apiKey {
+            list.append(APIKeyProvider(id: entry.id, displayName: entry.displayName))
+        }
+        return list
+    }()
 
     var body: some View {
         Form {

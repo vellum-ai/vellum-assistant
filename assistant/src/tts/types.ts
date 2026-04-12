@@ -19,6 +19,24 @@
 export type TtsProviderId = "elevenlabs" | "fish-audio" | (string & {});
 
 // ---------------------------------------------------------------------------
+// Call-mode discriminator
+// ---------------------------------------------------------------------------
+
+/**
+ * Describes how a TTS provider integrates with the telephony call path.
+ *
+ * - `native-twilio`    — Twilio handles TTS natively via ConversationRelay;
+ *                         text tokens are forwarded to the relay and Twilio
+ *                         synthesises audio using the provider's built-in
+ *                         integration.
+ * - `synthesized-play` — The assistant synthesises audio via the provider's
+ *                         HTTP API and streams chunks to Twilio via `play`
+ *                         messages. Used when the provider is not natively
+ *                         supported by Twilio.
+ */
+export type TtsCallMode = "native-twilio" | "synthesized-play";
+
+// ---------------------------------------------------------------------------
 // Use-case discriminator
 // ---------------------------------------------------------------------------
 

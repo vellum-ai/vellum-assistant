@@ -46,6 +46,7 @@ mock.module("../util/logger.js", () => ({
 import { run } from "../config/bundled-skills/settings/tools/voice-config-update.js";
 import { invalidateConfigCache } from "../config/loader.js";
 import type { ToolContext } from "../tools/types.js";
+import { listCatalogProviderIds } from "../tts/provider-catalog.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -309,5 +310,59 @@ describe("voice_config_update — validation", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Unknown setting");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: catalog-driven provider validation
+// ---------------------------------------------------------------------------
+
+describe("voice_config_update — catalog-driven provider validation", () => {
+  test("accepts every provider ID in the catalog", async () => {
+    const catalogIds = listCatalogProviderIds();
+    expect(catalogIds.length).toBeGreaterThanOrEqual(1);
+
+    for (const id of catalogIds) {
+      writeConfig({});
+      invalidateConfigCache();
+
+      const result = await run(
+        { setting: "tts_provider", value: id },
+        makeContext(),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("updated to");
+    }
+  });
+
+  test("rejects provider IDs not in the catalog", async () => {
+    const bogusIds = ["nonexistent-provider", "google-tts", "amazon-polly", ""];
+
+    for (const id of bogusIds) {
+      writeConfig({});
+      invalidateConfigCache();
+
+      const result = await run(
+        { setting: "tts_provider", value: id },
+        makeContext(),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("tts_provider must be one of");
+    }
+  });
+
+  test("error message lists all catalog provider IDs", async () => {
+    const catalogIds = listCatalogProviderIds();
+    const result = await run(
+      { setting: "tts_provider", value: "bogus" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    for (const id of catalogIds) {
+      expect(result.content).toContain(id);
+    }
   });
 });

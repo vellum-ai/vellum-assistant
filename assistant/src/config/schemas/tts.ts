@@ -1,15 +1,20 @@
 import { z } from "zod";
 
+import { listCatalogProviderIds } from "../../tts/provider-catalog.js";
+import type { TtsProviderId } from "../../tts/types.js";
 import {
   DEFAULT_ELEVENLABS_VOICE_ID,
   VALID_CONVERSATION_TIMEOUTS,
 } from "./elevenlabs.js";
 
 /**
- * Valid TTS provider identifiers — must stay in sync with TtsProviderId union
- * in `../../tts/types.ts`. New providers append here and register an adapter.
+ * Valid TTS provider identifiers derived from the canonical provider catalog.
+ *
+ * Adding a new TTS provider starts in `provider-catalog.ts` — the IDs flow
+ * here automatically.
  */
-export const VALID_TTS_PROVIDERS = ["elevenlabs", "fish-audio"] as const;
+export const VALID_TTS_PROVIDERS: readonly [string, ...string[]] =
+  listCatalogProviderIds() as [TtsProviderId, ...TtsProviderId[]];
 
 /**
  * Per-provider config schemas nested under `services.tts.providers.<id>`.
@@ -148,6 +153,24 @@ export const TtsProvidersSchema = z.object({
   ),
 });
 export type TtsProviders = z.infer<typeof TtsProvidersSchema>;
+
+// ---------------------------------------------------------------------------
+// Catalog-completeness guard
+// ---------------------------------------------------------------------------
+// Ensures every provider in the catalog has a corresponding key in
+// TtsProvidersSchema. If a new provider is added to the catalog without a
+// schema entry, this fires at module-load time so the oversight is caught
+// immediately rather than at runtime when a user selects the provider.
+// ---------------------------------------------------------------------------
+const schemaKeys = new Set(Object.keys(TtsProvidersSchema.shape));
+for (const id of VALID_TTS_PROVIDERS) {
+  if (!schemaKeys.has(id)) {
+    throw new Error(
+      `TTS provider "${id}" exists in the catalog but has no schema entry ` +
+        `in TtsProvidersSchema. Add a "services.tts.providers.${id}" schema.`,
+    );
+  }
+}
 
 /**
  * Canonical TTS service configuration.
