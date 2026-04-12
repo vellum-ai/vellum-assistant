@@ -37,6 +37,7 @@ import {
   generateScopeOptions,
 } from "../../permissions/checker.js";
 import { resolveGuardianPersonaPath } from "../../prompts/persona-resolver.js";
+import type { ToolDefinition } from "../../providers/types.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { parseToolManifestFile } from "../../skills/tool-manifest.js";
 import {
@@ -405,7 +406,7 @@ function handleToolNamesList(): Response {
   const schemas: Record<string, SchemaShape> = {};
 
   // Collect raw definitions from the registry so we can transform them.
-  const rawDefs: import("../../providers/types.js").ToolDefinition[] = [];
+  const rawDefs: ToolDefinition[] = [];
   for (const tool of tools) {
     try {
       rawDefs.push(tool.getDefinition());

@@ -23,6 +23,7 @@ import {
 } from "../../channels/types.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
+import type { Conversation } from "../../daemon/conversation.js";
 import {
   buildModelInfoEvent,
   formatCompactResult,
@@ -109,7 +110,7 @@ const SUGGESTION_CACHE_MAX = 100;
 function collectCanonicalGuardianRequestHintIds(
   conversationId: string,
   sourceChannel: string,
-  conversation: import("../../daemon/conversation.js").Conversation,
+  conversation: Conversation,
 ): string[] {
   const requests = listPendingRequestsByConversationScope(
     conversationId,
@@ -174,7 +175,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
     data: string;
     filePath?: string;
   }>;
-  conversation: import("../../daemon/conversation.js").Conversation;
+  conversation: Conversation;
   onEvent: (msg: ServerMessage) => void;
   approvalConversationGenerator?: ApprovalConversationGenerator;
   /** Verified actor identity from actor-token middleware. */
@@ -969,7 +970,7 @@ function mergeConsecutiveAssistantMessages(messages: MessageRow[]): {
 function makeHubPublisher(
   deps: SendMessageDeps,
   conversationId: string,
-  conversation: import("../../daemon/conversation.js").Conversation,
+  conversation: Conversation,
 ): (msg: ServerMessage) => void {
   let hubChain: Promise<void> = Promise.resolve();
   return (msg: ServerMessage) => {
@@ -1090,7 +1091,7 @@ function makeHubPublisher(
  */
 function registerHostProxyPendingInteraction(
   msg: ServerMessage,
-  conversation: import("../../daemon/conversation.js").Conversation,
+  conversation: Conversation,
   conversationId: string,
 ): string | undefined {
   if (msg.type === "host_bash_request") {
@@ -1151,7 +1152,7 @@ function registerHostProxyPendingInteraction(
  * for interfaces that don't statically support host_browser (e.g. macOS).
  */
 function resolveHostBrowserSender(
-  conversation: import("../../daemon/conversation.js").Conversation,
+  conversation: Conversation,
   conversationId: string,
   authContext: AuthContext,
   onEvent: (msg: ServerMessage) => void,
