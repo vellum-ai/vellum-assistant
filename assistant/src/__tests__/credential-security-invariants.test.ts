@@ -202,7 +202,6 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "workspace/provider-commit-message-generator.ts", // commit message generation provider key lookup
       "config/bundled-skills/image-studio/tools/media-generate-image.ts", // image generation tool API key lookup
       "config/bundled-skills/media-processing/tools/analyze-keyframes.ts", // keyframe analysis tool API key lookup
-      "config/bundled-skills/media-processing/tools/extract-keyframes.ts", // keyframe extraction tool API key lookup
       "providers/registry.ts", // provider registry API key lookup for initialization
       "providers/provider-availability.ts", // provider availability API key check
       "media/app-icon-generator.ts", // app icon generation API key lookup
