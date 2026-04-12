@@ -226,7 +226,7 @@ describe("runBackupTick — gating", () => {
     expect(streamStub.calls).toHaveLength(1);
     expect(checkpoints.store["backup:last_run_at"]).toBe(String(now.getTime()));
     // Local snapshot file was created
-    expect(result!.local.path).toContain("backup-20260411-100000.vbundle");
+    expect(result!.local.path).toContain("backup-20260411-100000-000.vbundle");
     expect(existsSync(result!.local.path)).toBe(true);
     expect(result!.offsite).toEqual([]);
   });
@@ -317,7 +317,7 @@ describe("runBackupTick — offsite destinations", () => {
     expect(result!.offsite).toHaveLength(1);
     expect(result!.offsite[0].entry).not.toBeNull();
     expect(result!.offsite[0].entry!.filename).toBe(
-      "backup-20260411-120000.vbundle",
+      "backup-20260411-120000-000.vbundle",
     );
     expect(result!.offsite[0].entry!.encrypted).toBe(false);
     expect(existsSync(result!.offsite[0].entry!.path)).toBe(true);
@@ -357,7 +357,7 @@ describe("runBackupTick — offsite destinations", () => {
     expect(result!.offsite).toHaveLength(1);
     expect(result!.offsite[0].entry).not.toBeNull();
     expect(result!.offsite[0].entry!.filename).toBe(
-      "backup-20260411-130000.vbundle.enc",
+      "backup-20260411-130000-000.vbundle.enc",
     );
     expect(result!.offsite[0].entry!.encrypted).toBe(true);
     expect(existsSync(result!.offsite[0].entry!.path)).toBe(true);
@@ -751,8 +751,8 @@ describe("retention across successive ticks", () => {
       .sort();
     expect(localFiles).toHaveLength(2);
     expect(localFiles).toEqual([
-      "backup-20260411-120000.vbundle",
-      "backup-20260411-140000.vbundle",
+      "backup-20260411-120000-000.vbundle",
+      "backup-20260411-140000-000.vbundle",
     ]);
 
     const offsiteFiles = readdirSync(offsiteDir)
@@ -760,8 +760,8 @@ describe("retention across successive ticks", () => {
       .sort();
     expect(offsiteFiles).toHaveLength(2);
     expect(offsiteFiles).toEqual([
-      "backup-20260411-120000.vbundle",
-      "backup-20260411-140000.vbundle",
+      "backup-20260411-120000-000.vbundle",
+      "backup-20260411-140000-000.vbundle",
     ]);
   });
 });

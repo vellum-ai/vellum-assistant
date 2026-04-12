@@ -140,36 +140,58 @@ describe("getBackupKeyPath", () => {
 });
 
 describe("formatBackupFilename", () => {
-  const fixture = new Date("2026-04-11T15:30:45Z");
+  const fixture = new Date("2026-04-11T15:30:45.000Z");
 
   test("formats a plaintext backup filename", () => {
     expect(formatBackupFilename(fixture, { encrypted: false })).toBe(
-      "backup-20260411-153045.vbundle",
+      "backup-20260411-153045-000.vbundle",
     );
   });
 
   test("formats an encrypted backup filename", () => {
     expect(formatBackupFilename(fixture, { encrypted: true })).toBe(
-      "backup-20260411-153045.vbundle.enc",
+      "backup-20260411-153045-000.vbundle.enc",
     );
   });
 
   test("zero-pads single-digit UTC components", () => {
-    const early = new Date("2026-01-02T03:04:05Z");
+    const early = new Date("2026-01-02T03:04:05.007Z");
     expect(formatBackupFilename(early, { encrypted: false })).toBe(
-      "backup-20260102-030405.vbundle",
+      "backup-20260102-030405-007.vbundle",
+    );
+  });
+
+  test("includes milliseconds so same-second backups get distinct filenames", () => {
+    const a = new Date("2026-04-11T15:30:45.001Z");
+    const b = new Date("2026-04-11T15:30:45.002Z");
+    expect(formatBackupFilename(a, { encrypted: false })).not.toBe(
+      formatBackupFilename(b, { encrypted: false }),
     );
   });
 });
 
 describe("parseBackupTimestamp", () => {
-  test("round-trips a plaintext backup filename", () => {
+  test("round-trips a plaintext backup filename with milliseconds", () => {
+    const parsed = parseBackupTimestamp("backup-20260411-153045-123.vbundle");
+    expect(parsed).not.toBeNull();
+    expect(parsed!.toISOString()).toBe("2026-04-11T15:30:45.123Z");
+  });
+
+  test("round-trips an encrypted backup filename with milliseconds", () => {
+    const parsed = parseBackupTimestamp(
+      "backup-20260411-153045-123.vbundle.enc",
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed!.toISOString()).toBe("2026-04-11T15:30:45.123Z");
+  });
+
+  test("accepts legacy filenames without the milliseconds segment (treated as .000)", () => {
     const parsed = parseBackupTimestamp("backup-20260411-153045.vbundle");
     expect(parsed).not.toBeNull();
     expect(parsed!.toISOString()).toBe("2026-04-11T15:30:45.000Z");
   });
 
-  test("round-trips an encrypted backup filename", () => {
+  test("accepts legacy encrypted filenames without the milliseconds segment", () => {
     const parsed = parseBackupTimestamp("backup-20260411-153045.vbundle.enc");
     expect(parsed).not.toBeNull();
     expect(parsed!.toISOString()).toBe("2026-04-11T15:30:45.000Z");
