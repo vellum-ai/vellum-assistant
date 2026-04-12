@@ -529,8 +529,6 @@ export async function preprocessForAsset(
           asset.filePath,
           seg.startSeconds,
           seg.endSeconds - seg.startSeconds,
-          options.transcriptionMode ?? "local",
-          { apiKey: options.openaiApiKey },
         );
         if (transcript) {
           segment.transcript = transcript;
