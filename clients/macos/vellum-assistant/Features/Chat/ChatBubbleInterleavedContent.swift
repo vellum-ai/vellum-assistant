@@ -410,7 +410,7 @@ extension ChatBubble {
                     .filter { !$0.isEmpty }
                     .joined(separator: "\n")
                 if !joined.isEmpty {
-                    textBubble(for: joined)
+                    textBubble(for: joined, textGroupIndex: indices.first ?? 0)
                 }
                 // Render deferred tool call images from the preceding tool group,
                 // so descriptive text appears before the screenshot it introduces.
