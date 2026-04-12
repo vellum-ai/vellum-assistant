@@ -27,6 +27,12 @@ struct InputBarView: View {
     /// Inject a mock for testing.
     var speechRecognizer: any SpeechRecognizerAdapter = AppleSpeechRecognizerAdapter()
 
+    /// STT client for service-first transcription via the gateway. When the service returns a
+    /// successful transcription it takes precedence over the native recognizer result; the native
+    /// result is used as a fallback when the service is unavailable, unconfigured, or returns an
+    /// empty result.
+    var sttClient: any STTClientProtocol = STTClient()
+
     @State private var isRecording = false
     /// True after the audio engine and tap have been torn down (set by finishRecordingForAutoStop
     /// and stopRecording). Prevents double-stop when the auto-stop path and the isFinal callback
@@ -67,6 +73,14 @@ struct InputBarView: View {
     /// Set to true when Cancel is tapped before recording has started; checked by beginRecording()
     /// so that a cancel during the mic-permission or setup window aborts the session.
     @State private var isCancelledBeforeRecording = false
+
+    /// Raw PCM audio buffers captured during the recording session. Serialized to WAV and sent
+    /// to the STT service for service-first transcription when the session ends.
+    @State private var audioBuffers: [Data] = []
+    /// The audio format of the recording session, captured when the tap is installed so we can
+    /// build a correct WAV header when encoding the collected buffers.
+    @State private var recordingSampleRate: Int = 0
+    @State private var recordingChannels: Int = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -344,17 +358,8 @@ struct InputBarView: View {
                 if let result = result {
                     let transcribed = result.transcription
                     if result.isFinal {
-                        log.info("Voice transcription final: \(transcribed, privacy: .public)")
-                        // Only apply the final transcription if the user has not typed anything
-                        // since auto-stop. When isAutoStopPending is true the voice orb has already
-                        // collapsed and the text field is visible, so the user may have started
-                        // editing; we respect their input by skipping the overwrite in that case.
-                        if !isAutoStopPending || text == textAtAutoStop {
-                            text = transcribed
-                            onVoiceResult?(transcribed)
-                        }
-                        stopRecording()
-                        isVoiceOrbExpanded = false
+                        log.info("Native transcription final: \(transcribed, privacy: .public)")
+                        resolveTranscriptWithServiceFirst(nativeTranscript: transcribed)
                     }
                 }
                 if let error = error {
@@ -397,6 +402,9 @@ struct InputBarView: View {
         isAudioEngineStopped = false
         isAutoStopPending = false
         textAtAutoStop = ""
+        audioBuffers = []
+        recordingSampleRate = Int(recordingFormat.sampleRate)
+        recordingChannels = Int(recordingFormat.channelCount)
 
         // installTap throws an Objective-C NSException (not a Swift Error) on
         // format mismatch or stale engine state during audio route changes.
@@ -407,6 +415,25 @@ struct InputBarView: View {
         let installed = VLMPerformWithObjCExceptionHandling({
             inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
                 request.append(buffer)
+
+                // Capture raw PCM samples for STT service transcription.
+                // Convert float samples to 16-bit integers (WAV standard).
+                if let floatData = buffer.floatChannelData {
+                    let frameCount = Int(buffer.frameLength)
+                    if frameCount > 0 {
+                        var pcmChunk = Data(count: frameCount * MemoryLayout<Int16>.size)
+                        pcmChunk.withUnsafeMutableBytes { rawBuffer in
+                            let int16Buffer = rawBuffer.bindMemory(to: Int16.self)
+                            for i in 0..<frameCount {
+                                let clamped = max(-1.0, min(1.0, floatData[0][i]))
+                                int16Buffer[i] = Int16(clamped * Float(Int16.max))
+                            }
+                        }
+                        Task { @MainActor in
+                            self.audioBuffers.append(pcmChunk)
+                        }
+                    }
+                }
 
                 // Compute RMS amplitude for both voice orb animation and silence detection.
                 guard let floatData = buffer.floatChannelData else { return }
@@ -492,6 +519,92 @@ struct InputBarView: View {
         }
     }
 
+    /// Resolves the final transcript using service-first precedence: sends captured audio to the
+    /// STT gateway service and uses its result when successful. Falls back to the native recognizer
+    /// transcript when the service is unavailable, unconfigured, or returns an empty result.
+    private func resolveTranscriptWithServiceFirst(nativeTranscript: String) {
+        // Build WAV payload from captured PCM buffers.
+        let capturedBuffers = audioBuffers
+        let sampleRate = recordingSampleRate
+        let channels = recordingChannels
+        let client = sttClient
+
+        // Capture auto-stop state before the async gap — these @State values may change.
+        let wasAutoStopPending = isAutoStopPending
+        let savedTextAtAutoStop = textAtAutoStop
+
+        Task { @MainActor in
+            let serviceText = await transcribeViaService(
+                buffers: capturedBuffers,
+                sampleRate: sampleRate,
+                channels: channels,
+                client: client
+            )
+
+            // Determine which transcript to use: service result if non-empty, else native fallback.
+            let finalTranscript: String
+            if let serviceText, !serviceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                log.info("Using STT service transcript (\(serviceText.count) chars)")
+                finalTranscript = serviceText
+            } else {
+                log.info("Falling back to native transcript (\(nativeTranscript.count) chars)")
+                finalTranscript = nativeTranscript
+            }
+
+            // Only apply the final transcription if the user has not typed anything since auto-stop.
+            if !wasAutoStopPending || text == savedTextAtAutoStop {
+                text = finalTranscript
+                onVoiceResult?(finalTranscript)
+            }
+            stopRecording()
+            isVoiceOrbExpanded = false
+        }
+    }
+
+    /// Encodes captured PCM buffers into a WAV file and sends them to the STT service.
+    /// Returns the service transcript on success, or nil on any failure/unconfigured/empty result.
+    private func transcribeViaService(
+        buffers: [Data],
+        sampleRate: Int,
+        channels: Int,
+        client: any STTClientProtocol
+    ) async -> String? {
+        guard !buffers.isEmpty, sampleRate > 0, channels > 0 else {
+            log.info("No audio buffers captured — skipping STT service call")
+            return nil
+        }
+
+        // Concatenate all PCM chunks and encode as WAV. Run off the main actor to avoid
+        // blocking the UI with the data copy.
+        let wavData: Data = await Task.detached(priority: .userInitiated) {
+            var pcmData = Data()
+            for chunk in buffers {
+                pcmData.append(chunk)
+            }
+            let format = AudioWavEncoder.Format(
+                sampleRate: sampleRate,
+                channels: channels,
+                bitsPerSample: 16
+            )
+            return AudioWavEncoder.encode(pcmData: pcmData, format: format)
+        }.value
+
+        let result = await client.transcribe(audioData: wavData)
+        switch result {
+        case .success(let text):
+            return text
+        case .notConfigured:
+            log.info("STT service not configured — will use native fallback")
+            return nil
+        case .serviceUnavailable:
+            log.warning("STT service unavailable — will use native fallback")
+            return nil
+        case .error(let statusCode, let message):
+            log.warning("STT service error (status=\(String(describing: statusCode))): \(message) — will use native fallback")
+            return nil
+        }
+    }
+
     private func stopRecording() {
         guard isRecording else { return }
         log.info("Voice recording stopped")
@@ -514,6 +627,7 @@ struct InputBarView: View {
         isRecording = false
         isAutoStopPending = false
         micAmplitude = 0
+        audioBuffers = []
     }
 
     private func finishRecordingForAutoStop() {
