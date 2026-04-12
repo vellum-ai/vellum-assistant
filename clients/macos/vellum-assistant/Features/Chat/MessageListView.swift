@@ -168,6 +168,13 @@ struct MessageListView: View {
                 executeCoordinatorIntents(intents)
                 // Keep scrollState in sync as runtime executor.
                 scrollState.handleManualExpansionInteraction()
+                // Mirror scrollState's internal 200ms expansion timeout on the
+                // coordinator. Without this, the coordinator would stick in
+                // .stabilizing until another event forced a mode transition.
+                Task { @MainActor [scrollCoordinator] in
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    scrollCoordinator.endStabilization()
+                }
             })
             .onScrollPhaseChange { oldPhase, newPhase in
                 let coordinatorPhase = ScrollCoordinator.Phase.from(newPhase)
