@@ -654,6 +654,11 @@ extension AppDelegate {
             // internally, so callers don't need to do the lookup themselves.
             let client = managementClient()
 
+            // Snapshot the entry before awaiting retire — the lockfile may be
+            // modified during the retire call, so re-reading in the catch block
+            // could return nil and misclassify a managed assistant as local.
+            let assistantEntry = LockfileAssistant.loadByName(name)
+
             do {
                 try await client.retire(name: name)
             } catch {
@@ -665,7 +670,6 @@ extension AppDelegate {
                 // an "unreachable" error screen (LUM-755).  Skip the alert and
                 // proceed with local cleanup automatically so the app always
                 // navigates to a sensible post-retirement state.
-                let assistantEntry = LockfileAssistant.loadByName(name)
                 if assistantEntry?.isManaged == true {
                     log.warning("Managed assistant — automatically cleaning up local state after retire failure")
                     await vellumCli.stop(name: name)
