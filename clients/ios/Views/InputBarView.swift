@@ -80,7 +80,6 @@ struct InputBarView: View {
     /// The audio format of the recording session, captured when the tap is installed so we can
     /// build a correct WAV header when encoding the collected buffers.
     @State private var recordingSampleRate: Int = 0
-    @State private var recordingChannels: Int = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -404,7 +403,6 @@ struct InputBarView: View {
         textAtAutoStop = ""
         audioBuffers = []
         recordingSampleRate = Int(recordingFormat.sampleRate)
-        recordingChannels = Int(recordingFormat.channelCount)
 
         // installTap throws an Objective-C NSException (not a Swift Error) on
         // format mismatch or stale engine state during audio route changes.
@@ -526,7 +524,6 @@ struct InputBarView: View {
         // Build WAV payload from captured PCM buffers.
         let capturedBuffers = audioBuffers
         let sampleRate = recordingSampleRate
-        let channels = recordingChannels
         let client = sttClient
 
         // Capture auto-stop state before the async gap — these @State values may change.
@@ -537,7 +534,6 @@ struct InputBarView: View {
             let serviceText = await transcribeViaService(
                 buffers: capturedBuffers,
                 sampleRate: sampleRate,
-                channels: channels,
                 client: client
             )
 
@@ -566,16 +562,17 @@ struct InputBarView: View {
     private func transcribeViaService(
         buffers: [Data],
         sampleRate: Int,
-        channels: Int,
         client: any STTClientProtocol
     ) async -> String? {
-        guard !buffers.isEmpty, sampleRate > 0, channels > 0 else {
+        guard !buffers.isEmpty, sampleRate > 0 else {
             log.info("No audio buffers captured — skipping STT service call")
             return nil
         }
 
         // Concatenate all PCM chunks and encode as WAV. Run off the main actor to avoid
         // blocking the UI with the data copy.
+        // Always encode as mono (channels: 1) because the PCM capture only reads
+        // floatData[0] (the first channel) — even when the recording format is stereo.
         let wavData: Data = await Task.detached(priority: .userInitiated) {
             var pcmData = Data()
             for chunk in buffers {
@@ -583,7 +580,7 @@ struct InputBarView: View {
             }
             let format = AudioWavEncoder.Format(
                 sampleRate: sampleRate,
-                channels: channels,
+                channels: 1,
                 bitsPerSample: 16
             )
             return AudioWavEncoder.encode(pcmData: pcmData, format: format)
