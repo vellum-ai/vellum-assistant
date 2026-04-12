@@ -217,6 +217,73 @@ final class AppleContainersLauncher: AssistantManagementClient {
         try await runtime.stop()
     }
 
+    /// Retire an apple-container assistant: stop the pod, archive the
+    /// instance directory, remove the guardian token, and clean up the
+    /// lockfile entry.
+    func retire(name: String) async throws {
+        log.info("Retiring apple-container '\(name, privacy: .public)'")
+
+        // 1. Stop the running pod and management socket.
+        try await stop()
+
+        // 2. Archive the instance directory.
+        let dir = Self.instanceDir(for: name)
+        if FileManager.default.fileExists(atPath: dir.path) {
+            let archiveDir = Self.retiredArchiveDir()
+            try FileManager.default.createDirectory(
+                at: archiveDir, withIntermediateDirectories: true
+            )
+            let timestamp = ISO8601DateFormatter().string(from: Date())
+                .replacingOccurrences(of: ":", with: "-")
+            let archivePath = archiveDir.appendingPathComponent("\(name)-\(timestamp).tar.gz")
+            let stagingDir = archiveDir.appendingPathComponent("\(name)-staging")
+
+            // Move the instance directory to staging so the path is
+            // immediately available for a fresh hatch.
+            do {
+                try FileManager.default.moveItem(at: dir, to: stagingDir)
+            } catch {
+                log.warning("Failed to stage instance directory for archive: \(error.localizedDescription, privacy: .public) — removing in place")
+                try? FileManager.default.removeItem(at: dir)
+            }
+
+            // Compress in the background and clean up the staging directory.
+            if FileManager.default.fileExists(atPath: stagingDir.path) {
+                let tarCmd = [
+                    "tar", "czf", archivePath.path,
+                    "-C", archiveDir.path,
+                    stagingDir.lastPathComponent,
+                ]
+                let tarProcess = Process()
+                tarProcess.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+                tarProcess.arguments = tarCmd
+                tarProcess.standardOutput = FileHandle.nullDevice
+                tarProcess.standardError = FileHandle.nullDevice
+                do {
+                    try tarProcess.run()
+                    // Detach — don't wait. Clean up staging on completion.
+                    tarProcess.terminationHandler = { _ in
+                        try? FileManager.default.removeItem(at: stagingDir)
+                    }
+                    log.info("Archiving instance to \(archivePath.path, privacy: .public) in the background")
+                } catch {
+                    log.warning("Failed to start archive: \(error.localizedDescription, privacy: .public) — cleaning up staging")
+                    try? FileManager.default.removeItem(at: stagingDir)
+                }
+            }
+        } else {
+            log.info("No instance directory at \(dir.path, privacy: .public) — nothing to archive")
+        }
+
+        // 3. Remove the guardian token file.
+        Self.removeGuardianToken(assistantId: name)
+
+        // 4. Remove the lockfile entry.
+        Self.removeLockfileEntry(assistantId: name)
+
+        log.info("Apple container '\(name, privacy: .public)' retired")
+    }
+
     // MARK: - Local Image Building
 
     /// Attempts to build service images from local source code using Docker.
@@ -477,6 +544,40 @@ final class AppleContainersLauncher: AssistantManagementClient {
             .appendingPathComponent("vellum-assistant", isDirectory: true)
             .appendingPathComponent("apple-containers", isDirectory: true)
             .appendingPathComponent(assistantName, isDirectory: true)
+    }
+
+    /// Directory where retired apple-container archives are stored.
+    private static func retiredArchiveDir() -> URL {
+        let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first ?? FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support", isDirectory: true)
+        return appSupport
+            .appendingPathComponent("vellum-assistant", isDirectory: true)
+            .appendingPathComponent("apple-containers", isDirectory: true)
+            .appendingPathComponent(".retired", isDirectory: true)
+    }
+
+    /// Removes the guardian token file for the given assistant.
+    private static func removeGuardianToken(assistantId: String) {
+        let configHome: String
+        if let xdg = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !xdg.isEmpty {
+            configHome = xdg
+        } else {
+            configHome = NSHomeDirectory() + "/.config"
+        }
+        let tokenDir = "\(configHome)/vellum/assistants/\(assistantId)"
+        let tokenPath = "\(tokenDir)/guardian-token.json"
+        if FileManager.default.fileExists(atPath: tokenPath) {
+            try? FileManager.default.removeItem(atPath: tokenPath)
+            log.info("Removed guardian token for '\(assistantId, privacy: .public)'")
+        }
+        // Clean up the assistant config directory if empty.
+        if let contents = try? FileManager.default.contentsOfDirectory(atPath: tokenDir),
+           contents.isEmpty {
+            try? FileManager.default.removeItem(atPath: tokenDir)
+        }
     }
 
     // MARK: - Lockfile
