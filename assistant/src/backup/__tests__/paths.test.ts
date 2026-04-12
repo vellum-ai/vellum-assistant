@@ -1,13 +1,15 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   formatBackupFilename,
   getBackupKeyPath,
+  getBackupRootDir,
   getDefaultOffsiteBackupsDir,
   getLocalBackupsDir,
   parseBackupTimestamp,
   resolveOffsiteDestinations,
 } from "../paths.js";
+import { getSnapshotLockPath } from "../snapshot-lock.js";
 
 describe("getLocalBackupsDir", () => {
   test("returns a path containing /backups/local when no override is given", () => {
@@ -22,6 +24,60 @@ describe("getLocalBackupsDir", () => {
   test("treats null override as absent", () => {
     const dir = getLocalBackupsDir(null);
     expect(dir).toContain("/backups/local");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// VELLUM_BACKUP_DIR env var override
+// ---------------------------------------------------------------------------
+
+describe("VELLUM_BACKUP_DIR override", () => {
+  const ORIGINAL = process.env.VELLUM_BACKUP_DIR;
+
+  afterEach(() => {
+    if (ORIGINAL === undefined) {
+      delete process.env.VELLUM_BACKUP_DIR;
+    } else {
+      process.env.VELLUM_BACKUP_DIR = ORIGINAL;
+    }
+  });
+
+  test("getBackupRootDir() uses VELLUM_BACKUP_DIR when set", () => {
+    process.env.VELLUM_BACKUP_DIR = "/workspace/.backups";
+    expect(getBackupRootDir()).toBe("/workspace/.backups");
+  });
+
+  test("getBackupRootDir() falls back to ~/.vellum/backups when unset", () => {
+    delete process.env.VELLUM_BACKUP_DIR;
+    const dir = getBackupRootDir();
+    expect(dir).toMatch(/\/\.vellum\/backups$/);
+  });
+
+  test("getLocalBackupsDir() resolves under VELLUM_BACKUP_DIR", () => {
+    process.env.VELLUM_BACKUP_DIR = "/workspace/.backups";
+    expect(getLocalBackupsDir()).toBe("/workspace/.backups/local");
+  });
+
+  test("getLocalBackupsDir() falls back to default when env var is unset", () => {
+    delete process.env.VELLUM_BACKUP_DIR;
+    expect(getLocalBackupsDir()).toMatch(/\/\.vellum\/backups\/local$/);
+  });
+
+  test("config override still takes precedence over VELLUM_BACKUP_DIR", () => {
+    process.env.VELLUM_BACKUP_DIR = "/workspace/.backups";
+    expect(getLocalBackupsDir("/custom/dir")).toBe("/custom/dir");
+  });
+
+  test("getSnapshotLockPath() resolves under VELLUM_BACKUP_DIR", () => {
+    process.env.VELLUM_BACKUP_DIR = "/workspace/.backups";
+    expect(getSnapshotLockPath()).toBe("/workspace/.backups/.snapshot.lock");
+  });
+
+  test("getSnapshotLockPath() falls back to default when env var is unset", () => {
+    delete process.env.VELLUM_BACKUP_DIR;
+    expect(getSnapshotLockPath()).toMatch(
+      /\/\.vellum\/backups\/\.snapshot\.lock$/,
+    );
   });
 });
 

@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { getBackupDirOverride } from "../config/env-registry.js";
 import type { BackupDestination } from "../config/schema.js";
 import { getProtectedDir } from "../util/platform.js";
 
@@ -16,12 +17,21 @@ function vellumRootFromProtected(): string {
 }
 
 /**
+ * Returns the backup root directory. Respects the `VELLUM_BACKUP_DIR`
+ * environment variable override (used in containerized deployments where
+ * backups must be on a persistent volume); falls back to `~/.vellum/backups`.
+ */
+export function getBackupRootDir(): string {
+  return getBackupDirOverride() ?? join(vellumRootFromProtected(), "backups");
+}
+
+/**
  * Returns the directory for local (on-device) backups. By default this lives
  * under `~/.vellum/backups/local`; callers can pass an explicit override from
  * config to place backups elsewhere on disk.
  */
 export function getLocalBackupsDir(override?: string | null): string {
-  return override ?? join(vellumRootFromProtected(), "backups", "local");
+  return override ?? join(getBackupRootDir(), "local");
 }
 
 /**
