@@ -1,4 +1,4 @@
-import { resolveGuardianPersona } from "./persona-resolver.js";
+import { resolveGuardianPersonaStrict } from "./persona-resolver.js";
 
 export const DEFAULT_USER_REFERENCE = "my human";
 export const DECLINED_BY_USER_SENTINEL = "declined_by_user";
@@ -12,7 +12,7 @@ export const DECLINED_BY_USER_SENTINEL = "declined_by_user";
  * itself is blank.
  */
 function readPreferredNameFromUserMd(): string | null {
-  const content = resolveGuardianPersona();
+  const content = resolveGuardianPersonaStrict();
   if (content != null) {
     const match = content.match(/Preferred name\/reference:[ \t]*(.*)/);
     if (match && match[1].trim()) {
@@ -49,7 +49,7 @@ export function resolveUserReference(): string {
  * in the file.
  */
 export function resolveUserPronouns(): string | null {
-  const content = resolveGuardianPersona();
+  const content = resolveGuardianPersonaStrict();
   if (content == null) return null;
 
   const snapshotIdx = content.indexOf("## Onboarding Snapshot");
