@@ -324,7 +324,9 @@ describe("DeepgramProvider", () => {
     await provider.transcribe(audioData, "audio/wav");
 
     // Deepgram accepts raw bytes — verify we're not wrapping in FormData
-    expect(capturedBody).toBeInstanceOf(Buffer);
-    expect(Buffer.compare(capturedBody as Buffer, audioData)).toBe(0);
+    expect(capturedBody).toBeInstanceOf(Uint8Array);
+    expect(
+      Buffer.compare(Buffer.from(capturedBody as Uint8Array), audioData),
+    ).toBe(0);
   });
 });

@@ -59,7 +59,7 @@ export class DeepgramProvider {
         Authorization: `Token ${this.apiKey}`,
         "Content-Type": mimeType,
       },
-      body: audio,
+      body: new Uint8Array(audio),
       signal: effectiveSignal,
     });
 
