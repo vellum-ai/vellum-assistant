@@ -433,7 +433,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "channels/delivery-ack", scopes: ["internal.write"] },
 
   // Migrations
-  { endpoint: "migrations/validate", scopes: ["settings.write"] },
+  { endpoint: "migrations/validate", scopes: ["settings.read"] },
   { endpoint: "migrations/export", scopes: ["settings.write"] },
   { endpoint: "migrations/import-preflight", scopes: ["settings.write"] },
   { endpoint: "migrations/import", scopes: ["settings.write"] },

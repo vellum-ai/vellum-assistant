@@ -988,22 +988,24 @@ describe("route policy registration", () => {
     expect(policy?.allowedPrincipalTypes).toContain("local");
   });
 
-  test("import policy matches other migration endpoint policies", async () => {
+  test("import policy matches export/preflight but differs from validate on scopes", async () => {
     const { getPolicy } = await import("../runtime/auth/route-policy.js");
     const importPolicy = getPolicy("migrations/import");
     const validatePolicy = getPolicy("migrations/validate");
     const exportPolicy = getPolicy("migrations/export");
     const preflightPolicy = getPolicy("migrations/import-preflight");
 
-    expect(importPolicy!.requiredScopes).toEqual(
-      validatePolicy!.requiredScopes,
-    );
-    expect(importPolicy!.allowedPrincipalTypes).toEqual(
-      validatePolicy!.allowedPrincipalTypes,
-    );
+    // import, export, and preflight all require settings.write
     expect(importPolicy!.requiredScopes).toEqual(exportPolicy!.requiredScopes);
     expect(importPolicy!.requiredScopes).toEqual(
       preflightPolicy!.requiredScopes,
+    );
+    expect(importPolicy!.requiredScopes).toEqual(["settings.write"]);
+    // validate is read-only so requires settings.read
+    expect(validatePolicy!.requiredScopes).toEqual(["settings.read"]);
+    // all share the same principal types
+    expect(importPolicy!.allowedPrincipalTypes).toEqual(
+      validatePolicy!.allowedPrincipalTypes,
     );
   });
 });

@@ -508,7 +508,7 @@ describe("route policy registration", () => {
     const policy = getPolicy("migrations/validate");
 
     expect(policy).toBeDefined();
-    expect(policy?.requiredScopes).toContain("settings.write");
+    expect(policy?.requiredScopes).toContain("settings.read");
   });
 });
 
@@ -531,15 +531,15 @@ describe("auth policy shape", () => {
     expect(policy!.allowedPrincipalTypes).toHaveLength(4);
   });
 
-  test("export policy matches validate policy shape", async () => {
+  test("export policy differs from validate policy on scopes (validate is read-only)", async () => {
     const { getPolicy } = await import("../runtime/auth/route-policy.js");
     const exportPolicy = getPolicy("migrations/export");
     const validatePolicy = getPolicy("migrations/validate");
 
-    // Both migration endpoints should have the same auth requirements
-    expect(exportPolicy!.requiredScopes).toEqual(
-      validatePolicy!.requiredScopes,
-    );
+    // validate is read-only so requires settings.read; export requires settings.write
+    expect(exportPolicy!.requiredScopes).toEqual(["settings.write"]);
+    expect(validatePolicy!.requiredScopes).toEqual(["settings.read"]);
+    // Both share the same principal types
     expect(exportPolicy!.allowedPrincipalTypes).toEqual(
       validatePolicy!.allowedPrincipalTypes,
     );
