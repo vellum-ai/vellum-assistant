@@ -148,7 +148,7 @@ export function loadConfig(): GatewayConfig {
   }
 
   const logFile: LogFileConfig = {
-    dir: process.env.GATEWAY_LOG_DIR ?? join(getGatewaySecurityDir(), "logs"),
+    dir: join(getGatewaySecurityDir(), "logs"),
     retentionDays: 30,
   };
 
