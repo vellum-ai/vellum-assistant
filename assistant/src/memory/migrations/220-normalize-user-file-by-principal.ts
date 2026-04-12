@@ -26,7 +26,11 @@ export function downNormalizeUserFileByPrincipal(_database: DrizzleDb): void {
  * This migration picks one canonical `user_file` per principal and updates
  * every sibling row to match. Selection heuristic:
  *
- *   1. Prefer values that do NOT look auto-incremented (no `-<digit>.md` tail).
+ *   1. Prefer values that do NOT look auto-incremented. Auto-increment tails
+ *      are `-<N>.md` where N is 1–3 digits (matches `generateUserFileSlug`'s
+ *      counter). Matching is anchored to the end of the filename so a slug
+ *      that happens to contain a numeric segment (e.g. `alex-2024.md` — a
+ *      display name with a year) is NOT classified as auto-incremented.
  *   2. Among those, prefer the oldest contact row (earliest `created_at`).
  *   3. Ties broken by `id` for determinism.
  *
@@ -83,7 +87,12 @@ export function migrateNormalizeUserFileByPrincipal(
           SELECT user_file FROM contacts
           WHERE principal_id = ? AND user_file IS NOT NULL
           ORDER BY
-            CASE WHEN user_file GLOB '*-[0-9]*.md' THEN 1 ELSE 0 END,
+            CASE
+              WHEN user_file GLOB '*-[0-9].md'
+                OR user_file GLOB '*-[0-9][0-9].md'
+                OR user_file GLOB '*-[0-9][0-9][0-9].md'
+              THEN 1 ELSE 0
+            END,
             created_at ASC,
             id ASC
           LIMIT 1
