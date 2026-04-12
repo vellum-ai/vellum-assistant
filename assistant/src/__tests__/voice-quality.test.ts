@@ -29,42 +29,37 @@ mock.module("../config/loader.js", () => ({
   loadConfig: () => mockConfig,
 }));
 
-// -- TTS registry setup ---------------------------------------------------
+// -- Call strategy voice-spec registry setup --------------------------------
 
 import {
-  _resetTtsProviderRegistry,
-  registerTtsProvider,
-} from "../tts/provider-registry.js";
-import type { TtsProvider } from "../tts/types.js";
+  _resetNativeTwilioVoiceSpecRegistry,
+  registerNativeTwilioVoiceSpec,
+} from "../calls/tts-call-strategy.js";
 
-function registerTestProviders(): void {
-  _resetTtsProviderRegistry();
+function registerTestVoiceSpecs(): void {
+  _resetNativeTwilioVoiceSpecRegistry();
 
-  // ElevenLabs: native provider (no streaming)
-  const elevenlabs: TtsProvider = {
-    id: "elevenlabs",
-    capabilities: { supportsStreaming: false, supportedFormats: ["mp3"] },
-    async synthesize() {
-      return { audio: Buffer.from(""), contentType: "audio/mpeg" };
+  // Register the ElevenLabs native Twilio voice-spec builder (mirrors
+  // the production registration in register-builtins.ts).
+  registerNativeTwilioVoiceSpec("elevenlabs", {
+    twilioProviderName: "ElevenLabs",
+    buildVoiceSpec: (providerConfig) => {
+      const cfg = providerConfig as {
+        voiceId?: string;
+        voiceModelId?: string;
+        speed?: number;
+        stability?: number;
+        similarityBoost?: number;
+      };
+      return buildElevenLabsVoiceSpec({
+        voiceId: cfg.voiceId ?? "",
+        voiceModelId: cfg.voiceModelId,
+        speed: cfg.speed,
+        stability: cfg.stability,
+        similarityBoost: cfg.similarityBoost,
+      });
     },
-  };
-  registerTtsProvider(elevenlabs);
-
-  // Fish Audio: synthesized provider (streaming)
-  const fishAudio: TtsProvider = {
-    id: "fish-audio",
-    capabilities: {
-      supportsStreaming: true,
-      supportedFormats: ["mp3", "wav", "opus"],
-    },
-    async synthesize() {
-      return { audio: Buffer.from(""), contentType: "audio/mpeg" };
-    },
-    async synthesizeStream(_req, _onChunk) {
-      return { audio: Buffer.from(""), contentType: "audio/mpeg" };
-    },
-  };
-  registerTtsProvider(fishAudio);
+  });
 }
 
 // -- Import subjects after mocks ------------------------------------------
@@ -130,12 +125,12 @@ describe("buildElevenLabsVoiceSpec", () => {
 
 describe("resolveVoiceQualityProfile", () => {
   beforeEach(() => {
-    registerTestProviders();
+    registerTestVoiceSpecs();
   });
 
-  // -- Native provider path (ElevenLabs) ----------------------------------
+  // -- Explicit strategy: native-twilio (ElevenLabs) ----------------------
 
-  test("returns ElevenLabs ttsProvider for native provider", () => {
+  test("uses catalog callMode to select native-twilio path for ElevenLabs", () => {
     mockConfig = {
       calls: {
         voice: {
@@ -157,7 +152,7 @@ describe("resolveVoiceQualityProfile", () => {
     expect(profile.ttsProvider).toBe("ElevenLabs");
   });
 
-  test("voice ID comes from services.tts.providers.elevenlabs.voiceId", () => {
+  test("voice spec comes from registered NativeTwilioVoiceSpec builder", () => {
     mockConfig = {
       calls: {
         voice: {
@@ -201,7 +196,7 @@ describe("resolveVoiceQualityProfile", () => {
     expect(profile.language).toBe("es-MX");
   });
 
-  test("builds voice spec with model and tuning params", () => {
+  test("builds voice spec with model and tuning params via builder", () => {
     mockConfig = {
       calls: {
         voice: {
@@ -319,9 +314,9 @@ describe("resolveVoiceQualityProfile", () => {
     expect(profile.hints).toEqual(["Vellum", "Nova", "AI assistant"]);
   });
 
-  // -- Synthesized provider path (Fish Audio) -----------------------------
+  // -- Explicit strategy: synthesized-play (Fish Audio) -------------------
 
-  test("returns Google placeholder ttsProvider for synthesized provider (Fish Audio)", () => {
+  test("uses catalog callMode to select synthesized-play path for Fish Audio", () => {
     mockConfig = {
       calls: {
         voice: {
@@ -393,5 +388,117 @@ describe("resolveVoiceQualityProfile", () => {
     // Should resolve to fish-audio from canonical config
     expect(profile.ttsProvider).toBe("Google");
     expect(profile.voice).toBe("");
+  });
+
+  // -- Strategy-based behavior (explicit call strategy) -------------------
+
+  test("strategy selects path from catalog callMode, not supportsStreaming", () => {
+    // The catalog declares fish-audio as synthesized-play via callMode,
+    // regardless of its supportsStreaming capability. This test verifies
+    // call-path selection is driven by explicit catalog metadata.
+    mockConfig = {
+      calls: {
+        voice: {
+          language: "en-US",
+          transcriptionProvider: "Deepgram",
+        },
+      },
+      services: {
+        tts: {
+          provider: "fish-audio",
+          providers: {
+            elevenlabs: { voiceId: DEFAULT_ELEVENLABS_VOICE_ID },
+            "fish-audio": { referenceId: "ref-abc" },
+          },
+        },
+      },
+    };
+    const profile = resolveVoiceQualityProfile();
+    expect(profile.ttsProvider).toBe("Google");
+    expect(profile.voice).toBe("");
+  });
+
+  test("native-twilio strategy delegates voice-spec to registered builder", () => {
+    // The catalog declares elevenlabs as native-twilio. The voice spec
+    // is built by the registered NativeTwilioVoiceSpec builder, not by
+    // hardcoded branching in resolveVoiceQualityProfile.
+    mockConfig = {
+      calls: {
+        voice: {
+          language: "en-US",
+          transcriptionProvider: "Deepgram",
+        },
+      },
+      services: {
+        tts: {
+          provider: "elevenlabs",
+          providers: {
+            elevenlabs: {
+              voiceId: "test-voice",
+              voiceModelId: "model-x",
+              speed: 1.1,
+              stability: 0.6,
+              similarityBoost: 0.8,
+            },
+            "fish-audio": { referenceId: "" },
+          },
+        },
+      },
+    };
+    const profile = resolveVoiceQualityProfile();
+    expect(profile.ttsProvider).toBe("ElevenLabs");
+    expect(profile.voice).toBe("test-voice-model-x-1.1_0.6_0.8");
+  });
+
+  test("falls back to ElevenLabs config when voice-spec builder is not registered", () => {
+    // Clear the voice-spec registry to simulate missing builder.
+    _resetNativeTwilioVoiceSpecRegistry();
+
+    mockConfig = {
+      calls: {
+        voice: {
+          language: "en-US",
+          transcriptionProvider: "Deepgram",
+        },
+      },
+      services: {
+        tts: {
+          provider: "elevenlabs",
+          providers: {
+            elevenlabs: { voiceId: "some-voice" },
+            "fish-audio": { referenceId: "" },
+          },
+        },
+      },
+    };
+    const profile = resolveVoiceQualityProfile();
+    // Falls back to reading from the elevenlabs config block directly.
+    expect(profile.ttsProvider).toBe("ElevenLabs");
+    expect(profile.voice).toBe("some-voice");
+  });
+
+  test("falls back to default voice ID when no config or builder available", () => {
+    // Clear the voice-spec registry and omit elevenlabs config.
+    _resetNativeTwilioVoiceSpecRegistry();
+
+    mockConfig = {
+      calls: {
+        voice: {
+          language: "en-US",
+          transcriptionProvider: "Deepgram",
+        },
+      },
+      services: {
+        tts: {
+          provider: "elevenlabs",
+          providers: {
+            "fish-audio": { referenceId: "" },
+          },
+        },
+      },
+    };
+    const profile = resolveVoiceQualityProfile();
+    expect(profile.ttsProvider).toBe("ElevenLabs");
+    expect(profile.voice).toBe(DEFAULT_ELEVENLABS_VOICE_ID);
   });
 });
