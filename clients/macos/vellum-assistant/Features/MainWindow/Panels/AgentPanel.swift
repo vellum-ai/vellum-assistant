@@ -192,10 +192,12 @@ struct AgentPanelContent: View {
                 withAnimation(VAnimation.fast) { skillsManager.selectedCategory = category }
             }
         ) {
-            let count = category.map { skillsManager.categoryCounts[$0, default: 0] } ?? skillsManager.searchFilteredCount
-            Text("\(count)")
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.contentTertiary)
+            if !skillsManager.isSearching {
+                let count = category.map { skillsManager.categoryCounts[$0, default: 0] } ?? skillsManager.searchFilteredCount
+                Text("\(count)")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
         }
         .accessibilityLabel("\(label) filter")
         .accessibilityAddTraits(skillsManager.selectedCategory == category ? .isSelected : [])

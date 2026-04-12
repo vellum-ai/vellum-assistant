@@ -308,9 +308,9 @@ final class SkillsManager {
         case "vellum":
             return "Vellum"
         case "clawhub":
-            return "Community"
+            return "Clawhub"
         case "skillssh":
-            return "Community"
+            return "skills.sh"
         case "custom":
             return "Custom"
         default:
