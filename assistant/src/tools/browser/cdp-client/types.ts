@@ -42,6 +42,51 @@ export interface CdpClient {
 export type CdpClientKind = "local" | "extension" | "cdp-inspect";
 
 /**
+ * Backend mode preference for the CDP factory. Controls which
+ * transport is selected:
+ *
+ *  - `"auto"` — default, existing priority-ordered fallback
+ *    (extension → cdp-inspect → local).
+ *  - `"extension"` — pin to the chrome-extension backend. Fails
+ *    immediately if the host browser proxy is unavailable.
+ *  - `"cdp-inspect"` — pin to the cdp-inspect backend. Fails
+ *    immediately if cdp-inspect cannot connect.
+ *  - `"local"` — pin to the local Playwright backend. No fallback.
+ */
+export type BrowserMode = "auto" | "extension" | "cdp-inspect" | "local";
+
+/**
+ * Stage at which a candidate attempt ended. Used in
+ * {@link AttemptDiagnostic} to indicate how far the attempt progressed.
+ */
+export type AttemptStage =
+  | "candidate_selection" // failed before construction (precondition not met)
+  | "construction" // create() threw
+  | "send" // manager.send() threw or returned an error envelope
+  | "success"; // command completed successfully
+
+/**
+ * Structured diagnostic for a single candidate attempt during the
+ * factory's failover walk. Collected into an array and attached to
+ * thrown {@link CdpError} instances so higher layers can render
+ * detailed failure information in user-facing tool errors.
+ */
+export interface AttemptDiagnostic {
+  /** Which backend kind was attempted. */
+  readonly candidateKind: CdpClientKind;
+  /** Why this candidate was included (from {@link BackendCandidate.reason}). */
+  readonly inclusionReason: string;
+  /** How far the attempt progressed before it ended. */
+  readonly stage: AttemptStage;
+  /** Error code from the CdpError, if the attempt failed. */
+  readonly errorCode?: string;
+  /** Error message from the CdpError, if the attempt failed. */
+  readonly errorMessage?: string;
+  /** Discovery-level error code extracted from the underlying error, if any. */
+  readonly discoveryCode?: string;
+}
+
+/**
  * Concrete CdpClient instance returned by the factory. Carries the
  * backend `kind` for transport-aware branches in tool code.
  */

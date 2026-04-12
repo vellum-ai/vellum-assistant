@@ -72,6 +72,12 @@ const createCdpInspectClientMock = mock(
 let cdpInspectEnabled = false;
 let desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
 
+/**
+ * Captured log calls for verifying fallback log payloads.
+ */
+const logWarnCalls: Array<{ args: unknown[] }> = [];
+const logDebugCalls: Array<{ args: unknown[] }> = [];
+
 mock.module("../extension-cdp-client.js", () => ({
   createExtensionCdpClient: createExtensionCdpClientMock,
 }));
@@ -94,6 +100,18 @@ mock.module("../../../../config/loader.js", () => ({
     },
   }),
 }));
+mock.module("../../../../util/logger.js", () => ({
+  getLogger: () => ({
+    debug: (...args: unknown[]) => {
+      logDebugCalls.push({ args });
+    },
+    warn: (...args: unknown[]) => {
+      logWarnCalls.push({ args });
+    },
+    info: () => {},
+    error: () => {},
+  }),
+}));
 
 // Import under test AFTER mock.module calls so that the factory's
 // top-level imports resolve to our fakes.
@@ -101,6 +119,7 @@ const {
   getCdpClient,
   buildCandidateList,
   buildChainedClient,
+  buildPinnedCandidateList,
   _resetDesktopAutoCooldown,
   _getDesktopAutoCooldownSince,
   recordDesktopAutoCooldown,
@@ -150,6 +169,8 @@ describe("getCdpClient", () => {
     cdpInspectEnabled = false;
     desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
     _resetDesktopAutoCooldown();
+    logWarnCalls.length = 0;
+    logDebugCalls.length = 0;
   });
 
   // ── Candidate selection (kind reported before first send) ────────────
@@ -306,6 +327,34 @@ describe("getCdpClient", () => {
     expect(createLocalCdpClientMock).toHaveBeenCalledWith("another-convo");
     expect(createExtensionCdpClientMock).not.toHaveBeenCalled();
     expect(createCdpInspectClientMock).not.toHaveBeenCalled();
+  });
+
+  // ── Backwards compatibility: omitted mode behaves as auto ───────────
+
+  test("getCdpClient without options behaves identically to auto mode", async () => {
+    const fakeProxy = makeAvailableProxy();
+    const ctx = makeContext({
+      conversationId: "no-opts",
+      hostBrowserProxy: fakeProxy,
+    });
+
+    const client = getCdpClient(ctx);
+    expect(client.kind).toBe("extension");
+    const result = await client.send<{ ok: boolean; via: string }>(
+      "Page.navigate",
+    );
+    expect(result).toEqual({ ok: true, via: "extension" });
+  });
+
+  test("getCdpClient with explicit auto mode behaves identically to omitted mode", async () => {
+    const ctx = makeContext({ conversationId: "explicit-auto" });
+
+    const client = getCdpClient(ctx, { mode: "auto" });
+    expect(client.kind).toBe("local");
+    const result = await client.send<{ ok: boolean; via: string }>(
+      "Runtime.evaluate",
+    );
+    expect(result).toEqual({ ok: true, via: "local" });
   });
 
   // ── send() forwarding ────────────────────────────────────────────────
@@ -659,6 +708,8 @@ describe("buildChainedClient failover", () => {
     cdpInspectEnabled = false;
     desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
     _resetDesktopAutoCooldown();
+    logWarnCalls.length = 0;
+    logDebugCalls.length = 0;
   });
 
   test("fails over from extension to local on transport_error", async () => {
@@ -970,6 +1021,8 @@ describe("desktop-auto cdp-inspect (macOS)", () => {
     cdpInspectEnabled = false;
     desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
     _resetDesktopAutoCooldown();
+    logWarnCalls.length = 0;
+    logDebugCalls.length = 0;
   });
 
   // ── buildCandidateList with desktopAuto ─────────────────────────────
@@ -1263,5 +1316,678 @@ describe("desktop-auto cdp-inspect (macOS)", () => {
     _resetDesktopAutoCooldown();
     expect(isDesktopAutoCooldownActive(30_000)).toBe(false);
     expect(_getDesktopAutoCooldownSince()).toBe(0);
+  });
+});
+
+// ── Pinned-mode tests ────────────────────────────────────────────────────
+
+describe("pinned-mode selection", () => {
+  beforeEach(() => {
+    createExtensionCdpClientMock.mockClear();
+    createLocalCdpClientMock.mockClear();
+    createCdpInspectClientMock.mockClear();
+    lastExtensionClient = undefined;
+    lastLocalClient = undefined;
+    lastCdpInspectClient = undefined;
+    cdpInspectEnabled = false;
+    desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
+    _resetDesktopAutoCooldown();
+    logWarnCalls.length = 0;
+    logDebugCalls.length = 0;
+  });
+
+  // ── Pinned extension ────────────────────────────────────────────────
+
+  test("pinned extension mode routes to extension when proxy is available", async () => {
+    const fakeProxy = makeAvailableProxy();
+    const ctx = makeContext({
+      conversationId: "pinned-ext",
+      hostBrowserProxy: fakeProxy,
+    });
+
+    const client = getCdpClient(ctx, { mode: "extension" });
+    expect(client.kind).toBe("extension");
+
+    const result = await client.send<{ ok: boolean; via: string }>(
+      "Page.navigate",
+    );
+    expect(result).toEqual({ ok: true, via: "extension" });
+    expect(createExtensionCdpClientMock).toHaveBeenCalledTimes(1);
+    expect(createLocalCdpClientMock).not.toHaveBeenCalled();
+    expect(createCdpInspectClientMock).not.toHaveBeenCalled();
+  });
+
+  test("pinned extension mode throws when no proxy is provisioned", () => {
+    const ctx = makeContext({ conversationId: "pinned-ext-no-proxy" });
+
+    expect(() => getCdpClient(ctx, { mode: "extension" })).toThrow(CdpError);
+
+    try {
+      getCdpClient(ctx, { mode: "extension" });
+    } catch (err) {
+      expect(err).toBeInstanceOf(CdpError);
+      const cdpErr = err as CdpError;
+      expect(cdpErr.code).toBe("transport_error");
+      expect(cdpErr.message).toContain('Pinned mode "extension" unavailable');
+      expect(cdpErr.message).toContain("no host browser proxy provisioned");
+      expect(cdpErr.attemptDiagnostics).toBeDefined();
+      expect(cdpErr.attemptDiagnostics).toHaveLength(1);
+      expect(cdpErr.attemptDiagnostics![0].candidateKind).toBe("extension");
+      expect(cdpErr.attemptDiagnostics![0].stage).toBe("candidate_selection");
+    }
+  });
+
+  test("pinned extension mode throws when proxy is present but unavailable", () => {
+    const fakeProxy = makeUnavailableProxy();
+    const ctx = makeContext({
+      conversationId: "pinned-ext-unavail",
+      hostBrowserProxy: fakeProxy,
+    });
+
+    expect(() => getCdpClient(ctx, { mode: "extension" })).toThrow(CdpError);
+
+    try {
+      getCdpClient(ctx, { mode: "extension" });
+    } catch (err) {
+      const cdpErr = err as CdpError;
+      expect(cdpErr.code).toBe("transport_error");
+      expect(cdpErr.message).toContain("not connected");
+      expect(cdpErr.attemptDiagnostics![0].stage).toBe("candidate_selection");
+    }
+  });
+
+  test("pinned extension mode does NOT fall back to local on transport error", async () => {
+    const fakeProxy = makeAvailableProxy();
+
+    // Make extension fail with transport_error
+    createExtensionCdpClientMock.mockImplementationOnce(
+      (_proxy: HostBrowserProxy, conversationId: string) => {
+        const c = makeFakeExtensionClient(conversationId);
+        c.send = mock(async () => {
+          throw new CdpError("transport_error", "WS disconnected");
+        });
+        lastExtensionClient = c;
+        return c;
+      },
+    );
+
+    const ctx = makeContext({
+      conversationId: "pinned-ext-no-fallback",
+      hostBrowserProxy: fakeProxy,
+    });
+
+    const client = getCdpClient(ctx, { mode: "extension" });
+
+    await expect(client.send("Page.navigate")).rejects.toMatchObject({
+      code: "transport_error",
+      message: "WS disconnected",
+    });
+
+    // Local and cdp-inspect should NOT have been tried
+    expect(createLocalCdpClientMock).not.toHaveBeenCalled();
+    expect(createCdpInspectClientMock).not.toHaveBeenCalled();
+  });
+
+  // ── Pinned cdp-inspect ──────────────────────────────────────────────
+
+  test("pinned cdp-inspect mode routes to cdp-inspect", async () => {
+    const ctx = makeContext({ conversationId: "pinned-inspect" });
+
+    const client = getCdpClient(ctx, { mode: "cdp-inspect" });
+    expect(client.kind).toBe("cdp-inspect");
+
+    const result = await client.send<{ ok: boolean; via: string }>(
+      "Page.navigate",
+    );
+    expect(result).toEqual({ ok: true, via: "cdp-inspect" });
+    expect(createCdpInspectClientMock).toHaveBeenCalledTimes(1);
+    expect(createExtensionCdpClientMock).not.toHaveBeenCalled();
+    expect(createLocalCdpClientMock).not.toHaveBeenCalled();
+  });
+
+  test("pinned cdp-inspect mode does NOT fall back to local on transport error", async () => {
+    createCdpInspectClientMock.mockImplementationOnce(
+      (conversationId: string) => {
+        const c = makeFakeCdpInspectClient(conversationId);
+        c.send = mock(async () => {
+          throw new CdpError("transport_error", "Connection refused");
+        });
+        lastCdpInspectClient = c;
+        return c;
+      },
+    );
+
+    const ctx = makeContext({ conversationId: "pinned-inspect-no-fb" });
+    const client = getCdpClient(ctx, { mode: "cdp-inspect" });
+
+    await expect(client.send("Page.navigate")).rejects.toMatchObject({
+      code: "transport_error",
+      message: "Connection refused",
+    });
+
+    expect(createLocalCdpClientMock).not.toHaveBeenCalled();
+    expect(createExtensionCdpClientMock).not.toHaveBeenCalled();
+  });
+
+  test("pinned cdp-inspect uses config host/port", async () => {
+    const ctx = makeContext({ conversationId: "pinned-inspect-cfg" });
+
+    const client = getCdpClient(ctx, { mode: "cdp-inspect" });
+    await client.send("Page.navigate");
+
+    expect(createCdpInspectClientMock).toHaveBeenCalledWith(
+      "pinned-inspect-cfg",
+      {
+        host: "localhost",
+        port: 9222,
+        discoveryTimeoutMs: 500,
+      },
+    );
+  });
+
+  // ── Pinned local ────────────────────────────────────────────────────
+
+  test("pinned local mode routes to local", async () => {
+    const fakeProxy = makeAvailableProxy();
+    const ctx = makeContext({
+      conversationId: "pinned-local",
+      hostBrowserProxy: fakeProxy,
+    });
+
+    // Even with proxy available, pinned local should skip extension
+    const client = getCdpClient(ctx, { mode: "local" });
+    expect(client.kind).toBe("local");
+
+    const result = await client.send<{ ok: boolean; via: string }>(
+      "Runtime.evaluate",
+    );
+    expect(result).toEqual({ ok: true, via: "local" });
+    expect(createLocalCdpClientMock).toHaveBeenCalledTimes(1);
+    expect(createExtensionCdpClientMock).not.toHaveBeenCalled();
+    expect(createCdpInspectClientMock).not.toHaveBeenCalled();
+  });
+
+  test("pinned local mode does NOT fall back on transport error", async () => {
+    createLocalCdpClientMock.mockImplementationOnce(
+      (conversationId: string) => {
+        const c = makeFakeLocalClient(conversationId);
+        c.send = mock(async () => {
+          throw new CdpError("transport_error", "Playwright crashed");
+        });
+        lastLocalClient = c;
+        return c;
+      },
+    );
+
+    const ctx = makeContext({ conversationId: "pinned-local-no-fb" });
+    const client = getCdpClient(ctx, { mode: "local" });
+
+    await expect(client.send("Page.navigate")).rejects.toMatchObject({
+      code: "transport_error",
+      message: "Playwright crashed",
+    });
+
+    expect(createExtensionCdpClientMock).not.toHaveBeenCalled();
+    expect(createCdpInspectClientMock).not.toHaveBeenCalled();
+  });
+});
+
+// ── buildPinnedCandidateList tests ───────────────────────────────────────
+
+describe("buildPinnedCandidateList", () => {
+  beforeEach(() => {
+    createExtensionCdpClientMock.mockClear();
+    createLocalCdpClientMock.mockClear();
+    createCdpInspectClientMock.mockClear();
+    lastExtensionClient = undefined;
+    lastLocalClient = undefined;
+    lastCdpInspectClient = undefined;
+    cdpInspectEnabled = false;
+    desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
+    _resetDesktopAutoCooldown();
+  });
+
+  test("extension mode produces single extension candidate", () => {
+    const fakeProxy = makeAvailableProxy();
+    const ctx = makeContext({
+      conversationId: "bpl-ext",
+      hostBrowserProxy: fakeProxy,
+    });
+
+    const candidates = buildPinnedCandidateList(ctx, "extension");
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].kind).toBe("extension");
+    expect(candidates[0].reason).toBe("pinned mode: extension");
+  });
+
+  test("cdp-inspect mode produces single cdp-inspect candidate", () => {
+    const ctx = makeContext({ conversationId: "bpl-inspect" });
+
+    const candidates = buildPinnedCandidateList(ctx, "cdp-inspect");
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].kind).toBe("cdp-inspect");
+    expect(candidates[0].reason).toBe("pinned mode: cdp-inspect");
+  });
+
+  test("local mode produces single local candidate", () => {
+    const ctx = makeContext({ conversationId: "bpl-local" });
+
+    const candidates = buildPinnedCandidateList(ctx, "local");
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].kind).toBe("local");
+    expect(candidates[0].reason).toBe("pinned mode: local");
+  });
+
+  test("extension mode throws with diagnostics when proxy absent", () => {
+    const ctx = makeContext({ conversationId: "bpl-ext-absent" });
+
+    try {
+      buildPinnedCandidateList(ctx, "extension");
+      expect(true).toBe(false); // should not reach
+    } catch (err) {
+      expect(err).toBeInstanceOf(CdpError);
+      const cdpErr = err as CdpError;
+      expect(cdpErr.code).toBe("transport_error");
+      expect(cdpErr.attemptDiagnostics).toHaveLength(1);
+      expect(cdpErr.attemptDiagnostics![0]).toMatchObject({
+        candidateKind: "extension",
+        inclusionReason: "pinned mode: extension",
+        stage: "candidate_selection",
+        errorCode: "transport_error",
+      });
+    }
+  });
+});
+
+// ── Attempt diagnostics & fallback log tests ─────────────────────────────
+
+describe("attempt diagnostics", () => {
+  beforeEach(() => {
+    createExtensionCdpClientMock.mockClear();
+    createLocalCdpClientMock.mockClear();
+    createCdpInspectClientMock.mockClear();
+    lastExtensionClient = undefined;
+    lastLocalClient = undefined;
+    lastCdpInspectClient = undefined;
+    cdpInspectEnabled = false;
+    desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
+    _resetDesktopAutoCooldown();
+    logWarnCalls.length = 0;
+    logDebugCalls.length = 0;
+  });
+
+  test("exhausted candidates error includes full attempt diagnostics", async () => {
+    cdpInspectEnabled = true;
+    const fakeProxy = makeAvailableProxy();
+
+    // Make extension fail
+    createExtensionCdpClientMock.mockImplementationOnce(
+      (_proxy: HostBrowserProxy, conversationId: string) => {
+        const c = makeFakeExtensionClient(conversationId);
+        c.send = mock(async () => {
+          throw new CdpError("transport_error", "ext disconnected");
+        });
+        lastExtensionClient = c;
+        return c;
+      },
+    );
+
+    // Make cdp-inspect fail
+    createCdpInspectClientMock.mockImplementationOnce(
+      (conversationId: string) => {
+        const c = makeFakeCdpInspectClient(conversationId);
+        c.send = mock(async () => {
+          throw new CdpError("transport_error", "inspect refused");
+        });
+        lastCdpInspectClient = c;
+        return c;
+      },
+    );
+
+    // Make local fail too
+    createLocalCdpClientMock.mockImplementationOnce(
+      (conversationId: string) => {
+        const c = makeFakeLocalClient(conversationId);
+        c.send = mock(async () => {
+          throw new CdpError("transport_error", "playwright dead");
+        });
+        lastLocalClient = c;
+        return c;
+      },
+    );
+
+    const ctx = makeContext({
+      conversationId: "diag-all-fail",
+      hostBrowserProxy: fakeProxy,
+    });
+
+    const client = getCdpClient(ctx);
+
+    try {
+      await client.send("Page.navigate");
+      expect(true).toBe(false); // should not reach
+    } catch (err) {
+      expect(err).toBeInstanceOf(CdpError);
+      const cdpErr = err as CdpError;
+      expect(cdpErr.code).toBe("transport_error");
+      expect(cdpErr.attemptDiagnostics).toBeDefined();
+      expect(cdpErr.attemptDiagnostics).toHaveLength(3);
+
+      // First attempt: extension
+      expect(cdpErr.attemptDiagnostics![0]).toMatchObject({
+        candidateKind: "extension",
+        stage: "send",
+        errorCode: "transport_error",
+        errorMessage: expect.stringContaining("ext disconnected"),
+      });
+
+      // Second attempt: cdp-inspect
+      expect(cdpErr.attemptDiagnostics![1]).toMatchObject({
+        candidateKind: "cdp-inspect",
+        stage: "send",
+        errorCode: "transport_error",
+        errorMessage: expect.stringContaining("inspect refused"),
+      });
+
+      // Third attempt: local
+      expect(cdpErr.attemptDiagnostics![2]).toMatchObject({
+        candidateKind: "local",
+        stage: "send",
+        errorCode: "transport_error",
+        errorMessage: expect.stringContaining("playwright dead"),
+      });
+    }
+  });
+
+  test("successful fallback still records diagnostics for failed candidates", async () => {
+    const fakeProxy = makeAvailableProxy();
+
+    // Make extension fail
+    createExtensionCdpClientMock.mockImplementationOnce(
+      (_proxy: HostBrowserProxy, conversationId: string) => {
+        const c = makeFakeExtensionClient(conversationId);
+        c.send = mock(async () => {
+          throw new CdpError("transport_error", "ext down");
+        });
+        lastExtensionClient = c;
+        return c;
+      },
+    );
+
+    const ctx = makeContext({
+      conversationId: "diag-partial",
+      hostBrowserProxy: fakeProxy,
+    });
+
+    const client = getCdpClient(ctx);
+    const result = await client.send<{ ok: boolean; via: string }>(
+      "Page.navigate",
+    );
+    expect(result).toEqual({ ok: true, via: "local" });
+
+    // The fallback log should have been emitted with attempt data
+    const fallbackLogs = logWarnCalls.filter(
+      (c) =>
+        typeof c.args[1] === "string" &&
+        c.args[1].includes("auto-mode fallback"),
+    );
+    expect(fallbackLogs.length).toBeGreaterThan(0);
+  });
+
+  test("auto-mode fallback log includes candidate sequence and failure reasons", async () => {
+    cdpInspectEnabled = true;
+    const fakeProxy = makeAvailableProxy();
+
+    // Make extension fail
+    createExtensionCdpClientMock.mockImplementationOnce(
+      (_proxy: HostBrowserProxy, conversationId: string) => {
+        const c = makeFakeExtensionClient(conversationId);
+        c.send = mock(async () => {
+          throw new CdpError("transport_error", "WS closed");
+        });
+        lastExtensionClient = c;
+        return c;
+      },
+    );
+
+    // Make cdp-inspect fail
+    createCdpInspectClientMock.mockImplementationOnce(
+      (conversationId: string) => {
+        const c = makeFakeCdpInspectClient(conversationId);
+        c.send = mock(async () => {
+          throw new CdpError("transport_error", "no debugger");
+        });
+        lastCdpInspectClient = c;
+        return c;
+      },
+    );
+
+    const ctx = makeContext({
+      conversationId: "diag-log-shape",
+      hostBrowserProxy: fakeProxy,
+    });
+
+    const client = getCdpClient(ctx);
+    await client.send<{ ok: boolean; via: string }>("Page.navigate");
+
+    // Check that a warn-level log was emitted for the completed fallback
+    const completedLogs = logWarnCalls.filter(
+      (c) =>
+        typeof c.args[1] === "string" &&
+        c.args[1].includes("fallback completed"),
+    );
+    expect(completedLogs.length).toBe(1);
+
+    // Verify the log payload contains the expected structure
+    const payload = completedLogs[0].args[0] as Record<string, unknown>;
+    expect(payload.conversationId).toBe("diag-log-shape");
+    expect(payload.stickyCandidate).toBe("local");
+    expect(Array.isArray(payload.attemptSequence)).toBe(true);
+    const seq = payload.attemptSequence as Array<Record<string, unknown>>;
+    expect(seq.length).toBe(3); // extension, cdp-inspect, local
+    expect(seq[0].kind).toBe("extension");
+    expect(seq[0].errorCode).toBe("transport_error");
+    expect(seq[1].kind).toBe("cdp-inspect");
+    expect(seq[1].errorCode).toBe("transport_error");
+    expect(seq[2].kind).toBe("local");
+    expect(seq[2].stage).toBe("success");
+  });
+
+  test("pinned mode transport error includes attempt diagnostics on the thrown error", async () => {
+    createCdpInspectClientMock.mockImplementationOnce(
+      (conversationId: string) => {
+        const c = makeFakeCdpInspectClient(conversationId);
+        c.send = mock(async () => {
+          throw new CdpError("transport_error", "Connection refused");
+        });
+        lastCdpInspectClient = c;
+        return c;
+      },
+    );
+
+    const ctx = makeContext({ conversationId: "pinned-diag" });
+    const client = getCdpClient(ctx, { mode: "cdp-inspect" });
+
+    try {
+      await client.send("Page.navigate");
+      expect(true).toBe(false); // should not reach
+    } catch (err) {
+      expect(err).toBeInstanceOf(CdpError);
+      const cdpErr = err as CdpError;
+      expect(cdpErr.attemptDiagnostics).toBeDefined();
+      expect(cdpErr.attemptDiagnostics).toHaveLength(1);
+      expect(cdpErr.attemptDiagnostics![0]).toMatchObject({
+        candidateKind: "cdp-inspect",
+        inclusionReason: "pinned mode: cdp-inspect",
+        stage: "send",
+        errorCode: "transport_error",
+      });
+    }
+  });
+
+  test("construction failure is recorded in attempt diagnostics", async () => {
+    // Make the cdp-inspect client's create() throw
+    createCdpInspectClientMock.mockImplementationOnce(() => {
+      throw new Error("Config missing");
+    });
+
+    cdpInspectEnabled = true;
+    const ctx = makeContext({ conversationId: "diag-construction" });
+    const client = getCdpClient(ctx);
+
+    // cdp-inspect construction fails, falls back to local
+    const result = await client.send<{ ok: boolean; via: string }>(
+      "Page.navigate",
+    );
+    expect(result).toEqual({ ok: true, via: "local" });
+  });
+
+  test("cdp_error on single-candidate list includes diagnostics", async () => {
+    createLocalCdpClientMock.mockImplementationOnce(
+      (conversationId: string) => {
+        const c = makeFakeLocalClient(conversationId);
+        c.send = mock(async () => {
+          throw new CdpError("cdp_error", "Protocol error -32000");
+        });
+        lastLocalClient = c;
+        return c;
+      },
+    );
+
+    const ctx = makeContext({ conversationId: "diag-cdp-err" });
+    const client = getCdpClient(ctx);
+
+    try {
+      await client.send("Page.navigate");
+      expect(true).toBe(false);
+    } catch (err) {
+      const cdpErr = err as CdpError;
+      expect(cdpErr.code).toBe("cdp_error");
+      expect(cdpErr.attemptDiagnostics).toBeDefined();
+      expect(cdpErr.attemptDiagnostics).toHaveLength(1);
+      expect(cdpErr.attemptDiagnostics![0]).toMatchObject({
+        candidateKind: "local",
+        stage: "send",
+        errorCode: "cdp_error",
+      });
+    }
+  });
+});
+
+// ── No-fallback guarantees for pinned modes ──────────────────────────────
+
+describe("no-fallback guarantees", () => {
+  beforeEach(() => {
+    createExtensionCdpClientMock.mockClear();
+    createLocalCdpClientMock.mockClear();
+    createCdpInspectClientMock.mockClear();
+    lastExtensionClient = undefined;
+    lastLocalClient = undefined;
+    lastCdpInspectClient = undefined;
+    cdpInspectEnabled = false;
+    desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
+    _resetDesktopAutoCooldown();
+    logWarnCalls.length = 0;
+  });
+
+  test("pinned extension: only one candidate is ever constructed", async () => {
+    const fakeProxy = makeAvailableProxy();
+
+    // Make extension fail
+    createExtensionCdpClientMock.mockImplementationOnce(
+      (_proxy: HostBrowserProxy, conversationId: string) => {
+        const c = makeFakeExtensionClient(conversationId);
+        c.send = mock(async () => {
+          throw new CdpError("transport_error", "failed");
+        });
+        lastExtensionClient = c;
+        return c;
+      },
+    );
+
+    const ctx = makeContext({
+      conversationId: "nofb-ext",
+      hostBrowserProxy: fakeProxy,
+    });
+    const client = getCdpClient(ctx, { mode: "extension" });
+
+    await expect(client.send("Page.navigate")).rejects.toThrow();
+
+    expect(createExtensionCdpClientMock).toHaveBeenCalledTimes(1);
+    expect(createCdpInspectClientMock).not.toHaveBeenCalled();
+    expect(createLocalCdpClientMock).not.toHaveBeenCalled();
+  });
+
+  test("pinned cdp-inspect: only one candidate is ever constructed", async () => {
+    createCdpInspectClientMock.mockImplementationOnce(
+      (conversationId: string) => {
+        const c = makeFakeCdpInspectClient(conversationId);
+        c.send = mock(async () => {
+          throw new CdpError("transport_error", "failed");
+        });
+        lastCdpInspectClient = c;
+        return c;
+      },
+    );
+
+    const ctx = makeContext({ conversationId: "nofb-inspect" });
+    const client = getCdpClient(ctx, { mode: "cdp-inspect" });
+
+    await expect(client.send("Page.navigate")).rejects.toThrow();
+
+    expect(createCdpInspectClientMock).toHaveBeenCalledTimes(1);
+    expect(createExtensionCdpClientMock).not.toHaveBeenCalled();
+    expect(createLocalCdpClientMock).not.toHaveBeenCalled();
+  });
+
+  test("pinned local: only one candidate is ever constructed", async () => {
+    createLocalCdpClientMock.mockImplementationOnce(
+      (conversationId: string) => {
+        const c = makeFakeLocalClient(conversationId);
+        c.send = mock(async () => {
+          throw new CdpError("transport_error", "failed");
+        });
+        lastLocalClient = c;
+        return c;
+      },
+    );
+
+    const ctx = makeContext({ conversationId: "nofb-local" });
+    const client = getCdpClient(ctx, { mode: "local" });
+
+    await expect(client.send("Page.navigate")).rejects.toThrow();
+
+    expect(createLocalCdpClientMock).toHaveBeenCalledTimes(1);
+    expect(createExtensionCdpClientMock).not.toHaveBeenCalled();
+    expect(createCdpInspectClientMock).not.toHaveBeenCalled();
+  });
+
+  test("pinned modes do not emit auto-mode fallback logs", async () => {
+    createLocalCdpClientMock.mockImplementationOnce(
+      (conversationId: string) => {
+        const c = makeFakeLocalClient(conversationId);
+        c.send = mock(async () => {
+          throw new CdpError("transport_error", "failed");
+        });
+        lastLocalClient = c;
+        return c;
+      },
+    );
+
+    const ctx = makeContext({ conversationId: "nofb-no-log" });
+    const client = getCdpClient(ctx, { mode: "local" });
+
+    await expect(client.send("Page.navigate")).rejects.toThrow();
+
+    // No warn-level fallback logs should have been emitted
+    const fallbackLogs = logWarnCalls.filter(
+      (c) =>
+        typeof c.args[1] === "string" &&
+        c.args[1].includes("auto-mode fallback"),
+    );
+    expect(fallbackLogs.length).toBe(0);
   });
 });

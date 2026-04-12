@@ -1,3 +1,5 @@
+import type { AttemptDiagnostic } from "./types.js";
+
 export type CdpErrorCode =
   | "cdp_error" // JSON-RPC error returned by CDP
   | "transport_error" // underlying transport failed (socket closed, timeout)
@@ -15,6 +17,17 @@ export class CdpError extends Error {
   readonly cdpParams?: Record<string, unknown>;
   readonly underlying?: unknown;
 
+  /**
+   * Structured attempt diagnostics from the factory's failover walk.
+   * Present when the error is thrown by the factory after walking one
+   * or more candidates. Each entry describes a single candidate
+   * attempt with the kind, stage, and failure reason.
+   *
+   * Higher layers (e.g. tool-response formatting) can use this to
+   * render detailed failure information with remediation hints.
+   */
+  readonly attemptDiagnostics?: readonly AttemptDiagnostic[];
+
   constructor(
     code: CdpErrorCode,
     message: string,
@@ -22,6 +35,7 @@ export class CdpError extends Error {
       cdpMethod?: string;
       cdpParams?: Record<string, unknown>;
       underlying?: unknown;
+      attemptDiagnostics?: readonly AttemptDiagnostic[];
     },
   ) {
     super(message);
@@ -30,5 +44,6 @@ export class CdpError extends Error {
     this.cdpMethod = details?.cdpMethod;
     this.cdpParams = details?.cdpParams;
     this.underlying = details?.underlying;
+    this.attemptDiagnostics = details?.attemptDiagnostics;
   }
 }
