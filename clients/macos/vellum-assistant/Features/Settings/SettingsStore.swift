@@ -3000,20 +3000,53 @@ public final class SettingsStore: ObservableObject {
         return task
     }
 
-    /// Saves an OpenAI API key for the STT service to the credential store.
-    func saveSTTOpenAIKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
+    /// Saves an API key for the given STT provider to the credential store.
+    /// The `sttProviderId` is the catalog identifier (e.g. `"openai-whisper"`,
+    /// `"deepgram"`); the method resolves the credential provider name from
+    /// the STT provider registry's `apiKeyProviderName` field so callers
+    /// don't need to know the mapping.
+    func saveSTTKey(_ raw: String, sttProviderId: String, onSuccess: (() -> Void)? = nil) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        APIKeyManager.setKey(trimmed, for: "openai")
-        removeDeletionTombstone(type: "api_key", name: "openai")
+        let keyProvider = Self.sttApiKeyProviderName(for: sttProviderId)
+        APIKeyManager.setKey(trimmed, for: keyProvider)
+        removeDeletionTombstone(type: "api_key", name: keyProvider)
         Task {
-            let result = await APIKeyManager.setKey(trimmed, for: "openai")
+            let result = await APIKeyManager.setKey(trimmed, for: keyProvider)
             if result.success {
                 onSuccess?()
             } else if let error = result.error {
-                log.error("Failed to sync OpenAI STT key to daemon: \(error, privacy: .public)")
+                log.error("Failed to sync STT key for \(sttProviderId, privacy: .public) to daemon: \(error, privacy: .public)")
             }
         }
+    }
+
+    /// Clears the API key for the given STT provider from both local and
+    /// daemon credential stores.
+    func clearSTTKey(sttProviderId: String) {
+        let keyProvider = Self.sttApiKeyProviderName(for: sttProviderId)
+        APIKeyManager.deleteKey(for: keyProvider)
+        Task {
+            let deleted = await APIKeyManager.deleteKey(for: keyProvider)
+            if !deleted { addDeletionTombstone(type: "api_key", name: keyProvider) }
+        }
+    }
+
+    /// Checks whether the daemon has an API key stored for the given STT
+    /// provider.
+    func hasSTTKey(sttProviderId: String) async -> Bool {
+        let keyProvider = Self.sttApiKeyProviderName(for: sttProviderId)
+        return await APIKeyManager.hasKey(for: keyProvider)
+    }
+
+    /// Resolves the `api_key` secret-catalog provider name for a given STT
+    /// provider identifier. Looks up the `apiKeyProviderName` from the STT
+    /// provider registry; falls back to the provider id itself when the
+    /// registry entry is not found.
+    static func sttApiKeyProviderName(for sttProviderId: String) -> String {
+        loadSTTProviderRegistry()
+            .provider(withId: sttProviderId)?
+            .apiKeyProviderName ?? sttProviderId
     }
 
     /// Schedules a delayed refresh of provider routing sources, giving the

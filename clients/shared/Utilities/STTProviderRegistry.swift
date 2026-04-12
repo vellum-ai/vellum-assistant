@@ -32,6 +32,11 @@ public struct STTProviderCatalogEntry: Decodable {
     public let setupMode: STTProviderSetupMode
     /// Brief help text guiding the user through setup.
     public let setupHint: String
+    /// The credential provider name used when persisting the API key via
+    /// `APIKeyManager`. Maps the STT provider id to the `api_key` secret
+    /// name in the daemon's secret catalog. For example, `openai-whisper`
+    /// shares the `openai` API key while `deepgram` uses `deepgram`.
+    public let apiKeyProviderName: String
 }
 
 /// Top-level schema for `stt-provider-catalog.json`.
@@ -62,14 +67,16 @@ private let fallbackRegistry = STTProviderRegistry(
             displayName: "OpenAI Whisper",
             subtitle: "High-accuracy speech-to-text powered by OpenAI Whisper. Requires an OpenAI API key.",
             setupMode: .apiKey,
-            setupHint: "Enter your OpenAI API key to enable Whisper transcription."
+            setupHint: "Enter your OpenAI API key to enable Whisper transcription.",
+            apiKeyProviderName: "openai"
         ),
         STTProviderCatalogEntry(
             id: "deepgram",
             displayName: "Deepgram",
             subtitle: "Fast, real-time speech-to-text with streaming support. Requires a Deepgram API key.",
             setupMode: .apiKey,
-            setupHint: "Enter your Deepgram API key to enable speech-to-text."
+            setupHint: "Enter your Deepgram API key to enable speech-to-text.",
+            apiKeyProviderName: "deepgram"
         ),
     ]
 )

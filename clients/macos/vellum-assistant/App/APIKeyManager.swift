@@ -46,16 +46,22 @@ enum APIKeyManager {
 
     /// Provider identifiers whose API keys are synced to the daemon as
     /// `type: "api_key"`. Combines the core provider list with any TTS
-    /// providers from the shared registry that use `api_key` setup mode,
-    /// so new registry entries are automatically included without code
-    /// changes here.
+    /// and STT providers from the shared registries that use `api_key`
+    /// setup mode, so new registry entries are automatically included
+    /// without code changes here.
     static let allSyncableProviders: [String] = {
         var ids = coreSyncableProviders
-        let registryApiKeyIds = loadTTSProviderRegistry().providers
+        let ttsApiKeyIds = loadTTSProviderRegistry().providers
             .filter { $0.setupMode == .apiKey }
             .map(\.id)
-        for id in registryApiKeyIds where !ids.contains(id) {
+        for id in ttsApiKeyIds where !ids.contains(id) {
             ids.append(id)
+        }
+        let sttApiKeyNames = loadSTTProviderRegistry().providers
+            .filter { $0.setupMode == .apiKey }
+            .map(\.apiKeyProviderName)
+        for name in sttApiKeyNames where !ids.contains(name) {
+            ids.append(name)
         }
         return ids
     }()

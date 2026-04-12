@@ -107,7 +107,7 @@ struct VoiceSettingsView: View {
             // Initialize STT draft state from persisted values
             draftSTTProvider = sttProviderRaw
             initialSTTProvider = sttProviderRaw
-            sttProviderHasKey = APIKeyManager.getKey(for: "openai") != nil
+            sttProviderHasKey = sttKeyExists(for: draftSTTProvider)
         }
         .onChange(of: draftTTSProvider) { _, _ in
             // Clear API key and voice ID fields when provider changes
@@ -120,7 +120,7 @@ struct VoiceSettingsView: View {
             // Clear stale fields when STT provider changes
             sttApiKeyText = ""
             sttSaveError = nil
-            sttProviderHasKey = APIKeyManager.getKey(for: "openai") != nil
+            sttProviderHasKey = sttKeyExists(for: draftSTTProvider)
         }
         .onChange(of: conversationTimeoutSeconds) {
             VoiceModeManager.conversationTimeoutOverride = conversationTimeoutSeconds
@@ -497,6 +497,13 @@ struct VoiceSettingsView: View {
         }
     }
 
+    /// Checks whether an API key exists for the given STT provider by
+    /// resolving the provider's `apiKeyProviderName` from the registry.
+    private func sttKeyExists(for sttProviderId: String) -> Bool {
+        let keyProvider = SettingsStore.sttApiKeyProviderName(for: sttProviderId)
+        return APIKeyManager.getKey(for: keyProvider) != nil
+    }
+
     /// Clears the stored TTS credential for the given provider.
     private func clearTTSCredential(for provider: String) {
         switch provider {
@@ -592,7 +599,7 @@ struct VoiceSettingsView: View {
         if !trimmedKey.isEmpty {
             sttApiKeyText = ""
             sttProviderHasKey = true
-            store.saveSTTOpenAIKey(trimmedKey)
+            store.saveSTTKey(trimmedKey, sttProviderId: draftSTTProvider)
         }
 
         initialSTTProvider = draftSTTProvider
