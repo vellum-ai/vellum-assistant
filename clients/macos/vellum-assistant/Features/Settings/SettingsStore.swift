@@ -892,6 +892,29 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    func saveFishAudioKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        APIKeyManager.setCredential(trimmed, service: "fish-audio", field: "api_key")
+        removeDeletionTombstone(type: "credential", name: "fish-audio:api_key")
+        Task {
+            let result = await APIKeyManager.setCredential(trimmed, service: "fish-audio", field: "api_key")
+            if result.success {
+                onSuccess?()
+            } else if let error = result.error {
+                log.error("Failed to sync Fish Audio key to daemon: \(error, privacy: .public)")
+            }
+        }
+    }
+
+    func clearFishAudioKey() {
+        APIKeyManager.deleteCredential(service: "fish-audio", field: "api_key")
+        Task {
+            let deleted = await APIKeyManager.deleteCredential(service: "fish-audio", field: "api_key")
+            if !deleted { addDeletionTombstone(type: "credential", name: "fish-audio:api_key") }
+        }
+    }
+
     func clearAPIKeyForProvider(_ provider: String) {
         APIKeyManager.deleteKey(for: provider)
         scheduleRoutingSourceRefresh()
