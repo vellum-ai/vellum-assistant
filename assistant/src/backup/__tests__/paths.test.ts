@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   formatBackupFilename,
@@ -62,8 +62,18 @@ describe("resolveOffsiteDestinations", () => {
 });
 
 describe("getBackupKeyPath", () => {
-  test("ends with /protected/backup.key", () => {
+  afterEach(() => {
+    delete process.env.VELLUM_BACKUP_KEY_PATH;
+  });
+
+  test("ends with /protected/backup.key when env var is unset", () => {
+    delete process.env.VELLUM_BACKUP_KEY_PATH;
     expect(getBackupKeyPath().endsWith("/protected/backup.key")).toBe(true);
+  });
+
+  test("returns the env var override when VELLUM_BACKUP_KEY_PATH is set", () => {
+    process.env.VELLUM_BACKUP_KEY_PATH = "/workspace/.backup.key";
+    expect(getBackupKeyPath()).toBe("/workspace/.backup.key");
   });
 });
 
