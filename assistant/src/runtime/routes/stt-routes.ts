@@ -135,7 +135,11 @@ export function sttRouteDefinitions(): RouteDefinition[] {
         // Buffer.from(str, "base64") silently accepts malformed input rather
         // than throwing, so we validate the characters explicitly first.
         const base64Str = body.audioBase64 as string;
-        if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64Str)) {
+        if (
+          !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+            base64Str,
+          )
+        ) {
           return httpError(
             "BAD_REQUEST",
             "Invalid base64 encoding in audioBase64",

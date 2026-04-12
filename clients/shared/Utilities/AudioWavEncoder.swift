@@ -61,6 +61,7 @@ public enum AudioWavEncoder {
     ///   - format: The audio format describing sample rate, channels, and bit depth.
     /// - Returns: A `Data` value containing a valid WAV file (header + payload).
     public static func encode(samples: UnsafeBufferPointer<Int16>, format: Format) -> Data {
+        precondition(format.bitsPerSample == 16, "encode(samples:format:) only supports 16-bit samples")
         let pcmData = Data(buffer: samples)
         return encode(pcmData: pcmData, format: format)
     }
