@@ -323,8 +323,11 @@ final class SkillsManager {
     }
 
     /// Whether a search query matches any searchable term for a skill origin.
+    /// Includes both the display label (e.g. "Clawhub") and the umbrella
+    /// term "community" so users can still discover community skills by searching.
     static func originMatchesQuery(_ origin: String, query: String) -> Bool {
         if sourceLabel(origin).lowercased().contains(query) { return true }
+        if (origin == "clawhub" || origin == "skillssh") && "community".contains(query) { return true }
         return false
     }
 
