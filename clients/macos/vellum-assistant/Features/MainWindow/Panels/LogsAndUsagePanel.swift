@@ -649,6 +649,10 @@ struct UsageTabContent: View {
                 .pointerCursor { hovering in
                     hoveredConversationGroupId = hovering ? target : nil
                 }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction {
+                    onSelectConversation(target)
+                }
         } else {
             row
         }
