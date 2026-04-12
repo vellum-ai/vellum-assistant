@@ -218,11 +218,22 @@ describe('postHostBrowserResult — self-hosted mode', () => {
     await postHostBrowserResult(mode, null, exampleResult);
 
     expect(consoleSpy.warnings.length).toBeGreaterThanOrEqual(1);
-    const flat = consoleSpy.warnings.flat().join(' ');
-    expect(flat).toContain('host-browser-result POST failed');
-    expect(flat).toContain('404');
-    expect(flat).toContain('req-abc');
-    expect(flat).toContain('not found');
+    const warningCall = consoleSpy.warnings.find(
+      (args) =>
+        typeof args[0] === 'string' &&
+        args[0].includes('host-browser-result POST failed'),
+    );
+    expect(warningCall).toBeDefined();
+
+    const details = warningCall?.[1];
+    expect(details).toEqual(
+      expect.objectContaining({
+        status: 404,
+        requestId: 'req-abc',
+        url: 'http://127.0.0.1:9999/v1/host-browser-result',
+        responseBodySnippet: expect.stringContaining('not found'),
+      }),
+    );
   });
 
   test('ignores the supplied connection in self-hosted mode', async () => {
