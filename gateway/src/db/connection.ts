@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { getGatewaySecurityDir } from "../config.js";
-import { runDataMigrations } from "./data-migrations.js";
+import { runDataMigrations } from "./data-migrations/index.js";
 
 let db: Database | null = null;
 
