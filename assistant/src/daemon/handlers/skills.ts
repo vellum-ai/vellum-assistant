@@ -515,6 +515,7 @@ export async function getSkill(
       installs: slim.installs,
       reports: slim.reports,
       publishedAt: slim.publishedAt,
+      version: slim.version,
     };
     try {
       const inspectResult = await clawhubInspect(slim.slug);
