@@ -659,6 +659,88 @@ export async function executeBrowserScreenshot(
   }
 }
 
+// ── browser_attach ───────────────────────────────────────────────────
+
+export async function executeBrowserAttach(
+  _input: Record<string, unknown>,
+  context: ToolContext,
+): Promise<ToolExecutionResult> {
+  const cdp = getCdpClient(context);
+  try {
+    if (cdp.kind === "extension") {
+      // Extension path: explicitly attach the debugger via a synthetic
+      // Vellum.attach command so the debugging session is established
+      // before any navigation or interaction.
+      const result = await cdp.send<{ attached?: boolean; target?: unknown }>(
+        "Vellum.attach",
+        {},
+        context.signal,
+      );
+      log.debug(
+        { conversationId: context.conversationId, result },
+        "Browser debugger attached (extension)",
+      );
+      return {
+        content: "Browser debugger attached.",
+        isError: false,
+      };
+    }
+
+    // Non-extension backends (local / cdp-inspect): explicit attach is
+    // not required — the backend manages its own connection lifecycle.
+    // Return a deterministic no-op success.
+    return {
+      content:
+        "Browser session ready. (Explicit attach is not required on this backend.)",
+      isError: false,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ err }, "Attach failed");
+    return { content: `Error: Attach failed: ${msg}`, isError: true };
+  } finally {
+    cdp.dispose();
+  }
+}
+
+// ── browser_detach ──────────────────────────────────────────────────
+
+export async function executeBrowserDetach(
+  _input: Record<string, unknown>,
+  context: ToolContext,
+): Promise<ToolExecutionResult> {
+  const cdp = getCdpClient(context);
+  try {
+    if (cdp.kind === "extension") {
+      // Extension path: explicitly detach the debugger via a synthetic
+      // Vellum.detach command so the Chrome debugging banner clears.
+      const result = await cdp.send<{ detached?: boolean; target?: unknown }>(
+        "Vellum.detach",
+        {},
+        context.signal,
+      );
+      log.debug(
+        { conversationId: context.conversationId, result },
+        "Browser debugger detached (extension)",
+      );
+    }
+
+    // Clear stale snapshot element-id mappings regardless of backend.
+    browserManager.clearSnapshotBackendNodeMap(context.conversationId);
+
+    return {
+      content: "Browser debugger detached and snapshot state cleared.",
+      isError: false,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ err }, "Detach failed");
+    return { content: `Error: Detach failed: ${msg}`, isError: true };
+  } finally {
+    cdp.dispose();
+  }
+}
+
 // ── browser_close ────────────────────────────────────────────────────
 
 export async function executeBrowserClose(
@@ -691,8 +773,14 @@ export async function executeBrowserClose(
     }
 
     // Extension path: the user owns their Chrome tab — we must not
-    // close it. Only drop the cached snapshot state so stale eids
-    // from prior snapshots cannot be resolved by later tool calls.
+    // close it. Detach the debugger (so the Chrome debugging banner
+    // clears promptly) and drop the cached snapshot state so stale
+    // eids from prior snapshots cannot be resolved by later tool calls.
+    try {
+      await cdp.send("Vellum.detach", {}, context.signal);
+    } catch {
+      // Tolerate detach failures (already detached, tab closed, etc.)
+    }
     browserManager.clearSnapshotBackendNodeMap(context.conversationId);
     return {
       content:
@@ -1258,7 +1346,8 @@ export async function executeBrowserExtract(
 
     if (textContent.length > MAX_EXTRACT_LENGTH) {
       textContent =
-        safeStringSlice(textContent, 0, MAX_EXTRACT_LENGTH) + "\n... (truncated)";
+        safeStringSlice(textContent, 0, MAX_EXTRACT_LENGTH) +
+        "\n... (truncated)";
     }
 
     const lines: string[] = [

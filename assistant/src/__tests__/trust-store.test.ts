@@ -1078,13 +1078,15 @@ describe("Trust Store", () => {
 
     // ── default allow: browser tools ────────────────────────────
 
-    test("all 14 browser tools have default allow rules", () => {
+    test("all 16 browser tools have default allow rules", () => {
       const templates = getDefaultRuleTemplates();
       const browserTools = [
         "browser_navigate",
         "browser_snapshot",
         "browser_screenshot",
         "browser_close",
+        "browser_attach",
+        "browser_detach",
         "browser_click",
         "browser_type",
         "browser_press_key",

@@ -1152,6 +1152,8 @@ describe("isSideEffectTool", () => {
       "browser_type",
       "browser_press_key",
       "browser_close",
+      "browser_attach",
+      "browser_detach",
       "browser_fill_credential",
       "document_create",
       "document_update",

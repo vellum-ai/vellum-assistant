@@ -352,6 +352,77 @@ export function createHostBrowserDispatcher(
         return;
       }
 
+      // Synthetic Vellum.attach — explicitly establish the debugger session
+      // without requiring a CDP command to be sent first. Resolves the
+      // target, attaches if not already cached, and returns a success payload.
+      if (envelope.cdpMethod === 'Vellum.attach') {
+        const target = await deps.resolveTarget(envelope.cdpSessionId);
+        if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
+        const key = targetKey(target);
+        if (!attachedTargets.has(key)) {
+          try {
+            await proxy.attach(target, '1.3');
+            attachedTargets.add(key);
+          } catch (attachErr) {
+            const msg = (
+              attachErr instanceof Error ? attachErr.message : String(attachErr)
+            ).toLowerCase();
+            if (msg.includes('already attached')) {
+              attachedTargets.add(key);
+            } else {
+              throw attachErr;
+            }
+          }
+        }
+        if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
+        await deps.postResult({
+          requestId,
+          content: JSON.stringify({ attached: true, target }),
+          isError: false,
+        });
+        return;
+      }
+
+      // Synthetic Vellum.detach — explicitly detach the debugger from the
+      // resolved target so the Chrome debugging banner clears. Idempotent:
+      // tolerates already-detached / not-attached errors.
+      if (envelope.cdpMethod === 'Vellum.detach') {
+        const target = await deps.resolveTarget(envelope.cdpSessionId);
+        if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
+        const key = targetKey(target);
+        let didDetach = false;
+        if (attachedTargets.has(key)) {
+          try {
+            await proxy.detach(target);
+            didDetach = true;
+          } catch (detachErr) {
+            // Tolerate already-detached / not-attached errors as
+            // idempotent success — the debugger is no longer attached
+            // either way.
+            const msg = (
+              detachErr instanceof Error ? detachErr.message : String(detachErr)
+            ).toLowerCase();
+            if (
+              msg.includes('not attached') ||
+              msg.includes('detached') ||
+              msg.includes('no target')
+            ) {
+              didDetach = true;
+            } else {
+              throw detachErr;
+            }
+          }
+          attachedTargets.delete(key);
+        }
+        if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
+        await deps.postResult({
+          requestId,
+          content: JSON.stringify({ detached: didDetach, target }),
+          isError: false,
+        });
+        return;
+      }
+
       const target = await deps.resolveTarget(envelope.cdpSessionId);
       const key = targetKey(target);
       if (!attachedTargets.has(key)) {
