@@ -119,6 +119,15 @@ extension AppDelegate {
         return launcher
     }
 
+    /// Return the `AssistantManagementClient` for a named assistant.
+    ///
+    /// Loads the lockfile entry for `name` and dispatches to the correct
+    /// backend. When `name` is `nil`, falls back to `VellumCli`.
+    func managementClient(forAssistantNamed name: String?) -> AssistantManagementClient {
+        let entry = name.flatMap { LockfileAssistant.loadByName($0) }
+        return managementClient(for: entry)
+    }
+
     // MARK: - Gateway Connection Setup
 
     func setupGatewayConnectionManager() {

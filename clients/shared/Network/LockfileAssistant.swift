@@ -464,6 +464,40 @@ public struct LockfileAssistant {
         }
     }
 
+    // MARK: - Entry Removal
+
+    /// Removes the lockfile entry for the given assistant ID.
+    ///
+    /// Used by management clients to clean up after a retire (successful or
+    /// failed-but-managed). This is the shared equivalent of the per-launcher
+    /// `removeLockfileEntry` helpers.
+    ///
+    /// - Parameters:
+    ///   - assistantId: The assistant ID whose entry should be removed.
+    ///   - lockfilePath: Override for tests; defaults to `LockfilePaths.primaryPath`.
+    public static func removeEntry(
+        assistantId: String,
+        lockfilePath: String? = nil
+    ) {
+        let path = lockfilePath ?? LockfilePaths.primaryPath
+        let fileURL = URL(fileURLWithPath: path)
+
+        guard let data = try? Data(contentsOf: fileURL),
+              var lockfile = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return
+        }
+
+        var assistants = lockfile["assistants"] as? [[String: Any]] ?? []
+        assistants.removeAll { ($0["assistantId"] as? String) == assistantId }
+        lockfile["assistants"] = assistants
+
+        if let updated = try? JSONSerialization.data(
+            withJSONObject: lockfile, options: [.prettyPrinted, .sortedKeys]
+        ) {
+            try? updated.write(to: fileURL, options: .atomic)
+        }
+    }
+
     // MARK: - Managed Entry
 
     /// Creates or refreshes a managed entry for the given `assistantId`.
