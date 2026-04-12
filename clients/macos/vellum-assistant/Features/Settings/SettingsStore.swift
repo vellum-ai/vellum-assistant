@@ -2960,8 +2960,9 @@ public final class SettingsStore: ObservableObject {
     }
 
     func setElevenLabsVoiceId(_ voiceId: String) {
+        let trimmed = voiceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
         Task {
-            let trimmed = voiceId.trimmingCharacters(in: .whitespacesAndNewlines)
             let success = await settingsClient.patchConfig([
                 "services": ["tts": ["providers": ["elevenlabs": ["voiceId": trimmed]]]]
             ])
@@ -2972,8 +2973,9 @@ public final class SettingsStore: ObservableObject {
     }
 
     func setFishAudioReferenceId(_ referenceId: String) {
+        let trimmed = referenceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
         Task {
-            let trimmed = referenceId.trimmingCharacters(in: .whitespacesAndNewlines)
             let success = await settingsClient.patchConfig([
                 "services": ["tts": ["providers": ["fish-audio": ["referenceId": trimmed]]]]
             ])
