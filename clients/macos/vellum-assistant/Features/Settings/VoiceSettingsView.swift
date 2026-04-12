@@ -107,7 +107,7 @@ struct VoiceSettingsView: View {
         }
         .onAppear {
             elevenLabsHasKey = APIKeyManager.getKey(for: "elevenlabs") != nil
-            sttOpenAIHasKey = APIKeyManager.getKey(for: "openai-stt") != nil
+            sttOpenAIHasKey = APIKeyManager.getKey(for: "openai") != nil
         }
         .onChange(of: conversationTimeoutSeconds) {
             VoiceModeManager.conversationTimeoutOverride = conversationTimeoutSeconds

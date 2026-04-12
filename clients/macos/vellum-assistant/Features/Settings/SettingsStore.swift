@@ -2957,10 +2957,10 @@ public final class SettingsStore: ObservableObject {
     func saveSTTOpenAIKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        APIKeyManager.setKey(trimmed, for: "openai-stt")
-        removeDeletionTombstone(type: "api_key", name: "openai-stt")
+        APIKeyManager.setKey(trimmed, for: "openai")
+        removeDeletionTombstone(type: "api_key", name: "openai")
         Task {
-            let result = await APIKeyManager.setKey(trimmed, for: "openai-stt")
+            let result = await APIKeyManager.setKey(trimmed, for: "openai")
             if result.success {
                 onSuccess?()
             } else if let error = result.error {
@@ -2971,10 +2971,10 @@ public final class SettingsStore: ObservableObject {
 
     /// Removes the stored OpenAI API key for the STT service.
     func clearSTTOpenAIKey() {
-        APIKeyManager.deleteKey(for: "openai-stt")
+        APIKeyManager.deleteKey(for: "openai")
         Task {
-            let deleted = await APIKeyManager.deleteKey(for: "openai-stt")
-            if !deleted { addDeletionTombstone(type: "api_key", name: "openai-stt") }
+            let deleted = await APIKeyManager.deleteKey(for: "openai")
+            if !deleted { addDeletionTombstone(type: "api_key", name: "openai") }
         }
     }
 
