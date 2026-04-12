@@ -60,6 +60,10 @@ import {
   getLocalBackupsDir,
   resolveOffsiteDestinations,
 } from "./paths.js";
+import {
+  acquireSnapshotLock,
+  getSnapshotLockPath,
+} from "./snapshot-lock.js";
 
 const log = getLogger("backup-worker");
 
@@ -118,23 +122,37 @@ export interface BackupDeps {
   hooksDir?: string;
   /** Override for the backup key file path (tests). */
   backupKeyPath?: string;
+  /**
+   * Override for the cross-process snapshot lock file path (tests). Defaults
+   * to `getSnapshotLockPath()` in production. Tests that drive multiple
+   * parallel runs against temp directories inject a path under their fixture
+   * root so they don't collide with each other or with the real daemon.
+   */
+  snapshotLockPath?: string;
 }
 
 // ---------------------------------------------------------------------------
-// Concurrency mutex (module-scoped)
+// Concurrency mutex (two layers)
 // ---------------------------------------------------------------------------
 
 /**
- * In-memory mutex flag. Both the scheduled tick and the manual trigger share
- * this flag so that:
+ * In-memory mutex flag — the first line of defense. Protects the current
+ * process from racing itself:
  * - A scheduled tick that fires while a manual run is in flight skips silently.
  * - A manual run that starts while a scheduled tick is running throws so the
  *   user can decide how to react (retry, wait, surface the conflict).
  *
- * The mutex is deliberately module-scoped rather than tied to the handle
+ * The in-process flag is module-scoped rather than tied to the handle
  * returned by `startBackupWorker` — the daemon may start the worker once at
  * boot and also call `createSnapshotNow` from other code paths, and both must
  * see the same concurrency state.
+ *
+ * Beyond the in-process flag, both entry points also acquire a cross-process
+ * file lock at `getSnapshotLockPath()` so a CLI `vellum backup create` run
+ * cannot race the daemon's periodic tick — they would otherwise hold
+ * independent copies of this module-scoped flag. See `./snapshot-lock.ts`.
+ * The in-process flag stays as a fast path so same-process conflicts skip
+ * the filesystem entirely.
  */
 let snapshotInProgress = false;
 
@@ -281,6 +299,7 @@ export async function runBackupTick(
 
   const getCheckpoint = deps.getMemoryCheckpoint ?? realGetMemoryCheckpoint;
   const setCheckpoint = deps.setMemoryCheckpoint ?? realSetMemoryCheckpoint;
+  const lockPath = deps.snapshotLockPath ?? getSnapshotLockPath();
 
   const lastRunRaw = getCheckpoint(LAST_RUN_CHECKPOINT_KEY);
   if (lastRunRaw != null) {
@@ -293,15 +312,38 @@ export async function runBackupTick(
     }
   }
 
-  // A manual snapshot in flight wins — the scheduled tick silently defers
-  // and will reconsider on the next interval.
+  // A manual snapshot in flight inside this process wins — the scheduled
+  // tick silently defers and will reconsider on the next interval.
   if (snapshotInProgress) return null;
   snapshotInProgress = true;
+
+  // Acquire the cross-process lock after the in-process fast path passes.
+  // If another process (a CLI `vellum backup create`, say) holds the lock,
+  // the scheduled tick defers silently — same semantics as when the
+  // in-process flag is set — so a concurrent CLI run does not spam warning
+  // logs on every 5-minute tick.
+  let release: (() => Promise<void>) | null = null;
+  try {
+    release = await acquireSnapshotLock(lockPath);
+  } catch (err) {
+    snapshotInProgress = false;
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.startsWith("snapshot in progress")) {
+      return null;
+    }
+    throw err;
+  }
+
   try {
     const result = await performBackup(config, now, deps);
     setCheckpoint(LAST_RUN_CHECKPOINT_KEY, String(now.getTime()));
     return result;
   } finally {
+    try {
+      await release();
+    } catch {
+      // release is best-effort; logged internally
+    }
     snapshotInProgress = false;
   }
 }
@@ -320,13 +362,38 @@ export async function createSnapshotNow(
   now: Date,
   deps: BackupDeps = {},
 ): Promise<BackupRunResult> {
+  const lockPath = deps.snapshotLockPath ?? getSnapshotLockPath();
+
+  // Fast path: in-process flag. Catches same-process races without touching
+  // the filesystem. The thrown message matches the cross-process variant's
+  // prefix so downstream consumers (HTTP 409, CLI error output) can test for
+  // "snapshot in progress" uniformly.
   if (snapshotInProgress) {
     throw new Error("snapshot in progress");
   }
   snapshotInProgress = true;
+
+  // Cross-process lock: the source of truth when a CLI invocation and the
+  // daemon worker could both be alive. On conflict, acquireSnapshotLock
+  // throws "snapshot in progress (locked by pid N)". We reset the
+  // in-process flag before rethrowing so subsequent local attempts aren't
+  // permanently blocked by a failed acquisition.
+  let release: (() => Promise<void>) | null = null;
+  try {
+    release = await acquireSnapshotLock(lockPath);
+  } catch (err) {
+    snapshotInProgress = false;
+    throw err;
+  }
+
   try {
     return await performBackup(config, now, deps);
   } finally {
+    try {
+      await release();
+    } catch {
+      // release is best-effort; logged internally
+    }
     snapshotInProgress = false;
   }
 }

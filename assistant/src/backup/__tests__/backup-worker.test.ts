@@ -162,6 +162,7 @@ describe("runBackupTick — gating", () => {
       setMemoryCheckpoint: checkpoints.set,
       workspaceDir: ROOT,
       localDir,
+      snapshotLockPath: join(ROOT, ".snapshot.lock"),
     });
 
     expect(result).toBeNull();
@@ -186,6 +187,7 @@ describe("runBackupTick — gating", () => {
       setMemoryCheckpoint: checkpoints.set,
       workspaceDir: ROOT,
       localDir,
+      snapshotLockPath: join(ROOT, ".snapshot.lock"),
       // Explicit plaintext to avoid touching the key file
       trustPath: join(ROOT, "trust.json"),
       hooksDir: join(ROOT, "hooks"),
@@ -217,6 +219,7 @@ describe("runBackupTick — gating", () => {
       setMemoryCheckpoint: checkpoints.set,
       workspaceDir: ROOT,
       localDir,
+      snapshotLockPath: join(ROOT, ".snapshot.lock"),
     });
 
     expect(result).not.toBeNull();
@@ -244,6 +247,7 @@ describe("runBackupTick — gating", () => {
       setMemoryCheckpoint: checkpoints.set,
       workspaceDir: ROOT,
       localDir,
+      snapshotLockPath: join(ROOT, ".snapshot.lock"),
     });
 
     expect(result).not.toBeNull();
@@ -273,6 +277,7 @@ describe("runBackupTick — offsite destinations", () => {
       ensureBackupKey: ensureKey,
       workspaceDir: ROOT,
       localDir,
+      snapshotLockPath: join(ROOT, ".snapshot.lock"),
     });
 
     expect(result).not.toBeNull();
@@ -304,6 +309,7 @@ describe("runBackupTick — offsite destinations", () => {
       ensureBackupKey: ensureKey,
       workspaceDir: ROOT,
       localDir,
+      snapshotLockPath: join(ROOT, ".snapshot.lock"),
     });
 
     expect(result).not.toBeNull();
@@ -342,6 +348,7 @@ describe("runBackupTick — offsite destinations", () => {
       backupKeyPath: keyPath,
       workspaceDir: ROOT,
       localDir,
+      snapshotLockPath: join(ROOT, ".snapshot.lock"),
     });
 
     expect(result).not.toBeNull();
@@ -382,6 +389,7 @@ describe("runBackupTick — offsite destinations", () => {
       ensureBackupKey: ensureKey,
       workspaceDir: ROOT,
       localDir,
+      snapshotLockPath: join(ROOT, ".snapshot.lock"),
     });
 
     expect(result).not.toBeNull();
@@ -420,6 +428,7 @@ describe("runBackupTick — offsite destinations", () => {
       setMemoryCheckpoint: checkpoints.set,
       workspaceDir: ROOT,
       localDir,
+      snapshotLockPath: join(ROOT, ".snapshot.lock"),
     });
 
     expect(result).not.toBeNull();
@@ -457,6 +466,7 @@ describe("runBackupTick — error propagation", () => {
         setMemoryCheckpoint: checkpoints.set,
         workspaceDir: ROOT,
         localDir,
+        snapshotLockPath: join(ROOT, ".snapshot.lock"),
       }),
     ).rejects.toThrow("boom");
     expect(checkpoints.store["backup:last_run_at"]).toBeUndefined();
@@ -483,6 +493,7 @@ describe("createSnapshotNow", () => {
       setMemoryCheckpoint: checkpoints.set,
       workspaceDir: ROOT,
       localDir,
+      snapshotLockPath: join(ROOT, ".snapshot.lock"),
     });
 
     expect(result).not.toBeNull();
@@ -510,6 +521,7 @@ describe("createSnapshotNow", () => {
       setMemoryCheckpoint: checkpoints.set,
       workspaceDir: ROOT,
       localDir,
+      snapshotLockPath: join(ROOT, ".snapshot.lock"),
     });
 
     expect(result).not.toBeNull();
@@ -568,6 +580,7 @@ describe("createSnapshotNow", () => {
       setMemoryCheckpoint: checkpoints.set,
       workspaceDir: ROOT,
       localDir,
+      snapshotLockPath: join(ROOT, ".snapshot.lock"),
     });
 
     // Yield once so the first call has a chance to enter the mutex + the
@@ -582,6 +595,7 @@ describe("createSnapshotNow", () => {
         setMemoryCheckpoint: checkpoints.set,
         workspaceDir: ROOT,
         localDir,
+        snapshotLockPath: join(ROOT, ".snapshot.lock"),
       }),
     ).rejects.toThrow("snapshot in progress");
 
@@ -589,6 +603,106 @@ describe("createSnapshotNow", () => {
     await first;
     // Only the first call should have been executed by the stub.
     expect(callCount).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cross-process lock (simulates a second process holding the lock)
+// ---------------------------------------------------------------------------
+
+describe("cross-process snapshot lock", () => {
+  test("after performBackup succeeds, the lock file no longer exists", async () => {
+    const checkpoints = makeCheckpointStore();
+    const streamStub = makeStreamExportStub();
+    const config = makeConfig({
+      enabled: true,
+      offsite: { enabled: false, destinations: null },
+    });
+    const localDir = join(ROOT, "local");
+    const lockPath = join(ROOT, ".snapshot.lock");
+
+    const result = await createSnapshotNow(config, new Date(), {
+      streamExportVBundle: streamStub.fn,
+      getMemoryCheckpoint: checkpoints.get,
+      setMemoryCheckpoint: checkpoints.set,
+      workspaceDir: ROOT,
+      localDir,
+      snapshotLockPath: lockPath,
+    });
+
+    expect(result).not.toBeNull();
+    // Lock file released on the finally path — must not linger on disk.
+    expect(existsSync(lockPath)).toBe(false);
+  });
+
+  test("another process holds the lock: createSnapshotNow throws 'snapshot in progress'", async () => {
+    const checkpoints = makeCheckpointStore();
+    const streamStub = makeStreamExportStub();
+    const config = makeConfig({
+      enabled: true,
+      offsite: { enabled: false, destinations: null },
+    });
+    const localDir = join(ROOT, "local");
+    const lockPath = join(ROOT, ".snapshot.lock");
+
+    // Simulate a concurrent CLI invocation by writing a lock file with the
+    // CURRENT pid (which is definitely alive — it's us). Because the lock
+    // file pre-exists and the PID probes as alive, the in-process flag will
+    // pass (it's reset after the previous test) but the cross-process lock
+    // will reject with "snapshot in progress (locked by pid N)".
+    writeFileSync(lockPath, `${process.pid} ${Date.now()}\n`, { mode: 0o600 });
+
+    await expect(
+      createSnapshotNow(config, new Date(), {
+        streamExportVBundle: streamStub.fn,
+        getMemoryCheckpoint: checkpoints.get,
+        setMemoryCheckpoint: checkpoints.set,
+        workspaceDir: ROOT,
+        localDir,
+        snapshotLockPath: lockPath,
+      }),
+    ).rejects.toThrow(/snapshot in progress/);
+
+    // The stream stub must not have been invoked because acquisition failed
+    // before performBackup ran.
+    expect(streamStub.calls).toHaveLength(0);
+    // The pre-existing lock file is preserved — we did not own it, so we
+    // must not have removed it on the failed-acquisition path.
+    expect(existsSync(lockPath)).toBe(true);
+  });
+
+  test("runBackupTick defers silently when another process holds the lock", async () => {
+    const now = new Date("2026-04-11T10:00:00Z");
+    const checkpoints = makeCheckpointStore();
+    const streamStub = makeStreamExportStub();
+    const config = makeConfig({
+      enabled: true,
+      offsite: { enabled: false, destinations: null },
+    });
+    const localDir = join(ROOT, "local");
+    const lockPath = join(ROOT, ".snapshot.lock");
+
+    // Pre-seed the lock file with the live PID so the worker observes a
+    // conflict on its cross-process check.
+    writeFileSync(lockPath, `${process.pid} ${Date.now()}\n`, { mode: 0o600 });
+
+    const result = await runBackupTick(config, now, {
+      streamExportVBundle: streamStub.fn,
+      getMemoryCheckpoint: checkpoints.get,
+      setMemoryCheckpoint: checkpoints.set,
+      workspaceDir: ROOT,
+      localDir,
+      snapshotLockPath: lockPath,
+    });
+
+    // Scheduled tick defers silently on conflict rather than throwing — the
+    // next interval will retry.
+    expect(result).toBeNull();
+    expect(streamStub.calls).toHaveLength(0);
+    // Checkpoint must not advance when the tick defers.
+    expect(checkpoints.store["backup:last_run_at"]).toBeUndefined();
+    // Pre-existing lock file is preserved.
+    expect(existsSync(lockPath)).toBe(true);
   });
 });
 
@@ -625,6 +739,7 @@ describe("retention across successive ticks", () => {
         setMemoryCheckpoint: checkpoints.set,
         workspaceDir: ROOT,
         localDir,
+        snapshotLockPath: join(ROOT, ".snapshot.lock"),
       });
       expect(result).not.toBeNull();
     }

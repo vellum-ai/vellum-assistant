@@ -275,8 +275,10 @@ export async function handleBackupCreate(_req: Request): Promise<Response> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     // Map the mutex rejection to 409 so clients can distinguish "try again
-    // later" from a real failure.
-    if (message === "snapshot in progress") {
+    // later" from a real failure. Matches both the in-process variant
+    // (`"snapshot in progress"`) and the cross-process file-lock variant
+    // (`"snapshot in progress (locked by pid N)"`).
+    if (message.startsWith("snapshot in progress")) {
       return httpError("CONFLICT", "A snapshot is already in progress", 409);
     }
     log.error({ err }, "Manual backup snapshot failed");
