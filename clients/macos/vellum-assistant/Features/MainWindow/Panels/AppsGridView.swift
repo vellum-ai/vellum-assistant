@@ -141,7 +141,6 @@ struct AppsGridView: View {
 
     private func appCard(_ app: AppListManager.AppItem) -> some View {
         let isHovered = hoveredAppId == app.id
-        let appIcon = resolvedIcon(for: app)
         let rawPreview = app.previewBase64 ?? previewCache[app.id]
         let preview = rawPreview?.isEmpty == true ? nil : rawPreview
 
