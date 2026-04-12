@@ -72,6 +72,12 @@ extension UserDefaults {
         }
         return string(forKey: "currentConversationShortcut") ?? ""
     }
+    @objc dynamic var markConversationUnreadShortcut: String {
+        if UserDefaults.standard.object(forKey: "markConversationUnreadShortcut") == nil {
+            return "cmd+shift+u"
+        }
+        return string(forKey: "markConversationUnreadShortcut") ?? ""
+    }
     @objc dynamic var popOutShortcut: String {
         if UserDefaults.standard.object(forKey: "popOutShortcut") == nil {
             return "cmd+p"
@@ -107,6 +113,7 @@ extension AppDelegate {
         )
         .merge(with: UserDefaults.standard.publisher(for: \.newChatShortcut).map { _ in () })
         .merge(with: UserDefaults.standard.publisher(for: \.currentConversationShortcut).map { _ in () })
+        .merge(with: UserDefaults.standard.publisher(for: \.markConversationUnreadShortcut).map { _ in () })
         .merge(with: UserDefaults.standard.publisher(for: \.popOutShortcut).map { _ in () })
         .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
         .sink { [weak self] _ in
@@ -118,6 +125,7 @@ extension AppDelegate {
             self?.registerPopOutMonitor()
             self?.updateNewChatMenuItemShortcut()
             self?.updateCurrentConversationMenuItemShortcut()
+            self?.updateMarkConversationUnreadMenuItemShortcut()
         }
     }
 
