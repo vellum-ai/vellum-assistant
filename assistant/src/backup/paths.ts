@@ -1,7 +1,10 @@
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { getBackupDirOverride } from "../config/env-registry.js";
+import {
+  getBackupDirOverride,
+  getBackupKeyPathOverride,
+} from "../config/env-registry.js";
 import type { BackupDestination } from "../config/schema.js";
 import { getProtectedDir } from "../util/platform.js";
 
@@ -67,13 +70,13 @@ export function resolveOffsiteDestinations(
 }
 
 /**
- * Returns the path to the backup encryption key file
- * (`~/.vellum/protected/backup.key`). The key lives inside the protected
- * directory so it inherits the same access restrictions as credentials and
- * trust rules.
+ * Returns the path to the backup encryption key file. By default this is
+ * `~/.vellum/protected/backup.key`, but the `VELLUM_BACKUP_KEY_PATH` env var
+ * can override it for containerized deployments where the key must live on a
+ * persistent volume.
  */
 export function getBackupKeyPath(): string {
-  return join(getProtectedDir(), "backup.key");
+  return getBackupKeyPathOverride() ?? join(getProtectedDir(), "backup.key");
 }
 
 /**
