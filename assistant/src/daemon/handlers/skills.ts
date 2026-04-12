@@ -549,6 +549,21 @@ export async function getSkill(
       sourceRepo: slim.sourceRepo,
       installs: slim.installs,
     };
+    // Enrich with audit data (non-fatal on failure)
+    try {
+      const source = resolveSkillSource(slim.slug);
+      const sourceRepo = `${source.owner}/${source.repo}`;
+      const skillSlug = source.skillSlug;
+      const audits = await fetchSkillAudits(sourceRepo, [skillSlug]);
+      if (audits[skillSlug]) {
+        (detail as { audit?: SkillAuditData }).audit = audits[skillSlug];
+      }
+    } catch (err) {
+      log.warn(
+        { err, skillId },
+        "Failed to enrich skillssh skill detail with audit data",
+      );
+    }
     return { skill: detail };
   }
 
