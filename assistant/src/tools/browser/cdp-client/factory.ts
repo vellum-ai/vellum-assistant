@@ -15,7 +15,9 @@ import { CdpError } from "./errors.js";
 import { createExtensionCdpClient } from "./extension-cdp-client.js";
 import { createLocalCdpClient } from "./local-cdp-client.js";
 import type {
+  AttemptDiagnostic,
   BackendCandidate,
+  BrowserMode,
   CdpClient,
   CdpClientKind,
   ScopedCdpClient,
@@ -83,6 +85,20 @@ export function _getDesktopAutoCooldownSince(): number {
 // ---------------------------------------------------------------------------
 
 /**
+ * Options for {@link getCdpClient}. All fields are optional — omitting
+ * them preserves the existing auto-mode behavior.
+ */
+export interface GetCdpClientOptions {
+  /**
+   * Backend mode preference. When omitted or `"auto"`, the factory
+   * uses the existing priority-ordered fallback chain. When set to a
+   * specific backend kind, the factory pins to that single backend
+   * and disables failover.
+   */
+  mode?: BrowserMode;
+}
+
+/**
  * Select the appropriate CdpClient implementation for a tool
  * invocation based on the ToolContext and config. Three backends are
  * considered in priority order:
@@ -100,6 +116,13 @@ export function _getDesktopAutoCooldownSince(): number {
  *     top-level `enabled` flag is false.
  *  3. **Local** -- Default. Drives Playwright's CDPSession against
  *     the sacrificial-profile browser managed by browserManager.
+ *
+ * When `options.mode` is set to a specific backend kind, the factory
+ * builds exactly one candidate and disables failover. If the pinned
+ * backend is unavailable (e.g. pinned `extension` without an
+ * available host browser proxy), the factory throws a typed
+ * `CdpError` with `transport_error` code and a diagnostic indicating
+ * the precondition that was not met.
  *
  * The factory builds an ordered candidate list and returns a
  * {@link ScopedCdpClient} with per-invocation failover semantics:
@@ -123,22 +146,139 @@ export function _getDesktopAutoCooldownSince(): number {
  * client does NOT dispose the underlying HostBrowserProxy -- that is
  * owned by the conversation.
  */
-export function getCdpClient(context: ToolContext): ScopedCdpClient {
-  const candidates = buildCandidateList(context);
+export function getCdpClient(
+  context: ToolContext,
+  options?: GetCdpClientOptions,
+): ScopedCdpClient {
+  const mode: BrowserMode = options?.mode ?? "auto";
+  const candidates =
+    mode === "auto"
+      ? buildCandidateList(context)
+      : buildPinnedCandidateList(context, mode);
 
   log.debug(
     {
       conversationId: context.conversationId,
+      mode,
       candidates: candidates.map((c) => ({ kind: c.kind, reason: c.reason })),
     },
     "CDP factory: built candidate list",
   );
 
-  return buildChainedClient(context.conversationId, candidates);
+  return buildChainedClient(context.conversationId, candidates, mode);
 }
 
 // ---------------------------------------------------------------------------
-// Candidate list construction
+// Pinned candidate list construction
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a single-element candidate list for a pinned backend mode.
+ * Throws a typed `CdpError` with structured diagnostics when the
+ * requested backend's preconditions are not met.
+ *
+ * Exported for testing.
+ */
+export function buildPinnedCandidateList(
+  context: ToolContext,
+  mode: Exclude<BrowserMode, "auto">,
+): BackendCandidate[] {
+  const { conversationId, hostBrowserProxy } = context;
+
+  switch (mode) {
+    case "extension": {
+      if (!hostBrowserProxy || !hostBrowserProxy.isAvailable()) {
+        const reason = !hostBrowserProxy
+          ? "no host browser proxy provisioned for this conversation"
+          : "host browser proxy exists but is not connected";
+        throw new CdpError(
+          "transport_error",
+          `Pinned mode "extension" unavailable: ${reason}`,
+          {
+            attemptDiagnostics: [
+              {
+                candidateKind: "extension",
+                inclusionReason: `pinned mode: extension`,
+                stage: "candidate_selection",
+                errorCode: "transport_error",
+                errorMessage: reason,
+              },
+            ],
+          },
+        );
+      }
+      return [
+        {
+          kind: "extension",
+          reason: "pinned mode: extension",
+          create() {
+            const client = createExtensionCdpClient(
+              hostBrowserProxy,
+              conversationId,
+            );
+            const backend = createExtensionBackend({
+              isAvailable: () => true,
+              sendCdp: (command, signal) =>
+                dispatchThroughClient(client, command, signal),
+              dispose: () => client.dispose(),
+            });
+            return { client, backend };
+          },
+        },
+      ];
+    }
+    case "cdp-inspect": {
+      const cdpInspectConfig = getConfig().hostBrowser.cdpInspect;
+      return [
+        {
+          kind: "cdp-inspect",
+          reason: "pinned mode: cdp-inspect",
+          create() {
+            const client = createCdpInspectClient(conversationId, {
+              host: cdpInspectConfig.host,
+              port: cdpInspectConfig.port,
+              discoveryTimeoutMs: cdpInspectConfig.probeTimeoutMs,
+            });
+            const backend = createCdpInspectBackend({
+              isAvailable: () => true,
+              sendCdp: (command, signal) =>
+                dispatchThroughClient(client, command, signal),
+              dispose: () => client.dispose(),
+            });
+            return { client, backend };
+          },
+        },
+      ];
+    }
+    case "local": {
+      return [
+        {
+          kind: "local",
+          reason: "pinned mode: local",
+          create() {
+            const client = createLocalCdpClient(conversationId);
+            const backend = createLocalBackend({
+              isAvailable: () => true,
+              sendCdp: (command, signal) =>
+                dispatchThroughClient(client, command, signal),
+              dispose: () => client.dispose(),
+            });
+            return { client, backend };
+          },
+        },
+      ];
+    }
+    default: {
+      // Exhaustive check — if new modes are added, TypeScript will
+      // flag this as an error.
+      const _exhaustive: never = mode;
+      throw new Error(`Unknown pinned mode: ${_exhaustive}`);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Candidate list construction (auto mode)
 // ---------------------------------------------------------------------------
 
 /**
@@ -290,6 +430,7 @@ export function buildCandidateList(context: ToolContext): BackendCandidate[] {
 export function buildChainedClient(
   conversationId: string,
   candidates: BackendCandidate[],
+  mode: BrowserMode = "auto",
 ): ScopedCdpClient {
   if (candidates.length === 0) {
     throw new Error("CDP factory: no backend candidates available");
@@ -364,6 +505,7 @@ export function buildChainedClient(
         },
         () => disposed,
         conversationId,
+        mode,
       );
     },
 
@@ -389,6 +531,12 @@ export function buildChainedClient(
  * When a desktop-auto cdp-inspect candidate fails with a transport
  * error, the factory records a cooldown so subsequent calls skip the
  * probe until the window expires.
+ *
+ * In auto mode, each attempted candidate is recorded as an
+ * {@link AttemptDiagnostic}. When fallback occurs, a production-visible
+ * log is emitted with the full candidate sequence and per-candidate
+ * failure reasons. If all candidates are exhausted, the diagnostics
+ * are attached to the thrown {@link CdpError}.
  */
 async function sendWithFailover<T>(
   candidates: BackendCandidate[],
@@ -403,8 +551,10 @@ async function sendWithFailover<T>(
   }) => void,
   isDisposed: () => boolean,
   conversationId: string,
+  mode: BrowserMode,
 ): Promise<T> {
   let lastError: CdpError | undefined;
+  const diagnostics: AttemptDiagnostic[] = [];
 
   for (let i = 0; i < candidates.length; i++) {
     const candidate = candidates[i];
@@ -432,16 +582,42 @@ async function sendWithFailover<T>(
     } catch (err) {
       // Backend construction failed -- treat as transport error and
       // try the next candidate.
+      const errorMessage = `Backend ${candidate.kind} construction failed: ${err instanceof Error ? err.message : String(err)}`;
       log.debug(
         { conversationId, candidateKind: candidate.kind, err },
         "CDP factory: candidate construction failed, trying next",
       );
-      lastError = new CdpError(
-        "transport_error",
-        `Backend ${candidate.kind} construction failed: ${err instanceof Error ? err.message : String(err)}`,
-        { cdpMethod: method, cdpParams: params, underlying: err },
-      );
+      lastError = new CdpError("transport_error", errorMessage, {
+        cdpMethod: method,
+        cdpParams: params,
+        underlying: err,
+      });
+      diagnostics.push({
+        candidateKind: candidate.kind,
+        inclusionReason: candidate.reason,
+        stage: "construction",
+        errorCode: "transport_error",
+        errorMessage,
+      });
       maybeRecordDesktopAutoCooldown(candidate);
+
+      // Emit production-visible fallback log in auto mode
+      if (mode === "auto" && i < candidates.length - 1) {
+        log.warn(
+          {
+            conversationId,
+            failedCandidate: candidate.kind,
+            nextCandidate: candidates[i + 1].kind,
+            attemptedSoFar: diagnostics.map((d) => ({
+              kind: d.candidateKind,
+              stage: d.stage,
+              errorCode: d.errorCode,
+              errorMessage: d.errorMessage,
+            })),
+          },
+          "CDP factory: auto-mode fallback triggered",
+        );
+      }
       continue;
     }
 
@@ -456,17 +632,44 @@ async function sendWithFailover<T>(
     } catch (err) {
       // Manager-level errors (unknown session, no available backend)
       // are transport-level problems -- try the next candidate.
+      const errorMessage = `Backend ${candidate.kind} send threw: ${err instanceof Error ? err.message : String(err)}`;
       log.debug(
         { conversationId, candidateKind: candidate.kind, err },
         "CDP factory: candidate send threw, trying next",
       );
       manager.disposeAll();
-      lastError = new CdpError(
-        "transport_error",
-        `Backend ${candidate.kind} send threw: ${err instanceof Error ? err.message : String(err)}`,
-        { cdpMethod: method, cdpParams: params, underlying: err },
-      );
+      lastError = new CdpError("transport_error", errorMessage, {
+        cdpMethod: method,
+        cdpParams: params,
+        underlying: err,
+      });
+      diagnostics.push({
+        candidateKind: candidate.kind,
+        inclusionReason: candidate.reason,
+        stage: "send",
+        errorCode: "transport_error",
+        errorMessage,
+        discoveryCode: extractDiscoveryCode(err),
+      });
       maybeRecordDesktopAutoCooldown(candidate);
+
+      // Emit production-visible fallback log in auto mode
+      if (mode === "auto" && i < candidates.length - 1) {
+        log.warn(
+          {
+            conversationId,
+            failedCandidate: candidate.kind,
+            nextCandidate: candidates[i + 1].kind,
+            attemptedSoFar: diagnostics.map((d) => ({
+              kind: d.candidateKind,
+              stage: d.stage,
+              errorCode: d.errorCode,
+              errorMessage: d.errorMessage,
+            })),
+          },
+          "CDP factory: auto-mode fallback triggered",
+        );
+      }
       continue;
     }
 
@@ -487,16 +690,79 @@ async function sendWithFailover<T>(
         );
         manager.disposeAll();
         lastError = cdpError;
+        diagnostics.push({
+          candidateKind: candidate.kind,
+          inclusionReason: candidate.reason,
+          stage: "send",
+          errorCode: cdpError.code,
+          errorMessage: cdpError.message,
+          discoveryCode: extractDiscoveryCode(cdpError.underlying),
+        });
         maybeRecordDesktopAutoCooldown(candidate);
+
+        // Emit production-visible fallback log in auto mode
+        if (mode === "auto") {
+          log.warn(
+            {
+              conversationId,
+              failedCandidate: candidate.kind,
+              nextCandidate: candidates[i + 1].kind,
+              attemptedSoFar: diagnostics.map((d) => ({
+                kind: d.candidateKind,
+                stage: d.stage,
+                errorCode: d.errorCode,
+                errorMessage: d.errorMessage,
+              })),
+            },
+            "CDP factory: auto-mode fallback triggered",
+          );
+        }
         continue;
       }
 
       // Either a CDP protocol error or we've exhausted candidates --
-      // propagate the error as-is.
-      throw cdpError;
+      // propagate the error as-is, attaching diagnostics.
+      diagnostics.push({
+        candidateKind: candidate.kind,
+        inclusionReason: candidate.reason,
+        stage: "send",
+        errorCode: cdpError.code,
+        errorMessage: cdpError.message,
+        discoveryCode: extractDiscoveryCode(cdpError.underlying),
+      });
+      throw new CdpError(cdpError.code, cdpError.message, {
+        cdpMethod: cdpError.cdpMethod,
+        cdpParams: cdpError.cdpParams,
+        underlying: cdpError.underlying,
+        attemptDiagnostics: diagnostics.length > 0 ? diagnostics : undefined,
+      });
     }
 
     // Success! Establish this backend as the sticky choice.
+    diagnostics.push({
+      candidateKind: candidate.kind,
+      inclusionReason: candidate.reason,
+      stage: "success",
+    });
+
+    // If there were prior failed candidates in auto mode, log the
+    // full sequence for observability.
+    if (mode === "auto" && diagnostics.length > 1) {
+      log.warn(
+        {
+          conversationId,
+          stickyCandidate: candidate.kind,
+          attemptSequence: diagnostics.map((d) => ({
+            kind: d.candidateKind,
+            stage: d.stage,
+            errorCode: d.errorCode,
+            errorMessage: d.errorMessage,
+          })),
+        },
+        "CDP factory: auto-mode fallback completed, backend established after retries",
+      );
+    }
+
     log.debug(
       { conversationId, candidateKind: candidate.kind, method },
       "CDP factory: candidate succeeded, backend is now sticky",
@@ -505,14 +771,20 @@ async function sendWithFailover<T>(
     return envelope.result as T;
   }
 
-  // All candidates exhausted -- throw the last transport error.
-  throw (
-    lastError ??
-    new CdpError("transport_error", "All backend candidates exhausted", {
-      cdpMethod: method,
-      cdpParams: params,
-    })
-  );
+  // All candidates exhausted -- throw the last transport error with
+  // full attempt diagnostics attached.
+  throw lastError
+    ? new CdpError(lastError.code, lastError.message, {
+        cdpMethod: lastError.cdpMethod,
+        cdpParams: lastError.cdpParams,
+        underlying: lastError.underlying,
+        attemptDiagnostics: diagnostics.length > 0 ? diagnostics : undefined,
+      })
+    : new CdpError("transport_error", "All backend candidates exhausted", {
+        cdpMethod: method,
+        cdpParams: params,
+        attemptDiagnostics: diagnostics.length > 0 ? diagnostics : undefined,
+      });
 }
 
 /**
@@ -622,4 +894,21 @@ function unwrapResult<T>(
     throw extractCdpError(envelope, method, params);
   }
   return envelope.result as T;
+}
+
+/**
+ * Attempt to extract a discovery-level error code from an underlying
+ * error. Some CdpInspectClient errors embed a discovery code (e.g.
+ * "ECONNREFUSED", "DISCOVERY_TIMEOUT") that is useful for diagnostics.
+ */
+function extractDiscoveryCode(underlying: unknown): string | undefined {
+  if (underlying == null) return undefined;
+  if (typeof underlying === "object" && "code" in underlying) {
+    const code = (underlying as Record<string, unknown>).code;
+    if (typeof code === "string") return code;
+  }
+  if (underlying instanceof Error && "cause" in underlying) {
+    return extractDiscoveryCode(underlying.cause);
+  }
+  return undefined;
 }

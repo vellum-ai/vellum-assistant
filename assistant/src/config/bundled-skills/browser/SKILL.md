@@ -34,6 +34,26 @@ Use this skill to browse the web. After loading this skill, the following browse
 
 This browser runs **full Chromium with JavaScript enabled**. It can handle SPAs, React/Vue/Angular apps, dynamic content, date pickers, booking systems, reservation flows, and any JavaScript-heavy interactive site. Never tell the user you "can't handle interactive JavaScript" - you can.
 
+## Browser Mode
+
+Every browser tool accepts an optional `browser_mode` parameter that controls which backend executes the command:
+
+| Value | Backend | Description |
+|---|---|---|
+| `auto` | Automatic | Default. The assistant picks the best available backend based on context (extension > cdp-inspect > local). |
+| `extension` | Chrome extension | Routes through the user's Chrome browser via the extension debugger. |
+| `cdp-inspect` | CDP inspect | Connects to an already-running Chrome instance via the DevTools protocol. Alias: `cdp-debugger`. |
+| `local` | Playwright | Drives a dedicated Playwright-managed Chromium instance. Alias: `playwright`. |
+
+**When to use `auto`**: Prefer `auto` (or omit `browser_mode` entirely) unless you have a specific reason to pin. The automatic backend selection handles extension availability, fallback, and session reuse.
+
+**When to pin a mode**: Pin explicitly when:
+- The user requests interaction with their own browser (use `extension` or `cdp-inspect`).
+- A tool only works on a specific backend (e.g. `browser_wait_for_download` requires `local`).
+- You want to avoid fallback behavior for diagnostic clarity.
+
+**Unsupported mode errors**: Some tools restrict which modes they support. For example, `browser_wait_for_download` only supports `auto` and `local` because file downloads require the Playwright backend. Passing an unsupported mode returns a clear error with the accepted alternatives.
+
 ## Typical Workflow
 
 1. `browser_attach` to establish the debugger session (extension path; optional on other backends)
