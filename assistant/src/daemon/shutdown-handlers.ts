@@ -126,9 +126,15 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
 
     await deps.getQdrantManager()?.stop();
 
-    // Checkpoint WAL and close SQLite so no writes are lost on exit.
-    // Checkpoint and close are in separate try blocks so that close()
-    // always runs even if checkpointing throws (e.g. SQLITE_BUSY).
+    // Optimize query planner statistics before closing so they persist for
+    // the next session. Checkpoint WAL and close SQLite so no writes are
+    // lost on exit. Each step is in its own try block so later steps still
+    // run if an earlier one throws (e.g. SQLITE_BUSY).
+    try {
+      getSqlite().exec("PRAGMA optimize");
+    } catch (err) {
+      log.warn({ err }, "PRAGMA optimize at shutdown failed (non-fatal)");
+    }
     try {
       getSqlite().exec("PRAGMA wal_checkpoint(TRUNCATE)");
     } catch (err) {

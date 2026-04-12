@@ -2,6 +2,7 @@ import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getLogger } from "../util/logger.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
+import { maybeRunDbMaintenance } from "./db-maintenance.js";
 import {
   getLastScheduledCleanupEnqueueMs,
   markScheduledCleanupEnqueued,
@@ -165,6 +166,7 @@ export async function runMemoryJobsOnce(
       maybeEnqueueScheduledCleanupJobs(config);
     }
     maybeEnqueueGraphMaintenanceJobs();
+    maybeRunDbMaintenance();
     return 0;
   }
 
@@ -261,6 +263,7 @@ export async function runMemoryJobsOnce(
     maybeEnqueueScheduledCleanupJobs(config);
   }
   maybeEnqueueGraphMaintenanceJobs();
+  maybeRunDbMaintenance();
   return processed;
 }
 
