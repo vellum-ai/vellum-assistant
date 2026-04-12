@@ -62,7 +62,7 @@ enum ChatDiagnosticEventKind: String, Codable, Sendable {
 enum ComposerPopupState: String, Codable, Sendable {
     case slash
     case emoji
-    case none
+    case inactive = "none"
 }
 
 /// Content-safe scroll intent source.
