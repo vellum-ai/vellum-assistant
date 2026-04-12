@@ -4,22 +4,6 @@ import AVFoundation
 import VellumAssistantShared
 @testable import VellumAssistantLib
 
-/// A controllable mock of `STTClientProtocol` for testing service-first
-/// transcription resolution without making network requests.
-private final class MockSTTClient: STTClientProtocol, @unchecked Sendable {
-    /// The result to return from `transcribe`. Defaults to `.notConfigured`
-    /// so tests that don't care about STT get native fallback behavior.
-    var stubbedResult: STTResult = .notConfigured
-    var transcribeCallCount = 0
-    var lastAudioData: Data?
-
-    func transcribe(audioData: Data, contentType: String) async -> STTResult {
-        transcribeCallCount += 1
-        lastAudioData = audioData
-        return stubbedResult
-    }
-}
-
 @MainActor
 private final class MockDictationClient: DictationClientProtocol {
     var sentRequests: [DictationRequest] = []
