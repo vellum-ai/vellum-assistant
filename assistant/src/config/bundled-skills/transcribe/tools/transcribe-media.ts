@@ -37,8 +37,8 @@ const AUDIO_EXTENSIONS = new Set([
   ".wma",
 ]);
 
-/** Max file size for a single Whisper API request (25MB). */
-const WHISPER_API_MAX_BYTES = 25 * 1024 * 1024;
+/** Max file size for a single STT chunk request (25MB). */
+const STT_CHUNK_MAX_BYTES = 25 * 1024 * 1024;
 
 /** Duration per chunk when splitting for large files (10 minutes - stays well under 25MB as WAV). */
 const CHUNK_DURATION_SECS = 600;
@@ -163,7 +163,7 @@ async function transcribeWithProvider(
   const fileSize = Bun.file(audioPath).size;
 
   // If small enough, send directly
-  if (fileSize <= WHISPER_API_MAX_BYTES) {
+  if (fileSize <= STT_CHUNK_MAX_BYTES) {
     const audioBuffer = await readFile(audioPath);
     const result = await transcriber.transcribe({
       audio: audioBuffer,
