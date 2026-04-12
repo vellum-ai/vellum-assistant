@@ -6,10 +6,10 @@
  * abstraction used by the call controller so that configured synthesized
  * providers (e.g. Fish Audio) are respected for all spoken output.
  *
- * Two output paths:
- * - **Native**: Provider does not support streaming — text is sent via
+ * Two output paths (determined by the catalog's `callMode`):
+ * - **Native**: `callMode: "native-twilio"` — text is sent via
  *   `sendTextToken()` for Twilio's built-in TTS engine.
- * - **Synthesized**: Provider supports streaming — text is synthesized
+ * - **Synthesized**: `callMode: "synthesized-play"` — text is synthesized
  *   via the provider API, streamed through the audio store, and played
  *   via `sendPlayUrl()`.
  */
