@@ -91,9 +91,23 @@ final class FileMenuPatchDelegate: NSObject, NSMenuDelegate {
         currentItem.tag = Self.injectedTag
         menu.insertItem(currentItem, at: 1)
 
+        let markUnreadShortcut = UserDefaults.standard.string(forKey: "markConversationUnreadShortcut") ?? "cmd+shift+u"
+        let markUnreadItem: NSMenuItem
+        if markUnreadShortcut.isEmpty {
+            markUnreadItem = NSMenuItem(title: "Mark Conversation as Unread", action: #selector(AppDelegate.markCurrentConversationUnread), keyEquivalent: "")
+        } else {
+            let (muModifiers, muKey) = ShortcutHelper.parseShortcut(markUnreadShortcut)
+            markUnreadItem = NSMenuItem(title: "Mark Conversation as Unread", action: #selector(AppDelegate.markCurrentConversationUnread), keyEquivalent: muKey)
+            markUnreadItem.keyEquivalentModifierMask = muModifiers
+        }
+        markUnreadItem.target = appDelegate
+        markUnreadItem.tag = Self.injectedTag
+        menu.insertItem(markUnreadItem, at: 2)
+        appDelegate.markConversationUnreadMenuItem = markUnreadItem
+
         let separator = NSMenuItem.separator()
         separator.tag = Self.injectedTag
-        menu.insertItem(separator, at: 2)
+        menu.insertItem(separator, at: 3)
     }
 }
 
@@ -196,6 +210,7 @@ extension AppDelegate {
 
         updateNewChatMenuItemShortcut()
         updateCurrentConversationMenuItemShortcut()
+        updateMarkConversationUnreadMenuItemShortcut()
     }
 
     /// Updates the File > New Conversation menu item's key equivalent to match
@@ -230,12 +245,34 @@ extension AppDelegate {
         item.keyEquivalentModifierMask = modifiers
     }
 
+    /// Updates the File > Mark Conversation as Unread menu item's key equivalent
+    /// to match the current `markConversationUnreadShortcut` preference.
+    func updateMarkConversationUnreadMenuItemShortcut() {
+        guard let item = markConversationUnreadMenuItem else { return }
+        let shortcut = UserDefaults.standard.string(forKey: "markConversationUnreadShortcut") ?? "cmd+shift+u"
+        guard !shortcut.isEmpty else {
+            item.keyEquivalent = ""
+            item.keyEquivalentModifierMask = []
+            return
+        }
+        let (modifiers, key) = ShortcutHelper.parseShortcut(shortcut)
+        item.keyEquivalent = key
+        item.keyEquivalentModifierMask = modifiers
+    }
+
     // MARK: - Menu Item Validation
 
     @objc func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let action = menuItem.action else { return true }
         if action == #selector(markAllConversationsSeen) {
             return (mainWindow?.conversationManager.unseenVisibleConversationCount ?? 0) > 0
+        }
+        if action == #selector(markCurrentConversationUnread) {
+            guard let conversationManager = mainWindow?.conversationManager,
+                  let activeId = conversationManager.selectionStore.activeConversationId,
+                  let idx = conversationManager.listStore.conversations.firstIndex(where: { $0.id == activeId })
+            else { return false }
+            return conversationManager.listStore.canMarkConversationUnread(conversationId: activeId, at: idx)
         }
         return true
     }
@@ -528,6 +565,13 @@ extension AppDelegate {
             mainWindow?.windowState.selection = nil
         }
         UserDefaults.standard.set(false, forKey: "sidebarExpanded")
+    }
+
+    @objc public func markCurrentConversationUnread() {
+        guard let conversationManager = mainWindow?.conversationManager,
+              let activeId = conversationManager.selectionStore.activeConversationId
+        else { return }
+        conversationManager.markConversationUnread(conversationId: activeId)
     }
 
     @objc func activateChatSearch() {
