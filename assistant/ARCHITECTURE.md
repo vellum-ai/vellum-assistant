@@ -591,7 +591,7 @@ Audio-to-text conversion occurs in four distinct runtime boundaries, each with i
 | Boundary                     | Runtime                               | Provider (current)                           | Adapter module                                                                                     | Caller                                                                                               |
 | ---------------------------- | ------------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | **Telephony-native**         | Twilio ConversationRelay              | Deepgram or Google (config-driven)           | `src/calls/stt-profile.ts`                                                                         | `src/calls/twilio-routes.ts`                                                                         |
-| **Daemon batch**             | Daemon process (REST API to provider) | OpenAI Whisper                               | `src/stt/daemon-batch-transcriber.ts`                                                              | `src/runtime/routes/inbound-stages/transcribe-audio.ts`                                              |
+| **Daemon batch**             | Daemon process (REST API to provider) | Configured STT provider (via `services.stt`) | `src/stt/daemon-batch-transcriber.ts`                                                              | `src/runtime/routes/inbound-stages/transcribe-audio.ts`                                              |
 | **Client service-first**     | macOS / iOS via gateway → daemon      | Configured STT provider (via `services.stt`) | `src/runtime/routes/stt-routes.ts`, `clients/shared/Network/STTClient.swift`                       | `VoiceInputManager` (macOS dictation), `InputBarView` (iOS), `OpenAIVoiceService` (macOS voice mode) |
 | **Client-native (fallback)** | macOS / iOS on-device                 | Apple Speech (`SFSpeechRecognizer`)          | `clients/macos/.../SpeechRecognizerAdapter.swift`, `clients/ios/.../SpeechRecognizerAdapter.swift` | Fallback when STT service is unconfigured or fails                                                   |
 
@@ -610,11 +610,11 @@ To add a new telephony STT provider: add a branch in `resolveEffectiveSpeechMode
 The daemon transcribes audio attachments (e.g. voice messages from channel inbound) by calling a provider's REST API directly.
 
 - `src/stt/types.ts` defines provider-agnostic domain types: `BatchTranscriber` interface, `SttTranscribeRequest`, `SttTranscribeResult`, `SttError` with normalized categories (`auth`, `rate-limit`, `timeout`, `invalid-audio`, `provider-error`), and `SttProviderId` / `SttBoundaryId` discriminants.
-- `createDaemonBatchTranscriber()` in `src/stt/daemon-batch-transcriber.ts` is the factory that returns a `BatchTranscriber` backed by OpenAI Whisper (or `null` when no API key is available). `normalizeSttError()` maps raw provider errors to `SttError` categories.
-- `resolveBatchTranscriber()` in `src/providers/speech-to-text/resolve.ts` is the credential-aware entry point — it reads the OpenAI key from the secure key store and delegates to the factory.
+- `createDaemonBatchTranscriber()` in `src/stt/daemon-batch-transcriber.ts` is the factory that returns a `BatchTranscriber` backed by the configured STT provider (OpenAI Whisper or Deepgram, selected via `services.stt.provider`). Returns `null` when no API key is available for the selected provider. `normalizeSttError()` maps raw provider errors to `SttError` categories.
+- `resolveBatchTranscriber()` in `src/providers/speech-to-text/resolve.ts` is the credential-aware entry point — it reads the configured provider from `services.stt`, resolves the corresponding API key from the secure key store, and delegates to the factory.
 - `tryTranscribeAudioAttachments()` in `src/runtime/routes/inbound-stages/transcribe-audio.ts` is the callsite that uses the facade for channel audio attachment transcription.
 
-To add a new daemon batch STT provider: add a new `SttProviderId` variant in `types.ts`, implement `BatchTranscriber` in a new adapter class alongside `WhisperBatchTranscriber`, and update the factory in `daemon-batch-transcriber.ts` to select the adapter based on configuration or credential availability.
+To add a new daemon batch STT provider: add a new `SttProviderId` variant in `types.ts`, implement `BatchTranscriber` in a new adapter class alongside `WhisperBatchTranscriber` and `DeepgramBatchTranscriber`, update the factory in `daemon-batch-transcriber.ts` to select the adapter based on configuration, and add the provider to `meta/stt-provider-catalog.json` so clients can display it in settings.
 
 **Client service-first boundary:**
 
@@ -649,7 +649,7 @@ These differences are intentional — the adapters were designed for their respe
 
 **Cross-boundary notes:**
 
-- The `services.stt` config block controls provider selection for both the daemon batch boundary and the client service-first boundary (they share `resolveBatchTranscriber()`). Telephony STT is configured separately via `calls.voice.transcriptionProvider`.
+- The `services.stt` config block controls provider selection for both the daemon batch boundary and the client service-first boundary (they share `resolveBatchTranscriber()`). Supported providers include OpenAI Whisper (`openai-whisper`) and Deepgram (`deepgram`). Telephony STT is configured independently via `calls.voice.transcriptionProvider` and is completely uncoupled from `services.stt` — changing one does not affect the other.
 - Terminology: "STT" and "transcription" refer to the same operation (converting audio to text). "Speech recognition" is used in client-native contexts where Apple's Speech framework terminology is canonical. All three terms map to the same conceptual operation.
 
 ### Update Bulletin System

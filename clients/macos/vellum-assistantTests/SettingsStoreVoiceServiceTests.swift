@@ -256,4 +256,58 @@ final class SettingsStoreVoiceServiceTests: XCTestCase {
         let keyName = SettingsStore.sttApiKeyProviderName(for: "unknown-provider")
         XCTAssertEqual(keyName, "unknown-provider")
     }
+
+    // MARK: - Deepgram provider patching roundtrip
+
+    func testSetSTTProviderDeepgramDoesNotEmitTTSPatch() {
+        store.setSTTProvider("deepgram")
+
+        waitForPatchCount(1)
+
+        let ttsPatch = lastTTSPatch()
+        XCTAssertNil(ttsPatch, "setSTTProvider(deepgram) must not emit a TTS patch")
+    }
+
+    func testApplyDaemonConfigSyncsDeepgramWithExistingOpenAISTT() {
+        // Start with openai-whisper persisted, then receive deepgram from the daemon
+        UserDefaults.standard.set("openai-whisper", forKey: "sttProvider")
+
+        let config: [String: Any] = [
+            "services": [
+                "stt": [
+                    "provider": "deepgram"
+                ]
+            ]
+        ]
+
+        mockSettingsClient.fetchConfigResponse = config
+        let expectation = XCTestExpectation(description: "config loaded")
+        Task {
+            await store.loadConfigFromDaemon()
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 2.0)
+
+        XCTAssertEqual(
+            UserDefaults.standard.string(forKey: "sttProvider"),
+            "deepgram",
+            "Daemon config should overwrite the persisted STT provider"
+        )
+    }
+
+    func testSequentialSTTProviderPatchesEmitCorrectProviders() {
+        // Patch openai-whisper then deepgram — both should produce distinct payloads
+        store.setSTTProvider("openai-whisper")
+        waitForPatchCount(1)
+
+        store.setSTTProvider("deepgram")
+        waitForPatchCount(2)
+
+        let patch = lastSTTPatch()
+        XCTAssertEqual(
+            patch?["provider"] as? String,
+            "deepgram",
+            "Most recent STT patch should reflect the deepgram provider"
+        )
+    }
 }
