@@ -14,15 +14,31 @@ public enum VellumEnvironment: String {
     case production
 
     /// The current environment, read once from `ProcessInfo`.
+    ///
+    /// When `VELLUM_ENVIRONMENT` is set, that value is used directly.
+    /// When unset, iOS Simulator builds default to `.local` so that
+    /// developers get localhost without needing to regenerate the
+    /// Xcode project from `project.yml` after every pull.  All other
+    /// targets (device, release, macOS) default to `.production`.
     public static let current: VellumEnvironment = {
-        let raw = ProcessInfo.processInfo.environment["VELLUM_ENVIRONMENT"] ?? "production"
-        return VellumEnvironment(rawValue: raw) ?? .production
+        if let raw = ProcessInfo.processInfo.environment["VELLUM_ENVIRONMENT"],
+           let env = VellumEnvironment(rawValue: raw) {
+            return env
+        }
+        #if targetEnvironment(simulator)
+        return .local
+        #else
+        return .production
+        #endif
     }()
 
     /// Resolve from an arbitrary environment dictionary (for testability).
     public static func resolve(from environment: [String: String]) -> VellumEnvironment {
-        let raw = environment["VELLUM_ENVIRONMENT"] ?? "production"
-        return VellumEnvironment(rawValue: raw) ?? .production
+        if let raw = environment["VELLUM_ENVIRONMENT"],
+           let env = VellumEnvironment(rawValue: raw) {
+            return env
+        }
+        return .production
     }
 
     /// Human-readable label for display in the About panel.
