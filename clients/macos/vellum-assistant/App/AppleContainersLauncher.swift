@@ -220,8 +220,12 @@ final class AppleContainersLauncher: AssistantManagementClient {
     /// Retire an apple-container assistant: stop the pod, archive the
     /// instance directory, remove the guardian token, and clean up the
     /// lockfile entry.
-    func retire(name: String) async throws {
-        log.info("Retiring apple-container '\(name, privacy: .public)'")
+    func retire(name: String?) async throws {
+        guard let resolvedName = name ?? LockfileAssistant.loadActiveAssistantId() else {
+            throw ManagementClientError.noActiveAssistant
+        }
+
+        log.info("Retiring apple-container '\(resolvedName, privacy: .public)'")
 
         // 1. Stop the running pod and management socket.
         //    Continue cleanup even if stop fails (e.g. pod already stopped,
@@ -234,7 +238,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
 
         // 2. Archive the instance directory (best-effort — failures must not
         //    prevent guardian token and lockfile cleanup below).
-        let dir = Self.instanceDir(for: name)
+        let dir = Self.instanceDir(for: resolvedName)
         do {
             if FileManager.default.fileExists(atPath: dir.path) {
                 let archiveDir = Self.retiredArchiveDir()
@@ -243,8 +247,8 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 )
                 let timestamp = ISO8601DateFormatter().string(from: Date())
                     .replacingOccurrences(of: ":", with: "-")
-                let archivePath = archiveDir.appendingPathComponent("\(name)-\(timestamp).tar.gz")
-                let stagingDir = archiveDir.appendingPathComponent("\(name)-staging")
+                let archivePath = archiveDir.appendingPathComponent("\(resolvedName)-\(timestamp).tar.gz")
+                let stagingDir = archiveDir.appendingPathComponent("\(resolvedName)-staging")
 
                 // Move the instance directory to staging so the path is
                 // immediately available for a fresh hatch.
@@ -290,12 +294,12 @@ final class AppleContainersLauncher: AssistantManagementClient {
         }
 
         // 3. Remove the guardian token file.
-        Self.removeGuardianToken(assistantId: name)
+        Self.removeGuardianToken(assistantId: resolvedName)
 
         // 4. Remove the lockfile entry.
-        Self.removeLockfileEntry(assistantId: name)
+        Self.removeLockfileEntry(assistantId: resolvedName)
 
-        log.info("Apple container '\(name, privacy: .public)' retired")
+        log.info("Apple container '\(resolvedName, privacy: .public)' retired")
     }
 
     // MARK: - Local Image Building

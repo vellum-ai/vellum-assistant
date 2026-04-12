@@ -213,20 +213,24 @@ final class VellumCli: AssistantManagementClient {
     /// Times out after 5 minutes; on timeout the CLI process is terminated.
     /// CLI stdout/stderr are streamed to `os.Logger` so progress is visible
     /// in Console.app.
-    func retire(name: String) async throws {
+    func retire(name: String?) async throws {
+        guard let resolvedName = name ?? LockfileAssistant.loadActiveAssistantId() else {
+            throw ManagementClientError.noActiveAssistant
+        }
+
         guard let binaryURL = cliBinaryURL else {
             log.info("No bundled CLI binary found — skipping retire (dev mode)")
             throw CLIError.binaryNotFound
         }
 
-        log.info("Running retire via CLI at \(binaryURL.path, privacy: .public) for '\(name, privacy: .public)'")
-        log.info("[audit] CLI invoke: retire args=\(name, privacy: .public)")
+        log.info("Running retire via CLI at \(binaryURL.path, privacy: .public) for '\(resolvedName, privacy: .public)'")
+        log.info("[audit] CLI invoke: retire args=\(resolvedName, privacy: .public)")
         let retireStartTime = ContinuousClock.now
 
         let (stderr, status) = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(String, Int32), Error>) in
             let proc = Process()
             proc.executableURL = binaryURL
-            proc.arguments = ["retire", name]
+            proc.arguments = ["retire", resolvedName]
 
             let stdoutPipe = Pipe()
             let stderrPipe = Pipe()

@@ -20,19 +20,9 @@ protocol AssistantManagementClient: AnyObject {
     /// Implementations should stop the runtime, remove instance data, and
     /// clean up the lockfile entry.
     ///
-    /// - Parameter name: The assistant ID to retire.
-    func retire(name: String) async throws
-}
-
-extension AssistantManagementClient {
-    /// Convenience: retire the currently active assistant by loading its ID
-    /// from the lockfile automatically.
-    func retire() async throws {
-        guard let name = LockfileAssistant.loadActiveAssistantId() else {
-            throw ManagementClientError.noActiveAssistant
-        }
-        try await retire(name: name)
-    }
+    /// - Parameter name: The assistant ID to retire. When `nil`, the client
+    ///   loads the active assistant ID from the lockfile automatically.
+    func retire(name: String?) async throws
 }
 
 /// Errors specific to `AssistantManagementClient` convenience methods.

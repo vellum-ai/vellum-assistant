@@ -649,18 +649,17 @@ extension AppDelegate {
             // producing spurious "SSE connection failed with status 502" errors.
             connectionManager.disconnect()
 
-            // Dispatch to the correct management client based on cloud type.
-            // managementClient() loads the active assistant from the lockfile
-            // internally, so callers don't need to do the lookup themselves.
-            let client = managementClient()
-
-            // Snapshot the entry before awaiting retire — the lockfile may be
-            // modified during the retire call, so re-reading in the catch block
-            // could return nil and misclassify a managed assistant as local.
+            // Snapshot the entry before awaiting retire so the error-recovery
+            // path has a consistent view even if retire() modifies the lockfile.
             let assistantEntry = LockfileAssistant.loadByName(name)
 
+            // Dispatch to the correct management client based on cloud type.
+            let client = managementClient(for: assistantEntry)
+
             do {
-                try await client.retire(name: name)
+                // Pass nil so the client loads the active assistant ID from
+                // the lockfile internally.
+                try await client.retire(name: nil)
             } catch {
                 log.error("Retire failed: \(error.localizedDescription)")
 

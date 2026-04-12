@@ -671,10 +671,8 @@ struct SettingsDeveloperTab: View {
 
     private func performLocalRestart() async {
         do {
-            let client = AppDelegate.shared?.managementClient()
-            try await client?.hatch(
-                name: selectedAssistantId,
-                configValues: [:]
+            try await AppDelegate.shared?.vellumCli.hatch(
+                name: selectedAssistantId
             )
         } catch {}
     }
