@@ -20,16 +20,19 @@
  * function handles bundle validation, workspace clearing, per-file
  * backup-before-overwrite, and writing files to disk.
  *
- * IMPORTANT: `commitImport` does NOT reset the live SQLite handle, invalidate
- * cached config, or clear the trust cache. Callers are responsible for:
- *   1. Calling `resetDb()` BEFORE invoking `restoreFromSnapshot` so the
- *      running daemon's DB singleton is closed before the file is overwritten
- *      (otherwise the daemon keeps a handle to the old inode and subsequent
- *      writes can corrupt the restored state).
- *   2. Calling `invalidateConfigCache()` and `clearTrustCache()` AFTER a
+ * `restoreFromSnapshot` closes the live SQLite singleton via `resetDb()`
+ * immediately before the commit step so the daemon's DB handle is released
+ * before `assistant.db` is overwritten on disk. This mirrors the pattern in
+ * `handleMigrationImport` and ensures both the HTTP restore path and any
+ * in-process CLI caller get the reset for free. Tests can inject a fake via
+ * `opts.resetDbImpl`.
+ *
+ * `commitImport` does NOT invalidate cached config or clear the trust cache.
+ * Callers are responsible for:
+ *   1. Calling `invalidateConfigCache()` and `clearTrustCache()` AFTER a
  *      successful restore so the daemon re-reads the restored `config.json`
  *      and `trust.json` instead of serving stale in-process caches.
- *   3. Considering a daemon restart as the simplest, most reliable recovery
+ *   2. Considering a daemon restart as the simplest, most reliable recovery
  *      path — a CLI caller should refuse to restore against a live daemon
  *      unless explicitly forced.
  *
@@ -43,6 +46,7 @@ import { readFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { resetDb } from "../memory/db-connection.js";
 import type { PathResolver } from "../runtime/migrations/vbundle-import-analyzer.js";
 import { commitImport } from "../runtime/migrations/vbundle-importer.js";
 import type { ManifestType } from "../runtime/migrations/vbundle-validator.js";
@@ -80,6 +84,13 @@ export interface RestoreOptions {
    * fake to avoid mutating disk; production callers should leave this unset.
    */
   commitImpl?: CommitImpl;
+  /**
+   * Optional override for the DB-reset hook. Invoked immediately before
+   * `commitImpl` so the live SQLite singleton is closed before
+   * `assistant.db` is overwritten. Tests inject a spy; production callers
+   * should leave this unset so the real `resetDb` is used.
+   */
+  resetDbImpl?: () => void;
 }
 
 export interface RestoreResult {
@@ -184,6 +195,7 @@ export async function restoreFromSnapshot(
     pathResolver,
     workspaceDir,
     commitImpl = commitImport,
+    resetDbImpl = resetDb,
   } = opts;
 
   let tmpPath: string | null = null;
@@ -202,6 +214,13 @@ export async function restoreFromSnapshot(
         .join("; ");
       throw new Error(`Snapshot failed validation: ${summary}`);
     }
+
+    // Close the live SQLite singleton before overwriting assistant.db on
+    // disk — otherwise the daemon keeps a handle to the old inode and
+    // subsequent writes can corrupt the restored state. Mirrors the
+    // pattern in `handleMigrationImport`. The singleton will be lazily
+    // reopened on the next getDb() call.
+    resetDbImpl();
 
     const commitResult = commitImpl({
       archiveData: fileData,

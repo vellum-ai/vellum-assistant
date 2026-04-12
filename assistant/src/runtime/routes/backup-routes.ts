@@ -44,7 +44,6 @@ import { restoreFromSnapshot, verifySnapshot } from "../../backup/restore.js";
 import { getConfig, invalidateConfigCache } from "../../config/loader.js";
 import type { BackupDestination } from "../../config/schema.js";
 import { getMemoryCheckpoint } from "../../memory/checkpoints.js";
-import { resetDb } from "../../memory/db-connection.js";
 import { clearCache as clearTrustCache } from "../../permissions/trust-store.js";
 import { getLogger } from "../../util/logger.js";
 import {
@@ -322,10 +321,11 @@ interface RestoreRequestBody {
  * should still treat this as an irreversible "replace the workspace" operation.
  *
  * Recovery sequence (mirroring `handleMigrationImport`):
- *   1. `resetDb()` is called BEFORE the restore so the live SQLite singleton
- *      closes its handle before `assistant.db` is overwritten. Without this,
- *      the daemon would keep a reference to the old inode and subsequent
- *      writes could silently corrupt the restored state.
+ *   1. `restoreFromSnapshot` internally calls `resetDb()` BEFORE the commit
+ *      step so the live SQLite singleton closes its handle before
+ *      `assistant.db` is overwritten. Without this, the daemon would keep a
+ *      reference to the old inode and subsequent writes could silently
+ *      corrupt the restored state.
  *   2. `invalidateConfigCache()` and `clearTrustCache()` are called AFTER a
  *      successful restore so the daemon re-reads the restored `config.json`
  *      and `trust.json` from disk instead of serving stale in-process caches.
@@ -359,9 +359,10 @@ export async function handleBackupRestore(req: Request): Promise<Response> {
       getWorkspaceHooksDir(),
     );
 
-    // Close the live SQLite connection before overwriting assistant.db on disk.
-    // The singleton will be lazily reopened on the next getDb() call.
-    resetDb();
+    // `restoreFromSnapshot` internally calls `resetDb()` before the commit
+    // step so the live SQLite connection is closed before assistant.db is
+    // overwritten. The singleton will be lazily reopened on the next getDb()
+    // call, after the restored file is in place.
 
     const result = await restoreFromSnapshot(snapshotPath, {
       key: keyResult.key ?? undefined,
