@@ -161,6 +161,10 @@ if [ "$CMD" = "run" ]; then
     echo "Booting simulator $SIM_UDID..."
     xcrun simctl boot "$SIM_UDID" 2>/dev/null || true
 
+    # Wait for the simulator to finish booting before installing.
+    # simctl boot only initiates boot — bootstatus blocks until ready.
+    xcrun simctl bootstatus "$SIM_UDID" -b 2>/dev/null || true
+
     # Open Simulator.app so the user can see it
     open -a Simulator
 
