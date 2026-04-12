@@ -2125,8 +2125,8 @@ The `TtsUseCase` discriminator (`"phone-call"` or `"message-playback"`) lets pro
 2. **Client artifact** — Add a corresponding entry to `meta/tts-provider-catalog.json` with the same provider ID, display name, and client-facing metadata (subtitle, setup mode, setup hint). The CI consistency guard will fail if this is skipped.
 3. **Config schema** — Add a new Zod object under `TtsProvidersSchema` in `src/config/schemas/tts.ts` for the provider's settings. The valid provider ID enum is catalog-driven.
 4. **Provider adapter** — Create `src/tts/providers/<id>-provider.ts` implementing `TtsProvider` with the appropriate `capabilities` and `synthesize`/`synthesizeStream` methods.
-5. **Register the adapter** — Add the adapter to `src/tts/providers/register-builtins.ts`.
-6. **Optional: native Twilio voice builder** — If the provider uses `native-twilio` call mode, register a `NativeTwilioVoiceSpecBuilder` via `registerNativeTwilioVoiceSpec()` in `register-builtins.ts`. Synthesized-play providers skip this step entirely.
+5. **Register the adapter** — Add a factory entry for the provider to the `providerFactories` map in `src/tts/providers/index.ts`. The `register-builtins.ts` module iterates the catalog at startup and looks up each ID in this map — a missing entry is a fatal error.
+6. **Optional: native Twilio voice builder** — If the provider uses `native-twilio` call mode, add a `NativeTwilioVoiceSpec` entry to the `nativeVoiceSpecs` map in `src/tts/providers/register-builtins.ts`. Synthesized-play providers skip this step entirely.
 
 No hardcoded enum edits are required — the `TtsProviderId` union in `types.ts` uses an open string union (`(string & {})`), the config schema reads valid IDs from the catalog, and the call strategy dispatches based on the catalog's `callMode` field. The registry, resolver, orchestrator, and call strategy all automatically pick up the new provider when selected via `services.tts.provider`.
 
