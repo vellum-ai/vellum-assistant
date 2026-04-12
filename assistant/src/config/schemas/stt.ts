@@ -4,7 +4,7 @@ import { z } from "zod";
  * Valid STT provider identifiers. New providers append here and register
  * an adapter.
  */
-export const VALID_STT_PROVIDERS = ["openai-whisper"] as const;
+export const VALID_STT_PROVIDERS = ["openai-whisper", "deepgram"] as const;
 
 /**
  * Per-provider config schemas nested under `services.stt.providers.<id>`.
@@ -24,9 +24,27 @@ export type SttOpenAiWhisperProviderConfig = z.infer<
   typeof SttOpenAiWhisperProviderConfigSchema
 >;
 
+/**
+ * Deepgram provider configuration under `services.stt.providers.deepgram`.
+ *
+ * Provider-specific tuning params (model, language, smart formatting)
+ * can be added here as the adapter evolves. For now the schema is empty
+ * so that adding the provider to config.json is friction-free.
+ */
+export const SttDeepgramProviderConfigSchema = z
+  .object({})
+  .describe("Deepgram provider configuration under services.stt");
+
+export type SttDeepgramProviderConfig = z.infer<
+  typeof SttDeepgramProviderConfigSchema
+>;
+
 export const SttProvidersSchema = z.object({
   "openai-whisper": SttOpenAiWhisperProviderConfigSchema.default(
     SttOpenAiWhisperProviderConfigSchema.parse({}),
+  ),
+  deepgram: SttDeepgramProviderConfigSchema.default(
+    SttDeepgramProviderConfigSchema.parse({}),
   ),
 });
 export type SttProviders = z.infer<typeof SttProvidersSchema>;
