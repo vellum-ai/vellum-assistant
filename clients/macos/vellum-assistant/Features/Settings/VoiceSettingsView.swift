@@ -562,7 +562,16 @@ struct VoiceSettingsView: View {
                     onSave: { saveSTT() },
                     savingLabel: "Saving...",
                     onReset: {
-                        store.clearSTTKey(sttProviderId: draftSTTProvider)
+                        // Only delete the API key when it belongs exclusively
+                        // to this STT provider. When the resolved credential
+                        // provider is shared with another service (e.g.
+                        // openai-whisper → openai) we skip the deletion to
+                        // avoid breaking inference or other OpenAI features.
+                        let entry = sttRegistry.provider(withId: draftSTTProvider)
+                        let isSharedKey = entry.map { $0.apiKeyProviderName != $0.id } ?? false
+                        if !isSharedKey {
+                            store.clearSTTKey(sttProviderId: draftSTTProvider)
+                        }
                         sttProviderHasKey = false
                         sttApiKeyText = ""
                     },
