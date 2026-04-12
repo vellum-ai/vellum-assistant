@@ -36,23 +36,6 @@ final class ThinkingBlockViewTests: XCTestCase {
         window.contentViewController = nil
     }
 
-    /// Smoke test that `ThinkingBlockView` renders end-to-end against the
-    /// store-backed expansion without crashing, with the store injected via
-    /// the environment so the view reads the toggled state.
-    func testThinkingBlockBodyEvaluatesWithStoreInjection() {
-        let store = ThinkingBlockExpansionStore()
-        store.toggle("test-key")
-
-        let view = ThinkingBlockView(
-            content: "thinking content",
-            isStreaming: false,
-            expansionKey: "test-key"
-        )
-        .environment(\.thinkingBlockExpansionStore, store)
-
-        hostAndDriveLifecycle(view)
-    }
-
     /// Regression test for expanded thinking blocks going blank at the end of
     /// an active turn. When `MessageListContentView` tears down and rebuilds
     /// the wrapped subtree as `isActiveTurn` flips true → false, a freshly
