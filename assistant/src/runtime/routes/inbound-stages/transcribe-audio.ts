@@ -62,7 +62,7 @@ export async function tryTranscribeAudioAttachments(
       return {
         status: "no_provider",
         reason:
-          "No OpenAI API key configured. Set one up to enable voice message transcription.",
+          "No speech-to-text provider configured. Add an API key for your STT service to enable voice message transcription.",
       };
     }
 
