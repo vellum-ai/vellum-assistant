@@ -32,6 +32,7 @@
 
 import type { ServerWebSocket } from "bun";
 
+import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
 import { CallController } from "./call-controller.js";
@@ -213,6 +214,24 @@ export class MediaStreamCallSession {
           );
         });
       }
+    }
+
+    // Revoke any scoped approval grants bound to this call session.
+    // Revoke by both callSessionId and conversationId because the
+    // guardian-approval-interception minting path sets callSessionId: null
+    // but always sets conversationId.
+    try {
+      revokeScopedApprovalGrantsForContext({
+        callSessionId: this.callSessionId,
+      });
+      revokeScopedApprovalGrantsForContext({
+        conversationId: session.conversationId,
+      });
+    } catch (err) {
+      log.warn(
+        { err, callSessionId: this.callSessionId },
+        "Failed to revoke scoped grants on media-stream transport close",
+      );
     }
 
     finalizeCall(this.callSessionId, session.conversationId);

@@ -295,6 +295,9 @@ interface BrowserRelayWebSocketData {
 interface MediaStreamWebSocketData {
   wsType: "media-stream";
   callSessionId: string;
+  /** Bound at open time so the close handler tears down the exact session
+   *  that owns *this* socket, avoiding races with reconnects. */
+  session?: MediaStreamCallSession;
 }
 
 export class RuntimeHttpServer {
@@ -428,6 +431,10 @@ export class RuntimeHttpServer {
               msData.callSessionId,
             );
             activeMediaStreamSessions.set(msData.callSessionId, session);
+            // Bind the session instance to the websocket so the close
+            // handler tears down *this* session, not a replacement that
+            // a reconnect may have inserted under the same callSessionId.
+            msData.session = session;
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
@@ -571,10 +578,7 @@ export class RuntimeHttpServer {
           }
           if ("wsType" in data && data.wsType === "media-stream") {
             const msData = data as MediaStreamWebSocketData;
-            const msSession = activeMediaStreamSessions.get(
-              msData.callSessionId,
-            );
-            msSession?.handleMessage(raw);
+            msData.session?.handleMessage(raw);
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
@@ -604,12 +608,22 @@ export class RuntimeHttpServer {
               },
               "Media-stream WebSocket closed",
             );
-            const msSession = activeMediaStreamSessions.get(
-              msData.callSessionId,
-            );
-            msSession?.handleTransportClosed(code, reason?.toString());
-            msSession?.destroy();
-            activeMediaStreamSessions.delete(msData.callSessionId);
+            // Use the session bound at open time so we tear down the
+            // exact session that owns *this* socket, not a replacement
+            // that a reconnect may have inserted under the same key.
+            const msSession = msData.session;
+            if (msSession) {
+              msSession.handleTransportClosed(code, reason?.toString());
+              msSession.destroy();
+              // Only delete from the map if *our* session is still the
+              // registered one — a reconnect may have already replaced it.
+              if (
+                activeMediaStreamSessions.get(msData.callSessionId) ===
+                msSession
+              ) {
+                activeMediaStreamSessions.delete(msData.callSessionId);
+              }
+            }
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
