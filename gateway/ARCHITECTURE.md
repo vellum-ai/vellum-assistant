@@ -1094,4 +1094,12 @@ The voice webhook in `twilio-routes.ts` calls `resolveVoiceQualityProfile()` for
 
 For full details on the catalog-driven TTS architecture, provider catalog, call strategy abstraction, and the provider-add checklist, see the [TTS Provider Abstraction](../assistant/ARCHITECTURE.md#tts-provider-abstraction-servicestts) section in the assistant architecture docs.
 
+### Telephony STT: Current Production Path vs Prepared Dark Path
+
+**Current production path (ConversationRelay-native STT):** All production calls use the Twilio ConversationRelay element in the voice webhook TwiML. STT is handled natively by ConversationRelay using providers configured via `calls.voice.transcriptionProvider` (Deepgram or Google). The daemon never receives raw audio in this path — it receives transcribed text from the relay.
+
+**Prepared dark path (services.stt via Media Streams):** A fully wired but inactive path exists for future cutover to `services.stt`-driven telephony STT via Twilio Media Streams. The gateway has a Media Streams WebSocket proxy route (`twilio-media-websocket.ts`) that can forward raw audio frames to the assistant's media-stream server. This route is registered but not referenced by any production TwiML — no calls will reach it until the voice webhook TwiML is updated.
+
+**Activation seam:** The cutover requires a single TwiML change in the assistant's `twilio-routes.ts` — switching from `<ConversationRelay>` to `<Connect><Stream>` with the media-stream URL. The gateway's media-stream proxy route is already registered and will begin receiving traffic once TwiML points to it. See the cutover runbook in `docs/internal-reference.md` for the complete step-by-step plan.
+
 ---

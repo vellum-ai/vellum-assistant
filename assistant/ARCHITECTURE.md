@@ -595,15 +595,35 @@ Audio-to-text conversion occurs in four distinct runtime boundaries, each with i
 | **Client service-first**     | macOS / iOS via gateway → daemon      | Configured STT provider (via `services.stt`) | `src/runtime/routes/stt-routes.ts`, `clients/shared/Network/STTClient.swift`                       | `VoiceInputManager` (macOS dictation), `InputBarView` (iOS), `OpenAIVoiceService` (macOS voice mode) |
 | **Client-native (fallback)** | macOS / iOS on-device                 | Apple Speech (`SFSpeechRecognizer`)          | `clients/macos/.../SpeechRecognizerAdapter.swift`, `clients/ios/.../SpeechRecognizerAdapter.swift` | Fallback when STT service is unconfigured or fails                                                   |
 
-**Telephony-native boundary:**
+**Telephony-native boundary (current production path):**
 
 STT runs inside the telephony platform (Twilio ConversationRelay). The daemon does not receive raw audio — it receives transcribed text from the relay. Provider selection is config-driven (`calls.voice.transcriptionProvider`, `calls.voice.speechModel`).
 
 - `resolveTelephonySttProfile()` in `src/calls/stt-profile.ts` maps config values to a provider-agnostic `TelephonySttProfile` with provider-specific defaults (Deepgram defaults to `"nova-3"`; Google leaves the model undefined).
 - `buildTwilioRelaySpeechConfig()` in `src/calls/twilio-relay-speech-config.ts` serializes the profile into Twilio ConversationRelay TwiML attributes.
 - `twilio-routes.ts` calls both at call setup time.
+- Guard tests in `__tests__/twilio-routes-twiml.test.ts` ("ConversationRelay STT attribute guardrails") and `__tests__/twilio-routes.test.ts` ("ConversationRelay STT integration guardrails") assert that TwiML always emits `<ConversationRelay>` with `transcriptionProvider` sourced from `calls.voice` config.
 
 To add a new telephony STT provider: add a branch in `resolveEffectiveSpeechModel()` for the provider's default model behavior, then ensure `buildTwilioRelaySpeechConfig` passes the provider name through to the TwiML.
+
+**Prepared dark path — `services.stt` telephony cutover:**
+
+A parallel set of modules is fully wired but **not** connected to the production call setup path. These form the activation seam for a future cutover from ConversationRelay-native STT to `services.stt`-driven telephony STT via the Twilio Media Streams protocol:
+
+| Module                                                                      | Purpose                                                                       | Status       |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------ |
+| `src/providers/speech-to-text/provider-catalog.ts`                          | Provider catalog with `telephonyMode` metadata per entry                      | Ready (PR 5) |
+| `src/providers/speech-to-text/resolve.ts` (`resolveTelephonySttCapability`) | Validates whether `services.stt` provider is telephony-eligible               | Ready (PR 5) |
+| `src/calls/stt-profile.ts` (`evaluateServicesSttReadiness`)                 | Preflight helper — checks config + catalog + credentials without side effects | Ready (PR 6) |
+| `src/calls/media-stream-parser.ts`                                          | Twilio Media Streams protocol parser                                          | Ready (PR 2) |
+| `src/calls/media-turn-detector.ts`                                          | Energy-based VAD turn detector for raw audio                                  | Ready (PR 2) |
+| `src/calls/media-stream-stt-session.ts`                                     | STT session that transcribes audio turns via `services.stt`                   | Ready (PR 2) |
+| `src/calls/call-transport.ts`                                               | Transport interface decoupling CallController from wire protocol              | Ready (PR 1) |
+| `src/calls/media-stream-output.ts`                                          | Output adapter for sending TTS audio back via Media Streams                   | Ready (PR 3) |
+| `src/calls/media-stream-server.ts`                                          | WebSocket server binding media-stream lifecycle to call sessions              | Ready (PR 3) |
+| `gateway/src/http/routes/twilio-media-websocket.ts`                         | Gateway WebSocket proxy for Media Streams frames (inactive)                   | Ready (PR 4) |
+
+**Activation seam:** The single change needed to activate this path is in `twilio-routes.ts` — switch the TwiML element from `<ConversationRelay>` to `<Connect><Stream>` and route the WebSocket URL to the media-stream server instead of the relay server. See the cutover runbook in `docs/internal-reference.md` for the exact steps.
 
 **Daemon batch boundary:**
 
@@ -649,7 +669,8 @@ These differences are intentional — the adapters were designed for their respe
 
 **Cross-boundary notes:**
 
-- The `services.stt` config block controls provider selection for both the daemon batch boundary and the client service-first boundary (they share `resolveBatchTranscriber()`). Telephony STT is configured separately via `calls.voice.transcriptionProvider`.
+- The `services.stt` config block controls provider selection for both the daemon batch boundary and the client service-first boundary (they share `resolveBatchTranscriber()`). Telephony STT is configured separately via `calls.voice.transcriptionProvider`. A prepared (but inactive) dark path exists to unify telephony STT under `services.stt` — see "Prepared dark path" above and the cutover runbook in `docs/internal-reference.md`.
+- `evaluateServicesSttReadiness()` in `src/calls/stt-profile.ts` can validate cutover prerequisites without affecting active calls.
 - Terminology: "STT" and "transcription" refer to the same operation (converting audio to text). "Speech recognition" is used in client-native contexts where Apple's Speech framework terminology is canonical. All three terms map to the same conceptual operation.
 
 ### Update Bulletin System
