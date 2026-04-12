@@ -45,7 +45,11 @@ export const GATEWAY_INTERNAL_PORT = 7830;
 /** Max time to wait for the assistant container to emit the readiness sentinel. */
 export const DOCKER_READY_TIMEOUT_MS = 3 * 60 * 1000;
 
+/** Default memory (GiB) allocated to the Colima VM. */
+const COLIMA_DEFAULT_MEMORY_GIB = 8;
+
 /** Directory for user-local binary installs (no sudo required). */
+
 const LOCAL_BIN_DIR = join(
   process.env.HOME || process.env.USERPROFILE || ".",
   ".local",
@@ -294,7 +298,11 @@ async function ensureDockerInstalled(): Promise<void> {
 
     console.log("🚀 Docker daemon not running. Starting Colima...");
     try {
-      await exec("colima", ["start"]);
+      await exec("colima", [
+        "start",
+        "--memory",
+        String(COLIMA_DEFAULT_MEMORY_GIB),
+      ]);
     } catch {
       // Colima may fail if a previous VM instance is in a corrupt state.
       // Attempt to delete the stale instance and retry once.
@@ -311,7 +319,11 @@ async function ensureDockerInstalled(): Promise<void> {
 
       try {
         console.log("🔄 Retrying colima start...");
-        await exec("colima", ["start"]);
+        await exec("colima", [
+          "start",
+          "--memory",
+          String(COLIMA_DEFAULT_MEMORY_GIB),
+        ]);
       } catch (retryErr) {
         const message =
           retryErr instanceof Error ? retryErr.message : String(retryErr);
@@ -769,7 +781,11 @@ async function ensureColimaRunning(): Promise<void> {
     await exec("colima", ["status"]);
   } catch {
     console.log("🚀 Colima is not running. Starting Colima...");
-    await exec("colima", ["start"]);
+    await exec("colima", [
+      "start",
+      "--memory",
+      String(COLIMA_DEFAULT_MEMORY_GIB),
+    ]);
   }
 }
 
