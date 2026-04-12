@@ -24,8 +24,9 @@ enum VoiceServiceError: Error, LocalizedError {
     }
 }
 
-/// Voice service: SFSpeechRecognizer STT (on-device) + gateway TTS.
-/// Records audio, detects silence, transcribes via SFSpeechRecognizer,
+/// Voice service: service-first STT + Apple fallback + gateway TTS.
+/// Records audio, detects silence, captures per-turn PCM for service STT,
+/// runs live SFSpeechRecognizer for partial text and fallback transcription,
 /// speaks via the assistant's `/v1/tts/synthesize` endpoint.
 @MainActor
 @Observable
@@ -73,6 +74,18 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
     /// Continuation to deliver the final transcription when recording stops.
     @ObservationIgnored private var transcriptionContinuation: CheckedContinuation<String?, Never>?
 
+    // MARK: - Per-Turn Audio Capture (for service STT)
+
+    /// Raw 16-bit PCM samples accumulated during the current recording turn.
+    /// Converted from the tap's float32 buffers on the fly, then WAV-encoded
+    /// and sent to the STT service at turn end.
+    @ObservationIgnored private var capturedPCMData = Data()
+    /// Sample rate of the captured audio, recorded from the tap's buffer format.
+    @ObservationIgnored private var capturedSampleRate: Int = 16000
+
+    /// Gateway STT client — routes through the assistant's configured STT service.
+    @ObservationIgnored private let sttClient: any STTClientProtocol
+
     // MARK: - TTS State
 
     /// Accumulated text from streaming deltas — sent to the gateway when response completes.
@@ -91,9 +104,11 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
 
     nonisolated init(
         ttsClient: any TTSClientProtocol = TTSClient(),
+        sttClient: any STTClientProtocol = STTClient(),
         speechRecognizerAdapter: any SpeechRecognizerAdapter = AppleSpeechRecognizerAdapter()
     ) {
         self.ttsClient = ttsClient
+        self.sttClient = sttClient
         self.speechRecognizerAdapter = speechRecognizerAdapter
     }
 
@@ -145,6 +160,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         rmsLogCounter = 0
         latestTranscription = ""
         livePartialText = ""
+        capturedPCMData = Data()
 
         // Reuse existing SFSpeechRecognizer across turns to avoid OS resource
         // release delays that make isAvailable return false on the second turn.
@@ -226,6 +242,16 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
             // Feed buffer to speech recognizer
             request.append(buffer)
 
+            // Capture raw PCM for service STT: convert float32 to 16-bit PCM
+            // and accumulate alongside the live recognizer path.
+            let sampleRate = Int(buffer.format.sampleRate)
+            var pcmChunk = Data(capacity: frameCount * MemoryLayout<Int16>.size)
+            for i in 0..<frameCount {
+                let clamped = max(-1.0, min(1.0, floatData[0][i]))
+                let sample = Int16(clamped * Float(Int16.max))
+                withUnsafeBytes(of: sample.littleEndian) { pcmChunk.append(contentsOf: $0) }
+            }
+
             // Compute RMS for amplitude display and silence detection
             var sum: Float = 0
             for i in 0..<frameCount {
@@ -236,6 +262,11 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
 
             Task { @MainActor [weak self] in
                 guard let self, self.isRecording else { return }
+
+                // Accumulate PCM data for service STT
+                self.capturedPCMData.append(pcmChunk)
+                self.capturedSampleRate = sampleRate
+
                 self.amplitude = min(rms * 5, 1.0)
 
                 // Log RMS every ~50 buffers (~1s) for diagnostics
@@ -274,7 +305,11 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         return true
     }
 
-    /// Stop recording and return the transcription from SFSpeechRecognizer.
+    /// Stop recording and return the final transcription.
+    ///
+    /// Uses a service-first strategy: attempts STT via the gateway service with
+    /// the captured WAV audio, falling back to the local SFSpeechRecognizer
+    /// transcription when the service is unavailable or unconfigured.
     func stopRecordingAndGetTranscription() async -> String? {
         guard isRecording else { return nil }
 
@@ -286,13 +321,36 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         // Signal end of audio to the recognizer
         recognitionRequest?.endAudio()
 
-        // If we already have transcription text, return it immediately
-        // (the final callback may not fire for short utterances)
+        // Snapshot captured PCM and local recognizer text before async work
+        let pcmData = capturedPCMData
+        let sampleRate = capturedSampleRate
+        capturedPCMData = Data()
+
+        // Run local and service transcriptions concurrently so the total wait
+        // time is max(local, service) instead of local + service. Under
+        // degraded conditions this avoids blocking in .processing for up to
+        // 17 s (2 s local + 15 s service) — instead the ceiling is ~15 s.
+        async let localTextTask = resolveLocalTranscription()
+        async let serviceTextTask = resolveServiceTranscription(pcmData: pcmData, sampleRate: sampleRate)
+
+        let localText = await localTextTask
+        let serviceText = await serviceTextTask
+
+        tearDownRecognition()
+        recordingStartTime = nil
+
+        // Prefer service result, fall back to local recognizer
+        let finalText = serviceText ?? localText
+        log.info("Recording stopped, transcription: \(finalText ?? "<none>", privacy: .public) (source: \(serviceText != nil ? "service" : "local", privacy: .public))")
+        return finalText
+    }
+
+    /// Resolve the local SFSpeechRecognizer transcription. Returns the current
+    /// partial text immediately if available, otherwise waits briefly for the
+    /// final recognition callback.
+    private func resolveLocalTranscription() async -> String? {
         let currentText = latestTranscription.trimmingCharacters(in: .whitespacesAndNewlines)
         if !currentText.isEmpty {
-            log.info("Returning current transcription: \(currentText, privacy: .public)")
-            tearDownRecognition()
-            recordingStartTime = nil
             return currentText
         }
 
@@ -310,12 +368,42 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
                 }
             }
         }
-
-        tearDownRecognition()
-        recordingStartTime = nil
-
-        log.info("Recording stopped, transcription: \(result ?? "<none>", privacy: .public)")
         return result
+    }
+
+    /// Attempt STT transcription via the gateway service. Returns nil if the
+    /// service is unconfigured, unavailable, or if no audio was captured.
+    private func resolveServiceTranscription(pcmData: Data, sampleRate: Int) async -> String? {
+        guard !pcmData.isEmpty else {
+            log.info("STT service: no captured audio, skipping")
+            return nil
+        }
+
+        let wavFormat = AudioWavEncoder.Format(sampleRate: sampleRate, channels: 1, bitsPerSample: 16)
+        let wavData = await Task.detached(priority: .userInitiated) {
+            AudioWavEncoder.encode(pcmData: pcmData, format: wavFormat)
+        }.value
+
+        let result = await sttClient.transcribe(audioData: wavData)
+        switch result {
+        case .success(let text):
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                log.info("STT service: empty transcription, falling back to local")
+                return nil
+            }
+            log.info("STT service: transcription succeeded (\(trimmed.count) chars)")
+            return text
+        case .notConfigured:
+            log.info("STT service: not configured, falling back to local recognizer")
+            return nil
+        case .serviceUnavailable:
+            log.warning("STT service: unavailable, falling back to local recognizer")
+            return nil
+        case .error(let statusCode, let message):
+            log.warning("STT service: error (HTTP \(statusCode ?? 0)): \(message), falling back to local recognizer")
+            return nil
+        }
     }
 
     /// Force stop recording without returning transcription.
@@ -323,6 +411,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         guard isRecording else { return }
         isRecording = false
         amplitude = 0
+        capturedPCMData = Data()
         engineController.stopAndRemoveTap()
         // Resume any waiting continuation with nil
         transcriptionContinuation?.resume(returning: nil)

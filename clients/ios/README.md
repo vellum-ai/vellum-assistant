@@ -20,7 +20,7 @@ After editing `project.yml`, regenerate the Xcode project by running `xcodegen g
 - Inline media embeds (images, YouTube, Vimeo, Loom videos)
 - Settings: integrations, trust rules, scheduled tasks, reminders (Connected mode)
 - Attachment support (photos, files)
-- Voice input via on-device speech recognition (`SpeechRecognizerAdapter`)
+- Voice input with service-first STT (gateway → configured provider) and Apple-native fallback (`SpeechRecognizerAdapter`)
 - Onboarding flow with adaptive steps based on connection mode
 - Export conversation as markdown (copy to clipboard or share sheet)
 - Siri Shortcuts integration — "Ask Vellum..." via AppIntents framework
@@ -166,9 +166,9 @@ The iOS app depends only on `VellumAssistantShared`. It must **not** import `Vel
 
 ## Speech Recognition (STT)
 
-Voice input uses the `SpeechRecognizerAdapter` protocol (`Services/SpeechRecognizerAdapter.swift`) to abstract on-device speech recognition. The protocol covers three phases: authorization, availability, and task construction. The production implementation (`AppleSpeechRecognizerAdapter`) delegates to Apple's `SFSpeechRecognizer`. `InputBarView` consumes the adapter via a stored property, enabling tests to substitute a mock without a live microphone or OS permission dialogs.
+Voice input uses a **service-first STT** strategy. When the user finishes recording, captured audio buffers are encoded to WAV via `AudioWavEncoder` (shared utility) and sent to the assistant's configured STT service through the gateway using `STTClient` (`clients/shared/Network/STTClient.swift`). If the STT service returns a successful transcription, that text is used. If the service is unconfigured (HTTP 503), unavailable, or returns an empty result, the native `SFSpeechRecognizer` transcript is used as fallback.
 
-To add a new on-device STT provider, implement `SpeechRecognizerAdapter` with the provider's SDK and inject it at the `InputBarView` call site.
+During recording, the `SpeechRecognizerAdapter` protocol (`Services/SpeechRecognizerAdapter.swift`) provides real-time partial transcriptions via Apple's on-device `SFSpeechRecognizer` for immediate display in the input bar. The production implementation (`AppleSpeechRecognizerAdapter`) delegates to `SFSpeechRecognizer`. `InputBarView` consumes both the adapter (for partials and fallback) and `STTClient` (for service-first resolution) via stored properties, enabling tests to substitute mocks without a live microphone or OS permission dialogs.
 
 ---
 

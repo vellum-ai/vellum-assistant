@@ -37,6 +37,11 @@ final class VoiceInputManager {
     /// Focused client used to process dictation requests in `.dictation` mode.
     private let dictationClient: any DictationClientProtocol
 
+    /// STT service client for service-first transcription resolution.
+    /// When configured, final transcriptions are resolved via the STT service
+    /// before falling back to the Apple recognizer's native text.
+    private let sttClient: any STTClientProtocol
+
     /// Called when dictation processing returns a response (cleaned-up text + action plan).
     var onDictationResponse: ((DictationResponse) -> Void)?
 
@@ -120,6 +125,41 @@ final class VoiceInputManager {
         PTTActivator.cached
     }
 
+    /// Accumulates raw PCM audio buffers during a recording session for STT
+    /// service transcription. Thread-safe: writes happen on the audio tap's
+    /// dispatch queue; reads happen on the main actor after recording stops.
+    private final class AudioBufferAccumulator: @unchecked Sendable {
+        private var buffers: [AVAudioPCMBuffer] = []
+        private let lock = NSLock()
+
+        func append(_ buffer: AVAudioPCMBuffer) {
+            lock.lock()
+            buffers.append(buffer)
+            lock.unlock()
+        }
+
+        func drain() -> [AVAudioPCMBuffer] {
+            lock.lock()
+            let result = buffers
+            buffers.removeAll()
+            lock.unlock()
+            return result
+        }
+
+        func reset() {
+            lock.lock()
+            buffers.removeAll()
+            lock.unlock()
+        }
+    }
+
+    /// Collects PCM audio during the current recording session.
+    private let audioAccumulator = AudioBufferAccumulator()
+
+    /// The audio format captured from the input node at recording start.
+    /// Needed to encode the accumulated buffers into WAV when the session ends.
+    private var capturedAudioFormat: AVAudioFormat?
+
     /// Injected adapter wrapping SFSpeechRecognizer static APIs and instance creation.
     private let speechRecognizerAdapter: any SpeechRecognizerAdapter
 
@@ -131,10 +171,12 @@ final class VoiceInputManager {
 
     init(
         dictationClient: any DictationClientProtocol = DictationClient(),
-        speechRecognizerAdapter: any SpeechRecognizerAdapter = AppleSpeechRecognizerAdapter()
+        speechRecognizerAdapter: any SpeechRecognizerAdapter = AppleSpeechRecognizerAdapter(),
+        sttClient: any STTClientProtocol = STTClient()
     ) {
         self.dictationClient = dictationClient
         self.speechRecognizerAdapter = speechRecognizerAdapter
+        self.sttClient = sttClient
         self.speechRecognizer = speechRecognizerAdapter.makeRecognizer(locale: Locale(identifier: "en-US"))
     }
 
@@ -712,9 +754,32 @@ final class VoiceInputManager {
 
         let ampState = amplitudeState
         ampState.reset()
+        audioAccumulator.reset()
+        capturedAudioFormat = nil
 
+        let accumulator = audioAccumulator
         let tapBlock: AVAudioNodeTapBlock = { [weak self] buffer, _ in
+            // Capture the audio format from the first buffer for WAV encoding.
+            if self?.capturedAudioFormat == nil {
+                DispatchQueue.main.async { [weak self] in
+                    if self?.capturedAudioFormat == nil {
+                        self?.capturedAudioFormat = buffer.format
+                    }
+                }
+            }
             request.append(buffer)
+            // Capture a copy of the PCM buffer for STT service transcription.
+            // AVAudioPCMBuffer is reused by the audio engine across callbacks,
+            // so we must copy the data before the engine overwrites it.
+            if let copy = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameLength) {
+                copy.frameLength = buffer.frameLength
+                if let src = buffer.floatChannelData, let dst = copy.floatChannelData {
+                    for ch in 0..<Int(buffer.format.channelCount) {
+                        dst[ch].update(from: src[ch], count: Int(buffer.frameLength))
+                    }
+                }
+                accumulator.append(copy)
+            }
 
             guard let channelData = buffer.floatChannelData else { return }
             let frameLength = Int(buffer.frameLength)
@@ -880,6 +945,11 @@ final class VoiceInputManager {
 
 
     /// Routes a final transcription based on the current mode.
+    ///
+    /// For dictation mode, resolves the final text with service-first precedence:
+    /// 1. If the STT service returns a non-empty transcription, use that.
+    /// 2. If the STT service is unconfigured, fails, or returns empty text,
+    ///    fall back to the Apple recognizer's native text.
     func handleFinalTranscription(_ text: String) {
         switch currentMode {
         case .conversation:
@@ -892,26 +962,42 @@ final class VoiceInputManager {
                 onTranscription?(text)
                 return
             }
-            let request = DictationRequest(
-                transcription: text,
-                context: .create(
-                    bundleIdentifier: context.bundleIdentifier,
-                    appName: context.appName,
-                    windowTitle: context.windowTitle,
-                    selectedText: context.selectedText,
-                    cursorInTextField: context.cursorInTextField
-                )
-            )
+
+            // Drain accumulated audio before any async work — buffers are only
+            // valid for the current recording session.
+            let accumulatedBuffers = audioAccumulator.drain()
+            let audioFormat = capturedAudioFormat
+
             if let selected = context.selectedText, !selected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 overlayWindow.show(state: .transforming(text))
             } else {
                 overlayWindow.show(state: .processing)
             }
             awaitingDaemonResponse = true
-            log.info("Sending dictation request via DictationClient for app=\(context.appName, privacy: .public)")
 
+            let sttClient = self.sttClient
             let dictationClient = self.dictationClient
             Task { [weak self] in
+                // Resolve final text via STT service first, falling back to native.
+                let resolvedText = await Self.resolveTranscription(
+                    nativeText: text,
+                    accumulatedBuffers: accumulatedBuffers,
+                    audioFormat: audioFormat,
+                    sttClient: sttClient
+                )
+                log.info("Resolved transcription for dictation (serviceFirst=\(resolvedText != text)): \"\(resolvedText, privacy: .public)\"")
+
+                let request = DictationRequest(
+                    transcription: resolvedText,
+                    context: .create(
+                        bundleIdentifier: context.bundleIdentifier,
+                        appName: context.appName,
+                        windowTitle: context.windowTitle,
+                        selectedText: context.selectedText,
+                        cursorInTextField: context.cursorInTextField
+                    )
+                )
+                log.info("Sending dictation request via DictationClient for app=\(context.appName, privacy: .public)")
                 let response = await dictationClient.process(request)
                 await MainActor.run {
                     guard let self else { return }
@@ -919,6 +1005,88 @@ final class VoiceInputManager {
                 }
             }
         }
+    }
+
+    // MARK: - STT Service-First Resolution
+
+    /// Resolves the final transcription using service-first precedence.
+    ///
+    /// Encodes accumulated PCM audio buffers into WAV format and sends them
+    /// to the STT service. If the service returns a non-empty transcription,
+    /// that text is used. Otherwise, the Apple recognizer's native text is
+    /// returned as a fallback.
+    ///
+    /// Static so it can be called from a detached context without capturing `self`.
+    static func resolveTranscription(
+        nativeText: String,
+        accumulatedBuffers: [AVAudioPCMBuffer],
+        audioFormat: AVAudioFormat?,
+        sttClient: any STTClientProtocol
+    ) async -> String {
+        guard let format = audioFormat, !accumulatedBuffers.isEmpty else {
+            log.info("STT service skipped — no audio data captured, using native text")
+            return nativeText
+        }
+
+        // Encode accumulated PCM buffers into WAV.
+        let wavData = Self.encodeBuffersToWav(accumulatedBuffers, format: format)
+        guard !wavData.isEmpty else {
+            log.warning("STT service skipped — WAV encoding produced empty data, using native text")
+            return nativeText
+        }
+
+        let result = await sttClient.transcribe(audioData: wavData)
+        switch result {
+        case .success(let serviceText):
+            let trimmed = serviceText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return serviceText
+            }
+            log.info("STT service returned empty text — falling back to native")
+            return nativeText
+        case .notConfigured:
+            log.info("STT service not configured — using native text")
+            return nativeText
+        case .serviceUnavailable:
+            log.warning("STT service unavailable — using native text")
+            return nativeText
+        case .error(let statusCode, let message):
+            log.warning("STT service error (status=\(String(describing: statusCode))): \(message) — using native text")
+            return nativeText
+        }
+    }
+
+    /// Encodes an array of `AVAudioPCMBuffer` into a single WAV `Data` payload
+    /// using ``AudioWavEncoder``.
+    ///
+    /// Converts float PCM samples to 16-bit signed integers (the standard WAV
+    /// PCM format expected by most STT providers). Handles multi-channel audio
+    /// by interleaving samples.
+    static func encodeBuffersToWav(_ buffers: [AVAudioPCMBuffer], format: AVAudioFormat) -> Data {
+        var pcmData = Data()
+        for buffer in buffers {
+            guard let channelData = buffer.floatChannelData else { continue }
+            let frameCount = Int(buffer.frameLength)
+            let channelCount = Int(format.channelCount)
+            guard frameCount > 0, channelCount > 0 else { continue }
+
+            // Interleave channels and convert Float32 → Int16.
+            for frame in 0..<frameCount {
+                for ch in 0..<channelCount {
+                    let sample = channelData[ch][frame]
+                    let clamped = max(-1.0, min(1.0, sample))
+                    let int16 = Int16(clamped * Float(Int16.max))
+                    withUnsafeBytes(of: int16.littleEndian) { pcmData.append(contentsOf: $0) }
+                }
+            }
+        }
+
+        let wavFormat = AudioWavEncoder.Format(
+            sampleRate: Int(format.sampleRate),
+            channels: Int(format.channelCount),
+            bitsPerSample: 16
+        )
+        return AudioWavEncoder.encode(pcmData: pcmData, format: wavFormat)
     }
 
     /// Handle the dictation response — insert cleaned text or route action mode to a task.
@@ -963,6 +1131,8 @@ final class VoiceInputManager {
             amplitudeState.reset()
             Self.amplitudeSubject.send(0)
             onAmplitudeChanged?(0)
+            audioAccumulator.reset()
+            capturedAudioFormat = nil
             overlayWindow.dismiss()
             VoiceFeedback.playDeactivationChime()
             return
@@ -995,6 +1165,8 @@ final class VoiceInputManager {
         amplitudeState.reset()
         Self.amplitudeSubject.send(0)
         onAmplitudeChanged?(0)
+        audioAccumulator.reset()
+        capturedAudioFormat = nil
         // Overlay stays visible if we're transitioning to processing state (dictation sent
         // to daemon). Otherwise dismiss it — recording stopped without producing a result.
         if !awaitingDaemonResponse {

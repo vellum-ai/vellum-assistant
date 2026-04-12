@@ -1,5 +1,26 @@
 import Foundation
 @testable import VellumAssistantLib
+@testable import VellumAssistantShared
+
+/// Mock STT client for testing service-first transcription behavior.
+/// Returns a configurable ``STTResult`` so tests can exercise both the
+/// service-success and fallback-to-local paths.
+final class MockSTTClient: STTClientProtocol, @unchecked Sendable {
+    /// The result to return from ``transcribe(audioData:contentType:)``.
+    /// Defaults to `.notConfigured` so tests that don't care about STT
+    /// get native fallback behavior.
+    var stubbedResult: STTResult = .notConfigured
+    /// Number of times ``transcribe`` was called.
+    private(set) var transcribeCallCount = 0
+    /// The most recent audio data passed to ``transcribe``.
+    private(set) var lastAudioData: Data?
+
+    func transcribe(audioData: Data, contentType: String) async -> STTResult {
+        transcribeCallCount += 1
+        lastAudioData = audioData
+        return stubbedResult
+    }
+}
 
 @MainActor
 final class MockVoiceService: VoiceServiceProtocol {

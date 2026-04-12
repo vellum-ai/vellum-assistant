@@ -584,15 +584,16 @@ All guardian decisions for voice access requests flow through:
 
 ### Speech-to-Text (STT) Boundaries
 
-Audio-to-text conversion occurs in three distinct runtime boundaries, each with its own provider model and adapter layer. There is no global STT provider switch — each boundary resolves its provider independently based on its runtime context and available credentials.
+Audio-to-text conversion occurs in four distinct runtime boundaries, each with its own provider model and adapter layer. The `services.stt` config block controls provider selection for the daemon's STT service; other boundaries resolve providers independently based on their runtime context.
 
 **Boundary overview:**
 
-| Boundary             | Runtime                               | Provider (current)                  | Adapter module                                                                                     | Caller                                                  |
-| -------------------- | ------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| **Telephony-native** | Twilio ConversationRelay              | Deepgram or Google (config-driven)  | `src/calls/stt-profile.ts`                                                                         | `src/calls/twilio-routes.ts`                            |
-| **Daemon batch**     | Daemon process (REST API to provider) | OpenAI Whisper                      | `src/stt/daemon-batch-transcriber.ts`                                                              | `src/runtime/routes/inbound-stages/transcribe-audio.ts` |
-| **Client-native**    | macOS / iOS on-device                 | Apple Speech (`SFSpeechRecognizer`) | `clients/macos/.../SpeechRecognizerAdapter.swift`, `clients/ios/.../SpeechRecognizerAdapter.swift` | `VoiceInputManager` (macOS), `InputBarView` (iOS)       |
+| Boundary                     | Runtime                               | Provider (current)                           | Adapter module                                                                                     | Caller                                                                                               |
+| ---------------------------- | ------------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **Telephony-native**         | Twilio ConversationRelay              | Deepgram or Google (config-driven)           | `src/calls/stt-profile.ts`                                                                         | `src/calls/twilio-routes.ts`                                                                         |
+| **Daemon batch**             | Daemon process (REST API to provider) | OpenAI Whisper                               | `src/stt/daemon-batch-transcriber.ts`                                                              | `src/runtime/routes/inbound-stages/transcribe-audio.ts`                                              |
+| **Client service-first**     | macOS / iOS via gateway → daemon      | Configured STT provider (via `services.stt`) | `src/runtime/routes/stt-routes.ts`, `clients/shared/Network/STTClient.swift`                       | `VoiceInputManager` (macOS dictation), `InputBarView` (iOS), `OpenAIVoiceService` (macOS voice mode) |
+| **Client-native (fallback)** | macOS / iOS on-device                 | Apple Speech (`SFSpeechRecognizer`)          | `clients/macos/.../SpeechRecognizerAdapter.swift`, `clients/ios/.../SpeechRecognizerAdapter.swift` | Fallback when STT service is unconfigured or fails                                                   |
 
 **Telephony-native boundary:**
 
@@ -615,9 +616,25 @@ The daemon transcribes audio attachments (e.g. voice messages from channel inbou
 
 To add a new daemon batch STT provider: add a new `SttProviderId` variant in `types.ts`, implement `BatchTranscriber` in a new adapter class alongside `WhisperBatchTranscriber`, and update the factory in `daemon-batch-transcriber.ts` to select the adapter based on configuration or credential availability.
 
-**Client-native boundary:**
+**Client service-first boundary:**
 
-On macOS and iOS, speech recognition runs on-device via Apple's Speech framework (`SFSpeechRecognizer`). The daemon never receives raw microphone audio from clients — it receives the final transcribed text. The `SpeechRecognizerAdapter` protocols on each platform abstract Apple Speech for **testability and dependency injection**, not for provider-agnostic pluggability. The two platform adapters have intentionally different API shapes reflecting their different UI integration patterns.
+All product-facing dictation and voice-streaming paths on macOS and iOS use a service-first STT strategy. Clients record audio, encode it to WAV via `AudioWavEncoder` (shared utility in `clients/shared/Utilities/AudioWavEncoder.swift`), and POST it through the gateway to the daemon's `POST /v1/stt/transcribe` endpoint via `STTClient` (`clients/shared/Network/STTClient.swift`). The daemon resolves the configured STT provider through `resolveBatchTranscriber()` and returns the transcribed text.
+
+- `STTClient` conforms to `STTClientProtocol` and returns a typed `STTResult` enum (`success`, `notConfigured`, `serviceUnavailable`, `error`). Callers pattern-match on the result to deterministically trigger native fallback.
+- The gateway proxies the request via assistant-scoped path rewriting: `/v1/assistants/:id/stt/transcribe` is rewritten to `/v1/stt/transcribe` on the daemon.
+- `stt-routes.ts` (`src/runtime/routes/stt-routes.ts`) defines the HTTP endpoint, validates the audio payload, and delegates to `resolveBatchTranscriber()`.
+
+Product-facing flows using service-first STT:
+
+| Flow                       | Client | Entry point                                                                                                                                                                                         |
+| -------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Push-to-talk dictation** | macOS  | `VoiceInputManager.resolveTranscription()` — encodes accumulated PCM buffers to WAV, calls `sttClient.transcribe()`, falls back to native text on failure                                           |
+| **Input bar dictation**    | iOS    | `InputBarView.resolveTranscriptWithServiceFirst()` — encodes captured audio buffers to WAV, calls `sttClient.transcribe()`, falls back to native transcript on failure                              |
+| **Voice mode (streaming)** | macOS  | `OpenAIVoiceService.stopRecordingAndGetTranscription()` — encodes per-turn PCM to WAV, calls `sttClient.transcribe()` for turn-final transcript resolution, falls back to SFSpeechRecognizer result |
+
+**Client-native fallback boundary:**
+
+Apple-native on-device recognition via `SFSpeechRecognizer` serves two roles in all three product-facing flows above: (1) it provides low-latency partial transcriptions for real-time display during recording, and (2) it provides the fallback final transcription when the STT service is unconfigured (HTTP 503), temporarily unavailable (HTTP 5xx), or returns an empty result. The `SpeechRecognizerAdapter` protocols on each platform abstract Apple Speech for **testability and dependency injection**.
 
 - macOS: `SpeechRecognizerAdapter` protocol in `clients/macos/vellum-assistant/Features/Voice/SpeechRecognizerAdapter.swift` abstracts `SFSpeechRecognizer` static APIs and instance creation. `AppleSpeechRecognizerAdapter` is the production implementation. `OpenAIVoiceService` and `VoiceInputManager` consume the adapter via dependency injection. **Note:** The macOS protocol leaks Apple Speech types through its surface — `authorizationStatus()` returns `SFSpeechRecognizerAuthorizationStatus` and `makeRecognizer(locale:)` returns `SFSpeechRecognizer?` directly. This means callers depend on the Speech framework at compile time.
 - iOS: `SpeechRecognizerAdapter` protocol in `clients/ios/Services/SpeechRecognizerAdapter.swift` covers authorization, availability, and task construction. `AppleSpeechRecognizerAdapter` is the production implementation. `InputBarView` consumes the adapter. **Note:** The iOS protocol defines its own framework-agnostic types (`SpeechRecognizerAuthorizationStatus`, `SpeechRecognitionResult`) so callers never see `SFSpeechRecognizer` directly. However, `startRecognitionTask` still returns `SFSpeechAudioBufferRecognitionRequest` in its tuple, so full framework decoupling is not yet achieved.
@@ -628,11 +645,11 @@ Platform divergence summary:
 - **Recognizer exposure:** macOS exposes the raw `SFSpeechRecognizer?` via `makeRecognizer(locale:)`; iOS fully encapsulates recognizer construction inside `startRecognitionTask`.
 - **Concurrency model:** The iOS protocol is `@MainActor`-annotated; the macOS protocol is not.
 
-These differences are intentional — the adapters were designed for their respective platform integration needs, not for cross-platform uniformity. Adding a non-Apple STT provider (e.g., a third-party on-device engine) would require refactoring both protocols to remove Apple Speech types from their public surfaces and converging on a shared provider-agnostic interface. The current adapters are suitable for swapping in test doubles for Apple Speech, but not for swapping in an entirely different speech engine without protocol changes.
+These differences are intentional — the adapters were designed for their respective platform integration needs, not for cross-platform uniformity.
 
 **Cross-boundary notes:**
 
-- No global STT provider configuration exists. Each boundary resolves its provider independently. A future phase may introduce a unified config surface, but it is not part of the current architecture.
+- The `services.stt` config block controls provider selection for both the daemon batch boundary and the client service-first boundary (they share `resolveBatchTranscriber()`). Telephony STT is configured separately via `calls.voice.transcriptionProvider`.
 - Terminology: "STT" and "transcription" refer to the same operation (converting audio to text). "Speech recognition" is used in client-native contexts where Apple's Speech framework terminology is canonical. All three terms map to the same conceptual operation.
 
 ### Update Bulletin System
