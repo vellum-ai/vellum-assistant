@@ -112,6 +112,16 @@ export class ContextWindowManager {
    */
   nonPersistedPrefixCount = 0;
   /**
+   * True when the message at index 0 is a context summary that was inherited
+   * from a parent fork (i.e. injected as part of the non-persisted prefix),
+   * rather than produced by this conversation's own compaction. The parent
+   * summary sits at index 0 but is excluded from `compactableMessages` by
+   * `summaryOffset`, so its slot in `nonPersistedPrefixCount` must be
+   * accounted for separately. Cleared after the first compaction replaces
+   * the parent summary with a child-owned one.
+   */
+  summaryIsInjected = false;
+  /**
    * Cached resolved system prompt. Lazily populated on first access via the
    * `systemPrompt` getter and cleared after each compaction pass so the next
    * pass picks up any prompt changes.
@@ -314,8 +324,15 @@ export class ContextWindowManager {
       };
     }
 
+    // When the summary at index 0 was injected from a parent fork, it
+    // contributes 1 to `nonPersistedPrefixCount` but is excluded from
+    // `compactableMessages` by `summaryOffset`; subtract it here so the
+    // remaining injected count lines up with compactableMessages. A summary
+    // produced by this conversation's own prior compaction is not part of
+    // `nonPersistedPrefixCount` (already decremented), so no subtraction.
+    const injectedSummaryOffset = this.summaryIsInjected ? summaryOffset : 0;
     const injectedInCompactable = Math.min(
-      Math.max(0, this.nonPersistedPrefixCount - summaryOffset),
+      Math.max(0, this.nonPersistedPrefixCount - injectedSummaryOffset),
       compactableMessages.length,
     );
     const compactedPersistedMessages =
@@ -465,11 +482,16 @@ export class ContextWindowManager {
         toolTokenBudget: this.toolTokenBudget,
       },
     );
-    // Consume the injected prefix messages that were compacted away.
+    // Consume the injected prefix messages that were compacted away. When the
+    // parent-injected summary was replaced by a freshly produced child summary,
+    // also consume its slot (it was excluded from injectedInCompactable via
+    // injectedSummaryOffset) and clear the flag so subsequent compactions treat
+    // the summary at index 0 as child-owned.
     this.nonPersistedPrefixCount = Math.max(
       0,
-      this.nonPersistedPrefixCount - injectedInCompactable,
+      this.nonPersistedPrefixCount - injectedInCompactable - injectedSummaryOffset,
     );
+    this.summaryIsInjected = false;
 
     log.info(
       {
