@@ -1,17 +1,10 @@
 import { randomUUID } from "node:crypto";
-import {
-  access,
-  mkdir,
-  readdir,
-  readFile,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
+import { access, mkdir, readdir, readFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 
-import { OpenAIWhisperProvider } from "../../../../providers/speech-to-text/openai-whisper.js";
-import { getProviderKeyAsync } from "../../../../security/secure-keys.js";
+import { resolveBatchTranscriber } from "../../../../providers/speech-to-text/resolve.js";
+import type { BatchTranscriber } from "../../../../stt/types.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -44,17 +37,14 @@ const AUDIO_EXTENSIONS = new Set([
   ".wma",
 ]);
 
-/** Max file size for a single OpenAI Whisper API request (25MB). */
+/** Max file size for a single Whisper API request (25MB). */
 const WHISPER_API_MAX_BYTES = 25 * 1024 * 1024;
 
-/** Duration per chunk when splitting for the API (10 minutes - stays well under 25MB as WAV). */
-const API_CHUNK_DURATION_SECS = 600;
+/** Duration per chunk when splitting for large files (10 minutes - stays well under 25MB as WAV). */
+const CHUNK_DURATION_SECS = 600;
 
-/** Timeout for a single Whisper API request. */
-const API_REQUEST_TIMEOUT_MS = 300_000;
-
-/** Timeout for a single whisper.cpp chunk transcription. */
-const LOCAL_CHUNK_TIMEOUT_MS = 600_000;
+/** Timeout for a single STT transcription request. */
+const STT_REQUEST_TIMEOUT_MS = 300_000;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -161,34 +151,30 @@ async function toWav(inputPath: string, isVideo: boolean): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-// API mode - OpenAI Whisper API
+// Transcription via resolved STT provider
 // ---------------------------------------------------------------------------
 
-async function transcribeViaApi(
+async function transcribeWithProvider(
   audioPath: string,
-  apiKey: string,
+  transcriber: BatchTranscriber,
   context: ToolContext,
 ): Promise<string> {
-  const provider = new OpenAIWhisperProvider(apiKey);
   const duration = await getAudioDuration(audioPath);
   const fileSize = Bun.file(audioPath).size;
 
   // If small enough, send directly
   if (fileSize <= WHISPER_API_MAX_BYTES) {
     const audioBuffer = await readFile(audioPath);
-    const result = await provider.transcribe(
-      audioBuffer,
-      "audio/wav",
-      AbortSignal.timeout(API_REQUEST_TIMEOUT_MS),
-    );
+    const result = await transcriber.transcribe({
+      audio: audioBuffer,
+      mimeType: "audio/wav",
+      signal: AbortSignal.timeout(STT_REQUEST_TIMEOUT_MS),
+    });
     return result.text;
   }
 
   // Split into chunks for large files
-  const chunkDir = join(
-    tmpdir(),
-    `vellum-transcribe-api-chunks-${randomUUID()}`,
-  );
+  const chunkDir = join(tmpdir(), `vellum-transcribe-chunks-${randomUUID()}`);
   await mkdir(chunkDir, { recursive: true });
 
   try {
@@ -197,22 +183,18 @@ async function transcribeViaApi(
         duration / 60,
       )}min) - splitting into chunks...\n`,
     );
-    const chunks = await splitAudio(
-      audioPath,
-      chunkDir,
-      API_CHUNK_DURATION_SECS,
-    );
+    const chunks = await splitAudio(audioPath, chunkDir, CHUNK_DURATION_SECS);
     const parts: string[] = [];
 
     for (let i = 0; i < chunks.length; i++) {
       if (context.signal?.aborted) throw new Error("Cancelled");
       context.onOutput?.(`  Transcribing chunk ${i + 1}/${chunks.length}...\n`);
       const audioBuffer = await readFile(chunks[i]);
-      const result = await provider.transcribe(
-        audioBuffer,
-        "audio/wav",
-        AbortSignal.timeout(API_REQUEST_TIMEOUT_MS),
-      );
+      const result = await transcriber.transcribe({
+        audio: audioBuffer,
+        mimeType: "audio/wav",
+        signal: AbortSignal.timeout(STT_REQUEST_TIMEOUT_MS),
+      });
       if (result.text) parts.push(result.text);
     }
 
@@ -227,131 +209,6 @@ async function transcribeViaApi(
 }
 
 // ---------------------------------------------------------------------------
-// Local mode - whisper.cpp
-// ---------------------------------------------------------------------------
-
-async function transcribeViaLocal(
-  audioPath: string,
-  context: ToolContext,
-): Promise<string> {
-  // Check if whisper-cpp is installed
-  const whichResult = await spawnWithTimeout(["which", "whisper-cpp"], 5_000);
-  if (whichResult.exitCode !== 0) {
-    throw new Error(
-      "whisper-cpp is not installed. Install it with: brew install whisper-cpp",
-    );
-  }
-
-  // Resolve model path - use the base model, download if needed
-  const modelPath = await resolveWhisperModel(context);
-
-  const duration = await getAudioDuration(audioPath);
-
-  if (duration > 0 && duration <= 1800) {
-    // Under 30 minutes - transcribe directly (whisper.cpp handles long files well)
-    context.onOutput?.(
-      `Transcribing ${Math.round(duration / 60)}min of audio locally...\n`,
-    );
-    return await whisperCppRun(audioPath, modelPath);
-  }
-
-  // Very long files - split into 10-minute chunks to show progress
-  const chunkDir = join(
-    tmpdir(),
-    `vellum-transcribe-local-chunks-${randomUUID()}`,
-  );
-  await mkdir(chunkDir, { recursive: true });
-
-  try {
-    context.onOutput?.(
-      `Large file (${Math.round(
-        duration / 60,
-      )}min) - splitting into chunks...\n`,
-    );
-    const chunks = await splitAudio(audioPath, chunkDir, 600);
-    const parts: string[] = [];
-
-    for (let i = 0; i < chunks.length; i++) {
-      if (context.signal?.aborted) throw new Error("Cancelled");
-      context.onOutput?.(`  Transcribing chunk ${i + 1}/${chunks.length}...\n`);
-      const text = await whisperCppRun(chunks[i], modelPath);
-      if (text) parts.push(text);
-    }
-
-    return parts.join(" ");
-  } finally {
-    const { rm } = await import("node:fs/promises");
-    await silentlyWithLog(
-      rm(chunkDir, { recursive: true, force: true }),
-      "transcribe chunk cleanup",
-    );
-  }
-}
-
-async function resolveWhisperModel(context: ToolContext): Promise<string> {
-  // Check common locations for the base model
-  const homeDir = process.env.HOME ?? "/tmp";
-  const candidates = [
-    join(homeDir, ".vellum", "models", "ggml-base.en.bin"),
-    join(homeDir, ".vellum", "models", "ggml-base.bin"),
-    "/usr/local/share/whisper-cpp/models/ggml-base.en.bin",
-    "/opt/homebrew/share/whisper-cpp/models/ggml-base.en.bin",
-  ];
-
-  for (const p of candidates) {
-    try {
-      await access(p);
-      return p;
-    } catch {
-      /* next */
-    }
-  }
-
-  // Download the base.en model (~140MB)
-  const modelDir = join(homeDir, ".vellum", "models");
-  await mkdir(modelDir, { recursive: true });
-  const modelPath = join(modelDir, "ggml-base.en.bin");
-  const modelUrl =
-    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin";
-
-  context.onOutput?.("Downloading Whisper base.en model (~140MB)...\n");
-
-  const response = await fetch(modelUrl);
-  if (!response.ok) {
-    throw new Error(`Failed to download model: ${response.status}`);
-  }
-
-  const data = Buffer.from(await response.arrayBuffer());
-  await writeFile(modelPath, data);
-  context.onOutput?.("Model downloaded.\n");
-
-  return modelPath;
-}
-
-async function whisperCppRun(
-  audioPath: string,
-  modelPath: string,
-): Promise<string> {
-  const result = await spawnWithTimeout(
-    ["whisper-cpp", "-m", modelPath, "-f", audioPath, "--no-timestamps"],
-    LOCAL_CHUNK_TIMEOUT_MS,
-  );
-
-  if (result.exitCode !== 0) {
-    throw new Error(`whisper-cpp failed: ${result.stderr.slice(0, 300)}`);
-  }
-
-  // whisper-cpp outputs transcription to stderr with some logging, and
-  // the actual text lines to stdout. Clean up whitespace.
-  return result.stdout
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0)
-    .join(" ")
-    .trim();
-}
-
-// ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
 
@@ -359,26 +216,14 @@ export async function run(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const mode = input.mode as "api" | "local";
-  if (!mode || (mode !== "api" && mode !== "local")) {
+  // Resolve the configured STT provider
+  const transcriber = await resolveBatchTranscriber();
+  if (!transcriber) {
     return {
       content:
-        "Please specify mode: 'api' (OpenAI cloud) or 'local' (whisper.cpp on-device). Ask the user which they prefer.",
+        "No speech-to-text provider is configured. Set up an STT provider (e.g. OpenAI API key) in your assistant settings to enable transcription.",
       isError: true,
     };
-  }
-
-  // Validate API key for api mode
-  let openaiKey: string | undefined;
-  if (mode === "api") {
-    openaiKey = await getProviderKeyAsync("openai");
-    if (!openaiKey) {
-      return {
-        content:
-          'No OpenAI API key configured. Set your OpenAI API key to use cloud transcription, or use mode "local" for on-device transcription with whisper.cpp.',
-        isError: true,
-      };
-    }
   }
 
   const source = await resolveSource(input);
@@ -391,12 +236,7 @@ export async function run(
     // Convert to WAV
     wavPath = await toWav(inputPath, isVideo);
 
-    let text: string;
-    if (mode === "api") {
-      text = await transcribeViaApi(wavPath, openaiKey!, context);
-    } else {
-      text = await transcribeViaLocal(wavPath, context);
-    }
+    const text = await transcribeWithProvider(wavPath, transcriber, context);
 
     if (!text.trim()) {
       return { content: "No speech detected in the audio.", isError: false };
