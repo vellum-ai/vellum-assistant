@@ -7,13 +7,18 @@ import Foundation
 /// service-success and fallback-to-local paths.
 final class MockSTTClient: STTClientProtocol, @unchecked Sendable {
     /// The result to return from ``transcribe(audioData:contentType:)``.
-    var resultToReturn: STTResult = .notConfigured
+    /// Defaults to `.notConfigured` so tests that don't care about STT
+    /// get native fallback behavior.
+    var stubbedResult: STTResult = .notConfigured
     /// Number of times ``transcribe`` was called.
     private(set) var transcribeCallCount = 0
+    /// The most recent audio data passed to ``transcribe``.
+    private(set) var lastAudioData: Data?
 
     func transcribe(audioData: Data, contentType: String) async -> STTResult {
         transcribeCallCount += 1
-        return resultToReturn
+        lastAudioData = audioData
+        return stubbedResult
     }
 }
 
