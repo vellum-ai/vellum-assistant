@@ -2969,15 +2969,6 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    /// Removes the stored OpenAI API key for the STT service.
-    func clearSTTOpenAIKey() {
-        APIKeyManager.deleteKey(for: "openai")
-        Task {
-            let deleted = await APIKeyManager.deleteKey(for: "openai")
-            if !deleted { addDeletionTombstone(type: "api_key", name: "openai") }
-        }
-    }
-
     /// Schedules a delayed refresh of provider routing sources, giving the
     /// daemon time to re-initialize providers after a key change.
     private func scheduleRoutingSourceRefresh() {

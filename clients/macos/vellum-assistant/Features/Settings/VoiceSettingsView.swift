@@ -539,14 +539,18 @@ struct VoiceSettingsView: View {
     private var openaiWhisperProviderConfig: some View {
         Group {
             if sttOpenAIHasKey {
-                HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
-                    VButton(label: "Disconnect", style: .danger) {
-                        store.clearSTTOpenAIKey()
-                        sttOpenAIHasKey = false
-                        sttOpenAIKeyText = ""
-                        sttSetupExpanded = false
-                    }
+                // The OpenAI key is shared with the inference provider.
+                // Show a read-only "Connected" indicator without a
+                // "Disconnect" button — deleting the shared credential
+                // from the STT card would break inference.
+                VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
+
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.info, size: 10)
+                        .foregroundStyle(VColor.contentTertiary)
+                    Text("Using your OpenAI API key from inference settings.")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
             } else if sttSetupExpanded {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
@@ -561,7 +565,7 @@ struct VoiceSettingsView: View {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.lock, size: 10)
                             .foregroundStyle(VColor.contentTertiary)
-                        Text("Your API key is stored securely in the macOS Keychain.")
+                        Text("Your API key is stored securely in the macOS Keychain and shared with inference.")
                             .font(VFont.labelDefault)
                             .foregroundStyle(VColor.contentTertiary)
                     }
