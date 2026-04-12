@@ -8,7 +8,8 @@ enum SkillFilter: String, CaseIterable {
     case installed = "Installed"
     case available = "Available"
     case vellum = "Vellum"
-    case community = "Community"
+    case clawhub = "Clawhub"
+    case skillssh = "skills.sh"
     case custom = "Custom"
 
     var icon: VIcon {
@@ -17,13 +18,14 @@ enum SkillFilter: String, CaseIterable {
         case .installed: return .circleCheck
         case .available: return .arrowDownToLine
         case .vellum: return .package
-        case .community: return .globe
+        case .clawhub: return .globe
+        case .skillssh: return .terminal
         case .custom: return .user
         }
     }
 
     static var statusFilters: [SkillFilter] { [.all, .installed, .available] }
-    static var sourceFilters: [SkillFilter] { [.vellum, .community, .custom] }
+    static var sourceFilters: [SkillFilter] { [.vellum, .clawhub, .skillssh, .custom] }
 }
 
 @MainActor
@@ -239,8 +241,10 @@ final class SkillsManager {
             baseSkills = skills.filter { $0.isAvailable }
         case .vellum:
             baseSkills = skills.filter { $0.origin == "vellum" }
-        case .community:
-            baseSkills = skills.filter { $0.origin == "clawhub" || $0.origin == "skillssh" }
+        case .clawhub:
+            baseSkills = skills.filter { $0.origin == "clawhub" }
+        case .skillssh:
+            baseSkills = skills.filter { $0.origin == "skillssh" }
         case .custom:
             baseSkills = skills.filter { $0.origin == "custom" }
         }
@@ -319,11 +323,8 @@ final class SkillsManager {
     }
 
     /// Whether a search query matches any searchable term for a skill origin.
-    /// Includes both the display label (e.g. "Clawhub") and the umbrella
-    /// category "community" so users can still search for community skills.
     static func originMatchesQuery(_ origin: String, query: String) -> Bool {
         if sourceLabel(origin).lowercased().contains(query) { return true }
-        if (origin == "clawhub" || origin == "skillssh") && "community".contains(query) { return true }
         return false
     }
 
