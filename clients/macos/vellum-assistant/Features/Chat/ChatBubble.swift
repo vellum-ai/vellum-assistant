@@ -746,7 +746,15 @@ struct ChatBubble: View, Equatable {
                 if !partitioned.files.isEmpty {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         ForEach(partitioned.files) { attachment in
-                            fileAttachmentChip(attachment)
+                            if attachment.isTextPreviewable {
+                                InlineFilePreviewView(
+                                    attachment: attachment,
+                                    isUser: isUser,
+                                    messageId: message.id
+                                )
+                            } else {
+                                fileAttachmentChip(attachment)
+                            }
                         }
                     }
                 }
