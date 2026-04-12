@@ -195,48 +195,61 @@ function resetCdp() {
 
 describe("parseBrowserMode", () => {
   test("returns auto for missing/empty browser_mode", () => {
-    expect(parseBrowserMode({})).toEqual({ mode: "auto" });
+    expect(parseBrowserMode({})).toEqual({ ok: true, mode: "auto" });
     expect(parseBrowserMode({ browser_mode: undefined })).toEqual({
+      ok: true,
       mode: "auto",
     });
-    expect(parseBrowserMode({ browser_mode: null })).toEqual({ mode: "auto" });
-    expect(parseBrowserMode({ browser_mode: "" })).toEqual({ mode: "auto" });
+    expect(parseBrowserMode({ browser_mode: null })).toEqual({
+      ok: true,
+      mode: "auto",
+    });
+    expect(parseBrowserMode({ browser_mode: "" })).toEqual({
+      ok: true,
+      mode: "auto",
+    });
   });
 
   test("normalizes canonical values", () => {
     expect(parseBrowserMode({ browser_mode: "extension" })).toEqual({
+      ok: true,
       mode: "extension",
     });
     expect(parseBrowserMode({ browser_mode: "cdp-inspect" })).toEqual({
+      ok: true,
       mode: "cdp-inspect",
     });
     expect(parseBrowserMode({ browser_mode: "local" })).toEqual({
+      ok: true,
       mode: "local",
     });
     expect(parseBrowserMode({ browser_mode: "auto" })).toEqual({
+      ok: true,
       mode: "auto",
     });
   });
 
   test("normalizes cdp-debugger alias to cdp-inspect", () => {
     expect(parseBrowserMode({ browser_mode: "cdp-debugger" })).toEqual({
+      ok: true,
       mode: "cdp-inspect",
     });
   });
 
   test("normalizes playwright alias to local", () => {
     expect(parseBrowserMode({ browser_mode: "playwright" })).toEqual({
+      ok: true,
       mode: "local",
     });
   });
 
   test("returns error for invalid values", () => {
     const result = parseBrowserMode({ browser_mode: "invalid" });
-    expect("error" in result).toBe(true);
-    expect((result as { error: string }).error).toContain(
-      'Invalid browser_mode "invalid"',
-    );
-    expect((result as { error: string }).error).toContain("Accepted values:");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain('Invalid browser_mode "invalid"');
+      expect(result.error).toContain("Accepted values:");
+    }
   });
 });
 

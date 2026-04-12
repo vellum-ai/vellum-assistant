@@ -115,13 +115,13 @@ export const EXTRACT_LINKS_EXPRESSION = `
  */
 export function parseBrowserMode(
   input: Record<string, unknown>,
-): { mode: BrowserMode; error?: never } | { mode?: never; error: string } {
+): { ok: true; mode: BrowserMode } | { ok: false; error: string } {
   const raw = input.browser_mode;
   const result = normalizeBrowserMode(raw);
   if ("error" in result) {
-    return { error: `Error: ${result.error}` };
+    return { ok: false, error: `Error: ${result.error}` };
   }
-  return { mode: result.mode };
+  return { ok: true, mode: result.mode };
 }
 
 // ── Mode-selection failure formatter ─────────────────────────────────
@@ -295,7 +295,7 @@ export function acquireCdpClientWithMode(
     }
   | { cdp?: never; browserMode?: never; errorResult: ToolExecutionResult } {
   const modeResult = parseBrowserMode(input);
-  if (modeResult.error) {
+  if (!modeResult.ok) {
     return {
       errorResult: { content: modeResult.error, isError: true },
     };
@@ -394,7 +394,7 @@ export async function executeBrowserNavigate(
   }
 
   const modeResult = parseBrowserMode(input);
-  if (modeResult.error) {
+  if (!modeResult.ok) {
     return { content: modeResult.error, isError: true };
   }
   const browserMode = modeResult.mode;
@@ -825,7 +825,7 @@ export async function executeBrowserSnapshot(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const modeResult = parseBrowserMode(_input);
-  if (modeResult.error) {
+  if (!modeResult.ok) {
     return { content: modeResult.error, isError: true };
   }
   const browserMode = modeResult.mode;
@@ -898,7 +898,7 @@ export async function executeBrowserScreenshot(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const modeResult = parseBrowserMode(input);
-  if (modeResult.error) {
+  if (!modeResult.ok) {
     return { content: modeResult.error, isError: true };
   }
   const browserMode = modeResult.mode;
