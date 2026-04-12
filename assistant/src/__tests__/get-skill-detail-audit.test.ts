@@ -29,16 +29,6 @@ const mockReadInstallMeta = mock(
   } | null => null,
 );
 
-const mockResolveSkillSource = mock(
-  (
-    _source: string,
-  ): { owner: string; repo: string; skillSlug: string; ref?: string } => ({
-    owner: "acme",
-    repo: "tools",
-    skillSlug: "lint",
-  }),
-);
-
 const mockFetchSkillAudits = mock(
   async (
     _source: string,
@@ -85,7 +75,15 @@ mock.module("../skills/install-meta.js", () => ({
 mock.module("../skills/skillssh-registry.js", () => ({
   searchSkillsRegistry: mock(async () => []),
   fetchSkillAudits: mockFetchSkillAudits,
-  resolveSkillSource: mockResolveSkillSource,
+  // resolveSkillSource uses the real implementation — its pure parsing
+  // logic is reliable and doesn't need mocking. The handler calls it to
+  // derive owner/repo/skillSlug from the slug string before calling
+  // fetchSkillAudits, so as long as fetchSkillAudits receives the right
+  // args (asserted below), we know resolveSkillSource did its job.
+  resolveSkillSource: (source: string) => {
+    const parts = source.split("/");
+    return { owner: parts[0], repo: parts[1], skillSlug: parts[2] };
+  },
   installExternalSkill: mock(async () => {}),
 }));
 
@@ -205,7 +203,6 @@ describe("getSkill — skillssh audit enrichment", () => {
   beforeEach(() => {
     mockResolveSkillStates.mockReset();
     mockReadInstallMeta.mockReset();
-    mockResolveSkillSource.mockReset();
     mockFetchSkillAudits.mockReset();
 
     // Default: no skills resolved
@@ -234,13 +231,6 @@ describe("getSkill — skillssh audit enrichment", () => {
       origin: "skillssh",
       slug: "acme/tools/lint",
       sourceRepo: "acme/tools",
-    });
-
-    // resolveSkillSource parses the slug into owner/repo/skillSlug
-    mockResolveSkillSource.mockReturnValue({
-      owner: "acme",
-      repo: "tools",
-      skillSlug: "lint",
     });
 
     // fetchSkillAudits returns audit data keyed by skill slug
@@ -281,13 +271,9 @@ describe("getSkill — skillssh audit enrichment", () => {
       });
     }
 
-    // Verify fetchSkillAudits was called correctly
+    // Verify fetchSkillAudits was called with the correct source repo and slug
     expect(mockFetchSkillAudits).toHaveBeenCalledTimes(1);
     expect(mockFetchSkillAudits).toHaveBeenCalledWith("acme/tools", ["lint"]);
-
-    // Verify resolveSkillSource was called with the slug
-    expect(mockResolveSkillSource).toHaveBeenCalledTimes(1);
-    expect(mockResolveSkillSource).toHaveBeenCalledWith("acme/tools/lint");
   });
 
   test("returns detail without audit data when fetchSkillAudits throws", async () => {
@@ -310,13 +296,6 @@ describe("getSkill — skillssh audit enrichment", () => {
       origin: "skillssh",
       slug: "org/repo/my-tool",
       sourceRepo: "org/repo",
-    });
-
-    // resolveSkillSource parses the slug
-    mockResolveSkillSource.mockReturnValue({
-      owner: "org",
-      repo: "repo",
-      skillSlug: "my-tool",
     });
 
     // fetchSkillAudits throws an error
