@@ -551,9 +551,8 @@ export async function getSkill(
     };
     // Enrich with audit data (non-fatal on failure)
     try {
-      const source = resolveSkillSource(slim.slug);
-      const sourceRepo = `${source.owner}/${source.repo}`;
-      const skillSlug = source.skillSlug;
+      const sourceRepo = slim.sourceRepo;
+      const skillSlug = slim.slug.split("/").pop() ?? slim.slug;
       const audits = await fetchSkillAudits(sourceRepo, [skillSlug]);
       if (audits[skillSlug]) {
         (detail as { audit?: SkillAuditData }).audit = audits[skillSlug];
