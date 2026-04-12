@@ -781,11 +781,7 @@ async function ensureColimaRunning(): Promise<void> {
     await exec("colima", ["status"]);
   } catch {
     console.log("🚀 Colima is not running. Starting Colima...");
-    await exec("colima", [
-      "start",
-      "--memory",
-      String(COLIMA_DEFAULT_MEMORY_GIB),
-    ]);
+    await exec("colima", ["start"]);
   }
 }
 
