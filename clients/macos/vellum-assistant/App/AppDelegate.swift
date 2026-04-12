@@ -74,7 +74,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var popOutLocalMonitor: Any?
     public let services = AppServices()
     let vellumCli = VellumCli()
-    let appleContainersLauncher: (any AssistantManaging)? = {
+    let appleContainersLauncher: AssistantManagementClient? = {
         if #available(macOS 26.0, *) {
             return AppleContainersLauncher()
         }

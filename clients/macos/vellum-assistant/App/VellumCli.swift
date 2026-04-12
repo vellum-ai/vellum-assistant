@@ -57,7 +57,7 @@ struct DaemonStartupError {
 /// daemon. It also includes a health monitor that periodically checks whether
 /// the daemon process is still alive and restarts it via the CLI.
 @MainActor
-final class VellumCli: AssistantManaging {
+final class VellumCli: AssistantManagementClient {
 
     /// Structured error emitted by the CLI for upgrade/rollback failures.
     ///
@@ -160,7 +160,7 @@ final class VellumCli: AssistantManaging {
     /// - Parameters:
     ///   - name: Optional assistant name to reuse.
     ///   - configValues: Key-value pairs forwarded as `--config k=v` flags.
-    func hatch(name: String? = nil, configValues: [String: String] = [:]) async throws {
+    override func hatch(name: String?, configValues: [String: String]) async throws {
         guard let binaryURL = cliBinaryURL else {
             log.info("No bundled CLI binary found — skipping hatch (dev mode)")
             return
@@ -213,8 +213,7 @@ final class VellumCli: AssistantManaging {
     /// Times out after 5 minutes; on timeout the CLI process is terminated.
     /// CLI stdout/stderr are streamed to `os.Logger` so progress is visible
     /// in Console.app.
-    @discardableResult
-    func retire(name: String?) async throws -> LockfileAssistant? {
+    override func retire(name: String?) async throws -> LockfileAssistant? {
         guard let resolvedName = name ?? LockfileAssistant.loadActiveAssistantId() else {
             throw ManagementClientError.noActiveAssistant
         }

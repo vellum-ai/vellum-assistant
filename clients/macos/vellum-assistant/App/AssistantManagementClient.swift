@@ -1,20 +1,44 @@
 import Foundation
 import VellumAssistantShared
 
-/// A client that manages the lifecycle of a local assistant instance.
+/// Manages the lifecycle of a local assistant instance.
 ///
-/// Adopt this protocol to add a new backend (e.g. Apple Containers) without
-/// changing the startup logic in `AppDelegate`. The app reads
-/// `LockfileAssistant.isAppleContainer` and dispatches to the appropriate client.
+/// Subclass to add a new backend (e.g. Apple Containers) without changing
+/// the startup logic in `AppDelegate`. The factory method `create()` reads
+/// `LockfileAssistant.isAppleContainer` and dispatches to the appropriate
+/// subclass.
 @MainActor
-protocol AssistantManaging: AnyObject {
+class AssistantManagementClient {
+
+    // MARK: - Factory
+
+    /// Return the management client for the currently active assistant.
+    static func create() -> AssistantManagementClient {
+        let entry = LockfileAssistant.loadActiveAssistantId()
+            .flatMap { LockfileAssistant.loadByName($0) }
+        return create(for: entry)
+    }
+
+    /// Return the management client for a specific assistant entry.
+    static func create(for assistant: LockfileAssistant?) -> AssistantManagementClient {
+        if let assistant, assistant.isAppleContainer,
+           let launcher = AppDelegate.shared?.appleContainersLauncher {
+            return launcher
+        }
+        return AppDelegate.shared!.vellumCli
+    }
+
+    // MARK: - Lifecycle (override in subclasses)
+
     /// Hatch (start) a local assistant from scratch.
     ///
     /// - Parameters:
     ///   - name: The assistant ID to hatch. Pass `nil` to let the client
     ///     choose the name (e.g. first-launch scenario).
     ///   - configValues: Key-value pairs forwarded as `--config k=v` flags.
-    func hatch(name: String?, configValues: [String: String]) async throws
+    func hatch(name: String? = nil, configValues: [String: String] = [:]) async throws {
+        fatalError("Subclasses must override hatch(name:configValues:)")
+    }
 
     /// Retire (stop and clean up) a running assistant.
     ///
@@ -29,15 +53,11 @@ protocol AssistantManaging: AnyObject {
     /// - Returns: A replacement `LockfileAssistant` to switch to, or `nil`
     ///   if no assistants remain (caller should show onboarding).
     @discardableResult
-    func retire(name: String?) async throws -> LockfileAssistant?
-}
-
-extension AssistantManaging {
-    /// Convenience: retire the active assistant (loads ID from lockfile).
-    @discardableResult
-    func retire() async throws -> LockfileAssistant? {
-        try await retire(name: nil)
+    func retire(name: String? = nil) async throws -> LockfileAssistant? {
+        fatalError("Subclasses must override retire(name:)")
     }
+
+    // MARK: - Shared helpers
 
     /// Shared post-retire orchestration: clears the active assistant ID
     /// (when the retired assistant *was* the active one) and returns the best
@@ -97,34 +117,7 @@ extension AssistantManaging {
     }
 }
 
-// MARK: - Factory
-
-/// Picks the correct management client backend (`VellumCli` or
-/// `AppleContainersLauncher`) based on lockfile state.
-///
-/// Call `AssistantManagementClient.create()` for the active assistant, or
-/// `AssistantManagementClient.create(for:)` for a specific one.
-@MainActor
-enum AssistantManagementClient {
-
-    /// Return the management client for the currently active assistant.
-    static func create() -> any AssistantManaging {
-        let entry = LockfileAssistant.loadActiveAssistantId()
-            .flatMap { LockfileAssistant.loadByName($0) }
-        return create(for: entry)
-    }
-
-    /// Return the management client for a specific assistant entry.
-    static func create(for assistant: LockfileAssistant?) -> any AssistantManaging {
-        if let assistant, assistant.isAppleContainer,
-           let launcher = AppDelegate.shared?.appleContainersLauncher {
-            return launcher
-        }
-        return AppDelegate.shared!.vellumCli
-    }
-}
-
-/// Errors specific to `AssistantManaging` convenience methods.
+/// Errors specific to `AssistantManagementClient` convenience methods.
 enum ManagementClientError: LocalizedError {
     case noActiveAssistant
 

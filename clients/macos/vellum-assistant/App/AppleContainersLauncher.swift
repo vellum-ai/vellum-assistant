@@ -12,11 +12,11 @@ private let log = Logger(
 /// Manages the lifecycle of an assistant running inside an Apple Container
 /// (3-service LinuxPod VM via the Containerization framework).
 ///
-/// Conforms to `AssistantManaging` so `AssistantManagementClient.create(for:)`
-/// can dispatch to it for `isAppleContainer` entries.
+/// Subclasses `AssistantManagementClient` so `create(for:)` can dispatch to
+/// it for `isAppleContainer` entries.
 @available(macOS 26.0, *)
 @MainActor
-final class AppleContainersLauncher: AssistantManaging {
+final class AppleContainersLauncher: AssistantManagementClient {
 
     // MARK: - Errors
 
@@ -53,9 +53,9 @@ final class AppleContainersLauncher: AssistantManaging {
         AppleContainersAvailabilityChecker.check()
     }
 
-    // MARK: - AssistantManaging
+    // MARK: - AssistantManagementClient
 
-    func hatch(name: String?, configValues: [String: String]) async throws {
+    override func hatch(name: String?, configValues: [String: String]) async throws {
         try await hatch(name: name, configValues: configValues, progress: nil)
     }
 
@@ -220,8 +220,7 @@ final class AppleContainersLauncher: AssistantManaging {
     /// Retire an apple-container assistant: stop the pod, archive the
     /// instance directory, remove the guardian token, and clean up the
     /// lockfile entry.
-    @discardableResult
-    func retire(name: String?) async throws -> LockfileAssistant? {
+    override func retire(name: String?) async throws -> LockfileAssistant? {
         guard let resolvedName = name ?? LockfileAssistant.loadActiveAssistantId() else {
             throw ManagementClientError.noActiveAssistant
         }
