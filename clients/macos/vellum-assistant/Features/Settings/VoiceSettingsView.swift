@@ -477,17 +477,17 @@ struct VoiceSettingsView: View {
             ttsProviderRaw = draftTTSProvider
         }
 
-        // Persist voice ID for the selected provider
+        // Always persist voice ID for the selected provider, even when
+        // empty — sending an empty string clears a previously set voice
+        // ID and reverts to the provider's default voice.
         let trimmedVoiceId = ttsVoiceIdText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedVoiceId.isEmpty {
-            switch draftTTSProvider {
-            case "elevenlabs":
-                store.setElevenLabsVoiceId(trimmedVoiceId)
-            case "fish-audio":
-                store.setFishAudioReferenceId(trimmedVoiceId)
-            default:
-                break
-            }
+        switch draftTTSProvider {
+        case "elevenlabs":
+            store.setElevenLabsVoiceId(trimmedVoiceId)
+        case "fish-audio":
+            store.setFishAudioReferenceId(trimmedVoiceId)
+        default:
+            break
         }
 
         // Persist API key if entered. Clear the field and update hasKey
