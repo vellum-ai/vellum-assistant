@@ -637,6 +637,15 @@ public enum GatewayHTTPClient {
         return cs
     }()
 
+    /// URL-path character set that preserves already-encoded percent sequences.
+    /// `.urlPathAllowed` excludes `%`, which causes pre-encoded path components
+    /// (e.g. `%2F` for skill slugs containing `/`) to be double-encoded as `%252F`.
+    private static let urlPathPreservingEncoded: CharacterSet = {
+        var cs = CharacterSet.urlPathAllowed
+        cs.insert("%")
+        return cs
+    }()
+
     /// Returns `true` when the current connection targets a managed (cloud-hosted)
     /// assistant that routes through the platform proxy, `false` otherwise.
     ///
@@ -768,7 +777,7 @@ public enum GatewayHTTPClient {
             }
         }
 
-        let encodedPath = pathComponent.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? pathComponent
+        let encodedPath = pathComponent.addingPercentEncoding(withAllowedCharacters: Self.urlPathPreservingEncoded) ?? pathComponent
         let trailingSlash = encodedPath.hasSuffix("/") ? "" : "/"
         guard let url = URL(string: "\(connection.baseURL)/v1/\(encodedPath)\(trailingSlash)\(queryString)") else {
             throw ClientError.invalidURL

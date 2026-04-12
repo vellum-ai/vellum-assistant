@@ -121,9 +121,15 @@ final class SkillsManager {
 
                 // Merge local skills with external search results (if any),
                 // deduplicating by skill id so local entries take precedence.
+                // The merge is kept active while `isSearching` so that skills
+                // from the previous search remain visible (e.g. when a user
+                // clicks into a search result's detail view while a re-search
+                // is in progress). `searchResults` is only cleared on query
+                // changes (via `cancelSearch`), so stale cross-query results
+                // are already handled.
                 let localSkills = self.skillsStore.skills
                 let mergedSkills: [SkillInfo]
-                if hasActiveQuery && !self.skillsStore.searchResults.isEmpty && !self.skillsStore.isSearching {
+                if hasActiveQuery && !self.skillsStore.searchResults.isEmpty {
                     let localIds = Set(localSkills.map(\.id))
                     let externalResults = self.skillsStore.searchResults.filter { !localIds.contains($0.id) }
                     mergedSkills = localSkills + externalResults

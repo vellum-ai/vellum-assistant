@@ -291,8 +291,12 @@ public struct SkillsClient: SkillsClientProtocol {
                 return nil
             }
             return try JSONDecoder().decode(SkillDetailHTTPResponse.self, from: skillData)
+        } catch is CancellationError {
+            return nil
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            return nil
         } catch {
-            log.error("fetchSkillDetail error: \(error.localizedDescription)")
+            log.error("fetchSkillDetail error: \(error, privacy: .public)")
             return nil
         }
     }
@@ -307,8 +311,12 @@ public struct SkillsClient: SkillsClientProtocol {
                 return nil
             }
             return try JSONDecoder().decode(SkillDetailFilesHTTPResponse.self, from: response.data)
+        } catch is CancellationError {
+            return nil
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            return nil
         } catch {
-            log.error("fetchSkillFiles error: \(error.localizedDescription)")
+            log.error("fetchSkillFiles error: \(error, privacy: .public)")
             return nil
         }
     }
@@ -325,8 +333,12 @@ public struct SkillsClient: SkillsClientProtocol {
                 return nil
             }
             return try JSONDecoder().decode(SkillFileContentResponse.self, from: response.data)
+        } catch is CancellationError {
+            return nil
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            return nil
         } catch {
-            log.error("fetchSkillFileContent error: \(error.localizedDescription)")
+            log.error("fetchSkillFileContent error: \(error, privacy: .public)")
             return nil
         }
     }
