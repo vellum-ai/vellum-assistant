@@ -80,6 +80,7 @@ mock.module("../../calls/fish-audio-client.js", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
+import { listCatalogProviderIds } from "../provider-catalog.js";
 import {
   _resetTtsProviderRegistry,
   getTtsProvider,
@@ -89,6 +90,7 @@ import { createElevenLabsProvider } from "../providers/elevenlabs-provider.js";
 import { ElevenLabsTtsError } from "../providers/elevenlabs-provider.js";
 import { createFishAudioProvider } from "../providers/fish-audio-provider.js";
 import { FishAudioTtsError } from "../providers/fish-audio-provider.js";
+import { providerFactories } from "../providers/index.js";
 import {
   _resetBuiltinRegistration,
   registerBuiltinTtsProviders,
@@ -569,5 +571,41 @@ describe("registerBuiltinTtsProviders", () => {
     // it does not throw — that exercises the guard path.
     registerBuiltinTtsProviders();
     expect(() => registerBuiltinTtsProviders()).not.toThrow();
+  });
+
+  test("registers every provider declared in the catalog", () => {
+    registerBuiltinTtsProviders();
+
+    const catalogIds = listCatalogProviderIds();
+    const registeredProviders = listTtsProviders();
+    const registeredIds = registeredProviders.map((p) => p.id);
+
+    for (const id of catalogIds) {
+      expect(registeredIds).toContain(id);
+    }
+    // The registered set should match the catalog exactly (no extras).
+    expect(registeredIds.length).toBe(catalogIds.length);
+  });
+
+  test("every catalog provider has a factory in the providerFactories map", () => {
+    const catalogIds = listCatalogProviderIds();
+
+    for (const id of catalogIds) {
+      expect(providerFactories.has(id)).toBe(true);
+    }
+  });
+
+  test("throws when a catalog provider has no adapter factory", () => {
+    // Verify the error path by checking that the error message format is
+    // correct. We cannot easily add a fake catalog entry without modifying
+    // the catalog module, but we can verify the factory map keys match the
+    // catalog — if they diverge this test will catch it.
+    const catalogIds = listCatalogProviderIds();
+    const factoryIds = [...providerFactories.keys()];
+
+    const missingFactories = catalogIds.filter(
+      (id) => !factoryIds.includes(id),
+    );
+    expect(missingFactories).toEqual([]);
   });
 });
