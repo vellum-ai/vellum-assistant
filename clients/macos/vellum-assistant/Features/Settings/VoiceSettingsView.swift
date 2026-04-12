@@ -37,6 +37,12 @@ struct VoiceSettingsView: View {
     @State private var ttsSetupExpanded: Bool = false
     /// Whether an ElevenLabs API key is stored (fetched per-component).
     @State private var elevenLabsHasKey = false
+
+    @State private var fishAudioKeyText: String = ""
+    @State private var fishAudioSetupExpanded: Bool = false
+    @State private var fishAudioHasKey = false
+    @State private var fishAudioReferenceId: String = ""
+
     @State private var isRecordingCustomKey: Bool = false
     @State private var recordingMonitors: [Any] = []
     @State private var modifierHoldTimer: Timer? = nil
@@ -75,6 +81,7 @@ struct VoiceSettingsView: View {
         }
         .onAppear {
             elevenLabsHasKey = APIKeyManager.getKey(for: "elevenlabs") != nil
+            fishAudioHasKey = APIKeyManager.getCredential(service: "fish-audio", field: "api_key") != nil
         }
         .onChange(of: conversationTimeoutSeconds) {
             VoiceModeManager.conversationTimeoutOverride = conversationTimeoutSeconds
@@ -448,35 +455,70 @@ struct VoiceSettingsView: View {
     // MARK: - Fish Audio Provider Config
 
     private var fishAudioProviderConfig: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("1. Create a Fish Audio account at fish.audio")
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-                Text("2. Generate an API key from your Fish Audio dashboard")
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-                Text("3. Choose or create a voice and copy its reference ID")
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-                Text("4. Run the setup commands in your terminal:")
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-            }
+        Group {
+            if fishAudioHasKey {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    HStack(spacing: VSpacing.sm) {
+                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
+                        VButton(label: "Disconnect", style: .danger) {
+                            store.clearFishAudioKey()
+                            fishAudioHasKey = false
+                            fishAudioKeyText = ""
+                            fishAudioSetupExpanded = false
+                        }
+                    }
 
-            Text("assistant credentials set --service fish-audio --field api_key YOUR_KEY\nassistant config set services.tts.providers.fish-audio.referenceId YOUR_VOICE_ID")
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundStyle(VColor.contentSecondary)
-                .padding(VSpacing.md)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(VColor.surfaceBase)
-                )
-                .textSelection(.enabled)
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        VTextField(
+                            "Voice Reference ID",
+                            placeholder: "Fish Audio voice reference ID (optional)",
+                            text: $fishAudioReferenceId,
+                            onSubmit: {
+                                store.setFishAudioReferenceId(fishAudioReferenceId)
+                            },
+                            maxWidth: 400
+                        )
 
-            VButton(label: "Visit Fish Audio", rightIcon: VIcon.arrowUpRight.rawValue, style: .outlined) {
-                NSWorkspace.shared.open(URL(string: "https://fish.audio")!)
+                        Text("Find voice IDs at fish.audio. Leave blank if you've already configured one via the CLI.")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
+                }
+            } else if fishAudioSetupExpanded {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    VTextField(
+                        "Fish Audio API Key",
+                        placeholder: "Your Fish Audio API key",
+                        text: $fishAudioKeyText,
+                        isSecure: true,
+                        maxWidth: 400
+                    )
+
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.lock, size: 10)
+                            .foregroundStyle(VColor.contentTertiary)
+                        Text("Your API key is stored securely in the macOS Keychain.")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
+
+                    HStack(spacing: VSpacing.sm) {
+                        VButton(label: "Connect", style: .outlined, isDisabled: fishAudioKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                            store.saveFishAudioKey(fishAudioKeyText)
+                            fishAudioHasKey = true
+                            fishAudioKeyText = ""
+                            fishAudioSetupExpanded = false
+                        }
+                        VButton(label: "Cancel", style: .outlined) {
+                            fishAudioSetupExpanded = false
+                            fishAudioKeyText = ""
+                        }
+                    }
+                }
+            } else {
+                VButton(label: "Set Up", style: .outlined) {
+                    fishAudioSetupExpanded = true
+                }
             }
         }
     }
