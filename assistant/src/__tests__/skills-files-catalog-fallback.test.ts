@@ -617,6 +617,7 @@ describe("getSkillFiles — provider chain fallback", () => {
         stars: 5,
         installs: 10,
         reports: 0,
+        version: "",
       }),
     };
 
@@ -710,6 +711,7 @@ describe("getSkillFiles — provider chain fallback", () => {
         stars: 0,
         installs: 0,
         reports: 0,
+        version: "",
       }),
     };
 

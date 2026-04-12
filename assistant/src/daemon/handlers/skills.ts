@@ -385,6 +385,7 @@ function toSlimSkillResponse(
         stars: 0,
         installs: 0,
         reports: 0,
+        version: "",
       };
     }
     case "skillssh": {
@@ -1191,6 +1192,7 @@ export async function searchSkills(
         publishedAt: s.createdAt
           ? new Date(s.createdAt * 1000).toISOString()
           : undefined,
+        version: s.version,
       }));
     } else {
       log.warn(
