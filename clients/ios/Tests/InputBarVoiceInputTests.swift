@@ -49,6 +49,27 @@ final class InputBarVoiceInputTests: XCTestCase {
         }
     }
 
+    // MARK: - Mock STT Client
+
+    /// A controllable mock of `STTClientProtocol` for testing the service-first transcription
+    /// precedence logic without making network calls.
+    private final class MockSTTClient: STTClientProtocol, @unchecked Sendable {
+        /// The result to return from `transcribe`. Set this before calling the method under test.
+        var stubbedResult: STTResult = .notConfigured
+
+        /// Tracks how many times `transcribe` was called.
+        var transcribeCallCount = 0
+
+        /// The audio data passed to the most recent `transcribe` call.
+        var lastAudioData: Data?
+
+        func transcribe(audioData: Data, contentType: String) async -> STTResult {
+            transcribeCallCount += 1
+            lastAudioData = audioData
+            return stubbedResult
+        }
+    }
+
     // MARK: - Authorization Denied
 
     func testAuthorizationDeniedReturnsCorrectStatus() async {
@@ -205,6 +226,135 @@ final class InputBarVoiceInputTests: XCTestCase {
         cancel2()
 
         XCTAssertEqual(adapter.startCallCount, 2)
+    }
+
+    // MARK: - STT Service-First Precedence
+
+    /// Helper that implements the same service-first precedence logic as InputBarView's
+    /// `resolveTranscriptWithServiceFirst` so the decision matrix can be tested in isolation.
+    private func resolveTranscript(serviceResult: STTResult, nativeTranscript: String) -> String {
+        switch serviceResult {
+        case .success(let text):
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return text
+            }
+            return nativeTranscript
+        case .notConfigured, .serviceUnavailable, .error:
+            return nativeTranscript
+        }
+    }
+
+    func testServiceSuccessUsesServiceTranscript() {
+        let result = resolveTranscript(
+            serviceResult: .success(text: "Service says hello"),
+            nativeTranscript: "Native says hello"
+        )
+        XCTAssertEqual(result, "Service says hello", "Service transcript should take precedence when successful")
+    }
+
+    func testServiceNotConfiguredFallsBackToNative() {
+        let result = resolveTranscript(
+            serviceResult: .notConfigured,
+            nativeTranscript: "Native fallback"
+        )
+        XCTAssertEqual(result, "Native fallback", "Should fall back to native when STT service is not configured")
+    }
+
+    func testServiceUnavailableFallsBackToNative() {
+        let result = resolveTranscript(
+            serviceResult: .serviceUnavailable,
+            nativeTranscript: "Native fallback"
+        )
+        XCTAssertEqual(result, "Native fallback", "Should fall back to native when STT service is unavailable")
+    }
+
+    func testServiceErrorFallsBackToNative() {
+        let result = resolveTranscript(
+            serviceResult: .error(statusCode: 500, message: "Internal error"),
+            nativeTranscript: "Native fallback"
+        )
+        XCTAssertEqual(result, "Native fallback", "Should fall back to native when STT service returns an error")
+    }
+
+    func testServiceEmptyResultFallsBackToNative() {
+        let result = resolveTranscript(
+            serviceResult: .success(text: ""),
+            nativeTranscript: "Native fallback"
+        )
+        XCTAssertEqual(result, "Native fallback", "Should fall back to native when STT service returns empty text")
+    }
+
+    func testServiceWhitespaceOnlyResultFallsBackToNative() {
+        let result = resolveTranscript(
+            serviceResult: .success(text: "   \n  "),
+            nativeTranscript: "Native fallback"
+        )
+        XCTAssertEqual(result, "Native fallback", "Should fall back to native when STT service returns whitespace-only text")
+    }
+
+    func testServiceErrorWithNilStatusCodeFallsBackToNative() {
+        let result = resolveTranscript(
+            serviceResult: .error(statusCode: nil, message: "Network error"),
+            nativeTranscript: "Native fallback"
+        )
+        XCTAssertEqual(result, "Native fallback", "Should fall back to native when STT service returns error with nil status code")
+    }
+
+    // MARK: - Mock STT Client Contract
+
+    func testMockSTTClientTracksCallCount() async {
+        let client = MockSTTClient()
+        client.stubbedResult = .success(text: "Hello")
+
+        _ = await client.transcribe(audioData: Data([1, 2, 3]))
+        _ = await client.transcribe(audioData: Data([4, 5, 6]))
+
+        XCTAssertEqual(client.transcribeCallCount, 2, "Mock should track transcribe call count")
+    }
+
+    func testMockSTTClientCapturesAudioData() async {
+        let client = MockSTTClient()
+        client.stubbedResult = .success(text: "Hello")
+        let testData = Data([0x52, 0x49, 0x46, 0x46])
+
+        _ = await client.transcribe(audioData: testData)
+
+        XCTAssertEqual(client.lastAudioData, testData, "Mock should capture the audio data passed to transcribe")
+    }
+
+    func testMockSTTClientReturnsStubbedResult() async {
+        let client = MockSTTClient()
+        client.stubbedResult = .notConfigured
+
+        let result = await client.transcribe(audioData: Data())
+
+        XCTAssertEqual(result, .notConfigured, "Mock should return the stubbed result")
+    }
+
+    // MARK: - AudioWavEncoder Integration
+
+    func testWavEncoderProducesValidHeader() {
+        let pcmData = Data(repeating: 0, count: 100)
+        let format = AudioWavEncoder.Format(sampleRate: 16000, channels: 1, bitsPerSample: 16)
+        let wavData = AudioWavEncoder.encode(pcmData: pcmData, format: format)
+
+        // WAV header is 44 bytes
+        XCTAssertEqual(wavData.count, 44 + pcmData.count, "WAV data should be header (44 bytes) + PCM data")
+
+        // Check RIFF header
+        let riffBytes = [UInt8](wavData.prefix(4))
+        XCTAssertEqual(riffBytes, [0x52, 0x49, 0x46, 0x46], "WAV should start with RIFF magic bytes")
+
+        // Check WAVE format
+        let waveBytes = [UInt8](wavData[8..<12])
+        XCTAssertEqual(waveBytes, [0x57, 0x41, 0x56, 0x45], "WAV should contain WAVE format identifier")
+    }
+
+    func testWavEncoderSpeechFormatPreset() {
+        let format = AudioWavEncoder.Format.speech16kHz
+        XCTAssertEqual(format.sampleRate, 16000)
+        XCTAssertEqual(format.channels, 1)
+        XCTAssertEqual(format.bitsPerSample, 16)
     }
 }
 
