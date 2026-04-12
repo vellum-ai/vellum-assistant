@@ -193,18 +193,18 @@ enum APIKeyManager {
 
     /// Sync local read for a credential (FileCredentialStorage).
     static func getCredential(service: String, field: String) -> String? {
-        storage.get(account: credentialPrefix + service + "_" + field)
+        storage.get(account: credentialPrefix + service + ":" + field)
     }
 
     /// Sync local write for a credential (FileCredentialStorage).
     static func setCredential(_ value: String, service: String, field: String) {
-        _ = storage.set(account: credentialPrefix + service + "_" + field, value: value)
+        _ = storage.set(account: credentialPrefix + service + ":" + field, value: value)
         notifyKeyDidChange()
     }
 
     /// Sync local delete for a credential (FileCredentialStorage).
     static func deleteCredential(service: String, field: String) {
-        _ = storage.delete(account: credentialPrefix + service + "_" + field)
+        _ = storage.delete(account: credentialPrefix + service + ":" + field)
         notifyKeyDidChange()
     }
 
