@@ -2936,6 +2936,48 @@ public final class SettingsStore: ObservableObject {
         return task
     }
 
+    /// Persists the selected STT provider to the daemon config so
+    /// transcription routes through the correct backend. The canonical
+    /// config path is `services.stt.provider`.
+    @discardableResult
+    func setSTTProvider(_ provider: String) -> Task<Bool, Never> {
+        let task = Task {
+            let success = await settingsClient.patchConfig([
+                "services": ["stt": ["provider": provider]]
+            ])
+            if !success {
+                log.error("Failed to patch config for STT provider")
+            }
+            return success
+        }
+        return task
+    }
+
+    /// Saves an OpenAI API key for the STT service to the credential store.
+    func saveSTTOpenAIKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        APIKeyManager.setKey(trimmed, for: "openai")
+        removeDeletionTombstone(type: "api_key", name: "openai")
+        Task {
+            let result = await APIKeyManager.setKey(trimmed, for: "openai")
+            if result.success {
+                onSuccess?()
+            } else if let error = result.error {
+                log.error("Failed to sync OpenAI STT key to daemon: \(error, privacy: .public)")
+            }
+        }
+    }
+
+    /// Removes the stored OpenAI API key for the STT service.
+    func clearSTTOpenAIKey() {
+        APIKeyManager.deleteKey(for: "openai")
+        Task {
+            let deleted = await APIKeyManager.deleteKey(for: "openai")
+            if !deleted { addDeletionTombstone(type: "api_key", name: "openai") }
+        }
+    }
+
     /// Schedules a delayed refresh of provider routing sources, giving the
     /// daemon time to re-initialize providers after a key change.
     private func scheduleRoutingSourceRefresh() {
@@ -3364,6 +3406,15 @@ public final class SettingsStore: ObservableObject {
            let tts = services["tts"] as? [String: Any],
            let ttsProvider = tts["provider"] as? String {
             UserDefaults.standard.set(ttsProvider, forKey: "ttsProvider")
+        }
+
+        // Sync the global STT provider from the daemon config so the client
+        // stays aligned after restart or reconnection. The canonical path
+        // is services.stt.provider.
+        if let services = config["services"] as? [String: Any],
+           let stt = services["stt"] as? [String: Any],
+           let sttProvider = stt["provider"] as? String {
+            UserDefaults.standard.set(sttProvider, forKey: "sttProvider")
         }
 
         Self.applyHostBrowserCdpInspectConfig(config, into: self)
