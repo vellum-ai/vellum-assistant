@@ -1552,10 +1552,9 @@ describe("Permission Checker", () => {
     });
 
     // ── guardian persona file (users/<slug>.md) ──────────────────
-    // The drop-user-md migration replaces the legacy workspace USER.md
-    // with a per-user persona file at `users/<guardian-slug>.md`. The
-    // dynamic guardian-persona default rules are now the sole auto-allow
-    // entry for the per-user profile file.
+    // The per-user persona file lives at `users/<guardian-slug>.md`.
+    // Dynamic guardian-persona default rules auto-allow reads and
+    // edits of this file.
 
     test("file_edit of guardian users/<slug>.md is auto-allowed", async () => {
       const guardianPath = join(checkerTestDir, "users", "alice.md");
