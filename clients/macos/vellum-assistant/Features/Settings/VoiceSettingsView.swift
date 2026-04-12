@@ -479,7 +479,7 @@ struct VoiceSettingsView: View {
                     .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentTertiary)
 
-                Text("assistant credentials set --service \(entry.id) --field api_key YOUR_KEY")
+                Text("assistant keys set \(entry.id) YOUR_KEY")
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(VColor.contentSecondary)
                     .padding(VSpacing.md)
