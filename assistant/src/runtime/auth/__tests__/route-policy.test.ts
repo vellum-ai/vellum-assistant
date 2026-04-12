@@ -182,4 +182,44 @@ describe("enforcePolicy", () => {
     expect(policy).toBeDefined();
     expect(policy!.requiredScopes).toContain("chat.read");
   });
+
+  // -- STT transcribe policy ------------------------------------------------
+
+  test("stt/transcribe is registered as a protected endpoint", () => {
+    authDisabled = false;
+    const policy = getPolicy("stt/transcribe");
+    expect(policy).toBeDefined();
+  });
+
+  test("stt/transcribe requires chat.write scope", () => {
+    authDisabled = false;
+    const policy = getPolicy("stt/transcribe");
+    expect(policy).toBeDefined();
+    expect(policy!.requiredScopes).toContain("chat.write");
+  });
+
+  test("stt/transcribe allows actor, svc_gateway, svc_daemon, and local principals", () => {
+    authDisabled = false;
+    const policy = getPolicy("stt/transcribe");
+    expect(policy).toBeDefined();
+    expect(policy!.allowedPrincipalTypes).toContain("actor");
+    expect(policy!.allowedPrincipalTypes).toContain("svc_gateway");
+    expect(policy!.allowedPrincipalTypes).toContain("svc_daemon");
+    expect(policy!.allowedPrincipalTypes).toContain("local");
+  });
+
+  test("stt/transcribe denies actor without chat.write scope", () => {
+    authDisabled = false;
+    const ctx = buildTestContext({ scopes: ["chat.read"] });
+    const result = enforcePolicy("stt/transcribe", ctx);
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe(403);
+  });
+
+  test("stt/transcribe allows actor with chat.write scope", () => {
+    authDisabled = false;
+    const ctx = buildTestContext({ scopes: ["chat.write"] });
+    const result = enforcePolicy("stt/transcribe", ctx);
+    expect(result).toBeNull();
+  });
 });
