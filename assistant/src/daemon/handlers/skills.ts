@@ -488,6 +488,22 @@ export async function getSkill(
       // Commit to this provider — don't fall through to subsequent providers.
       const slim = await provider.toSlimSkill(skillId);
       if (slim) {
+        // Enrich uninstalled skills.sh skills with audit data (non-fatal)
+        if (slim.origin === "skillssh") {
+          try {
+            const sourceRepo = slim.sourceRepo;
+            const skillSlug = slim.slug.split("/").pop() ?? slim.slug;
+            const audits = await fetchSkillAudits(sourceRepo, [skillSlug]);
+            if (audits[skillSlug]) {
+              (slim as { audit?: SkillAuditData }).audit = audits[skillSlug];
+            }
+          } catch (err) {
+            log.warn(
+              { err, skillId },
+              "Failed to enrich uninstalled skillssh skill with audit data",
+            );
+          }
+        }
         return { skill: slim as SkillDetailResponse };
       }
       return { error: `Skill "${skillId}" not found`, status: 404 };
