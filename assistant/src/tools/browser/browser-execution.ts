@@ -18,6 +18,7 @@ import {
 } from "./auth-detector.js";
 import type { RouteHandler } from "./browser-manager.js";
 import { browserManager } from "./browser-manager.js";
+import { type BrowserMode, normalizeBrowserMode } from "./browser-mode.js";
 import {
   ensureScreencast,
   getSender,
@@ -46,8 +47,9 @@ import {
   waitForSelector as cdpWaitForSelector,
   waitForText as cdpWaitForText,
 } from "./cdp-client/cdp-dom-helpers.js";
+import { CdpError } from "./cdp-client/errors.js";
 import { getCdpClient } from "./cdp-client/factory.js";
-import type { CdpClient } from "./cdp-client/types.js";
+import type { AttemptDiagnostic, CdpClient } from "./cdp-client/types.js";
 
 const log = getLogger("headless-browser");
 
@@ -99,6 +101,222 @@ export const EXTRACT_LINKS_EXPRESSION = `
   }));
 })()
 `;
+
+// ── browser_mode parsing ─────────────────────────────────────────────
+
+/**
+ * Parse the `browser_mode` field from a tool input map. Returns either
+ * a normalized {@link BrowserMode} or a pre-formatted error string
+ * suitable for returning directly in a tool response.
+ *
+ * When the value is absent, undefined, or empty the default `"auto"`
+ * is returned. Invalid values produce a descriptive error listing
+ * accepted values and aliases.
+ */
+export function parseBrowserMode(
+  input: Record<string, unknown>,
+): { mode: BrowserMode; error?: never } | { mode?: never; error: string } {
+  const raw = input.browser_mode;
+  const result = normalizeBrowserMode(raw);
+  if ("error" in result) {
+    return { error: `Error: ${result.error}` };
+  }
+  return { mode: result.mode };
+}
+
+// ── Mode-selection failure formatter ─────────────────────────────────
+
+/**
+ * Remediation hints keyed by (candidateKind, discoveryCode | errorCode).
+ * Discovery codes come from DevToolsDiscoveryError; error codes come
+ * from CdpError. The formatter walks these in priority order: exact
+ * (kind, discoveryCode) first, then (kind, errorCode), then a generic
+ * per-kind fallback.
+ */
+const REMEDIATION_HINTS: Record<string, string[]> = {
+  // Extension backend
+  "extension:transport_error": [
+    "Ensure the Vellum browser extension is installed and enabled.",
+    "Check that the extension WebSocket connection is active (extension popup → status).",
+    "Try reconnecting the extension or reloading the extension service worker.",
+  ],
+  // cdp-inspect backend — discovery-level failures
+  "cdp-inspect:unreachable": [
+    "Ensure Chrome/Chromium is running with --remote-debugging-port=9222.",
+    "Verify no firewall or antivirus is blocking localhost:9222.",
+    "Try: /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222",
+  ],
+  "cdp-inspect:non_chrome": [
+    "The process listening on the configured port is not Chrome/Chromium.",
+    "Check if another application (dev server, proxy) is using port 9222.",
+    "Ensure Chrome is launched with --remote-debugging-port=9222.",
+  ],
+  "cdp-inspect:timeout": [
+    "Chrome DevTools endpoint did not respond within the probe timeout.",
+    "Ensure Chrome is running and listening on the configured port.",
+    "Try increasing hostBrowser.cdpInspect.probeTimeoutMs in config.",
+  ],
+  "cdp-inspect:no_targets": [
+    "Chrome is reachable but has no open page targets.",
+    "Open at least one browser tab, then retry.",
+  ],
+  "cdp-inspect:non_loopback": [
+    "CDP inspect only allows loopback hosts (localhost, 127.0.0.1, ::1).",
+    "Update hostBrowser.cdpInspect.host in config to a loopback address.",
+  ],
+  "cdp-inspect:transport_error": [
+    "CDP endpoint unreachable. Ensure Chrome is running with --remote-debugging-port.",
+    "Verify the configured host:port matches Chrome's DevTools listener.",
+    "Consider using browser_mode: 'extension' or 'local' as an alternative.",
+  ],
+  // Local/Playwright backend
+  "local:transport_error": [
+    "The local Playwright-managed browser failed to start or connect.",
+    "Check that the Playwright browser binary is downloaded (bun run install).",
+    "Try closing any stale Chromium processes and retrying.",
+  ],
+};
+
+/**
+ * Build a human-readable, tool-response-ready error string from a
+ * pinned-mode failure. Includes:
+ *   - the requested mode
+ *   - ordered attempted modes with exact failure reasons
+ *   - a remediation checklist tailored by backend and failure code
+ *
+ * Exported for testing.
+ */
+export function formatModeSelectionFailure(
+  requestedMode: BrowserMode,
+  error: CdpError,
+): string {
+  const lines: string[] = [];
+  lines.push(`Error: Browser mode "${requestedMode}" failed.`);
+  lines.push("");
+
+  const diagnostics: readonly AttemptDiagnostic[] =
+    error.attemptDiagnostics ?? [];
+
+  if (diagnostics.length > 0) {
+    lines.push("Attempted backends:");
+    for (const diag of diagnostics) {
+      const status =
+        diag.stage === "success" ? "OK" : `FAILED at ${diag.stage}`;
+      lines.push(`  - ${diag.candidateKind}: ${status}`);
+      if (diag.errorMessage) {
+        lines.push(`    Reason: ${diag.errorMessage}`);
+      }
+      if (diag.discoveryCode) {
+        lines.push(`    Discovery code: ${diag.discoveryCode}`);
+      }
+    }
+    lines.push("");
+  }
+
+  // Collect remediation hints
+  const hints = collectRemediationHints(diagnostics, error);
+  if (hints.length > 0) {
+    lines.push("Remediation:");
+    for (const hint of hints) {
+      lines.push(`  - ${hint}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * Gather remediation hints based on attempt diagnostics and the error.
+ * Walks each diagnostic and looks up hints by (kind, discoveryCode),
+ * then (kind, errorCode), then generic kind-level fallback.
+ */
+function collectRemediationHints(
+  diagnostics: readonly AttemptDiagnostic[],
+  error: CdpError,
+): string[] {
+  const seen = new Set<string>();
+  const hints: string[] = [];
+
+  const addHints = (key: string) => {
+    const list = REMEDIATION_HINTS[key];
+    if (!list) return;
+    for (const hint of list) {
+      if (!seen.has(hint)) {
+        seen.add(hint);
+        hints.push(hint);
+      }
+    }
+  };
+
+  for (const diag of diagnostics) {
+    if (diag.stage === "success") continue;
+    if (diag.discoveryCode) {
+      addHints(`${diag.candidateKind}:${diag.discoveryCode}`);
+    }
+    if (diag.errorCode) {
+      addHints(`${diag.candidateKind}:${diag.errorCode}`);
+    }
+  }
+
+  // Fallback: if no diagnostics but we have a top-level error, use
+  // the error code with a generic candidate kind derived from the mode.
+  if (diagnostics.length === 0 && error.code) {
+    // Try to infer the candidate kind from the error message
+    for (const kind of ["extension", "cdp-inspect", "local"] as const) {
+      if (error.message.toLowerCase().includes(kind)) {
+        addHints(`${kind}:${error.code}`);
+      }
+    }
+  }
+
+  return hints;
+}
+
+/**
+ * Parse browser_mode from input and acquire a CdpClient. Returns
+ * either a `{ cdp, browserMode }` pair on success or a pre-formatted
+ * `{ errorResult }` on failure (invalid mode or pinned-mode
+ * precondition not met).
+ *
+ * This is the single integration point for all CDP-backed tool
+ * functions. Using it ensures every tool:
+ *   - normalizes aliases (`cdp-debugger` -> `cdp-inspect`, etc.)
+ *   - passes the mode preference to the factory
+ *   - surfaces a remediation-rich error on pinned-mode failures
+ */
+export function acquireCdpClientWithMode(
+  input: Record<string, unknown>,
+  context: ToolContext,
+):
+  | {
+      cdp: ReturnType<typeof getCdpClient>;
+      browserMode: BrowserMode;
+      errorResult?: never;
+    }
+  | { cdp?: never; browserMode?: never; errorResult: ToolExecutionResult } {
+  const modeResult = parseBrowserMode(input);
+  if (modeResult.error) {
+    return {
+      errorResult: { content: modeResult.error, isError: true },
+    };
+  }
+  const browserMode = modeResult.mode;
+
+  try {
+    const cdp = getCdpClient(context, { mode: browserMode });
+    return { cdp, browserMode };
+  } catch (err) {
+    if (err instanceof CdpError && browserMode !== "auto") {
+      return {
+        errorResult: {
+          content: formatModeSelectionFailure(browserMode, err),
+          isError: true,
+        },
+      };
+    }
+    throw err;
+  }
+}
 
 // ── Shared element resolution ────────────────────────────────────────
 
@@ -175,6 +393,12 @@ export async function executeBrowserNavigate(
     return { content: "Error: operation was cancelled", isError: true };
   }
 
+  const modeResult = parseBrowserMode(input);
+  if (modeResult.error) {
+    return { content: modeResult.error, isError: true };
+  }
+  const browserMode = modeResult.mode;
+
   const parsedUrl = parseUrl(input.url);
   if (!parsedUrl) {
     return {
@@ -213,7 +437,18 @@ export async function executeBrowserNavigate(
     }
   }
 
-  const cdp = getCdpClient(context);
+  let cdp;
+  try {
+    cdp = getCdpClient(context, { mode: browserMode });
+  } catch (err) {
+    if (err instanceof CdpError && browserMode !== "auto") {
+      return {
+        content: formatModeSelectionFailure(browserMode, err),
+        isError: true,
+      };
+    }
+    throw err;
+  }
 
   // Screencast + handoff are Playwright-backed and only meaningful
   // for the local sacrificial-profile path. On the extension path the
@@ -564,6 +799,17 @@ export async function executeBrowserNavigate(
       };
     }
 
+    if (
+      err instanceof CdpError &&
+      browserMode !== "auto" &&
+      err.attemptDiagnostics
+    ) {
+      return {
+        content: formatModeSelectionFailure(browserMode, err),
+        isError: true,
+      };
+    }
+
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, url: safeRequestedUrl }, "Navigation failed");
     return { content: `Error: Navigation failed: ${msg}`, isError: true };
@@ -578,7 +824,25 @@ export async function executeBrowserSnapshot(
   _input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const cdp = getCdpClient(context);
+  const modeResult = parseBrowserMode(_input);
+  if (modeResult.error) {
+    return { content: modeResult.error, isError: true };
+  }
+  const browserMode = modeResult.mode;
+
+  let cdp;
+  try {
+    cdp = getCdpClient(context, { mode: browserMode });
+  } catch (err) {
+    if (err instanceof CdpError && browserMode !== "auto") {
+      return {
+        content: formatModeSelectionFailure(browserMode, err),
+        isError: true,
+      };
+    }
+    throw err;
+  }
+
   try {
     const currentUrl = await getCurrentUrl(cdp, context.signal);
     const title = await getPageTitle(cdp, context.signal);
@@ -609,6 +873,16 @@ export async function executeBrowserSnapshot(
       isError: false,
     };
   } catch (err) {
+    if (
+      err instanceof CdpError &&
+      browserMode !== "auto" &&
+      err.attemptDiagnostics
+    ) {
+      return {
+        content: formatModeSelectionFailure(browserMode, err),
+        isError: true,
+      };
+    }
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Snapshot failed");
     return { content: `Error: Snapshot failed: ${msg}`, isError: true };
@@ -623,9 +897,26 @@ export async function executeBrowserScreenshot(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  const modeResult = parseBrowserMode(input);
+  if (modeResult.error) {
+    return { content: modeResult.error, isError: true };
+  }
+  const browserMode = modeResult.mode;
   const fullPage = input.full_page === true;
 
-  const cdp = getCdpClient(context);
+  let cdp;
+  try {
+    cdp = getCdpClient(context, { mode: browserMode });
+  } catch (err) {
+    if (err instanceof CdpError && browserMode !== "auto") {
+      return {
+        content: formatModeSelectionFailure(browserMode, err),
+        isError: true,
+      };
+    }
+    throw err;
+  }
+
   try {
     const buffer = await captureScreenshotJpeg(
       cdp,
@@ -651,6 +942,16 @@ export async function executeBrowserScreenshot(
       contentBlocks: [imageBlock],
     };
   } catch (err) {
+    if (
+      err instanceof CdpError &&
+      browserMode !== "auto" &&
+      err.attemptDiagnostics
+    ) {
+      return {
+        content: formatModeSelectionFailure(browserMode, err),
+        isError: true,
+      };
+    }
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Screenshot failed");
     return { content: `Error: Screenshot failed: ${msg}`, isError: true };
@@ -665,7 +966,9 @@ export async function executeBrowserAttach(
   _input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const cdp = getCdpClient(context);
+  const acquired = acquireCdpClientWithMode(_input, context);
+  if (acquired.errorResult) return acquired.errorResult;
+  const cdp = acquired.cdp;
   try {
     if (cdp.kind === "extension") {
       // Extension path: explicitly attach the debugger via a synthetic
@@ -709,7 +1012,9 @@ export async function executeBrowserDetach(
   _input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const cdp = getCdpClient(context);
+  const acquired = acquireCdpClientWithMode(_input, context);
+  if (acquired.errorResult) return acquired.errorResult;
+  const cdp = acquired.cdp;
   try {
     if (cdp.kind === "extension") {
       // Extension path: explicitly detach the debugger via a synthetic
@@ -747,7 +1052,9 @@ export async function executeBrowserClose(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const cdp = getCdpClient(context);
+  const acquired = acquireCdpClientWithMode(input, context);
+  if (acquired.errorResult) return acquired.errorResult;
+  const cdp = acquired.cdp;
   try {
     if (cdp.kind === "local") {
       // Local/sacrificial-profile path: tear down the Playwright page,
@@ -805,7 +1112,9 @@ export async function executeBrowserClick(
   const { resolved, error } = resolveElement(context.conversationId, input);
   if (error) return { content: error, isError: true };
 
-  const cdp = getCdpClient(context);
+  const acquired = acquireCdpClientWithMode(input, context);
+  if (acquired.errorResult) return acquired.errorResult;
+  const cdp = acquired.cdp;
   try {
     let backendNodeId: number;
     if (resolved!.kind === "backend") {
@@ -917,7 +1226,9 @@ export async function executeBrowserType(
       ? `element_id "${resolved!.eid}"`
       : resolved!.selector;
 
-  const cdp = getCdpClient(context);
+  const acquired = acquireCdpClientWithMode(input, context);
+  if (acquired.errorResult) return acquired.errorResult;
+  const cdp = acquired.cdp;
   try {
     let backendNodeId: number;
     if (resolved!.kind === "backend") {
@@ -985,7 +1296,9 @@ export async function executeBrowserPressKey(
         : resolved!.selector;
   }
 
-  const cdp = getCdpClient(context);
+  const acquired = acquireCdpClientWithMode(input, context);
+  if (acquired.errorResult) return acquired.errorResult;
+  const cdp = acquired.cdp;
   try {
     if (resolved) {
       let backendNodeId: number;
@@ -1053,7 +1366,9 @@ export async function executeBrowserScroll(
       break;
   }
 
-  const cdp = getCdpClient(context);
+  const acquired = acquireCdpClientWithMode(input, context);
+  if (acquired.errorResult) return acquired.errorResult;
+  const cdp = acquired.cdp;
   try {
     // Fetch viewport dimensions so we can dispatch the wheel event at
     // the viewport center — scrolling from (0, 0) misses sticky
@@ -1107,7 +1422,9 @@ export async function executeBrowserSelectOption(
       ? `element_id "${resolved!.eid}"`
       : resolved!.selector;
 
-  const cdp = getCdpClient(context);
+  const acquired = acquireCdpClientWithMode(input, context);
+  if (acquired.errorResult) return acquired.errorResult;
+  const cdp = acquired.cdp;
   try {
     let backendNodeId: number;
     if (resolved!.kind === "backend") {
@@ -1214,7 +1531,9 @@ export async function executeBrowserHover(
   const { resolved, error } = resolveElement(context.conversationId, input);
   if (error) return { content: error, isError: true };
 
-  const cdp = getCdpClient(context);
+  const acquired = acquireCdpClientWithMode(input, context);
+  if (acquired.errorResult) return acquired.errorResult;
+  const cdp = acquired.cdp;
   try {
     let backendNodeId: number;
     if (resolved!.kind === "backend") {
@@ -1292,7 +1611,9 @@ export async function executeBrowserWaitFor(
     return { content: `Waited ${waitMs}ms.`, isError: false };
   }
 
-  const cdp = getCdpClient(context);
+  const acquired = acquireCdpClientWithMode(input, context);
+  if (acquired.errorResult) return acquired.errorResult;
+  const cdp = acquired.cdp;
   try {
     if (selector) {
       // browser_wait_for selector mode is "did this node appear at
@@ -1332,7 +1653,9 @@ export async function executeBrowserExtract(
 ): Promise<ToolExecutionResult> {
   const includeLinks = input.include_links === true;
 
-  const cdp = getCdpClient(context);
+  const acquired = acquireCdpClientWithMode(input, context);
+  if (acquired.errorResult) return acquired.errorResult;
+  const cdp = acquired.cdp;
   try {
     const currentUrl = await getCurrentUrl(cdp, context.signal);
     const title = await getPageTitle(cdp, context.signal);
@@ -1406,7 +1729,9 @@ export async function executeBrowserFillCredential(
       ? `element_id "${resolved!.eid}"`
       : resolved!.selector;
 
-  const cdp = getCdpClient(context);
+  const acquired = acquireCdpClientWithMode(input, context);
+  if (acquired.errorResult) return acquired.errorResult;
+  const cdp = acquired.cdp;
   try {
     let backendNodeId: number;
     if (resolved!.kind === "backend") {
