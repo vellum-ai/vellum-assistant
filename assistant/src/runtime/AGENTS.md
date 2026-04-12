@@ -115,9 +115,7 @@ All CDP-backed browser tools (`browser_navigate`, `browser_snapshot`, `browser_s
 
 **Auto-mode fallback logging**: In auto mode, fallback transitions are logged at `warn` level with structured metadata including the full candidate sequence and per-candidate failure reasons. This ensures fallback events are always observable in production logs.
 
-**Test coverage:** Regression tests for `browser_mode` wiring live in `__tests__/headless-browser-mode.test.ts`. Unit tests for pinned candidate construction and failover live in `tools/browser/cdp-client/__tests__/factory.test.ts`.
-
-**Test coverage:** E2E regression tests for this precedence order live in `__tests__/host-browser-e2e-cloud.test.ts` (extension path) and `__tests__/conversation-routes-disk-view.test.ts` (macOS fallback path). Unit tests for candidate list construction and failover live in `tools/browser/cdp-client/__tests__/factory.test.ts`.
+**Test coverage:** Regression tests for `browser_mode` wiring live in `__tests__/headless-browser-mode.test.ts`. E2E regression tests for backend precedence live in `__tests__/host-browser-e2e-cloud.test.ts` (extension path) and `__tests__/conversation-routes-disk-view.test.ts` (macOS fallback path). Unit tests for pinned candidate construction and failover live in `tools/browser/cdp-client/__tests__/factory.test.ts`.
 
 ### Channel approvals (Telegram, Slack)
 
