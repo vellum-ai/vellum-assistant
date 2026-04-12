@@ -81,6 +81,15 @@ export function getWorkspaceDirOverride(): string | undefined {
   return str("VELLUM_WORKSPACE_DIR");
 }
 
+/**
+ * VELLUM_BACKUP_KEY_PATH — string, default: undefined
+ * Overrides the default backup encryption key path (~/.vellum/protected/backup.key).
+ * Used in containerized deployments where the key must be on a persistent volume.
+ */
+export function getBackupKeyPathOverride(): string | undefined {
+  return str("VELLUM_BACKUP_KEY_PATH");
+}
+
 // ── Profiler env vars ───────────────────────────────────────────────────
 // These are injected by the platform when running a managed assistant in
 // profiler mode. The runtime uses them to locate, scope, and budget-limit
@@ -152,6 +161,7 @@ export function getProfilerMinFreeMb(): number | undefined {
 const KNOWN_VELLUM_VARS = new Set([
   "VELLUM_ASSISTANT_NAME",
   "VELLUM_AWS_ROLE_ARN",
+  "VELLUM_BACKUP_KEY_PATH",
   "VELLUM_CLOUD",
   "VELLUM_CUSTOM_QR_CODE_PATH",
   "VELLUM_DAEMON_AUTOSTART",
