@@ -1150,10 +1150,7 @@ describe("AssistantConfigSchema", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.services.stt.mode).toBe("your-own");
     expect(result.services.stt.provider).toBe("openai-whisper");
-    expect(result.services.stt.providers["openai-whisper"].model).toBe(
-      "whisper-1",
-    );
-    expect(result.services.stt.providers["openai-whisper"].language).toBe("");
+    expect(result.services.stt.providers["openai-whisper"]).toEqual({});
   });
 
   test("accepts valid services.stt provider override", () => {
@@ -1169,15 +1166,12 @@ describe("AssistantConfigSchema", () => {
       services: {
         stt: {
           providers: {
-            "openai-whisper": { model: "whisper-2", language: "en" },
+            "openai-whisper": {},
           },
         },
       },
     });
-    expect(result.services.stt.providers["openai-whisper"].model).toBe(
-      "whisper-2",
-    );
-    expect(result.services.stt.providers["openai-whisper"].language).toBe("en");
+    expect(result.services.stt.providers["openai-whisper"]).toEqual({});
   });
 
   test("rejects services.stt.mode = managed", () => {
