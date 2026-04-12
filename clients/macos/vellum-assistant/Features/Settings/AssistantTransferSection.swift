@@ -171,8 +171,8 @@ struct AssistantTransferSection: View {
             currentStep = "Cleaning up..."
             let localName = assistant.assistantId
             do {
-                let client = AppDelegate.shared?.managementClient(for: assistant)
-                try await client?.retire(name: localName)
+                let client = ManagementClient.create(for: assistant)
+                try await client.retire(name: localName)
             } catch {
                 log.error("[transfer] Failed to retire local assistant \(localName, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }

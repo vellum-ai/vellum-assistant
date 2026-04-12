@@ -642,9 +642,10 @@ extension AppDelegate {
         // producing spurious "SSE connection failed with status 502" errors.
         connectionManager.disconnect()
 
-        let client = managementClient()
+        let client = ManagementClient.create()
+        let replacement: LockfileAssistant?
         do {
-            try await client.retire()
+            replacement = try await client.retire()
         } catch {
             log.error("Retire failed: \(error.localizedDescription)")
 
@@ -658,56 +659,21 @@ extension AppDelegate {
                 try? await connectionManager.connect()
                 return false
             }
-            // User chose "Force Remove" — clean up the lockfile entry so the
-            // app can proceed to onboarding or switch to another assistant.
-            if let activeId = LockfileAssistant.loadActiveAssistantId() {
-                LockfileAssistant.removeEntry(assistantId: activeId)
-            }
+            // User chose "Force Remove" — the client delegates lockfile
+            // cleanup to this shared protocol-extension method.
+            client.forceRemoveActiveAssistant()
+            replacement = nil
         }
 
-        // Clear the stale connectedAssistantId immediately after retire so
-        // subsequent flows (e.g. managed bootstrap) don't attempt a 404 lookup
-        // for the now-retired assistant on the platform. If another assistant is
-        // found below, performSwitchAssistant will set the new ID.
-        LockfileAssistant.setActiveAssistantId(nil)
-
-        // Check if other assistants remain in the lockfile.
-        // On the success path the CLI deregisters the entry; on the Force
-        // Remove path we removed it above. Either way, only other assistants
-        // for the current environment remain.
-        let remaining = LockfileAssistant.loadAll().filter { $0.isCurrentEnvironment }
-        if !remaining.isEmpty {
-            // Try remote assistants first — they're always reachable
-            if let remote = remaining.first(where: { $0.isRemote }) {
-                performSwitchAssistant(to: remote)
-                return true
-            }
-
-            // Try local assistants — check if awake, otherwise wake them
-            for candidate in remaining {
-                if await HealthCheckClient.isReachable(for: candidate) {
-                    performSwitchAssistant(to: candidate)
-                    return true
-                }
-
-                // Sleeping — try to wake it
-                do {
-                    try await vellumCli.wake(name: candidate.assistantId)
-                    performSwitchAssistant(to: candidate)
-                    return true
-                } catch {
-                    log.warning("Failed to wake \(candidate.assistantId): \(error.localizedDescription)")
-                    continue
-                }
-            }
-            // All local wake attempts failed — fall through to onboarding
+        if let replacement {
+            performSwitchAssistant(to: replacement)
+            return true
         }
 
         // No assistants left — tear down fully and show onboarding
         AvatarAppearanceManager.shared.resetForDisconnect()
         OnboardingState.clearPersistedState()
         UserDefaults.standard.removeObject(forKey: "bootstrapState")
-        LockfileAssistant.setActiveAssistantId(nil)
         SentryDeviceInfo.updateAssistantTag(nil)
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
         SentryDeviceInfo.updateOrganizationTag(nil)
@@ -812,7 +778,7 @@ extension AppDelegate {
 
             // Retire each local assistant so cloud resources are cleaned up.
             for assistant in localAssistants {
-                let client = self.managementClient(for: assistant)
+                let client = ManagementClient.create(for: assistant)
                 do {
                     log.info("Retiring local assistant '\(assistant.assistantId, privacy: .public)' as part of uninstall")
                     try await client.retire(name: assistant.assistantId)

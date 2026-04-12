@@ -12,7 +12,7 @@ private let log = Logger(
 /// Manages the lifecycle of an assistant running inside an Apple Container
 /// (3-service LinuxPod VM via the Containerization framework).
 ///
-/// Conforms to `AssistantManagementClient` so `AppDelegate.managementClient(for:)`
+/// Conforms to `AssistantManagementClient` so `ManagementClient.create(for:)`
 /// can dispatch to it for `isAppleContainer` entries.
 @available(macOS 26.0, *)
 @MainActor
@@ -220,7 +220,8 @@ final class AppleContainersLauncher: AssistantManagementClient {
     /// Retire an apple-container assistant: stop the pod, archive the
     /// instance directory, remove the guardian token, and clean up the
     /// lockfile entry.
-    func retire(name: String?) async throws {
+    @discardableResult
+    func retire(name: String?) async throws -> LockfileAssistant? {
         guard let resolvedName = name ?? LockfileAssistant.loadActiveAssistantId() else {
             throw ManagementClientError.noActiveAssistant
         }
@@ -248,7 +249,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 let timestamp = ISO8601DateFormatter().string(from: Date())
                     .replacingOccurrences(of: ":", with: "-")
                 let archivePath = archiveDir.appendingPathComponent("\(resolvedName)-\(timestamp).tar.gz")
-                let stagingDir = archiveDir.appendingPathComponent("\(resolvedName)-staging")
+                let stagingDir = archiveDir.appendingPathComponent("\(resolvedName)-archiving")
 
                 // Move the instance directory to staging so the path is
                 // immediately available for a fresh hatch.
@@ -300,6 +301,9 @@ final class AppleContainersLauncher: AssistantManagementClient {
         Self.removeLockfileEntry(assistantId: resolvedName)
 
         log.info("Apple container '\(resolvedName, privacy: .public)' retired")
+
+        // Clear the active ID and find a replacement assistant.
+        return await findReplacementAfterRetire()
     }
 
     // MARK: - Local Image Building

@@ -105,31 +105,6 @@ extension AppDelegate {
         setupGatewayConnectionManager()
     }
 
-    // MARK: - Backend Dispatch
-
-    /// Return the `AssistantManagementClient` appropriate for `assistant`'s cloud type.
-    ///
-    /// - Non-apple-container (or absent): delegates to the bundled `VellumCli` hatch path.
-    /// - `apple-container`: dispatches to the `AppleContainersLauncher` which
-    ///   manages the full container lifecycle via the Containerization framework.
-    func managementClient(for assistant: LockfileAssistant?) -> AssistantManagementClient {
-        guard let assistant, assistant.isAppleContainer, let launcher = appleContainersLauncher else {
-            return vellumCli
-        }
-        return launcher
-    }
-
-    /// Return the `AssistantManagementClient` for the currently active assistant.
-    ///
-    /// Loads the active assistant ID from the lockfile and dispatches to the
-    /// appropriate backend. Falls back to `VellumCli` when no active assistant
-    /// is found or when the assistant is not an apple-container.
-    func managementClient() -> AssistantManagementClient {
-        let entry = LockfileAssistant.loadActiveAssistantId()
-            .flatMap { LockfileAssistant.loadByName($0) }
-        return managementClient(for: entry)
-    }
-
     // MARK: - Gateway Connection Setup
 
     func setupGatewayConnectionManager() {
