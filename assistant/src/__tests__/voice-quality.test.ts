@@ -35,9 +35,40 @@ import {
   _resetNativeTwilioVoiceSpecRegistry,
   registerNativeTwilioVoiceSpec,
 } from "../calls/tts-call-strategy.js";
+import {
+  _resetTtsProviderRegistry,
+  registerTtsProvider,
+} from "../tts/provider-registry.js";
+import type { TtsProvider } from "../tts/types.js";
 
 function registerTestVoiceSpecs(): void {
   _resetNativeTwilioVoiceSpecRegistry();
+  _resetTtsProviderRegistry();
+
+  // Register runtime TTS providers (needed for availability checks).
+  const elevenlabs: TtsProvider = {
+    id: "elevenlabs",
+    capabilities: { supportsStreaming: false, supportedFormats: ["mp3"] },
+    async synthesize() {
+      return { audio: Buffer.from(""), contentType: "audio/mpeg" };
+    },
+  };
+  registerTtsProvider(elevenlabs);
+
+  const fishAudio: TtsProvider = {
+    id: "fish-audio",
+    capabilities: {
+      supportsStreaming: true,
+      supportedFormats: ["mp3", "wav", "opus"],
+    },
+    async synthesize() {
+      return { audio: Buffer.from(""), contentType: "audio/mpeg" };
+    },
+    async synthesizeStream() {
+      return { audio: Buffer.from(""), contentType: "audio/mpeg" };
+    },
+  };
+  registerTtsProvider(fishAudio);
 
   // Register the ElevenLabs native Twilio voice-spec builder (mirrors
   // the production registration in register-builtins.ts).

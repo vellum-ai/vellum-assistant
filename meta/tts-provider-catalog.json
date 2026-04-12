@@ -5,8 +5,8 @@
       "id": "elevenlabs",
       "displayName": "ElevenLabs",
       "subtitle": "High-quality voice synthesis for conversations and read-aloud. Requires an ElevenLabs API key.",
-      "setupMode": "api-key",
-      "setupHint": "Enter your ElevenLabs API key to get started."
+      "setupMode": "cli",
+      "setupHint": "Run the setup commands in your terminal to configure ElevenLabs credentials."
     },
     {
       "id": "fish-audio",

@@ -101,9 +101,10 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
     },
     secretRequirements: [
       {
-        credentialStoreKey: "elevenlabs",
+        credentialStoreKey: "credential/elevenlabs/api_key",
         displayName: "ElevenLabs API Key",
-        setCommand: "assistant keys set elevenlabs <key>",
+        setCommand:
+          "assistant credentials set --service elevenlabs --field api_key <key>",
       },
     ],
   },
