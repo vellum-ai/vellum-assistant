@@ -495,7 +495,8 @@ describe("runtime proxy handler", () => {
       const expectedLength = new TextEncoder().encode(
         requestPayload,
       ).byteLength;
-      expect(capturedContentLength).toEqual(String(expectedLength));
+      expect(capturedContentLength).not.toBeNull();
+      expect(capturedContentLength!).toBe(String(expectedLength));
     });
 
     test("streams non-error STT response body back unchanged (no truncation)", async () => {
