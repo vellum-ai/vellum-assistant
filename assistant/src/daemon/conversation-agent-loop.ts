@@ -41,6 +41,8 @@ import {
   getConversation,
   getConversationOriginChannel,
   getConversationOriginInterface,
+  getLastUserTimestampBefore,
+  getMessageById,
   provenanceFromTrustContext,
   updateConversationContextWindow,
   updateConversationTitle,
@@ -64,6 +66,7 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { UsageActor } from "../usage/actors.js";
 import { getLogger } from "../util/logger.js";
+import { timeAgo } from "../util/time.js";
 import { truncate } from "../util/truncate.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
 import { commitTurnChanges } from "../workspace/turn-commit.js";
@@ -773,14 +776,35 @@ export async function runAgentLoopImpl(
     const isGuardian =
       resolvedInboundActorContext?.trustClass === "guardian" ||
       !resolvedInboundActorContext;
+
+    // Surface long gaps between user messages so the model can acknowledge
+    // the absence naturally. Gated at >12h to avoid noisy injection during
+    // normal back-and-forth turns.
+    const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
+    let timeSinceLastMessage: string | null = null;
+    const currentUserMessage = getMessageById(userMessageId);
+    if (currentUserMessage) {
+      const prevUserTs = getLastUserTimestampBefore(
+        ctx.conversationId,
+        currentUserMessage.createdAt,
+      );
+      if (
+        prevUserTs > 0 &&
+        currentUserMessage.createdAt - prevUserTs > TWELVE_HOURS_MS
+      ) {
+        timeSinceLastMessage = timeAgo(prevUserTs);
+      }
+    }
+
     const unifiedTurnContextStr = buildUnifiedTurnContextBlock(
       isGuardian
-        ? { timestamp, interfaceName, channelName }
+        ? { timestamp, interfaceName, channelName, timeSinceLastMessage }
         : {
             timestamp,
             interfaceName,
             channelName,
             actorContext: resolvedInboundActorContext,
+            timeSinceLastMessage,
           },
     );
 
