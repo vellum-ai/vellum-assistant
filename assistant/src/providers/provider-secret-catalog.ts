@@ -2,11 +2,13 @@
  * Canonical source for API-key-addressable providers.
  *
  * This module composes the full set of providers that store API keys in
- * secure storage (the `api_key` secret type) from two sources:
+ * secure storage (the `api_key` secret type) from three sources:
  *
  * 1. **LLM / search providers** -- statically declared here because they
  *    have no separate catalog module yet.
- * 2. **TTS catalog providers** -- dynamically derived from the canonical
+ * 2. **STT providers** -- statically declared here because no STT
+ *    provider-catalog module exists yet.
+ * 3. **TTS catalog providers** -- dynamically derived from the canonical
  *    TTS provider catalog by selecting entries whose secret requirements
  *    use the bare-name (non-credential) storage convention.
  *
@@ -39,6 +41,21 @@ const LLM_AND_SEARCH_API_KEY_PROVIDERS = [
   "brave",
   "perplexity",
 ] as const;
+
+// ---------------------------------------------------------------------------
+// Static STT providers
+// ---------------------------------------------------------------------------
+
+/**
+ * STT providers that store API keys under their bare provider name in the
+ * secure credential store (e.g. `deepgram`).
+ *
+ * Declared statically because no STT provider-catalog module exists yet.
+ * Providers whose credential key collides with an LLM provider (e.g.
+ * `openai-whisper` uses the `openai` key which is already in the LLM
+ * list) are intentionally omitted to avoid duplicates.
+ */
+const STT_API_KEY_PROVIDERS = ["deepgram"] as const;
 
 // ---------------------------------------------------------------------------
 // TTS catalog-derived providers
@@ -93,5 +110,6 @@ function catalogApiKeyProviderIds(): string[] {
  */
 export const API_KEY_PROVIDERS: readonly string[] = [
   ...LLM_AND_SEARCH_API_KEY_PROVIDERS,
+  ...STT_API_KEY_PROVIDERS,
   ...catalogApiKeyProviderIds(),
 ] as const;

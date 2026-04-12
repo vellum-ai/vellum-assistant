@@ -1153,6 +1153,7 @@ describe("AssistantConfigSchema", () => {
     expect(result.services.stt.mode).toBe("your-own");
     expect(result.services.stt.provider).toBe("openai-whisper");
     expect(result.services.stt.providers["openai-whisper"]).toEqual({});
+    expect(result.services.stt.providers.deepgram).toEqual({});
   });
 
   test("accepts valid services.stt provider override", () => {
@@ -1198,6 +1199,32 @@ describe("AssistantConfigSchema", () => {
       const msgs = result.error.issues.map((i) => i.message);
       expect(msgs.some((m) => m.includes("services.stt.provider"))).toBe(true);
     }
+  });
+
+  test("accepts deepgram as services.stt.provider", () => {
+    const result = AssistantConfigSchema.parse({
+      services: { stt: { provider: "deepgram" } },
+    });
+    expect(result.services.stt.provider).toBe("deepgram");
+    expect(result.services.stt.mode).toBe("your-own");
+  });
+
+  test("accepts valid services.stt.providers.deepgram overrides", () => {
+    const result = AssistantConfigSchema.parse({
+      services: {
+        stt: {
+          providers: {
+            deepgram: {},
+          },
+        },
+      },
+    });
+    expect(result.services.stt.providers.deepgram).toEqual({});
+  });
+
+  test("deepgram provider default is openai-whisper (not deepgram)", () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.services.stt.provider).toBe("openai-whisper");
   });
 
   test("services.stt.mode only accepts your-own as literal", () => {

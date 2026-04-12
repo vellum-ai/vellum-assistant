@@ -6,13 +6,14 @@
  * be configured. Callers use this instead of constructing provider classes
  * directly.
  *
- * Currently the only daemon-batch provider is OpenAI Whisper. As new providers
- * are added, this module can select the appropriate adapter based on
- * configuration or feature flags.
+ * Supported daemon-batch providers:
+ * - OpenAI Whisper (`openai-whisper`)
+ * - Deepgram (`deepgram`)
  */
 
 import type {
   BatchTranscriber,
+  SttProviderId,
   SttTranscribeRequest,
   SttTranscribeResult,
 } from "./types.js";
@@ -49,6 +50,38 @@ class WhisperBatchTranscriber implements BatchTranscriber {
     const { OpenAIWhisperProvider } =
       await import("../providers/speech-to-text/openai-whisper.js");
     const provider = new OpenAIWhisperProvider(this.apiKey);
+
+    return provider.transcribe(request.audio, request.mimeType, request.signal);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Deepgram adapter — implements BatchTranscriber on top of the Deepgram
+// prerecorded-audio provider.
+// ---------------------------------------------------------------------------
+
+/**
+ * Wraps `DeepgramProvider` behind the `BatchTranscriber` contract.
+ *
+ * Same error-propagation semantics as WhisperBatchTranscriber: raw provider
+ * errors pass through unchanged.
+ */
+class DeepgramBatchTranscriber implements BatchTranscriber {
+  readonly providerId = "deepgram" as const;
+  readonly boundaryId = "daemon-batch" as const;
+
+  private readonly apiKey: string;
+
+  constructor(apiKey: string) {
+    this.apiKey = apiKey;
+  }
+
+  async transcribe(
+    request: SttTranscribeRequest,
+  ): Promise<SttTranscribeResult> {
+    const { DeepgramProvider } =
+      await import("../providers/speech-to-text/deepgram.js");
+    const provider = new DeepgramProvider(this.apiKey);
 
     return provider.transcribe(request.audio, request.mimeType, request.signal);
   }
@@ -99,16 +132,29 @@ export function normalizeSttError(err: unknown): SttError {
 /**
  * Create a `BatchTranscriber` for the daemon-batch boundary.
  *
- * Callers provide the API key (obtained via the authorized secure-keys
- * importer in `providers/speech-to-text/resolve.ts`) so that this module
- * doesn't need to import secure-keys directly.
+ * Callers provide the API key and provider ID (obtained via the authorized
+ * secure-keys importer in `providers/speech-to-text/resolve.ts`) so that
+ * this module doesn't need to import secure-keys directly.
  *
  * Returns `null` when `apiKey` is falsy, signalling to the caller that
  * batch transcription is unavailable.
  */
 export function createDaemonBatchTranscriber(
   apiKey: string | null | undefined,
+  providerId: SttProviderId = "openai-whisper",
 ): BatchTranscriber | null {
   if (!apiKey) return null;
-  return new WhisperBatchTranscriber(apiKey);
+
+  switch (providerId) {
+    case "openai-whisper":
+      return new WhisperBatchTranscriber(apiKey);
+    case "deepgram":
+      return new DeepgramBatchTranscriber(apiKey);
+    default: {
+      // Exhaustive check — compile error if a new SttProviderId is added
+      // without a corresponding case here.
+      const _exhaustive: never = providerId;
+      return null;
+    }
+  }
 }

@@ -10,8 +10,7 @@ import type { BatchTranscriber, SttProviderId } from "../../stt/types.js";
 /**
  * Map an STT provider identifier to the credential provider name used by
  * `getProviderKeyAsync`. New STT providers that share credentials with an
- * existing credential provider (e.g. a future Deepgram provider would map
- * to `"deepgram"`) add an entry here.
+ * existing credential provider add an entry here.
  *
  * Typed as `Record<SttProviderId, string>` to ensure compile-time
  * completeness: adding a new variant to `SttProviderId` without a
@@ -19,6 +18,7 @@ import type { BatchTranscriber, SttProviderId } from "../../stt/types.js";
  */
 const STT_PROVIDER_CREDENTIAL_MAP: Record<SttProviderId, string> = {
   "openai-whisper": "openai",
+  deepgram: "deepgram",
 };
 
 // ---------------------------------------------------------------------------
@@ -53,5 +53,5 @@ export async function resolveBatchTranscriber(): Promise<BatchTranscriber | null
   }
 
   const apiKey = await getProviderKeyAsync(credentialProvider);
-  return createDaemonBatchTranscriber(apiKey);
+  return createDaemonBatchTranscriber(apiKey, provider as SttProviderId);
 }

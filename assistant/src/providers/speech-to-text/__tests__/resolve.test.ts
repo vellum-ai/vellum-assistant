@@ -57,6 +57,7 @@ function buildConfig(overrides: {
         provider: overrides.provider ?? "openai-whisper",
         providers: {
           "openai-whisper": {},
+          deepgram: {},
         },
       },
     },
@@ -96,8 +97,8 @@ describe("resolveBatchTranscriber", () => {
   test("returns null when configured provider is unsupported for daemon-batch", async () => {
     // Force an unknown provider past the type system to simulate a future
     // provider that hasn't been wired into the daemon-batch boundary yet.
-    mockProviderKeys["deepgram"] = "dg-test-key";
-    mockConfig = buildConfig({ provider: "deepgram" as string });
+    mockProviderKeys["some-provider"] = "key";
+    mockConfig = buildConfig({ provider: "unknown-provider" as string });
 
     const transcriber = await resolveBatchTranscriber();
 
@@ -124,6 +125,50 @@ describe("resolveBatchTranscriber", () => {
 
     // The providerId must remain "openai-whisper" for downstream identity checks.
     expect(transcriber!.providerId).toBe("openai-whisper");
+    expect(transcriber!.boundaryId).toBe("daemon-batch");
+  });
+
+  // -------------------------------------------------------------------------
+  // Deepgram provider resolution
+  // -------------------------------------------------------------------------
+
+  test("returns a BatchTranscriber when deepgram is configured and credentials are available", async () => {
+    mockProviderKeys["deepgram"] = "dg-test-key";
+    mockConfig = buildConfig({ provider: "deepgram" });
+
+    const transcriber = await resolveBatchTranscriber();
+
+    expect(transcriber).not.toBeNull();
+    expect(transcriber!.providerId).toBe("deepgram");
+    expect(transcriber!.boundaryId).toBe("daemon-batch");
+  });
+
+  test("returns null when deepgram is configured but no credentials exist", async () => {
+    mockProviderKeys = {}; // no keys
+    mockConfig = buildConfig({ provider: "deepgram" });
+
+    const transcriber = await resolveBatchTranscriber();
+
+    expect(transcriber).toBeNull();
+  });
+
+  test("deepgram uses 'deepgram' credential key, not 'openai'", async () => {
+    // Only openai key is set — deepgram should NOT resolve
+    mockProviderKeys["openai"] = "sk-test-key";
+    mockConfig = buildConfig({ provider: "deepgram" });
+
+    const transcriber = await resolveBatchTranscriber();
+
+    expect(transcriber).toBeNull();
+  });
+
+  test("resolved deepgram transcriber has stable provider identity", async () => {
+    mockProviderKeys["deepgram"] = "dg-identity-test";
+    mockConfig = buildConfig({ provider: "deepgram" });
+
+    const transcriber = await resolveBatchTranscriber();
+
+    expect(transcriber!.providerId).toBe("deepgram");
     expect(transcriber!.boundaryId).toBe("daemon-batch");
   });
 });

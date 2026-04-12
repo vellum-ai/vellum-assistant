@@ -15,7 +15,7 @@
  * Canonical provider identifiers for daemon-hosted batch STT backends.
  * Extend this union as new providers are integrated.
  */
-export type SttProviderId = "openai-whisper";
+export type SttProviderId = "openai-whisper" | "deepgram";
 
 // ---------------------------------------------------------------------------
 // Boundary identifier
