@@ -17,6 +17,22 @@
  */
 export type SttProviderId = "openai-whisper";
 
+/**
+ * Telephony-specific STT support mode.
+ *
+ * Describes how a provider can participate in real-time telephony call
+ * ingestion when wired through `services.stt` (as opposed to the
+ * ConversationRelay-native STT path in `calls.voice.transcriptionProvider`).
+ *
+ * - `"realtime-ws"` — provider offers a WebSocket streaming endpoint suitable
+ *   for low-latency telephony audio. Future PRs will wire this into the
+ *   media-stream call adapter.
+ * - `"batch-only"` — provider supports only REST batch transcription; not
+ *   suitable for real-time telephony.
+ * - `"none"` — provider has no telephony support.
+ */
+export type TelephonySttMode = "realtime-ws" | "batch-only" | "none";
+
 // ---------------------------------------------------------------------------
 // Boundary identifier
 // ---------------------------------------------------------------------------
@@ -27,6 +43,28 @@ export type SttProviderId = "openai-whisper";
  *   call to the provider (e.g. OpenAI Whisper).
  */
 export type SttBoundaryId = "daemon-batch";
+
+// ---------------------------------------------------------------------------
+// Call-context hints
+// ---------------------------------------------------------------------------
+
+/**
+ * Optional metadata hints that a caller can supply when the transcription
+ * originates from a phone-call context. These are advisory — providers may
+ * ignore hints they do not support.
+ *
+ * This type is intentionally separate from the batch request so that
+ * call-context awareness can be added incrementally without changing the
+ * shape for non-call callers.
+ */
+export interface SttCallContextHints {
+  /** BCP-47 language code for the expected speech (e.g. "en-US"). */
+  language?: string;
+  /** Static vocabulary hints (proper nouns, domain terms) the ASR should prioritize. */
+  vocabularyHints?: string[];
+  /** Short natural-language prompt to bias the transcription model. */
+  prompt?: string;
+}
 
 // ---------------------------------------------------------------------------
 // Request / result
@@ -40,6 +78,12 @@ export interface SttTranscribeRequest {
   mimeType: string;
   /** Optional abort signal for cancellation / timeout. */
   signal?: AbortSignal;
+  /**
+   * Optional call-context hints. Present when the transcription request
+   * originates from a telephony call. Providers may use these to improve
+   * recognition accuracy.
+   */
+  callContext?: SttCallContextHints;
 }
 
 /** Successful transcription output. */
