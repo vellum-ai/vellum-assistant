@@ -46,15 +46,15 @@ struct EnvironmentBadge: View {
     private var badgeColor: Color {
         switch environment {
         case .local:
-            return .orange
+            return VColor.funCoral
         case .dev:
-            return .blue
+            return VColor.funBlue
         case .test:
-            return .purple
+            return VColor.funPurple
         case .staging:
-            return .yellow
+            return VColor.funYellow
         case .production:
-            return .green
+            return VColor.funGreen
         }
     }
 }
