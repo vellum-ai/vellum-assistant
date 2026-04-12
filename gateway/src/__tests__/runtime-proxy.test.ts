@@ -416,4 +416,117 @@ describe("runtime proxy handler", () => {
       expect(fetchCalls.length).toBe(1);
     });
   });
+
+  // ── STT endpoint regression coverage ─────────────────────────────────
+
+  describe("STT payload forwarding", () => {
+    test("rewrites /v1/assistants/:id/stt/transcribe to /v1/stt/transcribe", async () => {
+      const captured: { url: string; method: string }[] = [];
+      fetchMock = mock(
+        async (input: string | URL | Request, init?: RequestInit) => {
+          captured.push({ url: String(input), method: init?.method ?? "GET" });
+          return new Response(JSON.stringify({ text: "hello world" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        },
+      );
+
+      const handler = createRuntimeProxyHandler(makeConfig());
+      const req = new Request(
+        "http://localhost:7830/v1/assistants/my-assistant/stt/transcribe",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ audio: "base64data" }),
+        },
+      );
+      const res = await handler(req);
+
+      expect(res.status).toBe(200);
+      expect(captured).toHaveLength(1);
+      expect(captured[0].url).toBe("http://localhost:7821/v1/stt/transcribe");
+      expect(captured[0].method).toBe("POST");
+    });
+
+    test("forwards buffered base64-heavy JSON body intact with correct content-length", async () => {
+      // Simulate a base64-encoded audio payload (~16 KB of base64 data)
+      const fakeBase64Audio = Buffer.from(
+        new Uint8Array(12_000).fill(0x41),
+      ).toString("base64");
+      const requestPayload = JSON.stringify({
+        audio: fakeBase64Audio,
+        format: "wav",
+        sample_rate: 16000,
+      });
+
+      let capturedBody: ArrayBuffer | null = null;
+      let capturedContentLength: string | null = null;
+      fetchMock = mock(
+        async (_input: string | URL | Request, init?: RequestInit) => {
+          capturedBody = init?.body as ArrayBuffer;
+          capturedContentLength =
+            (init?.headers as Headers)?.get("content-length") ?? null;
+          return new Response(JSON.stringify({ text: "transcribed" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        },
+      );
+
+      const handler = createRuntimeProxyHandler(makeConfig());
+      const req = new Request(
+        "http://localhost:7830/v1/assistants/test-asst/stt/transcribe",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: requestPayload,
+        },
+      );
+      const res = await handler(req);
+
+      expect(res.status).toBe(200);
+
+      // Verify the buffered body is forwarded byte-for-byte
+      const forwarded = new TextDecoder().decode(capturedBody!);
+      expect(forwarded).toBe(requestPayload);
+
+      // Verify content-length matches actual byte length
+      const expectedLength = new TextEncoder().encode(
+        requestPayload,
+      ).byteLength;
+      expect(capturedContentLength).toBe(String(expectedLength));
+    });
+
+    test("streams non-error STT response body back unchanged (no truncation)", async () => {
+      // Build a large-ish response body (~32 KB) to confirm no corruption
+      const segments = Array.from({ length: 200 }, (_, i) => ({
+        id: i,
+        text: `Segment ${i}: ${"lorem ipsum ".repeat(10)}`,
+        confidence: 0.95,
+      }));
+      const largeResponseBody = JSON.stringify({ segments });
+
+      fetchMock = mock(async () => {
+        return new Response(largeResponseBody, {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      });
+
+      const handler = createRuntimeProxyHandler(makeConfig());
+      const req = new Request("http://localhost:7830/v1/stt/transcribe", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ audio: "data" }),
+      });
+      const res = await handler(req);
+
+      expect(res.status).toBe(200);
+      const body = await res.text();
+      // The full response body must arrive without truncation or corruption
+      expect(body).toBe(largeResponseBody);
+      expect(body.length).toBe(largeResponseBody.length);
+    });
+  });
 });
