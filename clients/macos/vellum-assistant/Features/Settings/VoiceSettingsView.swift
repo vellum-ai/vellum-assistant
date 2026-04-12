@@ -33,6 +33,7 @@ struct VoiceSettingsView: View {
     @AppStorage("ttsProvider") private var ttsProviderRaw: String = TTSProviderOption.elevenlabs.rawValue
 
     @State private var elevenLabsKeyText: String = ""
+    @State private var elevenLabsVoiceId: String = ""
     @State private var ttsSetupExpanded: Bool = false
     /// Whether an ElevenLabs API key is stored (fetched per-component).
     @State private var elevenLabsHasKey = false
@@ -388,6 +389,22 @@ struct VoiceSettingsView: View {
                         elevenLabsKeyText = ""
                         ttsSetupExpanded = false
                     }
+                }
+
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    VTextField(
+                        "Voice ID",
+                        placeholder: "ElevenLabs Voice ID (optional)",
+                        text: $elevenLabsVoiceId,
+                        onSubmit: {
+                            store.setElevenLabsVoiceId(elevenLabsVoiceId)
+                        },
+                        maxWidth: 400
+                    )
+
+                    Text("Leave blank to use the default voice. Find voice IDs at elevenlabs.io/voice-library.")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
             } else if ttsSetupExpanded {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {

@@ -2936,6 +2936,18 @@ public final class SettingsStore: ObservableObject {
         return task
     }
 
+    func setElevenLabsVoiceId(_ voiceId: String) {
+        Task {
+            let trimmed = voiceId.trimmingCharacters(in: .whitespacesAndNewlines)
+            let success = await settingsClient.patchConfig([
+                "services": ["tts": ["providers": ["elevenlabs": ["voiceId": trimmed]]]]
+            ])
+            if !success {
+                log.error("Failed to patch config for ElevenLabs voice ID")
+            }
+        }
+    }
+
     /// Schedules a delayed refresh of provider routing sources, giving the
     /// daemon time to re-initialize providers after a key change.
     private func scheduleRoutingSourceRefresh() {
