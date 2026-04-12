@@ -1,5 +1,6 @@
 import { loadConfig } from "../config/loader.js";
 import { DEFAULT_ELEVENLABS_VOICE_ID } from "../config/schemas/elevenlabs.js";
+import { getTtsProvider } from "../tts/provider-registry.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 import {
   getNativeTwilioVoiceSpec,
@@ -81,10 +82,24 @@ export function resolveVoiceQualityProfile(
   // Falls back to native ElevenLabs when config/catalog is unavailable.
   const strategy = resolveCallStrategy(cfg);
 
+  // Before committing to the catalog-derived strategy, verify the
+  // runtime provider is actually registered. If the provider registry
+  // hasn't been initialised (early startup, test mocks), fall back to
+  // native mode so this function and resolveCallTtsProvider agree on
+  // the same degraded-mode path.
+  let runtimeAvailable = false;
+  try {
+    const resolved = resolveTtsConfig(cfg);
+    getTtsProvider(resolved.provider);
+    runtimeAvailable = true;
+  } catch {
+    // Provider not registered — will fall through to native path below.
+  }
+
   let ttsProvider: string;
   let voiceSpec: string;
 
-  if (strategy.callMode === "synthesized-play") {
+  if (runtimeAvailable && strategy.callMode === "synthesized-play") {
     // Synthesized providers stream audio via `play` messages.
     // Twilio still needs a valid ttsProvider in TwiML, so use a
     // placeholder and leave voice empty.
