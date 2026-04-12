@@ -1169,7 +1169,6 @@ export async function hatchDocker(
       cloud: "docker",
       species,
       hatchedAt: new Date().toISOString(),
-      serviceGroupVersion: cliPkg.version ? `v${cliPkg.version}` : undefined,
       containerInfo: {
         assistantImage: imageTags.assistant,
         gatewayImage: imageTags.gateway,

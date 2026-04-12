@@ -12,8 +12,8 @@ private let log = Logger(
 /// Manages the lifecycle of an assistant running inside an Apple Container
 /// (3-service LinuxPod VM via the Containerization framework).
 ///
-/// Conforms to `AssistantManagementClient` so `AppDelegate.managementClient(for:)`
-/// can dispatch to it for `isAppleContainer` entries.
+/// Subclasses `AssistantManagementClient` so `create(for:)` can dispatch to
+/// it for `isAppleContainer` entries.
 @available(macOS 26.0, *)
 @MainActor
 final class AppleContainersLauncher: AssistantManagementClient {
@@ -55,7 +55,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
 
     // MARK: - AssistantManagementClient
 
-    func hatch(name: String?, configValues: [String: String]) async throws {
+    override func hatch(name: String? = nil, configValues: [String: String] = [:]) async throws {
         try await hatch(name: name, configValues: configValues, progress: nil)
     }
 
@@ -220,8 +220,12 @@ final class AppleContainersLauncher: AssistantManagementClient {
     /// Retire an apple-container assistant: stop the pod, archive the
     /// instance directory, remove the guardian token, and clean up the
     /// lockfile entry.
-    func retire(name: String) async throws {
-        log.info("Retiring apple-container '\(name, privacy: .public)'")
+    override func retire(name: String? = nil) async throws -> LockfileAssistant? {
+        guard let resolvedName = name ?? LockfileAssistant.loadActiveAssistantId() else {
+            throw ManagementClientError.noActiveAssistant
+        }
+
+        log.info("Retiring apple-container '\(resolvedName, privacy: .public)'")
 
         // 1. Stop the running pod and management socket.
         //    Continue cleanup even if stop fails (e.g. pod already stopped,
@@ -234,7 +238,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
 
         // 2. Archive the instance directory (best-effort — failures must not
         //    prevent guardian token and lockfile cleanup below).
-        let dir = Self.instanceDir(for: name)
+        let dir = Self.instanceDir(for: resolvedName)
         do {
             if FileManager.default.fileExists(atPath: dir.path) {
                 let archiveDir = Self.retiredArchiveDir()
@@ -243,24 +247,24 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 )
                 let timestamp = ISO8601DateFormatter().string(from: Date())
                     .replacingOccurrences(of: ":", with: "-")
-                let archivePath = archiveDir.appendingPathComponent("\(name)-\(timestamp).tar.gz")
-                let stagingDir = archiveDir.appendingPathComponent("\(name)-staging")
+                let archivePath = archiveDir.appendingPathComponent("\(resolvedName)-\(timestamp).tar.gz")
+                let archivingDir = archiveDir.appendingPathComponent("\(resolvedName)-archiving")
 
-                // Move the instance directory to staging so the path is
-                // immediately available for a fresh hatch.
+                // Move the instance directory to the archiving path so the
+                // original path is immediately available for a fresh hatch.
                 do {
-                    try FileManager.default.moveItem(at: dir, to: stagingDir)
+                    try FileManager.default.moveItem(at: dir, to: archivingDir)
                 } catch {
                     log.warning("Failed to stage instance directory for archive: \(error.localizedDescription, privacy: .public) — removing in place")
                     try? FileManager.default.removeItem(at: dir)
                 }
 
-                // Compress in the background and clean up the staging directory.
-                if FileManager.default.fileExists(atPath: stagingDir.path) {
+                // Compress in the background and clean up the archiving directory.
+                if FileManager.default.fileExists(atPath: archivingDir.path) {
                     let tarCmd = [
                         "tar", "czf", archivePath.path,
                         "-C", archiveDir.path,
-                        stagingDir.lastPathComponent,
+                        archivingDir.lastPathComponent,
                     ]
                     let tarProcess = Process()
                     tarProcess.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -271,13 +275,13 @@ final class AppleContainersLauncher: AssistantManagementClient {
                         // Set handler BEFORE run() to avoid a race where the
                         // process exits before terminationHandler is set.
                         tarProcess.terminationHandler = { _ in
-                            try? FileManager.default.removeItem(at: stagingDir)
+                            try? FileManager.default.removeItem(at: archivingDir)
                         }
                         try tarProcess.run()
                         log.info("Archiving instance to \(archivePath.path, privacy: .public) in the background")
                     } catch {
-                        log.warning("Failed to start archive: \(error.localizedDescription, privacy: .public) — cleaning up staging")
-                        try? FileManager.default.removeItem(at: stagingDir)
+                        log.warning("Failed to start archive: \(error.localizedDescription, privacy: .public) — cleaning up archiving dir")
+                        try? FileManager.default.removeItem(at: archivingDir)
                     }
                 }
             } else {
@@ -290,12 +294,15 @@ final class AppleContainersLauncher: AssistantManagementClient {
         }
 
         // 3. Remove the guardian token file.
-        Self.removeGuardianToken(assistantId: name)
+        Self.removeGuardianToken(assistantId: resolvedName)
 
         // 4. Remove the lockfile entry.
-        Self.removeLockfileEntry(assistantId: name)
+        Self.removeLockfileEntry(assistantId: resolvedName)
 
-        log.info("Apple container '\(name, privacy: .public)' retired")
+        log.info("Apple container '\(resolvedName, privacy: .public)' retired")
+
+        // Clear the active ID and find a replacement assistant.
+        return await findReplacementAfterRetire(retiredId: resolvedName)
     }
 
     // MARK: - Local Image Building

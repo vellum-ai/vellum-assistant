@@ -9,7 +9,7 @@ import ObjCExceptionCatcher
 import VellumAssistantShared
 
 private let log = Logger(
-    subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
+    subsystem: Bundle.appBundleIdentifier,
     category: "InputBarView"
 )
 

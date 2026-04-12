@@ -579,11 +579,14 @@ if [ "$CMD" = "release" ] || [ "$CMD" = "release-application" ]; then
     fi
 fi
 
-# Use a distinct bundle ID for debug builds so that `log stream` filtering
-# does not pick up logs from the production app running on the same machine.
-if [ "$CONFIG" = "debug" ]; then
-    BUNDLE_ID="com.vellum.vellum-assistant-dev"
-fi
+# Derive a per-environment bundle ID so that non-production builds are
+# isolated from each other (separate preferences, log stream filters, etc.).
+# Production keeps the bare identifier; everything else gets a suffix.
+case "$VELLUM_ENVIRONMENT" in
+    production) ;; # keep default BUNDLE_ID
+    *)          BUNDLE_ID="com.vellum.vellum-assistant-${VELLUM_ENVIRONMENT}" ;;
+esac
+echo "BUNDLE_ID=$BUNDLE_ID"
 
 # 1. Build with SPM (or use prebuilt binaries if PREBUILT_BIN_PATH is set)
 if [ -n "${PREBUILT_BIN_PATH:-}" ]; then
@@ -1074,7 +1077,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Vellum uses speech recognition to convert voice commands into tasks.</string>
     <key>SUFeedURL</key>
-    <string>${SU_FEED_URL:-https://github.com/vellum-ai/velly/releases/latest/download/appcast.xml}</string>
+    <string>${SU_FEED_URL:-https://github.com/vellum-ai/vellum-assistant/releases/latest/download/appcast.xml}</string>
     <key>SUPublicEDKey</key>
     <string>${SU_PUBLIC_ED_KEY:-}</string>
     <key>SUEnableAutomaticChecks</key>

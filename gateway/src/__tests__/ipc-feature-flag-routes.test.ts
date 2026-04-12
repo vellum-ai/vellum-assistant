@@ -56,10 +56,12 @@ const TEST_REGISTRY = {
 
 const savedBaseDataDir = process.env.BASE_DATA_DIR;
 const savedWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+const savedGatewaySecurityDir = process.env.GATEWAY_SECURITY_DIR;
 
 beforeEach(() => {
   process.env.BASE_DATA_DIR = testDir;
   process.env.VELLUM_WORKSPACE_DIR = testDir;
+  process.env.GATEWAY_SECURITY_DIR = protectedDir;
   mkdirSync(protectedDir, { recursive: true });
   writeFileSync(defaultsPath, JSON.stringify(TEST_REGISTRY, null, 2));
   _setRegistryCandidateOverrides([defaultsPath]);
@@ -78,6 +80,11 @@ afterEach(() => {
     delete process.env.VELLUM_WORKSPACE_DIR;
   } else {
     process.env.VELLUM_WORKSPACE_DIR = savedWorkspaceDir;
+  }
+  if (savedGatewaySecurityDir === undefined) {
+    delete process.env.GATEWAY_SECURITY_DIR;
+  } else {
+    process.env.GATEWAY_SECURITY_DIR = savedGatewaySecurityDir;
   }
   try {
     rmSync(testDir, { recursive: true, force: true });

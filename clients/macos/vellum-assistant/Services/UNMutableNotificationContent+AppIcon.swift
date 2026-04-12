@@ -1,11 +1,12 @@
 import AppKit
 import Foundation
 import UserNotifications
+import VellumAssistantShared
 
 /// Temporary directory for rendered notification icon.
 private let notificationIconCacheURL: URL = {
     let tmp = FileManager.default.temporaryDirectory
-        .appendingPathComponent("com.vellum.vellum-assistant", isDirectory: true)
+        .appendingPathComponent(Bundle.appBundleIdentifier, isDirectory: true)
     try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
     return tmp.appendingPathComponent("notification-icon.png")
 }()
@@ -34,7 +35,7 @@ extension UNMutableNotificationContent {
 
         // Fall back to static bundle icon
         guard let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns")
-                ?? Bundle(identifier: "com.vellum.vellum-assistant")?.url(forResource: "AppIcon", withExtension: "icns"),
+                ?? Bundle(identifier: Bundle.appBundleIdentifier)?.url(forResource: "AppIcon", withExtension: "icns"),
               let attachment = try? UNNotificationAttachment(identifier: "app-icon", url: iconURL, options: nil)
         else { return }
         attachments = [attachment]

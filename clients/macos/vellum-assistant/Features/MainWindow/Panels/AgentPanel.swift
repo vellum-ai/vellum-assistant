@@ -14,6 +14,7 @@ struct AgentPanelContent: View {
 
     @State private var skillsManager: SkillsManager
     @State private var selectedSkillId: String?
+    @State private var cachedSelectedSkill: SkillInfo?
     @State private var skillToDelete: SkillInfo?
     @AppStorage("skillsBannerDismissed") private var bannerDismissed = false
 
@@ -96,6 +97,7 @@ struct AgentPanelContent: View {
             onSkillsChanged?()
             if let selectedId = selectedSkillId,
                skillsManager.installingSkillId != selectedId,
+               cachedSelectedSkill == nil,
                !skillsManager.skills.contains(where: { $0.id == selectedId }) {
                 selectedSkillId = nil
             }
@@ -110,6 +112,7 @@ struct AgentPanelContent: View {
             // from the unfiltered `skills` list (and not mid-install).
             if let selectedId = selectedSkillId,
                skillsManager.installingSkillId != selectedId,
+               cachedSelectedSkill == nil,
                !skillsManager.skills.contains(where: { $0.id == selectedId }) {
                 selectedSkillId = nil
             }
@@ -120,6 +123,8 @@ struct AgentPanelContent: View {
                 onDelete: {
                     skillsManager.uninstallSkill(id: skill.id)
                     skillToDelete = nil
+                    cachedSelectedSkill = nil
+                    selectedSkillId = nil
                 },
                 onCancel: {
                     skillToDelete = nil
@@ -247,17 +252,22 @@ struct AgentPanelContent: View {
         // Fall back to the unfiltered `skills` list so a detail view that
         // would otherwise be hidden by the active filter (e.g. a just-
         // installed skill viewed under the `.available` filter) still
-        // renders. Pair with `.id(skill.id)` so SwiftUI creates a fresh
+        // renders. Finally fall back to the cached snapshot taken when
+        // the user clicked into the detail, so a transient search
+        // refresh doesn't dismiss the detail view.
+        // Pair with `.id(skill.id)` so SwiftUI creates a fresh
         // view instance when the selected skill changes.
         if let selectedId = selectedSkillId,
            let skill = skillsManager.filteredSkills.first(where: { $0.id == selectedId })
-            ?? skillsManager.skills.first(where: { $0.id == selectedId }) {
+            ?? skillsManager.skills.first(where: { $0.id == selectedId })
+            ?? cachedSelectedSkill {
             SkillDetailView(
                 skill: skill,
                 skillsManager: skillsManager,
                 onBack: {
                     withAnimation(VAnimation.standard) {
                         selectedSkillId = nil
+                        cachedSelectedSkill = nil
                     }
                 },
                 onDelete: { skill in
@@ -294,6 +304,7 @@ struct AgentPanelContent: View {
                                 skill: skill,
                                 onSelect: {
                                     withAnimation(VAnimation.fast) {
+                                        cachedSelectedSkill = skill
                                         selectedSkillId = skill.id
                                     }
                                 },
@@ -305,6 +316,7 @@ struct AgentPanelContent: View {
                                 skill: skill,
                                 onSelect: {
                                     withAnimation(VAnimation.fast) {
+                                        cachedSelectedSkill = skill
                                         selectedSkillId = skill.id
                                     }
                                 },

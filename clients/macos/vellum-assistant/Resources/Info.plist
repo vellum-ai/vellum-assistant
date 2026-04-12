@@ -43,7 +43,7 @@
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
     <key>SUFeedURL</key>
-    <string>https://github.com/vellum-ai/velly/releases/latest/download/appcast.xml</string>
+    <string>https://github.com/vellum-ai/vellum-assistant/releases/latest/download/appcast.xml</string>
     <key>SUEnableAutomaticChecks</key>
     <true/>
     <key>SUAutomaticallyUpdate</key>
