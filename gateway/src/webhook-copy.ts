@@ -7,3 +7,6 @@ export const NEW_COMMAND_ERROR =
   "Failed to reset conversation. Please try again.";
 
 export const SERVICE_UNAVAILABLE_ERROR = "Service temporarily unavailable";
+
+export const OOM_KILLED_ERROR =
+  "Assistant process was killed (OOM). Restart with more memory.";

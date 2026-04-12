@@ -9,6 +9,7 @@ import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
+import { isAssistantOOMKilled } from "../../runtime/docker-health.js";
 import { stripHopByHop } from "../../util/strip-hop-by-hop.js";
 
 const log = getLogger("runtime-health-proxy");
@@ -53,6 +54,18 @@ export function createRuntimeHealthProxyHandler(config: GatewayConfig) {
         { err, duration },
         "Runtime health proxy upstream connection failed",
       );
+
+      const oom = await isAssistantOOMKilled();
+      if (oom) {
+        log.error("Assistant container was OOM-killed");
+        return Response.json(
+          {
+            error:
+              "Assistant process was killed (OOM). Restart with more memory.",
+          },
+          { status: 503 },
+        );
+      }
       return Response.json({ error: "Bad Gateway" }, { status: 502 });
     }
 

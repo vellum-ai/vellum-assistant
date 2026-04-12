@@ -6,6 +6,7 @@ import {
 import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
+import { isAssistantOOMKilled } from "../../runtime/docker-health.js";
 import { isLoopbackAddress } from "../../util/is-loopback-address.js";
 import { stripHopByHop } from "../../util/strip-hop-by-hop.js";
 
@@ -150,6 +151,20 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
         { err, method: req.method, path: url.pathname, duration },
         "Upstream connection failed",
       );
+
+      // Check whether the assistant container was OOM-killed so we can
+      // return a more actionable error instead of a generic 502.
+      const oom = await isAssistantOOMKilled();
+      if (oom) {
+        log.error("Assistant container was OOM-killed");
+        return Response.json(
+          {
+            error:
+              "Assistant process was killed (OOM). Restart with more memory.",
+          },
+          { status: 503 },
+        );
+      }
       return Response.json({ error: "Bad Gateway" }, { status: 502 });
     }
 

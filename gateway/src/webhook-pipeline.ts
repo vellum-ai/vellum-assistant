@@ -10,6 +10,7 @@ import {
 import {
   NEW_COMMAND_ERROR,
   NEW_COMMAND_SUCCESS,
+  OOM_KILLED_ERROR,
   SERVICE_UNAVAILABLE_ERROR,
 } from "./webhook-copy.js";
 
@@ -27,12 +28,12 @@ export function handleCircuitBreakerError(
   if (!(err instanceof CircuitBreakerOpenError)) return null;
 
   logger.warn(
-    { retryAfterSecs: err.retryAfterSecs },
+    { retryAfterSecs: err.retryAfterSecs, oomKilled: err.oomKilled },
     "Circuit breaker open — returning 503",
   );
   dedupCache.unreserve(cacheKey);
   return Response.json(
-    { error: SERVICE_UNAVAILABLE_ERROR },
+    { error: err.oomKilled ? OOM_KILLED_ERROR : SERVICE_UNAVAILABLE_ERROR },
     {
       status: 503,
       headers: { "Retry-After": String(err.retryAfterSecs) },

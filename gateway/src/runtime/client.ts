@@ -3,6 +3,7 @@ import { mintIngressToken, mintServiceToken } from "../auth/token-exchange.js";
 import type { GatewayConfig } from "../config.js";
 import { fetchImpl } from "../fetch.js";
 import { getLogger } from "../logger.js";
+import { isAssistantOOMKilled } from "./docker-health.js";
 
 const log = getLogger("runtime-client");
 
@@ -23,10 +24,17 @@ const CB_COOLDOWN_MS = 30_000;
  */
 export class CircuitBreakerOpenError extends Error {
   readonly retryAfterSecs: number;
-  constructor(retryAfterSecs: number) {
-    super("Circuit breaker is open — runtime is unavailable");
+  /** When true, the assistant container was killed due to OOM. */
+  readonly oomKilled: boolean;
+  constructor(retryAfterSecs: number, oomKilled = false) {
+    super(
+      oomKilled
+        ? "Assistant process was killed (OOM). Restart with more memory."
+        : "Circuit breaker is open — runtime is unavailable",
+    );
     this.name = "CircuitBreakerOpenError";
     this.retryAfterSecs = retryAfterSecs;
+    this.oomKilled = oomKilled;
   }
 }
 
@@ -52,11 +60,11 @@ function cbBeforeRequest(): boolean {
       log.info("Circuit breaker entering HALF_OPEN — allowing probe request");
       return true;
     }
-    throw new CircuitBreakerOpenError(cbRetryAfterSecs());
+    throw new CircuitBreakerOpenError(cbRetryAfterSecs(), cbOOMDetected);
   }
 
   // HALF_OPEN: only one probe in flight; reject additional requests
-  throw new CircuitBreakerOpenError(cbRetryAfterSecs());
+  throw new CircuitBreakerOpenError(cbRetryAfterSecs(), cbOOMDetected);
 }
 
 function cbOnSuccess(): void {
@@ -65,7 +73,10 @@ function cbOnSuccess(): void {
   }
   cbState = CircuitState.CLOSED;
   cbConsecutiveFailures = 0;
+  cbOOMDetected = false;
 }
+
+let cbOOMDetected = false;
 
 function cbOnFailure(): void {
   cbConsecutiveFailures++;
@@ -87,7 +98,23 @@ function cbOnFailure(): void {
       { failures: cbConsecutiveFailures },
       "Circuit breaker opening — runtime appears down",
     );
+    // Fire-and-forget OOM check when the breaker opens
+    isAssistantOOMKilled()
+      .then((oom) => {
+        if (oom) {
+          cbOOMDetected = true;
+          log.error(
+            "Assistant container was OOM-killed — reporting to clients",
+          );
+        }
+      })
+      .catch(() => {});
   }
+}
+
+/** Returns true when the last circuit-open event was caused by an OOM kill. */
+export function isCircuitBreakerOOM(): boolean {
+  return cbOOMDetected;
 }
 
 /**

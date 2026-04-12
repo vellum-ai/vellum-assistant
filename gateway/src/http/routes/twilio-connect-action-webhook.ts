@@ -34,7 +34,11 @@ export function createTwilioConnectActionWebhookHandler(
     } catch (err) {
       if (err instanceof CircuitBreakerOpenError) {
         return Response.json(
-          { error: "Service temporarily unavailable" },
+          {
+            error: err.oomKilled
+              ? "Assistant process was killed (OOM). Restart with more memory."
+              : "Service temporarily unavailable",
+          },
           {
             status: 503,
             headers: { "Retry-After": String(err.retryAfterSecs) },
