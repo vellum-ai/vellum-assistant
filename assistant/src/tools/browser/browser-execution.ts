@@ -422,12 +422,8 @@ export async function executeBrowserNavigate(
     return { content: "Error: operation was cancelled", isError: true };
   }
 
-  const modeResult = parseBrowserMode(input);
-  if (!modeResult.ok) {
-    return { content: modeResult.error, isError: true };
-  }
-  const browserMode = modeResult.mode;
-
+  // Pre-flight URL validation runs before CDP acquisition so we fail
+  // fast on obviously invalid URLs without opening a browser session.
   const parsedUrl = parseUrl(input.url);
   if (!parsedUrl) {
     return {
@@ -466,18 +462,10 @@ export async function executeBrowserNavigate(
     }
   }
 
-  let cdp;
-  try {
-    cdp = getCdpClient(context, { mode: browserMode });
-  } catch (err) {
-    if (err instanceof CdpError && browserMode !== "auto") {
-      return {
-        content: formatModeSelectionFailure(browserMode, err),
-        isError: true,
-      };
-    }
-    throw err;
-  }
+  // URL validation passed — acquire the CDP client.
+  const acquired = acquireCdpClientWithMode(input, context);
+  if (acquired.errorResult) return acquired.errorResult;
+  const { cdp, browserMode } = acquired;
 
   // Screencast + handoff are Playwright-backed and only meaningful
   // for the local sacrificial-profile path. On the extension path the
@@ -847,24 +835,9 @@ export async function executeBrowserSnapshot(
   _input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const modeResult = parseBrowserMode(_input);
-  if (!modeResult.ok) {
-    return { content: modeResult.error, isError: true };
-  }
-  const browserMode = modeResult.mode;
-
-  let cdp;
-  try {
-    cdp = getCdpClient(context, { mode: browserMode });
-  } catch (err) {
-    if (err instanceof CdpError && browserMode !== "auto") {
-      return {
-        content: formatModeSelectionFailure(browserMode, err),
-        isError: true,
-      };
-    }
-    throw err;
-  }
+  const acquired = acquireCdpClientWithMode(_input, context);
+  if (acquired.errorResult) return acquired.errorResult;
+  const { cdp, browserMode } = acquired;
 
   try {
     const currentUrl = await getCurrentUrl(cdp, context.signal);
@@ -914,25 +887,10 @@ export async function executeBrowserScreenshot(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const modeResult = parseBrowserMode(input);
-  if (!modeResult.ok) {
-    return { content: modeResult.error, isError: true };
-  }
-  const browserMode = modeResult.mode;
+  const acquired = acquireCdpClientWithMode(input, context);
+  if (acquired.errorResult) return acquired.errorResult;
+  const { cdp, browserMode } = acquired;
   const fullPage = input.full_page === true;
-
-  let cdp;
-  try {
-    cdp = getCdpClient(context, { mode: browserMode });
-  } catch (err) {
-    if (err instanceof CdpError && browserMode !== "auto") {
-      return {
-        content: formatModeSelectionFailure(browserMode, err),
-        isError: true,
-      };
-    }
-    throw err;
-  }
 
   try {
     const buffer = await captureScreenshotJpeg(
