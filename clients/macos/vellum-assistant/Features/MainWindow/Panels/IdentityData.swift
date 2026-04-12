@@ -5,6 +5,7 @@ import VellumAssistantShared
 
 enum AssistantHome: Equatable {
     case local(workspacePath: String)
+    case appleContainer(instanceDir: String, mgmtSocket: String?)
     case gcp(project: String, zone: String, instance: String)
     case aws(project: String, region: String, instance: String)
     case custom(ip: String, port: String)
@@ -13,6 +14,7 @@ enum AssistantHome: Equatable {
     var displayLabel: String {
         switch self {
         case .local: return "Local"
+        case .appleContainer: return "Apple Containers"
         case .gcp: return "GCP"
         case .aws: return "AWS"
         case .custom: return "Custom"
@@ -24,6 +26,12 @@ enum AssistantHome: Equatable {
         switch self {
         case .local(let workspacePath):
             return [("Path", workspacePath)]
+        case .appleContainer(let instanceDir, let mgmtSocket):
+            var details: [(label: String, value: String)] = [("Path", instanceDir)]
+            if let mgmtSocket {
+                details.append(("Socket", mgmtSocket))
+            }
+            return details
         case .gcp(let project, let zone, let instance):
             return [("Project", project), ("Zone", zone), ("Instance", instance)]
         case .aws(let project, let region, let instance):
@@ -347,6 +355,13 @@ extension LockfileAssistant {
             return .custom(ip: "", port: "")
         case "vellum":
             return .vellum(runtimeUrl: runtimeUrl ?? "")
+        case "apple-container":
+            // instanceDir is not written under resources for apple-container
+            // entries, so derive it from the mgmtSocket parent directory.
+            let base = instanceDir
+                ?? mgmtSocket.flatMap { URL(fileURLWithPath: $0).deletingLastPathComponent().path }
+                ?? NSHomeDirectory()
+            return .appleContainer(instanceDir: base, mgmtSocket: mgmtSocket)
         default:
             let base = instanceDir ?? NSHomeDirectory()
             return .local(workspacePath: base + "/.vellum/workspace")

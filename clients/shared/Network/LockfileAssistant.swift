@@ -62,6 +62,7 @@ public struct LockfileAssistant {
     public let instanceDir: String?
     public let serviceGroupVersion: String?
     public let containerInfo: ContainerInfo?
+    public let mgmtSocket: String?
     public let previousServiceGroupVersion: String?
     public let previousContainerInfo: ContainerInfo?
     public init(
@@ -79,6 +80,7 @@ public struct LockfileAssistant {
         instanceDir: String?,
         serviceGroupVersion: String? = nil,
         containerInfo: ContainerInfo? = nil,
+        mgmtSocket: String? = nil,
         previousServiceGroupVersion: String? = nil,
         previousContainerInfo: ContainerInfo? = nil
     ) {
@@ -96,6 +98,7 @@ public struct LockfileAssistant {
         self.instanceDir = instanceDir
         self.serviceGroupVersion = serviceGroupVersion
         self.containerInfo = containerInfo
+        self.mgmtSocket = mgmtSocket
         self.previousServiceGroupVersion = previousServiceGroupVersion
         self.previousContainerInfo = previousContainerInfo
     }
@@ -227,6 +230,7 @@ public struct LockfileAssistant {
                 instanceDir: resources?["instanceDir"] as? String,
                 serviceGroupVersion: serviceGroupVersion,
                 containerInfo: containerInfo,
+                mgmtSocket: entry["mgmtSocket"] as? String,
                 previousServiceGroupVersion: previousServiceGroupVersion,
                 previousContainerInfo: previousContainerInfo
             )
