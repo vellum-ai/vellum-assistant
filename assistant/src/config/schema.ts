@@ -192,6 +192,17 @@ export {
   SkillsInstallConfigSchema,
   SkillsLoadConfigSchema,
 } from "./schemas/skills.js";
+export type {
+  SttOpenAiWhisperProviderConfig,
+  SttProviders,
+  SttService,
+} from "./schemas/stt.js";
+export {
+  SttOpenAiWhisperProviderConfigSchema,
+  SttProvidersSchema,
+  SttServiceSchema,
+  VALID_STT_PROVIDERS,
+} from "./schemas/stt.js";
 export type { RateLimitConfig, TimeoutConfig } from "./schemas/timeouts.js";
 export {
   RateLimitConfigSchema,

@@ -58,6 +58,7 @@ import { invalidateConfigCache, loadConfig } from "../config/loader.js";
 import {
   AssistantConfigSchema,
   DEFAULT_ELEVENLABS_VOICE_ID,
+  SttServiceSchema,
   TtsServiceSchema,
 } from "../config/schema.js";
 import type { AssistantConfig } from "../config/types.js";
@@ -1140,6 +1141,80 @@ describe("AssistantConfigSchema", () => {
 
     // Any other string should be rejected
     const invalid2 = TtsServiceSchema.safeParse({ mode: "self-hosted" });
+    expect(invalid2.success).toBe(false);
+  });
+
+  // ── services.stt config ──────────────────────────────────────────────
+
+  test("applies services.stt defaults when not specified", () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.services.stt.mode).toBe("your-own");
+    expect(result.services.stt.provider).toBe("openai-whisper");
+    expect(result.services.stt.providers["openai-whisper"].model).toBe(
+      "whisper-1",
+    );
+    expect(result.services.stt.providers["openai-whisper"].language).toBe("");
+  });
+
+  test("accepts valid services.stt provider override", () => {
+    const result = AssistantConfigSchema.parse({
+      services: { stt: { provider: "openai-whisper" } },
+    });
+    expect(result.services.stt.provider).toBe("openai-whisper");
+    expect(result.services.stt.mode).toBe("your-own");
+  });
+
+  test("accepts valid services.stt.providers.openai-whisper overrides", () => {
+    const result = AssistantConfigSchema.parse({
+      services: {
+        stt: {
+          providers: {
+            "openai-whisper": { model: "whisper-2", language: "en" },
+          },
+        },
+      },
+    });
+    expect(result.services.stt.providers["openai-whisper"].model).toBe(
+      "whisper-2",
+    );
+    expect(result.services.stt.providers["openai-whisper"].language).toBe("en");
+  });
+
+  test("rejects services.stt.mode = managed", () => {
+    const result = AssistantConfigSchema.safeParse({
+      services: { stt: { mode: "managed" } },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const msgs = result.error.issues.map((i) => i.message);
+      expect(
+        msgs.some((m) => m.includes("your-own") || m.includes("managed")),
+      ).toBe(true);
+    }
+  });
+
+  test("rejects invalid services.stt.provider", () => {
+    const result = AssistantConfigSchema.safeParse({
+      services: { stt: { provider: "azure-speech" } },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const msgs = result.error.issues.map((i) => i.message);
+      expect(msgs.some((m) => m.includes("services.stt.provider"))).toBe(true);
+    }
+  });
+
+  test("services.stt.mode only accepts your-own as literal", () => {
+    // Explicit your-own should work
+    const valid = SttServiceSchema.safeParse({ mode: "your-own" });
+    expect(valid.success).toBe(true);
+
+    // managed should be rejected
+    const invalid = SttServiceSchema.safeParse({ mode: "managed" });
+    expect(invalid.success).toBe(false);
+
+    // Any other string should be rejected
+    const invalid2 = SttServiceSchema.safeParse({ mode: "self-hosted" });
     expect(invalid2.success).toBe(false);
   });
 
