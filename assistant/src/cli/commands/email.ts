@@ -1,4 +1,7 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { createWriteStream, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
+import { pipeline } from "node:stream/promises";
+import type { Readable } from "node:stream";
 
 import type { Command } from "commander";
 
@@ -31,6 +34,8 @@ Examples:
   $ assistant email send user@example.com -s "Hello" -b "Hi there"
   $ assistant email status
   $ assistant email list
+  $ assistant email attachment msg_abc1 --list
+  $ assistant email attachment msg_abc1 att_xyz1
   $ assistant email register mybot --json`,
   );
 
@@ -709,4 +714,234 @@ Examples:
         }
       },
     );
+
+email
+  .command("attachment <message-id> [attachment-id]")
+  .description("Download email attachments")
+  .option("--all", "Download all attachments for the message")
+  .option(
+    "-o, --output <dir>",
+    "Output directory (default: current directory)",
+    ".",
+  )
+  .option("--list", "List attachments without downloading")
+  .addHelpText(
+    "after",
+    `
+Arguments:
+message-id      Email message ID (from \`assistant email list --json\`)
+attachment-id   Attachment ID (optional — required unless --all or --list)
+
+Download one or all attachments from a specific email message. Use
+--list to see available attachments without downloading.
+
+Examples:
+$ assistant email attachment msg_abc1 --list
+$ assistant email attachment msg_abc1 att_xyz1
+$ assistant email attachment msg_abc1 att_xyz1 -o ./downloads/
+$ assistant email attachment msg_abc1 --all
+$ assistant email attachment msg_abc1 --all -o ./attachments/
+$ assistant email attachment msg_abc1 --list --json`,
+  )
+  .action(
+    async (
+      messageId: string,
+      attachmentId: string | undefined,
+      opts: {
+        all?: boolean;
+        output?: string;
+        list?: boolean;
+      },
+      cmd: Command,
+    ) => {
+      try {
+        const client = await VellumPlatformClient.create();
+        if (!client) {
+          throw new Error(
+            "Platform credentials not configured. Run: assistant platform connect",
+          );
+        }
+        if (!client.platformAssistantId) {
+          throw new Error(
+            "Assistant ID not configured. Set PLATFORM_ASSISTANT_ID or run: assistant platform connect",
+          );
+        }
+
+        const assistantId = client.platformAssistantId;
+        const basePath = `/v1/assistants/${assistantId}/emails/${messageId}/attachments`;
+
+        if (opts.list) {
+          // List mode — show attachment metadata without downloading
+          const response = await client.fetch(`${basePath}/`);
+          if (!response.ok) {
+            const body = (await response
+              .json()
+              .catch(() => ({}))) as Record<string, unknown>;
+            const detail = body.detail ?? `HTTP ${response.status}`;
+            throw new Error(String(detail));
+          }
+
+          const data = (await response.json()) as {
+            results: AttachmentMeta[];
+          };
+
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, data);
+          } else {
+            const attachments = data.results ?? [];
+            if (attachments.length === 0) {
+              log.info("No attachments for this message.");
+            } else {
+              for (const att of attachments) {
+                log.info(
+                  `  ${att.id}  ${att.filename}  (${att.content_type}, ${formatBytes(att.size_bytes)})`,
+                );
+              }
+              log.info(`\n${attachments.length} attachment(s)`);
+            }
+          }
+          return;
+        }
+
+        if (!opts.all && !attachmentId) {
+          throw new Error(
+            "Specify an attachment ID, or use --all to download all attachments. Use --list to see available attachments.",
+          );
+        }
+
+        // Ensure output directory exists
+        const outDir = opts.output ?? ".";
+        mkdirSync(outDir, { recursive: true });
+
+        if (opts.all) {
+          // Download all attachments
+          const listResponse = await client.fetch(`${basePath}/`);
+          if (!listResponse.ok) {
+            const body = (await listResponse
+              .json()
+              .catch(() => ({}))) as Record<string, unknown>;
+            const detail = body.detail ?? `HTTP ${listResponse.status}`;
+            throw new Error(String(detail));
+          }
+
+          const listData = (await listResponse.json()) as {
+            results: AttachmentMeta[];
+          };
+
+          const attachments = listData.results ?? [];
+          if (attachments.length === 0) {
+            throw new Error("No attachments for this message.");
+          }
+
+          const downloaded: { filename: string; size_bytes: number }[] = [];
+          for (const att of attachments) {
+            const dest = join(outDir, safeFilename(att.filename));
+            await downloadAttachment(client, basePath, att.id, dest);
+            downloaded.push({
+              filename: att.filename,
+              size_bytes: att.size_bytes,
+            });
+          }
+
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, {
+              downloaded: downloaded.length,
+              directory: outDir,
+              files: downloaded,
+            });
+          } else {
+            log.info(
+              `✓ Downloaded ${downloaded.length} attachment(s) to ${outDir}`,
+            );
+            for (const f of downloaded) {
+              log.info(`  - ${f.filename} (${formatBytes(f.size_bytes)})`);
+            }
+          }
+        } else {
+          // Download single attachment — first get metadata for the filename
+          const metaResponse = await client.fetch(
+            `${basePath}/${attachmentId}/`,
+          );
+          if (!metaResponse.ok) {
+            const body = (await metaResponse
+              .json()
+              .catch(() => ({}))) as Record<string, unknown>;
+            const detail = body.detail ?? `HTTP ${metaResponse.status}`;
+            throw new Error(String(detail));
+          }
+
+          const meta = (await metaResponse.json()) as AttachmentMeta;
+          const dest = join(outDir, safeFilename(meta.filename));
+          await downloadAttachment(client, basePath, meta.id, dest);
+
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, {
+              filename: meta.filename,
+              size_bytes: meta.size_bytes,
+              saved: dest,
+            });
+          } else {
+            log.info(
+              `✓ Downloaded ${meta.filename} (${formatBytes(meta.size_bytes)})`,
+            );
+          }
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (shouldOutputJson(cmd)) {
+          writeOutput(cmd, { error: message });
+        } else {
+          log.error(`Error: ${message}`);
+        }
+        process.exitCode = 1;
+      }
+    },
+  );
+}
+
+interface AttachmentMeta {
+id: string;
+filename: string;
+content_type: string;
+size_bytes: number;
+content_id: string;
+created_at: string;
+}
+
+function formatBytes(bytes: number): string {
+if (bytes < 1024) return `${bytes} B`;
+if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function safeFilename(name: string): string {
+// Strip path separators and null bytes — keep the basename only
+return basename(name).replace(/[\x00/\\]/g, "_") || "attachment";
+}
+
+async function downloadAttachment(
+client: VellumPlatformClient,
+basePath: string,
+attachmentId: string,
+dest: string,
+): Promise<void> {
+const response = await client.fetch(
+  `${basePath}/${attachmentId}/download/`,
+);
+
+if (!response.ok) {
+  const body = (await response.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
+  const detail = body.detail ?? `HTTP ${response.status}`;
+  throw new Error(`Failed to download attachment: ${detail}`);
+}
+
+if (!response.body) {
+  throw new Error("Empty response body from download endpoint.");
+}
+
+const fileStream = createWriteStream(dest);
+await pipeline(response.body as unknown as Readable, fileStream);
 }
