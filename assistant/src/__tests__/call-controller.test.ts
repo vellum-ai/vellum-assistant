@@ -223,6 +223,7 @@ import {
   updateCallSession,
 } from "../calls/call-store.js";
 import type { RelayConnection } from "../calls/relay-server.js";
+import { resolveCallTtsProvider } from "../calls/resolve-call-tts-provider.js";
 import {
   getCanonicalGuardianRequest,
   getPendingCanonicalRequestByCallSessionId,
@@ -2495,5 +2496,45 @@ describe("call-controller", () => {
     expect(controller.getState()).toBe("idle");
 
     controller.destroy();
+  });
+
+  // ── Shared TTS provider resolution ──────────────────────────────────
+
+  describe("resolveCallTtsProvider (shared helper)", () => {
+    test("returns native path with elevenlabs (non-streaming provider)", () => {
+      // Default config has provider: "elevenlabs" which is registered as
+      // non-streaming in registerTestTtsProviders()
+      const result = resolveCallTtsProvider();
+      expect(result.provider).not.toBeNull();
+      expect(result.provider!.id).toBe("elevenlabs");
+      expect(result.useSynthesizedPath).toBe(false);
+      expect(result.audioFormat).toBe("mp3");
+    });
+
+    test("returns fallback when provider registry is empty", () => {
+      _resetTtsProviderRegistry();
+      const result = resolveCallTtsProvider();
+      expect(result.provider).toBeNull();
+      expect(result.useSynthesizedPath).toBe(false);
+      expect(result.audioFormat).toBe("mp3");
+    });
+
+    test("call controller LLM path uses shared resolution (native provider sends text tokens)", async () => {
+      // With the default elevenlabs provider (non-streaming), the call
+      // controller should send text tokens directly to the relay (native path).
+      mockStartVoiceTurn.mockImplementation(
+        createMockVoiceTurn(["Hello", " caller"]),
+      );
+      const { relay, controller } = setupController();
+
+      await controller.handleCallerUtterance("Hi");
+
+      // Native path: text tokens should be sent, no play URLs
+      const nonEmptyTokens = relay.sentTokens.filter((t) => t.token.length > 0);
+      expect(nonEmptyTokens.length).toBeGreaterThan(0);
+      expect(relay.sentPlayUrls.length).toBe(0);
+
+      controller.destroy();
+    });
   });
 });
