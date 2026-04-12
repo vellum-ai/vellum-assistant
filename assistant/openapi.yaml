@@ -7377,6 +7377,38 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/stt/transcribe:
+    post:
+      operationId: stt_transcribe_post
+      summary: Transcribe audio to text
+      description:
+        Transcribe base64-encoded audio to text using the configured STT provider. Provider selection is resolved
+        globally via config.
+      tags:
+        - stt
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                audioBase64:
+                  type: string
+                  description: Base64-encoded audio data to transcribe
+                mimeType:
+                  type: string
+                  description: MIME type of the audio data (must start with "audio/", e.g. "audio/wav", "audio/ogg")
+                source:
+                  description: Optional source identifier for analytics (e.g. 'dictation', 'voice-mode')
+                  type: string
+              required:
+                - audioBase64
+                - mimeType
+              additionalProperties: false
   /v1/subagents/{id}:
     get:
       operationId: subagents_by_id_get
