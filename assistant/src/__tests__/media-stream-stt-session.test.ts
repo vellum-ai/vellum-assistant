@@ -194,9 +194,9 @@ describe("MediaStreamSttSession", () => {
     // Advance past silence threshold to trigger turn end
     jest.advanceTimersByTime(400);
 
-    // Allow the async handleTurnEnd to resolve
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    jest.advanceTimersByTime(0);
+    // Flush the async handleTurnEnd promise chain (microtask flush —
+    // must NOT use setTimeout which is faked).
+    for (let i = 0; i < 10; i++) await Promise.resolve();
 
     expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
     expect(onTranscriptFinal).toHaveBeenCalledWith(
@@ -225,8 +225,7 @@ describe("MediaStreamSttSession", () => {
     session.handleMessage(makeMediaMessage());
 
     jest.advanceTimersByTime(400);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    jest.advanceTimersByTime(0);
+    for (let i = 0; i < 10; i++) await Promise.resolve();
 
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onError).toHaveBeenCalledWith(
@@ -256,8 +255,7 @@ describe("MediaStreamSttSession", () => {
     session.handleMessage(makeMediaMessage());
 
     jest.advanceTimersByTime(400);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    jest.advanceTimersByTime(0);
+    for (let i = 0; i < 10; i++) await Promise.resolve();
 
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onError).toHaveBeenCalledWith(
@@ -288,8 +286,7 @@ describe("MediaStreamSttSession", () => {
     session.handleMessage(makeMediaMessage());
 
     jest.advanceTimersByTime(400);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    jest.advanceTimersByTime(0);
+    for (let i = 0; i < 10; i++) await Promise.resolve();
 
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onError).toHaveBeenCalledWith(
@@ -315,8 +312,7 @@ describe("MediaStreamSttSession", () => {
     session.handleMessage(makeMediaMessage());
 
     jest.advanceTimersByTime(400);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    jest.advanceTimersByTime(0);
+    for (let i = 0; i < 10; i++) await Promise.resolve();
 
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onError).toHaveBeenCalledWith(
@@ -360,16 +356,16 @@ describe("MediaStreamSttSession", () => {
     session.handleMessage(makeStartMessage());
     session.handleMessage(makeMediaMessage());
 
-    // Trigger turn end
+    // Trigger turn end via silence threshold
     jest.advanceTimersByTime(400);
-    // Let the async turn handler start
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    jest.advanceTimersByTime(0);
+    // Flush the async promise chain to let handleTurnEnd reach the
+    // transcriber.transcribe() call which creates the abort timeout
+    for (let i = 0; i < 10; i++) await Promise.resolve();
 
-    // Now advance past the transcription timeout
+    // Now advance past the transcription timeout to fire the AbortController
     jest.advanceTimersByTime(1100);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    jest.advanceTimersByTime(0);
+    // Flush the abort/reject microtasks
+    for (let i = 0; i < 10; i++) await Promise.resolve();
 
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onError).toHaveBeenCalledWith("timeout", expect.any(String));
