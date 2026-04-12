@@ -74,7 +74,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var popOutLocalMonitor: Any?
     public let services = AppServices()
     let vellumCli = VellumCli()
-    let appleContainersLauncher: AssistantManagementClient? = {
+    let appleContainersLauncher: (any AssistantManaging)? = {
         if #available(macOS 26.0, *) {
             return AppleContainersLauncher()
         }
@@ -379,11 +379,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         Self.shared = self
-
-        // Register management client instances so ManagementClient.create()
-        // can dispatch to the correct backend without going through AppDelegate.
-        ManagementClient.vellumCli = vellumCli
-        ManagementClient.appleContainersLauncher = appleContainersLauncher
 
         // Kick off the PTT activator UserDefaults read on a background
         // thread as early as possible so it completes before proceedToApp()

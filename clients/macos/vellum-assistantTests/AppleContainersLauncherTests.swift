@@ -151,6 +151,6 @@ final class AppleContainersLauncherTests: XCTestCase {
 
     func testConformsToAssistantManagementClient() {
         let launcher = AppleContainersLauncher()
-        XCTAssertTrue(launcher is AssistantManagementClient)
+        XCTAssertTrue(launcher is AssistantManaging)
     }
 }

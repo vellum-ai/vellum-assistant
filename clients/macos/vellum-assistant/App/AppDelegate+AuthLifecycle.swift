@@ -642,7 +642,7 @@ extension AppDelegate {
         // producing spurious "SSE connection failed with status 502" errors.
         connectionManager.disconnect()
 
-        let client = ManagementClient.create()
+        let client = AssistantManagementClient.create()
         let replacement: LockfileAssistant?
         do {
             replacement = try await client.retire()
@@ -777,7 +777,7 @@ extension AppDelegate {
 
             // Retire each local assistant so cloud resources are cleaned up.
             for assistant in localAssistants {
-                let client = ManagementClient.create(for: assistant)
+                let client = AssistantManagementClient.create(for: assistant)
                 do {
                     log.info("Retiring local assistant '\(assistant.assistantId, privacy: .public)' as part of uninstall")
                     try await client.retire(name: assistant.assistantId)

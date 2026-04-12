@@ -7,7 +7,7 @@ import VellumAssistantShared
 /// changing the startup logic in `AppDelegate`. The app reads
 /// `LockfileAssistant.isAppleContainer` and dispatches to the appropriate client.
 @MainActor
-protocol AssistantManagementClient: AnyObject {
+protocol AssistantManaging: AnyObject {
     /// Hatch (start) a local assistant from scratch.
     ///
     /// - Parameters:
@@ -32,7 +32,7 @@ protocol AssistantManagementClient: AnyObject {
     func retire(name: String?) async throws -> LockfileAssistant?
 }
 
-extension AssistantManagementClient {
+extension AssistantManaging {
     /// Convenience: retire the active assistant (loads ID from lockfile).
     @discardableResult
     func retire() async throws -> LockfileAssistant? {
@@ -74,7 +74,7 @@ extension AssistantManagementClient {
                 return candidate
             }
             do {
-                try await ManagementClient.vellumCli.wake(name: candidate.assistantId)
+                try await AppDelegate.shared?.vellumCli.wake(name: candidate.assistantId)
                 return candidate
             } catch {
                 continue
@@ -99,37 +99,32 @@ extension AssistantManagementClient {
 
 // MARK: - Factory
 
-/// Namespace for the management client factory. Picks the correct backend
-/// (`VellumCli` or `AppleContainersLauncher`) based on lockfile state.
+/// Picks the correct management client backend (`VellumCli` or
+/// `AppleContainersLauncher`) based on lockfile state.
 ///
-/// Call `ManagementClient.create()` for the active assistant, or
-/// `ManagementClient.create(for:)` for a specific one.
+/// Call `AssistantManagementClient.create()` for the active assistant, or
+/// `AssistantManagementClient.create(for:)` for a specific one.
 @MainActor
-enum ManagementClient {
-
-    /// The CLI-based management client. Set once during app startup.
-    static var vellumCli: VellumCli!
-
-    /// The Apple Containers launcher, if available. Set once during app startup.
-    static var appleContainersLauncher: (any AssistantManagementClient)?
+enum AssistantManagementClient {
 
     /// Return the management client for the currently active assistant.
-    static func create() -> any AssistantManagementClient {
+    static func create() -> any AssistantManaging {
         let entry = LockfileAssistant.loadActiveAssistantId()
             .flatMap { LockfileAssistant.loadByName($0) }
         return create(for: entry)
     }
 
     /// Return the management client for a specific assistant entry.
-    static func create(for assistant: LockfileAssistant?) -> any AssistantManagementClient {
-        if let assistant, assistant.isAppleContainer, let launcher = appleContainersLauncher {
+    static func create(for assistant: LockfileAssistant?) -> any AssistantManaging {
+        if let assistant, assistant.isAppleContainer,
+           let launcher = AppDelegate.shared?.appleContainersLauncher {
             return launcher
         }
-        return vellumCli
+        return AppDelegate.shared!.vellumCli
     }
 }
 
-/// Errors specific to `AssistantManagementClient` convenience methods.
+/// Errors specific to `AssistantManaging` convenience methods.
 enum ManagementClientError: LocalizedError {
     case noActiveAssistant
 

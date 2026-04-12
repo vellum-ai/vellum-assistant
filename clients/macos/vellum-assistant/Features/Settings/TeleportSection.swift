@@ -287,7 +287,7 @@ struct TeleportSection: View {
                     }
                 } else {
                     do {
-                        let client = ManagementClient.create(for: original)
+                        let client = AssistantManagementClient.create(for: original)
                         try await client.retire(name: oldId)
                         log.info("[teleport] Retired assistant \(oldId, privacy: .public)")
                     } catch {

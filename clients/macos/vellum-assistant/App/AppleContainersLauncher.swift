@@ -12,11 +12,11 @@ private let log = Logger(
 /// Manages the lifecycle of an assistant running inside an Apple Container
 /// (3-service LinuxPod VM via the Containerization framework).
 ///
-/// Conforms to `AssistantManagementClient` so `ManagementClient.create(for:)`
+/// Conforms to `AssistantManaging` so `AssistantManagementClient.create(for:)`
 /// can dispatch to it for `isAppleContainer` entries.
 @available(macOS 26.0, *)
 @MainActor
-final class AppleContainersLauncher: AssistantManagementClient {
+final class AppleContainersLauncher: AssistantManaging {
 
     // MARK: - Errors
 
@@ -53,7 +53,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
         AppleContainersAvailabilityChecker.check()
     }
 
-    // MARK: - AssistantManagementClient
+    // MARK: - AssistantManaging
 
     func hatch(name: String?, configValues: [String: String]) async throws {
         try await hatch(name: name, configValues: configValues, progress: nil)
@@ -249,23 +249,23 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 let timestamp = ISO8601DateFormatter().string(from: Date())
                     .replacingOccurrences(of: ":", with: "-")
                 let archivePath = archiveDir.appendingPathComponent("\(resolvedName)-\(timestamp).tar.gz")
-                let stagingDir = archiveDir.appendingPathComponent("\(resolvedName)-archiving")
+                let archivingDir = archiveDir.appendingPathComponent("\(resolvedName)-archiving")
 
-                // Move the instance directory to staging so the path is
-                // immediately available for a fresh hatch.
+                // Move the instance directory to the archiving path so the
+                // original path is immediately available for a fresh hatch.
                 do {
-                    try FileManager.default.moveItem(at: dir, to: stagingDir)
+                    try FileManager.default.moveItem(at: dir, to: archivingDir)
                 } catch {
                     log.warning("Failed to stage instance directory for archive: \(error.localizedDescription, privacy: .public) — removing in place")
                     try? FileManager.default.removeItem(at: dir)
                 }
 
-                // Compress in the background and clean up the staging directory.
-                if FileManager.default.fileExists(atPath: stagingDir.path) {
+                // Compress in the background and clean up the archiving directory.
+                if FileManager.default.fileExists(atPath: archivingDir.path) {
                     let tarCmd = [
                         "tar", "czf", archivePath.path,
                         "-C", archiveDir.path,
-                        stagingDir.lastPathComponent,
+                        archivingDir.lastPathComponent,
                     ]
                     let tarProcess = Process()
                     tarProcess.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -276,13 +276,13 @@ final class AppleContainersLauncher: AssistantManagementClient {
                         // Set handler BEFORE run() to avoid a race where the
                         // process exits before terminationHandler is set.
                         tarProcess.terminationHandler = { _ in
-                            try? FileManager.default.removeItem(at: stagingDir)
+                            try? FileManager.default.removeItem(at: archivingDir)
                         }
                         try tarProcess.run()
                         log.info("Archiving instance to \(archivePath.path, privacy: .public) in the background")
                     } catch {
-                        log.warning("Failed to start archive: \(error.localizedDescription, privacy: .public) — cleaning up staging")
-                        try? FileManager.default.removeItem(at: stagingDir)
+                        log.warning("Failed to start archive: \(error.localizedDescription, privacy: .public) — cleaning up archiving dir")
+                        try? FileManager.default.removeItem(at: archivingDir)
                     }
                 }
             } else {
