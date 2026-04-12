@@ -701,8 +701,20 @@ export async function postHostBrowserResult(
     body: JSON.stringify(result),
   });
   if (!resp.ok) {
+    let responseBodySnippet = '';
+    try {
+      responseBodySnippet = (await resp.text()).slice(0, 200);
+    } catch {
+      // Best-effort diagnostics only.
+    }
     console.warn(
-      `[vellum-relay] host-browser-result POST returned ${resp.status}`,
+      '[vellum-relay] host-browser-result POST failed',
+      {
+        status: resp.status,
+        requestId: result.requestId,
+        url,
+        responseBodySnippet: responseBodySnippet || undefined,
+      },
     );
   }
 }

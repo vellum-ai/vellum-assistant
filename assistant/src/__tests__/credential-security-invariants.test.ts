@@ -200,7 +200,6 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "oauth/oauth-store.ts", // OAuth provider disconnect (delete stored tokens)
       "oauth/manual-token-connection.ts", // manual-token provider backfill (credential store existence check)
       "workspace/provider-commit-message-generator.ts", // commit message generation provider key lookup
-      "config/bundled-skills/transcribe/tools/transcribe-media.ts", // transcription tool API key lookup
       "config/bundled-skills/image-studio/tools/media-generate-image.ts", // image generation tool API key lookup
       "config/bundled-skills/media-processing/tools/analyze-keyframes.ts", // keyframe analysis tool API key lookup
       "config/bundled-skills/media-processing/tools/extract-keyframes.ts", // keyframe extraction tool API key lookup

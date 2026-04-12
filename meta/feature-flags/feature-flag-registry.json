@@ -314,19 +314,19 @@
       "defaultEnabled": false
     },
     {
-      "id": "fork-from-message",
-      "scope": "macos",
-      "key": "fork-from-message",
-      "label": "Fork from Message",
-      "description": "Show the Fork from here option in message overflow menus",
-      "defaultEnabled": false
-    },
-    {
       "id": "managed-x-oauth-integration",
       "scope": "assistant",
       "key": "managed-x-oauth-integration",
       "label": "Managed X/Twitter OAuth",
       "description": "Enable platform-managed X/Twitter OAuth integration in Models & Services settings",
+      "defaultEnabled": false
+    },
+    {
+      "id": "stt-service",
+      "scope": "assistant",
+      "key": "stt-service",
+      "label": "Voice STT Service",
+      "description": "Enable Voice settings STT service configuration UI for selecting and configuring speech-to-text providers",
       "defaultEnabled": false
     }
   ]

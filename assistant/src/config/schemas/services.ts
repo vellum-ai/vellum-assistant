@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { SttServiceSchema } from "./stt.js";
 import { TtsServiceSchema } from "./tts.js";
 
 export const ServiceModeSchema = z.enum(["managed", "your-own"]);
@@ -86,6 +87,7 @@ export const ServicesSchema = z.object({
   "web-search": WebSearchServiceSchema.default(
     WebSearchServiceSchema.parse({}),
   ),
+  stt: SttServiceSchema.default(SttServiceSchema.parse({})),
   tts: TtsServiceSchema.default(TtsServiceSchema.parse({})),
   "google-oauth": GoogleOAuthServiceSchema.default(
     GoogleOAuthServiceSchema.parse({}),
