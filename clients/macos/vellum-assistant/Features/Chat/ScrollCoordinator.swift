@@ -383,13 +383,21 @@ final class ScrollCoordinator {
     private func handleContainerWidthChanged() -> [OutputIntent] {
         var intents: [OutputIntent] = []
 
-        if mode.allowsAutoScroll {
+        switch mode {
+        case .initialLoad, .followingBottom:
             // Re-pin to bottom after resize with a recovery window.
             intents.append(.startRecoveryWindow)
             intents.append(.scrollToBottom(animated: false))
-        } else if case .freeBrowsing = mode {
+        case .freeBrowsing:
             // Stabilize during resize to maintain reading position.
             beginStabilization(.resize)
+        case .stabilizing:
+            // Already stabilizing — restart the resize window so overlapping
+            // resize events don't get dropped. Mirrors MessageListView+Lifecycle
+            // which unconditionally calls beginStabilization(.resize).
+            beginStabilization(.resize)
+        case .programmaticScroll:
+            break
         }
 
         return intents
