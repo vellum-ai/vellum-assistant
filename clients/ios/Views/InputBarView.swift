@@ -426,7 +426,7 @@ struct InputBarView: View {
                             let int16Buffer = rawBuffer.bindMemory(to: Int16.self)
                             for i in 0..<frameCount {
                                 let clamped = max(-1.0, min(1.0, floatData[0][i]))
-                                int16Buffer[i] = Int16(clamped * Float(Int16.max))
+                                int16Buffer[i] = Int16(clamped * Float(Int16.max)).littleEndian
                             }
                         }
                         Task { @MainActor in

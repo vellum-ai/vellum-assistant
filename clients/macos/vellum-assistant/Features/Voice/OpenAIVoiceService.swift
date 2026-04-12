@@ -248,8 +248,8 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
             var pcmChunk = Data(capacity: frameCount * MemoryLayout<Int16>.size)
             for i in 0..<frameCount {
                 let clamped = max(-1.0, min(1.0, floatData[0][i]))
-                var sample = Int16(clamped * Float(Int16.max))
-                withUnsafeBytes(of: &sample) { pcmChunk.append(contentsOf: $0) }
+                let sample = Int16(clamped * Float(Int16.max))
+                withUnsafeBytes(of: sample.littleEndian) { pcmChunk.append(contentsOf: $0) }
             }
 
             // Compute RMS for amplitude display and silence detection
