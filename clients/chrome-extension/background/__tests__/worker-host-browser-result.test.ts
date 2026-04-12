@@ -226,14 +226,13 @@ describe('postHostBrowserResult — self-hosted mode', () => {
     expect(warningCall).toBeDefined();
 
     const details = warningCall?.[1];
-    expect(details).toEqual(
-      expect.objectContaining({
-        status: 404,
-        requestId: 'req-abc',
-        url: 'http://127.0.0.1:9999/v1/host-browser-result',
-        responseBodySnippet: expect.stringContaining('not found'),
-      }),
-    );
+    expect(typeof details).toBe('object');
+    expect(details).not.toBeNull();
+    const payload = details as Record<string, unknown>;
+    expect(payload.status).toBe(404);
+    expect(payload.requestId).toBe('req-abc');
+    expect(payload.url).toBe('http://127.0.0.1:9999/v1/host-browser-result');
+    expect(String(payload.responseBodySnippet)).toContain('not found');
   });
 
   test('ignores the supplied connection in self-hosted mode', async () => {
