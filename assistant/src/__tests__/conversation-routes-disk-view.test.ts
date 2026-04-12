@@ -23,8 +23,8 @@ import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import {
   __resetChromeExtensionRegistryForTests,
-  getChromeExtensionRegistry,
   type ChromeExtensionConnection,
+  getChromeExtensionRegistry,
 } from "../runtime/chrome-extension-registry.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
