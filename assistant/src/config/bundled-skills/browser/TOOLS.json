@@ -434,7 +434,7 @@
           },
           "browser_mode": {
             "type": "string",
-            "description": "Override backend selection. Values: auto (default), extension, cdp-inspect (alias: cdp-debugger), local (alias: playwright). Omit or use auto to let the assistant choose."
+            "description": "Override backend selection. Only auto (default) and local (alias: playwright) are supported for this tool — file downloads require the local Playwright backend. Other modes (extension, cdp-inspect) are not supported and will be rejected."
           },
           "activity": {
             "type": "string",
