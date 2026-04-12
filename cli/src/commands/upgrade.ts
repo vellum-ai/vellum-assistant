@@ -243,6 +243,11 @@ async function upgradeDocker(
 
   // Reject downgrades — `vellum upgrade` only handles forward version changes.
   // Users should use `vellum rollback --version <version>` for downgrades.
+  if (!currentVersion && versionTag) {
+    console.warn(
+      "⚠️  Could not determine current version from health endpoint — skipping version-direction check.\n",
+    );
+  }
   if (currentVersion && versionTag) {
     const cmp = compareVersions(versionTag, currentVersion);
     if (cmp !== null && cmp < 0) {

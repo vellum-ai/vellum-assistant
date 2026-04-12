@@ -387,6 +387,11 @@ export async function performDockerRollback(
   }
 
   // Validate target version < current version
+  if (!currentVersion) {
+    console.warn(
+      "⚠️  Could not determine current version from health endpoint — skipping version-direction check.\n",
+    );
+  }
   if (currentVersion) {
     const cmp = compareVersions(targetVersion, currentVersion);
     if (cmp !== null) {
