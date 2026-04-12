@@ -380,13 +380,6 @@ struct VoiceSettingsView: View {
                     )
                 }
 
-                // Provider-specific subtitle from registry metadata
-                if let provider = selectedProvider {
-                    Text(provider.subtitle)
-                        .font(VFont.bodySmallDefault)
-                        .foregroundStyle(VColor.contentTertiary)
-                }
-
                 // Unified API key field
                 ttsApiKeyField
 
@@ -433,34 +426,12 @@ struct VoiceSettingsView: View {
 
     @ViewBuilder
     private var ttsVoiceIdField: some View {
-        switch draftTTSProvider {
-        case "elevenlabs":
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                VTextField(
-                    "Voice ID",
-                    placeholder: "ElevenLabs Voice ID (optional)",
-                    text: $ttsVoiceIdText
-                )
-
-                Text("Leave blank to use the default voice.")
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentTertiary)
-            }
-        case "fish-audio":
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                VTextField(
-                    "Voice Reference ID",
-                    placeholder: "Fish Audio voice reference ID (optional)",
-                    text: $ttsVoiceIdText
-                )
-
-                Text("Leave blank to use the default voice.")
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentTertiary)
-            }
-        default:
-            // Generic providers do not have a voice ID field
-            EmptyView()
+        if draftTTSProvider == "elevenlabs" || draftTTSProvider == "fish-audio" {
+            VTextField(
+                "Voice ID",
+                placeholder: "\(selectedProvider?.displayName ?? "Provider") Voice ID (optional)",
+                text: $ttsVoiceIdText
+            )
         }
     }
 
@@ -563,11 +534,6 @@ struct VoiceSettingsView: View {
                         }
                     )
                 }
-
-                // Provider-specific subtitle
-                Text("High-accuracy speech-to-text transcription. Requires an OpenAI API key.")
-                    .font(VFont.bodySmallDefault)
-                    .foregroundStyle(VColor.contentTertiary)
 
                 // API key field
                 VTextField(
