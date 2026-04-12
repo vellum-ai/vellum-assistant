@@ -2,8 +2,20 @@
  * Tests for restoreFromSnapshot and verifySnapshot.
  *
  * The destructive bits of restore (commitImport — overwrites files,
- * resets the DB, etc.) are stubbed via the `commitImpl` injection
- * parameter so these tests never touch the live workspace.
+ * clears the workspace, runs per-file backup-before-overwrite) are stubbed
+ * via the `commitImpl` injection parameter so these tests never touch the
+ * live workspace.
+ *
+ * Note: `commitImport` itself does NOT reset the SQLite singleton or
+ * invalidate caches — those are the caller's responsibility. The HTTP and
+ * CLI restore handlers wrap this module with the appropriate `resetDb()` /
+ * `invalidateConfigCache()` / `clearTrustCache()` calls; the tests for that
+ * recovery sequence live in `backup-routes.test.ts` and `backup.test.ts`.
+ *
+ * Credentials are intentionally excluded from backups, so `restoreFromSnapshot`
+ * has no credential-related surface area — bundles that happen to include
+ * `credentials/*` entries (e.g. from older migration exports) are ignored
+ * here and never surfaced to the caller.
  */
 
 import { randomBytes } from "node:crypto";
@@ -287,7 +299,6 @@ describe("restoreFromSnapshot", () => {
     // Public result is shaped correctly.
     expect(result.manifest.manifest_sha256).toBe(manifest.manifest_sha256);
     expect(result.restoredFiles).toBe(2);
-    expect(result.credentials).toEqual([]);
   });
 
   test("encrypted round-trip: decrypts then commits, and cleans up the temp file", async () => {
@@ -352,7 +363,10 @@ describe("restoreFromSnapshot", () => {
     expect(after.length).toBe(before.length);
   });
 
-  test("includeCredentials: surfaces credential entries to the caller", async () => {
+  test("credentials in a bundle are ignored and not surfaced to the caller", async () => {
+    // Older bundles (or a shared vbundle format) may include `credentials/*`
+    // entries. Backup restore explicitly drops them — credentials live in
+    // the OS keychain / CES and are not part of the backup round trip.
     const { archive, manifest } = buildVBundle({
       files: [
         {
@@ -363,10 +377,6 @@ describe("restoreFromSnapshot", () => {
           path: "credentials/openai_api_key",
           data: new TextEncoder().encode("sk-test-1234"),
         },
-        {
-          path: "credentials/anthropic_api_key",
-          data: new TextEncoder().encode("sk-ant-test-5678"),
-        },
       ],
     });
 
@@ -376,47 +386,13 @@ describe("restoreFromSnapshot", () => {
     const { commitImpl } = makeStubCommitImpl();
     const result = await restoreFromSnapshot(path, {
       pathResolver: NULL_RESOLVER,
-      includeCredentials: true,
       commitImpl,
     });
 
+    // The restore result must not expose a `credentials` field — the public
+    // type only has `manifest` and `restoredFiles`.
     expect(result.manifest.manifest_sha256).toBe(manifest.manifest_sha256);
-    // Credentials are extracted via extractCredentialsFromBundle, which
-    // returns one entry per credentials/* file. Order is not guaranteed,
-    // so we sort before comparing.
-    const sorted = [...result.credentials].sort((a, b) =>
-      a.account.localeCompare(b.account),
-    );
-    expect(sorted).toEqual([
-      { account: "anthropic_api_key", value: "sk-ant-test-5678" },
-      { account: "openai_api_key", value: "sk-test-1234" },
-    ]);
-  });
-
-  test("includeCredentials defaults to false", async () => {
-    const { archive } = buildVBundle({
-      files: [
-        {
-          path: "workspace/notes/hello.txt",
-          data: new TextEncoder().encode("hello"),
-        },
-        {
-          path: "credentials/secret_key",
-          data: new TextEncoder().encode("super-secret"),
-        },
-      ],
-    });
-
-    const path = join(TEST_DIR, "with-creds.vbundle");
-    writeFileSync(path, archive);
-
-    const { commitImpl } = makeStubCommitImpl();
-    const result = await restoreFromSnapshot(path, {
-      pathResolver: NULL_RESOLVER,
-      commitImpl,
-    });
-
-    expect(result.credentials).toEqual([]);
+    expect("credentials" in result).toBe(false);
   });
 
   test("validation failure: throws with the validation error message", async () => {

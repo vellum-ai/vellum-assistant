@@ -34,6 +34,7 @@ struct AssistantBackupsSection: View {
     @State private var autoBackupsIntervalHours: Int = 6
     @State private var localSnapshots: [AutoBackupEntry] = []
     @State private var offsiteGroups: [OffsiteGroup] = []
+    @State private var offsiteEnabled: Bool = true
     @State private var nextRunAt: Date? = nil
     @State private var isLoadingAutoBackups: Bool = false
     @State private var showingManageDestinationsSheet: Bool = false
@@ -190,15 +191,21 @@ struct AssistantBackupsSection: View {
                     localSnapshotsCard
                 }
 
-                ForEach(offsiteGroups) { group in
-                    offsiteGroupCard(group)
-                }
-
-                HStack {
-                    VButton(label: "Manage destinations…", style: .outlined) {
-                        showingManageDestinationsSheet = true
+                if offsiteEnabled {
+                    ForEach(offsiteGroups) { group in
+                        offsiteGroupCard(group)
                     }
-                    Spacer()
+
+                    HStack {
+                        VButton(label: "Manage destinations…", style: .outlined) {
+                            showingManageDestinationsSheet = true
+                        }
+                        Spacer()
+                    }
+                } else {
+                    Text("Offsite backups are disabled.")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
             }
         }
@@ -679,6 +686,7 @@ struct AssistantBackupsSection: View {
 
             localSnapshots = decoded.local
             offsiteGroups = decoded.offsite
+            offsiteEnabled = decoded.offsiteEnabled
             nextRunAt = decoded.nextRunAt
 
             // Pull `backup.enabled` / `backup.intervalHours` from the daemon
@@ -944,10 +952,34 @@ struct BackupDestinationDTO: Decodable, Equatable, Identifiable {
 
 /// Shape of the `GET /v1/backups` response, decoded with an ISO8601 strategy
 /// so `createdAt` and `nextRunAt` arrive as `Date` values.
+///
+/// `offsiteEnabled` distinguishes "offsite disabled" (user turned it off — UI
+/// should hide offsite cards) from "offsite enabled but no destinations
+/// configured" (`offsite` is empty but the UI should prompt to add one).
+/// Older daemons that predate this field default `offsiteEnabled` to `true`
+/// on decode so the UI keeps rendering offsite cards the way it used to.
 struct BackupListResponseDTO: Decodable {
     let local: [AutoBackupEntry]
     let offsite: [OffsiteGroup]
+    let offsiteEnabled: Bool
     let nextRunAt: Date?
+
+    private enum CodingKeys: String, CodingKey {
+        case local
+        case offsite
+        case offsiteEnabled
+        case nextRunAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        local = try container.decode([AutoBackupEntry].self, forKey: .local)
+        offsite = try container.decode([OffsiteGroup].self, forKey: .offsite)
+        // Default to `true` for pre-offsiteEnabled daemons so the UI keeps
+        // rendering offsite cards instead of silently hiding them.
+        offsiteEnabled = try container.decodeIfPresent(Bool.self, forKey: .offsiteEnabled) ?? true
+        nextRunAt = try container.decodeIfPresent(Date.self, forKey: .nextRunAt)
+    }
 }
 
 // MARK: - Manage Destinations Sheet

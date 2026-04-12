@@ -17,9 +17,25 @@
  *
  * Restore is intentionally a thin wrapper around the existing
  * `commitImport` flow in `runtime/migrations/vbundle-importer.ts`. That
- * function owns the destructive bits (backup-before-overwrite, atomic
- * write semantics, post-write integrity checks). This module just adds
- * snapshot-format detection and decrypted-temp-file lifecycle management.
+ * function handles bundle validation, workspace clearing, per-file
+ * backup-before-overwrite, and writing files to disk.
+ *
+ * IMPORTANT: `commitImport` does NOT reset the live SQLite handle, invalidate
+ * cached config, or clear the trust cache. Callers are responsible for:
+ *   1. Calling `resetDb()` BEFORE invoking `restoreFromSnapshot` so the
+ *      running daemon's DB singleton is closed before the file is overwritten
+ *      (otherwise the daemon keeps a handle to the old inode and subsequent
+ *      writes can corrupt the restored state).
+ *   2. Calling `invalidateConfigCache()` and `clearTrustCache()` AFTER a
+ *      successful restore so the daemon re-reads the restored `config.json`
+ *      and `trust.json` instead of serving stale in-process caches.
+ *   3. Considering a daemon restart as the simplest, most reliable recovery
+ *      path — a CLI caller should refuse to restore against a live daemon
+ *      unless explicitly forced.
+ *
+ * Credentials are intentionally excluded from backups — they live in the OS
+ * keychain / CES and are not restored by this path. Users re-authenticate
+ * integrations after a restore.
  */
 
 import { randomUUID } from "node:crypto";
@@ -28,10 +44,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { PathResolver } from "../runtime/migrations/vbundle-import-analyzer.js";
-import {
-  commitImport,
-  extractCredentialsFromBundle,
-} from "../runtime/migrations/vbundle-importer.js";
+import { commitImport } from "../runtime/migrations/vbundle-importer.js";
 import type { ManifestType } from "../runtime/migrations/vbundle-validator.js";
 import { validateVBundle } from "../runtime/migrations/vbundle-validator.js";
 import { decryptFile } from "./stream-crypt.js";
@@ -51,12 +64,6 @@ export type CommitImpl = typeof commitImport;
 export interface RestoreOptions {
   /** AES-256 decryption key. Required for `.vbundle.enc` snapshots. */
   key?: Buffer;
-  /**
-   * Whether to extract credential entries from the bundle and return them
-   * to the caller. Defaults to `false` — credentials are handled by a
-   * separate import path and intentionally excluded from a normal restore.
-   */
-  includeCredentials?: boolean;
   /**
    * Resolver that maps archive paths (e.g. `workspace/config.json`) to
    * absolute disk paths. Required by the underlying `commitImport` flow.
@@ -80,11 +87,6 @@ export interface RestoreResult {
   manifest: ManifestType;
   /** Number of files written (or skipped) by the underlying commit. */
   restoredFiles: number;
-  /**
-   * Credential entries extracted from the bundle when
-   * `includeCredentials` was set. Empty array otherwise.
-   */
-  credentials: Array<{ account: string; value: string }>;
 }
 
 export interface VerifyOptions {
@@ -179,7 +181,6 @@ export async function restoreFromSnapshot(
 ): Promise<RestoreResult> {
   const {
     key,
-    includeCredentials = false,
     pathResolver,
     workspaceDir,
     commitImpl = commitImport,
@@ -201,13 +202,6 @@ export async function restoreFromSnapshot(
         .join("; ");
       throw new Error(`Snapshot failed validation: ${summary}`);
     }
-
-    // Extract credentials before commitImport runs — commitImport skips
-    // credential entries by design (they live behind the secure store API),
-    // so we read them out of the parsed entry map first.
-    const credentials = includeCredentials
-      ? extractCredentialsFromBundle(validation.entries, validation.manifest)
-      : [];
 
     const commitResult = commitImpl({
       archiveData: fileData,
@@ -238,7 +232,6 @@ export async function restoreFromSnapshot(
     return {
       manifest: commitResult.report.manifest,
       restoredFiles: commitResult.report.summary.total_files,
-      credentials,
     };
   } finally {
     await safeUnlink(tmpPath);

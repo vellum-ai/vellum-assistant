@@ -75,7 +75,6 @@ let mockRestoreResult: {
     manifest_sha256: string;
   };
   restoredFiles: number;
-  credentials: Array<{ account: string; value: string }>;
 } = {
   manifest: {
     schema_version: "1.0.0",
@@ -85,7 +84,6 @@ let mockRestoreResult: {
     manifest_sha256: "abc",
   },
   restoredFiles: 42,
-  credentials: [],
 };
 
 /** Result returned by the stubbed `createSnapshotNow`. */
@@ -125,6 +123,17 @@ let mockCreateSnapshotResult: {
 /** Whether `createSnapshotNow` should throw concurrency error. */
 let mockCreateShouldThrow: Error | null = null;
 
+/** Whether the stubbed `isDaemonRunning` should report the assistant as alive. */
+let mockDaemonRunning = false;
+
+/** Sequence of recovery calls so tests can assert ordering. */
+const recoveryCallOrder: string[] = [];
+
+/** Number of times each recovery helper was invoked. */
+let mockResetDbCalls = 0;
+let mockInvalidateConfigCacheCalls = 0;
+let mockClearTrustCacheCalls = 0;
+
 /** Log calls captured by the mocked logger. */
 let mockLogInfo: string[] = [];
 let mockLogError: string[] = [];
@@ -158,6 +167,28 @@ mock.module("../../../config/loader.js", () => ({
   getConfig: () => ({
     backup: getComputedBackupConfig(),
   }),
+  invalidateConfigCache: () => {
+    mockInvalidateConfigCacheCalls += 1;
+    recoveryCallOrder.push("invalidateConfigCache");
+  },
+}));
+
+mock.module("../../../daemon/daemon-control.js", () => ({
+  isDaemonRunning: () => mockDaemonRunning,
+}));
+
+mock.module("../../../memory/db-connection.js", () => ({
+  resetDb: () => {
+    mockResetDbCalls += 1;
+    recoveryCallOrder.push("resetDb");
+  },
+}));
+
+mock.module("../../../permissions/trust-store.js", () => ({
+  clearCache: () => {
+    mockClearTrustCacheCalls += 1;
+    recoveryCallOrder.push("clearTrustCache");
+  },
 }));
 
 mock.module("../../../memory/checkpoints.js", () => ({
@@ -196,7 +227,10 @@ mock.module("../../../backup/backup-key.js", () => ({
 
 mock.module("../../../backup/restore.js", () => ({
   verifySnapshot: async () => mockVerifyResult,
-  restoreFromSnapshot: async () => mockRestoreResult,
+  restoreFromSnapshot: async () => {
+    recoveryCallOrder.push("restoreFromSnapshot");
+    return mockRestoreResult;
+  },
 }));
 
 mock.module("../../../backup/backup-worker.js", () => ({
@@ -311,6 +345,11 @@ beforeEach(() => {
   mockLogInfo = [];
   mockLogError = [];
   mockCreateShouldThrow = null;
+  mockDaemonRunning = false;
+  mockResetDbCalls = 0;
+  mockInvalidateConfigCacheCalls = 0;
+  mockClearTrustCacheCalls = 0;
+  recoveryCallOrder.length = 0;
   process.exitCode = 0;
   mockVerifyResult = { valid: true };
   mockRestoreResult = {
@@ -322,7 +361,6 @@ beforeEach(() => {
       manifest_sha256: "abc",
     },
     restoredFiles: 42,
-    credentials: [],
   };
   mockCreateSnapshotResult = {
     local: {
@@ -929,6 +967,78 @@ describe("handleRestore", () => {
     expect(mockLogInfo.some((m) => m.includes("newest.vbundle"))).toBe(
       true,
     );
+  });
+
+  test("refuses to run while the assistant is running (no --force)", async () => {
+    // Safety gate: the CLI must refuse to restore against a live assistant
+    // unless --force is passed. Restoring under a running assistant is
+    // dangerous — the open SQLite handle, cached config, and cached trust
+    // rules all contradict the on-disk state after the bundle is written.
+    mockDaemonRunning = true;
+
+    await handleRestore({
+      path: "/tmp/local/backup-20260411-093000.vbundle",
+      yes: true,
+    });
+
+    expect(process.exitCode).toBe(1);
+    expect(
+      mockLogError.some((m) =>
+        m.toLowerCase().includes("assistant is running"),
+      ),
+    ).toBe(true);
+    // restoreFromSnapshot must not have been called — the safety gate
+    // bails before reaching the recovery sequence.
+    expect(mockResetDbCalls).toBe(0);
+    expect(recoveryCallOrder).toEqual([]);
+  });
+
+  test("--force overrides the daemon-running refusal and still runs recovery sequence", async () => {
+    mockDaemonRunning = true;
+
+    await handleRestore({
+      path: "/tmp/local/backup-20260411-093000.vbundle",
+      yes: true,
+      force: true,
+    });
+
+    expect(process.exitCode).toBe(0);
+    // Recovery sequence must still run even with --force — the flag only
+    // overrides the running-assistant refusal, not the DB reset or cache
+    // invalidation.
+    expect(mockResetDbCalls).toBe(1);
+    expect(mockInvalidateConfigCacheCalls).toBe(1);
+    expect(mockClearTrustCacheCalls).toBe(1);
+    expect(recoveryCallOrder).toEqual([
+      "resetDb",
+      "restoreFromSnapshot",
+      "invalidateConfigCache",
+      "clearTrustCache",
+    ]);
+  });
+
+  test("successful restore runs resetDb, restore, then cache invalidation in order", async () => {
+    // Regression test for the restore-corrupts-daemon-state gap. The CLI
+    // handler must mirror the HTTP handler's recovery sequence so an
+    // in-process CLI invocation leaves the shared runtime in a consistent
+    // state.
+    mockDaemonRunning = false;
+
+    await handleRestore({
+      path: "/tmp/local/backup-20260411-093000.vbundle",
+      yes: true,
+    });
+
+    expect(process.exitCode).toBe(0);
+    expect(mockResetDbCalls).toBe(1);
+    expect(mockInvalidateConfigCacheCalls).toBe(1);
+    expect(mockClearTrustCacheCalls).toBe(1);
+    expect(recoveryCallOrder).toEqual([
+      "resetDb",
+      "restoreFromSnapshot",
+      "invalidateConfigCache",
+      "clearTrustCache",
+    ]);
   });
 });
 

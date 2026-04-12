@@ -46,12 +46,30 @@ mock.module("../../../util/logger.js", () => ({
     }),
 }));
 
+// -- listSnapshotsInDir spy ------------------------------------------------
+// Wraps the real implementation so tests can assert on which directories
+// were enumerated. Needed to verify handleBackupList skips offsite
+// enumeration when backup.offsite.enabled is false.
+
+const listSnapshotsCallLog: string[] = [];
+const { listSnapshotsInDir: realListSnapshotsInDir } = await import(
+  "../../../backup/list-snapshots.js"
+);
+mock.module("../../../backup/list-snapshots.js", () => ({
+  listSnapshotsInDir: async (dir: string) => {
+    listSnapshotsCallLog.push(dir);
+    return realListSnapshotsInDir(dir);
+  },
+}));
+
 // -- Config mock -----------------------------------------------------------
 // Built in `beforeEach` from BackupConfigSchema defaults, with overrides
 // applied per test via `setMockBackupConfig`.
 
 let mockBackupConfig: BackupConfig = BackupConfigSchema.parse({});
 let mockWorkspaceDir = "/tmp/mock-workspace-unused";
+
+let mockInvalidateConfigCacheCalls = 0;
 
 mock.module("../../../config/loader.js", () => ({
   getConfig: () => ({
@@ -60,6 +78,34 @@ mock.module("../../../config/loader.js", () => ({
     // the full AssistantConfig. Cast through `unknown` so the partial shape is
     // accepted without pulling in the full config schema.
   }),
+  invalidateConfigCache: () => {
+    mockInvalidateConfigCacheCalls += 1;
+    recoveryCallOrder.push("invalidateConfigCache");
+  },
+}));
+
+// -- DB + trust-cache mocks ------------------------------------------------
+// handleBackupRestore must call `resetDb()` BEFORE `restoreFromSnapshot` and
+// `invalidateConfigCache()` + `clearTrustCache()` AFTER (matching the
+// migration importer). Tests record the call sequence via
+// `recoveryCallOrder` and assert on the relative ordering.
+
+let mockResetDbCalls = 0;
+let mockClearTrustCacheCalls = 0;
+const recoveryCallOrder: string[] = [];
+
+mock.module("../../../memory/db-connection.js", () => ({
+  resetDb: () => {
+    mockResetDbCalls += 1;
+    recoveryCallOrder.push("resetDb");
+  },
+}));
+
+mock.module("../../../permissions/trust-store.js", () => ({
+  clearCache: () => {
+    mockClearTrustCacheCalls += 1;
+    recoveryCallOrder.push("clearTrustCache");
+  },
 }));
 
 // -- Platform paths mock ---------------------------------------------------
@@ -129,7 +175,6 @@ mock.module("../../../backup/backup-worker.js", () => ({
 interface RestoreCall {
   path: string;
   hasKey: boolean;
-  includeCredentials: boolean | undefined;
   workspaceDir: string | undefined;
 }
 interface VerifyCall {
@@ -147,7 +192,6 @@ let mockRestoreResult: RestoreResult = {
     manifest_sha256: "0".repeat(64),
   } as unknown as RestoreResult["manifest"],
   restoredFiles: 0,
-  credentials: [],
 };
 let mockRestoreError: Error | null = null;
 let mockVerifyResult: VerifyResult = { valid: true };
@@ -157,14 +201,13 @@ mock.module("../../../backup/restore.js", () => ({
     path: string,
     opts: {
       key?: Buffer;
-      includeCredentials?: boolean;
       workspaceDir?: string;
     },
   ) => {
+    recoveryCallOrder.push("restoreFromSnapshot");
     lastRestoreArgs = {
       path,
       hasKey: opts.key != null,
-      includeCredentials: opts.includeCredentials,
       workspaceDir: opts.workspaceDir,
     };
     if (mockRestoreError) throw mockRestoreError;
@@ -250,9 +293,13 @@ beforeEach(() => {
       manifest_sha256: "0".repeat(64),
     } as unknown as RestoreResult["manifest"],
     restoredFiles: 0,
-    credentials: [],
   };
   mockVerifyResult = { valid: true };
+  mockResetDbCalls = 0;
+  mockInvalidateConfigCacheCalls = 0;
+  mockClearTrustCacheCalls = 0;
+  recoveryCallOrder.length = 0;
+  listSnapshotsCallLog.length = 0;
 });
 
 afterEach(() => {
@@ -422,6 +469,57 @@ describe("handleBackupList", () => {
     const res = await handleBackupList(new Request("http://localhost/v1/backups"));
     const body = (await res.json()) as { nextRunAt: string | null };
     expect(body.nextRunAt).toBeNull();
+  });
+
+  test("offsite.enabled=false returns offsite:[] and offsiteEnabled:false without probing destinations", async () => {
+    // Regression test: when the user disables offsite backups, the HTTP
+    // handler must mirror the worker's behavior and return an empty offsite
+    // list without enumerating any destinations. Previously the handler
+    // would still probe each configured destination, causing the macOS UI
+    // to render offsite cards even after offsite was turned off.
+    //
+    // Even with destinations present in config, `offsite.enabled=false`
+    // should short-circuit the enumeration loop.
+    const configuredDestDir = join(ROOT, "offsite-still-configured");
+    mkdirSync(configuredDestDir, { recursive: true });
+    mockBackupConfig = makeConfig({
+      localDirectory: LOCAL_DIR,
+      offsite: {
+        enabled: false,
+        destinations: [
+          { path: configuredDestDir, encrypt: true },
+        ],
+      },
+    });
+
+    const res = await handleBackupList(
+      new Request("http://localhost/v1/backups"),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      local: SnapshotEntry[];
+      offsite: unknown[];
+      offsiteEnabled: boolean;
+    };
+    expect(body.offsite).toEqual([]);
+    expect(body.offsiteEnabled).toBe(false);
+    // listSnapshotsInDir should only have been called for the local dir —
+    // never for any offsite destination.
+    expect(listSnapshotsCallLog).toEqual([LOCAL_DIR]);
+  });
+
+  test("offsite.enabled=true returns offsiteEnabled:true", async () => {
+    mockBackupConfig = makeConfig({
+      localDirectory: LOCAL_DIR,
+      offsite: { enabled: true, destinations: [] },
+    });
+
+    const res = await handleBackupList(
+      new Request("http://localhost/v1/backups"),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { offsiteEnabled: boolean };
+    expect(body.offsiteEnabled).toBe(true);
   });
 });
 
@@ -629,7 +727,13 @@ describe("handleBackupRestore", () => {
     expect(lastRestoreArgs).toBeNull();
   });
 
-  test("includeCredentials flag is forwarded to restoreFromSnapshot", async () => {
+  test("successful restore runs the full recovery sequence in order", async () => {
+    // Regression test for the restore-corrupts-daemon-state gap:
+    // handleBackupRestore must call resetDb() BEFORE restoreFromSnapshot
+    // (so the live SQLite handle is closed before the file is overwritten)
+    // and invalidateConfigCache() + clearTrustCache() AFTER (so the daemon
+    // re-reads the restored config/trust rules). The migration importer
+    // already does this — the backup handler must match.
     const snapshotPath = writeBackupFile(
       LOCAL_DIR,
       "backup-20260411-100000.vbundle",
@@ -640,10 +744,67 @@ describe("handleBackupRestore", () => {
     });
 
     const res = await handleBackupRestore(
-      jsonRequest("POST", { path: snapshotPath, includeCredentials: true }),
+      jsonRequest("POST", { path: snapshotPath }),
     );
     expect(res.status).toBe(200);
-    expect(lastRestoreArgs!.includeCredentials).toBe(true);
+    expect(mockResetDbCalls).toBe(1);
+    expect(mockInvalidateConfigCacheCalls).toBe(1);
+    expect(mockClearTrustCacheCalls).toBe(1);
+    expect(recoveryCallOrder).toEqual([
+      "resetDb",
+      "restoreFromSnapshot",
+      "invalidateConfigCache",
+      "clearTrustCache",
+    ]);
+  });
+
+  test("restore failure still closes the DB singleton before throwing", async () => {
+    // Even on failure, resetDb must have been called — we don't want the
+    // daemon to keep writing through an open handle to a file that's been
+    // partially overwritten by a failed commit.
+    const snapshotPath = writeBackupFile(
+      LOCAL_DIR,
+      "backup-20260411-100000.vbundle",
+    );
+    mockBackupConfig = makeConfig({
+      localDirectory: LOCAL_DIR,
+      offsite: { enabled: true, destinations: [] },
+    });
+    mockRestoreError = new Error("simulated restore failure");
+
+    const res = await handleBackupRestore(
+      jsonRequest("POST", { path: snapshotPath }),
+    );
+    expect(res.status).toBe(500);
+    expect(mockResetDbCalls).toBe(1);
+    // Caches should NOT be invalidated on failure — the in-process caches
+    // still reflect the pre-restore state on disk (the bundle write failed
+    // so there's nothing new to re-read).
+    expect(mockInvalidateConfigCacheCalls).toBe(0);
+    expect(mockClearTrustCacheCalls).toBe(0);
+  });
+
+  test("response no longer exposes credentialsIncluded", async () => {
+    // The dead credentials plumbing has been removed from the backup surface.
+    // Credentials intentionally live in the OS keychain / CES and are not
+    // part of the backup round trip.
+    const snapshotPath = writeBackupFile(
+      LOCAL_DIR,
+      "backup-20260411-100000.vbundle",
+    );
+    mockBackupConfig = makeConfig({
+      localDirectory: LOCAL_DIR,
+      offsite: { enabled: true, destinations: [] },
+    });
+
+    const res = await handleBackupRestore(
+      jsonRequest("POST", { path: snapshotPath }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect("credentialsIncluded" in body).toBe(false);
+    expect(body.manifest).toBeDefined();
+    expect(body.restoredFiles).toBeDefined();
   });
 
   test("missing path field returns 400", async () => {

@@ -26,12 +26,16 @@ import {
 import { restoreFromSnapshot, verifySnapshot } from "../../backup/restore.js";
 import {
   getConfig,
+  invalidateConfigCache,
   loadRawConfig,
   saveRawConfig,
   setNestedValue,
 } from "../../config/loader.js";
 import type { BackupDestination } from "../../config/schema.js";
+import { isDaemonRunning } from "../../daemon/daemon-control.js";
 import { getMemoryCheckpoint } from "../../memory/checkpoints.js";
+import { resetDb } from "../../memory/db-connection.js";
+import { clearCache as clearTrustCache } from "../../permissions/trust-store.js";
 import { DefaultPathResolver } from "../../runtime/migrations/vbundle-import-analyzer.js";
 import {
   getWorkspaceDir,
@@ -523,6 +527,7 @@ export interface RestoreOptions {
   path?: string;
   latest?: boolean;
   yes?: boolean;
+  force?: boolean;
 }
 
 export async function handleRestore(opts: RestoreOptions): Promise<void> {
@@ -537,6 +542,20 @@ export async function handleRestore(opts: RestoreOptions): Promise<void> {
   if (opts.path && opts.latest) {
     log.error(
       "Cannot combine --path and --latest. Drop one.",
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  // Safety gate: a restore while the assistant is running is dangerous.
+  // The assistant holds an open SQLite handle (referencing the old inode on
+  // Unix), a cached config, and cached trust rules. Overwriting the files
+  // under a running process corrupts state. Refuse unless `--force` says the
+  // caller knows what they're doing.
+  if (!opts.force && isDaemonRunning()) {
+    log.error(
+      "Assistant is running — stop it first with 'vellum sleep' before restoring " +
+        "(safe restore requires an idle assistant). Pass --force to override.",
     );
     process.exitCode = 1;
     return;
@@ -586,11 +605,26 @@ export async function handleRestore(opts: RestoreOptions): Promise<void> {
     const workspaceDir = getWorkspaceDir();
     const hooksDir = getWorkspaceHooksDir();
     const pathResolver = new DefaultPathResolver(workspaceDir, hooksDir);
+
+    // Close the SQLite singleton before the bundle is written. If the
+    // assistant process was running in-process (tests, `--force`) the
+    // singleton may still reference the old file; resetting closes the
+    // handle so the restored DB file is picked up cleanly on the next
+    // getDb() call.
+    resetDb();
+
     const result = await restoreFromSnapshot(snapshotPath, {
       key,
       pathResolver,
       workspaceDir,
     });
+
+    // Invalidate in-process caches so the restored settings.json and
+    // trust.json take effect (matches the HTTP handler's recovery sequence
+    // and the migration importer).
+    invalidateConfigCache();
+    clearTrustCache();
+
     log.info(`Restored from ${snapshotPath}`);
     log.info(`  source: ${result.manifest.source ?? "unknown"}`);
     log.info(`  schema_version: ${result.manifest.schema_version}`);
@@ -653,10 +687,12 @@ export function registerBackupCommand(program: Command): void {
     "after",
     `
 Backups capture a snapshot of the assistant workspace (config, conversations,
-trust rules, hooks, the SQLite database, and optionally credentials) as a
-.vbundle file. The automated worker runs on a configurable interval and writes
-to a local pool under ~/.vellum/backups/local/, optionally mirroring each
-snapshot to one or more offsite destinations (iCloud Drive by default).
+trust rules, hooks, the SQLite database) as a .vbundle file. Credentials are
+NOT included — they live in the OS keychain / CES and users re-authenticate
+integrations after a restore. The automated worker runs on a configurable
+interval and writes to a local pool under ~/.vellum/backups/local/, optionally
+mirroring each snapshot to one or more offsite destinations (iCloud Drive by
+default).
 
 Offsite destinations can be per-destination encrypted (AES-256-GCM) or
 plaintext — plaintext only makes sense when the user owns physical access to
@@ -904,6 +940,10 @@ Examples:
       "Restore the newest local snapshot (offsite files are not considered)",
     )
     .option("--yes", "Skip the confirmation prompt")
+    .option(
+      "--force",
+      "Restore even when the assistant is running (unsafe — only use if you know what you're doing)",
+    )
     .addHelpText(
       "after",
       `
@@ -916,6 +956,11 @@ Prompts for confirmation unless --yes is passed.
 --latest selects the newest local snapshot only. Offsite files may not exist
 on a new machine after a workspace migration, so --latest refuses to dig into
 them on purpose.
+
+Safety: refuses to run while the assistant is running, because the live
+SQLite handle and cached config/trust rules can corrupt the restored state.
+Stop the assistant first with 'vellum sleep'. Pass --force to override (only
+use this if you understand the risk).
 
 Examples:
   $ vellum backup restore --latest --yes
