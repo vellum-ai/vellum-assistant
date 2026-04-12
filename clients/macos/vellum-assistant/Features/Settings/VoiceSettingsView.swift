@@ -51,11 +51,19 @@ struct VoiceSettingsView: View {
     @State private var recordingMonitors: [Any] = []
     @State private var modifierHoldTimer: Timer? = nil
 
-    // STT-specific state
-    @State private var sttOpenAIKeyText: String = ""
-    @State private var sttSetupExpanded: Bool = false
-    /// Whether an OpenAI API key is stored for STT (fetched per-component).
-    @State private var sttOpenAIHasKey = false
+    // STT draft-based state
+    /// Uncommitted provider selection — persisted only on Save.
+    @State private var draftSTTProvider: String = "openai-whisper"
+    /// API key input text (replaces the old Connect/Set Up flow).
+    @State private var sttApiKeyText: String = ""
+    /// Baseline provider for change detection — set on appear and after save.
+    @State private var initialSTTProvider: String = "openai-whisper"
+    /// Whether the current STT provider already has a stored API key.
+    @State private var sttProviderHasKey: Bool = false
+    /// Save-in-progress indicator.
+    @State private var sttSaving: Bool = false
+    /// Error message from key validation / save.
+    @State private var sttSaveError: String? = nil
 
     /// The shared TTS provider registry loaded from the bundled catalog.
     private let registry = loadTTSProviderRegistry()
@@ -65,10 +73,6 @@ struct VoiceSettingsView: View {
     /// if the value does not match any known entry (matching iOS behavior).
     private var selectedProvider: TTSProviderCatalogEntry? {
         registry.provider(withId: draftTTSProvider) ?? registry.providers.first
-    }
-
-    private var sttProvider: STTProviderOption {
-        STTProviderOption(rawValue: sttProviderRaw) ?? .openaiWhisper
     }
 
     private var currentActivator: PTTActivator {
@@ -108,8 +112,10 @@ struct VoiceSettingsView: View {
             initialTTSProvider = ttsProviderRaw
             ttsProviderHasKey = ttsCredentialExists(for: ttsProviderRaw)
 
-            // STT key check
-            sttOpenAIHasKey = APIKeyManager.getKey(for: "openai") != nil
+            // Initialize STT draft state from persisted values
+            draftSTTProvider = sttProviderRaw
+            initialSTTProvider = sttProviderRaw
+            sttProviderHasKey = APIKeyManager.getKey(for: "openai") != nil
         }
         .onChange(of: draftTTSProvider) { _, _ in
             // Clear API key and voice ID fields when provider changes
@@ -573,94 +579,91 @@ struct VoiceSettingsView: View {
 
     // MARK: - STT Provider Card
 
+    /// True when the user has made changes worth saving in the STT card.
+    private var sttHasChanges: Bool {
+        let providerChanged = draftSTTProvider != initialSTTProvider
+        let hasNewKey = !sttApiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return providerChanged || hasNewKey
+    }
+
     private var sttProviderCard: some View {
         SettingsCard(title: "Speech-to-Text", subtitle: "Choose an STT provider for audio transcription. The selected provider is used globally across all transcription features.") {
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                // Provider selector
+                // Provider dropdown selector
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text("Provider:")
-                        .font(VFont.bodySmallDefault)
+                    Text("Provider")
+                        .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentSecondary)
-
-                    HStack(spacing: VSpacing.sm) {
-                        ForEach(STTProviderOption.allCases, id: \.rawValue) { provider in
-                            let isSelected = sttProvider == provider
-                            providerOption(label: provider.displayName, isSelected: isSelected) {
-                                sttProviderRaw = provider.rawValue
-                                store.setSTTProvider(provider.rawValue)
-                            }
+                    VDropdown(
+                        placeholder: "Select a provider\u{2026}",
+                        selection: $draftSTTProvider,
+                        options: STTProviderOption.allCases.map { provider in
+                            (label: provider.displayName, value: provider.rawValue)
                         }
+                    )
+                }
+
+                // API key field
+                VTextField(
+                    "OpenAI API Key",
+                    placeholder: sttProviderHasKey ? "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}" : "Your OpenAI API key",
+                    text: $sttApiKeyText,
+                    isSecure: true,
+                    errorMessage: sttSaveError,
+                    maxWidth: 400
+                )
+
+                // Informational note about shared key
+                if sttProviderHasKey {
+                    HStack(alignment: .top, spacing: VSpacing.xs) {
+                        VIconView(.info, size: 10)
+                            .foregroundStyle(VColor.contentTertiary)
+                        Text("The OpenAI key is shared with inference. Use inference settings to manage it.")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
+                } else {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.lock, size: 10)
+                            .foregroundStyle(VColor.contentTertiary)
+                        Text("This API key is shared with inference settings.")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
                 }
 
-                // Provider-specific subtitle
-                Text(sttProvider.subtitle)
-                    .font(VFont.bodySmallDefault)
-                    .foregroundStyle(VColor.contentTertiary)
-
-                // Provider-specific configuration
-                switch sttProvider {
-                case .openaiWhisper:
-                    openaiWhisperProviderConfig
-                }
+                // Save action — no Reset for STT since the key is shared with inference
+                ServiceCardActions(
+                    hasChanges: sttHasChanges,
+                    isSaving: sttSaving,
+                    onSave: { saveSTT() }
+                )
             }
         }
     }
 
-    // MARK: - OpenAI Whisper Provider Config
+    // MARK: - STT Save
 
-    private var openaiWhisperProviderConfig: some View {
-        Group {
-            if sttOpenAIHasKey {
-                // The OpenAI key is shared with the inference provider.
-                // Show a read-only "Connected" indicator without a
-                // "Disconnect" button — deleting the shared credential
-                // from the STT card would break inference.
-                VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
+    private func saveSTT() {
+        sttSaving = true
+        sttSaveError = nil
 
-                HStack(spacing: VSpacing.xs) {
-                    VIconView(.info, size: 10)
-                        .foregroundStyle(VColor.contentTertiary)
-                    Text("Using your OpenAI API key from inference settings.")
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentTertiary)
-                }
-            } else if sttSetupExpanded {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    VTextField(
-                        "OpenAI API Key",
-                        placeholder: "Your OpenAI API key",
-                        text: $sttOpenAIKeyText,
-                        isSecure: true,
-                        maxWidth: 400
-                    )
+        // Persist provider change if needed
+        if draftSTTProvider != sttProviderRaw {
+            store.setSTTProvider(draftSTTProvider)
+            sttProviderRaw = draftSTTProvider
+        }
 
-                    HStack(spacing: VSpacing.xs) {
-                        VIconView(.lock, size: 10)
-                            .foregroundStyle(VColor.contentTertiary)
-                        Text("Your API key is stored securely in the macOS Keychain and shared with inference.")
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.contentTertiary)
-                    }
-
-                    HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connect", style: .outlined, isDisabled: sttOpenAIKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
-                            store.saveSTTOpenAIKey(sttOpenAIKeyText)
-                            sttOpenAIHasKey = true
-                            sttOpenAIKeyText = ""
-                            sttSetupExpanded = false
-                        }
-                        VButton(label: "Cancel", style: .outlined) {
-                            sttSetupExpanded = false
-                            sttOpenAIKeyText = ""
-                        }
-                    }
-                }
-            } else {
-                VButton(label: "Set Up", style: .outlined) {
-                    sttSetupExpanded = true
-                }
+        // Persist API key if provided
+        let trimmedKey = sttApiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedKey.isEmpty {
+            store.saveSTTOpenAIKey(trimmedKey) {
+                sttProviderHasKey = true
+                sttApiKeyText = ""
             }
         }
+
+        initialSTTProvider = draftSTTProvider
+        sttSaving = false
     }
 }
