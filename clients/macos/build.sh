@@ -921,6 +921,10 @@ PROVIDER_ENV_VARS_REGISTRY="$SCRIPT_DIR/../../meta/provider-env-vars.json"
 if [ -f "$PROVIDER_ENV_VARS_REGISTRY" ]; then
     cp "$PROVIDER_ENV_VARS_REGISTRY" "$RESOURCES_DIR/provider-env-vars.json"
 fi
+TTS_PROVIDER_CATALOG="$SCRIPT_DIR/../../meta/tts-provider-catalog.json"
+if [ -f "$TTS_PROVIDER_CATALOG" ]; then
+    cp "$TTS_PROVIDER_CATALOG" "$RESOURCES_DIR/tts-provider-catalog.json"
+fi
 # Bundle Dockerfiles into Contents/Resources/dockerfiles/ for debug builds
 # so that the CLI's findRepoRoot() can locate them when running from a
 # packaged DMG.  This enables `vellum hatch --remote docker` to work
