@@ -2971,6 +2971,18 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    func setFishAudioReferenceId(_ referenceId: String) {
+        Task {
+            let trimmed = referenceId.trimmingCharacters(in: .whitespacesAndNewlines)
+            let success = await settingsClient.patchConfig([
+                "services": ["tts": ["providers": ["fish-audio": ["referenceId": trimmed]]]]
+            ])
+            if !success {
+                log.error("Failed to patch config for Fish Audio reference ID")
+            }
+        }
+    }
+
     /// Schedules a delayed refresh of provider routing sources, giving the
     /// daemon time to re-initialize providers after a key change.
     private func scheduleRoutingSourceRefresh() {
