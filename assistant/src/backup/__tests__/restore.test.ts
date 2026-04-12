@@ -274,11 +274,19 @@ describe("restoreFromSnapshot", () => {
   test("plaintext round-trip: passes the validated bundle through to commitImpl", async () => {
     const { path, manifest } = writeTinyPlaintextBundle("plain.vbundle");
     const { commitImpl, calls } = makeStubCommitImpl();
+    let resetDbCalls = 0;
 
     const result = await restoreFromSnapshot(path, {
       pathResolver: NULL_RESOLVER,
       commitImpl,
+      resetDbImpl: () => {
+        resetDbCalls += 1;
+      },
     });
+
+    // resetDbImpl must run exactly once before the commit step, so the
+    // live SQLite singleton is closed before assistant.db is overwritten.
+    expect(resetDbCalls).toBe(1);
 
     expect(calls.length).toBe(1);
     const passed = calls[0].options;
@@ -411,6 +419,48 @@ describe("restoreFromSnapshot", () => {
 
     // commitImpl must NOT have been called when validation fails.
     expect(calls.length).toBe(0);
+  });
+
+  test("resetDbImpl runs before commitImpl and is skipped when validation fails", async () => {
+    // Happy path: resetDb must be called, and must be called BEFORE the
+    // commit step so the SQLite handle is released before assistant.db is
+    // overwritten on disk.
+    const { path } = writeTinyPlaintextBundle("plain.vbundle");
+    const order: string[] = [];
+    const { commitImpl } = makeStubCommitImpl();
+    const instrumentedCommit = (opts: ImportCommitOptions) => {
+      order.push("commit");
+      return commitImpl(opts);
+    };
+
+    await restoreFromSnapshot(path, {
+      pathResolver: NULL_RESOLVER,
+      commitImpl: instrumentedCommit,
+      resetDbImpl: () => {
+        order.push("reset");
+      },
+    });
+
+    expect(order).toEqual(["reset", "commit"]);
+
+    // Failure path: when validation fails, resetDb must NOT be invoked —
+    // there's no reason to close the DB singleton if we're not going to
+    // overwrite anything on disk.
+    const garbagePath = join(TEST_DIR, "garbage-for-reset.vbundle");
+    writeFileSync(garbagePath, Buffer.from("not a real bundle"));
+    let resetCallsOnInvalid = 0;
+
+    await expect(
+      restoreFromSnapshot(garbagePath, {
+        pathResolver: NULL_RESOLVER,
+        commitImpl,
+        resetDbImpl: () => {
+          resetCallsOnInvalid += 1;
+        },
+      }),
+    ).rejects.toThrow(/Snapshot failed validation/);
+
+    expect(resetCallsOnInvalid).toBe(0);
   });
 
   test("commit returning a write_failed result is surfaced as an error", async () => {
