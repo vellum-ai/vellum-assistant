@@ -226,8 +226,14 @@ struct ProgressCardPresentationModel: Equatable {
         )
 
         // --- Auto-expand ---
-        let isCompleteOrDenied = phase == .complete || phase == .denied
-        let shouldAutoExpand = (isCompleteOrDenied && expandCompletedStepsFlag) || hasPendingConfirmation
+        // Matches the original AssistantProgressView logic: auto-expand fires when all
+        // tools are complete, or when incomplete tools were denied/timed out. Phase-based
+        // checks are narrower — .processing and .toolsCompleteThinking both imply
+        // allComplete=true but are excluded by a `phase == .complete` match, which
+        // silently dropped auto-expand for those states.
+        let isComplete = hasTools && resolvedAllComplete
+        let isDenied = hasDeniedToolCalls && hasTools && !resolvedAllComplete
+        let shouldAutoExpand = ((isComplete || isDenied) && expandCompletedStepsFlag) || hasPendingConfirmation
 
         return ProgressCardPresentationModel(
             allComplete: resolvedAllComplete,
