@@ -21,6 +21,10 @@ import {
   startGuardianActionSweep,
   stopGuardianActionSweep,
 } from "../calls/guardian-action-sweep.js";
+import {
+  activeMediaStreamSessions,
+  MediaStreamCallSession,
+} from "../calls/media-stream-server.js";
 import type { RelayWebSocketData } from "../calls/relay-server.js";
 import {
   activeRelayConnections,
@@ -283,6 +287,16 @@ interface BrowserRelayWebSocketData {
   clientInstanceId?: string;
 }
 
+/**
+ * WebSocket data attached to `/v1/calls/media-stream` connections.
+ * The `wsType` discriminator routes frames to the media-stream call
+ * session instead of the ConversationRelay or browser-relay handlers.
+ */
+interface MediaStreamWebSocketData {
+  wsType: "media-stream";
+  callSessionId: string;
+}
+
 export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
   private port: number;
@@ -373,7 +387,10 @@ export class RuntimeHttpServer {
   }
 
   async start(): Promise<void> {
-    type AllWebSocketData = RelayWebSocketData | BrowserRelayWebSocketData;
+    type AllWebSocketData =
+      | RelayWebSocketData
+      | BrowserRelayWebSocketData
+      | MediaStreamWebSocketData;
     this.server = Bun.serve<AllWebSocketData>({
       port: this.port,
       hostname: this.hostname,
@@ -398,6 +415,19 @@ export class RuntimeHttpServer {
                 lastActiveAt: now,
               });
             }
+            return;
+          }
+          if ("wsType" in data && data.wsType === "media-stream") {
+            const msData = data as MediaStreamWebSocketData;
+            log.info(
+              { callSessionId: msData.callSessionId },
+              "Media-stream WebSocket opened",
+            );
+            const session = new MediaStreamCallSession(
+              ws,
+              msData.callSessionId,
+            );
+            activeMediaStreamSessions.set(msData.callSessionId, session);
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
@@ -539,6 +569,14 @@ export class RuntimeHttpServer {
               }
             }
           }
+          if ("wsType" in data && data.wsType === "media-stream") {
+            const msData = data as MediaStreamWebSocketData;
+            const msSession = activeMediaStreamSessions.get(
+              msData.callSessionId,
+            );
+            msSession?.handleMessage(raw);
+            return;
+          }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
           if (callSessionId) {
             const connection = activeRelayConnections.get(callSessionId);
@@ -554,6 +592,24 @@ export class RuntimeHttpServer {
             // undefined, or when it was superseded by a newer registration
             // for the same guardian).
             getChromeExtensionRegistry().unregister(data.connectionId);
+            return;
+          }
+          if ("wsType" in data && data.wsType === "media-stream") {
+            const msData = data as MediaStreamWebSocketData;
+            log.info(
+              {
+                callSessionId: msData.callSessionId,
+                code,
+                reason: reason?.toString(),
+              },
+              "Media-stream WebSocket closed",
+            );
+            const msSession = activeMediaStreamSessions.get(
+              msData.callSessionId,
+            );
+            msSession?.handleTransportClosed(code, reason?.toString());
+            msSession?.destroy();
+            activeMediaStreamSessions.delete(msData.callSessionId);
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
@@ -1095,9 +1151,14 @@ export class RuntimeHttpServer {
     if (!callSessionId) {
       return new Response("Missing callSessionId", { status: 400 });
     }
-    // Media-stream connections use the same data shape as relay for now.
-    // The callSessionId links the stream to the active call session.
-    const upgraded = server.upgrade(req, { data: { callSessionId } });
+    // Media-stream connections use a distinct wsType so the open/message/close
+    // handlers route them to MediaStreamCallSession instead of RelayConnection.
+    const upgraded = server.upgrade(req, {
+      data: {
+        wsType: "media-stream",
+        callSessionId,
+      } satisfies MediaStreamWebSocketData,
+    });
     if (!upgraded) {
       return new Response("WebSocket upgrade failed", { status: 500 });
     }
