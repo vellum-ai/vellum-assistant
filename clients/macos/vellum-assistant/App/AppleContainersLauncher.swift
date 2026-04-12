@@ -268,11 +268,12 @@ final class AppleContainersLauncher: AssistantManagementClient {
                     tarProcess.standardOutput = FileHandle.nullDevice
                     tarProcess.standardError = FileHandle.nullDevice
                     do {
-                        try tarProcess.run()
-                        // Detach — don't wait. Clean up staging on completion.
+                        // Set handler BEFORE run() to avoid a race where the
+                        // process exits before terminationHandler is set.
                         tarProcess.terminationHandler = { _ in
                             try? FileManager.default.removeItem(at: stagingDir)
                         }
+                        try tarProcess.run()
                         log.info("Archiving instance to \(archivePath.path, privacy: .public) in the background")
                     } catch {
                         log.warning("Failed to start archive: \(error.localizedDescription, privacy: .public) — cleaning up staging")
