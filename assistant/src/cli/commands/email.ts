@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import type { Command } from "commander";
 
 import { getAssistantDomain } from "../../config/env.js";
+import { markdownToEmailHtml } from "../../email/html-renderer.js";
 import { VellumPlatformClient } from "../../platform/client.js";
 import { getCliLogger } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
@@ -653,10 +654,13 @@ Examples:
             );
           }
 
-          // 3. Resolve optional HTML body from file
+          // 3. Resolve HTML body: explicit file > auto-generate from text
           let html: string | undefined;
           if (opts.html) {
             html = readFileSync(opts.html, "utf-8");
+          } else {
+            // Auto-generate HTML from the text body (markdown → email HTML).
+            html = markdownToEmailHtml(text);
           }
 
           // 4. Build payload
