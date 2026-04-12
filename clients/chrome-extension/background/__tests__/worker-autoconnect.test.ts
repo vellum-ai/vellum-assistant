@@ -234,7 +234,7 @@ describe('autoConnect lifecycle — connect sets sticky flag', () => {
 
     const response = await handleConnectFailing(
       state,
-      new MissingTokenError("Automatic cloud sign-in failed \u2014 use 'Re-sign in' in Troubleshooting, then try Connect again"),
+      new MissingTokenError("Automatic cloud sign-in failed \u2014 use 'Re-sign in' in Advanced, then turn Connection on again"),
     );
 
     expect(response.ok).toBe(false);
@@ -349,7 +349,7 @@ describe('failed auto-connect — no reconnect loop', () => {
     const state = createWorkerState({ currentAuthProfile: 'local-pair' });
     await state.storage.set({ [AUTO_CONNECT_KEY]: true });
 
-    const errorMessage = "Automatic local pairing failed \u2014 use 'Re-pair' in Troubleshooting, then try Connect again";
+    const errorMessage = "Automatic local pairing failed \u2014 use 'Re-pair' in Advanced, then turn Connection on again";
     await simulateBootstrap(state, async () => {
       throw new MissingTokenError(errorMessage);
     });
@@ -370,7 +370,7 @@ describe('failed auto-connect — no reconnect loop', () => {
     const state = createWorkerState({ currentAuthProfile: 'cloud-oauth' });
     await state.storage.set({ [AUTO_CONNECT_KEY]: true });
 
-    const errorMessage = "Automatic cloud sign-in failed \u2014 use 'Re-sign in' in Troubleshooting, then try Connect again";
+    const errorMessage = "Automatic cloud sign-in failed \u2014 use 'Re-sign in' in Advanced, then turn Connection on again";
     await simulateBootstrap(state, async () => {
       throw new MissingTokenError(errorMessage);
     });

@@ -787,7 +787,7 @@ async function cloudReconnectHook(
   return {
     kind: 'abort',
     error:
-      `${reason}. Use 'Re-sign in' in Troubleshooting, then try Connect again.`,
+      `${reason}. Use 'Re-sign in' in Advanced, then turn Connection on again.`,
   };
 }
 
@@ -900,7 +900,7 @@ function createRelayConnection(
       return {
         kind: 'abort',
         error:
-          "Self-hosted relay token missing or expired. Use 'Re-pair' in Troubleshooting, then try Connect again.",
+          "Self-hosted relay token missing or expired. Use 'Re-pair' in Advanced, then turn Connection on again.",
       };
     },
   });
@@ -927,10 +927,10 @@ class MissingTokenError extends Error {
  */
 function missingTokenMessage(profile: AssistantAuthProfile | null): string {
   if (profile === 'cloud-oauth') {
-    return "Automatic cloud sign-in failed \u2014 use 'Re-sign in' in Troubleshooting, then try Connect again";
+    return "Automatic cloud sign-in failed \u2014 use 'Re-sign in' in Advanced, then turn Connection on again";
   }
   if (profile === 'local-pair') {
-    return "Automatic local pairing failed \u2014 use 'Re-pair' in Troubleshooting, then try Connect again";
+    return "Automatic local pairing failed \u2014 use 'Re-pair' in Advanced, then turn Connection on again";
   }
   if (profile === 'unsupported') {
     return 'This assistant uses an unsupported topology. Please update the Vellum extension.';

@@ -495,7 +495,7 @@ export class RelayConnection {
             kind: 'abort',
             error:
               `Relay token refresh failed: ${message}. ` +
-              `Use 'Re-sign in' in Troubleshooting, then try Connect again.`,
+              `Use 'Re-sign in' in Advanced, then turn Connection on again.`,
           };
         }
       }

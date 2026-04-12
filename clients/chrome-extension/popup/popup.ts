@@ -9,11 +9,12 @@
  *   - **Paused** — user explicitly paused the relay.
  *   - **Action required** — auth or host error requiring manual recovery.
  *
- * Primary controls are **Connect** and **Pause**. Manual recovery
- * controls (local re-pair and cloud re-sign-in) live in a collapsible
- * Troubleshoot section that is hidden by default. The section auto-
- * expands when the health state is `auth_required` or `error`, making
- * break-glass recovery accessible without cluttering the happy path.
+ * Primary control is a single **Connection** toggle. Manual recovery
+ * controls (local re-pair and cloud re-sign-in) plus the support port
+ * override live in a collapsible **Advanced** section that is hidden
+ * by default. The section auto-expands when the health state is
+ * `auth_required` or `error`, making recovery accessible without
+ * cluttering the happy path.
  *
  * On open the popup loads the assistant catalog from the worker via the
  * `assistants-get` message. When exactly one assistant exists it is
@@ -37,7 +38,6 @@ import {
   deriveSelectorDisplay,
   shouldShowLocalSection,
   shouldShowCloudSection,
-  deriveCtaState,
   deriveSetupMessage,
   deriveHealthStatusDisplay,
   healthToPhase,
@@ -56,10 +56,13 @@ const DEFAULT_RELAY_PORT = 7830;
 // ── DOM references ──────────────────────────────────────────────────
 
 const portInput = document.getElementById('port-input') as HTMLInputElement;
-const btnConnect = document.getElementById('btn-connect') as HTMLButtonElement;
-const btnPause = document.getElementById('btn-pause') as HTMLButtonElement;
+const connectionToggle = document.getElementById('connection-toggle') as HTMLInputElement;
+const connectionToggleHint = document.getElementById(
+  'connection-toggle-hint',
+) as HTMLParagraphElement;
 const statusDot = document.getElementById('status-dot') as HTMLDivElement;
 const statusText = document.getElementById('status-text') as HTMLParagraphElement;
+const statusBadge = document.getElementById('status-badge') as HTMLSpanElement;
 const errorText = document.getElementById('error-text') as HTMLParagraphElement;
 const setupMessage = document.getElementById('setup-message') as HTMLParagraphElement;
 const btnCloudSignIn = document.getElementById('btn-cloud-signin') as HTMLButtonElement;
@@ -114,10 +117,48 @@ function setSetupMessage(phase: ConnectionPhase): void {
   }
 }
 
+function statusBadgeDisplay(health: ConnectionHealthState): {
+  text: string;
+  className: 'connected' | 'paused' | 'disconnected';
+} {
+  switch (health) {
+    case 'connected':
+      return { text: 'Online', className: 'connected' };
+    case 'connecting':
+      return { text: 'Starting', className: 'paused' };
+    case 'reconnecting':
+      return { text: 'Recovering', className: 'paused' };
+    case 'paused':
+      return { text: 'Paused', className: 'paused' };
+    case 'auth_required':
+      return { text: 'Needs action', className: 'disconnected' };
+    case 'error':
+      return { text: 'Issue detected', className: 'disconnected' };
+  }
+}
+
+function connectionHint(phase: ConnectionPhase): string {
+  switch (phase) {
+    case 'connected':
+      return 'On and ready.';
+    case 'connecting':
+      return 'Starting connection...';
+    case 'reconnecting':
+      return 'Recovering automatically...';
+    case 'paused':
+    case 'disconnected':
+      return 'Turn on to connect.';
+    case 'no-native-host':
+      return 'Install the desktop app first.';
+  }
+}
+
+function isToggleCheckedForPhase(phase: ConnectionPhase): boolean {
+  return phase === 'connecting' || phase === 'reconnecting' || phase === 'connected';
+}
+
 /**
- * Apply the worker's health state to the full popup UI. Derives button
- * labels/enablement, status indicator, and troubleshooting section
- * visibility from the pure helpers in popup-state.ts.
+ * Apply the worker's health state to the full popup UI.
  */
 function applyHealthState(
   health: ConnectionHealthState,
@@ -125,20 +166,20 @@ function applyHealthState(
 ): void {
   currentHealthState = health;
 
-  // Derive phase for CTA button states.
   const phase = healthToPhase(health);
-  const cta = deriveCtaState(phase);
-  btnConnect.textContent = cta.connectLabel;
-  btnConnect.disabled = !cta.connectEnabled;
-  btnPause.textContent = cta.pauseLabel;
-  btnPause.disabled = !cta.pauseEnabled;
+  connectionToggle.checked = isToggleCheckedForPhase(phase);
+  connectionToggle.disabled = phase === 'connecting' || phase === 'reconnecting';
+  connectionToggleHint.textContent = connectionHint(phase);
 
   // Derive health-aware status display (richer than phase-based).
   const status = deriveHealthStatusDisplay(health, detail);
   statusDot.className = `status-dot ${status.dotClass}`;
   statusText.textContent = status.text;
+  const badge = statusBadgeDisplay(health);
+  statusBadge.textContent = badge.text;
+  statusBadge.className = `status-badge ${badge.className}`;
 
-  portInput.disabled = phase === 'connected' || phase === 'connecting';
+  portInput.disabled = phase === 'connecting' || phase === 'reconnecting';
 
   setSetupMessage(phase);
 
@@ -156,14 +197,28 @@ function applyHealthState(
  * connecting -> polling -> connected flow initiated by the popup).
  */
 function setPhase(phase: ConnectionPhase): void {
+  if (phase === 'no-native-host') {
+    currentHealthState = 'error';
+    connectionToggle.checked = false;
+    connectionToggle.disabled = true;
+    connectionToggleHint.textContent = connectionHint('no-native-host');
+    statusDot.className = 'status-dot disconnected';
+    statusText.textContent = 'Desktop app required';
+    statusBadge.textContent = 'Needs app';
+    statusBadge.className = 'status-badge disconnected';
+    portInput.disabled = false;
+    setSetupMessage('no-native-host');
+    updateTroubleshootSection('error');
+    return;
+  }
+
   // Map phase back to a health state for the unified path.
-  const healthMap: Record<ConnectionPhase, ConnectionHealthState> = {
+  const healthMap: Record<Exclude<ConnectionPhase, 'no-native-host'>, ConnectionHealthState> = {
     connected: 'connected',
     connecting: 'connecting',
     reconnecting: 'reconnecting',
     disconnected: 'paused',
     paused: 'paused',
-    'no-native-host': 'error',
   };
   applyHealthState(healthMap[phase]);
 }
@@ -183,30 +238,23 @@ function showError(msg: string): void {
   showErrorText(msg);
 }
 
-// ── Troubleshoot section ────────────────────────────────────────────
+// ── Advanced section ─────────────────────────────────────────────────
 
 /**
- * Update the troubleshoot section visibility and expansion state.
+ * Update the Advanced section visibility and expansion state.
  *
- * The section is shown when there are auth controls to display
- * (local-pair or cloud-oauth). It auto-expands when the health
- * state is `auth_required` or `error` so the user can access
- * recovery controls.
+ * The section is always shown because it contains support settings.
+ * It auto-expands when the health state is `auth_required` or `error`
+ * so users can access recovery controls.
  */
 function updateTroubleshootSection(health: ConnectionHealthState): void {
   const hasControls = hasTroubleshootingControls(currentAuthProfile);
-
-  if (!hasControls) {
-    troubleshootSection.hidden = true;
-    return;
-  }
-
   troubleshootSection.hidden = false;
 
   // Auto-expand when action is required, auto-collapse on recovery.
   if (shouldExpandTroubleshooting(health)) {
     expandTroubleshoot();
-  } else if (health === 'connected') {
+  } else if (health === 'connected' || !hasControls) {
     collapseTroubleshoot();
   }
 }
@@ -393,13 +441,13 @@ function getPort(): number {
   return DEFAULT_RELAY_PORT;
 }
 
-// ── Connect (primary CTA) ───────────────────────────────────────────
+// ── Connection toggle ────────────────────────────────────────────────
 //
 // No local precheck -- the worker handles auth bootstrap (pairing/sign-in)
 // automatically when interactive=true. Users can connect in one click
 // even when not previously paired or signed in.
 
-btnConnect.addEventListener('click', async () => {
+async function requestConnect(): Promise<void> {
   const port = getPort();
 
   errorText.style.display = 'none';
@@ -417,51 +465,64 @@ btnConnect.addEventListener('click', async () => {
     return;
   }
 
-  chrome.runtime.sendMessage({ type: 'connect' }, (response: { ok: boolean; error?: string }) => {
-    if (chrome.runtime.lastError || !response?.ok) {
-      showError(response?.error ?? chrome.runtime.lastError?.message ?? 'Unknown error');
-      applyHealthState('error');
-      return;
-    }
-    // Poll briefly for health state convergence.
-    let attempts = 0;
-    const poll = setInterval(() => {
-      chrome.runtime.sendMessage({ type: 'get_status' }, (r: GetStatusResponse) => {
-        if (chrome.runtime.lastError) {
-          if (++attempts > 10) {
-            clearInterval(poll);
-            // Fall back to a recoverable state so the user can retry.
-            applyHealthState('paused');
+  await new Promise<void>((resolve) => {
+    chrome.runtime.sendMessage({ type: 'connect' }, (response: { ok: boolean; error?: string }) => {
+      if (chrome.runtime.lastError || !response?.ok) {
+        showError(response?.error ?? chrome.runtime.lastError?.message ?? 'Unknown error');
+        applyHealthState('error');
+        resolve();
+        return;
+      }
+      // Poll briefly for health state convergence.
+      let attempts = 0;
+      const poll = setInterval(() => {
+        chrome.runtime.sendMessage({ type: 'get_status' }, (r: GetStatusResponse) => {
+          if (chrome.runtime.lastError) {
+            if (++attempts > 10) {
+              clearInterval(poll);
+              // Fall back to a recoverable state so the user can retry.
+              applyHealthState('paused');
+              resolve();
+            }
+            return;
           }
-          return;
-        }
 
-        const health = r?.health ?? (r?.connected ? 'connected' : 'connecting');
-        if (health === 'connected' || health === 'error' || health === 'auth_required') {
-          clearInterval(poll);
-          applyHealthState(health as ConnectionHealthState, r?.healthDetail);
-        } else if (++attempts > 10) {
-          clearInterval(poll);
-          // Polling exhausted without reaching a terminal health state.
-          // Fall back to paused so the Connect button re-enables and
-          // the user can retry instead of being stuck on "Connecting...".
-          applyHealthState('paused');
-        }
-      });
-    }, 300);
+          const health = r?.health ?? (r?.connected ? 'connected' : 'connecting');
+          if (health === 'connected' || health === 'error' || health === 'auth_required') {
+            clearInterval(poll);
+            applyHealthState(health as ConnectionHealthState, r?.healthDetail);
+            resolve();
+          } else if (++attempts > 10) {
+            clearInterval(poll);
+            // Polling exhausted without reaching a terminal health state.
+            // Fall back to paused so users can retry instead of staying stuck.
+            applyHealthState('paused');
+            resolve();
+          }
+        });
+      }, 300);
+    });
   });
-});
+}
 
-// ── Pause (secondary action) ────────────────────────────────────────
+// ── Pause ────────────────────────────────────────────────────────────
 //
 // Sends the `pause` message to the worker, which tears down the relay
 // WebSocket and clears the `autoConnect` flag. Credentials are
 // preserved so the next Connect is instant.
 
-btnPause.addEventListener('click', () => {
+function requestPause(): void {
   chrome.runtime.sendMessage({ type: 'pause' }, () => {
     applyHealthState('paused');
   });
+}
+
+connectionToggle.addEventListener('change', async () => {
+  if (connectionToggle.checked) {
+    await requestConnect();
+    return;
+  }
+  requestPause();
 });
 
 // ── Self-hosted native-messaging pairing (troubleshooting) ──────────

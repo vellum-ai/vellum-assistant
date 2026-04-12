@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Vellum Relay</title>
+  <title>Browser Connection</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -20,12 +20,35 @@
       display: flex;
       align-items: center;
       gap: 8px;
-      margin-bottom: 16px;
+      margin-bottom: 12px;
     }
 
     header h1 {
       font-size: 15px;
       font-weight: 600;
+    }
+
+    .status-card {
+      background: #f8fafc;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 10px;
+      margin-bottom: 12px;
+    }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .status-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
     }
 
     .status-dot {
@@ -40,10 +63,23 @@
     .status-dot.paused { background: #f59e0b; }
     .status-dot.disconnected { background: #ef4444; }
 
+    .status-badge {
+      font-size: 12px;
+      font-weight: 600;
+      color: #1f2937;
+      background: #e5e7eb;
+      border-radius: 999px;
+      padding: 2px 8px;
+      flex-shrink: 0;
+    }
+    .status-badge.connected { background: #dcfce7; color: #166534; }
+    .status-badge.paused { background: #fef3c7; color: #92400e; }
+    .status-badge.disconnected { background: #fee2e2; color: #991b1b; }
+
     .status-text {
       font-size: 12px;
-      color: #666;
-      margin-bottom: 14px;
+      color: #4b5563;
+      line-height: 1.45;
     }
 
     label {
@@ -66,13 +102,85 @@
     }
     input:focus { border-color: #6366f1; }
 
-    .btn-row {
+    .toggle-row {
       display: flex;
-      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 10px;
+      margin-bottom: 12px;
+    }
+
+    .toggle-copy {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .toggle-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #111827;
+    }
+
+    .toggle-hint {
+      font-size: 12px;
+      color: #6b7280;
+      line-height: 1.4;
+    }
+
+    .switch {
+      position: relative;
+      width: 44px;
+      height: 26px;
+      flex-shrink: 0;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+      position: absolute;
+    }
+
+    .switch-slider {
+      position: absolute;
+      inset: 0;
+      background: #d1d5db;
+      border-radius: 999px;
+      transition: background 0.2s;
+      cursor: pointer;
+    }
+
+    .switch-slider::before {
+      content: "";
+      position: absolute;
+      left: 3px;
+      top: 3px;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #fff;
+      transition: transform 0.2s;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    }
+
+    .switch input:checked + .switch-slider {
+      background: #4f46e5;
+    }
+
+    .switch input:checked + .switch-slider::before {
+      transform: translateX(18px);
+    }
+
+    .switch input:disabled + .switch-slider {
+      cursor: default;
+      opacity: 0.55;
     }
 
     button {
-      flex: 1;
+      width: 100%;
       padding: 8px 0;
       border: none;
       border-radius: 6px;
@@ -83,31 +191,10 @@
     }
     button:disabled { opacity: 0.5; cursor: default; }
 
-    #btn-connect {
-      background: #6366f1;
-      color: #fff;
-    }
-    #btn-connect:hover:not(:disabled) { background: #4f46e5; }
-
-    #btn-pause {
-      background: #f3f4f6;
-      color: #374151;
-    }
-    #btn-pause:hover:not(:disabled) { background: #e5e7eb; }
-
     .divider {
       height: 1px;
       background: #e5e7eb;
       margin: 16px 0 14px 0;
-    }
-
-    .section-label {
-      font-size: 11px;
-      font-weight: 600;
-      color: #6b7280;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      margin-bottom: 8px;
     }
 
     #btn-cloud-signin {
@@ -164,7 +251,7 @@
     .hint {
       font-size: 11px;
       color: #9ca3af;
-      margin-top: 10px;
+      margin-top: 6px;
       line-height: 1.5;
     }
 
@@ -185,7 +272,20 @@
       line-height: 1.45;
     }
 
-    /* ── Troubleshoot collapsible area ────────────────────────────── */
+    .advanced-setting {
+      margin-top: 10px;
+      margin-bottom: 10px;
+    }
+
+    .advanced-setting label {
+      margin-bottom: 6px;
+    }
+
+    .advanced-setting input {
+      margin-bottom: 0;
+    }
+
+    /* ── Advanced collapsible area ────────────────────────────────── */
 
     #troubleshoot-section {
       margin-top: 16px;
@@ -210,6 +310,7 @@
       text-transform: uppercase;
       letter-spacing: 0.04em;
       flex: none;
+      width: auto;
     }
     .troubleshoot-toggle:hover { color: #374151; }
 
@@ -232,11 +333,18 @@
 </head>
 <body>
   <header>
-    <div class="status-dot disconnected" id="status-dot"></div>
     <h1>Vellum Relay</h1>
   </header>
 
-  <p class="status-text" id="status-text">Not connected</p>
+  <div class="status-card" role="status" aria-live="polite">
+    <div class="status-row">
+      <div class="status-left">
+        <div class="status-dot disconnected" id="status-dot"></div>
+        <p class="status-text" id="status-text">Not connected</p>
+      </div>
+      <span class="status-badge disconnected" id="status-badge">Offline</span>
+    </div>
+  </div>
 
   <p class="error-text" id="error-text" style="display:none"></p>
 
@@ -247,23 +355,18 @@
     <select id="assistant-select"></select>
   </div>
 
-  <label for="port-input">Relay port</label>
-  <input
-    type="text"
-    id="port-input"
-    placeholder="7830"
-    autocomplete="off"
-    spellcheck="false"
-  />
-
-  <div class="btn-row">
-    <button id="btn-connect">Connect</button>
-    <button id="btn-pause" disabled>Pause</button>
+  <div class="toggle-row">
+    <div class="toggle-copy">
+      <p class="toggle-title">Connection</p>
+      <p class="toggle-hint" id="connection-toggle-hint">Turn on to connect.</p>
+    </div>
+    <label class="switch" for="connection-toggle">
+      <input type="checkbox" id="connection-toggle" aria-label="Toggle connection" />
+      <span class="switch-slider"></span>
+    </label>
   </div>
 
-  <p class="hint">Relay port defaults to 7830.</p>
-
-  <!-- Troubleshoot section: collapsed by default, auto-expanded for auth_required/error -->
+  <!-- Advanced section: collapsed by default, auto-expanded for auth_required/error -->
   <div id="troubleshoot-section" hidden>
     <div class="divider"></div>
 
@@ -275,10 +378,22 @@
       aria-controls="troubleshoot-body"
     >
       <span class="chevron">&#9654;</span>
-      Troubleshoot
+      Advanced
     </button>
 
     <div id="troubleshoot-body" hidden>
+      <div class="advanced-setting">
+        <label for="port-input">Connection port</label>
+        <input
+          type="text"
+          id="port-input"
+          placeholder="7830"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <p class="hint">Only change this if support asks you to.</p>
+      </div>
+
       <p class="local-status" id="local-status" style="display:none">Not paired</p>
       <button id="btn-pair-local" type="button" style="display:none">Re-pair with local assistant</button>
 

@@ -397,7 +397,7 @@ describe('connection health: unrecoverable auth/native-host failure', () => {
 
     await simulateAuthFailedConnect(
       state,
-      "Automatic cloud sign-in failed \u2014 use 'Re-sign in' in Troubleshooting, then try Connect again",
+      "Automatic cloud sign-in failed \u2014 use 'Re-sign in' in Advanced, then turn Connection on again",
     );
 
     expect(state.connectionHealth).toBe('auth_required');
@@ -428,7 +428,7 @@ describe('connection health: unrecoverable auth/native-host failure', () => {
 
     await simulateAuthFailedConnect(
       state,
-      "Automatic local pairing failed \u2014 use 'Re-pair' in Troubleshooting, then try Connect again",
+      "Automatic local pairing failed \u2014 use 'Re-pair' in Advanced, then turn Connection on again",
     );
 
     expect(state.connectionHealth).toBe('auth_required');
