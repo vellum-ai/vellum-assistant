@@ -72,9 +72,11 @@ import {
 import type { SkillFileProvider } from "../../skills/skill-file-provider.js";
 import { createSkillsShProvider } from "../../skills/skillssh-files.js";
 import {
+  fetchSkillAudits,
   installExternalSkill,
   resolveSkillSource,
   searchSkillsRegistry,
+  type SkillAuditData,
 } from "../../skills/skillssh-registry.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
 import type {
@@ -1214,6 +1216,50 @@ export async function searchSkills(
         sourceRepo: r.source,
         installs: r.installs,
       }));
+
+      // Batch-fetch audit data for skills.sh results, grouped by source repo.
+      try {
+        if (skillsshResult.value.length > 0) {
+          const sourceToSlugs = new Map<string, string[]>();
+          for (const r of skillsshResult.value) {
+            const slugs = sourceToSlugs.get(r.source) ?? [];
+            slugs.push(r.skillId);
+            sourceToSlugs.set(r.source, slugs);
+          }
+
+          const auditResults = await Promise.allSettled(
+            [...sourceToSlugs.entries()].map(([source, slugs]) =>
+              fetchSkillAudits(source, slugs).then((audits) => ({
+                source,
+                audits,
+              })),
+            ),
+          );
+
+          // Build a lookup map keyed by full skill ID (e.g. "owner/repo/skill-name")
+          const auditMap = new Map<string, SkillAuditData>();
+          for (const result of auditResults) {
+            if (result.status !== "fulfilled") continue;
+            const { source, audits } = result.value;
+            for (const [skillSlug, auditData] of Object.entries(audits)) {
+              auditMap.set(`${source}/${skillSlug}`, auditData);
+            }
+          }
+
+          // Enrich each skills.sh skill with audit data
+          skillsshSkills = skillsshSkills.map((skill) => {
+            if (skill.origin !== "skillssh") return skill;
+            const audit = auditMap.get(skill.id);
+            if (!audit) return skill;
+            return { ...skill, audit };
+          });
+        }
+      } catch (err) {
+        log.warn(
+          { err },
+          "Audit fetch failed for skills.sh results, continuing without audit data",
+        );
+      }
     } else {
       log.warn(
         { err: skillsshResult.reason },

@@ -1,5 +1,10 @@
 // Skill management types.
 
+import type { PartnerAudit } from "../../skills/skillssh-registry.js";
+
+// Re-export so consumers can access the audit types from this module.
+export type { PartnerAudit } from "../../skills/skillssh-registry.js";
+
 // === Client → Server ===
 
 export interface SkillsListRequest {
@@ -106,6 +111,7 @@ interface SkillsshSlimSkill extends SlimSkillBase {
   slug: string;
   sourceRepo: string;
   installs: number;
+  audit?: Record<string, PartnerAudit>;
 }
 
 interface CustomSlimSkill extends SlimSkillBase {

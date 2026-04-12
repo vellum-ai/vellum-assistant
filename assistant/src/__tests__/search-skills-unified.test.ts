@@ -43,6 +43,20 @@ const mockSkillsshSearch = mock(
     }>
   > => [],
 );
+const mockFetchSkillAudits = mock(
+  async (
+    _source: string,
+    _skillSlugs: string[],
+  ): Promise<
+    Record<
+      string,
+      Record<
+        string,
+        { risk: string; alerts?: number; score?: number; analyzedAt: string }
+      >
+    >
+  > => ({}),
+);
 
 // ---------------------------------------------------------------------------
 // Mock modules — before importing module under test
@@ -79,6 +93,7 @@ mock.module("../skills/clawhub.js", () => ({
 
 mock.module("../skills/skillssh-registry.js", () => ({
   searchSkillsRegistry: mockSkillsshSearch,
+  fetchSkillAudits: mockFetchSkillAudits,
 }));
 
 // Stub install-meta (needed by the new origin derivation logic)
@@ -166,11 +181,13 @@ describe("searchSkills (unified)", () => {
     mockCatalogSkills.mockReset();
     mockClawhubSearch.mockReset();
     mockSkillsshSearch.mockReset();
+    mockFetchSkillAudits.mockReset();
 
     // Defaults: empty results
     mockCatalogSkills.mockReturnValue([]);
     mockClawhubSearch.mockResolvedValue({ skills: [] });
     mockSkillsshSearch.mockResolvedValue([]);
+    mockFetchSkillAudits.mockResolvedValue({});
   });
 
   test("returns results from all three registries", async () => {
@@ -422,6 +439,102 @@ describe("searchSkills (unified)", () => {
       expect(skill.slug).toBe("org/repo/test-skill");
       expect(skill.sourceRepo).toBe("org/repo");
       expect(skill.installs).toBe(99);
+    }
+  });
+
+  test("attaches audit data to skills.sh results on success", async () => {
+    mockCatalogSkills.mockReturnValue([]);
+    mockClawhubSearch.mockResolvedValue({ skills: [] });
+    mockSkillsshSearch.mockResolvedValue([
+      {
+        id: "acme/tools/lint",
+        skillId: "lint",
+        name: "Lint",
+        installs: 10,
+        source: "acme/tools",
+      },
+      {
+        id: "acme/tools/format",
+        skillId: "format",
+        name: "Format",
+        installs: 20,
+        source: "acme/tools",
+      },
+    ]);
+    mockFetchSkillAudits.mockResolvedValue({
+      lint: {
+        ath: { risk: "safe", score: 100, analyzedAt: "2025-01-01T00:00:00Z" },
+      },
+      format: {
+        socket: {
+          risk: "low",
+          alerts: 2,
+          analyzedAt: "2025-01-02T00:00:00Z",
+        },
+      },
+    });
+
+    const result = await searchSkills("lint", dummyCtx);
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error("Expected success");
+
+    expect(result.skills).toHaveLength(2);
+
+    const lintSkill = result.skills.find((s) => s.id === "acme/tools/lint")!;
+    expect(lintSkill.origin).toBe("skillssh");
+    if (lintSkill.origin === "skillssh") {
+      expect(lintSkill.audit).toBeDefined();
+      expect(lintSkill.audit!.ath).toEqual({
+        risk: "safe",
+        score: 100,
+        analyzedAt: "2025-01-01T00:00:00Z",
+      });
+    }
+
+    const formatSkill = result.skills.find(
+      (s) => s.id === "acme/tools/format",
+    )!;
+    expect(formatSkill.origin).toBe("skillssh");
+    if (formatSkill.origin === "skillssh") {
+      expect(formatSkill.audit).toBeDefined();
+      expect(formatSkill.audit!.socket).toEqual({
+        risk: "low",
+        alerts: 2,
+        analyzedAt: "2025-01-02T00:00:00Z",
+      });
+    }
+
+    // Verify fetchSkillAudits was called with grouped source/slugs
+    expect(mockFetchSkillAudits).toHaveBeenCalledTimes(1);
+    expect(mockFetchSkillAudits).toHaveBeenCalledWith("acme/tools", [
+      "lint",
+      "format",
+    ]);
+  });
+
+  test("search succeeds when fetchSkillAudits throws", async () => {
+    mockCatalogSkills.mockReturnValue([]);
+    mockClawhubSearch.mockResolvedValue({ skills: [] });
+    mockSkillsshSearch.mockResolvedValue([
+      {
+        id: "org/repo/my-skill",
+        skillId: "my-skill",
+        name: "My Skill",
+        installs: 5,
+        source: "org/repo",
+      },
+    ]);
+    mockFetchSkillAudits.mockRejectedValue(new Error("audit service down"));
+
+    const result = await searchSkills("my-skill", dummyCtx);
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error("Expected success");
+
+    expect(result.skills).toHaveLength(1);
+    const skill = result.skills[0]!;
+    expect(skill.origin).toBe("skillssh");
+    if (skill.origin === "skillssh") {
+      expect(skill.audit).toBeUndefined();
     }
   });
 });
