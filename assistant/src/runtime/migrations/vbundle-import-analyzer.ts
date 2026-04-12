@@ -265,6 +265,27 @@ export function analyzeImport(
     }
 
     if (!diskPath) {
+      // Legacy `prompts/USER.md` in a guardian-less workspace has no
+      // destination to translate to. The commit-time path skips this
+      // entry with a warning rather than failing, so preflight mirrors
+      // that: emit a non-blocking skip so `can_import` stays true and
+      // upgrade paths proceed. No conflict is registered.
+      if (fileEntry.path === LEGACY_USER_MD_ARCHIVE_PATH) {
+        log.warn(
+          { path: fileEntry.path },
+          "Legacy prompts/USER.md has no guardian target — will be skipped on import",
+        );
+        files.push({
+          path: fileEntry.path,
+          action: "skip",
+          bundle_size: fileEntry.size,
+          bundle_sha256: fileEntry.sha256,
+          current_size: null,
+          current_sha256: null,
+        });
+        continue;
+      }
+
       // Unknown archive path — would have nowhere to write
       conflicts.push({
         code: "UNKNOWN_ARCHIVE_PATH",

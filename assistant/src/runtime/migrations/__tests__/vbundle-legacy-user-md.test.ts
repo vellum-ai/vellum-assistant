@@ -198,7 +198,7 @@ describe("analyzeImport for legacy prompts/USER.md", () => {
     expect(report.files[0].action).toBe("create");
   });
 
-  test("reports a conflict when no guardian is resolvable", () => {
+  test("non-blocking skip when no guardian is resolvable (can_import stays true)", () => {
     const resolver = new DefaultPathResolver(
       WORKSPACE_ROOT,
       undefined,
@@ -216,11 +216,10 @@ describe("analyzeImport for legacy prompts/USER.md", () => {
 
     const report = analyzeImport({ manifest, pathResolver: resolver });
 
-    // UNKNOWN_ARCHIVE_PATH is the analyzer's conflict code for entries
-    // whose resolver returned null.
-    expect(report.conflicts.some((c) => c.code === "UNKNOWN_ARCHIVE_PATH")).toBe(
-      true,
-    );
+    // Guardian-less workspaces must not block preflight — the commit-time
+    // path warns and skips, so preflight mirrors that behavior.
+    expect(report.can_import).toBe(true);
+    expect(report.conflicts).toHaveLength(0);
     expect(report.files[0].action).toBe("skip");
   });
 });
