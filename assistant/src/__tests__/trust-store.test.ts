@@ -740,8 +740,10 @@ describe("Trust Store", () => {
       ].sort();
       expect(defaultTools).toEqual([
         "bash",
+        "browser_attach",
         "browser_click",
         "browser_close",
+        "browser_detach",
         "browser_extract",
         "browser_fill_credential",
         "browser_hover",
