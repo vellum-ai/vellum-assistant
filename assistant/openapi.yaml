@@ -1118,6 +1118,172 @@ paths:
                 - eyeStyle
                 - color
               additionalProperties: false
+  /v1/backups:
+    get:
+      operationId: backups_get
+      summary: List backup snapshots
+      description:
+        Lists local and offsite backup snapshots. Each offsite destination includes a `reachable` flag reflecting
+        whether the backing volume is currently available. When `backup.offsite.enabled` is false the `offsite` array is
+        empty and `offsiteEnabled` is false — clients should gate offsite UI on `offsiteEnabled` rather than
+        `offsite.length`.
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  local:
+                    type: array
+                    items: {}
+                  offsite:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        destination:
+                          type: object
+                          properties: {}
+                          additionalProperties: {}
+                        snapshots:
+                          type: array
+                          items: {}
+                        reachable:
+                          type: boolean
+                      required:
+                        - destination
+                        - snapshots
+                        - reachable
+                      additionalProperties: false
+                  offsiteEnabled:
+                    type: boolean
+                  nextRunAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - local
+                  - offsite
+                  - offsiteEnabled
+                  - nextRunAt
+                additionalProperties: false
+  /v1/backups/create:
+    post:
+      operationId: backups_create_post
+      summary: Create a backup snapshot immediately
+      description:
+        Trigger a manual snapshot. Bypasses the enabled and interval gates, but honors the in-progress mutex — a
+        concurrent caller receives 409.
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  local:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                  offsite:
+                    type: array
+                    items: {}
+                  durationMs:
+                    type: number
+                required:
+                  - local
+                  - offsite
+                  - durationMs
+                additionalProperties: false
+  /v1/backups/restore:
+    post:
+      operationId: backups_restore_post
+      summary: Restore from a backup snapshot
+      description:
+        "Restores a snapshot into the workspace. Destructive: the underlying commit flow backs up existing files
+        before overwriting. The daemon closes the live SQLite handle before writing and invalidates its config/trust
+        caches afterwards. Credentials are NOT included — users re-authenticate integrations after a restore."
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  manifest:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                  restoredFiles:
+                    type: number
+                required:
+                  - manifest
+                  - restoredFiles
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  description: Absolute path to the snapshot file to restore
+              required:
+                - path
+              additionalProperties: false
+  /v1/backups/verify:
+    post:
+      operationId: backups_verify_post
+      summary: Verify a backup snapshot
+      description:
+        Validates a snapshot without restoring. Decrypts encrypted bundles to a temp file, runs the vbundle
+        validator, and returns a pass/fail status.
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                  manifest:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                  error:
+                    type: string
+                required:
+                  - valid
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  description: Absolute path to the snapshot file to verify
+              required:
+                - path
+              additionalProperties: false
   /v1/brain-graph:
     get:
       operationId: braingraph_get
