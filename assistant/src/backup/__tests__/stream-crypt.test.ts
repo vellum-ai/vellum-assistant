@@ -188,4 +188,41 @@ describe("stream-crypt", () => {
 
     expect(await verifyEncryptedFile(encPath, key)).toBe(false);
   });
+
+  test("verifyEncryptedFile returns true for a valid bundle even when tmpdir is unwritable", async () => {
+    const key = randomBytes(32);
+    const plaintext = randomBytes(2048);
+    const plainPath = join(TEST_DIR, "plain.bin");
+    const encPath = join(TEST_DIR, "enc.bin");
+
+    writeFileSync(plainPath, plaintext);
+    await encryptFile(plainPath, encPath, key);
+
+    // Point tmpdir at a path that cannot be written to. The implementation
+    // must authenticate the bundle without writing any scratch file — a full
+    // or read-only /tmp must not block restore for healthy backups.
+    const originalTmpdir = process.env.TMPDIR;
+    const originalTmp = process.env.TMP;
+    const originalTemp = process.env.TEMP;
+    process.env.TMPDIR = "/dev/null/does-not-exist";
+    process.env.TMP = "/dev/null/does-not-exist";
+    process.env.TEMP = "/dev/null/does-not-exist";
+    try {
+      expect(await verifyEncryptedFile(encPath, key)).toBe(true);
+    } finally {
+      if (originalTmpdir === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = originalTmpdir;
+      if (originalTmp === undefined) delete process.env.TMP;
+      else process.env.TMP = originalTmp;
+      if (originalTemp === undefined) delete process.env.TEMP;
+      else process.env.TEMP = originalTemp;
+    }
+  });
+
+  test("verifyEncryptedFile rethrows filesystem errors (e.g. ENOENT) instead of masking them as tamper", async () => {
+    const key = randomBytes(32);
+    const missingPath = join(TEST_DIR, "does-not-exist.bin");
+
+    await expect(verifyEncryptedFile(missingPath, key)).rejects.toThrow();
+  });
 });
