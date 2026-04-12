@@ -239,6 +239,109 @@ describe("syncUpdateBulletinOnStartup", () => {
     expect(existsSync(workspacePath)).toBe(false);
   });
 
+  it("only appends new content blocks on version bump with extended template", () => {
+    // Workspace already has entries A and B from a prior release
+    const oldContent = [
+      "<!-- vellum-update-release:0.9.0 -->",
+      "<!-- vellum-update-release:entry-a -->",
+      "## Entry A",
+      "Content for A.",
+      "<!-- /vellum-update-release:entry-a -->",
+      "",
+      "<!-- vellum-update-release:entry-b -->",
+      "## Entry B",
+      "Content for B.",
+      "<!-- /vellum-update-release:entry-b -->",
+      "",
+    ].join("\n");
+    writeFileSync(workspacePath, oldContent, "utf-8");
+
+    // Template now has A, B, C — C is the only new entry
+    const extendedTemplate = [
+      "<!-- vellum-update-release:entry-a -->",
+      "## Entry A",
+      "Content for A.",
+      "<!-- /vellum-update-release:entry-a -->",
+      "",
+      "<!-- vellum-update-release:entry-b -->",
+      "## Entry B",
+      "Content for B.",
+      "<!-- /vellum-update-release:entry-b -->",
+      "",
+      "<!-- vellum-update-release:entry-c -->",
+      "## Entry C",
+      "New content for C.",
+      "<!-- /vellum-update-release:entry-c -->",
+      "",
+    ].join("\n");
+    writeFileSync(
+      join(tempTemplateDir, "UPDATES.md"),
+      extendedTemplate,
+      "utf-8",
+    );
+
+    syncUpdateBulletinOnStartup();
+
+    const content = readFileSync(workspacePath, "utf-8");
+
+    // New release block should be present
+    expect(content).toContain("<!-- vellum-update-release:1.0.0 -->");
+
+    // Entry C should appear
+    expect(content).toContain("entry-c");
+    expect(content).toContain("New content for C.");
+
+    // Entries A and B should NOT be duplicated
+    const countA = (
+      content.match(/<!-- vellum-update-release:entry-a -->/g) || []
+    ).length;
+    const countB = (
+      content.match(/<!-- vellum-update-release:entry-b -->/g) || []
+    ).length;
+    expect(countA).toBe(1);
+    expect(countB).toBe(1);
+  });
+
+  it("skips append when all template content blocks already exist in workspace", () => {
+    // Workspace already has entries A and B from a prior release
+    const oldContent = [
+      "<!-- vellum-update-release:0.9.0 -->",
+      "<!-- vellum-update-release:entry-a -->",
+      "## Entry A",
+      "<!-- /vellum-update-release:entry-a -->",
+      "",
+      "<!-- vellum-update-release:entry-b -->",
+      "## Entry B",
+      "<!-- /vellum-update-release:entry-b -->",
+      "",
+    ].join("\n");
+    writeFileSync(workspacePath, oldContent, "utf-8");
+
+    // Template has the same A and B — nothing new
+    const sameTemplate = [
+      "<!-- vellum-update-release:entry-a -->",
+      "## Entry A",
+      "<!-- /vellum-update-release:entry-a -->",
+      "",
+      "<!-- vellum-update-release:entry-b -->",
+      "## Entry B",
+      "<!-- /vellum-update-release:entry-b -->",
+      "",
+    ].join("\n");
+    writeFileSync(
+      join(tempTemplateDir, "UPDATES.md"),
+      sameTemplate,
+      "utf-8",
+    );
+
+    syncUpdateBulletinOnStartup();
+
+    const content = readFileSync(workspacePath, "utf-8");
+
+    // No 1.0.0 block should be added — all content already present
+    expect(content).not.toContain("<!-- vellum-update-release:1.0.0 -->");
+  });
+
   it("preserves existing file when atomic write fails", () => {
     const originalContent =
       "<!-- vellum-update-release:0.9.0 -->\nOriginal content.\n";
