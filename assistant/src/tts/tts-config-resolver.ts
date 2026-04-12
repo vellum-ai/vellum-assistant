@@ -58,24 +58,21 @@ export function resolveTtsConfig(config: AssistantConfig): ResolvedTtsConfig {
 /**
  * Build the provider-specific config object from the canonical
  * `services.tts.providers.<id>` block.
+ *
+ * Uses a generic lookup against the providers map — no provider-specific
+ * branching. Unknown providers (not in the catalog / schema) receive an
+ * empty config; their adapters are responsible for validating required fields.
  */
 function resolveProviderConfig(
   config: AssistantConfig,
   provider: TtsProviderId,
 ): Record<string, unknown> {
-  const ttsProviders = config.services.tts.providers;
+  const ttsProviders = config.services.tts.providers as Record<string, unknown>;
 
-  if (provider === "elevenlabs") {
-    return { ...ttsProviders.elevenlabs } as unknown as Record<string, unknown>;
+  const providerBlock = ttsProviders[provider];
+  if (providerBlock != null && typeof providerBlock === "object") {
+    return { ...providerBlock } as Record<string, unknown>;
   }
 
-  if (provider === "fish-audio") {
-    return {
-      ...ttsProviders["fish-audio"],
-    } as unknown as Record<string, unknown>;
-  }
-
-  // Unknown provider — return empty config. Provider adapters should
-  // validate their own required fields.
   return {};
 }
