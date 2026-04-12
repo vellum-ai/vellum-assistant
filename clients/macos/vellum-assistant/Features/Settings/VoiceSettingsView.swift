@@ -10,15 +10,7 @@ private enum STTProviderOption: String, CaseIterable {
         case .openaiWhisper: return "OpenAI Whisper"
         }
     }
-
-    var subtitle: String {
-        switch self {
-        case .openaiWhisper:
-            return "High-accuracy speech-to-text transcription. Requires an OpenAI API key."
-        }
-    }
 }
-
 
 /// Voice settings tab — configure push-to-talk activation key,
 /// conversation timeout, text-to-speech provider, and speech-to-text provider.
@@ -464,37 +456,6 @@ struct VoiceSettingsView: View {
             // Generic providers do not have a voice ID field
             EmptyView()
         }
-    }
-
-    private func providerOption(label: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: VSpacing.sm) {
-                Circle()
-                    .fill(isSelected ? VColor.primaryBase : Color.clear)
-                    .frame(width: 10, height: 10)
-                    .overlay(
-                        Circle()
-                            .strokeBorder(isSelected ? VColor.primaryBase : VColor.borderHover, lineWidth: 1.5)
-                    )
-
-                Text(label)
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentDefault)
-            }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(isSelected ? VColor.surfaceActive : Color.clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.lg)
-                    .strokeBorder(VColor.borderBase, lineWidth: 1)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
     }
 
     // MARK: - TTS Save / Helpers
