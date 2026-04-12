@@ -32,9 +32,9 @@ enum APIKeyManager {
 
     private static let storage: CredentialStorage = FileCredentialStorage()
 
-    /// Provider identifiers whose API keys are synced to the daemon as
-    /// `type: "api_key"`.
-    static let allSyncableProviders = [
+    /// Core LLM/service provider identifiers whose API keys are always
+    /// synced to the daemon as `type: "api_key"`.
+    private static let coreSyncableProviders = [
         "anthropic",
         "brave",
         "elevenlabs",
@@ -44,6 +44,22 @@ enum APIKeyManager {
         "openrouter",
         "perplexity",
     ]
+
+    /// Provider identifiers whose API keys are synced to the daemon as
+    /// `type: "api_key"`. Combines the core provider list with any TTS
+    /// providers from the shared registry that use `api_key` setup mode,
+    /// so new registry entries are automatically included without code
+    /// changes here.
+    static let allSyncableProviders: [String] = {
+        var ids = coreSyncableProviders
+        let registryApiKeyIds = loadTTSProviderRegistry().providers
+            .filter { $0.setupMode == .apiKey }
+            .map(\.id)
+        for id in registryApiKeyIds where !ids.contains(id) {
+            ids.append(id)
+        }
+        return ids
+    }()
 
     /// Returns true if any known provider has a key configured.
     static func hasAnyKey() -> Bool {
