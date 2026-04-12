@@ -5,7 +5,7 @@ import VellumAssistantShared
 
 enum AssistantHome: Equatable {
     case local(workspacePath: String)
-    case appleContainer(volumes: [(label: String, path: String)], mgmtSocket: String?)
+    case appleContainer(instanceDir: String, mgmtSocket: String?)
     case gcp(project: String, zone: String, instance: String)
     case aws(project: String, region: String, instance: String)
     case custom(ip: String, port: String)
@@ -26,8 +26,8 @@ enum AssistantHome: Equatable {
         switch self {
         case .local(let workspacePath):
             return [("Path", workspacePath)]
-        case .appleContainer(let volumes, let mgmtSocket):
-            var details = volumes.map { ($0.label, $0.path) }
+        case .appleContainer(let instanceDir, let mgmtSocket):
+            var details: [(label: String, value: String)] = [("Path", instanceDir)]
             if let mgmtSocket {
                 details.append(("Socket", mgmtSocket))
             }
@@ -40,31 +40,6 @@ enum AssistantHome: Equatable {
             return [("IP", ip), ("Port", port)]
         case .vellum(let runtimeUrl):
             return [("URL", runtimeUrl)]
-        }
-    }
-
-    // MARK: - Equatable (manual for appleContainer tuples)
-
-    static func == (lhs: AssistantHome, rhs: AssistantHome) -> Bool {
-        switch (lhs, rhs) {
-        case (.local(let a), .local(let b)):
-            return a == b
-        case (.appleContainer(let lVols, let lSock), .appleContainer(let rVols, let rSock)):
-            guard lSock == rSock, lVols.count == rVols.count else { return false }
-            for (l, r) in zip(lVols, rVols) where l.label != r.label || l.path != r.path {
-                return false
-            }
-            return true
-        case (.gcp(let a1, let a2, let a3), .gcp(let b1, let b2, let b3)):
-            return a1 == b1 && a2 == b2 && a3 == b3
-        case (.aws(let a1, let a2, let a3), .aws(let b1, let b2, let b3)):
-            return a1 == b1 && a2 == b2 && a3 == b3
-        case (.custom(let a1, let a2), .custom(let b1, let b2)):
-            return a1 == b1 && a2 == b2
-        case (.vellum(let a), .vellum(let b)):
-            return a == b
-        default:
-            return false
         }
     }
 
@@ -381,16 +356,12 @@ extension LockfileAssistant {
         case "vellum":
             return .vellum(runtimeUrl: runtimeUrl ?? "")
         case "apple-container":
-            let base = instanceDir ?? NSHomeDirectory()
-            var volumes: [(label: String, path: String)] = [
-                ("Workspace", base + "/workspace"),
-                ("Gateway Security", base + "/gateway-security"),
-                ("CES Bootstrap", base + "/ces-bootstrap"),
-                ("CES Security", base + "/ces-security"),
-            ]
-            // Filter to volumes that actually exist on disk.
-            volumes = volumes.filter { FileManager.default.fileExists(atPath: $0.path) }
-            return .appleContainer(volumes: volumes, mgmtSocket: mgmtSocket)
+            // instanceDir is not written under resources for apple-container
+            // entries, so derive it from the mgmtSocket parent directory.
+            let base = instanceDir
+                ?? mgmtSocket.flatMap { URL(fileURLWithPath: $0).deletingLastPathComponent().path }
+                ?? NSHomeDirectory()
+            return .appleContainer(instanceDir: base, mgmtSocket: mgmtSocket)
         default:
             let base = instanceDir ?? NSHomeDirectory()
             return .local(workspacePath: base + "/.vellum/workspace")
