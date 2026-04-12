@@ -1462,17 +1462,25 @@ if [ "$CMD" = "run" ]; then
 
     if [ -n "$other_vellum" ]; then
         echo ""
-        echo "ERROR: Another process from this project (bundle ID $BUNDLE_ID) is already running:"
+        echo "Killing sibling process(es) from this project (bundle ID $BUNDLE_ID):"
         echo "$other_vellum" | sed 's/^/  /'
-        echo ""
-        echo "It shares the lockfile, identity cache, and UserDefaults with"
-        echo "the bundle you're about to launch, and will race against it on"
-        echo "every write. Refusing to launch a duplicate."
-        echo ""
-        echo "Kill the existing process(es) and re-run:"
-        echo "$other_vellum" | awk '{print "  kill " $1}'
-        echo ""
-        exit 1
+        echo "$other_vellum" | awk '{print $1}' | xargs kill 2>/dev/null || true
+        # Give them a moment to exit
+        for i in {1..20}; do
+            still_running=false
+            while IFS= read -r pid_line; do
+                sib_pid=${pid_line%% *}
+                kill -0 "$sib_pid" 2>/dev/null && still_running=true && break
+            done <<< "$other_vellum"
+            $still_running || break
+            sleep 0.1
+        done
+        # Force-kill any stragglers
+        if $still_running; then
+            echo "Force-killing remaining sibling process(es)..."
+            echo "$other_vellum" | awk '{print $1}' | xargs kill -9 2>/dev/null || true
+            sleep 0.3
+        fi
     fi
 
     # Refresh /Applications/$BUNDLE_DISPLAY_NAME.app from the freshly-built
