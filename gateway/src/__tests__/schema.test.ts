@@ -61,6 +61,7 @@ describe("/schema route", () => {
     expect(body.paths["/webhooks/twilio/status"]).toBeDefined();
     expect(body.paths["/webhooks/twilio/connect-action"]).toBeDefined();
     expect(body.paths["/webhooks/twilio/relay"]).toBeDefined();
+    expect(body.paths["/webhooks/twilio/media-stream"]).toBeDefined();
     expect(body.paths["/webhooks/oauth/callback"]).toBeDefined();
     expect(body.paths["/v1/integrations/telegram/config"]).toBeDefined();
     expect(body.paths["/v1/integrations/telegram/commands"]).toBeDefined();

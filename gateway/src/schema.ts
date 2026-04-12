@@ -822,6 +822,54 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/webhooks/twilio/media-stream": {
+        get: {
+          summary: "Twilio Media Stream WebSocket",
+          description:
+            "Accepts a WebSocket upgrade from Twilio Media Streams and bidirectionally proxies frames to the assistant runtime's /v1/calls/media-stream endpoint. Requires a callSessionId query parameter.",
+          operationId: "twilioMediaStreamWebsocket",
+          parameters: [
+            {
+              name: "callSessionId",
+              in: "query",
+              required: true,
+              schema: { type: "string" },
+              description:
+                "Call session identifier used to correlate the WebSocket connection with the runtime media-stream session.",
+            },
+          ],
+          responses: {
+            "101": {
+              description:
+                "WebSocket upgrade successful — bidirectional media-stream frame proxying begins.",
+            },
+            "400": {
+              description: "Missing callSessionId query parameter",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid token",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "500": {
+              description: "WebSocket upgrade failed",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/webhooks/oauth/callback": {
         get: {
           summary: "OAuth2 callback",
