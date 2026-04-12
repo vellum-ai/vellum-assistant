@@ -58,6 +58,9 @@ struct OnboardingView: View {
                 }
             }
         }
+        .overlay(alignment: .top) {
+            EnvironmentBadge()
+        }
         .animation(.easeInOut, value: currentStep)
         .animation(.easeInOut, value: isBootstrappingManaged)
     }
