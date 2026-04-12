@@ -967,7 +967,7 @@ extension SkillsListResponseSkill: Identifiable {}
 extension SkillsListResponseSkill {
     /// Returns a copy with a different `status`, preserving all other fields including `id`.
     public func withStatus(_ newStatus: String) -> Self {
-        Self(id: id, name: name, description: description, emoji: emoji, kind: kind, origin: origin, status: newStatus, slug: slug, installs: installs, author: author, stars: stars, reports: reports, publishedAt: publishedAt, sourceRepo: sourceRepo)
+        Self(id: id, name: name, description: description, emoji: emoji, kind: kind, origin: origin, status: newStatus, slug: slug, installs: installs, author: author, stars: stars, reports: reports, publishedAt: publishedAt, version: version, sourceRepo: sourceRepo, audit: audit)
     }
 
     /// Whether the skill is available from the catalog but not yet installed.
@@ -1081,6 +1081,7 @@ public struct ClawhubOriginMeta: Codable, Sendable, Equatable {
     public let installs: Int
     public let reports: Int
     public let publishedAt: String?
+    public let version: String?
 }
 
 /// Origin-specific metadata for a skill sourced from Skills.sh.
@@ -1088,6 +1089,7 @@ public struct SkillsshOriginMeta: Codable, Sendable, Equatable {
     public let slug: String
     public let sourceRepo: String
     public let installs: Int
+    public let audit: [String: PartnerAudit]?
 }
 
 /// Discriminated union over the `origin` field of a skill.
@@ -1110,13 +1112,15 @@ extension SkillsListResponseSkill {
                 stars: stars ?? 0,
                 installs: installs ?? 0,
                 reports: reports ?? 0,
-                publishedAt: publishedAt
+                publishedAt: publishedAt,
+                version: version
             ))
         case "skillssh":
             return .skillssh(SkillsshOriginMeta(
                 slug: slug ?? id,
                 sourceRepo: sourceRepo ?? "",
-                installs: installs ?? 0
+                installs: installs ?? 0,
+                audit: audit
             ))
         case "vellum":
             return .vellum
@@ -1137,13 +1141,15 @@ extension SkillDetailHTTPResponse {
                 stars: stars ?? 0,
                 installs: installs ?? 0,
                 reports: reports ?? 0,
-                publishedAt: publishedAt
+                publishedAt: publishedAt,
+                version: latestVersion?.version
             ))
         case "skillssh":
             return .skillssh(SkillsshOriginMeta(
                 slug: slug ?? id,
                 sourceRepo: sourceRepo ?? "",
-                installs: installs ?? 0
+                installs: installs ?? 0,
+                audit: audit
             ))
         case "vellum":
             return .vellum

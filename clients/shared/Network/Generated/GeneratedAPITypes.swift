@@ -4042,6 +4042,21 @@ public struct SkillsListResponse: Codable, Sendable {
     }
 }
 
+/// Security audit result from a partner analysis provider.
+public struct PartnerAudit: Codable, Sendable, Equatable {
+    public let risk: String
+    public let alerts: Int?
+    public let score: Double?
+    public let analyzedAt: String
+
+    public init(risk: String, alerts: Int? = nil, score: Double? = nil, analyzedAt: String) {
+        self.risk = risk
+        self.alerts = alerts
+        self.score = score
+        self.analyzedAt = analyzedAt
+    }
+}
+
 public struct SkillsListResponseSkill: Codable, Sendable {
     public let id: String
     public let name: String
@@ -4058,10 +4073,12 @@ public struct SkillsListResponseSkill: Codable, Sendable {
     public let stars: Int?
     public let reports: Int?
     public let publishedAt: String?
+    public let version: String?
     // Skillssh-only:
     public let sourceRepo: String?
+    public let audit: [String: PartnerAudit]?
 
-    public init(id: String, name: String, description: String, emoji: String? = nil, kind: String, origin: String, status: String, slug: String? = nil, installs: Int? = nil, author: String? = nil, stars: Int? = nil, reports: Int? = nil, publishedAt: String? = nil, sourceRepo: String? = nil) {
+    public init(id: String, name: String, description: String, emoji: String? = nil, kind: String, origin: String, status: String, slug: String? = nil, installs: Int? = nil, author: String? = nil, stars: Int? = nil, reports: Int? = nil, publishedAt: String? = nil, version: String? = nil, sourceRepo: String? = nil, audit: [String: PartnerAudit]? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -4075,7 +4092,9 @@ public struct SkillsListResponseSkill: Codable, Sendable {
         self.stars = stars
         self.reports = reports
         self.publishedAt = publishedAt
+        self.version = version
         self.sourceRepo = sourceRepo
+        self.audit = audit
     }
 }
 
@@ -4135,6 +4154,7 @@ public struct SkillDetailHTTPResponse: Codable, Sendable {
     public let publishedAt: String?
     // Skillssh-only:
     public let sourceRepo: String?
+    public let audit: [String: PartnerAudit]?
     // Clawhub detail enrichment fields:
     public let owner: ClawhubDetailOwner?
     public let stats: ClawhubDetailStats?
@@ -4142,7 +4162,7 @@ public struct SkillDetailHTTPResponse: Codable, Sendable {
     public let createdAt: Int?
     public let updatedAt: Int?
 
-    public init(id: String, name: String, description: String, emoji: String? = nil, kind: String, origin: String, status: String, slug: String? = nil, installs: Int? = nil, author: String? = nil, stars: Int? = nil, reports: Int? = nil, publishedAt: String? = nil, sourceRepo: String? = nil, owner: ClawhubDetailOwner? = nil, stats: ClawhubDetailStats? = nil, latestVersion: ClawhubDetailVersion? = nil, createdAt: Int? = nil, updatedAt: Int? = nil) {
+    public init(id: String, name: String, description: String, emoji: String? = nil, kind: String, origin: String, status: String, slug: String? = nil, installs: Int? = nil, author: String? = nil, stars: Int? = nil, reports: Int? = nil, publishedAt: String? = nil, sourceRepo: String? = nil, audit: [String: PartnerAudit]? = nil, owner: ClawhubDetailOwner? = nil, stats: ClawhubDetailStats? = nil, latestVersion: ClawhubDetailVersion? = nil, createdAt: Int? = nil, updatedAt: Int? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -4157,6 +4177,7 @@ public struct SkillDetailHTTPResponse: Codable, Sendable {
         self.reports = reports
         self.publishedAt = publishedAt
         self.sourceRepo = sourceRepo
+        self.audit = audit
         self.owner = owner
         self.stats = stats
         self.latestVersion = latestVersion
