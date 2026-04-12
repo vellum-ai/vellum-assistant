@@ -6743,6 +6743,8 @@ paths:
                             type: number
                           publishedAt:
                             type: string
+                          version:
+                            type: string
                           owner:
                             anyOf:
                               - type: object
@@ -6809,6 +6811,7 @@ paths:
                           - stars
                           - installs
                           - reports
+                          - version
                         additionalProperties: false
                       - type: object
                         properties:

@@ -166,6 +166,7 @@ interface ClawhubSkillDetail extends SkillDetailBase {
   installs: number;
   reports: number;
   publishedAt?: string;
+  version: string;
   // Enrichment fields (from clawhubInspect):
   owner?: { handle: string; displayName: string; image?: string } | null;
   stats?: {

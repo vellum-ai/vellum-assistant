@@ -91,6 +91,7 @@ const skillDetailSchema = z.discriminatedUnion("origin", [
     installs: z.number(),
     reports: z.number(),
     publishedAt: z.string().optional(),
+    version: z.string(),
     owner: z
       .object({
         handle: z.string(),
