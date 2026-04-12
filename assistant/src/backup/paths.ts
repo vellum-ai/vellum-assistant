@@ -119,5 +119,18 @@ export function parseBackupTimestamp(filename: string): Date | null {
   const iso = `${year}-${month}-${day}T${hour}:${minute}:${second}.000Z`;
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
+  // `new Date()` silently normalizes out-of-range calendar values (e.g. Feb 31
+  // → March 3). Verify round-trip so malformed filenames can't be accepted and
+  // reordered in retention/restore flows.
+  if (
+    date.getUTCFullYear() !== Number(year) ||
+    date.getUTCMonth() !== Number(month) - 1 ||
+    date.getUTCDate() !== Number(day) ||
+    date.getUTCHours() !== Number(hour) ||
+    date.getUTCMinutes() !== Number(minute) ||
+    date.getUTCSeconds() !== Number(second)
+  ) {
+    return null;
+  }
   return date;
 }

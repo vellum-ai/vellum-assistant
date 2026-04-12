@@ -180,4 +180,27 @@ describe("parseBackupTimestamp", () => {
   test("returns null for a filename with the wrong extension", () => {
     expect(parseBackupTimestamp("backup-20260411-153045.tar.gz")).toBeNull();
   });
+
+  test("returns null for out-of-range calendar dates (Feb 31)", () => {
+    // `new Date("2026-02-31T...")` silently normalizes to March 3. Without a
+    // round-trip check this would misorder retention.
+    expect(parseBackupTimestamp("backup-20260231-000000.vbundle")).toBeNull();
+  });
+
+  test("returns null for other normalized-invalid dates", () => {
+    // Month 13, day 32, hour 24, April 31 all normalize silently.
+    expect(parseBackupTimestamp("backup-20261301-000000.vbundle")).toBeNull();
+    expect(parseBackupTimestamp("backup-20260132-000000.vbundle")).toBeNull();
+    expect(parseBackupTimestamp("backup-20260431-000000.vbundle")).toBeNull();
+  });
+
+  test("accepts Feb 29 in a leap year", () => {
+    const parsed = parseBackupTimestamp("backup-20240229-120000.vbundle");
+    expect(parsed).not.toBeNull();
+    expect(parsed!.toISOString()).toBe("2024-02-29T12:00:00.000Z");
+  });
+
+  test("returns null for Feb 29 in a non-leap year", () => {
+    expect(parseBackupTimestamp("backup-20260229-000000.vbundle")).toBeNull();
+  });
 });
