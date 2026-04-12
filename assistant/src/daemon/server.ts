@@ -998,6 +998,13 @@ export class DaemonServer {
       if (!conversation.isProcessing()) {
         this.applyTransportMetadata(conversation, options);
       }
+      // Reapply trust context to reused in-memory conversations so callers
+      // that pass a fresh trustContext (e.g. schedule run-now) don't silently
+      // inherit the prior turn's guardian scope. The new-conversation branch
+      // already applies this via storedOptions; mirror it for reuse.
+      if (options?.trustContext !== undefined) {
+        conversation.setTrustContext(options.trustContext);
+      }
       this.evictor.touch(conversationId);
     }
     return conversation;
