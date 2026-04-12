@@ -61,6 +61,11 @@ ${innerHtml}
 export function markdownToEmailHtml(markdown: string): string {
   const trimmed = markdown.trim();
 
+  // Nothing to render.
+  if (!trimmed) {
+    return "";
+  }
+
   // Already HTML — don't re-process.
   if (trimmed.startsWith("<")) {
     return trimmed;
