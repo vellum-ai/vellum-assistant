@@ -21,14 +21,14 @@
  */
 
 import { copyFile, mkdir, rename, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 import type { BackupDestination } from "../config/schema.js";
 import {
   pruneDir,
   type SnapshotEntry,
 } from "./list-snapshots.js";
-import { formatBackupFilename } from "./paths.js";
+import { deriveSafeAncestor, formatBackupFilename } from "./paths.js";
 import { encryptFile } from "./stream-crypt.js";
 
 /**
@@ -36,9 +36,13 @@ import { encryptFile } from "./stream-crypt.js";
  *
  * Exactly one of `entry`, `skipped`, or `error` is meaningful:
  * - `entry` non-null → the write succeeded.
- * - `skipped: "parent-missing"` → the destination's parent directory does
- *   not exist (e.g. iCloud Drive not enabled, external volume unplugged).
- *   Not an error — the write is simply deferred until the volume is back.
+ * - `skipped: "parent-missing"` → the destination's safe ancestor does not
+ *   exist (e.g. iCloud Drive not enabled, external volume unplugged). Not an
+ *   error — the write is simply deferred until the volume is back. The
+ *   ancestor is derived by `deriveSafeAncestor`: for iCloud Drive or
+ *   `/Volumes/<name>/...` paths it is a well-known mount root, which lets us
+ *   bootstrap intermediate directories on first run; for arbitrary
+ *   user-configured paths it falls back to the immediate parent.
  * - `error` set → an unexpected failure while writing. Surfaced as a string
  *   so callers can log without serializing an `Error` object.
  *
@@ -56,11 +60,14 @@ export interface OffsiteWriteResult {
  * Write a local snapshot to a single offsite destination.
  *
  * Behavior:
- * - If `dirname(destination.path)` does not exist → returns
- *   `{ destination, entry: null, skipped: "parent-missing" }`. The offsite
- *   volume is (temporarily) unavailable; the caller should not treat this
- *   as an error.
- * - Otherwise `mkdir -p` the destination directory (mode `0o700`).
+ * - If the destination's safe ancestor (see `deriveSafeAncestor`) does not
+ *   exist → returns `{ destination, entry: null, skipped: "parent-missing" }`.
+ *   The offsite volume is (temporarily) unavailable; the caller should not
+ *   treat this as an error.
+ * - Otherwise `mkdir -p` the destination directory (mode `0o700`). This
+ *   bootstraps any intermediate directories between the safe ancestor and
+ *   the destination (e.g. creating `VellumAssistant/backups/` under iCloud
+ *   Drive on first run).
  * - If `destination.encrypt === true`, stream-encrypts via `encryptFile`
  *   with the provided `key` and writes `.vbundle.enc`. A missing `key`
  *   here is a programmer error, but per the plan we still catch it rather
@@ -78,11 +85,15 @@ export async function writeOffsiteSnapshotToOne(
   now: Date,
 ): Promise<OffsiteWriteResult> {
   try {
-    // Parent-missing probe: if the parent directory of `destination.path`
+    // Ancestor-missing probe: if the destination's derived "safe ancestor"
     // does not exist we treat the destination as temporarily unavailable
-    // rather than auto-creating a deep tree we have no reason to own.
+    // rather than auto-creating a deep tree we have no reason to own. The
+    // ancestor is a well-known mount root (iCloud Drive, /Volumes/<name>)
+    // for recognized path shapes, or the immediate parent otherwise. That
+    // way an unplugged external drive still skips cleanly while the default
+    // iCloud destination can bootstrap its intermediate folders on first run.
     try {
-      await stat(dirname(destination.path));
+      await stat(deriveSafeAncestor(destination.path));
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
         return { destination, entry: null, skipped: "parent-missing" };

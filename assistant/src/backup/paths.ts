@@ -38,19 +38,73 @@ export function getLocalBackupsDir(override?: string | null): string {
 }
 
 /**
+ * Returns the iCloud Drive root on macOS. This is the "safe ancestor" we use
+ * for bootstrapping the default offsite path: if this directory exists iCloud
+ * Drive is enabled and we can safely `mkdir -p` the `VellumAssistant/backups`
+ * subtree below it.
+ *
+ * Reads `process.env.HOME` at call time before falling back to `homedir()`.
+ * `homedir()` is snapshot at process start on some platforms, so consulting
+ * `$HOME` on each call keeps this function honest under tests that redirect
+ * the home directory mid-process.
+ */
+export function getICloudDriveRoot(): string {
+  const home = process.env.HOME ?? homedir();
+  return join(
+    home,
+    "Library",
+    "Mobile Documents",
+    "com~apple~CloudDocs",
+  );
+}
+
+/**
  * Returns the default offsite backups directory — the iCloud Drive path under
  * the VellumAssistant namespace. Used when no explicit offsite destinations
  * are configured.
  */
 export function getDefaultOffsiteBackupsDir(): string {
-  return join(
-    homedir(),
-    "Library",
-    "Mobile Documents",
-    "com~apple~CloudDocs",
-    "VellumAssistant",
-    "backups",
-  );
+  return join(getICloudDriveRoot(), "VellumAssistant", "backups");
+}
+
+/**
+ * Derive the "safe ancestor" for an offsite destination — a directory that
+ * must already exist on disk before we are willing to create intermediate
+ * directories under it. If the ancestor exists we `mkdir -p destinationPath`;
+ * if it is missing we skip the destination (treating it as a transient
+ * unavailability like an unplugged drive or disabled iCloud Drive).
+ *
+ * Derivation rules:
+ *   - iCloud Drive subtrees (`~/Library/Mobile Documents/com~apple~CloudDocs/...`)
+ *     anchor on the iCloud Drive root. This lets the default destination
+ *     (`.../VellumAssistant/backups`) bootstrap on first run without the user
+ *     having to pre-create the `VellumAssistant` folder.
+ *   - `/Volumes/<name>/...` paths anchor on `/Volumes/<name>`, the macOS
+ *     volume mount point. An unmounted drive has no entry in `/Volumes`, so
+ *     its destination is correctly skipped rather than bootstrapped on the
+ *     root filesystem.
+ *   - Everything else falls back to `dirname(destinationPath)` — the original
+ *     conservative behavior, preserved for arbitrary user-configured paths
+ *     where we have no reliable mount signal.
+ */
+export function deriveSafeAncestor(destinationPath: string): string {
+  const iCloudRoot = getICloudDriveRoot();
+  if (
+    destinationPath === iCloudRoot ||
+    destinationPath.startsWith(`${iCloudRoot}/`)
+  ) {
+    return iCloudRoot;
+  }
+  const volumesPrefix = "/Volumes/";
+  if (destinationPath.startsWith(volumesPrefix)) {
+    const rest = destinationPath.slice(volumesPrefix.length);
+    const slash = rest.indexOf("/");
+    const volumeName = slash === -1 ? rest : rest.slice(0, slash);
+    if (volumeName.length > 0) {
+      return `${volumesPrefix}${volumeName}`;
+    }
+  }
+  return dirname(destinationPath);
 }
 
 /**
