@@ -41,9 +41,11 @@ import {
   resolveOffsiteDestinations,
 } from "../../backup/paths.js";
 import { restoreFromSnapshot, verifySnapshot } from "../../backup/restore.js";
-import { getConfig } from "../../config/loader.js";
+import { getConfig, invalidateConfigCache } from "../../config/loader.js";
 import type { BackupDestination } from "../../config/schema.js";
 import { getMemoryCheckpoint } from "../../memory/checkpoints.js";
+import { resetDb } from "../../memory/db-connection.js";
+import { clearCache as clearTrustCache } from "../../permissions/trust-store.js";
 import { getLogger } from "../../util/logger.js";
 import {
   getWorkspaceDir,
@@ -187,6 +189,11 @@ async function loadKeyIfEncrypted(
 /**
  * Shape returned by {@link handleBackupList}. Exported so client code (and
  * the test suite) can type the JSON response without re-deriving it.
+ *
+ * `offsiteEnabled` distinguishes "offsite disabled" (user turned it off — the
+ * UI should hide or gray out offsite cards) from "offsite enabled but no
+ * destinations configured" (the `offsite` array is empty but the UI should
+ * still prompt the user to add one).
  */
 export interface BackupListResponse {
   local: SnapshotEntry[];
@@ -195,6 +202,7 @@ export interface BackupListResponse {
     snapshots: SnapshotEntry[];
     reachable: boolean;
   }>;
+  offsiteEnabled: boolean;
   nextRunAt: string | null;
 }
 
@@ -204,6 +212,12 @@ export interface BackupListResponse {
  * reflects whether `dirname(destination.path)` exists on disk right now (the
  * same probe the offsite writer uses), so clients can distinguish "empty
  * destination" from "unavailable destination" without a second round trip.
+ *
+ * When `backup.offsite.enabled` is `false`, the offsite array is returned
+ * empty without probing any destinations — mirroring the worker's runtime
+ * logic so the UI never renders offsite cards after the user has disabled
+ * offsite backups. Clients should gate offsite UI on `offsiteEnabled` rather
+ * than `offsite.length`.
  */
 export async function handleBackupList(_req: Request): Promise<Response> {
   try {
@@ -211,21 +225,24 @@ export async function handleBackupList(_req: Request): Promise<Response> {
     const localDir = getLocalBackupsDir(config.backup.localDirectory);
     const local = await listSnapshotsInDir(localDir);
 
+    const offsiteEnabled = config.backup.offsite.enabled;
     const offsite: BackupListResponse["offsite"] = [];
-    for (const destination of resolveOffsiteDestinations(
-      config.backup.offsite.destinations,
-    )) {
-      let reachable = false;
-      try {
-        await fs.stat(dirname(destination.path));
-        reachable = true;
-      } catch {
-        reachable = false;
+    if (offsiteEnabled) {
+      for (const destination of resolveOffsiteDestinations(
+        config.backup.offsite.destinations,
+      )) {
+        let reachable = false;
+        try {
+          await fs.stat(dirname(destination.path));
+          reachable = true;
+        } catch {
+          reachable = false;
+        }
+        const snapshots = reachable
+          ? await listSnapshotsInDir(destination.path)
+          : [];
+        offsite.push({ destination, snapshots, reachable });
       }
-      const snapshots = reachable
-        ? await listSnapshotsInDir(destination.path)
-        : [];
-      offsite.push({ destination, snapshots, reachable });
     }
 
     let nextRunAt: string | null = null;
@@ -240,7 +257,12 @@ export async function handleBackupList(_req: Request): Promise<Response> {
       }
     }
 
-    const body: BackupListResponse = { local, offsite, nextRunAt };
+    const body: BackupListResponse = {
+      local,
+      offsite,
+      offsiteEnabled,
+      nextRunAt,
+    };
     return Response.json(body);
   } catch (err) {
     log.error({ err }, "Failed to list backups");
@@ -290,7 +312,6 @@ export async function handleBackupCreate(_req: Request): Promise<Response> {
 
 interface RestoreRequestBody {
   path: unknown;
-  includeCredentials?: unknown;
 }
 
 /**
@@ -298,9 +319,18 @@ interface RestoreRequestBody {
  * `commitImport` flow backs up existing files before overwriting, but callers
  * should still treat this as an irreversible "replace the workspace" operation.
  *
- * `includeCredentials` defaults to `false`; when true, credential entries from
- * the bundle are returned to the caller alongside the manifest summary so they
- * can be re-persisted via the separate credential-import path.
+ * Recovery sequence (mirroring `handleMigrationImport`):
+ *   1. `resetDb()` is called BEFORE the restore so the live SQLite singleton
+ *      closes its handle before `assistant.db` is overwritten. Without this,
+ *      the daemon would keep a reference to the old inode and subsequent
+ *      writes could silently corrupt the restored state.
+ *   2. `invalidateConfigCache()` and `clearTrustCache()` are called AFTER a
+ *      successful restore so the daemon re-reads the restored `config.json`
+ *      and `trust.json` from disk instead of serving stale in-process caches.
+ *
+ * Credentials are intentionally excluded from backups — they live in the OS
+ * keychain / CES and are not restored by this path. Users re-authenticate
+ * integrations after a restore.
  */
 export async function handleBackupRestore(req: Request): Promise<Response> {
   let body: RestoreRequestBody;
@@ -326,17 +356,25 @@ export async function handleBackupRestore(req: Request): Promise<Response> {
       getWorkspaceDir(),
       getWorkspaceHooksDir(),
     );
+
+    // Close the live SQLite connection before overwriting assistant.db on disk.
+    // The singleton will be lazily reopened on the next getDb() call.
+    resetDb();
+
     const result = await restoreFromSnapshot(snapshotPath, {
       key: keyResult.key ?? undefined,
-      includeCredentials: body.includeCredentials === true,
       pathResolver,
       workspaceDir: getWorkspaceDir(),
     });
 
+    // Invalidate in-process caches so the restored settings.json and trust.json
+    // take effect without requiring a daemon restart.
+    invalidateConfigCache();
+    clearTrustCache();
+
     return Response.json({
       manifest: result.manifest,
       restoredFiles: result.restoredFiles,
-      credentialsIncluded: result.credentials.length,
     });
   } catch (err) {
     log.error({ err, snapshotPath }, "Snapshot restore failed");
@@ -407,7 +445,7 @@ export function backupRouteDefinitions(): RouteDefinition[] {
       method: "GET",
       summary: "List backup snapshots",
       description:
-        "Lists local and offsite backup snapshots. Each offsite destination includes a `reachable` flag reflecting whether the backing volume is currently available.",
+        "Lists local and offsite backup snapshots. Each offsite destination includes a `reachable` flag reflecting whether the backing volume is currently available. When `backup.offsite.enabled` is false the `offsite` array is empty and `offsiteEnabled` is false — clients should gate offsite UI on `offsiteEnabled` rather than `offsite.length`.",
       tags: ["backups"],
       responseBody: z.object({
         local: z.array(z.unknown()),
@@ -418,6 +456,7 @@ export function backupRouteDefinitions(): RouteDefinition[] {
             reachable: z.boolean(),
           }),
         ),
+        offsiteEnabled: z.boolean(),
         nextRunAt: z.string().nullable(),
       }),
       handler: async ({ req }) => handleBackupList(req),
@@ -441,23 +480,16 @@ export function backupRouteDefinitions(): RouteDefinition[] {
       method: "POST",
       summary: "Restore from a backup snapshot",
       description:
-        "Restores a snapshot into the workspace. Destructive: the underlying commit flow backs up existing files before overwriting.",
+        "Restores a snapshot into the workspace. Destructive: the underlying commit flow backs up existing files before overwriting. The daemon closes the live SQLite handle before writing and invalidates its config/trust caches afterwards. Credentials are NOT included — users re-authenticate integrations after a restore.",
       tags: ["backups"],
       requestBody: z.object({
         path: z
           .string()
           .describe("Absolute path to the snapshot file to restore"),
-        includeCredentials: z
-          .boolean()
-          .optional()
-          .describe(
-            "Whether to extract credential entries from the bundle (default false)",
-          ),
       }),
       responseBody: z.object({
         manifest: z.object({}).passthrough(),
         restoredFiles: z.number(),
-        credentialsIncluded: z.number(),
       }),
       handler: async ({ req }) => handleBackupRestore(req),
     },
