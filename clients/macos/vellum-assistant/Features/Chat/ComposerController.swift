@@ -272,6 +272,20 @@ final class ComposerController {
         }
     }
 
+    /// Closes the slash menu without requiring a specific keyboard action.
+    /// Used by click-based selection paths that bypass `handleSlashNavigation`.
+    func closeSlashMenu() {
+        showSlashMenu = false
+        slashSelectedIndex = 0
+    }
+
+    /// Closes the emoji menu without requiring a specific keyboard action.
+    /// Used by click-based selection paths that bypass `handleEmojiNavigation`.
+    func closeEmojiMenu() {
+        showEmojiMenu = false
+        emojiSelectedIndex = 0
+    }
+
     // MARK: - Emoji navigation
 
     /// Handles keyboard navigation within the emoji menu.
