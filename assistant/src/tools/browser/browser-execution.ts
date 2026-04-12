@@ -318,6 +318,35 @@ export function acquireCdpClientWithMode(
   }
 }
 
+// ── CDP error diagnostics helper ─────────────────────────────────────
+
+/**
+ * Check whether a caught error is a {@link CdpError} carrying
+ * {@link AttemptDiagnostic attempt diagnostics} from the factory's
+ * failover walk. When the browser_mode is pinned (not "auto") and
+ * diagnostics are present, format the error with the full remediation
+ * checklist via {@link formatModeSelectionFailure}. Otherwise return
+ * `null` so the caller falls through to its generic error message.
+ *
+ * This handles the case where pinned-mode unavailability is surfaced
+ * on the first `cdp.send()` (via `sendWithFailover`) rather than
+ * during client construction (which `acquireCdpClientWithMode` already
+ * covers).
+ */
+function formatCdpSendDiagnostics(
+  err: unknown,
+  browserMode: BrowserMode,
+): string | null {
+  if (
+    err instanceof CdpError &&
+    browserMode !== "auto" &&
+    err.attemptDiagnostics
+  ) {
+    return formatModeSelectionFailure(browserMode, err);
+  }
+  return null;
+}
+
 // ── Shared element resolution ────────────────────────────────────────
 
 /**
@@ -799,15 +828,9 @@ export async function executeBrowserNavigate(
       };
     }
 
-    if (
-      err instanceof CdpError &&
-      browserMode !== "auto" &&
-      err.attemptDiagnostics
-    ) {
-      return {
-        content: formatModeSelectionFailure(browserMode, err),
-        isError: true,
-      };
+    const diagnosticMessage = formatCdpSendDiagnostics(err, browserMode);
+    if (diagnosticMessage) {
+      return { content: diagnosticMessage, isError: true };
     }
 
     const msg = err instanceof Error ? err.message : String(err);
@@ -873,15 +896,9 @@ export async function executeBrowserSnapshot(
       isError: false,
     };
   } catch (err) {
-    if (
-      err instanceof CdpError &&
-      browserMode !== "auto" &&
-      err.attemptDiagnostics
-    ) {
-      return {
-        content: formatModeSelectionFailure(browserMode, err),
-        isError: true,
-      };
+    const diagnosticMessage = formatCdpSendDiagnostics(err, browserMode);
+    if (diagnosticMessage) {
+      return { content: diagnosticMessage, isError: true };
     }
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Snapshot failed");
@@ -942,15 +959,9 @@ export async function executeBrowserScreenshot(
       contentBlocks: [imageBlock],
     };
   } catch (err) {
-    if (
-      err instanceof CdpError &&
-      browserMode !== "auto" &&
-      err.attemptDiagnostics
-    ) {
-      return {
-        content: formatModeSelectionFailure(browserMode, err),
-        isError: true,
-      };
+    const diagnosticMessage = formatCdpSendDiagnostics(err, browserMode);
+    if (diagnosticMessage) {
+      return { content: diagnosticMessage, isError: true };
     }
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Screenshot failed");
@@ -998,6 +1009,13 @@ export async function executeBrowserAttach(
       isError: false,
     };
   } catch (err) {
+    const diagnosticMessage = formatCdpSendDiagnostics(
+      err,
+      acquired.browserMode,
+    );
+    if (diagnosticMessage) {
+      return { content: diagnosticMessage, isError: true };
+    }
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Attach failed");
     return { content: `Error: Attach failed: ${msg}`, isError: true };
@@ -1038,6 +1056,13 @@ export async function executeBrowserDetach(
       isError: false,
     };
   } catch (err) {
+    const diagnosticMessage = formatCdpSendDiagnostics(
+      err,
+      acquired.browserMode,
+    );
+    if (diagnosticMessage) {
+      return { content: diagnosticMessage, isError: true };
+    }
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Detach failed");
     return { content: `Error: Detach failed: ${msg}`, isError: true };
@@ -1095,6 +1120,13 @@ export async function executeBrowserClose(
       isError: false,
     };
   } catch (err) {
+    const diagnosticMessage = formatCdpSendDiagnostics(
+      err,
+      acquired.browserMode,
+    );
+    if (diagnosticMessage) {
+      return { content: diagnosticMessage, isError: true };
+    }
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Close failed");
     return { content: `Error: Close failed: ${msg}`, isError: true };
@@ -1142,6 +1174,13 @@ export async function executeBrowserClick(
         : resolved!.selector;
     return { content: `Clicked element: ${desc}`, isError: false };
   } catch (err) {
+    const diagnosticMessage = formatCdpSendDiagnostics(
+      err,
+      acquired.browserMode,
+    );
+    if (diagnosticMessage) {
+      return { content: diagnosticMessage, isError: true };
+    }
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Click failed");
     return { content: `Error: Click failed: ${msg}`, isError: true };
@@ -1257,6 +1296,13 @@ export async function executeBrowserType(
     if (pressEnter) lines.push("(pressed Enter after typing)");
     return { content: lines.join("\n"), isError: false };
   } catch (err) {
+    const diagnosticMessage = formatCdpSendDiagnostics(
+      err,
+      acquired.browserMode,
+    );
+    if (diagnosticMessage) {
+      return { content: diagnosticMessage, isError: true };
+    }
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, target: targetDescription }, "Type failed");
     return { content: `Error: Type failed: ${msg}`, isError: true };
@@ -1323,6 +1369,13 @@ export async function executeBrowserPressKey(
     await dispatchKeyPress(cdp, key, context.signal);
     return { content: `Pressed "${key}"`, isError: false };
   } catch (err) {
+    const diagnosticMessage = formatCdpSendDiagnostics(
+      err,
+      acquired.browserMode,
+    );
+    if (diagnosticMessage) {
+      return { content: diagnosticMessage, isError: true };
+    }
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, key }, "Press key failed");
     return { content: `Error: Press key failed: ${msg}`, isError: true };
@@ -1389,6 +1442,13 @@ export async function executeBrowserScroll(
 
     return { content: `Scrolled ${direction} by ${amount}px`, isError: false };
   } catch (err) {
+    const diagnosticMessage = formatCdpSendDiagnostics(
+      err,
+      acquired.browserMode,
+    );
+    if (diagnosticMessage) {
+      return { content: diagnosticMessage, isError: true };
+    }
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, direction }, "Scroll failed");
     return { content: `Error: Scroll failed: ${msg}`, isError: true };
@@ -1514,6 +1574,13 @@ export async function executeBrowserSelectOption(
       isError: false,
     };
   } catch (err) {
+    const diagnosticMessage = formatCdpSendDiagnostics(
+      err,
+      acquired.browserMode,
+    );
+    if (diagnosticMessage) {
+      return { content: diagnosticMessage, isError: true };
+    }
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, target: targetDescription }, "Select option failed");
     return { content: `Error: Select option failed: ${msg}`, isError: true };
@@ -1558,6 +1625,13 @@ export async function executeBrowserHover(
         : resolved!.selector;
     return { content: `Hovered element: ${desc}`, isError: false };
   } catch (err) {
+    const diagnosticMessage = formatCdpSendDiagnostics(
+      err,
+      acquired.browserMode,
+    );
+    if (diagnosticMessage) {
+      return { content: diagnosticMessage, isError: true };
+    }
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Hover failed");
     return { content: `Error: Hover failed: ${msg}`, isError: true };
@@ -1637,6 +1711,13 @@ export async function executeBrowserWaitFor(
       isError: false,
     };
   } catch (err) {
+    const diagnosticMessage = formatCdpSendDiagnostics(
+      err,
+      acquired.browserMode,
+    );
+    if (diagnosticMessage) {
+      return { content: diagnosticMessage, isError: true };
+    }
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Wait failed");
     return { content: `Error: Wait failed: ${msg}`, isError: true };
@@ -1696,6 +1777,13 @@ export async function executeBrowserExtract(
 
     return { content: lines.join("\n"), isError: false };
   } catch (err) {
+    const diagnosticMessage = formatCdpSendDiagnostics(
+      err,
+      acquired.browserMode,
+    );
+    if (diagnosticMessage) {
+      return { content: diagnosticMessage, isError: true };
+    }
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Extract failed");
     return { content: `Error: Extract failed: ${msg}`, isError: true };
@@ -1820,6 +1908,13 @@ export async function executeBrowserFillCredential(
       isError: false,
     };
   } catch (err) {
+    const diagnosticMessage = formatCdpSendDiagnostics(
+      err,
+      acquired.browserMode,
+    );
+    if (diagnosticMessage) {
+      return { content: diagnosticMessage, isError: true };
+    }
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Fill credential failed");
     return { content: `Error: Fill credential failed: ${msg}`, isError: true };
