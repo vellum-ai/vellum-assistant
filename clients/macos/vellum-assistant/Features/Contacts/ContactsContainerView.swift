@@ -218,7 +218,7 @@ struct ContactsContainerView: View {
                         VButton(
                             label: "Save",
                             style: .primary,
-                            isDisabled: guardianIsSaving || guardianEditedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            isDisabled: guardianIsSaving || (guardianEditedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !contact.displayName.hasPrefix("vellum-principal-"))
                         ) {
                             Task { await saveGuardianEdits(contact: contact) }
                         }
@@ -266,7 +266,8 @@ struct ContactsContainerView: View {
     /// Persists guardian name/notes edits via the contacts API.
     private func saveGuardianEdits(contact: ContactPayload) async {
         let trimmedName = guardianEditedName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else { return }
+        // When the name field is empty (e.g. guardian with raw principal ID), preserve the existing displayName
+        let nameToSave = trimmedName.isEmpty ? contact.displayName : trimmedName
         let trimmedNotes = guardianEditedNotes.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guardianIsSaving = true
@@ -274,10 +275,10 @@ struct ContactsContainerView: View {
         do {
             if let updated = try await contactClient.updateContact(
                 contactId: contact.id,
-                displayName: trimmedName,
+                displayName: nameToSave,
                 notes: trimmedNotes.isEmpty ? nil : trimmedNotes
             ) {
-                guardianEditedName = updated.displayName
+                guardianEditedName = updated.displayName.hasPrefix("vellum-principal-") ? "" : updated.displayName
                 guardianEditedNotes = updated.notes ?? ""
                 viewModel.loadContacts()
                 showToast?("Contact saved", .success)
