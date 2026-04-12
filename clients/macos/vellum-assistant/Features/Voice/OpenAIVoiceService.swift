@@ -390,7 +390,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
                 return nil
             }
             log.info("STT service: transcription succeeded (\(trimmed.count) chars)")
-            return trimmed
+            return text
         case .notConfigured:
             log.info("STT service: not configured, falling back to local recognizer")
             return nil
