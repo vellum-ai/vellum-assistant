@@ -48,16 +48,14 @@ final class TTSProviderRegistryIOSTests: XCTestCase {
         XCTAssertEqual(resolved?.id, registry.providers.first?.id)
     }
 
-    // MARK: - API Key Provider Derivation
+    // MARK: - Setup Mode Filtering
 
-    func testAPIKeyProvidersFilteredBySetupMode() {
+    func testProvidersFilteredBySetupMode() {
         let registry = loadTTSProviderRegistry()
-        let apiKeyProviders = registry.providers.filter { $0.setupMode == .apiKey }
-        // At minimum, ElevenLabs has setupMode == .apiKey in the catalog
-        XCTAssertFalse(apiKeyProviders.isEmpty, "At least one provider should have apiKey setup mode")
+        let cliProviders = registry.providers.filter { $0.setupMode == .cli }
         XCTAssertTrue(
-            apiKeyProviders.contains { $0.id == "elevenlabs" },
-            "ElevenLabs should have apiKey setup mode"
+            cliProviders.contains { $0.id == "elevenlabs" },
+            "ElevenLabs should have CLI setup mode"
         )
     }
 
