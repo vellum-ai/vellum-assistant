@@ -30,17 +30,17 @@ export interface TtsProviderSecretRequirement {
    * For namespaced keys this follows the `credential/{service}/{field}`
    * convention (e.g. `"credential/fish-audio/api_key"`).
    */
-  credentialStoreKey: string;
+  readonly credentialStoreKey: string;
 
   /** Human-readable label shown in settings UI and error messages. */
-  displayName: string;
+  readonly displayName: string;
 
   /**
    * CLI command the user can run to store this secret.
    *
    * Shown in error messages when the key is missing.
    */
-  setCommand: string;
+  readonly setCommand: string;
 }
 
 /**
@@ -51,10 +51,10 @@ export interface TtsProviderSecretRequirement {
  */
 export interface TtsProviderCatalogCapabilities {
   /** Whether the provider supports chunk-level streaming synthesis. */
-  supportsStreaming: boolean;
+  readonly supportsStreaming: boolean;
 
   /** Audio formats the provider can produce (e.g. `["mp3"]`). */
-  supportedFormats: string[];
+  readonly supportedFormats: readonly string[];
 }
 
 /**
@@ -66,19 +66,19 @@ export interface TtsProviderCatalogCapabilities {
  */
 export interface TtsProviderCatalogEntry {
   /** Unique provider identifier matching {@link TtsProviderId}. */
-  id: TtsProviderId;
+  readonly id: TtsProviderId;
 
   /** Human-readable name for display in settings UI and logs. */
-  displayName: string;
+  readonly displayName: string;
 
   /** How this provider integrates with the telephony call path. */
-  callMode: TtsCallMode;
+  readonly callMode: TtsCallMode;
 
   /** Static provider-level capabilities. */
-  capabilities: TtsProviderCatalogCapabilities;
+  readonly capabilities: Readonly<TtsProviderCatalogCapabilities>;
 
   /** Secrets the provider requires to function. */
-  secretRequirements: TtsProviderSecretRequirement[];
+  readonly secretRequirements: readonly Readonly<TtsProviderSecretRequirement>[];
 }
 
 // ---------------------------------------------------------------------------
@@ -103,7 +103,7 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
       {
         credentialStoreKey: "elevenlabs",
         displayName: "ElevenLabs API Key",
-        setCommand: "vellum keys set elevenlabs <key>",
+        setCommand: "assistant keys set elevenlabs <key>",
       },
     ],
   },
