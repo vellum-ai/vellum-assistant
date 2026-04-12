@@ -2081,22 +2081,25 @@ The guardian trust system uses a three-valued `TrustClass` — `'guardian'`, `'t
 
 ### TTS Provider Abstraction (`services.tts`)
 
-All text-to-speech functionality (in-app message playback and phone call voice) routes through a provider-agnostic TTS abstraction. The abstraction consists of four layers: a config schema, a config resolver, a provider registry, and a top-level synthesis orchestrator.
+All text-to-speech functionality (in-app message playback and phone call voice) routes through a catalog-driven, provider-agnostic TTS abstraction. The architecture consists of six layers: a canonical provider catalog, a config schema, a config resolver, a provider registry, an explicit call-strategy abstraction, and a top-level synthesis orchestrator.
 
-**Config schema (`services.tts`):** The canonical config block lives at `services.tts` in the assistant config. It contains:
+**Canonical provider catalog (`provider-catalog.ts`):** The provider catalog is the **single source of truth** for TTS provider identity and metadata on the assistant side. Every provider the system supports is declared as a `TtsProviderCatalogEntry` in the `CATALOG` array. Each entry captures the provider's unique ID (`TtsProviderId`), display name, telephony call mode (`TtsCallMode`: `"native-twilio"` or `"synthesized-play"`), static capabilities (`supportsStreaming`, `supportedFormats`), and secret requirements (credential store keys, display names, setup commands). Downstream modules query the catalog via `getCatalogProvider()`, `listCatalogProviders()`, or `listCatalogProviderIds()` instead of hardcoding provider IDs.
 
-| Field                               | Type   | Default        | Description                                                   |
-| ----------------------------------- | ------ | -------------- | ------------------------------------------------------------- |
-| `services.tts.mode`                 | enum   | `"your-own"`   | Service mode (only `"your-own"` is supported)                 |
-| `services.tts.provider`             | enum   | `"elevenlabs"` | Active TTS provider used for speech synthesis                 |
-| `services.tts.providers.elevenlabs` | object | _(defaults)_   | ElevenLabs-specific settings (voiceId, speed, stability, etc) |
-| `services.tts.providers.fish-audio` | object | _(defaults)_   | Fish Audio-specific settings (referenceId, format, etc)       |
+A parallel **client artifact** (`meta/tts-provider-catalog.json`) captures the subset of provider metadata needed by native clients (macOS, iOS) for display and setup UX. The client artifact must list exactly the same provider IDs as the assistant catalog. A CI consistency guard test (`src/tts/__tests__/provider-catalog-consistency.test.ts`) compares the two sets and fails if they drift.
+
+**Config schema (`services.tts`):** The canonical config block lives at `services.tts` in the assistant config. The set of valid provider IDs and provider-specific config objects is catalog-driven — the Zod schema reads from the catalog rather than maintaining a separate hardcoded enum. It contains:
+
+| Field                         | Type   | Default        | Description                                               |
+| ----------------------------- | ------ | -------------- | --------------------------------------------------------- |
+| `services.tts.mode`           | enum   | `"your-own"`   | Service mode (only `"your-own"` is supported)             |
+| `services.tts.provider`       | enum   | `"elevenlabs"` | Active TTS provider (must be a catalog-known provider ID) |
+| `services.tts.providers.<id>` | object | _(defaults)_   | Provider-specific settings, one block per catalog entry   |
 
 Provider-specific config is nested under `services.tts.providers.<id>`. All legacy top-level keys (`elevenlabs.*`, `fishAudio.*`) were removed by workspace migration 032 — only canonical `services.tts` paths are supported at runtime.
 
 **Config resolver (`tts-config-resolver.ts`):** `resolveTtsConfig(config)` reads `services.tts.provider` to determine the active provider and returns a `ResolvedTtsConfig` containing the provider ID and its provider-specific config object from `services.tts.providers.<id>`. No legacy fallback logic exists.
 
-**Provider registry (`provider-registry.ts`):** A runtime registry where provider adapters self-register at startup via `registerTtsProvider()`. Callers resolve a provider by ID with `getTtsProvider()`, which throws for unknown IDs so misconfiguration surfaces immediately. Built-in providers (ElevenLabs, Fish Audio) are registered in `providers/register-builtins.ts` during daemon initialization.
+**Provider registry (`provider-registry.ts`):** A runtime registry where provider adapters self-register at startup via `registerTtsProvider()`. Callers resolve a provider by ID with `getTtsProvider()`, which throws for unknown IDs so misconfiguration surfaces immediately. Built-in providers are registered in `providers/register-builtins.ts` during daemon initialization. The registration is catalog-checked — `register-builtins.ts` validates that each adapter's ID exists in the catalog.
 
 **Provider interface (`types.ts`):** Every provider implements the `TtsProvider` interface:
 
@@ -2109,33 +2112,42 @@ The `TtsUseCase` discriminator (`"phone-call"` or `"message-playback"`) lets pro
 
 **Synthesis orchestrator (`synthesize-text.ts`):** `synthesizeText()` is the top-level entry point. It resolves the globally configured provider via the config resolver, looks up the adapter in the registry, and delegates synthesis. Provider selection is always global — per-use-case policy only gates capabilities (e.g. format checks), never overrides the chosen provider.
 
-**Phone call integration:** `resolveVoiceQualityProfile()` in `voice-quality.ts` uses the TTS abstraction to determine the active provider and its capabilities. Providers that declare `supportsStreaming` (e.g. Fish Audio) use a synthesized-play path where audio is streamed via `play` messages; native providers (e.g. ElevenLabs) populate `ttsProvider` and `voice` in TwiML so Twilio handles TTS natively.
+**Call strategy abstraction (`tts-call-strategy.ts`):** The call strategy layer determines how a TTS provider integrates with the Twilio ConversationRelay telephony path. Instead of inferring call behavior from runtime capabilities, `resolveCallStrategy(config)` reads the provider's `callMode` from the canonical catalog and returns a `TtsCallStrategy` with the provider ID and call mode. Two modes exist:
 
-**Adding a new TTS provider:**
+- **`native-twilio`** — Twilio handles TTS natively via ConversationRelay. The profile needs a real `ttsProvider` name (e.g. `"ElevenLabs"`) and a provider-specific voice spec string. New native providers plug in by registering a `NativeTwilioVoiceSpecBuilder` via `registerNativeTwilioVoiceSpec()` — no edits to core call routing logic required.
+- **`synthesized-play`** — The assistant synthesises audio via the provider's HTTP API and streams chunks to Twilio via `play` messages. Uses a placeholder TTS provider (`"Google"`) and an empty voice string because Twilio never drives TTS itself on this path.
 
-1. Define the provider's config schema in `src/config/schemas/tts.ts` — add a new Zod object under `TtsProvidersSchema` and append the provider ID to `VALID_TTS_PROVIDERS`.
-2. Create the provider adapter in `src/tts/providers/<id>-provider.ts` — implement `TtsProvider` with the appropriate `capabilities` and `synthesize`/`synthesizeStream` methods.
-3. Register the adapter in `src/tts/providers/register-builtins.ts`.
-4. Add provider-specific config resolution in `tts-config-resolver.ts`.
-5. Update `TtsProviderId` union in `src/tts/types.ts`.
-6. If the new provider is a **native** (non-streaming) provider, update `resolveVoiceQualityProfile()` in `src/calls/voice-quality.ts`. The native path currently hardcodes ElevenLabs voice spec for the Twilio ConversationRelay `ttsProvider`/`voice` fields — a new native provider will need its own branch or the hardcoded ElevenLabs fallback will produce incorrect TwiML.
+**Phone call integration:** `resolveVoiceQualityProfile()` in `voice-quality.ts` uses `resolveCallStrategy()` to determine the call mode, then dispatches to the appropriate path. For `native-twilio`, it looks up the registered `NativeTwilioVoiceSpec` to build the voice string. For `synthesized-play`, it uses the placeholder profile. This replaces the previous `supportsStreaming`-based branching with explicit catalog-declared modes.
 
-The registry, resolver, and orchestrator will automatically pick up the new provider when selected via `services.tts.provider`. Streaming providers require no `voice-quality.ts` changes because they bypass Twilio's built-in TTS entirely.
+**Adding a new TTS provider (catalog-first checklist):**
+
+1. **Catalog entry** — Add a new `TtsProviderCatalogEntry` to the `CATALOG` array in `src/tts/provider-catalog.ts`. Declare the provider's ID, display name, call mode, capabilities, and secret requirements.
+2. **Client artifact** — Add a corresponding entry to `meta/tts-provider-catalog.json` with the same provider ID, display name, and client-facing metadata (subtitle, setup mode, setup hint). The CI consistency guard will fail if this is skipped.
+3. **Config schema** — Add a new Zod object under `TtsProvidersSchema` in `src/config/schemas/tts.ts` for the provider's settings. The valid provider ID enum is catalog-driven.
+4. **Provider adapter** — Create `src/tts/providers/<id>-provider.ts` implementing `TtsProvider` with the appropriate `capabilities` and `synthesize`/`synthesizeStream` methods.
+5. **Register the adapter** — Add the adapter to `src/tts/providers/register-builtins.ts`.
+6. **Optional: native Twilio voice builder** — If the provider uses `native-twilio` call mode, register a `NativeTwilioVoiceSpecBuilder` via `registerNativeTwilioVoiceSpec()` in `register-builtins.ts`. Synthesized-play providers skip this step entirely.
+
+No hardcoded enum edits are required — the `TtsProviderId` union in `types.ts` uses an open string union (`(string & {})`), the config schema reads valid IDs from the catalog, and the call strategy dispatches based on the catalog's `callMode` field. The registry, resolver, orchestrator, and call strategy all automatically pick up the new provider when selected via `services.tts.provider`.
 
 **Key source files:**
 
-| File                                                       | Purpose                                                                         |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `src/tts/types.ts`                                         | Core domain types: `TtsProvider`, `TtsProviderId`, `TtsUseCase`, capabilities   |
-| `src/tts/provider-registry.ts`                             | Runtime provider registry: register, lookup, list                               |
-| `src/tts/tts-config-resolver.ts`                           | Config resolver: `resolveTtsConfig()` reads `services.tts` and returns resolved |
-| `src/tts/synthesize-text.ts`                               | Top-level orchestrator: `synthesizeText()` entry point                          |
-| `src/tts/providers/register-builtins.ts`                   | Startup registration of built-in providers                                      |
-| `src/tts/providers/elevenlabs-provider.ts`                 | ElevenLabs adapter implementation                                               |
-| `src/tts/providers/fish-audio-provider.ts`                 | Fish Audio adapter implementation                                               |
-| `src/config/schemas/tts.ts`                                | Zod schema for `services.tts` config block                                      |
-| `src/calls/voice-quality.ts`                               | Phone call integration: `resolveVoiceQualityProfile()`                          |
-| `src/workspace/migrations/032-tts-provider-unification.ts` | Migration that materialised canonical `services.tts` fields                     |
+| File                                                       | Purpose                                                                                      |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `src/tts/provider-catalog.ts`                              | Canonical provider catalog: single source of truth for provider IDs and metadata             |
+| `src/tts/types.ts`                                         | Core domain types: `TtsProvider`, `TtsProviderId`, `TtsCallMode`, `TtsUseCase`, capabilities |
+| `src/tts/provider-registry.ts`                             | Runtime provider registry: register, lookup, list                                            |
+| `src/tts/tts-config-resolver.ts`                           | Config resolver: `resolveTtsConfig()` reads `services.tts` and returns resolved              |
+| `src/tts/synthesize-text.ts`                               | Top-level orchestrator: `synthesizeText()` entry point                                       |
+| `src/tts/providers/register-builtins.ts`                   | Startup registration of built-in providers (catalog-checked)                                 |
+| `src/tts/providers/elevenlabs-provider.ts`                 | ElevenLabs adapter implementation                                                            |
+| `src/tts/providers/fish-audio-provider.ts`                 | Fish Audio adapter implementation                                                            |
+| `src/config/schemas/tts.ts`                                | Zod schema for `services.tts` config block (catalog-driven valid provider IDs)               |
+| `src/calls/tts-call-strategy.ts`                           | Explicit call strategy: resolves call mode from catalog, native voice spec registry          |
+| `src/calls/voice-quality.ts`                               | Phone call integration: `resolveVoiceQualityProfile()` uses call strategy                    |
+| `meta/tts-provider-catalog.json`                           | Client artifact: provider metadata for macOS/iOS settings UI                                 |
+| `src/tts/__tests__/provider-catalog-consistency.test.ts`   | CI guard: catalog vs client artifact provider ID consistency                                 |
+| `src/workspace/migrations/032-tts-provider-unification.ts` | Migration that materialised canonical `services.tts` fields                                  |
 
 ### Managed Profiler Runtime
 

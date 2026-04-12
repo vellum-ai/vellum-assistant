@@ -1035,20 +1035,20 @@ Malformed or unprocessable provider callback payloads are logged as dead-letter 
 
 Call behavior is controlled via the `calls` config block in the assistant configuration (`config/schema.ts`). All values have sensible defaults and are validated via Zod:
 
-| Field                                       | Type     | Default                        | Description                                                                                           |
-| ------------------------------------------- | -------- | ------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| `calls.enabled`                             | boolean  | `true`                         | Master toggle for the calls feature. When `false`, call routes return 403 and tools return errors.    |
-| `calls.provider`                            | enum     | `'twilio'`                     | Voice provider to use (currently only Twilio is supported).                                           |
-| `calls.maxDurationSeconds`                  | int      | `3600`                         | Maximum allowed duration per call.                                                                    |
-| `calls.userConsultTimeoutSeconds`           | int      | `120`                          | How long to wait for a user answer before timing out a pending question.                              |
-| `calls.disclosure.enabled`                  | boolean  | `true`                         | Whether the AI should disclose it is an AI at the start of the call.                                  |
-| `calls.disclosure.text`                     | string   | _(default disclosure prompt)_  | The disclosure instruction included in the system prompt.                                             |
-| `calls.safety.denyCategories`               | string[] | `[]`                           | Categories of calls to deny (e.g., emergency numbers are always denied regardless of this setting).   |
-| `calls.model`                               | string   | _(unset — uses default model)_ | Optional override for the LLM model used in voice call conversations.                                 |
-| `calls.voice.language`                      | string   | `'en-US'`                      | Language code for TTS and transcription.                                                              |
-| `calls.voice.transcriptionProvider`         | enum     | `'Deepgram'`                   | Speech-to-text provider (`Deepgram` or `Google`).                                                     |
-| `services.tts.provider`                     | enum     | `'elevenlabs'`                 | Active TTS provider for speech synthesis (see TTS Provider Abstraction in assistant ARCHITECTURE.md). |
-| `services.tts.providers.elevenlabs.voiceId` | string   | `'ZF6FPAbjXT4488VcRRnw'`       | ElevenLabs voice ID used by both in-app TTS and phone calls. Defaults to Amelia.                      |
+| Field                               | Type     | Default                        | Description                                                                                                                                                   |
+| ----------------------------------- | -------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `calls.enabled`                     | boolean  | `true`                         | Master toggle for the calls feature. When `false`, call routes return 403 and tools return errors.                                                            |
+| `calls.provider`                    | enum     | `'twilio'`                     | Voice provider to use (currently only Twilio is supported).                                                                                                   |
+| `calls.maxDurationSeconds`          | int      | `3600`                         | Maximum allowed duration per call.                                                                                                                            |
+| `calls.userConsultTimeoutSeconds`   | int      | `120`                          | How long to wait for a user answer before timing out a pending question.                                                                                      |
+| `calls.disclosure.enabled`          | boolean  | `true`                         | Whether the AI should disclose it is an AI at the start of the call.                                                                                          |
+| `calls.disclosure.text`             | string   | _(default disclosure prompt)_  | The disclosure instruction included in the system prompt.                                                                                                     |
+| `calls.safety.denyCategories`       | string[] | `[]`                           | Categories of calls to deny (e.g., emergency numbers are always denied regardless of this setting).                                                           |
+| `calls.model`                       | string   | _(unset — uses default model)_ | Optional override for the LLM model used in voice call conversations.                                                                                         |
+| `calls.voice.language`              | string   | `'en-US'`                      | Language code for TTS and transcription.                                                                                                                      |
+| `calls.voice.transcriptionProvider` | enum     | `'Deepgram'`                   | Speech-to-text provider (`Deepgram` or `Google`).                                                                                                             |
+| `services.tts.provider`             | enum     | `'elevenlabs'`                 | Active TTS provider for speech synthesis (catalog-driven; see [TTS Provider Abstraction](../assistant/ARCHITECTURE.md#tts-provider-abstraction-servicestts)). |
+| `services.tts.providers.<id>.*`     | object   | _(per-provider defaults)_      | Provider-specific settings block. One block per catalog entry (e.g. `elevenlabs`, `fish-audio`).                                                              |
 
 ### Caller Identity Resolution
 
@@ -1065,12 +1065,14 @@ Both the resolved mode and source are logged at info level on success, and rejec
 
 ### Voice Quality Profile Resolution
 
-Voice and TTS settings are configurable via the `calls.voice` and `services.tts` config blocks — they are not hardcoded. The function `resolveVoiceQualityProfile()` in `voice-quality.ts` uses the TTS provider abstraction (`resolveTtsConfig()` and the provider registry) to determine the active provider and its capabilities, then resolves the result into a `VoiceQualityProfile` containing the TTS provider, voice spec string, language, and transcription provider.
+Voice and TTS settings are configurable via the `calls.voice` and `services.tts` config blocks — they are not hardcoded. The function `resolveVoiceQualityProfile()` in `voice-quality.ts` uses the catalog-driven call strategy abstraction to determine how the active TTS provider integrates with the Twilio ConversationRelay telephony path, then resolves the result into a `VoiceQualityProfile` containing the TTS provider, voice spec string, language, and transcription provider.
 
-The active TTS provider is determined by `services.tts.provider` (default: `"elevenlabs"`). Provider-specific settings (voice ID, model, tuning parameters) are read from `services.tts.providers.<id>`. For ElevenLabs, this includes `voiceId` (defaulting to Amelia — `ZF6FPAbjXT4488VcRRnw`), `voiceModelId`, `speed`, `stability`, and `similarityBoost`. When `voiceModelId` is set, the emitted voice spec uses the Twilio ConversationRelay extended format: `voiceId-model-speed_stability_similarity`. When `voiceModelId` is empty (the default), only the bare `voiceId` is sent.
+The active TTS provider is determined by `services.tts.provider` (default: `"elevenlabs"`). Provider-specific settings (voice ID, model, tuning parameters) are read from `services.tts.providers.<id>`. The call mode (`native-twilio` or `synthesized-play`) is resolved from the canonical provider catalog via `resolveCallStrategy()` in `tts-call-strategy.ts` — it reads the provider's declared `callMode` rather than inferring behavior from runtime capabilities.
 
-Providers that declare `supportsStreaming` in their capabilities (e.g. Fish Audio) use a synthesized-play path — `ttsProvider` is set to `"Google"` as a placeholder in TwiML and actual audio is delivered via `play` messages. Native providers (e.g. ElevenLabs) populate `ttsProvider` and `voice` directly so Twilio handles TTS natively.
+For `native-twilio` providers (e.g. ElevenLabs), the voice quality profile looks up a registered `NativeTwilioVoiceSpecBuilder` to construct the provider-specific voice spec string for the ConversationRelay `voice` attribute. New native providers plug in by registering their own voice spec builder — no edits to core call routing logic required. For `synthesized-play` providers (e.g. Fish Audio), `ttsProvider` is set to `"Google"` as a placeholder in TwiML and actual audio is delivered via `play` messages — the assistant synthesises audio via the provider's HTTP API.
 
 The voice webhook in `twilio-routes.ts` calls `resolveVoiceQualityProfile()` for TTS settings and separately resolves STT configuration via `resolveTelephonySttProfile()` + `buildTwilioRelaySpeechConfig()`. Both the voice quality profile and the resulting `TwilioRelaySpeechConfig` are passed to `generateTwiML()` to produce ConversationRelay TwiML. This separation keeps TTS and STT resolution independent — the voice quality profile controls the TTS provider, voice, and language, while the speech config controls the STT provider, model, and language for transcription.
+
+For full details on the catalog-driven TTS architecture, provider catalog, call strategy abstraction, and the provider-add checklist, see the [TTS Provider Abstraction](../assistant/ARCHITECTURE.md#tts-provider-abstraction-servicestts) section in the assistant architecture docs.
 
 ---
