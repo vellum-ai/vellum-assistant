@@ -224,55 +224,68 @@ final class AppleContainersLauncher: AssistantManagementClient {
         log.info("Retiring apple-container '\(name, privacy: .public)'")
 
         // 1. Stop the running pod and management socket.
-        try await stop()
+        //    Continue cleanup even if stop fails (e.g. pod already stopped,
+        //    transient runtime error) so we don't leave stale state.
+        do {
+            try await stop()
+        } catch {
+            log.warning("Pod stop failed during retire: \(error.localizedDescription, privacy: .public) — continuing cleanup")
+        }
 
-        // 2. Archive the instance directory.
+        // 2. Archive the instance directory (best-effort — failures must not
+        //    prevent guardian token and lockfile cleanup below).
         let dir = Self.instanceDir(for: name)
-        if FileManager.default.fileExists(atPath: dir.path) {
-            let archiveDir = Self.retiredArchiveDir()
-            try FileManager.default.createDirectory(
-                at: archiveDir, withIntermediateDirectories: true
-            )
-            let timestamp = ISO8601DateFormatter().string(from: Date())
-                .replacingOccurrences(of: ":", with: "-")
-            let archivePath = archiveDir.appendingPathComponent("\(name)-\(timestamp).tar.gz")
-            let stagingDir = archiveDir.appendingPathComponent("\(name)-staging")
+        do {
+            if FileManager.default.fileExists(atPath: dir.path) {
+                let archiveDir = Self.retiredArchiveDir()
+                try FileManager.default.createDirectory(
+                    at: archiveDir, withIntermediateDirectories: true
+                )
+                let timestamp = ISO8601DateFormatter().string(from: Date())
+                    .replacingOccurrences(of: ":", with: "-")
+                let archivePath = archiveDir.appendingPathComponent("\(name)-\(timestamp).tar.gz")
+                let stagingDir = archiveDir.appendingPathComponent("\(name)-staging")
 
-            // Move the instance directory to staging so the path is
-            // immediately available for a fresh hatch.
-            do {
-                try FileManager.default.moveItem(at: dir, to: stagingDir)
-            } catch {
-                log.warning("Failed to stage instance directory for archive: \(error.localizedDescription, privacy: .public) — removing in place")
-                try? FileManager.default.removeItem(at: dir)
-            }
-
-            // Compress in the background and clean up the staging directory.
-            if FileManager.default.fileExists(atPath: stagingDir.path) {
-                let tarCmd = [
-                    "tar", "czf", archivePath.path,
-                    "-C", archiveDir.path,
-                    stagingDir.lastPathComponent,
-                ]
-                let tarProcess = Process()
-                tarProcess.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-                tarProcess.arguments = tarCmd
-                tarProcess.standardOutput = FileHandle.nullDevice
-                tarProcess.standardError = FileHandle.nullDevice
+                // Move the instance directory to staging so the path is
+                // immediately available for a fresh hatch.
                 do {
-                    try tarProcess.run()
-                    // Detach — don't wait. Clean up staging on completion.
-                    tarProcess.terminationHandler = { _ in
+                    try FileManager.default.moveItem(at: dir, to: stagingDir)
+                } catch {
+                    log.warning("Failed to stage instance directory for archive: \(error.localizedDescription, privacy: .public) — removing in place")
+                    try? FileManager.default.removeItem(at: dir)
+                }
+
+                // Compress in the background and clean up the staging directory.
+                if FileManager.default.fileExists(atPath: stagingDir.path) {
+                    let tarCmd = [
+                        "tar", "czf", archivePath.path,
+                        "-C", archiveDir.path,
+                        stagingDir.lastPathComponent,
+                    ]
+                    let tarProcess = Process()
+                    tarProcess.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+                    tarProcess.arguments = tarCmd
+                    tarProcess.standardOutput = FileHandle.nullDevice
+                    tarProcess.standardError = FileHandle.nullDevice
+                    do {
+                        try tarProcess.run()
+                        // Detach — don't wait. Clean up staging on completion.
+                        tarProcess.terminationHandler = { _ in
+                            try? FileManager.default.removeItem(at: stagingDir)
+                        }
+                        log.info("Archiving instance to \(archivePath.path, privacy: .public) in the background")
+                    } catch {
+                        log.warning("Failed to start archive: \(error.localizedDescription, privacy: .public) — cleaning up staging")
                         try? FileManager.default.removeItem(at: stagingDir)
                     }
-                    log.info("Archiving instance to \(archivePath.path, privacy: .public) in the background")
-                } catch {
-                    log.warning("Failed to start archive: \(error.localizedDescription, privacy: .public) — cleaning up staging")
-                    try? FileManager.default.removeItem(at: stagingDir)
                 }
+            } else {
+                log.info("No instance directory at \(dir.path, privacy: .public) — nothing to archive")
             }
-        } else {
-            log.info("No instance directory at \(dir.path, privacy: .public) — nothing to archive")
+        } catch {
+            log.warning("Archiving failed: \(error.localizedDescription, privacy: .public) — continuing with cleanup")
+            // Best-effort: try to remove the instance directory directly.
+            try? FileManager.default.removeItem(at: dir)
         }
 
         // 3. Remove the guardian token file.

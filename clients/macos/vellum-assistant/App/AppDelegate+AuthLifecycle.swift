@@ -830,7 +830,7 @@ extension AppDelegate {
 
         Task {
             let allAssistants = LockfileAssistant.loadAll()
-            let localAssistants = allAssistants.filter { !$0.isRemote || $0.isDocker }
+            let localAssistants = allAssistants.filter { !$0.isRemote || $0.isDocker || $0.isAppleContainer }
 
             // Disconnect SSE before retiring so the reconnect loop doesn't
             // hit a half-torn-down gateway and produce 502 errors.
