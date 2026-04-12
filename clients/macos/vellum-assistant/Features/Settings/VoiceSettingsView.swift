@@ -73,7 +73,7 @@ struct VoiceSettingsView: View {
             stopRecordingCustomKey()
         }
         .onAppear {
-            elevenLabsHasKey = APIKeyManager.getKey(for: "elevenlabs") != nil
+            elevenLabsHasKey = APIKeyManager.getCredential(service: "elevenlabs", field: "api_key") != nil
         }
         .onChange(of: conversationTimeoutSeconds) {
             VoiceModeManager.conversationTimeoutOverride = conversationTimeoutSeconds
