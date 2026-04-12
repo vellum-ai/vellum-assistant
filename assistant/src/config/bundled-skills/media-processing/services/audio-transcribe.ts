@@ -37,8 +37,10 @@ export async function transcribeSegmentAudio(
   const tmpWav = join(tmpdir(), `vellum-seg-audio-${randomUUID()}.wav`);
 
   try {
-    // Use the provided transcriber or resolve on demand
-    const resolved = transcriber ?? (await resolveBatchTranscriber());
+    // Use the provided transcriber or resolve on demand.
+    // null = "already resolved, no provider"; only re-resolve when undefined (not passed).
+    const resolved =
+      transcriber === undefined ? await resolveBatchTranscriber() : transcriber;
     if (!resolved) {
       return "";
     }
