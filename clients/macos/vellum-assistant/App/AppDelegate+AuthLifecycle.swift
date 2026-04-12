@@ -658,6 +658,11 @@ extension AppDelegate {
                 try? await connectionManager.connect()
                 return false
             }
+            // User chose "Force Remove" — clean up the lockfile entry so the
+            // app can proceed to onboarding or switch to another assistant.
+            if let activeId = LockfileAssistant.loadActiveAssistantId() {
+                LockfileAssistant.removeEntry(assistantId: activeId)
+            }
         }
 
         // Clear the stale connectedAssistantId immediately after retire so
@@ -667,8 +672,9 @@ extension AppDelegate {
         LockfileAssistant.setActiveAssistantId(nil)
 
         // Check if other assistants remain in the lockfile.
-        // The retired entry was already removed by the client, so all
-        // current-environment entries are candidates.
+        // On the success path the CLI deregisters the entry; on the Force
+        // Remove path we removed it above. Either way, only other assistants
+        // for the current environment remain.
         let remaining = LockfileAssistant.loadAll().filter { $0.isCurrentEnvironment }
         if !remaining.isEmpty {
             // Try remote assistants first — they're always reachable
