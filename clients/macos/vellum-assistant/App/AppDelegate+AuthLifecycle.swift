@@ -650,8 +650,9 @@ extension AppDelegate {
             connectionManager.disconnect()
 
             // Dispatch to the correct management client based on cloud type.
-            let assistantEntry = LockfileAssistant.loadByName(name)
-            let client = managementClient(for: assistantEntry)
+            // managementClient() loads the active assistant from the lockfile
+            // internally, so callers don't need to do the lookup themselves.
+            let client = managementClient()
 
             do {
                 try await client.retire(name: name)
@@ -664,6 +665,7 @@ extension AppDelegate {
                 // an "unreachable" error screen (LUM-755).  Skip the alert and
                 // proceed with local cleanup automatically so the app always
                 // navigates to a sensible post-retirement state.
+                let assistantEntry = LockfileAssistant.loadByName(name)
                 if assistantEntry?.isManaged == true {
                     log.warning("Managed assistant — automatically cleaning up local state after retire failure")
                     await vellumCli.stop(name: name)

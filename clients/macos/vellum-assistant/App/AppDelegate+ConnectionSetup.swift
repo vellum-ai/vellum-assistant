@@ -107,6 +107,17 @@ extension AppDelegate {
 
     // MARK: - Backend Dispatch
 
+    /// Return the `AssistantManagementClient` for the currently active assistant.
+    ///
+    /// Loads the active assistant ID from the lockfile and dispatches to the
+    /// appropriate backend. Falls back to `VellumCli` when no active assistant
+    /// is found or when the assistant is not an apple-container.
+    func managementClient() -> AssistantManagementClient {
+        let entry = LockfileAssistant.loadActiveAssistantId()
+            .flatMap { LockfileAssistant.loadByName($0) }
+        return managementClient(for: entry)
+    }
+
     /// Return the `AssistantManagementClient` appropriate for `assistant`'s cloud type.
     ///
     /// - Non-apple-container (or absent): delegates to the bundled `VellumCli` hatch path.

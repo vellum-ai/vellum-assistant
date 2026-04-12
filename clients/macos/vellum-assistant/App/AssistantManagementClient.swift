@@ -23,3 +23,26 @@ protocol AssistantManagementClient: AnyObject {
     /// - Parameter name: The assistant ID to retire.
     func retire(name: String) async throws
 }
+
+extension AssistantManagementClient {
+    /// Convenience: retire the currently active assistant by loading its ID
+    /// from the lockfile automatically.
+    func retire() async throws {
+        guard let name = LockfileAssistant.loadActiveAssistantId() else {
+            throw ManagementClientError.noActiveAssistant
+        }
+        try await retire(name: name)
+    }
+}
+
+/// Errors specific to `AssistantManagementClient` convenience methods.
+enum ManagementClientError: LocalizedError {
+    case noActiveAssistant
+
+    var errorDescription: String? {
+        switch self {
+        case .noActiveAssistant:
+            return "No active assistant found in the lockfile"
+        }
+    }
+}

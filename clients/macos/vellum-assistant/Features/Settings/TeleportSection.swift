@@ -287,7 +287,8 @@ struct TeleportSection: View {
                     }
                 } else {
                     do {
-                        try await AppDelegate.shared?.vellumCli.retire(name: oldId)
+                        let client = AppDelegate.shared?.managementClient(for: original)
+                        try await client?.retire(name: oldId)
                         log.info("[teleport] Retired assistant \(oldId, privacy: .public)")
                     } catch {
                         log.error("[teleport] Failed to retire assistant \(oldId, privacy: .public): \(error.localizedDescription, privacy: .public)")
