@@ -1636,6 +1636,13 @@ export async function executeBrowserWaitFor(
       ? Math.min(input.timeout, MAX_WAIT_MS)
       : MAX_WAIT_MS;
 
+  // Validate browser_mode even on the duration path so invalid values
+  // are rejected consistently regardless of which wait mode is used.
+  const modeResult = parseBrowserMode(input);
+  if (!modeResult.ok) {
+    return { content: modeResult.error, isError: true };
+  }
+
   // Duration mode has no CDP interaction — handle without acquiring
   // a CdpClient so the common "sleep" path stays transport-agnostic.
   if (duration != null) {
