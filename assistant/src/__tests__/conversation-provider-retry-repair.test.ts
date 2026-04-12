@@ -167,6 +167,8 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationOriginChannel: () => null,
   getConversationOriginInterface: () => null,
   provenanceFromTrustContext: () => ({}),
+  getMessageById: () => null,
+  getLastUserTimestampBefore: () => 0,
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({

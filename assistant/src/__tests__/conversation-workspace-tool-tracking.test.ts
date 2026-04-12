@@ -122,6 +122,8 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateConversationContextWindow: () => {},
   deleteMessageById: () => ({ segmentIds: [], deletedSummaryIds: [] }),
   deleteLastExchange: () => 0,
+  getMessageById: () => null,
+  getLastUserTimestampBefore: () => 0,
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({

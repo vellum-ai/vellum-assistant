@@ -112,6 +112,8 @@ mock.module("../memory/conversation-crud.js", () => ({
   },
   updateConversationUsage: () => {},
   updateConversationTitle: () => {},
+  getMessageById: () => null,
+  getLastUserTimestampBefore: () => 0,
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({
