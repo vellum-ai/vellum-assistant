@@ -56,12 +56,23 @@ const MAX_ACQUIRE_ITERATIONS = 8;
 const ACQUIRE_RETRY_DELAY_MS = 10;
 
 /**
- * Extra delay when we see an empty lock file (suggesting another process
- * is mid-write between `openSync(O_EXCL)` succeeding and `writeSync(payload)`
- * completing). 20ms is plenty of time for the writer to finish a
- * fixed-size `<pid> <timestamp>` payload.
+ * Per-attempt delay when we see an empty lock file (suggesting another
+ * process is mid-write between `openSync(O_EXCL)` succeeding and
+ * `writeSync(payload)` completing). 50ms is comfortably longer than the
+ * write-and-close of a ~30-byte payload even on a loaded host.
  */
-const EMPTY_FILE_RETRY_DELAY_MS = 20;
+const EMPTY_FILE_RETRY_DELAY_MS = 50;
+
+/**
+ * Maximum number of times we re-read an empty lock file before giving up
+ * and treating it as contended. Three retries at 50ms each bound the wait
+ * at ~150ms — long enough to ride out every realistic partial-write
+ * window, short enough that genuine contention surfaces quickly. We must
+ * not unlink an empty file: it could belong to a live holder that has
+ * just won `O_EXCL` but not yet flushed its PID, and unlinking it would
+ * let a second process re-acquire and run concurrently.
+ */
+const EMPTY_FILE_MAX_RETRIES = 3;
 
 /**
  * Returns the canonical path to the snapshot lock file. The lock lives one
@@ -212,9 +223,15 @@ function readLockHolderPid(lockPath: string): number | null {
  *
  * There is a tiny window between `openSync(O_EXCL)` succeeding and
  * `writeSync(payload)` completing where another reader could observe a
- * zero-byte lock file. If we see an empty file on inspection, we sleep
- * briefly and re-read — if it's still empty, we treat it as stale and
- * proceed with the rename-aside takeover.
+ * zero-byte lock file. An empty file is ambiguous: it might be a dead
+ * writer's debris, OR it might belong to a *live* holder that has just
+ * won `O_EXCL` and not yet flushed the PID. We re-read up to
+ * `EMPTY_FILE_MAX_RETRIES` times with a short delay; only a lock file
+ * with a parseable PID whose owner is not running is ever taken over.
+ * If the file is still unreadable after the retry budget, we surface a
+ * conflict — unlinking it would race the live-holder case and risk
+ * letting two snapshots run concurrently (the exact corruption scenario
+ * this lock exists to prevent).
  *
  * ## Bounded retry
  *
@@ -259,13 +276,30 @@ export async function acquireSnapshotLock(
 
     // Partial-write window: the file exists but has no parseable PID. This
     // can happen in the tiny window between `O_EXCL` create and the payload
-    // write, so we retry once after a short sleep.
-    if (holderPid == null) {
+    // write, so we retry a bounded number of times before deciding what to
+    // do with it.
+    for (
+      let retry = 0;
+      retry < EMPTY_FILE_MAX_RETRIES && holderPid == null;
+      retry += 1
+    ) {
       await sleep(EMPTY_FILE_RETRY_DELAY_MS);
       holderPid = readLockHolderPid(lockPath);
     }
 
-    if (holderPid != null && isProcessAlive(holderPid)) {
+    // If the file is still unreadable, a live holder may be mid-write.
+    // Unlinking would let a second acquirer succeed at `O_EXCL` while the
+    // first holder still believes it owns the lock — the TOCTOU double-
+    // acquire this module exists to prevent. Surface as a conflict and
+    // let the caller retry; we only ever take over a lock with a parseable
+    // PID that points at a non-running process.
+    if (holderPid == null) {
+      throw new Error(
+        "snapshot in progress (lock holder unidentified; possible partial write)",
+      );
+    }
+
+    if (isProcessAlive(holderPid)) {
       throw new Error(
         `snapshot in progress (locked by pid ${holderPid})`,
       );
