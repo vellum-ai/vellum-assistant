@@ -55,7 +55,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
 
     // MARK: - AssistantManagementClient
 
-    override func hatch(name: String?, configValues: [String: String]) async throws {
+    override func hatch(name: String? = nil, configValues: [String: String] = [:]) async throws {
         try await hatch(name: name, configValues: configValues, progress: nil)
     }
 
@@ -220,7 +220,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
     /// Retire an apple-container assistant: stop the pod, archive the
     /// instance directory, remove the guardian token, and clean up the
     /// lockfile entry.
-    override func retire(name: String?) async throws -> LockfileAssistant? {
+    override func retire(name: String? = nil) async throws -> LockfileAssistant? {
         guard let resolvedName = name ?? LockfileAssistant.loadActiveAssistantId() else {
             throw ManagementClientError.noActiveAssistant
         }

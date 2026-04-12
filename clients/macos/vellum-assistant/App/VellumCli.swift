@@ -160,7 +160,7 @@ final class VellumCli: AssistantManagementClient {
     /// - Parameters:
     ///   - name: Optional assistant name to reuse.
     ///   - configValues: Key-value pairs forwarded as `--config k=v` flags.
-    override func hatch(name: String?, configValues: [String: String]) async throws {
+    override func hatch(name: String? = nil, configValues: [String: String] = [:]) async throws {
         guard let binaryURL = cliBinaryURL else {
             log.info("No bundled CLI binary found — skipping hatch (dev mode)")
             return
@@ -213,7 +213,7 @@ final class VellumCli: AssistantManagementClient {
     /// Times out after 5 minutes; on timeout the CLI process is terminated.
     /// CLI stdout/stderr are streamed to `os.Logger` so progress is visible
     /// in Console.app.
-    override func retire(name: String?) async throws -> LockfileAssistant? {
+    override func retire(name: String? = nil) async throws -> LockfileAssistant? {
         guard let resolvedName = name ?? LockfileAssistant.loadActiveAssistantId() else {
             throw ManagementClientError.noActiveAssistant
         }
