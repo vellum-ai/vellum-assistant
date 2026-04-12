@@ -94,6 +94,29 @@ On macOS-originated turns, the CDP factory (`tools/browser/cdp-client/factory.ts
 
 **After the first successful CDP command**, the selected backend becomes **sticky** for the remainder of the tool invocation. Subsequent commands always route through the same backend so multi-command tool flows do not hop transports mid-step.
 
+### Per-tool `browser_mode` override
+
+All CDP-backed browser tools (`browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_click`, `browser_type`, `browser_hover`, `browser_scroll`, `browser_press_key`, `browser_select_option`, `browser_wait_for`, `browser_extract`, `browser_fill_credential`, `browser_attach`, `browser_detach`, `browser_close`) accept an optional `browser_mode` input parameter that overrides the automatic backend selection for that invocation.
+
+| Value            | Behavior                                                                 |
+| ---------------- | ------------------------------------------------------------------------ |
+| `auto` (default) | Existing priority-ordered fallback: extension -> cdp-inspect -> local    |
+| `extension`      | Pin to chrome-extension backend. Fails immediately if proxy unavailable. |
+| `cdp-inspect`    | Pin to CDP inspect/debugger backend. Fails if endpoint unreachable.      |
+| `local`          | Pin to local Playwright-managed browser. No fallback.                    |
+| `cdp-debugger`   | Alias for `cdp-inspect`.                                                 |
+| `playwright`     | Alias for `local`.                                                       |
+
+**Strict pinned-mode semantics**: When `browser_mode` is set to a specific backend (not `auto`), the factory builds exactly one candidate and disables failover. If the pinned backend is unavailable, the tool returns a detailed error including:
+
+- The requested mode
+- An ordered list of attempted backends with exact failure reasons
+- A remediation checklist tailored by backend and failure code (e.g. "Ensure Chrome is running with --remote-debugging-port=9222")
+
+**Auto-mode fallback logging**: In auto mode, fallback transitions are logged at `warn` level with structured metadata including the full candidate sequence and per-candidate failure reasons. This ensures fallback events are always observable in production logs.
+
+**Test coverage:** Regression tests for `browser_mode` wiring live in `__tests__/headless-browser-mode.test.ts`. Unit tests for pinned candidate construction and failover live in `tools/browser/cdp-client/__tests__/factory.test.ts`.
+
 **Test coverage:** E2E regression tests for this precedence order live in `__tests__/host-browser-e2e-cloud.test.ts` (extension path) and `__tests__/conversation-routes-disk-view.test.ts` (macOS fallback path). Unit tests for candidate list construction and failover live in `tools/browser/cdp-client/__tests__/factory.test.ts`.
 
 ### Channel approvals (Telegram, Slack)

@@ -64,6 +64,15 @@ manager picks an extension backend when the conversation has a host
 browser proxy bound to it and falls back to a local Playwright-backed
 backend otherwise, so tool code remains transport-agnostic.
 
+All CDP-backed tools accept an optional `browser_mode` input parameter
+(`auto`, `extension`, `cdp-inspect`/`cdp-debugger`, `local`/`playwright`)
+that pins backend selection for that invocation. When a pinned mode
+fails, the tool response includes a detailed error with the attempted
+backends, exact failure reasons, and a remediation checklist. In auto
+mode, fallback transitions are logged at warn level for observability.
+See `browser-mode.ts` for normalization and `browser-execution.ts` for
+the `acquireCdpClientWithMode` integration point.
+
 ## Architecture
 
 The two transports share the same envelope vocabulary and the same

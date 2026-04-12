@@ -186,3 +186,24 @@ cdp-inspect backend cannot reach or identify the DevTools endpoint.
 | `invalid_response` | The port responds but is not speaking the DevTools protocol. | Verify with `curl http://localhost:9222/json/version`. If the response is not valid JSON with a `Browser` field, another service is using the port. |
 | `no_targets` | Chrome is running but has no open tabs or pages. | Open at least one tab in Chrome before using browser tools. |
 | `timeout` | Chrome is slow to respond to the discovery probe. | Increase `hostBrowser.cdpInspect.probeTimeoutMs` (max 5000). |
+
+## Per-tool `browser_mode` override
+
+All CDP-backed browser tools accept an optional `browser_mode` input parameter that pins backend selection for that single invocation:
+
+```json
+{
+  "browser_mode": "cdp-inspect"
+}
+```
+
+Accepted values: `auto`, `extension`, `cdp-inspect`, `cdp-debugger` (alias for `cdp-inspect`), `local`, `playwright` (alias for `local`).
+
+When `browser_mode` is set to a specific backend, the factory disables automatic fallback. If the pinned backend fails, the tool returns a detailed error with:
+- The requested mode and a human-readable failure summary
+- An ordered list of attempted backends with exact failure reasons and discovery error codes
+- A remediation checklist tailored to the specific failure (e.g. "Ensure Chrome is running with --remote-debugging-port=9222")
+
+This is useful for debugging backend selection issues: pin the mode you expect, and the error response tells you exactly what went wrong and how to fix it.
+
+When `browser_mode` is omitted or set to `auto`, the existing priority-ordered fallback chain operates normally. Fallback transitions are logged at `warn` level with structured metadata for production observability.
