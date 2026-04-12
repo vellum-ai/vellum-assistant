@@ -1,0 +1,116 @@
+import Foundation
+import os
+
+private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "STTProviderRegistry")
+
+// MARK: - Types
+
+/// How the provider's credentials are configured by the user.
+///
+/// - `apiKey`:  The client can collect and store the key directly (e.g. via
+///              a text field in Settings).
+/// - `cli`:    Setup requires running CLI commands — the client should show
+///              instructions rather than an inline key field.
+public enum STTProviderSetupMode: String, Decodable {
+    case apiKey = "api-key"
+    case cli
+}
+
+/// A single entry in the client-facing STT provider catalog.
+///
+/// This struct captures the subset of provider metadata that client apps
+/// need for display and setup UX — identity, display strings, and hints
+/// about how the provider is configured.
+public struct STTProviderCatalogEntry: Decodable {
+    /// Unique provider identifier (e.g. `"openai-whisper"`, `"deepgram"`).
+    public let id: String
+    /// Human-readable name for display in settings UI.
+    public let displayName: String
+    /// Short description shown below the provider selector.
+    public let subtitle: String
+    /// How the provider's credentials are configured.
+    public let setupMode: STTProviderSetupMode
+    /// Brief help text guiding the user through setup.
+    public let setupHint: String
+}
+
+/// Top-level schema for `stt-provider-catalog.json`.
+///
+/// The JSON file lives at `meta/stt-provider-catalog.json` and is copied
+/// into `Contents/Resources` by `build.sh`. It is the single source of
+/// truth for client-facing STT provider metadata.
+public struct STTProviderRegistry: Decodable {
+    public let version: Int
+    public let providers: [STTProviderCatalogEntry]
+
+    /// Look up a provider entry by its identifier.
+    public func provider(withId id: String) -> STTProviderCatalogEntry? {
+        providers.first { $0.id == id }
+    }
+}
+
+// MARK: - Fallback
+
+/// Hard-coded fallback registry used when the bundled JSON is missing or
+/// corrupt. Keeps client startup resilient — the app can always show at
+/// least the current set of providers.
+private let fallbackRegistry = STTProviderRegistry(
+    version: 0,
+    providers: [
+        STTProviderCatalogEntry(
+            id: "openai-whisper",
+            displayName: "OpenAI Whisper",
+            subtitle: "High-accuracy speech-to-text powered by OpenAI Whisper. Requires an OpenAI API key.",
+            setupMode: .apiKey,
+            setupHint: "Enter your OpenAI API key to enable Whisper transcription."
+        ),
+        STTProviderCatalogEntry(
+            id: "deepgram",
+            displayName: "Deepgram",
+            subtitle: "Fast, real-time speech-to-text with streaming support. Requires a Deepgram API key.",
+            setupMode: .apiKey,
+            setupHint: "Enter your Deepgram API key to enable speech-to-text."
+        ),
+    ]
+)
+
+// MARK: - Loader
+
+/// Cached registry loaded once per process lifetime.
+/// The bundled `stt-provider-catalog.json` is immutable at runtime (baked
+/// into the app at build time), so reading it more than once is unnecessary
+/// I/O. Swift guarantees thread-safe lazy initialization of static
+/// properties.
+private let _cachedSTTProviderRegistry: STTProviderRegistry = {
+    guard let url = Bundle.main.url(forResource: "stt-provider-catalog", withExtension: "json") else {
+        log.warning("stt-provider-catalog.json not found in bundle — using fallback registry")
+        return fallbackRegistry
+    }
+    guard let data = try? Data(contentsOf: url) else {
+        log.error("Failed to read stt-provider-catalog.json from bundle")
+        return fallbackRegistry
+    }
+    do {
+        let registry = try JSONDecoder().decode(STTProviderRegistry.self, from: data)
+        guard !registry.providers.isEmpty else {
+            log.error("stt-provider-catalog.json decoded but contains no providers — using fallback registry")
+            return fallbackRegistry
+        }
+        return registry
+    } catch {
+        log.error("Failed to decode stt-provider-catalog.json: \(error.localizedDescription, privacy: .public)")
+        return fallbackRegistry
+    }
+}()
+
+/// Load the STT provider registry from the app bundle's Resources.
+///
+/// Returns a cached result after the first call — the bundled JSON never
+/// changes at runtime so re-reading from disk is unnecessary.
+///
+/// If the JSON file is missing, unreadable, or corrupt the function
+/// returns a hard-coded fallback containing the current provider set so
+/// that client startup is never blocked.
+public func loadSTTProviderRegistry() -> STTProviderRegistry {
+    _cachedSTTProviderRegistry
+}
