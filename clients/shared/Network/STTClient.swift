@@ -48,10 +48,10 @@ public struct STTClient: STTClientProtocol {
     public func transcribe(audioData: Data, contentType: String = "audio/wav") async -> STTResult {
         let start = CFAbsoluteTimeGetCurrent()
         do {
+            let json = Self.buildRequestBody(audioData: audioData, contentType: contentType)
             let response = try await GatewayHTTPClient.post(
                 path: "assistants/{assistantId}/stt/transcribe",
-                body: audioData,
-                contentType: contentType,
+                json: json,
                 timeout: Self.requestTimeout
             )
             let elapsed = CFAbsoluteTimeGetCurrent() - start
@@ -61,6 +61,19 @@ public struct STTClient: STTClientProtocol {
             log.error("STT request error after \(String(format: "%.1f", elapsed))s: \(error.localizedDescription)")
             return .error(statusCode: nil, message: error.localizedDescription)
         }
+    }
+
+    // MARK: - Request Body Construction
+
+    /// Builds the JSON request body for the STT transcribe endpoint.
+    ///
+    /// The server expects a JSON object with `audioBase64` (base64-encoded audio)
+    /// and `mimeType` (MIME type string). Internal visibility for testability.
+    static func buildRequestBody(audioData: Data, contentType: String) -> [String: Any] {
+        return [
+            "audioBase64": audioData.base64EncodedString(),
+            "mimeType": contentType,
+        ]
     }
 
     // MARK: - Response Mapping

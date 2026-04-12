@@ -145,4 +145,44 @@ final class STTClientTests: XCTestCase {
             XCTFail("Expected .error, got \(result)")
         }
     }
+
+    // MARK: - Request Body Format
+
+    func testBuildRequestBodyContainsBase64EncodedAudio() {
+        let audioData = Data([0x52, 0x49, 0x46, 0x46]) // "RIFF" header bytes
+        let body = STTClient.buildRequestBody(audioData: audioData, contentType: "audio/wav")
+
+        let audioBase64 = body["audioBase64"] as? String
+        XCTAssertNotNil(audioBase64, "Body must contain audioBase64 string")
+        XCTAssertEqual(audioBase64, audioData.base64EncodedString())
+    }
+
+    func testBuildRequestBodyContainsMimeType() {
+        let audioData = Data([0x01, 0x02])
+        let body = STTClient.buildRequestBody(audioData: audioData, contentType: "audio/ogg")
+
+        let mimeType = body["mimeType"] as? String
+        XCTAssertEqual(mimeType, "audio/ogg")
+    }
+
+    func testBuildRequestBodyHasExactlyTwoKeys() {
+        let audioData = Data([0x01])
+        let body = STTClient.buildRequestBody(audioData: audioData, contentType: "audio/wav")
+
+        XCTAssertEqual(body.count, 2, "Request body should have exactly audioBase64 and mimeType keys")
+        XCTAssertNotNil(body["audioBase64"])
+        XCTAssertNotNil(body["mimeType"])
+    }
+
+    func testBuildRequestBodyIsValidJSON() throws {
+        let audioData = "Hello audio".data(using: .utf8)!
+        let body = STTClient.buildRequestBody(audioData: audioData, contentType: "audio/wav")
+
+        // Verify the dictionary can be serialized to valid JSON
+        let jsonData = try JSONSerialization.data(withJSONObject: body)
+        let decoded = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any]
+        XCTAssertNotNil(decoded)
+        XCTAssertEqual(decoded?["audioBase64"] as? String, audioData.base64EncodedString())
+        XCTAssertEqual(decoded?["mimeType"] as? String, "audio/wav")
+    }
 }
