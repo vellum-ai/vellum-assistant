@@ -222,7 +222,7 @@ import {
   getPendingQuestion,
   updateCallSession,
 } from "../calls/call-store.js";
-import type { RelayConnection } from "../calls/relay-server.js";
+import type { CallTransport } from "../calls/call-transport.js";
 import { resolveCallTtsProvider } from "../calls/resolve-call-tts-provider.js";
 import {
   getCanonicalGuardianRequest,
@@ -238,9 +238,9 @@ afterAll(() => {
   resetDb();
 });
 
-// ── RelayConnection mock factory ────────────────────────────────────
+// ── CallTransport mock factory ───────────────────────────────────────
 
-interface MockRelay extends RelayConnection {
+interface MockTransport extends CallTransport {
   sentTokens: Array<{ token: string; last: boolean }>;
   sentPlayUrls: string[];
   endCalled: boolean;
@@ -248,7 +248,7 @@ interface MockRelay extends RelayConnection {
   mockConnectionState: string;
 }
 
-function createMockRelay(): MockRelay {
+function createMockTransport(): MockTransport {
   const state = {
     sentTokens: [] as Array<{ token: string; last: boolean }>,
     sentPlayUrls: [] as string[],
@@ -289,7 +289,7 @@ function createMockRelay(): MockRelay {
     getConnectionState() {
       return state._connectionState;
     },
-  } as unknown as MockRelay;
+  } as MockTransport;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -346,7 +346,7 @@ async function pollUntil(
 }
 
 /**
- * Create a call session and a controller wired to a mock relay.
+ * Create a call session and a controller wired to a mock transport.
  */
 function setupController(
   task?: string,
@@ -364,17 +364,12 @@ function setupController(
     task,
   });
   updateCallSession(session.id, { status: "in_progress" });
-  const relay = createMockRelay();
-  const controller = new CallController(
-    session.id,
-    relay as unknown as RelayConnection,
-    task ?? null,
-    {
-      assistantId: opts?.assistantId,
-      trustContext: opts?.trustContext,
-    },
-  );
-  return { session, relay, controller };
+  const transport = createMockTransport();
+  const controller = new CallController(session.id, transport, task ?? null, {
+    assistantId: opts?.assistantId,
+    trustContext: opts?.trustContext,
+  });
+  return { session, relay: transport, controller };
 }
 
 function getLatestAssistantText(conversationId: string): string | null {
@@ -417,14 +412,14 @@ function setupControllerWithOrigin(task?: string) {
     status: "in_progress",
     startedAt: Date.now() - 30_000,
   });
-  const relay = createMockRelay();
+  const transport = createMockTransport();
   const controller = new CallController(
     session.id,
-    relay as unknown as RelayConnection,
+    transport,
     task ?? null,
     {},
   );
-  return { session, relay, controller };
+  return { session, relay: transport, controller };
 }
 
 describe("call-controller", () => {

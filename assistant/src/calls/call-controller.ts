@@ -45,10 +45,10 @@ import {
   recordCallEvent,
   updateCallSession,
 } from "./call-store.js";
+import type { CallTransport } from "./call-transport.js";
 import { finalizeCall } from "./finalize-call.js";
 import { sendGuardianExpiryNotices } from "./guardian-action-sweep.js";
 import { dispatchGuardianQuestion } from "./guardian-dispatch.js";
-import type { RelayConnection } from "./relay-server.js";
 import { resolveCallTtsProvider } from "./resolve-call-tts-provider.js";
 import type { PromptSpeakerContext } from "./speaker-identification.js";
 import { sanitizeForTts } from "./tts-text-sanitizer.js";
@@ -87,7 +87,7 @@ interface PendingGuardianInput {
 
 export class CallController {
   private callSessionId: string;
-  private relay: RelayConnection;
+  private transport: CallTransport;
   private state: ControllerState = "idle";
   private abortController: AbortController = new AbortController();
   private currentTurnHandle: VoiceTurnHandle | null = null;
@@ -144,7 +144,7 @@ export class CallController {
 
   constructor(
     callSessionId: string,
-    relay: RelayConnection,
+    transport: CallTransport,
     task: string | null,
     opts?: {
       broadcast?: (msg: ServerMessage) => void;
@@ -153,7 +153,7 @@ export class CallController {
     },
   ) {
     this.callSessionId = callSessionId;
-    this.relay = relay;
+    this.transport = transport;
     this.task = task;
     this.isInbound = !task;
     this.broadcast = opts?.broadcast;
@@ -359,7 +359,7 @@ export class CallController {
     // Explicitly terminate the in-progress TTS turn so the relay can
     // immediately hand control back to the caller after barge-in.
     if (wasSpeaking) {
-      this.relay.sendTextToken("", true);
+      this.transport.sendTextToken("", true);
     }
     this.state = "idle";
     // Restart silence detection so a barge-in that never yields a
@@ -516,7 +516,7 @@ export class CallController {
         return;
       }
       log.error({ err, callSessionId: this.callSessionId }, "Voice turn error");
-      this.relay.sendTextToken(
+      this.transport.sendTextToken(
         "I'm sorry, I encountered a technical issue. Could you repeat that?",
         true,
       );
@@ -561,7 +561,7 @@ export class CallController {
       if (useSynthesizedPath) {
         synthesizedTextBuffer += cleaned;
       } else {
-        this.relay.sendTextToken(cleaned, false);
+        this.transport.sendTextToken(cleaned, false);
       }
     };
 
@@ -694,7 +694,7 @@ export class CallController {
     // all audio playback, because ConversationRelay still needs the
     // end-of-turn signal to transition from "assistant speaking" to
     // "caller speaking" state.
-    this.relay.sendTextToken("", true);
+    this.transport.sendTextToken("", true);
 
     // Mark the greeting's first response as awaiting ack
     if (this.lastSentWasOpener && fullResponseText.length > 0) {
@@ -721,7 +721,7 @@ export class CallController {
       const config = loadConfig();
       const baseUrl = getPublicBaseUrl(config);
       const url = `${baseUrl}/v1/audio/${handle.audioId}`;
-      this.relay.sendPlayUrl(url);
+      this.transport.sendPlayUrl(url);
 
       const abortController = new AbortController();
       this.activeSynthesisAbort = abortController;
@@ -996,7 +996,7 @@ export class CallController {
           currentSession.status !== "cancelled"
         : false;
 
-      this.relay.endSession("Call completed");
+      this.transport.endSession("Call completed");
       updateCallSession(this.callSessionId, {
         status: "completed",
         endedAt: Date.now(),
@@ -1244,7 +1244,7 @@ export class CallController {
           { callSessionId: this.callSessionId },
           "Call duration warning",
         );
-        this.relay.sendTextToken(
+        this.transport.sendTextToken(
           "Just to let you know, we're running low on time for this call.",
           true,
         );
@@ -1256,7 +1256,7 @@ export class CallController {
         { callSessionId: this.callSessionId },
         "Call duration limit reached",
       );
-      this.relay.sendTextToken(
+      this.transport.sendTextToken(
         "I'm sorry, but we've reached the maximum time for this call. Thank you for your time. Goodbye!",
         true,
       );
@@ -1269,7 +1269,7 @@ export class CallController {
             currentSession.status !== "cancelled"
           : false;
 
-        this.relay.endSession("Maximum call duration reached");
+        this.transport.endSession("Maximum call duration reached");
         updateCallSession(this.callSessionId, {
           status: "completed",
           endedAt: Date.now(),
@@ -1318,7 +1318,7 @@ export class CallController {
       // inbound access-request wait (relay state).
       if (
         this.pendingGuardianInput ||
-        this.relay.getConnectionState() === "awaiting_guardian_decision"
+        this.transport.getConnectionState() === "awaiting_guardian_decision"
       ) {
         log.debug(
           { callSessionId: this.callSessionId },
@@ -1330,7 +1330,7 @@ export class CallController {
         { callSessionId: this.callSessionId },
         "Silence timeout triggered",
       );
-      this.relay.sendTextToken("Are you still there?", true);
+      this.transport.sendTextToken("Are you still there?", true);
     }, getSilenceTimeoutMs());
   }
 }

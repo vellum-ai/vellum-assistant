@@ -51,6 +51,7 @@ import {
   recordCallEvent,
   updateCallSession,
 } from "./call-store.js";
+import { ConversationRelayTransport } from "./call-transport.js";
 import { finalizeCall } from "./finalize-call.js";
 import {
   classifyWaitUtterance,
@@ -571,9 +572,10 @@ export class RelayConnection {
       resolved.actorTrust,
       resolved.otherPartyNumber,
     );
+    const transport = new ConversationRelayTransport(this);
     const controller = new CallController(
       this.callSessionId,
-      this,
+      transport,
       session?.task ?? null,
       {
         broadcast: globalBroadcast,
