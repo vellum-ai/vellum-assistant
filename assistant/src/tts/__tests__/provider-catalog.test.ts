@@ -120,9 +120,9 @@ describe("ElevenLabs catalog entry", () => {
     expect(entry.capabilities.supportedFormats).toContain("mp3");
   });
 
-  test("requires an API key stored under 'elevenlabs'", () => {
+  test("requires a credential stored under 'credential/elevenlabs/api_key'", () => {
     const apiKeySecret = entry.secretRequirements.find(
-      (s) => s.credentialStoreKey === "elevenlabs",
+      (s) => s.credentialStoreKey === "credential/elevenlabs/api_key",
     );
     expect(apiKeySecret).toBeDefined();
     expect(apiKeySecret!.displayName).toContain("ElevenLabs");
