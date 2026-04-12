@@ -126,6 +126,72 @@ export async function captureContainerEnv(
 }
 
 /**
+ * Best-effort fetch of the running service group version from the gateway
+ * `/healthz` endpoint.  Returns `undefined` when the endpoint is
+ * unreachable or does not include a version field.
+ */
+export async function fetchCurrentVersion(
+  runtimeUrl: string,
+): Promise<string | undefined> {
+  try {
+    const resp = await fetch(`${runtimeUrl}/healthz`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (resp.ok) {
+      const body = (await resp.json()) as { version?: string };
+      return body.version;
+    }
+  } catch {
+    // Best-effort
+  }
+  return undefined;
+}
+
+/**
+ * Determine the version that was running before the current one.
+ *
+ * Checks (in order):
+ *  1. `entry.previousVersion` (saved by the upgrade flow from health).
+ *  2. The releases list from the platform API — finds the version
+ *     immediately before `currentVersion`.
+ *
+ * Returns `undefined` when neither source yields a result.
+ */
+export async function fetchPreviousVersion(
+  currentVersion: string | undefined,
+  previousVersionFromLockfile: string | undefined,
+): Promise<string | undefined> {
+  // 1. Lockfile-cached value (written during upgrade from health endpoint)
+  if (previousVersionFromLockfile) return previousVersionFromLockfile;
+
+  // 2. Derive from releases list
+  if (!currentVersion) return undefined;
+  try {
+    const { getPlatformUrl } = await import("./platform-client.js");
+    const platformUrl = getPlatformUrl();
+    const resp = await fetch(`${platformUrl}/v1/releases/?stable=true`, {
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!resp.ok) return undefined;
+
+    const releases = (await resp.json()) as Array<{ version?: string }>;
+    const normalizedCurrent = currentVersion.replace(/^v/, "");
+
+    // Releases are ordered newest-first; find the entry right after the
+    // current version (i.e. the one that was running before the upgrade).
+    const idx = releases.findIndex(
+      (r) => (r.version ?? "").replace(/^v/, "") === normalizedCurrent,
+    );
+    if (idx >= 0 && idx + 1 < releases.length) {
+      return releases[idx + 1].version;
+    }
+  } catch {
+    // Best-effort
+  }
+  return undefined;
+}
+
+/**
  * Poll the gateway `/readyz` endpoint until it returns 200 or the timeout
  * elapses. Returns whether the assistant became ready.
  */

@@ -29,6 +29,8 @@ import {
   captureContainerEnv,
   commitWorkspaceViaGateway,
   CONTAINER_ENV_EXCLUDE_KEYS,
+  fetchCurrentVersion,
+  fetchPreviousVersion,
   performDockerRollback,
   rollbackMigrations,
   UPGRADE_PROGRESS,
@@ -158,18 +160,7 @@ async function rollbackPlatformViaEndpoint(
   }
 
   // Fetch current version from health endpoint (best-effort)
-  let currentVersion: string | undefined;
-  try {
-    const healthResp = await fetch(`${entry.runtimeUrl}/healthz`, {
-      signal: AbortSignal.timeout(5000),
-    });
-    if (healthResp.ok) {
-      const health = (await healthResp.json()) as { version?: string };
-      currentVersion = health.version;
-    }
-  } catch {
-    // Best-effort
-  }
+  const currentVersion = await fetchCurrentVersion(entry.runtimeUrl);
 
   // Step 3 — Call rollback endpoint
   if (version) {
@@ -215,7 +206,7 @@ async function rollbackPlatformViaEndpoint(
     await broadcastUpgradeEvent(
       entry.runtimeUrl,
       entry.assistantId,
-      buildCompleteEvent(currentVersion ?? "unknown", false),
+      buildCompleteEvent(currentVersion ?? version ?? "unknown", false),
     );
     process.exit(1);
   }
@@ -265,7 +256,7 @@ export async function rollback(): Promise<void> {
       await broadcastUpgradeEvent(
         entry.runtimeUrl,
         entry.assistantId,
-        buildCompleteEvent("unknown", false),
+        buildCompleteEvent(version ?? "unknown", false),
       );
       emitCliError(categorizeUpgradeError(err), "Rollback failed", detail);
       process.exit(1);
@@ -275,20 +266,11 @@ export async function rollback(): Promise<void> {
 
   // ---------- Docker: Saved-state rollback (no --version) ----------
 
-  // Fetch current version from health endpoint for logging/broadcast
-  let currentVersion: string | undefined;
-  try {
-    const healthResp = await fetch(`${entry.runtimeUrl}/healthz`, {
-      signal: AbortSignal.timeout(5000),
-    });
-    if (healthResp.ok) {
-      const health = (await healthResp.json()) as { version?: string };
-      currentVersion = health.version;
-    }
-  } catch {
-    // Best-effort
-  }
-  const previousVersion = entry.previousVersion ?? "unknown";
+  // Fetch current + previous version from live APIs
+  const currentVersion = await fetchCurrentVersion(entry.runtimeUrl);
+  const previousVersion =
+    (await fetchPreviousVersion(currentVersion, entry.previousVersion)) ??
+    "unknown";
 
   // Verify rollback state exists
   if (!entry.previousContainerInfo) {
