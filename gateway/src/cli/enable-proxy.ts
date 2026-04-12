@@ -6,7 +6,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { getWorkspaceDir } from "../credential-reader.js";
+import { getWorkspaceDir } from "../paths.js";
 
 const configPath = join(getWorkspaceDir(), "config.json");
 

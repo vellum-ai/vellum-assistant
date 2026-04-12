@@ -16,9 +16,9 @@ import { join } from "node:path";
 
 import { getLogger } from "../../logger.js";
 
-import type { MigrationResult } from "./m0001-ca-key.js";
-
 const log = getLogger("data-migrations");
+
+export type MigrationResult = "done" | "skip";
 
 type MigrationModule = {
   up: () => MigrationResult;
