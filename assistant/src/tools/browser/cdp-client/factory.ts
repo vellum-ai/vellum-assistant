@@ -600,6 +600,24 @@ async function sendWithFailover<T>(
         errorMessage,
       });
       maybeRecordDesktopAutoCooldown(candidate);
+
+      // Emit production-visible fallback log in auto mode
+      if (mode === "auto" && i < candidates.length - 1) {
+        log.warn(
+          {
+            conversationId,
+            failedCandidate: candidate.kind,
+            nextCandidate: candidates[i + 1].kind,
+            attemptedSoFar: diagnostics.map((d) => ({
+              kind: d.candidateKind,
+              stage: d.stage,
+              errorCode: d.errorCode,
+              errorMessage: d.errorMessage,
+            })),
+          },
+          "CDP factory: auto-mode fallback triggered",
+        );
+      }
       continue;
     }
 
@@ -634,6 +652,24 @@ async function sendWithFailover<T>(
         discoveryCode: extractDiscoveryCode(err),
       });
       maybeRecordDesktopAutoCooldown(candidate);
+
+      // Emit production-visible fallback log in auto mode
+      if (mode === "auto" && i < candidates.length - 1) {
+        log.warn(
+          {
+            conversationId,
+            failedCandidate: candidate.kind,
+            nextCandidate: candidates[i + 1].kind,
+            attemptedSoFar: diagnostics.map((d) => ({
+              kind: d.candidateKind,
+              stage: d.stage,
+              errorCode: d.errorCode,
+              errorMessage: d.errorMessage,
+            })),
+          },
+          "CDP factory: auto-mode fallback triggered",
+        );
+      }
       continue;
     }
 
