@@ -780,6 +780,15 @@ export class RuntimeHttpServer {
       return this.handleRelayUpgrade(req, server);
     }
 
+    // WebSocket upgrade for Twilio Media Streams — same private-network
+    // restrictions as relay upgrades.
+    if (
+      path.startsWith("/v1/calls/media-stream") &&
+      req.headers.get("upgrade")?.toLowerCase() === "websocket"
+    ) {
+      return this.handleMediaStreamUpgrade(req, server);
+    }
+
     // Twilio webhook endpoints — before auth check because Twilio
     // webhook POSTs don't include bearer tokens.
     const twilioResponse = await this.handleTwilioWebhook(req, path);
@@ -1061,6 +1070,33 @@ export class RuntimeHttpServer {
     if (!callSessionId) {
       return new Response("Missing callSessionId", { status: 400 });
     }
+    const upgraded = server.upgrade(req, { data: { callSessionId } });
+    if (!upgraded) {
+      return new Response("WebSocket upgrade failed", { status: 500 });
+    }
+    // Bun's WebSocket upgrade consumes the request — no Response is sent.
+    return undefined!;
+  }
+
+  private handleMediaStreamUpgrade(
+    req: Request,
+    server: ReturnType<typeof Bun.serve>,
+  ): Response {
+    if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
+      return httpError(
+        "FORBIDDEN",
+        "Direct media-stream access disabled — only private network peers allowed",
+        403,
+      );
+    }
+
+    const wsUrl = new URL(req.url);
+    const callSessionId = wsUrl.searchParams.get("callSessionId");
+    if (!callSessionId) {
+      return new Response("Missing callSessionId", { status: 400 });
+    }
+    // Media-stream connections use the same data shape as relay for now.
+    // The callSessionId links the stream to the active call session.
     const upgraded = server.upgrade(req, { data: { callSessionId } });
     if (!upgraded) {
       return new Response("WebSocket upgrade failed", { status: 500 });

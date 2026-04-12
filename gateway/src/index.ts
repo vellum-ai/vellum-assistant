@@ -34,6 +34,11 @@ import {
   createTwilioRelayWebsocketHandler,
   getRelayWebsocketHandlers,
 } from "./http/routes/twilio-relay-websocket.js";
+import {
+  createTwilioMediaWebsocketHandler,
+  getMediaStreamWebsocketHandlers,
+  type MediaStreamSocketData,
+} from "./http/routes/twilio-media-websocket.js";
 import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js";
 import { createWhatsAppDeliverHandler } from "./http/routes/whatsapp-deliver.js";
 import { createEmailWebhookHandler } from "./http/routes/email-webhook.js";
@@ -163,6 +168,14 @@ function isBrowserRelaySocketData(
   );
 }
 
+function isMediaStreamSocketData(data: unknown): data is MediaStreamSocketData {
+  return (
+    !!data &&
+    typeof data === "object" &&
+    (data as { wsType?: unknown }).wsType === "twilio-media-stream"
+  );
+}
+
 function getClientIp(
   req: Request,
   server: ReturnType<typeof Bun.serve>,
@@ -237,8 +250,12 @@ async function main() {
   const handleTwilioRelayWs = createTwilioRelayWebsocketHandler(config, {
     configFile: configFileCache,
   });
+  const handleTwilioMediaWs = createTwilioMediaWebsocketHandler(config, {
+    configFile: configFileCache,
+  });
   const handleBrowserRelayWs = createBrowserRelayWebsocketHandler(config);
   const twilioRelayWebsocketHandlers = getRelayWebsocketHandlers();
+  const twilioMediaStreamWebsocketHandlers = getMediaStreamWebsocketHandlers();
   const browserRelayWebsocketHandlers = getBrowserRelayWebsocketHandlers();
   const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } =
     createWhatsAppWebhookHandler(config, {
@@ -1046,6 +1063,10 @@ async function main() {
           browserRelayWebsocketHandlers.open(ws as never);
           return;
         }
+        if (isMediaStreamSocketData(ws.data)) {
+          twilioMediaStreamWebsocketHandlers.open(ws as never);
+          return;
+        }
         twilioRelayWebsocketHandlers.open(ws as never);
       },
       message(ws, message) {
@@ -1053,11 +1074,19 @@ async function main() {
           browserRelayWebsocketHandlers.message(ws as never, message);
           return;
         }
+        if (isMediaStreamSocketData(ws.data)) {
+          twilioMediaStreamWebsocketHandlers.message(ws as never, message);
+          return;
+        }
         twilioRelayWebsocketHandlers.message(ws as never, message);
       },
       close(ws, code, reason) {
         if (isBrowserRelaySocketData(ws.data)) {
           browserRelayWebsocketHandlers.close(ws as never, code, reason);
+          return;
+        }
+        if (isMediaStreamSocketData(ws.data)) {
+          twilioMediaStreamWebsocketHandlers.close(ws as never, code, reason);
           return;
         }
         twilioRelayWebsocketHandlers.close(ws as never, code, reason);
@@ -1178,6 +1207,12 @@ async function main() {
       // a Response, so these can't go through the route table.
       if (url.pathname === "/webhooks/twilio/relay") {
         const upgradeResult = handleTwilioRelayWs(req, server);
+        if (upgradeResult !== undefined) return upgradeResult;
+        return undefined as unknown as Response;
+      }
+
+      if (url.pathname === "/webhooks/twilio/media-stream") {
+        const upgradeResult = handleTwilioMediaWs(req, server);
         if (upgradeResult !== undefined) return upgradeResult;
         return undefined as unknown as Response;
       }
