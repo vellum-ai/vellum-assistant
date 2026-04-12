@@ -16,6 +16,16 @@ export interface DefaultRuleTemplate {
   allowHighRisk?: boolean;
 }
 
+/**
+ * Escape minimatch metacharacters so a literal path is matched literally when
+ * interpolated into a rule pattern. Without this, characters like `*`, `?`,
+ * `[`, `]`, `{`, `}` in a filename would be treated as wildcards and broaden
+ * the resulting allow rule beyond the intended file.
+ */
+function escapeMinimatchPath(p: string): string {
+  return p.replace(/[?*[\]{}()!|\\]/g, "\\$&");
+}
+
 const HOST_FILE_TOOLS = [
   "host_file_read",
   "host_file_write",
@@ -156,10 +166,11 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     const guardianPath = resolveGuardianPersonaPath();
     if (guardianPath) {
       const posixPath = guardianPath.replaceAll("\\", "/");
+      const escapedPath = escapeMinimatchPath(posixPath);
       guardianPersonaRules = WORKSPACE_FILE_TOOLS.map((tool) => ({
         id: `default:allow-${tool}-guardian-persona`,
         tool,
-        pattern: `${tool}:${posixPath}`,
+        pattern: `${tool}:${escapedPath}`,
         scope: "everywhere",
         decision: "allow" as const,
         priority: 100,
