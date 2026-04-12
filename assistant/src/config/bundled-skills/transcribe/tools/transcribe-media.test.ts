@@ -225,26 +225,32 @@ describe("transcribe_media tool", () => {
     });
   });
 
-  describe("mode parameter removed", () => {
-    test("does not require or use a mode parameter", async () => {
+  describe("legacy mode parameter rejection", () => {
+    test("rejects calls that pass the legacy mode parameter", async () => {
       mockTranscriber = makeMockTranscriber([{ text: "transcribed text" }]);
       accessiblePaths.add("/tmp/test.wav");
 
-      spawnResults["ffmpeg"] = { exitCode: 0, stdout: "", stderr: "" };
-      spawnResults["ffprobe"] = {
-        exitCode: 0,
-        stdout: "30.0\n",
-        stderr: "",
-      };
-
-      // Passing mode should not affect behavior — it's ignored
       const result = await run(
         { file_path: "/tmp/test.wav", mode: "local" },
         makeContext(),
       );
 
-      expect(result.isError).toBe(false);
-      expect(result.content).toBe("transcribed text");
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain(
+        "`mode` parameter is no longer supported",
+      );
+    });
+
+    test("rejects mode parameter regardless of value", async () => {
+      mockTranscriber = makeMockTranscriber([{ text: "transcribed text" }]);
+
+      const result = await run(
+        { file_path: "/tmp/test.wav", mode: "cloud" },
+        makeContext(),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("configured speech-to-text service");
     });
   });
 });

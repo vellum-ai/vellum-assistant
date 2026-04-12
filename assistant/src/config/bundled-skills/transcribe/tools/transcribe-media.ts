@@ -216,6 +216,16 @@ export async function run(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  // Reject legacy callers that pass the now-removed `mode` parameter to avoid
+  // silently routing audio through a different provider than expected.
+  if ("mode" in input) {
+    return {
+      content:
+        "The `mode` parameter is no longer supported. Transcription now uses the configured speech-to-text service.",
+      isError: true,
+    };
+  }
+
   // Resolve the configured STT provider
   const transcriber = await resolveBatchTranscriber();
   if (!transcriber) {
