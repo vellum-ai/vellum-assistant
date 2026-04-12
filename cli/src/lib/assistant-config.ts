@@ -92,6 +92,9 @@ export interface AssistantEntry {
    *  only the backup from the specific upgrade being rolled back — never a stale backup from a
    *  previous upgrade cycle. */
   preUpgradeBackupPath?: string;
+  /** Running version of the service group at the time of the last upgrade, as reported by
+   *  the health endpoint.  Used by saved-state rollback for logging / broadcast events. */
+  previousVersion?: string;
   /** Pre-upgrade DB migration version — used by rollback to know how far back to revert. */
   previousDbMigrationVersion?: number;
   /** Pre-upgrade workspace migration ID — used by rollback to know how far back to revert. */

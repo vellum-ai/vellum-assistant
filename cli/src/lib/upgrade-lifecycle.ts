@@ -416,6 +416,7 @@ export async function performDockerRollback(
     const rollbackEntry: AssistantEntry = {
       ...entry,
       previousContainerInfo: { ...entry.containerInfo },
+      previousVersion: currentVersion,
       previousDbMigrationVersion: preMigrationState.dbVersion,
       previousWorkspaceMigrationId: preMigrationState.lastWorkspaceMigrationId,
     };

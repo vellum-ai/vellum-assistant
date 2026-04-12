@@ -264,6 +264,7 @@ async function upgradeDocker(
     const rollbackEntry: AssistantEntry = {
       ...entry,
       previousContainerInfo: { ...entry.containerInfo },
+      previousVersion: currentVersion,
       previousDbMigrationVersion: preMigrationState.dbVersion,
       previousWorkspaceMigrationId: preMigrationState.lastWorkspaceMigrationId,
     };

@@ -157,6 +157,20 @@ async function rollbackPlatformViaEndpoint(
     process.exit(1);
   }
 
+  // Fetch current version from health endpoint (best-effort)
+  let currentVersion: string | undefined;
+  try {
+    const healthResp = await fetch(`${entry.runtimeUrl}/healthz`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (healthResp.ok) {
+      const health = (await healthResp.json()) as { version?: string };
+      currentVersion = health.version;
+    }
+  } catch {
+    // Best-effort
+  }
+
   // Step 3 — Call rollback endpoint
   if (version) {
     console.log(`Rolling back to ${version}...`);
@@ -201,7 +215,7 @@ async function rollbackPlatformViaEndpoint(
     await broadcastUpgradeEvent(
       entry.runtimeUrl,
       entry.assistantId,
-      buildCompleteEvent("unknown", false),
+      buildCompleteEvent(currentVersion ?? "unknown", false),
     );
     process.exit(1);
   }
@@ -261,6 +275,21 @@ export async function rollback(): Promise<void> {
 
   // ---------- Docker: Saved-state rollback (no --version) ----------
 
+  // Fetch current version from health endpoint for logging/broadcast
+  let currentVersion: string | undefined;
+  try {
+    const healthResp = await fetch(`${entry.runtimeUrl}/healthz`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (healthResp.ok) {
+      const health = (await healthResp.json()) as { version?: string };
+      currentVersion = health.version;
+    }
+  } catch {
+    // Best-effort
+  }
+  const previousVersion = entry.previousVersion ?? "unknown";
+
   // Verify rollback state exists
   if (!entry.previousContainerInfo) {
     const msg =
@@ -298,15 +327,15 @@ export async function rollback(): Promise<void> {
       buildUpgradeCommitMessage({
         action: "rollback",
         phase: "starting",
-        from: "unknown",
-        to: "unknown",
+        from: currentVersion ?? "unknown",
+        to: previousVersion,
         topology: "docker",
         assistantId: entry.assistantId,
       }),
     );
 
     console.log(
-      `🔄 Rolling back Docker assistant '${instanceName}' to previous version...\n`,
+      `🔄 Rolling back Docker assistant '${instanceName}' to ${previousVersion}...\n`,
     );
 
     // Capture current container env
@@ -360,7 +389,7 @@ export async function rollback(): Promise<void> {
     await broadcastUpgradeEvent(
       entry.runtimeUrl,
       entry.assistantId,
-      buildStartingEvent("unknown"),
+      buildStartingEvent(previousVersion),
     );
     // Brief pause to allow SSE delivery before containers stop.
     await new Promise((r) => setTimeout(r, 500));
@@ -442,7 +471,7 @@ export async function rollback(): Promise<void> {
       await broadcastUpgradeEvent(
         entry.runtimeUrl,
         entry.assistantId,
-        buildCompleteEvent("unknown", true),
+        buildCompleteEvent(previousVersion, true),
       );
 
       // Record successful rollback in workspace git history
@@ -452,8 +481,8 @@ export async function rollback(): Promise<void> {
         buildUpgradeCommitMessage({
           action: "rollback",
           phase: "complete",
-          from: "unknown",
-          to: "unknown",
+          from: currentVersion ?? "unknown",
+          to: previousVersion,
           topology: "docker",
           assistantId: entry.assistantId,
           result: "success",
@@ -461,7 +490,7 @@ export async function rollback(): Promise<void> {
       );
 
       console.log(
-        `\n✅ Docker assistant '${instanceName}' rolled back to previous version.`,
+        `\n✅ Docker assistant '${instanceName}' rolled back to ${previousVersion}.`,
       );
       console.log(
         "\nTip: To also restore data from before the upgrade, use `vellum restore --from <backup-path>`.",
@@ -476,7 +505,7 @@ export async function rollback(): Promise<void> {
       await broadcastUpgradeEvent(
         entry.runtimeUrl,
         entry.assistantId,
-        buildCompleteEvent("unknown", false),
+        buildCompleteEvent(previousVersion, false),
       );
       emitCliError(
         "READINESS_TIMEOUT",
@@ -490,7 +519,7 @@ export async function rollback(): Promise<void> {
     await broadcastUpgradeEvent(
       entry.runtimeUrl,
       entry.assistantId,
-      buildCompleteEvent("unknown", false),
+      buildCompleteEvent(previousVersion, false),
     );
     emitCliError(categorizeUpgradeError(err), "Rollback failed", detail);
     process.exit(1);
