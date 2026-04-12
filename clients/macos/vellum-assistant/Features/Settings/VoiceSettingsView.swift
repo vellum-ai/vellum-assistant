@@ -115,7 +115,7 @@ struct VoiceSettingsView: View {
         .onAppear {
             elevenLabsHasKey = APIKeyManager.getCredential(service: "elevenlabs", field: "api_key") != nil
             fishAudioHasKey = APIKeyManager.getCredential(service: "fish-audio", field: "api_key") != nil
-            sttOpenAIHasKey = APIKeyManager.getCredential(service: "openai", field: "api_key") != nil
+            sttOpenAIHasKey = APIKeyManager.getKey(for: "openai") != nil
         }
         .onChange(of: conversationTimeoutSeconds) {
             VoiceModeManager.conversationTimeoutOverride = conversationTimeoutSeconds
