@@ -661,8 +661,7 @@ extension AppDelegate {
             }
             // User chose "Force Remove" — the client delegates lockfile
             // cleanup to this shared protocol-extension method.
-            client.forceRemoveActiveAssistant()
-            replacement = nil
+            replacement = await client.forceRemoveActiveAssistant()
         }
 
         if let replacement {

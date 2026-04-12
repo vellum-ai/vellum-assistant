@@ -315,7 +315,7 @@ final class VellumCli: AssistantManagementClient {
 
         // The CLI already removed the lockfile entry on the success path.
         // Clear the active ID and find a replacement assistant.
-        return await findReplacementAfterRetire()
+        return await findReplacementAfterRetire(retiredId: resolvedName)
     }
 
     /// How long to wait for the `sleep` CLI before giving up.

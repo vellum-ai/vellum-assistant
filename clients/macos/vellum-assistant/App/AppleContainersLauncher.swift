@@ -303,7 +303,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
         log.info("Apple container '\(resolvedName, privacy: .public)' retired")
 
         // Clear the active ID and find a replacement assistant.
-        return await findReplacementAfterRetire()
+        return await findReplacementAfterRetire(retiredId: resolvedName)
     }
 
     // MARK: - Local Image Building

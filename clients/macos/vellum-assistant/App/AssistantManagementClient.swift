@@ -40,13 +40,25 @@ extension AssistantManagementClient {
     }
 
     /// Shared post-retire orchestration: clears the active assistant ID
-    /// and returns the best remaining assistant for the current environment.
+    /// (when the retired assistant *was* the active one) and returns the best
+    /// remaining assistant for the current environment.
     ///
     /// Called by each backend's `retire(name:)` after backend-specific
     /// cleanup and lockfile entry removal. Tries remote assistants first,
     /// then local assistants (waking sleeping ones via the CLI).
-    func findReplacementAfterRetire() async -> LockfileAssistant? {
-        LockfileAssistant.setActiveAssistantId(nil)
+    ///
+    /// - Parameter retiredId: The assistant ID that was just retired. The
+    ///   active pointer is only cleared when it matches this ID, so
+    ///   fire-and-forget retires of non-active assistants (e.g. during
+    ///   teleport/transfer) don't erase the newly active pointer.
+    func findReplacementAfterRetire(retiredId: String) async -> LockfileAssistant? {
+        // Only clear the active pointer when the retired assistant is the
+        // one currently selected. Background retires (teleport, transfer)
+        // switch to the new assistant first, so the active ID is already
+        // pointing at the replacement and must not be erased.
+        if LockfileAssistant.loadActiveAssistantId() == retiredId {
+            LockfileAssistant.setActiveAssistantId(nil)
+        }
 
         let remaining = LockfileAssistant.loadAll().filter { $0.isCurrentEnvironment }
         guard !remaining.isEmpty else { return nil }
@@ -72,13 +84,16 @@ extension AssistantManagementClient {
         return nil
     }
 
-    /// Force-removes the active assistant's lockfile entry and clears the
-    /// active ID. Used by the "Force Remove" UI path when `retire()` fails.
-    func forceRemoveActiveAssistant() {
-        if let activeId = LockfileAssistant.loadActiveAssistantId() {
-            LockfileAssistant.removeEntry(assistantId: activeId)
-            LockfileAssistant.setActiveAssistantId(nil)
+    /// Force-removes the active assistant's lockfile entry, clears the
+    /// active ID, and returns the best remaining assistant to switch to.
+    /// Used by the "Force Remove" UI path when `retire()` fails.
+    func forceRemoveActiveAssistant() async -> LockfileAssistant? {
+        guard let activeId = LockfileAssistant.loadActiveAssistantId() else {
+            return nil
         }
+        LockfileAssistant.removeEntry(assistantId: activeId)
+        LockfileAssistant.setActiveAssistantId(nil)
+        return await findReplacementAfterRetire(retiredId: activeId)
     }
 }
 
