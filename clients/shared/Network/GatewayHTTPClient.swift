@@ -650,11 +650,6 @@ public enum GatewayHTTPClient {
     /// Diagnostic summary of the current connection, intended for developer-mode UI.
     /// Returns a human-readable multi-line string with base URL, assistant ID, auth type,
     /// and managed flag. Secrets are masked. Returns the error description on failure.
-    ///
-    /// On iOS, when the connection cannot be resolved the output includes the
-    /// state of each prerequisite (session token, org ID, managed assistant
-    /// config, gateway URL) so the developer can see exactly which piece is
-    /// missing without attaching a debugger.
     public static func connectionDiagnostics() -> String {
         do {
             let conn = try resolveConnection()
@@ -677,47 +672,9 @@ public enum GatewayHTTPClient {
             Managed: \(conn.isManaged)
             """
         } catch {
-            #if os(iOS)
-            return Self.iOSConnectionDiagnosticDetails(error: error)
-            #else
             return "Connection error: \(error.localizedDescription)"
-            #endif
         }
     }
-
-    #if os(iOS)
-    /// Detailed diagnostic breakdown for iOS when `resolveConnection()` fails.
-    /// Checks each prerequisite individually and reports which ones are
-    /// present vs missing so the developer can pinpoint the failure.
-    private static func iOSConnectionDiagnosticDetails(error: Error) -> String {
-        var lines: [String] = ["Connection error: \(error.localizedDescription)", ""]
-
-        // -- Auth credentials --
-        let hasSessionToken = SessionTokenManager.getToken() != nil
-        let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
-        lines.append("Session Token: \(hasSessionToken ? "present" : "MISSING")")
-        lines.append("Organization ID: \(orgId ?? "MISSING")")
-
-        // -- Managed assistant config --
-        let managedId = UserDefaults.standard.string(forKey: "managed_assistant_id")
-        let platformURL = UserDefaults.standard.string(forKey: "managed_platform_base_url")
-        lines.append("")
-        lines.append("Managed Assistant ID: \(managedId ?? "MISSING")")
-        lines.append("Managed Platform URL: \(platformURL ?? "MISSING")")
-
-        // -- QR-paired config --
-        let gatewayURL = UserDefaults.standard.string(forKey: "gateway_base_url")
-        lines.append("")
-        lines.append("Gateway Base URL: \(gatewayURL ?? "MISSING")")
-
-        // -- Environment --
-        lines.append("")
-        lines.append("Resolved Platform URL: \(VellumEnvironment.resolvedPlatformURL)")
-        lines.append("Environment: \(VellumEnvironment.current)")
-
-        return lines.joined(separator: "\n")
-    }
-    #endif
 
     /// Credentials needed by the WebView JS fetch bridge (`window.vellum.fetch`).
     public struct WebViewCredentials {
