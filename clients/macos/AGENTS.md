@@ -121,9 +121,17 @@ A background screen-watching system that runs alongside the manual session loop:
 
 ### Voice Input
 
-`VoiceInputManager` — hold Fn (or Ctrl, configurable) for on-device speech recognition via `SFSpeechRecognizer`. Shows `VoiceTranscriptionWindow` during recording.
+`VoiceInputManager` — hold Fn (or Ctrl, configurable) for voice input. Shows `VoiceTranscriptionWindow` during recording. Uses a **service-first STT** strategy: captured audio is encoded to WAV and sent to the assistant's configured STT service via `STTClient` (shared client in `clients/shared/Network/STTClient.swift`). Apple-native `SFSpeechRecognizer` provides real-time partial transcriptions during recording and serves as the fallback when the STT service is unconfigured or fails.
 
-**STT adapter:** All speech recognition access goes through the `SpeechRecognizerAdapter` protocol (`Features/Voice/SpeechRecognizerAdapter.swift`), which abstracts `SFSpeechRecognizer` static APIs and instance creation. The production implementation is `AppleSpeechRecognizerAdapter`. Both `VoiceInputManager` and `OpenAIVoiceService` accept the adapter via init injection, enabling tests to substitute a mock without hardware or permission dependencies. To add a new on-device STT provider, implement `SpeechRecognizerAdapter` with the provider's SDK and inject it at the call site.
+**Service-first STT precedence (dictation mode):**
+1. Audio is recorded and accumulated as PCM buffers alongside a live `SFSpeechRecognizer` session for partial display.
+2. On recording end, buffers are encoded to WAV via `AudioWavEncoder` and sent to the STT service through the gateway.
+3. If the service returns a non-empty transcription, that text is used as the final result.
+4. If the service is unconfigured (503), unavailable, or returns empty text, the native `SFSpeechRecognizer` result is used as fallback.
+
+**Voice mode (streaming):** `OpenAIVoiceService` follows the same service-first pattern for turn-final transcript resolution. Per-turn PCM audio is encoded to WAV and sent to the STT service. The service result takes precedence; the live `SFSpeechRecognizer` transcript is used as fallback.
+
+**STT adapter:** The `SpeechRecognizerAdapter` protocol (`Features/Voice/SpeechRecognizerAdapter.swift`) abstracts `SFSpeechRecognizer` static APIs and instance creation for partial transcription and fallback. The production implementation is `AppleSpeechRecognizerAdapter`. Both `VoiceInputManager` and `OpenAIVoiceService` accept the adapter and `STTClient` via init injection, enabling tests to substitute mocks without hardware or permission dependencies.
 
 **Keyboard shortcut detection:** Uses defense-in-depth to distinguish voice activation from keyboard shortcuts (Control+C, Fn+arrow). Timer starts on key press, but recording only begins if no other keys are pressed during the 300ms hold period. Flag check (`otherKeyPressedDuringHold`) handles cases where apps consume keyDown events (e.g., Terminal).
 

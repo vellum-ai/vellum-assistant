@@ -32,6 +32,25 @@ Internet
        +-- /webhooks/* --> BLOCKED (404, never forwarded to runtime)
 ```
 
+### STT Route Proxying (Assistant-Scoped Rewrite)
+
+Native clients (macOS, iOS) send speech-to-text transcription requests through the gateway to the daemon's STT service. Clients POST to the assistant-scoped path `/v1/assistants/:assistantId/stt/transcribe`, which the gateway's runtime proxy rewrites to the flat daemon path `/v1/stt/transcribe`. This follows the same assistant-scoped rewrite pattern used by other client-facing endpoints (feature flags, privacy config, etc.).
+
+The request carries base64-encoded WAV audio and a MIME type. The daemon resolves the configured STT provider via `resolveBatchTranscriber()` and returns the transcribed text. Clients use the response to implement a service-first strategy: the service transcription takes precedence when available, with Apple-native `SFSpeechRecognizer` as fallback when the service returns 503 (not configured) or fails.
+
+| Client path (gateway)               | Daemon path (after rewrite) | Method |
+| ----------------------------------- | --------------------------- | ------ |
+| `/v1/assistants/:id/stt/transcribe` | `/v1/stt/transcribe`        | POST   |
+
+**Key source files:**
+
+| File                                             | Purpose                                                                   |
+| ------------------------------------------------ | ------------------------------------------------------------------------- |
+| `gateway/src/http/routes/runtime-proxy.ts`       | Assistant-scoped path rewriting (`/v1/assistants/:id/...` → `/v1/...`)    |
+| `assistant/src/runtime/routes/stt-routes.ts`     | Daemon HTTP endpoint: validates audio, resolves transcriber, returns text |
+| `clients/shared/Network/STTClient.swift`         | Shared client: POSTs audio to the gateway, returns typed `STTResult`      |
+| `clients/shared/Utilities/AudioWavEncoder.swift` | WAV encoding utility for PCM audio buffers                                |
+
 ### Assistant Feature Flags API
 
 The gateway exposes a REST API for reading and mutating assistant feature flags. Assistant feature flags are assistant-scoped, declaration-driven booleans that can gate any assistant behavior. Skill availability is one consumer, but not a required coupling (see [`assistant/ARCHITECTURE.md`](../assistant/ARCHITECTURE.md) for resolver and skill enforcement details).
