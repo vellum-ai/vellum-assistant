@@ -13,10 +13,12 @@ metadata:
 
 Use this skill to browse the web. After loading this skill, the following browser tools become available:
 
+- `browser_attach` - Attach the Chrome debugger to the active tab
 - `browser_navigate` - Navigate to a URL
 - `browser_snapshot` - List interactive elements on the current page
 - `browser_screenshot` - Take a visual screenshot
 - `browser_close` - Close the browser page
+- `browser_detach` - Detach the Chrome debugger from the active tab
 - `browser_click` - Click an element
 - `browser_type` - Type text into an input
 - `browser_press_key` - Press a keyboard key
@@ -34,11 +36,12 @@ This browser runs **full Chromium with JavaScript enabled**. It can handle SPAs,
 
 ## Typical Workflow
 
-1. `browser_navigate` to load a page
-2. `browser_snapshot` to discover interactive elements
-3. Use `browser_click`, `browser_type`, `browser_press_key`, `browser_scroll`, `browser_select_option`, or `browser_hover` to interact
-4. `browser_extract` or `browser_screenshot` to capture results
-5. `browser_close` when done
+1. `browser_attach` to establish the debugger session (extension path; optional on other backends)
+2. `browser_navigate` to load a page
+3. `browser_snapshot` to discover interactive elements
+4. Use `browser_click`, `browser_type`, `browser_press_key`, `browser_scroll`, `browser_select_option`, or `browser_hover` to interact
+5. `browser_extract` or `browser_screenshot` to capture results
+6. `browser_detach` to end the debugger session, or `browser_close` to close the page entirely
 
 ## Interaction Strategies
 

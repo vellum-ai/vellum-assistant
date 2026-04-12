@@ -1544,4 +1544,168 @@ describe('createHostBrowserDispatcher', () => {
       expect(harness.proxy.attachCalls.length).toBe(2);
     });
   });
+
+  // ── Synthetic Vellum.attach ──────────────────────────────────────
+
+  describe('Vellum.attach — synthetic attach command', () => {
+    test('attaches and posts success without issuing proxy.send', async () => {
+      harness = createHarness();
+
+      const attachRequest: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'attach-1',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.attach',
+      };
+
+      await harness.dispatcher.handle(attachRequest);
+
+      // proxy.attach was called (the target is the resolved active tab).
+      expect(harness.proxy.attachCalls.length).toBe(1);
+      expect(harness.proxy.attachCalls[0].target).toEqual({ tabId: 42 });
+
+      // proxy.send was NOT called — Vellum.attach is synthetic.
+      expect(harness.proxy.sendCalls.length).toBe(0);
+
+      // A success result was posted.
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].requestId).toBe('attach-1');
+      expect(harness.results[0].isError).toBe(false);
+      const payload = JSON.parse(harness.results[0].content);
+      expect(payload.attached).toBe(true);
+      expect(payload.target).toEqual({ tabId: 42 });
+    });
+
+    test('deduplicates — second Vellum.attach skips proxy.attach', async () => {
+      harness = createHarness();
+
+      const attachRequest: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'attach-1',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.attach',
+      };
+
+      await harness.dispatcher.handle(attachRequest);
+      await harness.dispatcher.handle({ ...attachRequest, requestId: 'attach-2' });
+
+      // Only one actual proxy.attach call.
+      expect(harness.proxy.attachCalls.length).toBe(1);
+      expect(harness.results.length).toBe(2);
+      expect(harness.results[1].isError).toBe(false);
+    });
+
+    test('tolerates "already attached" error from proxy.attach', async () => {
+      harness = createHarness({
+        attachThrows: new Error(
+          'Another debugger is already attached to the tab with id: 42.',
+        ),
+      });
+
+      const attachRequest: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'attach-1',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.attach',
+      };
+
+      await harness.dispatcher.handle(attachRequest);
+
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].isError).toBe(false);
+      const payload = JSON.parse(harness.results[0].content);
+      expect(payload.attached).toBe(true);
+    });
+  });
+
+  // ── Synthetic Vellum.detach ──────────────────────────────────────
+
+  describe('Vellum.detach — synthetic detach command', () => {
+    test('detaches, evicts cache, and allows a subsequent normal request to reattach', async () => {
+      harness = createHarness({
+        sendResult: { id: 1, result: { ok: true } },
+      });
+
+      // First: attach via a normal CDP request.
+      await harness.dispatcher.handle(sampleRequest);
+      expect(harness.proxy.attachCalls.length).toBe(1);
+
+      // Second: synthetic detach.
+      const detachRequest: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'detach-1',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.detach',
+      };
+
+      await harness.dispatcher.handle(detachRequest);
+
+      // proxy.detach was called.
+      expect(harness.proxy.detachCalls.length).toBe(1);
+      expect(harness.proxy.detachCalls[0]).toEqual({ tabId: 42 });
+
+      // Detach result was posted.
+      const detachResult = harness.results.find((r) => r.requestId === 'detach-1');
+      expect(detachResult).toBeDefined();
+      expect(detachResult!.isError).toBe(false);
+      const payload = JSON.parse(detachResult!.content);
+      expect(payload.detached).toBe(true);
+
+      // Third: a subsequent normal request must re-attach because the
+      // cache was evicted by the detach.
+      await harness.dispatcher.handle({ ...sampleRequest, requestId: 'req-after-detach' });
+      expect(harness.proxy.attachCalls.length).toBe(2);
+    });
+
+    test('repeated detach is idempotent (no throw, deterministic success result)', async () => {
+      harness = createHarness({
+        sendResult: { id: 1, result: { ok: true } },
+      });
+
+      // Attach first.
+      await harness.dispatcher.handle(sampleRequest);
+      expect(harness.proxy.attachCalls.length).toBe(1);
+
+      const detachRequest: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'detach-1',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.detach',
+      };
+
+      // First detach — actually calls proxy.detach.
+      await harness.dispatcher.handle(detachRequest);
+      expect(harness.proxy.detachCalls.length).toBe(1);
+
+      // Second detach — target is no longer in the attached set, so
+      // proxy.detach is NOT called again. Returns detached: false.
+      await harness.dispatcher.handle({ ...detachRequest, requestId: 'detach-2' });
+      expect(harness.proxy.detachCalls.length).toBe(1); // unchanged
+
+      const secondResult = harness.results.find((r) => r.requestId === 'detach-2');
+      expect(secondResult).toBeDefined();
+      expect(secondResult!.isError).toBe(false);
+      const payload = JSON.parse(secondResult!.content);
+      expect(payload.detached).toBe(false);
+    });
+
+    test('detach without prior attach returns detached: false without throwing', async () => {
+      harness = createHarness();
+
+      const detachRequest: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'detach-cold',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.detach',
+      };
+
+      await harness.dispatcher.handle(detachRequest);
+
+      expect(harness.proxy.detachCalls.length).toBe(0);
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].isError).toBe(false);
+      const payload = JSON.parse(harness.results[0].content);
+      expect(payload.detached).toBe(false);
+    });
+  });
 });

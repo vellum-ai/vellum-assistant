@@ -87,6 +87,40 @@
       "execution_target": "host"
     },
     {
+      "name": "browser_attach",
+      "description": "Explicitly attach the Chrome debugger to the active browser tab. Use at the start of a browser session to establish the debugging connection before navigating or interacting. On the extension path this attaches the debugger; on other backends this is a no-op that returns success.",
+      "category": "browser",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        }
+      },
+      "executor": "tools/browser-attach.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "browser_detach",
+      "description": "Explicitly detach the Chrome debugger from the active browser tab. Use when done with browser interaction to cleanly end the debugging session. On the extension path this detaches the debugger and clears the Chrome debugging banner; on other backends this clears stale snapshot state.",
+      "category": "browser",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        }
+      },
+      "executor": "tools/browser-detach.ts",
+      "execution_target": "host"
+    },
+    {
       "name": "browser_click",
       "description": "Click an element on the page. Always use element_id from browser_snapshot \u2014 do not fabricate CSS selectors. For native <select> elements, use browser_select_option instead. For ARIA/custom dropdowns (mat-select, role=listbox, or any dropdown whose options appear as role=\"option\" in browser_snapshot), click to open, take a new browser_snapshot, then click the desired option by element_id. For autocomplete inputs where options don't appear in the snapshot, use browser_press_key with ArrowDown/ArrowUp + Enter.",
       "category": "browser",

@@ -282,6 +282,8 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     "browser_snapshot",
     "browser_screenshot",
     "browser_close",
+    "browser_attach",
+    "browser_detach",
     "browser_click",
     "browser_type",
     "browser_press_key",
