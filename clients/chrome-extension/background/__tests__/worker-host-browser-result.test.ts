@@ -205,8 +205,10 @@ describe('postHostBrowserResult — self-hosted mode', () => {
     );
   });
 
-  test('logs a warning when the daemon returns a non-2xx status', async () => {
-    fetchHandle.setNextResponse(new Response(null, { status: 503 }));
+  test('logs a warning with status/request context when the daemon returns non-2xx', async () => {
+    fetchHandle.setNextResponse(
+      new Response(JSON.stringify({ error: 'not found' }), { status: 404 }),
+    );
     const mode: RelayMode = {
       kind: 'self-hosted',
       baseUrl: 'http://127.0.0.1:9999',
@@ -217,7 +219,10 @@ describe('postHostBrowserResult — self-hosted mode', () => {
 
     expect(consoleSpy.warnings.length).toBeGreaterThanOrEqual(1);
     const flat = consoleSpy.warnings.flat().join(' ');
-    expect(flat).toContain('503');
+    expect(flat).toContain('host-browser-result POST failed');
+    expect(flat).toContain('404');
+    expect(flat).toContain('req-abc');
+    expect(flat).toContain('not found');
   });
 
   test('ignores the supplied connection in self-hosted mode', async () => {

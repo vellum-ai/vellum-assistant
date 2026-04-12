@@ -185,6 +185,35 @@ describe("ExtensionCdpClient", () => {
     expect(err.underlying).toBeInstanceOf(Error);
   });
 
+  test("result.isError with non-JSON content throws CdpError('cdp_error')", async () => {
+    const { proxy } = fakeProxy(async () => ({
+      content:
+        "Host browser proxy timed out waiting for extension response (check callback failures).",
+      isError: true,
+    }));
+
+    const client = createExtensionCdpClient(proxy, "conv-6b");
+
+    let caught: unknown;
+    try {
+      await client.send("Runtime.evaluate", { expression: "document.title" });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(CdpError);
+    const err = caught as CdpError;
+    expect(err.code).toBe("cdp_error");
+    expect(err.message).toContain(
+      "Host browser proxy timed out waiting for extension response",
+    );
+    expect(err.cdpMethod).toBe("Runtime.evaluate");
+    expect(err.cdpParams).toEqual({ expression: "document.title" });
+    expect(err.underlying).toBe(
+      "Host browser proxy timed out waiting for extension response (check callback failures).",
+    );
+  });
+
   test("result.content === 'Aborted' throws CdpError('aborted')", async () => {
     const { proxy, request } = fakeProxy(async () => ({
       content: "Aborted",
