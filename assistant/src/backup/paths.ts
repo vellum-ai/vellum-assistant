@@ -82,9 +82,11 @@ export function getBackupKeyPath(): string {
 /**
  * Formats a backup filename from a date. Encrypted backups get a `.vbundle.enc`
  * suffix; plaintext backups get `.vbundle`. Timestamp components are in UTC to
- * avoid timezone-induced filename collisions across devices.
+ * avoid timezone-induced filename collisions across devices. Milliseconds are
+ * included so two backups started in the same UTC second produce distinct
+ * filenames rather than silently overwriting each other.
  *
- * Example: `backup-20260411-153045.vbundle`
+ * Example: `backup-20260411-153045-123.vbundle`
  */
 export function formatBackupFilename(
   date: Date,
@@ -96,27 +98,32 @@ export function formatBackupFilename(
   const hour = date.getUTCHours().toString().padStart(2, "0");
   const minute = date.getUTCMinutes().toString().padStart(2, "0");
   const second = date.getUTCSeconds().toString().padStart(2, "0");
+  const millis = date.getUTCMilliseconds().toString().padStart(3, "0");
   const ext = encrypted ? ".vbundle.enc" : ".vbundle";
-  return `backup-${year}${month}${day}-${hour}${minute}${second}${ext}`;
+  return `backup-${year}${month}${day}-${hour}${minute}${second}-${millis}${ext}`;
 }
 
-// Matches `backup-YYYYMMDD-HHMMSS` optionally followed by `.vbundle` or
-// `.vbundle.enc`. Kept as a module-level constant so repeated parsing doesn't
-// rebuild the RegExp.
+// Matches `backup-YYYYMMDD-HHMMSS` with an optional `-SSS` milliseconds
+// segment (legacy backups written before ms precision was added omit it),
+// followed by `.vbundle` or `.vbundle.enc`. Kept as a module-level constant so
+// repeated parsing doesn't rebuild the RegExp.
 const BACKUP_FILENAME_RE =
-  /^backup-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})\.vbundle(?:\.enc)?$/;
+  /^backup-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})(?:-(\d{3}))?\.vbundle(?:\.enc)?$/;
 
 /**
  * Inverse of `formatBackupFilename`. Parses a backup filename (with either
  * `.vbundle` or `.vbundle.enc` suffix) and returns the encoded UTC timestamp.
- * Returns `null` when the filename doesn't match the expected pattern, when a
- * component is out of range, or when the parsed date is invalid.
+ * Accepts legacy filenames without the `-SSS` milliseconds segment (treated
+ * as `.000`). Returns `null` when the filename doesn't match the expected
+ * pattern, when a component is out of range, or when the parsed date is
+ * invalid.
  */
 export function parseBackupTimestamp(filename: string): Date | null {
   const match = BACKUP_FILENAME_RE.exec(filename);
   if (!match) return null;
-  const [, year, month, day, hour, minute, second] = match;
-  const iso = `${year}-${month}-${day}T${hour}:${minute}:${second}.000Z`;
+  const [, year, month, day, hour, minute, second, millis] = match;
+  const ms = millis ?? "000";
+  const iso = `${year}-${month}-${day}T${hour}:${minute}:${second}.${ms}Z`;
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
   // `new Date()` silently normalizes out-of-range calendar values (e.g. Feb 31
@@ -128,7 +135,8 @@ export function parseBackupTimestamp(filename: string): Date | null {
     date.getUTCDate() !== Number(day) ||
     date.getUTCHours() !== Number(hour) ||
     date.getUTCMinutes() !== Number(minute) ||
-    date.getUTCSeconds() !== Number(second)
+    date.getUTCSeconds() !== Number(second) ||
+    date.getUTCMilliseconds() !== Number(ms)
   ) {
     return null;
   }

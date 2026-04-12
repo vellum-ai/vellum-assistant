@@ -108,11 +108,11 @@ describe("writeOffsiteSnapshotToOne", () => {
     expect(result.error).toBeUndefined();
     expect(result.skipped).toBeUndefined();
     expect(result.entry).not.toBeNull();
-    expect(result.entry!.filename).toBe("backup-20260411-153045.vbundle.enc");
+    expect(result.entry!.filename).toBe("backup-20260411-153045-000.vbundle.enc");
     expect(result.entry!.encrypted).toBe(true);
     expect(result.entry!.createdAt).toBe(NOW);
     expect(result.entry!.path).toBe(
-      join(destination.path, "backup-20260411-153045.vbundle.enc"),
+      join(destination.path, "backup-20260411-153045-000.vbundle.enc"),
     );
     expect(existsSync(result.entry!.path)).toBe(true);
 
@@ -145,7 +145,7 @@ describe("writeOffsiteSnapshotToOne", () => {
     expect(result.error).toBeUndefined();
     expect(result.skipped).toBeUndefined();
     expect(result.entry).not.toBeNull();
-    expect(result.entry!.filename).toBe("backup-20260411-153045.vbundle");
+    expect(result.entry!.filename).toBe("backup-20260411-153045-000.vbundle");
     expect(result.entry!.encrypted).toBe(false);
     expect(result.entry!.sizeBytes).toBe(plaintext.length);
 
@@ -226,7 +226,7 @@ describe("writeOffsiteSnapshotToAll", () => {
     // Encrypted destination
     expect(results[0].destination).toEqual(destinations[0]);
     expect(results[0].entry).not.toBeNull();
-    expect(results[0].entry!.filename).toBe("backup-20260411-153045.vbundle.enc");
+    expect(results[0].entry!.filename).toBe("backup-20260411-153045-000.vbundle.enc");
     expect(results[0].entry!.encrypted).toBe(true);
     expect(results[0].skipped).toBeUndefined();
     expect(results[0].error).toBeUndefined();
@@ -234,7 +234,7 @@ describe("writeOffsiteSnapshotToAll", () => {
     // Plaintext destination
     expect(results[1].destination).toEqual(destinations[1]);
     expect(results[1].entry).not.toBeNull();
-    expect(results[1].entry!.filename).toBe("backup-20260411-153045.vbundle");
+    expect(results[1].entry!.filename).toBe("backup-20260411-153045-000.vbundle");
     expect(results[1].entry!.encrypted).toBe(false);
     expect(results[1].skipped).toBeUndefined();
     expect(results[1].error).toBeUndefined();

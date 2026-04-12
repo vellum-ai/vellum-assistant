@@ -11,6 +11,7 @@
  * tmp directories without monkey-patching path helpers.
  */
 
+import { randomBytes } from "node:crypto";
 import { copyFile, mkdir, rename, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -18,13 +19,55 @@ import { pruneDir, type SnapshotEntry } from "./list-snapshots.js";
 import { formatBackupFilename } from "./paths.js";
 
 /**
+ * Resolve a destination path that does not already exist on disk. Milliseconds
+ * in the filename already make same-second collisions effectively impossible
+ * from normal operation, but two backups fired in the same millisecond (or a
+ * leftover file from a previous run) would still collide. Fall back to a
+ * random suffix so the write never silently overwrites an existing file.
+ */
+async function resolveUniqueDestPath(
+  localDir: string,
+  filename: string,
+): Promise<string> {
+  const primary = join(localDir, filename);
+  try {
+    await stat(primary);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return primary;
+    throw err;
+  }
+  // Path occupied — insert a short random token before the extension. Loop in
+  // case the collision itself repeats, though 6 hex chars gives 16M values.
+  const extIdx = filename.indexOf(".vbundle");
+  const base = filename.slice(0, extIdx);
+  const ext = filename.slice(extIdx);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const token = randomBytes(3).toString("hex");
+    const candidate = join(localDir, `${base}-${token}${ext}`);
+    try {
+      await stat(candidate);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return candidate;
+      throw err;
+    }
+  }
+  throw new Error(
+    `Unable to find a unique backup filename under ${localDir} for ${filename}`,
+  );
+}
+
+/**
  * Move a freshly-built `.vbundle` temp file into the local backup directory
  * under its canonical timestamped name.
  *
  * - Creates `localDir` (recursively, mode `0o700`) if it does not yet exist.
- * - Renames the temp file to `<localDir>/backup-YYYYMMDD-HHMMSS.vbundle`.
+ * - Renames the temp file to `<localDir>/backup-YYYYMMDD-HHMMSS-SSS.vbundle`.
  *   On EXDEV (cross-device move, e.g. when the temp dir is on a different
  *   filesystem than the backup directory) it falls back to copy + unlink.
+ * - If the canonical filename is already taken on disk (two backups in the
+ *   same millisecond, or a leftover from a prior crash), a short random
+ *   suffix is appended so the rename never silently overwrites an existing
+ *   snapshot.
  * - Returns a `SnapshotEntry` describing the final on-disk file.
  *
  * The caller is expected to pass the same `now` it used when staging the
@@ -38,8 +81,9 @@ export async function writeLocalSnapshot(
 ): Promise<SnapshotEntry> {
   await mkdir(localDir, { recursive: true, mode: 0o700 });
 
-  const filename = formatBackupFilename(now, { encrypted: false });
-  const destPath = join(localDir, filename);
+  const baseFilename = formatBackupFilename(now, { encrypted: false });
+  const destPath = await resolveUniqueDestPath(localDir, baseFilename);
+  const filename = destPath.slice(localDir.length + 1);
 
   try {
     await rename(tempVBundlePath, destPath);

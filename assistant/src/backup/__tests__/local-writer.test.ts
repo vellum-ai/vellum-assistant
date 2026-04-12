@@ -43,8 +43,10 @@ describe("writeLocalSnapshot", () => {
 
     const entry = await writeLocalSnapshot(tempPath, localDir, now);
 
-    expect(entry.filename).toBe("backup-20260411-153045.vbundle");
-    expect(entry.path).toBe(join(localDir, "backup-20260411-153045.vbundle"));
+    expect(entry.filename).toBe("backup-20260411-153045-000.vbundle");
+    expect(entry.path).toBe(
+      join(localDir, "backup-20260411-153045-000.vbundle"),
+    );
     expect(entry.encrypted).toBe(false);
     expect(entry.createdAt).toBe(now);
     expect(entry.sizeBytes).toBe(Buffer.byteLength(payload));
@@ -56,6 +58,52 @@ describe("writeLocalSnapshot", () => {
     expect(existsSync(tempPath)).toBe(false);
   });
 
+  test("two backups started in the same UTC second produce distinct filenames", async () => {
+    const tempA = join(root, "stage-a.tmp");
+    const tempB = join(root, "stage-b.tmp");
+    writeFileSync(tempA, "payload-a");
+    writeFileSync(tempB, "payload-b");
+
+    const localDir = join(root, "same-second");
+    // Same second, different milliseconds — should produce distinct names.
+    const nowA = new Date("2026-04-11T15:30:45.100Z");
+    const nowB = new Date("2026-04-11T15:30:45.900Z");
+
+    const entryA = await writeLocalSnapshot(tempA, localDir, nowA);
+    const entryB = await writeLocalSnapshot(tempB, localDir, nowB);
+
+    expect(entryA.filename).not.toBe(entryB.filename);
+    expect(existsSync(entryA.path)).toBe(true);
+    expect(existsSync(entryB.path)).toBe(true);
+    // Neither file was overwritten: the bytes match what was staged.
+    expect(readFileSync(entryA.path, "utf8")).toBe("payload-a");
+    expect(readFileSync(entryB.path, "utf8")).toBe("payload-b");
+  });
+
+  test("same-millisecond collision falls back to a random-suffixed filename", async () => {
+    const tempA = join(root, "stage-a.tmp");
+    const tempB = join(root, "stage-b.tmp");
+    writeFileSync(tempA, "payload-a");
+    writeFileSync(tempB, "payload-b");
+
+    const localDir = join(root, "identical-ms");
+    // Identical timestamp down to the millisecond — the stat probe should
+    // detect the existing destination and pick a different suffix for the
+    // second write instead of silently overwriting.
+    const now = new Date("2026-04-11T15:30:45.123Z");
+
+    const entryA = await writeLocalSnapshot(tempA, localDir, now);
+    const entryB = await writeLocalSnapshot(tempB, localDir, now);
+
+    expect(entryA.filename).toBe("backup-20260411-153045-123.vbundle");
+    expect(entryB.filename).not.toBe(entryA.filename);
+    expect(entryB.filename).toMatch(
+      /^backup-20260411-153045-123-[0-9a-f]{6}\.vbundle$/,
+    );
+    expect(readFileSync(entryA.path, "utf8")).toBe("payload-a");
+    expect(readFileSync(entryB.path, "utf8")).toBe("payload-b");
+  });
+
   test("returned SnapshotEntry has the correct filename, size, and timestamp", async () => {
     const tempPath = join(root, "stage.tmp");
     const payload = Buffer.alloc(1234, 0xab);
@@ -65,7 +113,7 @@ describe("writeLocalSnapshot", () => {
     const now = new Date("2026-01-02T03:04:05Z");
     const entry = await writeLocalSnapshot(tempPath, localDir, now);
 
-    expect(entry.filename).toBe("backup-20260102-030405.vbundle");
+    expect(entry.filename).toBe("backup-20260102-030405-000.vbundle");
     expect(entry.sizeBytes).toBe(1234);
     expect(entry.createdAt.toISOString()).toBe("2026-01-02T03:04:05.000Z");
     // listSnapshotsInDir should round-trip the same entry.
