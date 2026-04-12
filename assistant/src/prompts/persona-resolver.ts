@@ -237,6 +237,27 @@ export function resolveGuardianPersona(): string | null {
 }
 
 /**
+ * Resolve the guardian's user persona strictly from their own
+ * `users/<slug>.md` file, with NO fallback to `users/default.md`.
+ *
+ * Returns `null` when no guardian contact is resolvable, the
+ * guardian's userFile is unset, or the file is missing / empty.
+ *
+ * Used by callers that derive guardian-specific attributes (name,
+ * pronouns) where `default.md` content would incorrectly override an
+ * intentional caller-supplied fallback such as `Contact.displayName`.
+ * System-prompt callers that want the default.md fallback should
+ * continue to use `resolveGuardianPersona`.
+ */
+export function resolveGuardianPersonaStrict(): string | null {
+  const filename = resolveUserFilename(undefined);
+  if (!filename) return null;
+  const filePath = join(getWorkspaceDir(), "users", filename);
+  if (!existsSync(filePath)) return null;
+  return readPersonaFile(filePath);
+}
+
+/**
  * Write the guardian persona template scaffold to `users/<userFile>`
  * when the file does not yet exist. No-op when the file already
  * exists (safe against clobbering user edits).
