@@ -189,18 +189,9 @@ async function upgradeDocker(
   const versionTag =
     version ?? (cliPkg.version ? `v${cliPkg.version}` : "latest");
 
-  // Reject downgrades — `vellum upgrade` only handles forward version changes.
-  // Users should use `vellum rollback --version <version>` for downgrades.
-  const currentVersion = entry.serviceGroupVersion;
-  if (currentVersion && versionTag) {
-    const cmp = compareVersions(versionTag, currentVersion);
-    if (cmp !== null && cmp < 0) {
-      const msg = `Cannot upgrade to an older version (${versionTag} < ${currentVersion}). Use \`vellum rollback --version ${versionTag}\` instead.`;
-      console.error(msg);
-      emitCliError("VERSION_DIRECTION", msg);
-      process.exit(1);
-    }
-  }
+  // Fetch the current running version from the health endpoint.
+  // This is used for logging, commit messages, and version-direction guards.
+  let currentVersion: string | undefined;
 
   console.log("🔍 Resolving image references...");
   const { imageTags } = await resolveImageRefs(versionTag);
@@ -225,7 +216,7 @@ async function upgradeDocker(
     );
   }
 
-  // Capture current migration state for rollback targeting.
+  // Capture current migration state and running version for rollback targeting.
   // Must happen while daemon is still running (before containers are stopped).
   let preMigrationState: {
     dbVersion?: number;
@@ -240,26 +231,41 @@ async function upgradeDocker(
     );
     if (healthResp.ok) {
       const health = (await healthResp.json()) as {
+        version?: string;
         migrations?: { dbVersion?: number; lastWorkspaceMigrationId?: string };
       };
       preMigrationState = health.migrations ?? {};
+      currentVersion = health.version;
     }
   } catch {
     // Best-effort — if we can't get migration state, rollback will skip migration reversal
   }
 
+  // Reject downgrades — `vellum upgrade` only handles forward version changes.
+  // Users should use `vellum rollback --version <version>` for downgrades.
+  if (currentVersion && versionTag) {
+    const cmp = compareVersions(versionTag, currentVersion);
+    if (cmp !== null && cmp < 0) {
+      const msg = `Cannot upgrade to an older version (${versionTag} < ${currentVersion}). Use \`vellum rollback --version ${versionTag}\` instead.`;
+      console.error(msg);
+      emitCliError("VERSION_DIRECTION", msg);
+      process.exit(1);
+    }
+  }
+
   // Persist rollback state to lockfile BEFORE any destructive changes.
   // This enables the `vellum rollback` command to restore the previous version.
-  if (entry.serviceGroupVersion && entry.containerInfo) {
+  if (entry.containerInfo) {
     const rollbackEntry: AssistantEntry = {
       ...entry,
-      previousServiceGroupVersion: entry.serviceGroupVersion,
       previousContainerInfo: { ...entry.containerInfo },
       previousDbMigrationVersion: preMigrationState.dbVersion,
       previousWorkspaceMigrationId: preMigrationState.lastWorkspaceMigrationId,
     };
     saveAssistantEntry(rollbackEntry);
-    console.log(`   Saved rollback state: ${entry.serviceGroupVersion}\n`);
+    if (currentVersion) {
+      console.log(`   Saved rollback state: ${currentVersion}\n`);
+    }
   }
 
   // Record version transition start in workspace git history
@@ -269,7 +275,7 @@ async function upgradeDocker(
     buildUpgradeCommitMessage({
       action: "upgrade",
       phase: "starting",
-      from: entry.serviceGroupVersion ?? "unknown",
+      from: currentVersion ?? "unknown",
       to: versionTag,
       topology: "docker",
       assistantId: entry.assistantId,
@@ -321,7 +327,7 @@ async function upgradeDocker(
     await broadcastUpgradeEvent(
       entry.runtimeUrl,
       entry.assistantId,
-      buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
+      buildCompleteEvent(currentVersion ?? "unknown", false),
     );
     emitCliError("IMAGE_PULL_FAILED", "Failed to pull Docker images", detail);
     process.exit(1);
@@ -361,7 +367,7 @@ async function upgradeDocker(
   console.log("📦 Creating pre-upgrade backup...");
   const backupPath = await createBackup(entry.runtimeUrl, entry.assistantId, {
     prefix: `${entry.assistantId}-pre-upgrade`,
-    description: `Pre-upgrade snapshot before ${entry.serviceGroupVersion ?? "unknown"} → ${versionTag}`,
+    description: `Pre-upgrade snapshot before ${currentVersion ?? "unknown"} → ${versionTag}`,
   });
   if (backupPath) {
     console.log(`   Backup saved: ${backupPath}\n`);
@@ -434,7 +440,6 @@ async function upgradeDocker(
     const newDigests = await captureImageRefs(res);
     const updatedEntry: AssistantEntry = {
       ...entry,
-      serviceGroupVersion: versionTag,
       containerInfo: {
         assistantImage: imageTags.assistant,
         gatewayImage: imageTags.gateway,
@@ -444,7 +449,6 @@ async function upgradeDocker(
         cesDigest: newDigests?.["credential-executor"],
         networkName: res.network,
       },
-      previousServiceGroupVersion: entry.serviceGroupVersion,
       previousContainerInfo: entry.containerInfo,
       previousDbMigrationVersion: preMigrationState.dbVersion,
       previousWorkspaceMigrationId: preMigrationState.lastWorkspaceMigrationId,
@@ -467,7 +471,7 @@ async function upgradeDocker(
       buildUpgradeCommitMessage({
         action: "upgrade",
         phase: "complete",
-        from: entry.serviceGroupVersion ?? "unknown",
+        from: currentVersion ?? "unknown",
         to: versionTag,
         topology: "docker",
         assistantId: entry.assistantId,
@@ -584,7 +588,6 @@ async function upgradeDocker(
                 previousImageRefs["credential-executor"],
               networkName: res.network,
             },
-            previousServiceGroupVersion: undefined,
             previousContainerInfo: undefined,
             previousDbMigrationVersion: undefined,
             previousWorkspaceMigrationId: undefined,
@@ -598,9 +601,9 @@ async function upgradeDocker(
             entry.runtimeUrl,
             entry.assistantId,
             buildCompleteEvent(
-              entry.serviceGroupVersion ?? "unknown",
+              currentVersion ?? "unknown",
               false,
-              entry.serviceGroupVersion,
+              currentVersion,
             ),
           );
 
@@ -621,7 +624,7 @@ async function upgradeDocker(
           await broadcastUpgradeEvent(
             entry.runtimeUrl,
             entry.assistantId,
-            buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
+            buildCompleteEvent(currentVersion ?? "unknown", false),
           );
           emitCliError(
             "ROLLBACK_FAILED",
@@ -641,7 +644,7 @@ async function upgradeDocker(
         await broadcastUpgradeEvent(
           entry.runtimeUrl,
           entry.assistantId,
-          buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
+          buildCompleteEvent(currentVersion ?? "unknown", false),
         );
         emitCliError(
           "ROLLBACK_FAILED",
@@ -657,7 +660,7 @@ async function upgradeDocker(
       await broadcastUpgradeEvent(
         entry.runtimeUrl,
         entry.assistantId,
-        buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
+        buildCompleteEvent(currentVersion ?? "unknown", false),
       );
       emitCliError(
         "ROLLBACK_NO_STATE",
@@ -678,22 +681,6 @@ async function upgradePlatform(
   entry: AssistantEntry,
   version: string | null,
 ): Promise<void> {
-  // Reject downgrades — `vellum upgrade` only handles forward version changes.
-  // Users should use `vellum rollback --version <version>` for downgrades.
-  // Only enforce this guard when the user explicitly passed `--version`.
-  // When version is null the platform API decides the actual target, so
-  // we must not block the request based on the local CLI version.
-  const currentVersion = entry.serviceGroupVersion;
-  if (version && currentVersion) {
-    const cmp = compareVersions(version, currentVersion);
-    if (cmp !== null && cmp < 0) {
-      const msg = `Cannot upgrade to an older version (${version} < ${currentVersion}). Use \`vellum rollback --version ${version}\` instead.`;
-      console.error(msg);
-      emitCliError("VERSION_DIRECTION", msg);
-      process.exit(1);
-    }
-  }
-
   console.log(
     `🔄 Upgrading platform-hosted assistant '${entry.assistantId}'...\n`,
   );
@@ -733,7 +720,7 @@ async function upgradePlatform(
       await broadcastUpgradeEvent(
         entry.runtimeUrl,
         entry.assistantId,
-        buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
+        buildCompleteEvent("unknown", false),
       );
     } catch {
       // Best-effort — broadcast may fail if the assistant is unreachable
@@ -755,7 +742,7 @@ async function upgradePlatform(
       await broadcastUpgradeEvent(
         entry.runtimeUrl,
         entry.assistantId,
-        buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
+        buildCompleteEvent("unknown", false),
       );
     } catch {
       // Best-effort — broadcast may fail if the assistant is unreachable
@@ -788,8 +775,8 @@ async function upgradePrepare(
   entry: AssistantEntry,
   version: string | null,
 ): Promise<void> {
-  const targetVersion = version ?? entry.serviceGroupVersion ?? "unknown";
-  const currentVersion = entry.serviceGroupVersion ?? "unknown";
+  const targetVersion = version ?? "unknown";
+  const currentVersion = "unknown";
 
   // 1. Broadcast "starting" so the UI shows the progress spinner
   await broadcastUpgradeEvent(
@@ -857,9 +844,7 @@ async function upgradeFinalize(
   }
 
   const fromVersion = version;
-  const currentVersion = cliPkg.version
-    ? `v${cliPkg.version}`
-    : (entry.serviceGroupVersion ?? "unknown");
+  const currentVersion = cliPkg.version ? `v${cliPkg.version}` : "unknown";
 
   // 1. Broadcast "complete" so the UI clears the progress spinner
   await broadcastUpgradeEvent(
@@ -911,7 +896,7 @@ export async function upgrade(): Promise<void> {
     await broadcastUpgradeEvent(
       entry.runtimeUrl,
       entry.assistantId,
-      buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
+      buildCompleteEvent("unknown", false),
     );
     emitCliError(categorizeUpgradeError(err), "Upgrade failed", detail);
     process.exit(1);

@@ -84,12 +84,8 @@ export interface AssistantEntry {
   resources?: LocalInstanceResources;
   /** PID of the file watcher process for docker instances hatched with --watch. */
   watcherPid?: number;
-  /** Last-known version of the service group, populated at hatch and updated by health checks. */
-  serviceGroupVersion?: string;
   /** Docker image metadata for rollback. Only present for docker topology entries. */
   containerInfo?: ContainerInfo;
-  /** The service group version that was running before the last upgrade. */
-  previousServiceGroupVersion?: string;
   /** Docker image metadata from before the last upgrade. Enables rollback to the prior version. */
   previousContainerInfo?: ContainerInfo;
   /** Path to the .vbundle backup created for the most recent upgrade. Used by rollback to restore
@@ -391,23 +387,6 @@ export function saveAssistantEntry(entry: AssistantEntry): void {
     (e) => e.assistantId !== entry.assistantId,
   );
   entries.unshift(entry);
-  writeAssistants(entries);
-}
-
-/**
- * Update just the serviceGroupVersion field on a lockfile entry.
- * Reads the current entry, updates the version if changed, and writes back.
- * No-op if the entry doesn't exist or the version hasn't changed.
- */
-export function updateServiceGroupVersion(
-  assistantId: string,
-  version: string,
-): void {
-  const entries = readAssistants();
-  const entry = entries.find((e) => e.assistantId === assistantId);
-  if (!entry) return;
-  if (entry.serviceGroupVersion === version) return;
-  entry.serviceGroupVersion = version;
   writeAssistants(entries);
 }
 

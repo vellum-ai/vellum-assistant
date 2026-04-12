@@ -314,27 +314,8 @@ export async function performDockerRollback(
     throw new Error("targetVersion is required for performDockerRollback");
   }
 
-  const currentVersion = entry.serviceGroupVersion;
-
-  // Validate target version < current version
-  if (currentVersion) {
-    const cmp = compareVersions(targetVersion, currentVersion);
-    if (cmp !== null) {
-      if (cmp > 0) {
-        const msg =
-          "Cannot roll back to a newer version. Use `vellum upgrade` instead.";
-        console.error(msg);
-        emitCliError("VERSION_DIRECTION", msg);
-        process.exit(1);
-      }
-      if (cmp === 0) {
-        const msg = `Already on version ${targetVersion}. Nothing to roll back to.`;
-        console.error(msg);
-        emitCliError("VERSION_DIRECTION", msg);
-        process.exit(1);
-      }
-    }
-  }
+  // Fetch the current running version from the health endpoint.
+  let currentVersion: string | undefined;
 
   const instanceName = entry.assistantId;
   const res = dockerResourceNames(instanceName);
@@ -383,7 +364,7 @@ export async function performDockerRollback(
   console.log("📸 Capturing current image references for rollback...");
   const currentImageRefs = await captureImageRefs(res);
 
-  // Capture current migration state for rollback targeting
+  // Capture current migration state and running version for rollback targeting
   let preMigrationState: {
     dbVersion?: number;
     lastWorkspaceMigrationId?: string;
@@ -395,25 +376,48 @@ export async function performDockerRollback(
     );
     if (healthResp.ok) {
       const health = (await healthResp.json()) as {
+        version?: string;
         migrations?: { dbVersion?: number; lastWorkspaceMigrationId?: string };
       };
       preMigrationState = health.migrations ?? {};
+      currentVersion = health.version;
     }
   } catch {
     // Best-effort
   }
 
+  // Validate target version < current version
+  if (currentVersion) {
+    const cmp = compareVersions(targetVersion, currentVersion);
+    if (cmp !== null) {
+      if (cmp > 0) {
+        const msg =
+          "Cannot roll back to a newer version. Use `vellum upgrade` instead.";
+        console.error(msg);
+        emitCliError("VERSION_DIRECTION", msg);
+        process.exit(1);
+      }
+      if (cmp === 0) {
+        const msg = `Already on version ${targetVersion}. Nothing to roll back to.`;
+        console.error(msg);
+        emitCliError("VERSION_DIRECTION", msg);
+        process.exit(1);
+      }
+    }
+  }
+
   // Persist rollback state to lockfile BEFORE any destructive changes
-  if (entry.serviceGroupVersion && entry.containerInfo) {
+  if (entry.containerInfo) {
     const rollbackEntry: AssistantEntry = {
       ...entry,
-      previousServiceGroupVersion: entry.serviceGroupVersion,
       previousContainerInfo: { ...entry.containerInfo },
       previousDbMigrationVersion: preMigrationState.dbVersion,
       previousWorkspaceMigrationId: preMigrationState.lastWorkspaceMigrationId,
     };
     saveAssistantEntry(rollbackEntry);
-    console.log(`   Saved rollback state: ${entry.serviceGroupVersion}\n`);
+    if (currentVersion) {
+      console.log(`   Saved rollback state: ${currentVersion}\n`);
+    }
   }
 
   // Record rollback start in workspace git history
@@ -613,7 +617,6 @@ export async function performDockerRollback(
     // Swap current/previous state to enable "rollback the rollback"
     const updatedEntry: AssistantEntry = {
       ...entry,
-      serviceGroupVersion: targetVersion,
       containerInfo: {
         assistantImage: targetImageTags.assistant,
         gatewayImage: targetImageTags.gateway,
@@ -623,7 +626,6 @@ export async function performDockerRollback(
         cesDigest: newDigests?.["credential-executor"],
         networkName: res.network,
       },
-      previousServiceGroupVersion: entry.serviceGroupVersion,
       previousContainerInfo: entry.containerInfo,
       previousDbMigrationVersion: preMigrationState.dbVersion,
       previousWorkspaceMigrationId: preMigrationState.lastWorkspaceMigrationId,
@@ -749,7 +751,6 @@ export async function performDockerRollback(
                 currentImageRefs["credential-executor"],
               networkName: res.network,
             },
-            previousServiceGroupVersion: undefined,
             previousContainerInfo: undefined,
             previousDbMigrationVersion: undefined,
             previousWorkspaceMigrationId: undefined,

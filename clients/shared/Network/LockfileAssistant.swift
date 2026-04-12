@@ -60,10 +60,8 @@ public struct LockfileAssistant {
     public let baseDataDir: String?
     public let gatewayPort: Int?
     public let instanceDir: String?
-    public let serviceGroupVersion: String?
     public let containerInfo: ContainerInfo?
     public let mgmtSocket: String?
-    public let previousServiceGroupVersion: String?
     public let previousContainerInfo: ContainerInfo?
     public init(
         assistantId: String,
@@ -78,10 +76,8 @@ public struct LockfileAssistant {
         baseDataDir: String?,
         gatewayPort: Int?,
         instanceDir: String?,
-        serviceGroupVersion: String? = nil,
         containerInfo: ContainerInfo? = nil,
         mgmtSocket: String? = nil,
-        previousServiceGroupVersion: String? = nil,
         previousContainerInfo: ContainerInfo? = nil
     ) {
         self.assistantId = assistantId
@@ -96,10 +92,8 @@ public struct LockfileAssistant {
         self.baseDataDir = baseDataDir
         self.gatewayPort = gatewayPort
         self.instanceDir = instanceDir
-        self.serviceGroupVersion = serviceGroupVersion
         self.containerInfo = containerInfo
         self.mgmtSocket = mgmtSocket
-        self.previousServiceGroupVersion = previousServiceGroupVersion
         self.previousContainerInfo = previousContainerInfo
     }
 
@@ -189,7 +183,6 @@ public struct LockfileAssistant {
         return sorted.compactMap { entry -> LockfileAssistant? in
             guard let assistantId = entry["assistantId"] as? String else { return nil }
             let resources = entry["resources"] as? [String: Any]
-            let serviceGroupVersion = entry["serviceGroupVersion"] as? String
             var containerInfo: ContainerInfo? = nil
             if let ci = entry["containerInfo"] as? [String: Any] {
                 containerInfo = ContainerInfo(
@@ -202,7 +195,6 @@ public struct LockfileAssistant {
                     networkName: ci["networkName"] as? String
                 )
             }
-            let previousServiceGroupVersion = entry["previousServiceGroupVersion"] as? String
             var previousContainerInfo: ContainerInfo? = nil
             if let pci = entry["previousContainerInfo"] as? [String: Any] {
                 previousContainerInfo = ContainerInfo(
@@ -228,10 +220,8 @@ public struct LockfileAssistant {
                 baseDataDir: entry["baseDataDir"] as? String,
                 gatewayPort: resources?["gatewayPort"] as? Int,
                 instanceDir: resources?["instanceDir"] as? String,
-                serviceGroupVersion: serviceGroupVersion,
                 containerInfo: containerInfo,
                 mgmtSocket: entry["mgmtSocket"] as? String,
-                previousServiceGroupVersion: previousServiceGroupVersion,
                 previousContainerInfo: previousContainerInfo
             )
         }

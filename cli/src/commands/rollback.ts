@@ -34,7 +34,6 @@ import {
   UPGRADE_PROGRESS,
   waitForReady,
 } from "../lib/upgrade-lifecycle.js";
-import { compareVersions } from "../lib/version-compat.js";
 
 function parseArgs(): { name: string | null; version: string | null } {
   const args = process.argv.slice(3);
@@ -148,20 +147,7 @@ async function rollbackPlatformViaEndpoint(
   entry: AssistantEntry,
   version?: string,
 ): Promise<void> {
-  const currentVersion = entry.serviceGroupVersion;
-
-  // Step 1 — Version validation (only if version provided)
-  if (version && currentVersion) {
-    const cmp = compareVersions(version, currentVersion);
-    if (cmp !== null && cmp >= 0) {
-      const msg = `Target version ${version} is not older than the current version ${currentVersion}. Use \`vellum upgrade --version ${version}\` to upgrade.`;
-      console.error(msg);
-      emitCliError("VERSION_DIRECTION", msg);
-      process.exit(1);
-    }
-  }
-
-  // Step 2 — Authenticate
+  // Step 1 — Authenticate
   const token = readPlatformToken();
   if (!token) {
     const msg =
@@ -215,7 +201,7 @@ async function rollbackPlatformViaEndpoint(
     await broadcastUpgradeEvent(
       entry.runtimeUrl,
       entry.assistantId,
-      buildCompleteEvent(currentVersion ?? "unknown", false),
+      buildCompleteEvent("unknown", false),
     );
     process.exit(1);
   }
@@ -265,7 +251,7 @@ export async function rollback(): Promise<void> {
       await broadcastUpgradeEvent(
         entry.runtimeUrl,
         entry.assistantId,
-        buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
+        buildCompleteEvent("unknown", false),
       );
       emitCliError(categorizeUpgradeError(err), "Rollback failed", detail);
       process.exit(1);
@@ -276,7 +262,7 @@ export async function rollback(): Promise<void> {
   // ---------- Docker: Saved-state rollback (no --version) ----------
 
   // Verify rollback state exists
-  if (!entry.previousServiceGroupVersion || !entry.previousContainerInfo) {
+  if (!entry.previousContainerInfo) {
     const msg =
       "No rollback state available. Run `vellum upgrade` first to create a rollback point.";
     console.error(msg);
@@ -312,15 +298,15 @@ export async function rollback(): Promise<void> {
       buildUpgradeCommitMessage({
         action: "rollback",
         phase: "starting",
-        from: entry.serviceGroupVersion ?? "unknown",
-        to: entry.previousServiceGroupVersion ?? "unknown",
+        from: "unknown",
+        to: "unknown",
         topology: "docker",
         assistantId: entry.assistantId,
       }),
     );
 
     console.log(
-      `🔄 Rolling back Docker assistant '${instanceName}' to ${entry.previousServiceGroupVersion}...\n`,
+      `🔄 Rolling back Docker assistant '${instanceName}' to previous version...\n`,
     );
 
     // Capture current container env
@@ -374,7 +360,7 @@ export async function rollback(): Promise<void> {
     await broadcastUpgradeEvent(
       entry.runtimeUrl,
       entry.assistantId,
-      buildStartingEvent(entry.previousServiceGroupVersion),
+      buildStartingEvent("unknown"),
     );
     // Brief pause to allow SSE delivery before containers stop.
     await new Promise((r) => setTimeout(r, 500));
@@ -435,7 +421,6 @@ export async function rollback(): Promise<void> {
       // Swap current/previous state to enable "rollback the rollback"
       const updatedEntry: AssistantEntry = {
         ...entry,
-        serviceGroupVersion: entry.previousServiceGroupVersion,
         containerInfo: {
           assistantImage: prev.assistantImage ?? previousImageRefs.assistant,
           gatewayImage: prev.gatewayImage ?? previousImageRefs.gateway,
@@ -445,7 +430,6 @@ export async function rollback(): Promise<void> {
           cesDigest: newDigests?.["credential-executor"],
           networkName: res.network,
         },
-        previousServiceGroupVersion: entry.serviceGroupVersion,
         previousContainerInfo: entry.containerInfo,
         // Clear the backup path — it belonged to the upgrade we just rolled back
         preUpgradeBackupPath: undefined,
@@ -458,7 +442,7 @@ export async function rollback(): Promise<void> {
       await broadcastUpgradeEvent(
         entry.runtimeUrl,
         entry.assistantId,
-        buildCompleteEvent(entry.previousServiceGroupVersion, true),
+        buildCompleteEvent("unknown", true),
       );
 
       // Record successful rollback in workspace git history
@@ -468,8 +452,8 @@ export async function rollback(): Promise<void> {
         buildUpgradeCommitMessage({
           action: "rollback",
           phase: "complete",
-          from: entry.serviceGroupVersion ?? "unknown",
-          to: entry.previousServiceGroupVersion ?? "unknown",
+          from: "unknown",
+          to: "unknown",
           topology: "docker",
           assistantId: entry.assistantId,
           result: "success",
@@ -477,7 +461,7 @@ export async function rollback(): Promise<void> {
       );
 
       console.log(
-        `\n✅ Docker assistant '${instanceName}' rolled back to ${entry.previousServiceGroupVersion}.`,
+        `\n✅ Docker assistant '${instanceName}' rolled back to previous version.`,
       );
       console.log(
         "\nTip: To also restore data from before the upgrade, use `vellum restore --from <backup-path>`.",
@@ -492,10 +476,7 @@ export async function rollback(): Promise<void> {
       await broadcastUpgradeEvent(
         entry.runtimeUrl,
         entry.assistantId,
-        buildCompleteEvent(
-          entry.previousServiceGroupVersion ?? "unknown",
-          false,
-        ),
+        buildCompleteEvent("unknown", false),
       );
       emitCliError(
         "READINESS_TIMEOUT",
@@ -509,7 +490,7 @@ export async function rollback(): Promise<void> {
     await broadcastUpgradeEvent(
       entry.runtimeUrl,
       entry.assistantId,
-      buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
+      buildCompleteEvent("unknown", false),
     );
     emitCliError(categorizeUpgradeError(err), "Rollback failed", detail);
     process.exit(1);
