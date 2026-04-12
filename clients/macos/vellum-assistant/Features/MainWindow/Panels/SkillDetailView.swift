@@ -289,24 +289,26 @@ struct SkillDetailView: View {
     @ViewBuilder
     private var skillDetailFileBrowser: some View {
         if skillsManager.isLoadingSkillFiles {
-            VEmptyState(
-                title: "Loading files...",
-                icon: VIcon.fileText.rawValue
-            )
+            VStack(spacing: VSpacing.lg) {
+                VEmptyState(
+                    title: "Loading files...",
+                    icon: VIcon.fileText.rawValue
+                )
+                ProgressView()
+                    .controlSize(.small)
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .overlay { ProgressView().controlSize(.small) }
-        } else if let error = skillsManager.skillFilesError {
+        } else if skillsManager.skillFilesError != nil {
             VStack(spacing: VSpacing.md) {
                 VEmptyState(
                     title: "Failed to load files",
-                    subtitle: error,
                     icon: VIcon.circleAlert.rawValue
                 )
                 retryButton(label: "Retry") {
                     skillsManager.fetchSkillFiles(skillId: skill.id)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity)
         } else {
             VFileBrowser(
                 rootNodes: browserNodes,
