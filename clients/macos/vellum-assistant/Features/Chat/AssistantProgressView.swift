@@ -663,7 +663,11 @@ private struct StepDetailRow: View {
     /// Render-time memoization that stays off SwiftUI-owned state.
     private var cachedColoredResult: AttributedString? {
         guard let result = toolCall.result, !result.isEmpty else { return nil }
-        let key = Self.coloredOutputCacheKey(for: result, isError: toolCall.isError)
+        let key = Self.coloredOutputCacheKey(
+            toolCallID: toolCall.id,
+            resultCount: result.utf8.count,
+            isError: toolCall.isError
+        )
         if let cached = Self.coloredOutputCache.object(forKey: key) {
             return cached.value
         }
@@ -947,12 +951,12 @@ private struct StepDetailRow: View {
 
     // MARK: - Helpers
 
-    private static func coloredOutputCacheKey(for result: String, isError: Bool) -> NSString {
-        var hasher = Hasher()
-        hasher.combine(result)
-        hasher.combine(result.utf8.count)
-        hasher.combine(isError)
-        return "output:\(result.utf8.count):\(hasher.finalize())" as NSString
+    private static func coloredOutputCacheKey(
+        toolCallID: String,
+        resultCount: Int,
+        isError: Bool
+    ) -> NSString {
+        return "\(toolCallID)|\(resultCount)|\(isError ? "err" : "ok")" as NSString
     }
 
     private func coloredOutput(_ result: String, isError: Bool) -> AttributedString {
