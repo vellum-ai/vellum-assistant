@@ -18,6 +18,8 @@ All call-related settings can be managed via `assistant config`:
 | `services.tts.provider`                     | Active TTS provider for speech synthesis. Must be a provider ID from the catalog (e.g. `elevenlabs`, `fish-audio`). New providers can be added via the catalog without code changes to call routing.                                      | `elevenlabs`                                                                                             |
 | `services.tts.providers.<id>.*`             | Provider-specific settings block. Each catalog provider has its own settings namespace under `services.tts.providers.<id>`. See voice settings in the desktop/iOS app or run `assistant config list` for available settings per provider. | _(per-provider defaults)_                                                                                |
 
+**Note on STT configuration:** Telephony STT is currently driven by `calls.voice.transcriptionProvider` (Deepgram or Google) via ConversationRelay's built-in transcription. The `services.stt` config block controls STT for non-telephony paths (dictation, voice mode, batch transcription). A future migration will unify telephony STT under `services.stt` — see `docs/internal-reference.md` for the cutover plan.
+
 ## Adjusting settings
 
 ```bash
