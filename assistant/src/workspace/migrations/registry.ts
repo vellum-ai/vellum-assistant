@@ -30,6 +30,7 @@ import { seedPkbAutoinjectMigration } from "./030-seed-pkb-autoinject.js";
 import { dropUserMdMigration } from "./031-drop-user-md.js";
 import { llmLogRetentionZeroToNullMigration } from "./031-llm-log-retention-zero-to-null.js";
 import { ttsProviderUnificationMigration } from "./032-tts-provider-unification.js";
+import { sttServiceExplicitConfigMigration } from "./033-stt-service-explicit-config.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -71,4 +72,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   llmLogRetentionZeroToNullMigration,
   ttsProviderUnificationMigration,
   dropUserMdMigration,
+  sttServiceExplicitConfigMigration,
 ];
