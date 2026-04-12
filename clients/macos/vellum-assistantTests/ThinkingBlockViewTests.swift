@@ -1,3 +1,5 @@
+import AppKit
+import SwiftUI
 import XCTest
 @testable import VellumAssistantLib
 
@@ -15,8 +17,28 @@ final class ThinkingBlockViewTests: XCTestCase {
         """)
     }
 
-    /// Smoke test that `ThinkingBlockView.body` can be evaluated against
-    /// the store-backed expansion without crashing.
+    /// Host a SwiftUI view in an off-screen window so `onAppear` and friends
+    /// actually fire. Evaluating `view.body` alone constructs the value but
+    /// does not drive the SwiftUI lifecycle.
+    private func hostAndDriveLifecycle<V: View>(_ view: V) {
+        let hosting = NSHostingController(rootView: view)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = hosting
+        window.orderFrontRegardless()
+        hosting.view.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        window.orderOut(nil)
+        window.contentViewController = nil
+    }
+
+    /// Smoke test that `ThinkingBlockView` renders end-to-end against the
+    /// store-backed expansion without crashing, with the store injected via
+    /// the environment so the view reads the toggled state.
     func testThinkingBlockBodyEvaluatesWithStoreInjection() {
         let store = ThinkingBlockExpansionStore()
         store.toggle("test-key")
@@ -26,8 +48,9 @@ final class ThinkingBlockViewTests: XCTestCase {
             isStreaming: false,
             expansionKey: "test-key"
         )
+        .environment(\.thinkingBlockExpansionStore, store)
 
-        _ = view.body
+        hostAndDriveLifecycle(view)
     }
 
     /// Regression test for expanded thinking blocks going blank at the end of
@@ -38,8 +61,12 @@ final class ThinkingBlockViewTests: XCTestCase {
     /// is empty. Neither `onChange(of: content)` nor `onChange(of: isExpanded)`
     /// fires on initial values, so the block rendered blank until the user
     /// manually toggled it. `.onAppear` now seeds the cache in that case.
-    /// This test evaluates the body of an already-expanded view with
-    /// non-trivial markdown content to exercise the seeding path.
+    ///
+    /// Must host the view in an `NSHostingController` attached to a window
+    /// so SwiftUI actually runs `.onAppear` — evaluating `view.body` alone
+    /// does not drive the lifecycle. The expansion store is injected via
+    /// `.environment` so the view reads the toggled (expanded) state rather
+    /// than the environment default.
     func testThinkingBlockExpandedOnAppearSeedsSegmentCache() {
         let store = ThinkingBlockExpansionStore()
         store.toggle("turn-end-key")
@@ -57,7 +84,8 @@ final class ThinkingBlockViewTests: XCTestCase {
             isStreaming: false,
             expansionKey: "turn-end-key"
         )
+        .environment(\.thinkingBlockExpansionStore, store)
 
-        _ = view.body
+        hostAndDriveLifecycle(view)
     }
 }
