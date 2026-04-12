@@ -2164,10 +2164,9 @@ jobs:
             echo "Release $VERSION_TAG already exists on ${{ github.repository }}, skipping"
           fi
 
-          # Mirror release to the legacy public updates repo so that older
-          # Sparkle clients still pointing at vellum-ai/velly can pick up new
-          # versions.  This block can be removed once all clients have been
-          # updated to point at vellum-ai/vellum-assistant.
+          # TODO(v1.0.0): Delete this block. It mirrors releases to the legacy
+          # vellum-ai/velly repo so that older Sparkle clients still pointing
+          # at velly can pick up new versions.
           LEGACY_REPO="vellum-ai/velly"
           if ! gh release view "$VERSION_TAG" --repo "$LEGACY_REPO" &>/dev/null; then
             gh release create "$VERSION_TAG" \
