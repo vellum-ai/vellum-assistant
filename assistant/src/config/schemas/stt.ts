@@ -9,28 +9,16 @@ export const VALID_STT_PROVIDERS = ["openai-whisper"] as const;
 /**
  * Per-provider config schemas nested under `services.stt.providers.<id>`.
  *
- * Each provider's schema is the full provider-specific config (model,
- * language, tuning params, etc.). New providers add sibling schemas
- * without restructuring.
+ * Each provider's schema is the full provider-specific config (tuning
+ * params, etc.). New providers add sibling schemas without restructuring.
+ *
+ * NOTE: `model` and `language` were intentionally removed — the runtime
+ * hardcodes `"whisper-1"` and auto-detect, so exposing config fields for
+ * them was misleading (values were silently ignored). Re-add them here
+ * once the provider adapter actually consumes them.
  */
 export const SttOpenAiWhisperProviderConfigSchema = z
-  .object({
-    model: z
-      .string({
-        error: "services.stt.providers.openai-whisper.model must be a string",
-      })
-      .default("whisper-1")
-      .describe("OpenAI Whisper model ID for speech-to-text"),
-    language: z
-      .string({
-        error:
-          "services.stt.providers.openai-whisper.language must be a string",
-      })
-      .default("")
-      .describe(
-        "ISO-639-1 language hint for transcription (leave empty for auto-detect)",
-      ),
-  })
+  .object({})
   .describe("OpenAI Whisper provider configuration under services.stt");
 
 export type SttOpenAiWhisperProviderConfig = z.infer<

@@ -56,7 +56,7 @@ function buildConfig(overrides: {
         mode: "your-own",
         provider: overrides.provider ?? "openai-whisper",
         providers: {
-          "openai-whisper": { model: "whisper-1", language: "" },
+          "openai-whisper": {},
         },
       },
     },
