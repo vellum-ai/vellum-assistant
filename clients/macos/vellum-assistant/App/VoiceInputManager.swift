@@ -1017,7 +1017,7 @@ final class VoiceInputManager {
     /// returned as a fallback.
     ///
     /// Static so it can be called from a detached context without capturing `self`.
-    private static func resolveTranscription(
+    static func resolveTranscription(
         nativeText: String,
         accumulatedBuffers: [AVAudioPCMBuffer],
         audioFormat: AVAudioFormat?,
@@ -1062,7 +1062,7 @@ final class VoiceInputManager {
     /// Converts float PCM samples to 16-bit signed integers (the standard WAV
     /// PCM format expected by most STT providers). Handles multi-channel audio
     /// by interleaving samples.
-    private static func encodeBuffersToWav(_ buffers: [AVAudioPCMBuffer], format: AVAudioFormat) -> Data {
+    static func encodeBuffersToWav(_ buffers: [AVAudioPCMBuffer], format: AVAudioFormat) -> Data {
         var pcmData = Data()
         for buffer in buffers {
             guard let channelData = buffer.floatChannelData else { continue }

@@ -593,4 +593,89 @@ final class VoiceInputManagerTests: XCTestCase {
         XCTAssertEqual(sent?.transcription, "test injection",
                        "Without audio buffers, native text should be used even with custom STT client")
     }
+
+    // MARK: - resolveTranscription with Synthetic Audio Buffers
+
+    func testServiceTextWinsWhenAudioBuffersPresent() async {
+        // Create a synthetic audio format and buffer to simulate captured audio.
+        let format = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 160)!
+        buffer.frameLength = 160
+        if let channelData = buffer.floatChannelData {
+            for i in 0..<Int(buffer.frameLength) {
+                channelData[0][i] = Float(i) / Float(buffer.frameLength)
+            }
+        }
+
+        // Configure the mock STT client to return a successful service transcription.
+        sttClient.stubbedResult = .success(text: "service transcription")
+
+        let result = await VoiceInputManager.resolveTranscription(
+            nativeText: "native text",
+            accumulatedBuffers: [buffer],
+            audioFormat: format,
+            sttClient: sttClient
+        )
+
+        XCTAssertEqual(result, "service transcription",
+                       "Service transcription should win over native text when audio buffers are present")
+        XCTAssertEqual(sttClient.transcribeCallCount, 1,
+                       "STT service should be called exactly once")
+    }
+
+    func testServiceEmptyTextFallsBackToNativeWithBuffers() async {
+        // Create a synthetic audio format and buffer.
+        let format = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 160)!
+        buffer.frameLength = 160
+        if let channelData = buffer.floatChannelData {
+            for i in 0..<Int(buffer.frameLength) {
+                channelData[0][i] = Float(i) / Float(buffer.frameLength)
+            }
+        }
+
+        // Configure STT client to return empty text — should fall back to native.
+        sttClient.stubbedResult = .success(text: "")
+
+        let result = await VoiceInputManager.resolveTranscription(
+            nativeText: "native text",
+            accumulatedBuffers: [buffer],
+            audioFormat: format,
+            sttClient: sttClient
+        )
+
+        XCTAssertEqual(result, "native text",
+                       "Native text should be used when STT service returns empty text")
+        XCTAssertEqual(sttClient.transcribeCallCount, 1,
+                       "STT service should still be called even when it returns empty")
+    }
+
+    func testEncodeBuffersToWavProducesValidWav() {
+        // Create a synthetic audio format and buffer.
+        let format = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 160)!
+        buffer.frameLength = 160
+        if let channelData = buffer.floatChannelData {
+            for i in 0..<Int(buffer.frameLength) {
+                channelData[0][i] = Float(i) / Float(buffer.frameLength)
+            }
+        }
+
+        let wavData = VoiceInputManager.encodeBuffersToWav([buffer], format: format)
+
+        // WAV data should be non-empty.
+        XCTAssertFalse(wavData.isEmpty, "WAV data should not be empty")
+
+        // WAV files start with the RIFF header: bytes 0x52, 0x49, 0x46, 0x46 ("RIFF").
+        XCTAssertGreaterThanOrEqual(wavData.count, 4, "WAV data should be at least 4 bytes")
+        let riffHeader = Array(wavData.prefix(4))
+        XCTAssertEqual(riffHeader, [0x52, 0x49, 0x46, 0x46],
+                       "WAV data should start with RIFF header bytes")
+
+        // Verify the WAVE marker at offset 8.
+        XCTAssertGreaterThanOrEqual(wavData.count, 12, "WAV data should be at least 12 bytes")
+        let waveMarker = Array(wavData[8..<12])
+        XCTAssertEqual(waveMarker, [0x57, 0x41, 0x56, 0x45],
+                       "WAV data should contain WAVE marker at offset 8")
+    }
 }
