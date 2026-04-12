@@ -3,16 +3,18 @@
  *
  * Each migration is guarded by the `one_time_migrations` table: once a
  * migration key is recorded, it never runs again. Migrations execute
- * sequentially in filename order (m0001, m0002, …).
+ * sequentially in the order they are registered in the MIGRATIONS array.
  *
- * Each migration file exports:
- *   up()   — run the migration forward; return "done" or "skip"
- *   down() — reverse the migration; return "done" or "skip"
+ * To add a data migration:
+ *   1. Create `m<NNNN>_<name>.ts` in this folder exporting up() and down().
+ *   2. Import it here and append `{ key: "m<NNNN>_<name>", mod }` to MIGRATIONS.
+ *
+ * Migrations are registered statically (not discovered via readdirSync) so
+ * this module works inside a Bun-compiled binary, where `import.meta.dir`
+ * resolves to the virtual filesystem and `readdirSync` throws ENOENT.
  */
 
 import type { Database } from "bun:sqlite";
-import { readdirSync } from "node:fs";
-import { join } from "node:path";
 
 import { getLogger } from "../../logger.js";
 
@@ -25,21 +27,7 @@ type MigrationModule = {
   down: () => MigrationResult;
 };
 
-function discoverMigrations(): { key: string; mod: MigrationModule }[] {
-  const dir = import.meta.dir;
-  const files = readdirSync(dir)
-    .filter((f) => /^m\d+.*\.(ts|js)$/.test(f) && !f.endsWith(".d.ts"))
-    .sort();
-
-  return files.map((f) => {
-    const key = f.replace(/\.(ts|js)$/, "");
-    // Using require() for synchronous loading — these run at startup before
-    // any requests are served, so async is unnecessary.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require(join(dir, f)) as MigrationModule;
-    return { key, mod };
-  });
-}
+const MIGRATIONS: { key: string; mod: MigrationModule }[] = [];
 
 /**
  * Execute any one-time data migrations that haven't run yet.
@@ -47,13 +35,11 @@ function discoverMigrations(): { key: string; mod: MigrationModule }[] {
  * table exists.
  */
 export function runDataMigrations(db: Database): void {
-  const migrations = discoverMigrations();
-
   const insert = db.prepare(
     "INSERT OR IGNORE INTO one_time_migrations (key, ran_at) VALUES (?, ?)",
   );
 
-  for (const { key, mod } of migrations) {
+  for (const { key, mod } of MIGRATIONS) {
     const row = db
       .prepare("SELECT 1 FROM one_time_migrations WHERE key = ?")
       .get(key) as Record<string, unknown> | null;
@@ -77,7 +63,6 @@ export function runDataMigrations(db: Database): void {
         { err, key },
         "Data migration failed — will retry on next startup",
       );
-      // Don't insert the key so it retries next time
     }
   }
 }
