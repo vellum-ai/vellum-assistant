@@ -82,6 +82,16 @@ export function getWorkspaceDirOverride(): string | undefined {
 }
 
 /**
+ * VELLUM_BACKUP_DIR — string, default: undefined
+ * Overrides the default backup root directory (~/.vellum/backups/).
+ * Used in containerized deployments where the backup directory must be
+ * on a persistent volume.
+ */
+export function getBackupDirOverride(): string | undefined {
+  return str("VELLUM_BACKUP_DIR");
+}
+
+/**
  * VELLUM_BACKUP_KEY_PATH — string, default: undefined
  * Overrides the default backup encryption key path (~/.vellum/protected/backup.key).
  * Used in containerized deployments where the key must be on a persistent volume.
@@ -161,6 +171,7 @@ export function getProfilerMinFreeMb(): number | undefined {
 const KNOWN_VELLUM_VARS = new Set([
   "VELLUM_ASSISTANT_NAME",
   "VELLUM_AWS_ROLE_ARN",
+  "VELLUM_BACKUP_DIR",
   "VELLUM_BACKUP_KEY_PATH",
   "VELLUM_CLOUD",
   "VELLUM_CUSTOM_QR_CODE_PATH",
