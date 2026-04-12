@@ -6471,6 +6471,8 @@ paths:
                               type: number
                             publishedAt:
                               type: string
+                            version:
+                              type: string
                           required:
                             - id
                             - name
@@ -6483,6 +6485,7 @@ paths:
                             - stars
                             - installs
                             - reports
+                            - version
                           additionalProperties: false
                         - type: object
                           properties:
@@ -7262,6 +7265,8 @@ paths:
                               type: number
                             publishedAt:
                               type: string
+                            version:
+                              type: string
                           required:
                             - id
                             - name
@@ -7274,6 +7279,7 @@ paths:
                             - stars
                             - installs
                             - reports
+                            - version
                           additionalProperties: false
                         - type: object
                           properties:

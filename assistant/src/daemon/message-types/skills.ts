@@ -98,6 +98,7 @@ interface ClawhubSlimSkill extends SlimSkillBase {
   installs: number;
   reports: number;
   publishedAt?: string;
+  version: string;
 }
 
 interface SkillsshSlimSkill extends SlimSkillBase {

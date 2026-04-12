@@ -221,6 +221,11 @@ describe("searchSkills (unified)", () => {
     expect(result.skills[1]!.id).toBe("deploy");
     expect(result.skills[1]!.origin).toBe("clawhub");
     expect(result.skills[1]!.kind).toBe("catalog");
+    // Verify version is mapped through from clawhub search results
+    const clawhubSkill = result.skills[1]!;
+    if (clawhubSkill.origin === "clawhub") {
+      expect(clawhubSkill.version).toBe("1.0.0");
+    }
     expect(result.skills[2]!.id).toBe("vercel-labs/skills/react-best");
     expect(result.skills[2]!.origin).toBe("skillssh");
     expect(result.skills[2]!.kind).toBe("catalog");

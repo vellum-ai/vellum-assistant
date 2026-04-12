@@ -60,6 +60,7 @@ const slimSkillSchema = z.discriminatedUnion("origin", [
     installs: z.number(),
     reports: z.number(),
     publishedAt: z.string().optional(),
+    version: z.string(),
   }),
   z.object({
     ...slimSkillBase,

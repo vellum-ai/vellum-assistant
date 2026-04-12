@@ -206,6 +206,7 @@ export function createClawhubProvider(): SkillFileProvider {
         publishedAt: data.updatedAt
           ? new Date(data.updatedAt).toISOString()
           : undefined,
+        version: data.latestVersion?.version ?? "",
       };
     },
   };
