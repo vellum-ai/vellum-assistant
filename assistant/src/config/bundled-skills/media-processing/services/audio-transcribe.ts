@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { resolveBatchTranscriber } from "../../../../providers/speech-to-text/resolve.js";
+import type { BatchTranscriber } from "../../../../stt/types.js";
 import { spawnWithTimeout } from "../../../../util/spawn.js";
 
 const FFMPEG_TIMEOUT_MS = 60_000;
@@ -20,7 +21,10 @@ const STT_REQUEST_TIMEOUT_MS = 120_000;
  * Transcribe the audio from a specific time range of a video file.
  * Returns the transcript text, or empty string on failure (graceful degradation).
  *
- * Uses the daemon's configured STT service via `resolveBatchTranscriber()`.
+ * Accepts an optional pre-resolved `BatchTranscriber` to avoid repeated
+ * credential lookups when transcribing multiple segments in a loop. When
+ * omitted, resolves the transcriber on demand via `resolveBatchTranscriber()`.
+ *
  * Returns empty string when no provider is configured, the provider call
  * fails, or ffmpeg extraction fails — this preserves preprocess resilience.
  */
@@ -28,13 +32,14 @@ export async function transcribeSegmentAudio(
   videoPath: string,
   startSeconds: number,
   durationSeconds: number,
+  transcriber?: BatchTranscriber | null,
 ): Promise<string> {
   const tmpWav = join(tmpdir(), `vellum-seg-audio-${randomUUID()}.wav`);
 
   try {
-    // Resolve the configured STT provider — return empty if none available
-    const transcriber = await resolveBatchTranscriber();
-    if (!transcriber) {
+    // Use the provided transcriber or resolve on demand
+    const resolved = transcriber ?? (await resolveBatchTranscriber());
+    if (!resolved) {
       return "";
     }
 
@@ -67,7 +72,7 @@ export async function transcribeSegmentAudio(
 
     // Send extracted WAV through the provider-agnostic transcriber
     const audioBuffer = await readFile(tmpWav);
-    const result = await transcriber.transcribe({
+    const result = await resolved.transcribe({
       audio: audioBuffer,
       mimeType: "audio/wav",
       signal: AbortSignal.timeout(STT_REQUEST_TIMEOUT_MS),
