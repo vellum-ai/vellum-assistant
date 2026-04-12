@@ -18,11 +18,20 @@ protocol AssistantManagementClient: AnyObject {
     /// Retire (stop and clean up) a running assistant.
     ///
     /// Implementations should stop the runtime, remove instance data, and
-    /// clean up the lockfile entry.
+    /// clean up the lockfile entry. On failure, the client handles cleanup
+    /// automatically (e.g. removing the lockfile entry) so callers only
+    /// see errors that require UI intervention (Force Remove dialog).
     ///
     /// - Parameter name: The assistant ID to retire. When `nil`, the client
     ///   loads the active assistant ID from the lockfile automatically.
     func retire(name: String?) async throws
+}
+
+extension AssistantManagementClient {
+    /// Convenience: retire the active assistant (loads ID from lockfile).
+    func retire() async throws {
+        try await retire(name: nil)
+    }
 }
 
 /// Errors specific to `AssistantManagementClient` convenience methods.

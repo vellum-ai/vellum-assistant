@@ -306,18 +306,10 @@ final class VellumCli: AssistantManagementClient {
             log.error("CLI retire failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
             log.warning("[audit] CLI done: retire exit=\(status) duration=\(retireMs)ms")
 
-            // For managed (cloud-hosted) assistants the cloud instance may be
-            // partially or fully torn down even when the CLI reports failure.
-            // Clean up local state automatically so the caller doesn't strand
-            // the user on an "unreachable" error screen (LUM-755).
-            let entry = LockfileAssistant.loadByName(resolvedName)
-            if entry?.isManaged == true {
-                log.warning("Managed assistant — automatically cleaning up local state after retire failure")
-                await stop(name: resolvedName)
-                LockfileAssistant.removeEntry(assistantId: resolvedName)
-                return
-            }
-
+            // Clean up local state automatically on retire failure so the
+            // caller doesn't strand the user on an "unreachable" error screen
+            // (LUM-755). This applies regardless of cloud type.
+            LockfileAssistant.removeEntry(assistantId: resolvedName)
             throw CLIError.executionFailed(stderr)
         }
 
