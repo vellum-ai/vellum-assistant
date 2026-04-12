@@ -3,7 +3,7 @@ import os
 
 private let flagPrefix = "VELLUM_FLAG_"
 private let userDefaultsPrefix = "MacOSFeatureFlag."
-private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "FeatureFlags")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "FeatureFlags")
 
 /// Represents the resolved state of a single macOS feature flag for UI display.
 public struct MacOSFeatureFlagState: Identifiable {
