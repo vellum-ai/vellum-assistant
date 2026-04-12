@@ -1887,73 +1887,78 @@ export async function handleSendMessage(
 
   if (slashResult.kind === "compact") {
     conversation.processing = true;
-    let cleanupDeferred = false;
-    try {
-      const provenance = provenanceFromTrustContext(conversation.trustContext);
-      const channelMeta = {
-        ...provenance,
-        userMessageChannel: sourceChannel,
-        assistantMessageChannel: sourceChannel,
-        userMessageInterface: sourceInterface,
-        assistantMessageInterface: sourceInterface,
-      };
-      const cleanMsg = createUserMessage(rawContent, attachments);
-      const persisted = await addMessage(
-        mapping.conversationId,
-        "user",
-        JSON.stringify(cleanMsg.content),
-        channelMeta,
-      );
-      conversation.getMessages().push(cleanMsg);
+    const provenance = provenanceFromTrustContext(conversation.trustContext);
+    const channelMeta = {
+      ...provenance,
+      userMessageChannel: sourceChannel,
+      assistantMessageChannel: sourceChannel,
+      userMessageInterface: sourceInterface,
+      assistantMessageInterface: sourceInterface,
+    };
+    const cleanMsg = createUserMessage(rawContent, attachments);
+    const persisted = await addMessage(
+      mapping.conversationId,
+      "user",
+      JSON.stringify(cleanMsg.content),
+      channelMeta,
+    );
+    conversation.getMessages().push(cleanMsg);
 
-      conversation.emitActivityState(
-        "thinking",
-        "context_compacting",
-        "assistant_turn",
-      );
-      const result = await conversation.forceCompact();
-      const responseText = formatCompactResult(result);
+    const conversationId = mapping.conversationId;
 
-      const assistantMsg = createAssistantMessage(responseText);
-      await addMessage(
-        mapping.conversationId,
-        "assistant",
-        JSON.stringify(assistantMsg.content),
-        channelMeta,
-      );
-      conversation.getMessages().push(assistantMsg);
+    // Fire-and-forget: return 202 immediately, run compaction async.
+    // forceCompact() makes an LLM call that can exceed the client's
+    // HTTP timeout on large contexts, causing a false "Failed to send".
+    (async () => {
+      try {
+        conversation.emitActivityState(
+          "thinking",
+          "context_compacting",
+          "assistant_turn",
+        );
+        const result = await conversation.forceCompact();
+        const responseText = formatCompactResult(result);
 
-      const response = Response.json(
-        {
-          accepted: true,
-          messageId: persisted.id,
-          conversationId: mapping.conversationId,
-        },
-        { status: 202 },
-      );
-
-      const conversationId = mapping.conversationId;
-      setTimeout(() => {
-        onEvent({ type: "assistant_text_delta", text: responseText });
-        onEvent({
-          type: "message_complete",
+        const assistantMsg = createAssistantMessage(responseText);
+        await addMessage(
           conversationId,
+          "assistant",
+          JSON.stringify(assistantMsg.content),
+          channelMeta,
+        );
+        conversation.getMessages().push(assistantMsg);
+
+        onEvent({ type: "assistant_text_delta", text: responseText });
+        onEvent({ type: "message_complete", conversationId });
+      } catch (err) {
+        log.error(
+          { err, conversationId },
+          "Compact command failed",
+        );
+        onEvent({
+          type: "conversation_error",
+          conversationId,
+          code: "UNKNOWN",
+          userMessage: `Compaction failed: ${err instanceof Error ? err.message : String(err)}`,
+          retryable: true,
         });
+      } finally {
         conversation.processing = false;
         silentlyWithLog(
           conversation.drainQueue(),
           "compact-command queue drain",
         );
-      }, 0);
-
-      cleanupDeferred = true;
-      return response;
-    } finally {
-      if (!cleanupDeferred && conversation.processing) {
-        conversation.processing = false;
-        silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
       }
-    }
+    })();
+
+    return Response.json(
+      {
+        accepted: true,
+        messageId: persisted.id,
+        conversationId,
+      },
+      { status: 202 },
+    );
   }
 
   const resolvedContent = slashResult.content;
