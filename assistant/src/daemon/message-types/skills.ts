@@ -184,6 +184,7 @@ interface SkillsshSkillDetail extends SkillDetailBase {
   slug: string;
   sourceRepo: string;
   installs: number;
+  audit?: Record<string, PartnerAudit>;
 }
 
 interface CustomSkillDetail extends SkillDetailBase {

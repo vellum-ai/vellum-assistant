@@ -124,6 +124,7 @@ const skillDetailSchema = z.discriminatedUnion("origin", [
     slug: z.string(),
     sourceRepo: z.string(),
     installs: z.number(),
+    audit: z.record(z.string(), partnerAuditSchema).optional(),
   }),
   z.object({ ...slimSkillBase, origin: z.literal("custom") }),
 ]);
