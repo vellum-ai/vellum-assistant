@@ -103,6 +103,7 @@ extension AppDelegate {
         registerCmdKMonitor()
         registerNewChatMonitor()
         registerCurrentConversationMonitor()
+        registerMarkConversationUnreadMonitor()
         registerPopOutMonitor()
 
         globalHotkeyObserver = Publishers.Merge4(
@@ -122,6 +123,7 @@ extension AppDelegate {
             self?.registerSidebarToggleMonitor()
             self?.registerNewChatMonitor()
             self?.registerCurrentConversationMonitor()
+            self?.registerMarkConversationUnreadMonitor()
             self?.registerPopOutMonitor()
             self?.updateNewChatMenuItemShortcut()
             self?.updateCurrentConversationMenuItemShortcut()
@@ -214,6 +216,10 @@ extension AppDelegate {
         if let monitor = currentConversationLocalMonitor {
             NSEvent.removeMonitor(monitor)
             currentConversationLocalMonitor = nil
+        }
+        if let monitor = markConversationUnreadLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            markConversationUnreadLocalMonitor = nil
         }
         if let monitor = navLocalMonitor {
             NSEvent.removeMonitor(monitor)
@@ -312,6 +318,38 @@ extension AppDelegate {
             return nil
         }
         currentConversationLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+    }
+
+    /// Registers a local event monitor to mark the active conversation as unread
+    /// when the configured shortcut (default: Cmd+Shift+U) is pressed. The shortcut
+    /// is read dynamically from UserDefaults so it can be reconfigured without
+    /// restarting. Using a persistent local monitor keeps the shortcut active
+    /// regardless of whether the SwiftUI-managed File menu has been opened.
+    func registerMarkConversationUnreadMonitor() {
+        if let existing = markConversationUnreadLocalMonitor {
+            NSEvent.removeMonitor(existing)
+            markConversationUnreadLocalMonitor = nil
+        }
+
+        let shortcut = UserDefaults.standard.string(forKey: "markConversationUnreadShortcut") ?? "cmd+shift+u"
+        guard !shortcut.isEmpty else { return }
+
+        let (targetModifiers, targetKey) = ShortcutHelper.parseShortcut(shortcut)
+
+        let handler: (NSEvent) -> NSEvent? = { [weak self] event in
+            guard self?.isBootstrapping != true,
+                  self?.mainWindow?.isVisible == true else { return event }
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.numericPad)
+            guard mods == targetModifiers,
+                  event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else {
+                return event
+            }
+            Task { @MainActor in
+                self?.markCurrentConversationUnread()
+            }
+            return nil
+        }
+        markConversationUnreadLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
     }
 
     /// Registers Cmd+K as a local shortcut to open the command palette.

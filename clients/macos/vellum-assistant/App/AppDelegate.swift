@@ -65,6 +65,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var cmdKLocalMonitor: Any?
     var cmdNLocalMonitor: Any?
     var currentConversationLocalMonitor: Any?
+    var markConversationUnreadLocalMonitor: Any?
     var newChatMenuItem: NSMenuItem?
     var currentConversationMenuItem: NSMenuItem?
     var markConversationUnreadMenuItem: NSMenuItem?
