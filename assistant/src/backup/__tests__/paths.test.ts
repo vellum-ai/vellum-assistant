@@ -118,8 +118,14 @@ describe("resolveOffsiteDestinations", () => {
 });
 
 describe("getBackupKeyPath", () => {
+  const ORIGINAL_KEY_PATH = process.env.VELLUM_BACKUP_KEY_PATH;
+
   afterEach(() => {
-    delete process.env.VELLUM_BACKUP_KEY_PATH;
+    if (ORIGINAL_KEY_PATH === undefined) {
+      delete process.env.VELLUM_BACKUP_KEY_PATH;
+    } else {
+      process.env.VELLUM_BACKUP_KEY_PATH = ORIGINAL_KEY_PATH;
+    }
   });
 
   test("ends with /protected/backup.key when env var is unset", () => {
