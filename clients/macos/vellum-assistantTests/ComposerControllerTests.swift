@@ -648,6 +648,54 @@ final class ComposerControllerTests: XCTestCase {
         XCTAssertFalse(controller.showEmojiMenu)
     }
 
+    // MARK: - Explicit menu close (click selection path)
+
+    @MainActor
+    func testCloseSlashMenuClosesAndResetsIndex() {
+        let controller = makeController()
+        controller.textChanged("/")
+        controller.performMenuRefresh()
+        controller.handleSlashNavigation(.down)
+        XCTAssertTrue(controller.showSlashMenu)
+        XCTAssertEqual(controller.slashSelectedIndex, 1)
+
+        controller.closeSlashMenu()
+
+        XCTAssertFalse(controller.showSlashMenu, "closeSlashMenu should hide the slash popup")
+        XCTAssertEqual(controller.slashSelectedIndex, 0, "closeSlashMenu should reset selection")
+    }
+
+    @MainActor
+    func testCloseEmojiMenuClosesAndResetsIndex() {
+        let controller = makeController()
+        let text = ":thumbs"
+        controller.textChanged(text)
+        controller.cursorMoved(to: text.utf16.count)
+        controller.performMenuRefresh()
+        controller.handleEmojiNavigation(.down)
+        XCTAssertTrue(controller.showEmojiMenu)
+        XCTAssertEqual(controller.emojiSelectedIndex, 1)
+
+        controller.closeEmojiMenu()
+
+        XCTAssertFalse(controller.showEmojiMenu, "closeEmojiMenu should hide the emoji popup")
+        XCTAssertEqual(controller.emojiSelectedIndex, 0, "closeEmojiMenu should reset selection")
+    }
+
+    @MainActor
+    func testCloseEmojiMenuDoesNotSuppressReopen() {
+        let controller = makeController()
+        let text = ":thumbs"
+        controller.textChanged(text)
+        controller.cursorMoved(to: text.utf16.count)
+        controller.performMenuRefresh()
+
+        controller.closeEmojiMenu()
+
+        XCTAssertFalse(controller.suppressEmojiReopen,
+                       "Click-driven close should not suppress reopen — user may immediately retrigger")
+    }
+
     // MARK: - Menu refresh supersession
 
     @MainActor
