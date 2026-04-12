@@ -19,7 +19,7 @@ import { getPublicBaseUrl } from "../inbound/public-ingress-urls.js";
 import type { TtsProvider } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
 import { createStreamingEntry } from "./audio-store.js";
-import type { RelayConnection } from "./relay-server.js";
+import type { CallTransport } from "./call-transport.js";
 import { resolveCallTtsProvider } from "./resolve-call-tts-provider.js";
 
 const log = getLogger("call-speech-output");
@@ -42,7 +42,7 @@ const log = getLogger("call-speech-output");
  * fire-and-forget with `void speakSystemPrompt(...)`.
  */
 export function speakSystemPrompt(
-  relay: RelayConnection,
+  relay: CallTransport,
   text: string,
 ): Promise<void> {
   const { provider, useSynthesizedPath, audioFormat } =
@@ -68,7 +68,7 @@ export function speakSystemPrompt(
  * caller always hears something.
  */
 async function synthesizeAndPlay(
-  relay: RelayConnection,
+  relay: CallTransport,
   provider: TtsProvider,
   text: string,
   format: "mp3" | "wav" | "opus",
