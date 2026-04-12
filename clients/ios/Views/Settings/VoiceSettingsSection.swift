@@ -2,33 +2,12 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// TTS provider options for the unified global provider selector.
-/// The selected provider is used for all speech features — voice conversations
-/// and read-aloud. Provider-specific configuration (API keys, voice IDs)
-/// is managed through the assistant's settings tools.
-enum TTSProvider: String, CaseIterable {
-    case elevenlabs = "elevenlabs"
-    case fishAudio = "fish-audio"
-
-    var displayName: String {
-        switch self {
-        case .elevenlabs: return "ElevenLabs"
-        case .fishAudio: return "Fish Audio"
-        }
-    }
-
-    var footerText: String {
-        switch self {
-        case .elevenlabs:
-            return "ElevenLabs provides high-quality voice synthesis. Requires an API key — configure via the assistant's voice settings on your Mac."
-        case .fishAudio:
-            return "Fish Audio provides natural-sounding voice synthesis with custom voice cloning. Requires an API key and voice reference ID — configure via the assistant's voice settings on your Mac."
-        }
-    }
-}
-
 /// Voice mode settings — listening timeout, TTS provider, and silence detection
 /// threshold. These mirror the equivalent options available on macOS.
+///
+/// The TTS provider picker is registry-driven: providers are loaded from
+/// the shared ``TTSProviderRegistry`` so that new providers can be surfaced
+/// without adding new enum cases in iOS settings code.
 struct VoiceSettingsSection: View {
     /// Seconds of silence that trigger end-of-speech detection. iOS SFSpeechRecognizer
     /// does not have a built-in silence threshold API, so this value controls how long
@@ -41,11 +20,18 @@ struct VoiceSettingsSection: View {
     /// Range 5 – 60 s.
     @AppStorage(UserDefaultsKeys.voiceListeningTimeout) private var listeningTimeout: Double = 30.0
 
-    /// Global TTS provider used for all speech features.
-    @AppStorage(UserDefaultsKeys.voiceTTSProvider) private var ttsProviderRaw: String = TTSProvider.elevenlabs.rawValue
+    /// Global TTS provider used for all speech features. Persisted as the
+    /// provider's string identifier (e.g. `"elevenlabs"`, `"fish-audio"`).
+    @AppStorage(UserDefaultsKeys.voiceTTSProvider) private var ttsProviderRaw: String = "elevenlabs"
 
-    private var ttsProvider: TTSProvider {
-        TTSProvider(rawValue: ttsProviderRaw) ?? .elevenlabs
+    /// Registry loaded once from the bundled catalog JSON.
+    private let registry = loadTTSProviderRegistry()
+
+    /// Resolved catalog entry for the currently selected provider.
+    /// Falls back to the first provider in the registry if the persisted
+    /// value does not match any known entry.
+    private var selectedProvider: TTSProviderCatalogEntry? {
+        registry.provider(withId: ttsProviderRaw) ?? registry.providers.first
     }
 
     var body: some View {
@@ -94,15 +80,17 @@ struct VoiceSettingsSection: View {
 
             Section {
                 Picker("TTS Provider", selection: $ttsProviderRaw) {
-                    ForEach(TTSProvider.allCases, id: \.rawValue) { provider in
-                        Text(provider.displayName).tag(provider.rawValue)
+                    ForEach(registry.providers, id: \.id) { provider in
+                        Text(provider.displayName).tag(provider.id)
                     }
                 }
                 .pickerStyle(.navigationLink)
             } header: {
                 Text("Text-to-Speech")
             } footer: {
-                Text(ttsProvider.footerText)
+                if let provider = selectedProvider {
+                    Text(provider.subtitle)
+                }
             }
         }
         .navigationTitle("Voice")
