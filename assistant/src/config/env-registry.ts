@@ -81,6 +81,16 @@ export function getWorkspaceDirOverride(): string | undefined {
   return str("VELLUM_WORKSPACE_DIR");
 }
 
+/**
+ * VELLUM_BACKUP_DIR — string, default: undefined
+ * Overrides the default backup root directory (~/.vellum/backups/).
+ * Used in containerized deployments where the backup directory must be
+ * on a persistent volume.
+ */
+export function getBackupDirOverride(): string | undefined {
+  return str("VELLUM_BACKUP_DIR");
+}
+
 // ── Profiler env vars ───────────────────────────────────────────────────
 // These are injected by the platform when running a managed assistant in
 // profiler mode. The runtime uses them to locate, scope, and budget-limit
@@ -152,6 +162,7 @@ export function getProfilerMinFreeMb(): number | undefined {
 const KNOWN_VELLUM_VARS = new Set([
   "VELLUM_ASSISTANT_NAME",
   "VELLUM_AWS_ROLE_ARN",
+  "VELLUM_BACKUP_DIR",
   "VELLUM_CLOUD",
   "VELLUM_CUSTOM_QR_CODE_PATH",
   "VELLUM_DAEMON_AUTOSTART",
