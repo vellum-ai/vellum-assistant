@@ -128,6 +128,24 @@ describe("browser skill migration end-state", () => {
     }
   });
 
+  test("every browser tool schema exposes an optional browser_mode property", async () => {
+    const path = await import("node:path");
+    const fs = await import("node:fs");
+    const toolsPath = path.resolve(
+      import.meta.dirname,
+      "../config/bundled-skills/browser/TOOLS.json",
+    );
+    const manifest = JSON.parse(fs.readFileSync(toolsPath, "utf-8"));
+    for (const tool of manifest.tools) {
+      const props = tool.input_schema?.properties ?? {};
+      expect(props.browser_mode).toBeDefined();
+      expect(props.browser_mode.type).toBe("string");
+      // browser_mode must NOT be required
+      const required: string[] = tool.input_schema?.required ?? [];
+      expect(required).not.toContain("browser_mode");
+    }
+  });
+
   // ── 3. Permission defaults align with PR 08/09 ────────────────────
 
   test("skill_load has default allow rule", () => {
