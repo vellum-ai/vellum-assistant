@@ -22,8 +22,10 @@ struct VoiceSettingsView: View {
     private let registry = loadTTSProviderRegistry()
 
     /// The currently selected provider entry from the registry.
+    /// Falls back to the first provider in the registry if the persisted
+    /// value does not match any known entry (matching iOS behavior).
     private var selectedProvider: TTSProviderCatalogEntry? {
-        registry.provider(withId: ttsProviderRaw)
+        registry.provider(withId: ttsProviderRaw) ?? registry.providers.first
     }
 
     private var currentActivator: PTTActivator {
