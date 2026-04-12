@@ -340,6 +340,7 @@ function formatCdpSendDiagnostics(
   if (
     err instanceof CdpError &&
     browserMode !== "auto" &&
+    err.code === "transport_error" &&
     err.attemptDiagnostics
   ) {
     return formatModeSelectionFailure(browserMode, err);
