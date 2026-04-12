@@ -6,6 +6,12 @@
  * for the Twilio ConversationRelay TwiML element. Route code should call
  * {@link buildTwilioRelaySpeechConfig} rather than composing STT attributes
  * inline.
+ *
+ * **Cutover note:** This module is part of the current ConversationRelay
+ * production path. When the telephony STT cutover to `services.stt` is
+ * activated, this module will no longer be needed — the media-stream STT
+ * session resolves provider config server-side. Retain for rollback until
+ * the cutover is confirmed stable.
  */
 
 import type { TelephonySttProfile } from "./stt-profile.js";

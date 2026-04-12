@@ -24,6 +24,12 @@ Detailed reference documentation for the Vellum Assistant platform. For an overv
 - [**Development Workflow**](#development-workflow)
   - [Claude Code Workflow](#claude-code-workflow)
   - [Release Management](#release-management)
+- [**Telephony STT Cutover Runbook**](#telephony-stt-cutover-runbook)
+  - [Background](#background)
+  - [Prerequisites](#prerequisites-1)
+  - [Cutover Steps](#cutover-steps)
+  - [Rollback Plan](#rollback-plan)
+  - [Verification](#verification)
 
 ## Getting Started
 
@@ -619,3 +625,78 @@ The macOS app uses [Sparkle](https://sparkle-project.org/) for automatic updates
 #### First-time installation
 
 New users download the latest DMG from the [releases page](https://github.com/vellum-ai/vellum-assistant/releases/latest), open it, and drag the app to their Applications folder. All subsequent updates are handled automatically by Sparkle.
+
+---
+
+## Telephony STT Cutover Runbook
+
+This runbook documents the exact steps to migrate telephony STT from ConversationRelay-native transcription (`calls.voice.transcriptionProvider`) to `services.stt`-driven transcription via Twilio Media Streams. All preparation work is complete (PRs 1-6 of the `twilio-services-stt-provider-unification` plan). This section exists so the cutover can be executed in a single focused follow-up PR.
+
+### Background
+
+**Current production path:** Voice calls use the Twilio ConversationRelay element in TwiML. STT is handled natively by ConversationRelay using Deepgram or Google, configured via `calls.voice.transcriptionProvider`. The daemon receives transcribed text from the relay — it never sees raw audio.
+
+**Prepared dark path:** A complete alternative path exists using Twilio Media Streams. Raw audio flows from Twilio through the gateway's media-stream WebSocket proxy to the assistant's media-stream server, which uses `services.stt` for transcription. All modules are wired, tested, and registered — but no production TwiML points to them.
+
+### Prerequisites
+
+Before executing the cutover, verify all prerequisites pass:
+
+1. **`services.stt` provider must be telephony-eligible.** Run `evaluateServicesSttReadiness()` from `assistant/src/calls/stt-profile.ts` — it must return `status: "ready"`. This validates that the configured provider is in the catalog with a compatible `telephonyMode` and has valid credentials.
+
+2. **Provider catalog must include a `realtime-ws` telephony provider.** The current catalog only has `openai-whisper` with `telephonyMode: "batch-only"`. A realtime-capable provider entry must be added to `assistant/src/providers/speech-to-text/provider-catalog.ts` before cutover.
+
+3. **Gateway media-stream proxy route must be deployed.** The route in `gateway/src/http/routes/twilio-media-websocket.ts` must be live on the gateway that serves the public ingress URL.
+
+4. **ConversationRelay STT guardrail tests must be updated.** The tests in `__tests__/twilio-routes-twiml.test.ts` and `__tests__/twilio-routes.test.ts` that assert `<ConversationRelay>` and `transcriptionProvider="Deepgram"` must be updated in the cutover PR to assert the new `<Stream>` element and media-stream URL instead.
+
+### Cutover Steps
+
+Execute these changes in a single PR:
+
+1. **Switch TwiML element in `twilio-routes.ts`:**
+   - Replace the `<ConversationRelay>` element in `generateTwiML()` with a `<Connect><Stream>` element.
+   - Point the Stream URL to the media-stream server endpoint (`/v1/calls/media-stream`) instead of the relay server (`/v1/calls/relay`).
+   - Remove ConversationRelay-specific attributes (`transcriptionProvider`, `speechModel`, `interruptSensitivity`, `hints`, `ttsProvider`, `voice`, `welcomeGreeting`) and replace with Stream-appropriate attributes.
+
+2. **Update `buildVoiceWebhookTwiml()` in `twilio-routes.ts`:**
+   - Replace the call to `resolveTelephonySttProfile(cfg.calls.voice)` with a call to `resolveTelephonySttCapability()` or equivalent resolver that reads from `services.stt`.
+   - Remove the `buildTwilioRelaySpeechConfig()` call (no longer needed — STT config is resolved server-side in the media-stream STT session).
+
+3. **Migrate config keys:**
+   - Add a workspace migration that copies `calls.voice.transcriptionProvider` and `calls.voice.speechModel` values to the equivalent `services.stt` settings (if not already configured).
+   - Mark `calls.voice.transcriptionProvider` and `calls.voice.speechModel` as deprecated in the config schema (keep them readable for rollback).
+
+4. **Update guardrail tests:**
+   - Update `__tests__/twilio-routes-twiml.test.ts` ConversationRelay guardrails to assert `<Stream>` instead.
+   - Update `__tests__/twilio-routes.test.ts` integration guardrails to verify TwiML uses media-stream URL.
+
+5. **Remove legacy code (deferred):**
+   - `calls.voice.transcriptionProvider` and `calls.voice.speechModel` config keys can be removed in a follow-up cleanup PR after the cutover is stable.
+   - `twilio-relay-speech-config.ts` and the ConversationRelay-specific code path in `stt-profile.ts` can be removed once rollback is no longer needed.
+
+### Rollback Plan
+
+If the cutover introduces regressions, revert to the ConversationRelay path:
+
+1. **Revert the TwiML change:** Restore `<ConversationRelay>` element in `generateTwiML()` with the original attributes. The ConversationRelay relay server (`relay-server.ts`) is still registered and will resume handling calls.
+
+2. **Revert the STT resolution:** Restore the `resolveTelephonySttProfile(cfg.calls.voice)` call in `buildVoiceWebhookTwiml()`.
+
+3. **Config keys are preserved:** Since `calls.voice.transcriptionProvider` and `calls.voice.speechModel` are deprecated but not removed, they still contain valid values for the rollback path.
+
+4. **No data migration needed for rollback:** The workspace migration (step 3 in cutover) copies values forward — it does not delete the originals. Both config paths remain readable.
+
+The rollback is a single-commit revert of the cutover PR. No user data is lost and no config migration is needed.
+
+### Verification
+
+After cutover, verify:
+
+- [ ] Outbound calls connect and produce audible speech.
+- [ ] Inbound calls are answered with transcription working.
+- [ ] STT provider shown in call logs matches the `services.stt` provider.
+- [ ] `evaluateServicesSttReadiness()` returns `status: "ready"`.
+- [ ] No `<ConversationRelay>` elements appear in TwiML responses.
+- [ ] The media-stream WebSocket connection appears in gateway logs.
+- [ ] Existing `calls.voice.transcriptionProvider` config value is still readable (for rollback).

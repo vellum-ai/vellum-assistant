@@ -431,3 +431,111 @@ describe("generateTwiML with voice quality profile", () => {
     expect(twiml).not.toContain("hints=\"O'Brien");
   });
 });
+
+// ── ConversationRelay STT guardrail tests ─────────────────────────────
+// These tests assert that production TwiML continues to emit
+// ConversationRelay-native STT attributes sourced from
+// calls.voice.transcriptionProvider (not from services.stt). They serve
+// as regression guardrails for the future cutover — if a change
+// inadvertently switches the STT source, these tests will fail.
+
+describe("ConversationRelay STT attribute guardrails", () => {
+  const callSessionId = "guardrail-session-1";
+  const relayUrl = "wss://test.example.com/v1/calls/relay";
+
+  test("TwiML contains <ConversationRelay> element with transcriptionProvider attribute", () => {
+    const twiml = generateTwiML(
+      callSessionId,
+      relayUrl,
+      null,
+      {
+        language: "en-US",
+        ttsProvider: "Google",
+        voice: "Google.en-US-Journey-O",
+      },
+      speechConfigFor("Deepgram", undefined, "low"),
+    );
+
+    // Must use ConversationRelay (not <Stream> or media-stream)
+    expect(twiml).toContain("<ConversationRelay");
+    expect(twiml).not.toContain("<Stream");
+    // transcriptionProvider is a ConversationRelay-native attribute
+    expect(twiml).toContain('transcriptionProvider="Deepgram"');
+  });
+
+  test("Deepgram default: TwiML emits transcriptionProvider=Deepgram and speechModel=nova-3", () => {
+    const twiml = generateTwiML(
+      callSessionId,
+      relayUrl,
+      null,
+      { language: "en-US", ttsProvider: "ElevenLabs", voice: "voice1" },
+      speechConfigFor("Deepgram", undefined, "low"),
+    );
+
+    expect(twiml).toContain('transcriptionProvider="Deepgram"');
+    expect(twiml).toContain('speechModel="nova-3"');
+  });
+
+  test("Google default: TwiML emits transcriptionProvider=Google with no speechModel", () => {
+    const twiml = generateTwiML(
+      callSessionId,
+      relayUrl,
+      null,
+      { language: "en-US", ttsProvider: "ElevenLabs", voice: "voice1" },
+      speechConfigFor("Google", undefined, "low"),
+    );
+
+    expect(twiml).toContain('transcriptionProvider="Google"');
+    expect(twiml).not.toContain("speechModel=");
+  });
+
+  test("STT attributes are sourced from resolveTelephonySttProfile (calls.voice config), not services.stt", () => {
+    // This test verifies the data flow: calls.voice.transcriptionProvider
+    // -> resolveTelephonySttProfile -> buildTwilioRelaySpeechConfig -> TwiML.
+    // The services.stt provider (openai-whisper) must NOT appear in TwiML.
+    const sttProfile = resolveTelephonySttProfile({
+      transcriptionProvider: "Deepgram",
+      speechModel: undefined,
+    });
+    const speechConfig = buildTwilioRelaySpeechConfig(
+      sttProfile,
+      "low",
+      undefined,
+    );
+
+    const twiml = generateTwiML(
+      callSessionId,
+      relayUrl,
+      null,
+      { language: "en-US", ttsProvider: "ElevenLabs", voice: "voice1" },
+      speechConfig,
+    );
+
+    // The TwiML must contain the calls.voice provider, not services.stt
+    expect(twiml).toContain('transcriptionProvider="Deepgram"');
+    expect(twiml).not.toContain("openai-whisper");
+    expect(twiml).not.toContain("openai");
+  });
+
+  test("ConversationRelay element contains all required STT-related attributes", () => {
+    const twiml = generateTwiML(
+      callSessionId,
+      relayUrl,
+      null,
+      {
+        language: "en-US",
+        ttsProvider: "Google",
+        voice: "Google.en-US-Journey-O",
+      },
+      speechConfigFor("Deepgram", "nova-3", "medium", "Alice,Bob"),
+    );
+
+    // All STT-related attributes that ConversationRelay supports
+    expect(twiml).toContain('transcriptionProvider="Deepgram"');
+    expect(twiml).toContain('speechModel="nova-3"');
+    expect(twiml).toContain('interruptSensitivity="medium"');
+    expect(twiml).toContain('hints="Alice,Bob"');
+    expect(twiml).toContain('interruptible="true"');
+    expect(twiml).toContain('dtmfDetection="true"');
+  });
+});
