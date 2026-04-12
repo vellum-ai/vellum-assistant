@@ -537,10 +537,10 @@ export class CallController {
     runSignal: AbortSignal,
   ): Promise<string> {
     // Resolve the active TTS provider through the global abstraction.
-    // Providers that declare streaming support use the synthesized-play
-    // path (buffer text, synthesize via provider API, stream audio chunks
-    // to Twilio via play-URL). Native providers stream text tokens to
-    // the relay for Twilio's built-in TTS.
+    // The catalog's callMode determines the call path: synthesized-play
+    // providers buffer text, synthesize via provider API, and stream
+    // audio chunks to Twilio via play-URL. Native-twilio providers
+    // stream text tokens to the relay for Twilio's built-in TTS.
     const { provider, useSynthesizedPath, audioFormat } =
       resolveCallTtsProvider();
 
@@ -738,7 +738,7 @@ export class CallController {
       } else {
         // Fallback: buffer-oriented synthesis for providers that don't
         // implement streaming (shouldn't normally reach here since
-        // useSynthesizedPath is gated on supportsStreaming).
+        // useSynthesizedPath is gated on catalog callMode).
         const result = await provider.synthesize({
           text,
           useCase: "phone-call",

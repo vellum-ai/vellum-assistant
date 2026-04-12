@@ -11,6 +11,7 @@ import { loadConfig } from "../config/loader.js";
 import { getTtsProvider } from "../tts/provider-registry.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 import type { TtsProvider } from "../tts/types.js";
+import { resolveCallStrategy } from "./tts-call-strategy.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -21,10 +22,10 @@ export interface ResolvedCallTts {
   provider: TtsProvider | null;
 
   /**
-   * True when the provider supports streaming and audio should be
-   * synthesized via the provider API and streamed through the audio store.
-   * False when text tokens are sent directly to the relay for Twilio's
-   * built-in TTS engine.
+   * True when the catalog's `callMode` is `"synthesized-play"` -- audio
+   * is synthesized via the provider API and streamed through the audio
+   * store. False when `callMode` is `"native-twilio"` -- text tokens are
+   * sent directly to the relay for Twilio's built-in TTS engine.
    */
   useSynthesizedPath: boolean;
 
@@ -39,15 +40,17 @@ export interface ResolvedCallTts {
 /**
  * Resolve the active TTS provider via the global provider abstraction.
  *
- * Providers that declare streaming support are treated as "synthesized"
- * providers -- their audio is streamed through the audio store and played
- * via `sendPlayUrl`. Providers without streaming support are "native"
- * providers -- text tokens are streamed directly to the relay for Twilio's
- * built-in TTS.
+ * The native-vs-synthesized decision is driven by the catalog's
+ * `callMode` field via {@link resolveCallStrategy} -- the same single
+ * decision path used by `voice-quality.ts`. Providers with
+ * `callMode: "synthesized-play"` have their audio streamed through the
+ * audio store and played via `sendPlayUrl`. Providers with
+ * `callMode: "native-twilio"` stream text tokens directly to the relay
+ * for Twilio's built-in TTS.
  *
- * Falls back to the native (non-streaming) path with `mp3` format when
- * the config is missing a `services.tts` block or the provider is not
- * registered (e.g. unit tests or early startup).
+ * Falls back to the native path with `mp3` format when the config is
+ * missing a `services.tts` block or the provider is not registered
+ * (e.g. unit tests or early startup).
  */
 export function resolveCallTtsProvider(): ResolvedCallTts {
   try {
@@ -55,9 +58,10 @@ export function resolveCallTtsProvider(): ResolvedCallTts {
     const resolved = resolveTtsConfig(config);
     const provider = getTtsProvider(resolved.provider);
 
-    // Providers with streaming support synthesize audio themselves; others
-    // rely on the relay's native (Twilio-managed) TTS engine.
-    const useSynthesizedPath = provider.capabilities.supportsStreaming;
+    // Use the catalog's callMode to decide the call path -- the same
+    // decision path used by voice-quality.ts via resolveCallStrategy().
+    const strategy = resolveCallStrategy(config);
+    const useSynthesizedPath = strategy.callMode === "synthesized-play";
 
     // Read the user-configured audio format from the resolved provider
     // config so the streaming store entry's content-type matches the
@@ -74,7 +78,7 @@ export function resolveCallTtsProvider(): ResolvedCallTts {
   } catch {
     // Config missing `services.tts` block or provider not registered
     // (e.g. unit tests or early startup) -- fall back to the native
-    // (non-streaming) path where the provider object is not used.
+    // path where the provider object is not used.
     return { provider: null, useSynthesizedPath: false, audioFormat: "mp3" };
   }
 }
