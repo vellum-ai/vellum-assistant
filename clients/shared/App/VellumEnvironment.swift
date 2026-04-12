@@ -21,10 +21,13 @@ public enum VellumEnvironment: String {
     /// Xcode project from `project.yml` after every pull.  All other
     /// targets (device, release, macOS) default to `.production`.
     public static let current: VellumEnvironment = {
-        if let raw = ProcessInfo.processInfo.environment["VELLUM_ENVIRONMENT"],
-           let env = VellumEnvironment(rawValue: raw) {
-            return env
+        let raw = ProcessInfo.processInfo.environment["VELLUM_ENVIRONMENT"]
+        if let raw {
+            // Env var is explicitly set — use it, falling back to
+            // .production for unrecognised values (e.g. typos).
+            return VellumEnvironment(rawValue: raw) ?? .production
         }
+        // Env var is absent entirely.
         #if targetEnvironment(simulator)
         return .local
         #else
