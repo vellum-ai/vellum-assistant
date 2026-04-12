@@ -106,7 +106,11 @@ final class ExecManagementServer: @unchecked Sendable {
                     )
                     log.info("Management socket permissions set to 0600")
                 } catch {
-                    log.warning("Failed to restrict socket permissions: \(error.localizedDescription, privacy: .public)")
+                    // Fail closed: if we can't restrict permissions on a socket
+                    // that grants exec access, shut down rather than serve with
+                    // potentially world-readable permissions.
+                    log.error("Failed to restrict socket permissions: \(error.localizedDescription, privacy: .public)")
+                    self.stopInternal()
                 }
                 return
             }
