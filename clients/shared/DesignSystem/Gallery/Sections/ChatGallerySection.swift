@@ -12,7 +12,7 @@ struct ChatGallerySection: View {
                 // MARK: - VStreamingWaveform
                 GallerySectionHeader(
                     title: "VStreamingWaveform",
-                    description: "Streaming waveform in composer context. The composer has three modes: textEntry, dictationInline (with dictation-style waveform), and voiceConversation (with conversation-style waveform)."
+                    description: "Streaming waveform in composer context. The composer has two modes: textEntry (with inline waveform during recording) and voiceConversation (with conversation-style waveform)."
                 )
 
                 VCard {
