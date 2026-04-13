@@ -95,6 +95,7 @@ public final class SkillsStore: ObservableObject {
 
     private let skillsClient: SkillsClientProtocol
     private var lastSearchQuery: String?
+    private var fetchTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
     private var draftTask: Task<Void, Never>?
     private var createTask: Task<Void, Never>?
@@ -105,6 +106,13 @@ public final class SkillsStore: ObservableObject {
     private var createGeneration: Int = 0
     private var currentDetailSkillId: String?
     private var currentFilesSkillId: String?
+
+    /// Last-used filter params, replayed by post-operation refreshes so
+    /// the user's active filter view is preserved after install/uninstall/etc.
+    private var lastOrigin: String?
+    private var lastKind: String?
+    private var lastQuery: String?
+    private var lastCategory: String?
 
     // MARK: - Init
 
@@ -119,12 +127,25 @@ public final class SkillsStore: ObservableObject {
     // MARK: - Fetch Skills
 
     public func fetchSkills(force: Bool = false, origin: String? = nil, kind: String? = nil, query: String? = nil, category: String? = nil) {
-        guard !isLoading else { return }
-        if !force && !skills.isEmpty { return }
+        if force {
+            // Cancel the in-flight fetch so the latest filter params always win.
+            fetchTask?.cancel()
+        } else {
+            guard !isLoading else { return }
+            if !skills.isEmpty { return }
+        }
+
+        // Remember the filter params so post-operation refreshes replay them.
+        lastOrigin = origin
+        lastKind = kind
+        lastQuery = query
+        lastCategory = category
+
         isLoading = true
 
-        Task {
+        fetchTask = Task {
             let response = await skillsClient.fetchSkillsList(includeCatalog: true, origin: origin, kind: kind, query: query, category: category)
+            guard !Task.isCancelled else { return }
             if let response {
                 skills = response.skills
                 categoryCounts = response.categoryCounts ?? [:]
@@ -196,7 +217,7 @@ public final class SkillsStore: ObservableObject {
             }
             installResult = result
             if result.success {
-                fetchSkills(force: true)
+                fetchSkills(force: true, origin: lastOrigin, kind: lastKind, query: lastQuery, category: lastCategory)
             }
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
@@ -224,7 +245,7 @@ public final class SkillsStore: ObservableObject {
             }
             uninstallResult = result
             if result.success {
-                fetchSkills(force: true)
+                fetchSkills(force: true, origin: lastOrigin, kind: lastKind, query: lastQuery, category: lastCategory)
             }
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
@@ -241,14 +262,14 @@ public final class SkillsStore: ObservableObject {
     public func enableSkill(name: String) {
         Task {
             _ = await skillsClient.enableSkill(name: name)
-            fetchSkills(force: true)
+            fetchSkills(force: true, origin: lastOrigin, kind: lastKind, query: lastQuery, category: lastCategory)
         }
     }
 
     public func disableSkill(name: String) {
         Task {
             _ = await skillsClient.disableSkill(name: name)
-            fetchSkills(force: true)
+            fetchSkills(force: true, origin: lastOrigin, kind: lastKind, query: lastQuery, category: lastCategory)
         }
     }
 
@@ -311,7 +332,7 @@ public final class SkillsStore: ObservableObject {
             )
             guard generation == self.createGeneration else { return }
             if response?.success == true {
-                fetchSkills(force: true)
+                fetchSkills(force: true, origin: lastOrigin, kind: lastKind, query: lastQuery, category: lastCategory)
             } else {
                 createError = response?.error ?? "Failed to create skill"
             }
