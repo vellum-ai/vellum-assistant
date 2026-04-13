@@ -987,8 +987,20 @@ extension SkillsListResponseSkill {
 }
 
 /// Response containing the list of available skills.
-/// Backed by generated `SkillsListResponse`.
-public typealias SkillsListResponseMessage = SkillsListResponse
+/// Wraps the generated `SkillsListResponse` with additional server-side filter metadata.
+public struct SkillsListResponseMessage: Codable, Sendable {
+    public let type: String
+    public let skills: [SkillsListResponseSkill]
+    public let categoryCounts: [String: Int]?
+    public let totalCount: Int?
+
+    public init(type: String, skills: [SkillsListResponseSkill], categoryCounts: [String: Int]? = nil, totalCount: Int? = nil) {
+        self.type = type
+        self.skills = skills
+        self.categoryCounts = categoryCounts
+        self.totalCount = totalCount
+    }
+}
 
 /// Response containing the full body of a specific skill.
 /// Backed by generated `SkillDetailResponse`.

@@ -6386,7 +6386,9 @@ paths:
     get:
       operationId: skills_get
       summary: List all skills
-      description: Return all installed skills. Pass ?include=catalog to also include available catalog skills.
+      description:
+        "Return all installed skills. Pass ?include=catalog to also include available catalog skills. Supports
+        optional filter params: origin, kind, q, category."
       tags:
         - skills
       responses:
@@ -6589,6 +6591,16 @@ paths:
                             - origin
                           additionalProperties: false
                     description: Skill objects
+                  categoryCounts:
+                    description: Count of skills per category (before category filter is applied)
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties:
+                      type: number
+                  totalCount:
+                    description: Total number of skills matching non-category filters
+                    type: number
                 required:
                   - skills
                 additionalProperties: false
@@ -6601,6 +6613,30 @@ paths:
             enum:
               - catalog
           description: Optional inclusion flag. Use 'catalog' to merge available Vellum catalog skills into the response.
+        - name: origin
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by skill origin (e.g. 'vellum', 'clawhub', 'skillssh', 'custom').
+        - name: kind
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Filter by kind: 'installed' (includes bundled), 'available', or pass through as skill.kind."
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Text search across skill name, description, id, and origin label.
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by inferred category (e.g. 'communication', 'productivity').
     post:
       operationId: skills_post
       summary: Create skill

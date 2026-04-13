@@ -8,7 +8,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Skill
 /// Covers listing, enabling, disabling, configuring, installing, uninstalling,
 /// updating, searching, drafting, and creating skills.
 public protocol SkillsClientProtocol {
-    func fetchSkillsList(includeCatalog: Bool) async -> SkillsListResponseMessage?
+    func fetchSkillsList(includeCatalog: Bool, origin: String?, kind: String?, query: String?, category: String?) async -> SkillsListResponseMessage?
     func enableSkill(name: String) async -> SkillOperationResult?
     func disableSkill(name: String) async -> SkillOperationResult?
     func configureSkill(name: String, env: [String: String]?, apiKey: String?, config: [String: AnyCodable]?) async -> SkillOperationResult?
@@ -39,11 +39,16 @@ public struct SkillsClient: SkillsClientProtocol {
         value.addingPercentEncoding(withAllowedCharacters: pathComponentAllowed) ?? value
     }
 
-    public func fetchSkillsList(includeCatalog: Bool) async -> SkillsListResponseMessage? {
+    public func fetchSkillsList(includeCatalog: Bool, origin: String? = nil, kind: String? = nil, query: String? = nil, category: String? = nil) async -> SkillsListResponseMessage? {
         do {
-            let params: [String: String]? = includeCatalog ? ["include": "catalog"] : nil
+            var params: [String: String] = [:]
+            if includeCatalog { params["include"] = "catalog" }
+            if let origin { params["origin"] = origin }
+            if let kind { params["kind"] = kind }
+            if let query, !query.isEmpty { params["q"] = query }
+            if let category { params["category"] = category }
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/skills", params: params, timeout: 10
+                path: "assistants/{assistantId}/skills", params: params.isEmpty ? nil : params, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchSkillsList failed (HTTP \(response.statusCode))")

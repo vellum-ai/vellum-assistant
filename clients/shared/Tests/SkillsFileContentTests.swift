@@ -106,7 +106,7 @@ private actor MockSkillsFileContentStore {
 private struct MockSkillsClient: SkillsClientProtocol {
     let backing: MockSkillsFileContentStore
 
-    func fetchSkillsList(includeCatalog: Bool) async -> SkillsListResponseMessage? { nil }
+    func fetchSkillsList(includeCatalog: Bool, origin: String?, kind: String?, query: String?, category: String?) async -> SkillsListResponseMessage? { nil }
     func enableSkill(name: String) async -> SkillOperationResult? { nil }
     func disableSkill(name: String) async -> SkillOperationResult? { nil }
     func configureSkill(name: String, env: [String: String]?, apiKey: String?, config: [String: AnyCodable]?) async -> SkillOperationResult? { nil }
