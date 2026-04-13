@@ -1361,12 +1361,21 @@ async function main() {
             Authorization: `Api-Key ${assistantApiKey.trim()}`,
           },
           signal: AbortSignal.timeout(10_000),
-        }).catch((err) => {
-          log.debug(
-            { err },
-            "Failed to notify platform of Slack activity for idle sleep",
-          );
-        });
+        })
+          .then((res) => {
+            if (!res.ok) {
+              log.warn(
+                { status: res.status },
+                "Non-OK response from record-activity endpoint",
+              );
+            }
+          })
+          .catch((err) => {
+            log.debug(
+              { err },
+              "Failed to notify platform of Slack activity for idle sleep",
+            );
+          });
       })
       .catch((err) => {
         log.debug(
