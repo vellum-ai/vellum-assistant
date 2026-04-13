@@ -39,6 +39,7 @@ interface ClientCatalogEntry {
   setupMode: string;
   setupHint: string;
   apiKeyProviderName: string;
+  conversationStreamingMode: string;
 }
 
 interface ClientCatalog {
@@ -161,6 +162,69 @@ describe("STT catalog parity: daemon vs client", () => {
   });
 
   // -----------------------------------------------------------------------
+  // Conversation streaming mode parity
+  // -----------------------------------------------------------------------
+
+  test("each client catalog entry conversationStreamingMode matches its daemon counterpart", () => {
+    const clientCatalog = loadClientCatalog();
+    const violations: string[] = [];
+
+    for (const clientEntry of clientCatalog.providers) {
+      const daemonEntry = getProviderEntry(clientEntry.id as SttProviderId);
+      if (!daemonEntry) {
+        // Covered by the provider ID parity test above
+        continue;
+      }
+      if (
+        clientEntry.conversationStreamingMode !==
+        daemonEntry.conversationStreamingMode
+      ) {
+        violations.push(
+          `Provider "${clientEntry.id}": client conversationStreamingMode="${clientEntry.conversationStreamingMode}" ` +
+            `!= daemon conversationStreamingMode="${daemonEntry.conversationStreamingMode}"`,
+        );
+      }
+    }
+
+    if (violations.length > 0) {
+      const message = [
+        "Conversation streaming mode mismatch between daemon and client catalogs.",
+        "",
+        "Violations:",
+        ...violations.map((v) => `  - ${v}`),
+        "",
+        "Update meta/stt-provider-catalog.json or assistant/src/providers/speech-to-text/provider-catalog.ts to match.",
+      ].join("\n");
+      expect(violations, message).toEqual([]);
+    }
+  });
+
+  test("conversationStreamingMode values are valid enum variants", () => {
+    const validModes = new Set(["realtime-ws", "incremental-batch", "none"]);
+    const clientCatalog = loadClientCatalog();
+    const violations: string[] = [];
+
+    for (const entry of clientCatalog.providers) {
+      if (!validModes.has(entry.conversationStreamingMode)) {
+        violations.push(
+          `Provider "${entry.id}": invalid conversationStreamingMode="${entry.conversationStreamingMode}". ` +
+            `Valid values: ${[...validModes].join(", ")}`,
+        );
+      }
+    }
+
+    if (violations.length > 0) {
+      const message = [
+        "Invalid conversationStreamingMode values in client catalog.",
+        "",
+        "Violations:",
+        ...violations.map((v) => `  - ${v}`),
+      ].join("\n");
+      expect(violations, message).toEqual([]);
+    }
+  });
+
+  // -----------------------------------------------------------------------
   // Structural sanity
   // -----------------------------------------------------------------------
 
@@ -194,6 +258,14 @@ describe("STT catalog parity: daemon vs client", () => {
       }
       if (!entry.setupMode || typeof entry.setupMode !== "string") {
         violations.push(`${entry.id}: missing or invalid 'setupMode'`);
+      }
+      if (
+        !entry.conversationStreamingMode ||
+        typeof entry.conversationStreamingMode !== "string"
+      ) {
+        violations.push(
+          `${entry.id}: missing or invalid 'conversationStreamingMode'`,
+        );
       }
     }
 

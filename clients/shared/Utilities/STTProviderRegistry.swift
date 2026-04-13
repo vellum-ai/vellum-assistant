@@ -16,11 +16,38 @@ public enum STTProviderSetupMode: String, Decodable {
     case cli
 }
 
+/// Conversation streaming mode for an STT provider.
+///
+/// Describes whether and how the provider can participate in real-time
+/// conversation streaming for chat message capture (chat composer and iOS
+/// input bar). Clients use this to decide when to attempt streaming vs
+/// falling back to batch transcription.
+///
+/// - `realtimeWs`: Provider offers a native WebSocket streaming endpoint
+///   that accepts audio chunks and emits partial/final transcript events
+///   with low latency (e.g. Deepgram live transcription).
+/// - `incrementalBatch`: Provider does not offer true streaming but can be
+///   polled with incremental audio batches to approximate streaming behaviour
+///   (e.g. Google Gemini multimodal).
+/// - `none`: Provider has no conversation streaming support; callers should
+///   fall back to batch transcription.
+public enum STTConversationStreamingMode: String, Decodable, Sendable {
+    case realtimeWs = "realtime-ws"
+    case incrementalBatch = "incremental-batch"
+    case none
+
+    /// Whether this mode supports any form of conversation streaming.
+    public var supportsStreaming: Bool {
+        self != .none
+    }
+}
+
 /// A single entry in the client-facing STT provider catalog.
 ///
 /// This struct captures the subset of provider metadata that client apps
-/// need for display and setup UX — identity, display strings, and hints
-/// about how the provider is configured.
+/// need for display and setup UX — identity, display strings, hints
+/// about how the provider is configured, and conversation streaming
+/// capability.
 public struct STTProviderCatalogEntry: Decodable {
     /// Unique provider identifier (e.g. `"openai-whisper"`, `"deepgram"`).
     public let id: String
@@ -37,6 +64,10 @@ public struct STTProviderCatalogEntry: Decodable {
     /// name in the daemon's secret catalog. For example, `openai-whisper`
     /// shares the `openai` API key while `deepgram` uses `deepgram`.
     public let apiKeyProviderName: String
+    /// Conversation streaming capability for this provider. Clients use
+    /// this to decide whether to attempt WebSocket streaming for real-time
+    /// transcription or fall back to batch STT.
+    public let conversationStreamingMode: STTConversationStreamingMode
 }
 
 /// Top-level schema for `stt-provider-catalog.json`.
@@ -57,6 +88,33 @@ public struct STTProviderRegistry: Decodable {
     /// Look up a provider entry by its identifier.
     public func provider(withId id: String) -> STTProviderCatalogEntry? {
         providers.first { $0.id == id }
+    }
+
+    /// Returns the conversation streaming mode for the given provider, or
+    /// `.none` if the provider is not in the catalog.
+    public func conversationStreamingMode(forProvider id: String) -> STTConversationStreamingMode {
+        provider(withId: id)?.conversationStreamingMode ?? .none
+    }
+
+    /// Whether the given provider supports any form of conversation streaming
+    /// (real-time WebSocket or incremental batch).
+    public func supportsConversationStreaming(provider id: String) -> Bool {
+        conversationStreamingMode(forProvider: id).supportsStreaming
+    }
+
+    /// Whether the currently configured STT provider supports conversation
+    /// streaming. Returns `false` if no provider is configured or the
+    /// configured provider does not support streaming.
+    ///
+    /// Uses the `sttProvider` key from `UserDefaults` (synced from the
+    /// assistant's `client_settings_update`).
+    public static var isStreamingAvailable: Bool {
+        guard let providerId = UserDefaults.standard.string(forKey: "sttProvider"),
+              !providerId.isEmpty else {
+            return false
+        }
+        let registry = loadSTTProviderRegistry()
+        return registry.supportsConversationStreaming(provider: providerId)
     }
 
     /// Whether the assistant has an LLM-based STT provider configured
@@ -104,7 +162,8 @@ private let fallbackRegistry = STTProviderRegistry(
             subtitle: "High-accuracy speech-to-text powered by OpenAI Whisper. Requires an OpenAI API key.",
             setupMode: .apiKey,
             setupHint: "Enter your OpenAI API key to enable Whisper transcription.",
-            apiKeyProviderName: "openai"
+            apiKeyProviderName: "openai",
+            conversationStreamingMode: .none
         ),
         STTProviderCatalogEntry(
             id: "deepgram",
@@ -112,7 +171,8 @@ private let fallbackRegistry = STTProviderRegistry(
             subtitle: "Fast, real-time speech-to-text with streaming support. Requires a Deepgram API key.",
             setupMode: .apiKey,
             setupHint: "Enter your Deepgram API key to enable speech-to-text.",
-            apiKeyProviderName: "deepgram"
+            apiKeyProviderName: "deepgram",
+            conversationStreamingMode: .realtimeWs
         ),
         STTProviderCatalogEntry(
             id: "google-gemini",
@@ -120,7 +180,8 @@ private let fallbackRegistry = STTProviderRegistry(
             subtitle: "Multimodal speech-to-text powered by Google Gemini. Requires a Gemini API key.",
             setupMode: .apiKey,
             setupHint: "Enter your Gemini API key to enable Google Gemini transcription.",
-            apiKeyProviderName: "gemini"
+            apiKeyProviderName: "gemini",
+            conversationStreamingMode: .incrementalBatch
         ),
     ]
 )
