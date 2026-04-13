@@ -31,6 +31,7 @@ import {
   type MediaStreamCustomStrategy,
   resolveTelephonySttRouting,
 } from "../calls/telephony-stt-routing.js";
+import type { SttProviderId } from "../stt/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -262,7 +263,12 @@ describe("resolveTelephonySttRouting", () => {
     });
 
     test("all resolved strategies include the original providerId", () => {
-      for (const provider of ["deepgram", "google-gemini", "openai-whisper"]) {
+      const providers: SttProviderId[] = [
+        "deepgram",
+        "google-gemini",
+        "openai-whisper",
+      ];
+      for (const provider of providers) {
         mockConfig = buildConfig({ provider });
 
         const result = resolveTelephonySttRouting();
