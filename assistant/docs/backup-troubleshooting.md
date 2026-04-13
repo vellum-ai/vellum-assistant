@@ -22,7 +22,7 @@ In rare cases a writer can crash after creating the lock file but before writing
 
 ### Recovery
 
-1. Confirm no backup is actually in progress — check the daemon log for recent `snapshot-worker` activity and look for a running process holding the lock.
+1. Confirm no backup is actually in progress — check the assistant log for recent `snapshot-worker` activity and look for a running process holding the lock.
 
 2. Inspect the lock file:
 
