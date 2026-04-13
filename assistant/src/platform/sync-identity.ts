@@ -19,8 +19,11 @@ import { VellumPlatformClient } from "./client.js";
 
 const log = getLogger("sync-identity");
 
-/** Track the last synced name to avoid redundant PATCH calls. */
+/** Track the last successfully synced name (used inside doSync to skip redundant PATCHes). */
 let lastSyncedName: string | null = null;
+
+/** Track the last requested name (used for dedup at enqueue time). */
+let lastRequestedName: string | null = null;
 
 /**
  * Monotonically increasing sequence number.  Each call to
@@ -39,10 +42,12 @@ let pending: Promise<void> = Promise.resolve();
  * No-op when:
  * - The platform client cannot be created (not platform-hosted / missing creds).
  * - No assistant ID is configured.
- * - The name is empty or unchanged since the last successful sync.
+ * - The name is empty or unchanged since the last request.
  */
 export function syncIdentityNameToPlatform(name: string): void {
-  if (!name || name === lastSyncedName) return;
+  if (!name || name === lastRequestedName) return;
+
+  lastRequestedName = name;
 
   const mySeq = ++seq;
 
@@ -99,6 +104,7 @@ async function doSync(name: string, requestSeq: number): Promise<void> {
 /** Reset cached state (for testing). */
 export function _resetSyncState(): void {
   lastSyncedName = null;
+  lastRequestedName = null;
   seq = 0;
   pending = Promise.resolve();
 }
