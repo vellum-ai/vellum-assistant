@@ -439,12 +439,18 @@ export async function clawhubInspect(
     }
     try {
       const parsed = JSON.parse(result.stdout);
-      // Normalize the raw inspect response to our interface
+      // Normalize the raw inspect response to our interface.
+      // The CLI nests skill metadata under `parsed.skill` and files
+      // under `parsed.version.files`. Fall back to top-level fields
+      // for older CLI versions that used a flat structure.
+      const ps = parsed.skill ?? parsed;
+      const rawStats = ps.stats ?? parsed.stats;
+      const rawFiles = parsed.version?.files ?? parsed.files ?? null;
       const data: ClawhubInspectResult = {
         skill: {
-          slug: parsed.slug ?? slug,
-          displayName: parsed.displayName ?? parsed.name ?? slug,
-          summary: parsed.summary ?? parsed.description ?? "",
+          slug: ps.slug ?? slug,
+          displayName: ps.displayName ?? ps.name ?? slug,
+          summary: ps.summary ?? ps.description ?? "",
         },
         owner: parsed.owner
           ? {
@@ -453,26 +459,24 @@ export async function clawhubInspect(
               image: parsed.owner.image ?? parsed.owner.avatar ?? undefined,
             }
           : null,
-        stats: parsed.stats
+        stats: rawStats
           ? {
-              stars: parsed.stats.stars ?? 0,
-              installs:
-                parsed.stats.installsAllTime ?? parsed.stats.installs ?? 0,
-              downloads:
-                parsed.stats.downloadsAllTime ?? parsed.stats.downloads ?? 0,
-              versions: parsed.stats.versions ?? 0,
+              stars: rawStats.stars ?? 0,
+              installs: rawStats.installsAllTime ?? rawStats.installs ?? 0,
+              downloads: rawStats.downloadsAllTime ?? rawStats.downloads ?? 0,
+              versions: rawStats.versions ?? 0,
             }
           : null,
-        createdAt: parsed.createdAt ?? null,
-        updatedAt: parsed.updatedAt ?? null,
+        createdAt: ps.createdAt ?? parsed.createdAt ?? null,
+        updatedAt: ps.updatedAt ?? parsed.updatedAt ?? null,
         latestVersion: parsed.latestVersion
           ? {
               version: parsed.latestVersion.version ?? "",
               changelog: parsed.latestVersion.changelog ?? undefined,
             }
           : null,
-        files: Array.isArray(parsed.files)
-          ? parsed.files.map((f: Record<string, unknown>) => ({
+        files: Array.isArray(rawFiles)
+          ? rawFiles.map((f: Record<string, unknown>) => ({
               path: (f.path as string) ?? "",
               size: (f.size as number) ?? 0,
               contentType: (f.contentType as string) ?? undefined,
