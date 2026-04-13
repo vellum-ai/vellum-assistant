@@ -472,26 +472,48 @@ export class RuntimeHttpServer {
             // The runtime is config-authoritative: always resolve the
             // provider from `services.stt.provider` regardless of what
             // the client/gateway requested.
-            const configuredProvider = getConfig().services.stt.provider;
+            //
+            // getConfig() can throw (e.g. after invalidateConfigCache()
+            // when config.json is temporarily invalid). Wrap in try/catch
+            // so the session still starts normally — resolveStreamingTranscriber
+            // reads config inside SttStreamSession.start()'s own guarded path.
+            let configuredProvider: string | undefined;
+            try {
+              configuredProvider = getConfig().services.stt.provider;
 
-            // Mismatch telemetry: when the optional requested provider
-            // disagrees with the configured provider, log a warning so
-            // operators can detect stale client builds.
-            if (sttData.provider && sttData.provider !== configuredProvider) {
+              // Mismatch telemetry: when the optional requested provider
+              // disagrees with the configured provider, log a warning so
+              // operators can detect stale client builds.
+              if (sttData.provider && sttData.provider !== configuredProvider) {
+                log.warn(
+                  {
+                    requestedProvider: sttData.provider,
+                    configuredProvider,
+                    sessionId: sttData.sessionId,
+                  },
+                  "STT stream provider mismatch — requested provider differs from configured provider; using configured provider",
+                );
+              }
+            } catch (err) {
               log.warn(
                 {
-                  requestedProvider: sttData.provider,
-                  configuredProvider,
+                  error: err instanceof Error ? err.message : String(err),
                   sessionId: sttData.sessionId,
                 },
-                "STT stream provider mismatch — requested provider differs from configured provider; using configured provider",
+                "Failed to read config for STT provider mismatch telemetry — proceeding without mismatch check",
               );
             }
+
+            // Fall back to the requested provider (or "unknown") when
+            // config reading failed, so the session constructor still
+            // gets a usable label for logging/error messages.
+            const effectiveProvider =
+              configuredProvider ?? sttData.provider ?? "unknown";
 
             log.info(
               {
                 requestedProvider: sttData.provider ?? "(none)",
-                configuredProvider,
+                configuredProvider: effectiveProvider,
                 mimeType: sttData.mimeType,
                 sessionId: sttData.sessionId,
               },
@@ -499,7 +521,7 @@ export class RuntimeHttpServer {
             );
             const session = new SttStreamSession(
               ws,
-              configuredProvider,
+              effectiveProvider,
               sttData.mimeType,
               { sampleRate: sttData.sampleRate },
             );
