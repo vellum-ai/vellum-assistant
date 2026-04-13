@@ -73,7 +73,7 @@ describe("033-stt-service-explicit-config migration", () => {
     const stt = services.stt as Record<string, unknown>;
 
     expect(stt.mode).toBe("your-own");
-    expect(stt.provider).toBe("openai-whisper");
+    expect(stt.provider).toBe("deepgram");
     // providers is sparse — no per-provider entries seeded
     expect(stt.providers).toEqual({});
 
@@ -95,7 +95,7 @@ describe("033-stt-service-explicit-config migration", () => {
     const stt = services.stt as Record<string, unknown>;
 
     expect(stt.mode).toBe("your-own");
-    expect(stt.provider).toBe("openai-whisper");
+    expect(stt.provider).toBe("deepgram");
     // providers is sparse — no per-provider entries seeded
     expect(stt.providers).toEqual({});
 
@@ -114,7 +114,7 @@ describe("033-stt-service-explicit-config migration", () => {
     const stt = services.stt as Record<string, unknown>;
 
     expect(stt.mode).toBe("your-own");
-    expect(stt.provider).toBe("openai-whisper");
+    expect(stt.provider).toBe("deepgram");
     // providers is sparse — no per-provider entries seeded
     expect(stt.providers).toEqual({});
   });
@@ -161,7 +161,7 @@ describe("033-stt-service-explicit-config migration", () => {
       unknown
     >;
 
-    expect(stt.provider).toBe("openai-whisper");
+    expect(stt.provider).toBe("deepgram");
     expect(stt.mode).toBe("your-own");
   });
 
@@ -361,7 +361,7 @@ describe("033-stt-service-explicit-config migration", () => {
 
     // ensureObj replaces the non-object with a fresh object and backfills
     expect(stt.mode).toBe("your-own");
-    expect(stt.provider).toBe("openai-whisper");
+    expect(stt.provider).toBe("deepgram");
   });
 
   test("recovers when services is a non-object value", () => {
@@ -376,7 +376,7 @@ describe("033-stt-service-explicit-config migration", () => {
     const stt = services.stt as Record<string, unknown>;
 
     expect(stt.mode).toBe("your-own");
-    expect(stt.provider).toBe("openai-whisper");
+    expect(stt.provider).toBe("deepgram");
   });
 
   // ─── Second-run idempotency ───────────────────────────────────────────

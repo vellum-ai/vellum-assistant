@@ -89,7 +89,7 @@ export const ServicesSchema = z.object({
   ),
   stt: SttServiceSchema.default({
     mode: "your-own" as const,
-    provider: "openai-whisper" as const,
+    provider: "deepgram" as const,
     providers: {},
   }),
   tts: TtsServiceSchema.default(TtsServiceSchema.parse({})),
