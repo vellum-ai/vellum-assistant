@@ -28,6 +28,9 @@ import { join } from "node:path";
 
 import { listConnections } from "../oauth/oauth-store.js";
 import { resolveGuardianPersonaPath } from "../prompts/persona-resolver.js";
+import { buildAssistantEvent } from "../runtime/assistant-event.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
 import {
   getConversationsDir,
@@ -135,11 +138,17 @@ export async function computeRelationshipState(): Promise<RelationshipState> {
  * this without additional try/catch wrapping.
  */
 export async function writeRelationshipState(): Promise<void> {
+  let writtenState: RelationshipState | undefined;
   try {
     const state = await computeRelationshipState();
     const path = getRelationshipStatePath();
     mkdirSync(getDataDir(), { recursive: true });
     writeFileSync(path, JSON.stringify(state, null, 2), "utf8");
+    // Only mark the state as "written" AFTER the sync write has
+    // succeeded — any throw from `writeFileSync` short-circuits the
+    // SSE emit below so subscribers never see a stale update event
+    // that contradicts on-disk state.
+    writtenState = state;
     log.info(
       {
         path,
@@ -152,6 +161,33 @@ export async function writeRelationshipState(): Promise<void> {
   } catch (err) {
     log.warn({ err }, "Failed to write relationship-state.json");
   }
+
+  // SSE fanout lives outside the try/catch so a publish failure does
+  // not get mis-logged as a write failure. Still guarded against the
+  // publish throwing (e.g. a subscriber rejects) — the writer promise
+  // must never reject from this path.
+  if (writtenState) {
+    publishRelationshipStateUpdated(writtenState.updatedAt);
+  }
+}
+
+/**
+ * Publish the `relationship_state_updated` event to the in-process
+ * assistant event hub. Called only on the success branch of
+ * `writeRelationshipState()` so the event accurately reflects what
+ * just landed on disk.
+ */
+function publishRelationshipStateUpdated(updatedAt: string): void {
+  assistantEventHub
+    .publish(
+      buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+        type: "relationship_state_updated",
+        updatedAt,
+      }),
+    )
+    .catch((err) => {
+      log.warn({ err }, "Failed to publish relationship_state_updated event");
+    });
 }
 
 // ─── Internal helpers ───────────────────────────────────────────────────
