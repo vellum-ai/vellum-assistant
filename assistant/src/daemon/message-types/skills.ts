@@ -129,6 +129,13 @@ export interface SkillsListResponse {
   skills: SlimSkillResponse[];
 }
 
+export interface SkillsListFilteredResponse {
+  type: "skills_list_response";
+  skills: SlimSkillResponse[];
+  categoryCounts: Record<string, number>;
+  totalCount: number;
+}
+
 export interface SkillStateChanged {
   type: "skills_state_changed";
   name: string;

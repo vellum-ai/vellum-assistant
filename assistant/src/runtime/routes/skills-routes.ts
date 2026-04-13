@@ -24,7 +24,7 @@ import {
   inspectSkill,
   installSkill,
   listSkills,
-  listSkillsWithCatalog,
+  listSkillsFiltered,
   searchSkills,
   uninstallSkill,
   updateSkill,
@@ -140,7 +140,7 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       policyKey: "skills",
       summary: "List all skills",
       description:
-        "Return all installed skills. Pass ?include=catalog to also include available catalog skills.",
+        "Return all installed skills. Pass ?include=catalog to also include available catalog skills. Supports optional filter params: origin, kind, q, category.",
       tags: ["skills"],
       queryParams: [
         {
@@ -149,16 +149,73 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
           description:
             "Optional inclusion flag. Use 'catalog' to merge available Vellum catalog skills into the response.",
         },
+        {
+          name: "origin",
+          schema: { type: "string" },
+          description:
+            "Filter by skill origin (e.g. 'vellum', 'clawhub', 'skillssh', 'custom').",
+        },
+        {
+          name: "kind",
+          schema: { type: "string" },
+          description:
+            "Filter by kind: 'installed' (includes bundled), 'available', or pass through as skill.kind.",
+        },
+        {
+          name: "q",
+          schema: { type: "string" },
+          description:
+            "Text search across skill name, description, id, and origin label.",
+        },
+        {
+          name: "category",
+          schema: { type: "string" },
+          description:
+            "Filter by inferred category (e.g. 'communication', 'productivity').",
+        },
       ],
       responseBody: z.object({
         skills: z.array(slimSkillSchema).describe("Skill objects"),
+        categoryCounts: z
+          .record(z.string(), z.number())
+          .optional()
+          .describe(
+            "Count of skills per category (before category filter is applied)",
+          ),
+        totalCount: z
+          .number()
+          .optional()
+          .describe("Total number of skills matching non-category filters"),
       }),
       handler: async ({ url }) => {
         const include = url.searchParams.get("include");
-        const skills =
-          include === "catalog"
-            ? await listSkillsWithCatalog(ctx())
-            : listSkills(ctx());
+        const origin = url.searchParams.get("origin");
+        const kind = url.searchParams.get("kind");
+        const q = url.searchParams.get("q");
+        const category = url.searchParams.get("category");
+
+        const hasFilter = !!(origin || kind || q || category);
+
+        if (hasFilter || include === "catalog") {
+          const result = await listSkillsFiltered(
+            {
+              ...(origin ? { origin } : {}),
+              ...(kind ? { kind } : {}),
+              ...(q ? { q } : {}),
+              ...(category ? { category } : {}),
+              includeCatalog: include === "catalog",
+            },
+            ctx(),
+          );
+          return Response.json({
+            skills: result.skills,
+            categoryCounts: result.categoryCounts,
+            totalCount: result.totalCount,
+          });
+        }
+
+        // No filter params and include !== catalog: preserve existing behavior
+        const skills = listSkills(ctx());
         return Response.json({ skills });
       },
     },
