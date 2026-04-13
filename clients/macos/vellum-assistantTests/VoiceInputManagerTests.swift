@@ -79,6 +79,8 @@ final class VoiceInputManagerTests: XCTestCase {
     override func tearDown() {
         // Clean up any STT provider configuration set during tests.
         UserDefaults.standard.removeObject(forKey: "sttProvider")
+        APIKeyManager.shared.deleteAPIKey(provider: "deepgram")
+        APIKeyManager.shared.deleteAPIKey(provider: "openai")
         manager = nil
         dictationClient = nil
         speechAdapter = nil
@@ -699,6 +701,7 @@ final class VoiceInputManagerTests: XCTestCase {
         }
 
         UserDefaults.standard.set("deepgram", forKey: "sttProvider")
+        APIKeyManager.shared.setAPIKey("test-key", provider: "deepgram")
         speechAdapter.stubbedAuthorizationStatus = .denied
         // Recognizer unavailable because speech is denied
         speechAdapter.stubbedIsRecognizerAvailable = false
@@ -726,6 +729,7 @@ final class VoiceInputManagerTests: XCTestCase {
         // handles transcription. This test does not depend on mic status
         // because it only checks that speech auth was not triggered.
         UserDefaults.standard.set("deepgram", forKey: "sttProvider")
+        APIKeyManager.shared.setAPIKey("test-key", provider: "deepgram")
         speechAdapter.stubbedAuthorizationStatus = .notDetermined
         speechAdapter.stubbedIsRecognizerAvailable = false
 
@@ -756,6 +760,7 @@ final class VoiceInputManagerTests: XCTestCase {
         guard micStatus == .authorized else { return }
 
         UserDefaults.standard.set("deepgram", forKey: "sttProvider")
+        APIKeyManager.shared.setAPIKey("test-key", provider: "deepgram")
         speechAdapter.stubbedAuthorizationStatus = .authorized
         speechAdapter.stubbedIsRecognizerAvailable = false
 
@@ -775,6 +780,8 @@ final class VoiceInputManagerTests: XCTestCase {
         // Existing behavior preserved: when no STT provider is configured
         // and speech recognition is denied, recording should be blocked.
         UserDefaults.standard.removeObject(forKey: "sttProvider")
+        APIKeyManager.shared.deleteAPIKey(provider: "deepgram")
+        APIKeyManager.shared.deleteAPIKey(provider: "openai")
         speechAdapter.stubbedAuthorizationStatus = .denied
 
         manager.toggleRecording()

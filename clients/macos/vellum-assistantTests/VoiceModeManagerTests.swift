@@ -626,9 +626,13 @@ final class VoiceModeManagerTests: XCTestCase {
     /// When STT is configured and speech recognition is denied, voice mode
     /// should still activate successfully.
     func testActivation_sttConfigured_speechDenied_activates() {
-        // Simulate STT configured via UserDefaults
+        // Simulate STT configured via UserDefaults (provider + credential)
         UserDefaults.standard.set("deepgram", forKey: "sttProvider")
-        defer { UserDefaults.standard.removeObject(forKey: "sttProvider") }
+        APIKeyManager.shared.setAPIKey("test-key", provider: "deepgram")
+        defer {
+            UserDefaults.standard.removeObject(forKey: "sttProvider")
+            APIKeyManager.shared.deleteAPIKey(provider: "deepgram")
+        }
 
         let speechAdapter = MockSpeechRecognizerAdapter()
         speechAdapter.stubbedAuthorizationStatus = .denied
@@ -653,7 +657,11 @@ final class VoiceModeManagerTests: XCTestCase {
     /// and PCM data accumulates for the STT service.
     func testStartRecording_sttConfigured_noRecognizer_succeeds() {
         UserDefaults.standard.set("openai-whisper", forKey: "sttProvider")
-        defer { UserDefaults.standard.removeObject(forKey: "sttProvider") }
+        APIKeyManager.shared.setAPIKey("test-key", provider: "openai")
+        defer {
+            UserDefaults.standard.removeObject(forKey: "sttProvider")
+            APIKeyManager.shared.deleteAPIKey(provider: "openai")
+        }
 
         forceActivate()
         manager.startListening()
@@ -670,7 +678,11 @@ final class VoiceModeManagerTests: XCTestCase {
     /// service returns a configurable transcription result.
     func testTranscription_sttOnly_usesServiceSTT() {
         UserDefaults.standard.set("deepgram", forKey: "sttProvider")
-        defer { UserDefaults.standard.removeObject(forKey: "sttProvider") }
+        APIKeyManager.shared.setAPIKey("test-key", provider: "deepgram")
+        defer {
+            UserDefaults.standard.removeObject(forKey: "sttProvider")
+            APIKeyManager.shared.deleteAPIKey(provider: "deepgram")
+        }
 
         forceActivate()
         mockVoiceService.transcriptionToReturn = "service transcription result"
