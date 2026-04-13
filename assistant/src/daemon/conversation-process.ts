@@ -256,6 +256,18 @@ function buildSlashContext(
   };
 }
 
+// TODO(batch-drain): PR 5 will extend this helper to walk contiguous
+// same-interface passthrough messages at the head of the queue. For now
+// it pops only the head so behavior matches the pre-refactor single-message
+// drain path.
+async function buildPassthroughBatch(
+  conversation: ProcessConversationContext,
+): Promise<QueuedMessage[]> {
+  const head = conversation.queue.peek(0);
+  if (head === undefined) return [];
+  return conversation.queue.shiftN(1);
+}
+
 // ── drainQueue ───────────────────────────────────────────────────────
 
 /**
@@ -272,9 +284,11 @@ export async function drainQueue(
   conversation: ProcessConversationContext,
   reason: QueueDrainReason = "loop_complete",
 ): Promise<void> {
-  const next = conversation.queue.shift();
-  if (!next) return;
-  return drainSingleMessage(conversation, next, reason);
+  const batch = await buildPassthroughBatch(conversation);
+  if (batch.length === 0) return;
+  // Single-message path handles slash/compact/passthrough/errors today.
+  // PR 5 will add drainBatch for length >= 2 and loosen the builder.
+  return drainSingleMessage(conversation, batch[0], reason);
 }
 
 async function drainSingleMessage(
