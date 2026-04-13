@@ -16,26 +16,31 @@ struct QueuedMessagesDrawer_iOS: View {
     @Binding var composerAttachments: [ChatAttachment]
 
     var body: some View {
-        if viewModel.queuedMessages.isEmpty {
+        // Cache `queuedMessages` and `tailQueuedMessageId` once per render —
+        // both run filter+sorted on access (and `tailQueuedMessageId` is O(N)
+        // and called per row via `isTail`).
+        let queuedMessages = viewModel.queuedMessages
+        let tailId = viewModel.tailQueuedMessageId
+        if queuedMessages.isEmpty {
             EmptyView()
         } else {
-            container
+            container(queuedMessages: queuedMessages, tailId: tailId)
         }
     }
 
-    private var container: some View {
+    private func container(queuedMessages: [ChatMessage], tailId: UUID?) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            header
+            header(queuedMessages: queuedMessages)
 
             LazyVStack(spacing: 0) {
                 ForEach(
-                    Array(viewModel.queuedMessages.enumerated()),
+                    Array(queuedMessages.enumerated()),
                     id: \.element.id
                 ) { index, message in
                     QueuedMessageRow_iOS(
                         message: message,
                         positionLabel: "#\(index + 1)",
-                        isTail: message.id == viewModel.tailQueuedMessageId,
+                        isTail: message.id == tailId,
                         onEdit: {
                             viewModel.editQueuedTail(
                                 into: $composerText,
@@ -54,7 +59,7 @@ struct QueuedMessagesDrawer_iOS: View {
             }
             .animation(
                 .spring(duration: 0.28, bounce: 0.15),
-                value: viewModel.queuedMessages.map(\.id)
+                value: queuedMessages.map(\.id)
             )
         }
         .padding(VSpacing.md)
@@ -69,16 +74,16 @@ struct QueuedMessagesDrawer_iOS: View {
         .padding(.horizontal, VSpacing.md)
     }
 
-    private var header: some View {
+    private func header(queuedMessages: [ChatMessage]) -> some View {
         HStack {
-            Text("Queue · \(viewModel.queuedMessages.count)")
+            Text("Queue · \(queuedMessages.count)")
                 .font(VFont.labelDefault)
                 .foregroundStyle(VColor.contentSecondary)
 
             Spacer()
 
             Button("Cancel all") {
-                for message in viewModel.queuedMessages {
+                for message in queuedMessages {
                     viewModel.deleteQueuedMessage(messageId: message.id)
                 }
             }
