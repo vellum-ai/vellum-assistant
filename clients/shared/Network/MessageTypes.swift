@@ -3106,3 +3106,24 @@ extension WorkItemsListResponseItem {
         Self(id: id, taskId: taskId, title: title, notes: notes, status: status, priorityTier: newTier, sortIndex: sortIndex, lastRunId: lastRunId, lastRunConversationId: lastRunConversationId, lastRunStatus: lastRunStatus, sourceType: sourceType, sourceId: sourceId, createdAt: createdAt, updatedAt: updatedAt)
     }
 }
+
+// MARK: - Open Conversation Helpers
+
+extension OpenConversation {
+    /// Whether the client should switch focus to this conversation.
+    ///
+    /// The daemon emits `focus: false` for fan-out flows (e.g. surface-action
+    /// launches that spawn a background conversation) so the new conversation
+    /// appears in the sidebar without stealing focus from the origin surface.
+    /// Any other value — `true` or absent — defaults to switching focus to
+    /// preserve existing single-target behavior.
+    public var shouldSwitchFocus: Bool {
+        focus != false
+    }
+}
+
+/// Pure helper for the `.openConversation` handler's focus decision.
+/// Extracted so it can be unit-tested without spinning up AppDelegate.
+public func shouldFocusForOpenConversation(_ msg: OpenConversation) -> Bool {
+    msg.shouldSwitchFocus
+}

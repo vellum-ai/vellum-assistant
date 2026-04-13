@@ -217,6 +217,8 @@ extension AppDelegate {
                     // Tag the stub with source: "open_conversation" so it's distinguishable
                     // from true notification-flow stubs (which use source: "notification"
                     // and may drive urgency/alerting behaviors that don't apply here).
+                    // This registration runs regardless of the focus flag so fan-out
+                    // callers (focus: false) still get the conversation in the sidebar.
                     if let title = msg.title,
                        let conversationManager = self.mainWindow?.conversationManager,
                        !conversationManager.conversations.contains(where: { $0.conversationId == msg.conversationId }) {
@@ -228,7 +230,12 @@ extension AppDelegate {
                             source: "open_conversation"
                         )
                     }
-                    self.openConversation(conversationId: msg.conversationId, anchorMessageId: msg.anchorMessageId)
+                    // Switch focus only when the emitter did not explicitly opt out
+                    // (msg.focus != false). Absent (nil) defaults to switching, which
+                    // preserves existing single-target behavior.
+                    if shouldFocusForOpenConversation(msg) {
+                        self.openConversation(conversationId: msg.conversationId, anchorMessageId: msg.anchorMessageId)
+                    }
                 case .navigateSettings(let msg):
                     self.showSettingsTab(msg.tab)
                 case .showPlatformLogin:
