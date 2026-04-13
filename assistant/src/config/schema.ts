@@ -192,15 +192,8 @@ export {
   SkillsInstallConfigSchema,
   SkillsLoadConfigSchema,
 } from "./schemas/skills.js";
-export type {
-  SttDeepgramProviderConfig,
-  SttOpenAiWhisperProviderConfig,
-  SttProviders,
-  SttService,
-} from "./schemas/stt.js";
+export type { SttProviders, SttService } from "./schemas/stt.js";
 export {
-  SttDeepgramProviderConfigSchema,
-  SttOpenAiWhisperProviderConfigSchema,
   SttProvidersSchema,
   SttServiceSchema,
   VALID_STT_PROVIDERS,

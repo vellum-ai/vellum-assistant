@@ -1166,8 +1166,8 @@ describe("AssistantConfigSchema", () => {
     });
     expect(result.services.stt.mode).toBe("your-own");
     expect(result.services.stt.provider).toBe("openai-whisper");
-    expect(result.services.stt.providers["openai-whisper"]).toEqual({});
-    expect(result.services.stt.providers.deepgram).toEqual({});
+    // providers defaults to empty sparse map
+    expect(result.services.stt.providers).toEqual({});
   });
 
   test("accepts valid services.stt provider override", () => {
@@ -1190,6 +1190,33 @@ describe("AssistantConfigSchema", () => {
       },
     });
     expect(result.services.stt.providers["openai-whisper"]).toEqual({});
+  });
+
+  test("parses when providers map is empty (sparse default)", () => {
+    const result = AssistantConfigSchema.parse({
+      services: { stt: { provider: "deepgram", providers: {} } },
+    });
+    expect(result.services.stt.providers).toEqual({});
+    expect(result.services.stt.provider).toBe("deepgram");
+  });
+
+  test("parses when unknown future provider blobs exist under providers", () => {
+    const result = AssistantConfigSchema.parse({
+      services: {
+        stt: {
+          provider: "openai-whisper",
+          providers: {
+            "openai-whisper": {},
+            "future-provider": { model: "next-gen", lang: "en" },
+          },
+        },
+      },
+    });
+    expect(result.services.stt.providers["openai-whisper"]).toEqual({});
+    expect(result.services.stt.providers["future-provider"]).toEqual({
+      model: "next-gen",
+      lang: "en",
+    });
   });
 
   test("rejects services.stt.mode = managed", () => {
@@ -1235,6 +1262,24 @@ describe("AssistantConfigSchema", () => {
         },
       },
     });
+    expect(result.services.stt.providers.deepgram).toEqual({});
+  });
+
+  test("existing configs with explicit per-provider objects continue to parse", () => {
+    // Configs with explicit per-provider objects must continue to
+    // parse and round-trip successfully.
+    const result = AssistantConfigSchema.parse({
+      services: {
+        stt: {
+          provider: "openai-whisper",
+          providers: {
+            "openai-whisper": {},
+            deepgram: {},
+          },
+        },
+      },
+    });
+    expect(result.services.stt.providers["openai-whisper"]).toEqual({});
     expect(result.services.stt.providers.deepgram).toEqual({});
   });
 

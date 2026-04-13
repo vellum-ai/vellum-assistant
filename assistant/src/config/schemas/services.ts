@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { SttProvidersSchema, SttServiceSchema } from "./stt.js";
+import { SttServiceSchema } from "./stt.js";
 import { TtsServiceSchema } from "./tts.js";
 
 export const ServiceModeSchema = z.enum(["managed", "your-own"]);
@@ -90,7 +90,7 @@ export const ServicesSchema = z.object({
   stt: SttServiceSchema.default({
     mode: "your-own" as const,
     provider: "openai-whisper" as const,
-    providers: SttProvidersSchema.parse({}),
+    providers: {},
   }),
   tts: TtsServiceSchema.default(TtsServiceSchema.parse({})),
   "google-oauth": GoogleOAuthServiceSchema.default(

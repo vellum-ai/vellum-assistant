@@ -12,11 +12,15 @@ import type { WorkspaceMigration } from "./types.js";
  * to users and tooling that inspects config on disk.
  *
  * This migration writes a canonical `services.stt` block when missing or
- * partial, backfilling:
+ * partial, backfilling only structural fields:
  *
  *   - `services.stt.mode`      -> `"your-own"`
  *   - `services.stt.provider`  -> `"openai-whisper"`
- *   - `services.stt.providers` -> `{ "openai-whisper": {}, "deepgram": {} }`
+ *   - `services.stt.providers` -> `{}` (empty object — sparse map)
+ *
+ * It does NOT seed per-provider entries (`openai-whisper`, `deepgram`, etc.)
+ * — the providers map is sparse and only holds entries the user explicitly
+ * configures. Adding a new provider ID does not require a migration.
  *
  * It never clobbers user-defined STT values — only fills in what is missing.
  *
@@ -58,14 +62,14 @@ export const sttServiceExplicitConfigMigration: WorkspaceMigration = {
       changed = true;
     }
 
-    // Backfill providers map and its entries
-    const providers = ensureObj(stt, "providers");
-    if (!("openai-whisper" in providers)) {
-      providers["openai-whisper"] = {};
-      changed = true;
-    }
-    if (!("deepgram" in providers)) {
-      providers.deepgram = {};
+    // Ensure providers map exists as an object (sparse — no per-provider seeding)
+    if (
+      !("providers" in stt) ||
+      stt.providers == null ||
+      typeof stt.providers !== "object" ||
+      Array.isArray(stt.providers)
+    ) {
+      stt.providers = {};
       changed = true;
     }
 
