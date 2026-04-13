@@ -377,6 +377,28 @@ export function acquireCdpClientWithMode(
     const cdp = wrapWithKindMemo(raw, context.conversationId);
     return { cdp, browserMode };
   } catch (err) {
+    // Sticky-mode fallback: the caller requested "auto" but we pinned to
+    // a remembered backend kind that has since become unavailable. Drop
+    // the stale memo and retry with fresh auto selection so a dead
+    // sticky preference doesn't surface as a hard failure.
+    if (browserMode === "auto" && effectiveMode !== "auto") {
+      browserManager.clearPreferredBackendKind(context.conversationId);
+      try {
+        const raw = getCdpClient(context, { mode: "auto" });
+        const cdp = wrapWithKindMemo(raw, context.conversationId);
+        return { cdp, browserMode };
+      } catch (retryErr) {
+        if (retryErr instanceof CdpError) {
+          return {
+            errorResult: {
+              content: formatModeSelectionFailure("auto", retryErr),
+              isError: true,
+            },
+          };
+        }
+        throw retryErr;
+      }
+    }
     if (err instanceof CdpError && browserMode !== "auto") {
       return {
         errorResult: {
@@ -1112,12 +1134,6 @@ export async function executeBrowserDetach(
       );
     }
 
-    // Clear stale snapshot element-id mappings regardless of backend.
-    browserManager.clearSnapshotBackendNodeMap(context.conversationId);
-    // Drop the sticky backend kind so the next browser_* call re-runs
-    // the auto priority list from a clean slate.
-    browserManager.clearPreferredBackendKind(context.conversationId);
-
     return {
       content: "Browser debugger detached and snapshot state cleared.",
       isError: false,
@@ -1134,6 +1150,12 @@ export async function executeBrowserDetach(
     log.error({ err }, "Detach failed");
     return { content: `Error: Detach failed: ${msg}`, isError: true };
   } finally {
+    // Always reset conversation-scoped browser state, even if the
+    // Vellum.detach round-trip failed (target gone, transport dropped).
+    // browser_detach is the user's recovery path — leaving a stale
+    // sticky backend or snapshot map behind would defeat its purpose.
+    browserManager.clearSnapshotBackendNodeMap(context.conversationId);
+    browserManager.clearPreferredBackendKind(context.conversationId);
     cdp.dispose();
   }
 }
