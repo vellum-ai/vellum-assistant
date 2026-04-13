@@ -212,8 +212,10 @@ extension AppDelegate {
                     guard !self.isBootstrapping else { break }
                     self.ensureMainWindowExists()
                     // If the conversation isn't in the sidebar yet (e.g. just created by a
-                    // skill via the launch-conversation signal), stub a sidebar entry using
-                    // the optional title so openConversation's trySelect retries find it.
+                    // surface action with `_action: "launch_conversation"` that the daemon
+                    // dispatched inline, spawning a fresh conversation and emitting
+                    // open_conversation), stub a sidebar entry using the optional title so
+                    // openConversation's trySelect retries find it.
                     // Tag the stub with source: "open_conversation" so it's distinguishable
                     // from true notification-flow stubs (which use source: "notification"
                     // and may drive urgency/alerting behaviors that don't apply here).
