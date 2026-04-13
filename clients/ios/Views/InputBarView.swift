@@ -849,7 +849,7 @@ struct InputBarView: View {
             isStreamingActive = false
             // If auto-stop was waiting on a streaming final that never arrived,
             // trigger batch fallback now to avoid a stuck session.
-            if isSTTOnlyMode && !streamingFinalReceived && isAutoStopPending {
+            if !streamingFinalReceived && isAutoStopPending && !voiceResultCommitted {
                 resolveTranscriptWithServiceFirst(nativeTranscript: "")
             }
 
@@ -858,7 +858,7 @@ struct InputBarView: View {
             isStreamingActive = false
             // If auto-stop was waiting on a streaming final that never arrived,
             // trigger batch fallback now to avoid a stuck session.
-            if isSTTOnlyMode && !streamingFinalReceived && isAutoStopPending {
+            if !streamingFinalReceived && isAutoStopPending && !voiceResultCommitted {
                 resolveTranscriptWithServiceFirst(nativeTranscript: "")
             }
         }
@@ -873,7 +873,7 @@ struct InputBarView: View {
         activeStreamingClient = nil
         // If auto-stop was waiting on a streaming final that never arrived,
         // trigger batch fallback now to avoid a stuck session.
-        if isSTTOnlyMode && !streamingFinalReceived && isAutoStopPending {
+        if !streamingFinalReceived && isAutoStopPending && !voiceResultCommitted {
             resolveTranscriptWithServiceFirst(nativeTranscript: "")
         }
     }
