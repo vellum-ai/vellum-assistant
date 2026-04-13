@@ -222,7 +222,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
 
     const url = this.buildWebSocketUrl();
     log.info(
-      { url: url.replace(/token=.*/, "token=***") },
+      { url: url.replace(/token=[^&]*/, "token=***") },
       "Opening Deepgram realtime session",
     );
 
@@ -302,7 +302,6 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
 
     // Deepgram's live endpoint accepts raw audio bytes on the WebSocket.
     ws.send(new Uint8Array(audio));
-    this.resetInactivityTimer();
   }
 
   stop(): void {
@@ -560,8 +559,9 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
   }
 
   /**
-   * Reset the inactivity timer. Called on every outbound audio send and
-   * inbound provider message to track session liveness.
+   * Reset the inactivity timer. Called on inbound provider messages to
+   * detect provider-side hangs. Not reset on outbound audio sends —
+   * continuous audio from the caller must not mask a silent provider.
    */
   private resetInactivityTimer(): void {
     if (this.closed || this.stopping) return;
