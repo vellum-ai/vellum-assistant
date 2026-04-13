@@ -49,7 +49,7 @@ public struct TypingIndicatorView: View {
 
         return HStack(spacing: dotSpacing) {
             ForEach(0..<3, id: \.self) { index in
-                let offset = Double(index) * (2.0 * .pi / 3.0)
+                let offset = -Double(index) * (2.0 * .pi / 3.0)
                 let wave = (sin(phase + offset) + 1.0) / 2.0
 
                 Circle()
