@@ -232,6 +232,14 @@ export async function resolveConversationStreamingSttCapability(): Promise<Conve
 // ---------------------------------------------------------------------------
 
 /**
+ * Options for resolving a streaming transcriber.
+ */
+export interface ResolveStreamingTranscriberOptions {
+  /** Audio sample rate in Hz from the client WebSocket connection. */
+  sampleRate?: number;
+}
+
+/**
  * Resolve a `StreamingTranscriber` for daemon-hosted streaming transcription.
  *
  * Reads `services.stt.provider` from the assistant config to determine which
@@ -246,7 +254,9 @@ export async function resolveConversationStreamingSttCapability(): Promise<Conve
  * - No credentials are configured for the resolved provider.
  * - No streaming adapter exists for the configured provider.
  */
-export async function resolveStreamingTranscriber(): Promise<StreamingTranscriber | null> {
+export async function resolveStreamingTranscriber(
+  options: ResolveStreamingTranscriberOptions = {},
+): Promise<StreamingTranscriber | null> {
   const config = getConfig();
   const provider = config.services.stt.provider;
 
@@ -268,7 +278,16 @@ export async function resolveStreamingTranscriber(): Promise<StreamingTranscribe
     return null;
   }
 
-  return createStreamingTranscriber(apiKey, provider as SttProviderId);
+  return createStreamingTranscriber(apiKey, provider as SttProviderId, {
+    sampleRate: options.sampleRate,
+  });
+}
+
+/**
+ * Options forwarded to individual streaming adapter constructors.
+ */
+interface CreateStreamingTranscriberOptions {
+  sampleRate?: number;
 }
 
 /**
@@ -283,12 +302,15 @@ export async function resolveStreamingTranscriber(): Promise<StreamingTranscribe
 async function createStreamingTranscriber(
   apiKey: string,
   providerId: SttProviderId,
+  options: CreateStreamingTranscriberOptions = {},
 ): Promise<StreamingTranscriber | null> {
   switch (providerId) {
     case "deepgram": {
       const { DeepgramRealtimeTranscriber } =
         await import("./deepgram-realtime.js");
-      return new DeepgramRealtimeTranscriber(apiKey);
+      return new DeepgramRealtimeTranscriber(apiKey, {
+        sampleRate: options.sampleRate,
+      });
     }
     case "google-gemini": {
       const { GoogleGeminiStreamingTranscriber } =

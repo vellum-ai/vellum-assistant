@@ -473,13 +473,18 @@ export class RuntimeHttpServer {
               ws,
               sttData.provider,
               sttData.mimeType,
+              { sampleRate: sttData.sampleRate },
             );
             sttData.session = session;
             activeSttStreamSessions.set(sttData.sessionId, session);
 
             // Start the session asynchronously — resolves the streaming
             // transcriber and sends a `ready` event on success.
-            void session.start(() => resolveStreamingTranscriber());
+            void session.start(() =>
+              resolveStreamingTranscriber({
+                sampleRate: sttData.sampleRate,
+              }),
+            );
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;

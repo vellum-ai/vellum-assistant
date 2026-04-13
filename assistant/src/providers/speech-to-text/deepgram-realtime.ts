@@ -87,6 +87,8 @@ export interface DeepgramRealtimeOptions {
   connectTimeoutMs?: number;
   /** Inactivity timeout in milliseconds. Default: 30_000. */
   inactivityTimeoutMs?: number;
+  /** Audio sample rate in Hz (default: 16000). Passed through from the client WebSocket connection. */
+  sampleRate?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -179,6 +181,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
   private readonly baseUrl: string;
   private readonly connectTimeoutMs: number;
   private readonly inactivityTimeoutMs: number;
+  private readonly sampleRate: number;
 
   /** The live WebSocket connection, set during start(). */
   private ws: WsLike | null = null;
@@ -210,6 +213,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
       options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
     this.inactivityTimeoutMs =
       options.inactivityTimeoutMs ?? DEFAULT_INACTIVITY_TIMEOUT_MS;
+    this.sampleRate = options.sampleRate ?? 16_000;
   }
 
   // ── StreamingTranscriber interface ──────────────────────────────────
@@ -614,7 +618,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
 
     // Request linear16 PCM encoding — clients send raw PCM.
     params.set("encoding", "linear16");
-    params.set("sample_rate", "16000");
+    params.set("sample_rate", String(this.sampleRate));
     params.set("channels", "1");
 
     return `${this.baseUrl}/v1/listen?${params.toString()}`;

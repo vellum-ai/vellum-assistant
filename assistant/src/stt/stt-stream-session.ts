@@ -79,6 +79,8 @@ export interface SttStreamSocket {
 export interface SttStreamSessionOptions {
   /** Override idle timeout for testing. */
   idleTimeoutMs?: number;
+  /** Audio sample rate in Hz from the client WebSocket connection. */
+  sampleRate?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,6 +101,7 @@ export class SttStreamSession {
   private readonly provider: string;
   private readonly mimeType: string;
   private readonly idleTimeoutMs: number;
+  readonly sampleRate: number | undefined;
 
   /** Sequence counter for per-session ordering guarantees. */
   private seq = 0;
@@ -116,6 +119,7 @@ export class SttStreamSession {
     this.provider = provider;
     this.mimeType = mimeType;
     this.idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+    this.sampleRate = options.sampleRate;
   }
 
   // ── Public API ──────────────────────────────────────────────────────
