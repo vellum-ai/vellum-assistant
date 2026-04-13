@@ -51,9 +51,9 @@ struct QueuedMessageRow: View {
             // (d) Trailing icon cluster: pencil only when tail, xmark always.
             HStack(spacing: VSpacing.xs) {
                 if isTail {
-                    QueuedRowIconButton(systemName: "pencil", accessibilityLabel: "Edit queued message", action: onEdit)
+                    QueuedRowIconButton(icon: .pencil, accessibilityLabel: "Edit queued message", action: onEdit)
                 }
-                QueuedRowIconButton(systemName: "xmark", accessibilityLabel: "Cancel queued message", action: onCancel)
+                QueuedRowIconButton(icon: .x, accessibilityLabel: "Cancel queued message", action: onCancel)
             }
         }
         .padding(EdgeInsets(
@@ -62,7 +62,6 @@ struct QueuedMessageRow: View {
             bottom: VSpacing.sm,
             trailing: VSpacing.md
         ))
-        .frame(height: VSpacing.xl + VSpacing.sm)
         .contentShape(Rectangle())
     }
 }
@@ -73,7 +72,7 @@ struct QueuedMessageRow: View {
 /// hit target minimum called out in the plan, and swaps the foreground between
 /// `contentSecondary` (resting) and `contentDefault` (hovered).
 private struct QueuedRowIconButton: View {
-    let systemName: String
+    let icon: VIcon
     let accessibilityLabel: String
     let action: () -> Void
 
@@ -81,8 +80,7 @@ private struct QueuedRowIconButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 11, weight: .medium))
+            VIconView(icon, size: 11)
                 .foregroundStyle(isHovered ? VColor.contentDefault : VColor.contentSecondary)
                 .frame(width: 24, height: 24)
                 .contentShape(Rectangle())
