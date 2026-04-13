@@ -1105,7 +1105,15 @@ public struct ClawhubOriginMeta: Codable, Sendable, Equatable {
     }
 
     /// URL to this skill's page on clawhub.ai.
+    /// Namespaced slugs (e.g. "author/skill") use the root path directly;
+    /// simple slugs use the `/skills/` prefix.
     public var hubURL: URL? {
+        if slug.contains("/") {
+            let encoded = slug.split(separator: "/").map {
+                String($0).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0)
+            }.joined(separator: "/")
+            return URL(string: "https://clawhub.ai/\(encoded)")
+        }
         let encodedSlug = slug.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? slug
         return URL(string: "https://clawhub.ai/skills/\(encodedSlug)")
     }
