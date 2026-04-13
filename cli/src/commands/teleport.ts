@@ -35,6 +35,8 @@ import { hatchLocal } from "../lib/hatch-local.js";
 import { retireLocal } from "../lib/retire-local.js";
 import { validateAssistantName } from "../lib/retire-archive.js";
 import { stopProcessByPidFile } from "../lib/process.js";
+import { fetchCurrentVersion } from "../lib/upgrade-lifecycle.js";
+import { compareVersions } from "../lib/version-compat.js";
 import { join } from "node:path";
 
 function printHelp(): void {
@@ -1144,6 +1146,28 @@ export async function teleport(): Promise<void> {
         process.exit(1);
       }
 
+      // Version guard: block platform→non-platform when target is behind
+      if (fromCloud === "vellum" && toCloud !== "vellum") {
+        const [sourceVersion, targetVersion] = await Promise.all([
+          fetchCurrentVersion(fromEntry.runtimeUrl),
+          fetchCurrentVersion(existingTarget.runtimeUrl),
+        ]);
+        const cmp =
+          sourceVersion && targetVersion
+            ? compareVersions(targetVersion, sourceVersion)
+            : null;
+        if (cmp !== null && cmp < 0) {
+          console.error(
+            `Error: Target assistant '${existingTarget.assistantId}' is running ${targetVersion}, ` +
+              `but the platform source is on ${sourceVersion}.`,
+          );
+          console.error(
+            `Upgrade your ${toCloud} assistant first: vellum upgrade ${existingTarget.assistantId}`,
+          );
+          process.exit(1);
+        }
+      }
+
       console.log(`Exporting from ${from} (${fromCloud})...`);
       const bundleData = await exportFromAssistant(fromEntry, fromCloud);
       console.log(`Importing to ${existingTarget.assistantId} (${toCloud})...`);
@@ -1245,6 +1269,36 @@ export async function teleport(): Promise<void> {
   // fails, the user can recover by running `vellum wake <source>`.
   const sourceIsLocalOrDocker = fromCloud === "local" || fromCloud === "docker";
   const targetIsLocalOrDocker = targetEnv === "local" || targetEnv === "docker";
+
+  // Version guard (pre-hatch): for existing targets, check BEFORE hatching
+  // to avoid creating orphaned assistants when the version check would fail.
+  let versionGuardPassed = false;
+  if (fromCloud === "vellum" && targetIsLocalOrDocker && targetName) {
+    const existingTarget = findAssistantByName(targetName);
+    if (existingTarget) {
+      const [sourceVersion, existingVersion] = await Promise.all([
+        fetchCurrentVersion(fromEntry.runtimeUrl),
+        fetchCurrentVersion(existingTarget.runtimeUrl),
+      ]);
+      const cmp =
+        sourceVersion && existingVersion
+          ? compareVersions(existingVersion, sourceVersion)
+          : null;
+      if (cmp !== null && cmp < 0) {
+        console.error(
+          `Error: Target assistant '${existingTarget.assistantId}' is running ${existingVersion}, ` +
+            `but the platform source is on ${sourceVersion}.`,
+        );
+        console.error(
+          `Upgrade your ${targetEnv} assistant first: vellum upgrade ${existingTarget.assistantId}`,
+        );
+        process.exit(1);
+      }
+      // Pre-hatch check passed (or was best-effort skipped) — skip post-hatch
+      versionGuardPassed = true;
+    }
+  }
+
   if (sourceIsLocalOrDocker && targetIsLocalOrDocker && !keepSource) {
     console.log(`Stopping source assistant '${from}' to free ports...`);
     if (fromCloud === "docker") {
@@ -1273,6 +1327,41 @@ export async function teleport(): Promise<void> {
       `Cannot teleport between two ${normalizedTargetEnv} assistants. Teleport transfers data across different environments.`,
     );
     process.exit(1);
+  }
+
+  // Version guard (post-hatch): for newly hatched targets we must check after
+  // hatch because the assistant doesn't exist yet before. If it fails, clean
+  // up the freshly hatched assistant to avoid orphans.
+  // Skip if the pre-hatch guard already ran for an existing target.
+  if (!versionGuardPassed && fromCloud === "vellum" && toCloud !== "vellum") {
+    const [sourceVersion, targetVersion] = await Promise.all([
+      fetchCurrentVersion(fromEntry.runtimeUrl),
+      fetchCurrentVersion(toEntry.runtimeUrl),
+    ]);
+    const cmp =
+      sourceVersion && targetVersion
+        ? compareVersions(targetVersion, sourceVersion)
+        : null;
+    if (cmp !== null && cmp < 0) {
+      // Clean up the freshly hatched assistant to avoid orphans
+      console.error(
+        `Cleaning up newly hatched assistant '${toEntry.assistantId}'...`,
+      );
+      if (toCloud === "docker") {
+        await retireDocker(toEntry.assistantId);
+      } else {
+        await retireLocal(toEntry.assistantId, toEntry);
+      }
+      removeAssistantEntry(toEntry.assistantId);
+      console.error(
+        `Error: Target assistant '${toEntry.assistantId}' was running ${targetVersion}, ` +
+          `but the platform source is on ${sourceVersion}.`,
+      );
+      console.error(
+        `Upgrade your ${toCloud} environment first, then retry the teleport.`,
+      );
+      process.exit(1);
+    }
   }
 
   // Import to target
