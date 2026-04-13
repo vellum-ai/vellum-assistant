@@ -1,10 +1,10 @@
 /**
  * Guards the observability contract for the fire-and-forget regenerate path.
  *
- * /regenerate no longer awaits runAgentLoop — any error that escapes the
+ * /regenerate does not await runAgentLoop — any error that escapes the
  * agent loop (e.g. a throw from its `finally` block) would otherwise be
  * swallowed by the `.catch()` without the structured `request_error` trace
- * event that the prior handler-level try/catch used to emit.
+ * event needed for observability.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
