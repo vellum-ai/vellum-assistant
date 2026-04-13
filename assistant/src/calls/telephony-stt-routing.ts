@@ -18,11 +18,8 @@
  *   batch API. Used for `openai-whisper`.
  *
  * Model normalization semantics for Twilio-native providers:
- * - Deepgram defaults `speechModel` to `"nova-3"` when unset.
- * - Google leaves `speechModel` undefined when unset. The legacy
- *   Deepgram default `"nova-3"` is treated as unset for Google so
- *   workspaces that switched providers don't send a Deepgram model
- *   name to Google's API.
+ * - Deepgram defaults `speechModel` to `"nova-3"`.
+ * - Google leaves `speechModel` undefined (uses provider default).
  */
 
 import { getConfig } from "../config/loader.js";
@@ -113,28 +110,15 @@ const TWILIO_NATIVE_PROVIDER_MAP: ReadonlyMap<
 /**
  * Resolve the effective speech model for a Twilio-native provider.
  *
- * - Deepgram: falls back to `"nova-3"` when the model is unset.
- * - Google: leaves the model undefined when unset. Treats the legacy
- *   Deepgram default `"nova-3"` as unset so that workspaces that were
- *   previously configured for Deepgram don't send a Deepgram model name
- *   to Google's Cloud Speech API.
+ * - Deepgram: defaults to `"nova-3"`.
+ * - Google: leaves the model undefined (uses provider default).
  */
 function resolveNativeSpeechModel(
   twilioProvider: TwilioNativeTranscriptionProvider,
-  rawSpeechModel: string | undefined,
 ): string | undefined {
-  const isGoogle = twilioProvider === "Google";
-
-  if (rawSpeechModel == null) {
-    return isGoogle ? undefined : DEEPGRAM_DEFAULT_SPEECH_MODEL;
-  }
-
-  // Legacy migration: suppress the Deepgram default when provider is Google.
-  if (rawSpeechModel === DEEPGRAM_DEFAULT_SPEECH_MODEL && isGoogle) {
-    return undefined;
-  }
-
-  return rawSpeechModel;
+  return twilioProvider === "Google"
+    ? undefined
+    : DEEPGRAM_DEFAULT_SPEECH_MODEL;
 }
 
 // ---------------------------------------------------------------------------
@@ -147,14 +131,8 @@ function resolveNativeSpeechModel(
  * Reads the active provider from config, checks the provider catalog for
  * validity, then maps to either a Twilio-native ConversationRelay strategy
  * or a media-stream custom strategy.
- *
- * @param speechModel - Optional raw speech model from config. When provided,
- *   model normalization is applied for Twilio-native providers. Sourced
- *   from `calls.voice.speechModel`.
  */
-export function resolveTelephonySttRouting(
-  speechModel?: string | undefined,
-): TelephonySttRoutingResult {
+export function resolveTelephonySttRouting(): TelephonySttRoutingResult {
   const config = getConfig();
   const providerId = config.services.stt.provider;
 
@@ -178,7 +156,7 @@ export function resolveTelephonySttRouting(
         strategy: "conversation-relay-native",
         providerId: entry.id,
         transcriptionProvider: twilioProvider,
-        speechModel: resolveNativeSpeechModel(twilioProvider, speechModel),
+        speechModel: resolveNativeSpeechModel(twilioProvider),
       },
     };
   }
