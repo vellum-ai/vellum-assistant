@@ -1039,13 +1039,6 @@ final class VoiceInputManager {
     /// The `generation` parameter is captured at recording start and checked in
     /// all callbacks to suppress stale-session deliveries.
     private func startStreamingSession(generation: UInt64) {
-        guard let providerId = UserDefaults.standard.string(forKey: "sttProvider"),
-              !providerId.isEmpty else {
-            log.warning("Streaming session requested but no STT provider configured")
-            streamingFailed = true
-            return
-        }
-
         let client = streamingClientFactory()
         self.streamingClient = client
 
@@ -1056,7 +1049,6 @@ final class VoiceInputManager {
 
         Task { [weak self] in
             await client.start(
-                provider: providerId,
                 mimeType: "audio/pcm",
                 sampleRate: sampleRate,
                 onEvent: { [weak self] event in

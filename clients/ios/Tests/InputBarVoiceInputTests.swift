@@ -437,8 +437,6 @@ final class InputBarVoiceInputTests: XCTestCase {
         var stopCallCount = 0
         var closeCallCount = 0
 
-        /// The last provider passed to `start`.
-        var lastProvider: String?
         /// The last mimeType passed to `start`.
         var lastMimeType: String?
         /// The last sampleRate passed to `start`.
@@ -453,14 +451,12 @@ final class InputBarVoiceInputTests: XCTestCase {
         var sentAudioChunks: [Data] = []
 
         func start(
-            provider: String,
             mimeType: String,
             sampleRate: Int?,
             onEvent: @escaping @MainActor (STTStreamEvent) -> Void,
             onFailure: @escaping @MainActor (STTStreamFailure) -> Void
         ) async {
             startCallCount += 1
-            lastProvider = provider
             lastMimeType = mimeType
             lastSampleRate = sampleRate
             capturedOnEvent = onEvent
@@ -502,7 +498,6 @@ final class InputBarVoiceInputTests: XCTestCase {
 
         // Simulate streaming start
         await mockStreaming.start(
-            provider: "deepgram",
             mimeType: "audio/pcm",
             sampleRate: 16000,
             onEvent: { _ in },
@@ -510,7 +505,6 @@ final class InputBarVoiceInputTests: XCTestCase {
         )
 
         XCTAssertEqual(mockStreaming.startCallCount, 1, "Streaming client should have been started once")
-        XCTAssertEqual(mockStreaming.lastProvider, "deepgram")
         XCTAssertEqual(mockStreaming.lastMimeType, "audio/pcm")
         XCTAssertEqual(mockStreaming.lastSampleRate, 16000)
     }
@@ -521,7 +515,6 @@ final class InputBarVoiceInputTests: XCTestCase {
         var receivedTexts: [String] = []
 
         await mockStreaming.start(
-            provider: "deepgram",
             mimeType: "audio/pcm",
             sampleRate: 16000,
             onEvent: { event in
@@ -551,7 +544,6 @@ final class InputBarVoiceInputTests: XCTestCase {
         var finalReceived = false
 
         await mockStreaming.start(
-            provider: "deepgram",
             mimeType: "audio/pcm",
             sampleRate: 16000,
             onEvent: { event in
@@ -608,7 +600,6 @@ final class InputBarVoiceInputTests: XCTestCase {
         var failureReceived: STTStreamFailure?
 
         await mockStreaming.start(
-            provider: "deepgram",
             mimeType: "audio/pcm",
             sampleRate: 16000,
             onEvent: { _ in },
@@ -634,7 +625,6 @@ final class InputBarVoiceInputTests: XCTestCase {
         var failureReceived: STTStreamFailure?
 
         await mockStreaming.start(
-            provider: "google-gemini",
             mimeType: "audio/pcm",
             sampleRate: 16000,
             onEvent: { _ in },
@@ -658,7 +648,6 @@ final class InputBarVoiceInputTests: XCTestCase {
         var failureReceived: STTStreamFailure?
 
         await mockStreaming.start(
-            provider: "openai-whisper",
             mimeType: "audio/pcm",
             sampleRate: 16000,
             onEvent: { _ in },
@@ -769,7 +758,6 @@ final class InputBarVoiceInputTests: XCTestCase {
         var errorReceived = false
 
         await mockStreaming.start(
-            provider: "deepgram",
             mimeType: "audio/pcm",
             sampleRate: 16000,
             onEvent: { event in

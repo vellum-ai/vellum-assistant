@@ -510,13 +510,10 @@ struct InputBarView: View {
             activeStreamingClient = client
             let sessionAtStart = sttSessionId
 
-            // Resolve the configured provider identifier for the streaming request.
-            let providerId = UserDefaults.standard.string(forKey: "sttProvider") ?? ""
             let sampleRateForStream = Int(recordingFormat.sampleRate)
 
             Task { @MainActor in
                 await client.start(
-                    provider: providerId,
                     mimeType: "audio/pcm",
                     sampleRate: sampleRateForStream,
                     onEvent: { event in
