@@ -186,7 +186,11 @@ export class GoogleGeminiStreamingTranscriber implements StreamingTranscriber {
 
     try {
       const text = await this.transcribeAccumulated();
-      this.lastPollTime = Date.now();
+
+      // Guard: if stop() was called while we were awaiting the API
+      // response, emitFinal() may have already sent final/closed.
+      // Emitting a partial after closed violates the streaming contract.
+      if (this.stopped) return;
 
       // Only emit a partial if the text has actually changed AND is
       // a forward progression (longer or substantially different).
@@ -208,6 +212,11 @@ export class GoogleGeminiStreamingTranscriber implements StreamingTranscriber {
         this.emit({ type: "error", category: "provider-error", message });
       }
     } finally {
+      // Record poll completion time in both success and error paths so
+      // that throttling still applies when requests fail quickly —
+      // otherwise stale lastPollTime causes immediate retries on each
+      // sendAudio() call, producing request bursts.
+      this.lastPollTime = Date.now();
       this.polling = false;
     }
 
