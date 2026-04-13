@@ -124,6 +124,15 @@ final class SoundManager {
         return true
     }
 
+    /// Picks a random filename from the pool after filtering out entries that
+    /// fail `validateSoundFilename`. Returns `nil` when the pool is empty or
+    /// every entry is invalid. Single source of truth for pool selection so
+    /// `play(_:)` and `previewSound(for:)` stay in lockstep.
+    internal func pickSoundFilename(from sounds: [String]) -> String? {
+        let validated = sounds.filter { validateSoundFilename($0) }
+        return validated.randomElement()
+    }
+
     /// Fetches a custom sound file from the assistant's workspace via the gateway
     /// and returns an `NSSound` instance. Returns `nil` on failure.
     private func fetchCustomSound(filename: String) async -> NSSound? {
@@ -153,34 +162,30 @@ final class SoundManager {
         let eventConfig = config.config(for: event)
         guard eventConfig.enabled else { return }
 
-        if let filename = eventConfig.sound {
-            guard validateSoundFilename(filename) else {
-                playDefault()
-                return
-            }
-
-            // Use cached sound if available.
-            if let cached = soundCache[filename] {
-                cached.volume = config.volume
-                cached.play()
-                return
-            }
-
-            // Fetch asynchronously; fall back to default blip for this invocation.
-            // The fetched sound will be cached for subsequent plays.
-            Task {
-                if let sound = await fetchCustomSound(filename: filename) {
-                    soundCache[filename] = sound
-                    sound.volume = config.volume
-                    sound.play()
-                } else {
-                    log.warning("Failed to load sound file '\(filename)', falling back to default")
-                    playDefault()
-                }
-            }
-        } else {
-            // No custom sound set — use default blip.
+        guard let filename = pickSoundFilename(from: eventConfig.sounds) else {
+            // Empty pool or every entry failed validation — use default blip.
             playDefault()
+            return
+        }
+
+        // Use cached sound if available.
+        if let cached = soundCache[filename] {
+            cached.volume = config.volume
+            cached.play()
+            return
+        }
+
+        // Fetch asynchronously; fall back to default blip for this invocation.
+        // The fetched sound will be cached for subsequent plays.
+        Task {
+            if let sound = await fetchCustomSound(filename: filename) {
+                soundCache[filename] = sound
+                sound.volume = config.volume
+                sound.play()
+            } else {
+                log.warning("Failed to load sound file '\(filename)', falling back to default")
+                playDefault()
+            }
         }
     }
 
@@ -193,14 +198,11 @@ final class SoundManager {
 
     /// Preview the sound configured for a specific event at the current volume,
     /// bypassing enabled checks. Fetches the sound from the gateway if not cached.
+    /// Each invocation picks a random entry from the pool, which doubles as the
+    /// way to audition a multi-sound pool from the Settings UI.
     func previewSound(for event: SoundEvent) {
         let eventConfig = config.config(for: event)
-        guard let filename = eventConfig.sound, !filename.isEmpty else {
-            previewDefaultBlip()
-            return
-        }
-
-        guard validateSoundFilename(filename) else {
+        guard let filename = pickSoundFilename(from: eventConfig.sounds) else {
             previewDefaultBlip()
             return
         }
