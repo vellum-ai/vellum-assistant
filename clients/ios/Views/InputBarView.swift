@@ -87,6 +87,12 @@ struct InputBarView: View {
     /// a newer session has started and the stale result is silently discarded.
     @State private var sttSessionId: Int = 0
 
+    /// True when the current recording session is using STT-only mode (no native speech
+    /// recognition task). Set when STT is configured and the native recognizer is unavailable
+    /// or unauthorized. In this mode, auto-stop routes directly to the STT service instead
+    /// of waiting for a native isFinal callback.
+    @State private var isSTTOnlyMode = false
+
     var body: some View {
         VStack(spacing: 0) {
             // Attachment strip (shown only when there are pending attachments)
@@ -311,20 +317,35 @@ struct InputBarView: View {
                 log.warning("Microphone access denied")
                 DispatchQueue.main.async {
                     isVoiceOrbExpanded = false
-                    viewModel.errorText = "Microphone access denied — enable it in Settings > Privacy > Microphone."
+                    // When STT is configured, only microphone permission is required — don't
+                    // mention speech recognition since we can transcribe without it.
+                    if STTProviderRegistry.isServiceConfigured {
+                        viewModel.errorText = "Microphone not authorized — enable it in Settings > Privacy > Microphone."
+                    } else {
+                        viewModel.errorText = "Microphone access denied — enable it in Settings > Privacy > Microphone."
+                    }
                 }
                 return
             }
-            // Request speech recognition access via the adapter
+
             Task { @MainActor in
-                let status = await speechRecognizer.requestAuthorization()
-                guard status == .authorized else {
-                    log.warning("Speech recognition not authorized: \(String(describing: status))")
-                    isVoiceOrbExpanded = false
-                    viewModel.errorText = "Speech recognition not authorized — enable it in Settings > Privacy > Speech Recognition."
-                    return
+                if STTProviderRegistry.isServiceConfigured {
+                    // When an STT provider is configured, speech recognition permission is
+                    // not required — the STT service handles transcription. Proceed directly
+                    // to recording.
+                    log.info("STT provider configured — skipping speech recognition authorization")
+                    beginRecording()
+                } else {
+                    // Request speech recognition access via the adapter
+                    let status = await speechRecognizer.requestAuthorization()
+                    guard status == .authorized else {
+                        log.warning("Speech recognition not authorized: \(String(describing: status))")
+                        isVoiceOrbExpanded = false
+                        viewModel.errorText = "Speech recognition not authorized — enable it in Settings > Privacy > Speech Recognition."
+                        return
+                    }
+                    beginRecording()
                 }
-                beginRecording()
             }
         }
     }
@@ -337,11 +358,18 @@ struct InputBarView: View {
             return
         }
 
-        guard speechRecognizer.isAvailable else {
-            log.error("Speech recognizer not available")
-            isVoiceOrbExpanded = false
-            viewModel.errorText = "Voice input is not available on this device."
-            return
+        let sttConfigured = STTProviderRegistry.isServiceConfigured
+
+        // When STT is not configured, the native speech recognizer is required.
+        // When STT is configured, the native recognizer is optional — we can fall
+        // back to STT-only mode if it's unavailable.
+        if !sttConfigured {
+            guard speechRecognizer.isAvailable else {
+                log.error("Speech recognizer not available")
+                isVoiceOrbExpanded = false
+                viewModel.errorText = "Voice input is not available on this device."
+                return
+            }
         }
 
         do {
@@ -355,39 +383,59 @@ struct InputBarView: View {
             return
         }
 
-        // Start the recognition task via the adapter. The adapter returns the audio buffer
-        // request (for appending mic samples) and a cancellation closure.
-        let taskResult: (request: SFSpeechAudioBufferRecognitionRequest, cancel: () -> Void)
-        do {
-            taskResult = try speechRecognizer.startRecognitionTask { result, error in
-                if let result = result {
-                    let transcribed = result.transcription
-                    if result.isFinal {
-                        log.info("Native transcription final: \(transcribed, privacy: .public)")
-                        resolveTranscriptWithServiceFirst(nativeTranscript: transcribed)
+        // Determine whether we can use the native speech recognizer. When STT is
+        // configured the native recognizer is optional — if it's unavailable or
+        // throws on start, we fall back to STT-only mode (PCM capture + service
+        // transcription without a native recognition task).
+        var nativeRequest: SFSpeechAudioBufferRecognitionRequest?
+        var nativeCancelTask: (() -> Void)?
+        var useSTTOnly = false
+
+        if speechRecognizer.isAvailable {
+            do {
+                let taskResult = try speechRecognizer.startRecognitionTask { result, error in
+                    if let result = result {
+                        let transcribed = result.transcription
+                        if result.isFinal {
+                            log.info("Native transcription final: \(transcribed, privacy: .public)")
+                            resolveTranscriptWithServiceFirst(nativeTranscript: transcribed)
+                        }
+                    }
+                    if let error = error {
+                        // Code 1110 is "no speech detected" — not an error worth logging at error level
+                        let nsError = error as NSError
+                        if nsError.code != 1110 {
+                            log.error("Recognition error: \(error.localizedDescription)")
+                        }
+                        stopRecording()
+                        isVoiceOrbExpanded = false
                     }
                 }
-                if let error = error {
-                    // Code 1110 is "no speech detected" — not an error worth logging at error level
-                    let nsError = error as NSError
-                    if nsError.code != 1110 {
-                        log.error("Recognition error: \(error.localizedDescription)")
-                    }
-                    stopRecording()
+                nativeRequest = taskResult.request
+                nativeCancelTask = taskResult.cancel
+            } catch {
+                if sttConfigured {
+                    // Native recognizer failed to start but STT is available — proceed in STT-only mode.
+                    log.info("Native recognition task failed to start, using STT-only mode: \(error.localizedDescription)")
+                    useSTTOnly = true
+                } else {
+                    log.error("Failed to start recognition task: \(error.localizedDescription)")
                     isVoiceOrbExpanded = false
+                    viewModel.errorText = "Voice input is not available on this device."
+                    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+                    return
                 }
             }
-        } catch {
-            log.error("Failed to start recognition task: \(error.localizedDescription)")
-            isVoiceOrbExpanded = false
-            viewModel.errorText = "Voice input is not available on this device."
-            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-            return
+        } else if sttConfigured {
+            // Speech recognizer not available but STT is configured — use STT-only mode.
+            log.info("Speech recognizer not available, using STT-only mode")
+            useSTTOnly = true
         }
+        // else: not available + not configured — guarded above with early return.
 
-        let request = taskResult.request
-        recognitionRequest = request
-        cancelRecognitionTask = taskResult.cancel
+        recognitionRequest = nativeRequest
+        cancelRecognitionTask = nativeCancelTask
+        isSTTOnlyMode = useSTTOnly || nativeRequest == nil
 
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
@@ -411,6 +459,10 @@ struct InputBarView: View {
         audioBuffers = []
         recordingSampleRate = Int(recordingFormat.sampleRate)
 
+        // Capture the native request locally for the tap closure. In STT-only mode
+        // this is nil and the tap only captures PCM data for the service.
+        let capturedNativeRequest = nativeRequest
+
         // installTap throws an Objective-C NSException (not a Swift Error) on
         // format mismatch or stale engine state during audio route changes.
         // Swift's do/catch cannot intercept NSExceptions — they propagate
@@ -419,7 +471,8 @@ struct InputBarView: View {
         var installError: NSError?
         let installed = VLMPerformWithObjCExceptionHandling({
             inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
-                request.append(buffer)
+                // Feed audio buffers to the native recognizer when available.
+                capturedNativeRequest?.append(buffer)
 
                 // Capture raw PCM samples for STT service transcription.
                 // Convert float samples to 16-bit integers (WAV standard).
@@ -480,7 +533,7 @@ struct InputBarView: View {
             audioEngine.prepare()
             try audioEngine.start()
             isRecording = true
-            log.info("Voice recording started")
+            log.info("Voice recording started (sttOnly=\(isSTTOnlyMode))")
 
             // Silence detection timer: polls every 0.25 s to check how long
             // the mic has been quiet. Stops recording once the threshold is met
@@ -642,6 +695,7 @@ struct InputBarView: View {
         cleanupRecognition()
         isRecording = false
         isAutoStopPending = false
+        isSTTOnlyMode = false
         micAmplitude = 0
         audioBuffers = []
     }
@@ -675,6 +729,12 @@ struct InputBarView: View {
         isAudioEngineStopped = true
         micAmplitude = 0
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+
+        // In STT-only mode there is no native recognition task to deliver a final
+        // transcript via the isFinal callback. Route directly to the STT service.
+        if isSTTOnlyMode {
+            resolveTranscriptWithServiceFirst(nativeTranscript: "")
+        }
     }
 
     private func cleanupRecognition() {
