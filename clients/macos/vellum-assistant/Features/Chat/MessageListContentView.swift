@@ -131,6 +131,97 @@ struct MessageListContentView: View, Equatable {
         .transition(.opacity)
     }
 
+    // MARK: - Transcript row rendering
+
+    /// Renders a single transcript row (either a real message cell or the
+    /// synthetic thinking placeholder) with the `active turn` minHeight
+    /// wrapper applied when the row is the latest assistant and also the
+    /// tail of `state.rows` (so the user's last message sits at the top
+    /// of the viewport while the assistant streams).
+    @ViewBuilder
+    private func transcriptRow(
+        row: TranscriptRowModel,
+        isUnanchoredThinking: Bool,
+        thinkingLabel: String,
+        turnMinHeight: CGFloat
+    ) -> some View {
+        Group {
+            if row.isThinkingPlaceholder {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    if isCompacting {
+                        compactingIndicatorRow()
+                    } else {
+                        thinkingIndicatorRow(hasUserMessage: state.hasUserMessage)
+                    }
+                    thinkingAvatarRow
+                }
+            } else {
+                // Only pass activePendingRequestId to cells that could use it:
+                // confirmation bubbles need it for keyboard focus, tool-call messages
+                // need it for inline confirmation rendering in AssistantProgressView.
+                // Text-only cells get nil, so they won't fail == when the ID changes.
+                let cellActivePendingRequestId: String? =
+                    (row.message.confirmation != nil || !row.message.toolCalls.isEmpty)
+                    ? state.activePendingRequestId : nil
+                MessageCellView(
+                    message: row.message,
+                    showTimestamp: row.showTimestamp,
+                    nextDecidedConfirmation: row.decidedConfirmation,
+                    isConfirmationRenderedInline: row.isConfirmationRenderedInline,
+                    hasPrecedingAssistant: row.hasPrecedingAssistant,
+                    activePendingRequestId: cellActivePendingRequestId,
+                    subagentsByParent: state.subagentsByParent,
+                    isLatestAssistantMessage: row.isLatestAssistant,
+                    typographyGeneration: typographyGeneration,
+                    isProcessingAfterTools: state.canInlineProcessing && row.isLatestAssistant,
+                    processingStatusText: state.canInlineProcessing && row.isLatestAssistant ? state.effectiveStatusText : nil,
+                    hideInlineAvatar: row.isLatestAssistant && isUnanchoredThinking,
+                    showAnchoredThinkingIndicator: row.isAnchoredThinkingRow,
+                    anchoredThinkingLabel: row.isAnchoredThinkingRow ? thinkingLabel : "",
+                    dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
+                    activeSurfaceId: activeSurfaceId,
+                    isHighlighted: row.isHighlighted,
+                    mediaEmbedSettings: mediaEmbedSettings,
+                    onConfirmationAllow: onConfirmationAllow,
+                    onConfirmationDeny: onConfirmationDeny,
+                    onAlwaysAllow: onAlwaysAllow,
+                    onTemporaryAllow: onTemporaryAllow,
+                    onGuardianAction: onGuardianAction,
+                    onSurfaceAction: onSurfaceAction,
+                    onDismissDocumentWidget: onDismissDocumentWidget,
+                    onForkFromMessage: onForkFromMessage,
+                    showInspectButton: showInspectButton,
+                    isTTSEnabled: isTTSEnabled,
+                    onInspectMessage: onInspectMessage,
+                    onRehydrateMessage: onRehydrateMessage,
+                    onSurfaceRefetch: onSurfaceRefetch,
+                    onRetryFailedMessage: onRetryFailedMessage,
+                    onRetryConversationError: onRetryConversationError,
+                    onAbortSubagent: onAbortSubagent,
+                    onSubagentTap: onSubagentTap,
+                    subagentDetailStore: subagentDetailStore,
+                    selectedModel: selectedModel,
+                    configuredProviders: configuredProviders,
+                    providerCatalog: providerCatalog,
+                    providerCatalogHash: providerCatalogHash
+                )
+                .equatable()
+            }
+        }
+        // Latest assistant message (or thinking placeholder): wrap in
+        // VStack with minHeight so user message sits at top. The same
+        // wrapper applies to both the placeholder and the real assistant
+        // message, eliminating layout jump on transition.
+        .if(row.isLatestAssistant && row.message.id == state.rows.last?.message.id) { view in
+            VStack(spacing: 0) {
+                view
+                Color.clear.frame(height: 1)
+                    .id("active-turn-content-bottom")
+            }
+            .frame(minHeight: turnMinHeight, alignment: .top)
+        }
+    }
+
     @ViewBuilder
     private var thinkingAvatarRow: some View {
         let appearance = AvatarAppearanceManager.shared
@@ -211,81 +302,31 @@ struct MessageListContentView: View, Equatable {
             let thinkingLabel = !hasEverSentMessage && state.hasUserMessage
                 ? "Waking up..."
                 : (state.effectiveStatusText ?? "Thinking")
-            ForEach(state.rows) { row in
-                Group {
-                    if row.isThinkingPlaceholder {
-                        VStack(alignment: .leading, spacing: VSpacing.md) {
-                            if isCompacting {
-                                compactingIndicatorRow()
-                            } else {
-                                thinkingIndicatorRow(hasUserMessage: state.hasUserMessage)
-                            }
-                            thinkingAvatarRow
-                        }
-                    } else {
-                        // Only pass activePendingRequestId to cells that could use it:
-                        // confirmation bubbles need it for keyboard focus, tool-call messages
-                        // need it for inline confirmation rendering in AssistantProgressView.
-                        // Text-only cells get nil, so they won't fail == when the ID changes.
-                        let cellActivePendingRequestId: String? =
-                            (row.message.confirmation != nil || !row.message.toolCalls.isEmpty)
-                            ? state.activePendingRequestId : nil
-                        MessageCellView(
-                            message: row.message,
-                            showTimestamp: row.showTimestamp,
-                            nextDecidedConfirmation: row.decidedConfirmation,
-                            isConfirmationRenderedInline: row.isConfirmationRenderedInline,
-                            hasPrecedingAssistant: row.hasPrecedingAssistant,
-                            activePendingRequestId: cellActivePendingRequestId,
-                            subagentsByParent: state.subagentsByParent,
-                            isLatestAssistantMessage: row.isLatestAssistant,
-                            typographyGeneration: typographyGeneration,
-                            isProcessingAfterTools: state.canInlineProcessing && row.isLatestAssistant,
-                            processingStatusText: state.canInlineProcessing && row.isLatestAssistant ? state.effectiveStatusText : nil,
-                            hideInlineAvatar: row.isLatestAssistant && isUnanchoredThinking,
-                            showAnchoredThinkingIndicator: row.isAnchoredThinkingRow,
-                            anchoredThinkingLabel: row.isAnchoredThinkingRow ? thinkingLabel : "",
-                            dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
-                            activeSurfaceId: activeSurfaceId,
-                            isHighlighted: row.isHighlighted,
-                            mediaEmbedSettings: mediaEmbedSettings,
-                            onConfirmationAllow: onConfirmationAllow,
-                            onConfirmationDeny: onConfirmationDeny,
-                            onAlwaysAllow: onAlwaysAllow,
-                            onTemporaryAllow: onTemporaryAllow,
-                            onGuardianAction: onGuardianAction,
-                            onSurfaceAction: onSurfaceAction,
-                            onDismissDocumentWidget: onDismissDocumentWidget,
-                            onForkFromMessage: onForkFromMessage,
-                            showInspectButton: showInspectButton,
-                            isTTSEnabled: isTTSEnabled,
-                            onInspectMessage: onInspectMessage,
-                            onRehydrateMessage: onRehydrateMessage,
-                            onSurfaceRefetch: onSurfaceRefetch,
-                            onRetryFailedMessage: onRetryFailedMessage,
-                            onRetryConversationError: onRetryConversationError,
-                            onAbortSubagent: onAbortSubagent,
-                            onSubagentTap: onSubagentTap,
-                            subagentDetailStore: subagentDetailStore,
-                            selectedModel: selectedModel,
-                            configuredProviders: configuredProviders,
-                            providerCatalog: providerCatalog,
-                            providerCatalogHash: providerCatalogHash
+            // Collapse consecutive inline queued user bubbles into a single
+            // marker. The queued messages are still managed in the drawer
+            // (`QueuedMessagesDrawer`) — rendering them inline here duplicates
+            // the information and clutters the transcript when many follow-ups
+            // are queued. The pure helper `TranscriptItems.build(from:)` is
+            // shared in `clients/shared/Features/Chat/TranscriptItems.swift`.
+            let rowsByMessageId: [UUID: TranscriptRowModel] = Dictionary(
+                uniqueKeysWithValues: state.rows.map { ($0.message.id, $0) }
+            )
+            let displayedItems = TranscriptItems.build(from: state.rows.map(\.message))
+            ForEach(displayedItems) { item in
+                switch item {
+                case .queuedMarker(let count, _):
+                    QueuedMessagesMarker(count: count)
+                case .message(let message):
+                    // Safe: every displayed message originates from `state.rows`
+                    // so `rowsByMessageId[message.id]` is always present.
+                    if let row = rowsByMessageId[message.id] {
+                        transcriptRow(
+                            row: row,
+                            isUnanchoredThinking: isUnanchoredThinking,
+                            thinkingLabel: thinkingLabel,
+                            turnMinHeight: turnMinHeight
                         )
-                        .equatable()
                     }
-                }
-                // Latest assistant message (or thinking placeholder): wrap in
-                // VStack with minHeight so user message sits at top. The same
-                // wrapper applies to both the placeholder and the real assistant
-                // message, eliminating layout jump on transition.
-                .if(row.isLatestAssistant && row.message.id == state.rows.last?.message.id) { view in
-                    VStack(spacing: 0) {
-                        view
-                        Color.clear.frame(height: 1)
-                            .id("active-turn-content-bottom")
-                    }
-                    .frame(minHeight: turnMinHeight, alignment: .top)
                 }
             }
 
