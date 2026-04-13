@@ -288,6 +288,15 @@ export class MediaStreamOutput implements CallTransport {
     return this.playbackQueue.length;
   }
 
+  /**
+   * Runtime check for closed state. Used instead of direct property access
+   * in async methods because TypeScript's control flow analysis cannot
+   * track that `this.state` may change between `await` points.
+   */
+  private isClosed(): boolean {
+    return this.state === "closed";
+  }
+
   // ── Private: playback queue management ──────────────────────────────
 
   private enqueuePlayback(item: PlaybackItem): void {
@@ -321,7 +330,7 @@ export class MediaStreamOutput implements CallTransport {
     this.draining = true;
 
     try {
-      while (this.playbackQueue.length > 0 && this.state !== "closed") {
+      while (this.playbackQueue.length > 0 && !this.isClosed()) {
         const item = this.playbackQueue.shift()!;
         const version = this.playbackVersion;
 
@@ -384,7 +393,7 @@ export class MediaStreamOutput implements CallTransport {
         return;
       }
 
-      if (version !== this.playbackVersion || this.state === "closed") return;
+      if (version !== this.playbackVersion || this.isClosed()) return;
 
       // Synthesize the text
       const result = await provider.synthesize({
@@ -393,7 +402,7 @@ export class MediaStreamOutput implements CallTransport {
         signal: abortController.signal,
       });
 
-      if (version !== this.playbackVersion || this.state === "closed") return;
+      if (version !== this.playbackVersion || this.isClosed()) return;
 
       // Transcode the synthesized audio to mu-law frames.
       // TTS providers typically return mp3/wav/opus. For now we handle
@@ -404,7 +413,7 @@ export class MediaStreamOutput implements CallTransport {
       // the audio-store + play-URL mechanism; this direct-synthesis path
       // is for the media-stream transport where we need raw frames.
       const frames = this.audioBufferToFrames(result.audio, audioFormat);
-      if (version !== this.playbackVersion || this.state === "closed") return;
+      if (version !== this.playbackVersion || this.isClosed()) return;
 
       this.sendFrames(frames);
     } catch (err) {
@@ -447,10 +456,10 @@ export class MediaStreamOutput implements CallTransport {
         return;
       }
 
-      if (version !== this.playbackVersion || this.state === "closed") return;
+      if (version !== this.playbackVersion || this.isClosed()) return;
 
       const buffer = Buffer.from(await response.arrayBuffer());
-      if (version !== this.playbackVersion || this.state === "closed") return;
+      if (version !== this.playbackVersion || this.isClosed()) return;
 
       const contentType = response.headers.get("content-type") ?? "audio/mpeg";
       const format = contentType.includes("wav")
@@ -460,7 +469,7 @@ export class MediaStreamOutput implements CallTransport {
           : "mp3";
 
       const frames = this.audioBufferToFrames(buffer, format);
-      if (version !== this.playbackVersion || this.state === "closed") return;
+      if (version !== this.playbackVersion || this.isClosed()) return;
 
       this.sendFrames(frames);
     } catch (err) {
