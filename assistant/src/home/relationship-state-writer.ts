@@ -5,10 +5,12 @@
  * the workspace (the guardian's `users/<slug>.md` persona file — resolved
  * via `persona-resolver` / `contact-store` — for world + priorities facts,
  * with legacy workspace-root `USER.md` as a last-ditch fallback; SOUL.md
- * for voice facts; IDENTITY.md for assistant / hatched metadata; the
- * conversations directory for conversationCount) plus the OAuth
- * connection store (for capability tiers), and writes it to
- * `<workspace>/data/relationship-state.json`.
+ * for voice facts; IDENTITY.md for assistant / hatched metadata) plus
+ * the DB-authoritative conversation count (via
+ * `conversation-queries.countConversations`, matching the UI's
+ * `listConversations` filter — no `background` / `private` / `scheduled`)
+ * and the OAuth connection store (for capability tiers), and writes it
+ * to `<workspace>/data/relationship-state.json`.
  *
  * Per assistant/CLAUDE.md the daemon must never block or throw at
  * startup — the public entry points here catch every error and log a
@@ -19,24 +21,20 @@
 import {
   existsSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
 
+import { countConversations as countConversationsDb } from "../memory/conversation-queries.js";
 import { listConnections } from "../oauth/oauth-store.js";
 import { resolveGuardianPersonaPath } from "../prompts/persona-resolver.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
-import {
-  getConversationsDir,
-  getDataDir,
-  getWorkspacePromptPath,
-} from "../util/platform.js";
+import { getDataDir, getWorkspacePromptPath } from "../util/platform.js";
 import { computeProgressPercent, computeTier } from "./progress-formula.js";
 import {
   type Capability,
@@ -131,13 +129,33 @@ export async function computeRelationshipState(): Promise<RelationshipState> {
 }
 
 /**
- * Compute a fresh snapshot and persist it to `getRelationshipStatePath()`.
+ * In-module serialization primitive for `writeRelationshipState`.
  *
- * Never throws — all errors are caught and logged as warnings. Fire-and-
- * forget callers (e.g. the conversation-complete hook) can safely call
- * this without additional try/catch wrapping.
+ * Multiple conversations can finish a turn simultaneously, each firing
+ * `void writeRelationshipState()` from `conversation-agent-loop`.
+ * Without coalescing, two compute+write cycles can interleave
+ * (compute A → compute B → writeSync A → writeSync B), so the
+ * persisted snapshot reflects an older state than the last turn and
+ * two SSE events fire that don't match the final on-disk content.
+ *
+ * We use a "latest wins" pattern:
+ *   - If no write is in flight, start one.
+ *   - If a write is in flight, mark dirty and return the in-flight
+ *     promise. Overlapping callers all resolve off the same tail.
+ *   - When the in-flight write finishes, if dirty, run again.
+ *
+ * Guarantees:
+ *   - At most one compute+write runs at a time.
+ *   - N overlapping callers during one write produce exactly one
+ *     tail write, not N.
+ *   - The final on-disk state always reflects the latest completed
+ *     compute.
+ *   - No unbounded queue.
  */
-export async function writeRelationshipState(): Promise<void> {
+let writeInFlight: Promise<void> | null = null;
+let writeDirty = false;
+
+async function runWriteRelationshipState(): Promise<void> {
   let writtenState: RelationshipState | undefined;
   try {
     const state = await computeRelationshipState();
@@ -169,6 +187,37 @@ export async function writeRelationshipState(): Promise<void> {
   if (writtenState) {
     publishRelationshipStateUpdated(writtenState.updatedAt);
   }
+}
+
+/**
+ * Compute a fresh snapshot and persist it to `getRelationshipStatePath()`.
+ *
+ * Never throws — all errors are caught and logged as warnings. Fire-and-
+ * forget callers (e.g. the conversation-complete hook) can safely call
+ * this without additional try/catch wrapping.
+ *
+ * Concurrent calls are coalesced (see `writeInFlight` above): at most
+ * one compute+write runs at a time, and overlapping calls during an
+ * in-flight write all resolve off a single tail write that reflects
+ * the latest state.
+ */
+export async function writeRelationshipState(): Promise<void> {
+  if (writeInFlight) {
+    writeDirty = true;
+    return writeInFlight;
+  }
+  writeInFlight = (async () => {
+    try {
+      await runWriteRelationshipState();
+      while (writeDirty) {
+        writeDirty = false;
+        await runWriteRelationshipState();
+      }
+    } finally {
+      writeInFlight = null;
+    }
+  })();
+  return writeInFlight;
 }
 
 /**
@@ -307,16 +356,6 @@ function extractFacts(input: {
     "daily tools",
     "tools",
   ];
-  const worldKeywords = [
-    "name",
-    "pronouns",
-    "locale",
-    "location",
-    "hobbies",
-    "fun",
-    "timezone",
-    "background",
-  ];
 
   for (const line of iterateBulletLines(input.userContent)) {
     const parsed = parseBulletLabelValue(line);
@@ -325,12 +364,7 @@ function extractFacts(input: {
     if (!value) continue;
     const lower = label.toLowerCase();
     const isPriority = priorityKeywords.some((k) => lower.startsWith(k));
-    const isWorld = worldKeywords.some((k) => lower.startsWith(k));
-    const category: Fact["category"] = isPriority
-      ? "priorities"
-      : isWorld
-        ? "world"
-        : "world";
+    const category: Fact["category"] = isPriority ? "priorities" : "world";
     facts.push({
       id: nextId("user"),
       category,
@@ -472,34 +506,94 @@ function resolveConnectedProviders(): Set<string> {
 }
 
 /**
- * Count conversations by listing the conversations directory. Returns
- * 0 when the directory is missing or unreadable.
+ * Count conversations using the DB-authoritative helper from
+ * `conversation-queries`. This matches `listConversations()` used by
+ * the UI — it filters out `background`, `private`, and `scheduled`
+ * conversation types — and is immune to stray filesystem entries like
+ * `.DS_Store` or double-counts from workspace migration 009 where
+ * legacy + canonical directory forms temporarily co-exist.
+ *
+ * Returns 0 on any failure (DB not initialized, schema drift, etc.)
+ * so the writer still produces a valid snapshot — per module contract
+ * this path must never throw.
  */
 function countConversations(): number {
   try {
-    const dir = getConversationsDir();
-    if (!existsSync(dir)) return 0;
-    return readdirSync(dir).length;
-  } catch {
+    return countConversationsDb();
+  } catch (err) {
+    log.warn({ err }, "Failed to count conversations from DB; defaulting to 0");
     return 0;
   }
+}
+
+/**
+ * Filename for the hatched-date sidecar, used as a stable fallback
+ * when IDENTITY.md is missing / unreadable / has no explicit hatched
+ * bullet and file stat is unavailable. Lives under the workspace
+ * data dir alongside `relationship-state.json`.
+ */
+const HATCHED_SIDECAR_FILENAME = "hatched.json";
+
+function getHatchedSidecarPath(): string {
+  return join(getDataDir(), HATCHED_SIDECAR_FILENAME);
+}
+
+/**
+ * Resolve a stable hatched-date fallback timestamp.
+ *
+ * The Swift client, OpenAPI schema, and UI have no special handling
+ * for a Unix-epoch sentinel — they'll render "1/1/1970" to the user.
+ * Instead, we use `new Date().toISOString()` the first time a
+ * fallback is needed and persist it to a small sidecar file
+ * (`data/hatched.json`). Subsequent calls read the sidecar first, so
+ * the returned timestamp is monotonic across writes and the
+ * `hatchedDate` field never drifts once initialized.
+ *
+ * Never throws — a sidecar read/write failure still yields a valid
+ * (though non-stable) `now` timestamp, which is still far better than
+ * the epoch sentinel.
+ */
+function resolveFallbackHatchedDate(): string {
+  const path = getHatchedSidecarPath();
+  try {
+    if (existsSync(path)) {
+      const parsed = JSON.parse(readFileSync(path, "utf-8")) as {
+        hatchedAt?: string;
+      };
+      if (parsed.hatchedAt && !isNaN(Date.parse(parsed.hatchedAt))) {
+        return parsed.hatchedAt;
+      }
+    }
+  } catch {
+    // Fall through to write a fresh sidecar.
+  }
+  const now = new Date().toISOString();
+  try {
+    mkdirSync(getDataDir(), { recursive: true });
+    writeFileSync(path, JSON.stringify({ hatchedAt: now }, null, 2), "utf-8");
+  } catch {
+    // If even the sidecar write fails, return `now` anyway — the
+    // caller will just get a fresh-looking date on every call. Not
+    // ideal, but far better than the epoch sentinel.
+  }
+  return now;
 }
 
 /**
  * Pull `assistantName` and `hatchedDate` from IDENTITY.md.
  *
  * IDENTITY.md is a freeform markdown file, so for the name we scan
- * bullet lines for the first recognizable `name` label. For the
- * hatched date we prefer any explicit `hatched:` / `birth:` bullet,
- * then fall back to the file's `stat.birthtime` (matching the
- * pattern already established by `identity-routes.ts`), and finally
- * to `stat.mtime` if birthtime is unavailable. We never fall back to
- * `new Date()` — `writeRelationshipState()` is called on every turn
- * boundary, so a `Date.now()` fallback would cause `hatchedDate` to
- * drift forward on every write, turning a stable "relationship
- * start" timestamp into a constantly-updating "last touched"
- * timestamp. When nothing is readable we emit the Unix epoch as an
- * unmistakable sentinel instead of silently drifting.
+ * bullet lines for any recognizable `name` label (`Name`,
+ * `Assistant Name`, `Preferred Name`, etc.). For the hatched date we
+ * prefer any explicit `hatched:` / `birth:` bullet, then fall back to
+ * the file's `stat.birthtime` (matching the pattern already
+ * established by `identity-routes.ts`), and finally to `stat.mtime`
+ * if birthtime is unavailable. We never fall back to `new Date()`
+ * directly — `writeRelationshipState()` is called on every turn
+ * boundary, so a raw `Date.now()` fallback would cause `hatchedDate`
+ * to drift forward on every write. Instead, when nothing else is
+ * readable we resolve via `resolveFallbackHatchedDate()` which
+ * persists a stable timestamp to a sidecar file on first use.
  */
 function parseIdentity(identityPath: string): {
   assistantName: string;
@@ -514,7 +608,17 @@ function parseIdentity(identityPath: string): {
     const parsed = parseBulletLabelValue(line);
     if (!parsed || !parsed.value) continue;
     const lower = parsed.label.toLowerCase();
-    if (lower.startsWith("name") && assistantName === DEFAULT_ASSISTANT_NAME) {
+    // Accept any label whose lowercased form looks like a "name"
+    // label: `Name`, `Assistant Name`, `Preferred Name`, etc.
+    // Preserves the "first match wins" precedence so a raw `Name`
+    // bullet still takes precedence over later aliases.
+    if (
+      assistantName === DEFAULT_ASSISTANT_NAME &&
+      (lower === "name" ||
+        lower === "assistant name" ||
+        lower === "preferred name" ||
+        lower.startsWith("name"))
+    ) {
       assistantName = parsed.value;
     }
     if (
@@ -543,12 +647,14 @@ function parseIdentity(identityPath: string): {
       return { assistantName, hatchedDate: candidate.toISOString() };
     }
   } catch {
-    // File missing or unreadable — fall through to the sentinel.
+    // File missing or unreadable — fall through to the sidecar.
   }
 
-  // Last-ditch sentinel: unmistakably ancient so any UI showing it
-  // makes the "we couldn't resolve your hatched date" state obvious.
-  return { assistantName, hatchedDate: new Date(0).toISOString() };
+  // Last-ditch sidecar-backed fallback: `resolveFallbackHatchedDate`
+  // returns a stable, real timestamp (persisted to `data/hatched.json`
+  // on first call) instead of the old epoch sentinel, so the UI never
+  // shows "1/1/1970".
+  return { assistantName, hatchedDate: resolveFallbackHatchedDate() };
 }
 
 /**
