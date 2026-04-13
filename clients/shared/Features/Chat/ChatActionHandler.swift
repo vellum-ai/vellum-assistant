@@ -106,6 +106,20 @@ final class ChatActionHandler {
             vm.isSending = true
             vm.isThinking = true
 
+        case .userMessagePersisted(let conversationId, let content, let messageId):
+            guard belongsToConversation(conversationId) else { return }
+            // Tag the oldest untagged optimistic user row matching `content`
+            // with the daemon-assigned `messageId`. Oldest-first order is
+            // correct because HTTP 202 responses arrive in send order (the
+            // EventStreamClient Task is sequential per-message).
+            if let idx = vm.messages.firstIndex(where: {
+                $0.role == .user
+                    && $0.text == content
+                    && $0.daemonMessageId == nil
+            }) {
+                vm.messages[idx].daemonMessageId = messageId
+            }
+
         case .assistantThinkingDelta(let delta):
             guard belongsToConversation(delta.conversationId) else { return }
             guard !vm.isCancelling else { break }

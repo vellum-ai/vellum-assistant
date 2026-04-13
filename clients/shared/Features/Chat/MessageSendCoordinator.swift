@@ -102,6 +102,7 @@ final class MessageSendCoordinator {
         self.btwState = btwState
         self.settingsClient = settingsClient
         self.conversationListClient = conversationListClient
+
     }
 
     // MARK: - Platform helper
