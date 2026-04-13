@@ -753,6 +753,7 @@ describe("Trust Store", () => {
         "browser_scroll",
         "browser_select_option",
         "browser_snapshot",
+        "browser_status",
         "browser_type",
         "browser_wait_for",
         "browser_wait_for_download",
