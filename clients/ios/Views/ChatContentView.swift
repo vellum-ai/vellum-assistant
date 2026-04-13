@@ -135,32 +135,36 @@ struct ChatContentView: View {
     }
 
     var body: some View {
+        let queuedMessages = viewModel.queuedMessages
         VStack(spacing: 0) {
             // Messages area — empty state when no messages, otherwise scrollable list
-            if viewModel.messages.isEmpty && !viewModel.isSending && !viewModel.isThinking {
-                emptyStateView
-            } else {
-                messagesScrollView
+            Group {
+                if viewModel.messages.isEmpty && !viewModel.isSending && !viewModel.isThinking {
+                    emptyStateView
+                } else {
+                    messagesScrollView
+                }
             }
+            .animation(nil, value: queuedMessages.isEmpty)
 
             // Generic error banner (conversation errors are shown inline in messages)
             if viewModel.conversationError == nil, let errorText = viewModel.errorText {
                 genericErrorBanner(errorText)
+                    .animation(nil, value: queuedMessages.isEmpty)
             }
 
             // Queue drawer — lists user messages still waiting to be sent.
-            // Collapses when the queue is empty.
-            if !viewModel.queuedMessages.isEmpty {
+            // Collapses when the queue is empty. The drawer's show/hide
+            // animation is driven by a parent-level `.animation(...)` keyed
+            // on `queuedMessages.isEmpty` so the removal transition fires
+            // even as this subtree is torn down.
+            if !queuedMessages.isEmpty {
                 QueuedMessagesDrawer_iOS(
                     viewModel: viewModel,
                     composerText: $viewModel.inputText,
                     composerAttachments: $viewModel.pendingAttachments
                 )
                 .transition(.move(edge: .bottom).combined(with: .opacity))
-                .animation(
-                    .spring(duration: 0.28, bounce: 0.15),
-                    value: viewModel.queuedMessages.count
-                )
             }
 
             // Input bar
@@ -177,11 +181,13 @@ struct ChatContentView: View {
                 },
                 viewModel: viewModel
             )
+            .animation(nil, value: queuedMessages.isEmpty)
         }
         .background(alignment: .bottom) { chatBackground }
         .background(VColor.surfaceOverlay)
         .animation(VAnimation.standard, value: viewModel.conversationError != nil)
         .animation(VAnimation.standard, value: viewModel.errorText)
+        .animation(.spring(duration: 0.28, bounce: 0.15), value: queuedMessages.isEmpty)
     }
 
     // MARK: - Messages Scroll View
