@@ -1098,6 +1098,17 @@ public struct ClawhubOriginMeta: Codable, Sendable, Equatable {
     public let reports: Int
     public let publishedAt: String?
     public let version: String?
+
+    /// Display label for the source row (e.g. "pskoett/self-improving-agent").
+    public var sourceLabel: String {
+        author.isEmpty ? slug : "\(author)/\(slug)"
+    }
+
+    /// URL to this skill's page on clawhub.ai, or nil when author is missing.
+    public var hubURL: URL? {
+        guard !author.isEmpty else { return nil }
+        return URL(string: "https://clawhub.ai/\(author)/\(slug)")
+    }
 }
 
 /// Origin-specific metadata for a skill sourced from Skills.sh.
@@ -1106,6 +1117,13 @@ public struct SkillsshOriginMeta: Codable, Sendable, Equatable {
     public let sourceRepo: String
     public let installs: Int
     public let audit: [String: PartnerAudit]?
+
+    /// URL to this skill's page on skills.sh.
+    public var hubURL: URL? {
+        guard !sourceRepo.isEmpty else { return nil }
+        let skillName = slug.split(separator: "/").last.map(String.init) ?? slug
+        return URL(string: "https://skills.sh/\(sourceRepo)/\(skillName)")
+    }
 }
 
 /// Discriminated union over the `origin` field of a skill.
