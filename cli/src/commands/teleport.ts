@@ -899,6 +899,15 @@ export async function resolveOrHatchTarget(
 
     const { assistant: result, reusedExisting } = await hatchAssistant(token);
     if (reusedExisting) {
+      // Ensure the existing assistant is in the lockfile so `vellum retire`
+      // can find it — the user may be on a different machine or a fresh clone.
+      saveAssistantEntry({
+        assistantId: result.id,
+        runtimeUrl: getPlatformUrl(),
+        cloud: "vellum",
+        species: "vellum",
+        hatchedAt: new Date().toISOString(),
+      });
       console.error(
         `Error: You already have a platform assistant '${result.id}'.`,
       );

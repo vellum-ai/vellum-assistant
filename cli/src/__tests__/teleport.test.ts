@@ -798,7 +798,13 @@ describe("resolveOrHatchTarget", () => {
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       expect.stringContaining("Retire it first"),
     );
-    expect(saveAssistantEntryMock).not.toHaveBeenCalled();
+    // The existing assistant is saved to the lockfile so `vellum retire` can find it
+    expect(saveAssistantEntryMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assistantId: "existing-platform-id",
+        cloud: "vellum",
+      }),
+    );
   });
 
   test("existing assistant with wrong cloud -> rejects", async () => {
