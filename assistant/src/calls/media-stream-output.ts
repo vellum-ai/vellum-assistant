@@ -564,10 +564,22 @@ export class MediaStreamOutput implements CallTransport {
       return chunkMulawToBase64Frames(mulawBuffer);
     }
 
-    // Raw PCM (e.g. from ElevenLabs pcm_16000): convert directly to mu-law.
+    // When the declared format is "wav" but the RIFF check failed, the
+    // bytes are likely raw PCM stored under an audio/wav content-type
+    // (happens when outputFormat: "pcm" is used with the audio store's
+    // createStreamingEntry("wav")). Treat as raw PCM.
+    if (format === "wav") {
+      log.debug(
+        { streamSid: this.streamSid, audioBytes: audio.length },
+        "Declared format is WAV but no RIFF header — treating as raw PCM",
+      );
+    }
+
+    // Raw PCM (e.g. from ElevenLabs pcm_16000, or WAV-declared content
+    // that is actually headerless PCM): convert directly to mu-law.
     // ElevenLabs pcm_16000 produces 16-bit signed LE at 16 kHz. Twilio
     // needs 8 kHz mu-law, so we downsample by taking every other sample.
-    if (format === "pcm") {
+    if (format === "pcm" || format === "wav") {
       if (audio.length < 2) return [];
       // Downsample 16 kHz -> 8 kHz by taking every other sample.
       // Each sample is 2 bytes (16-bit LE), so we step by 4 bytes.
