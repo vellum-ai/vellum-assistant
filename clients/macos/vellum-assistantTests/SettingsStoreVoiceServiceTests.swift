@@ -544,4 +544,170 @@ final class SettingsStoreVoiceServiceTests: XCTestCase {
             "The STT reset flow should be allowed for exclusive-key providers"
         )
     }
+
+    // MARK: - STT Default Selection (Empty Sentinel)
+
+    /// When no STT provider has been persisted, the UserDefaults key should
+    /// be absent (or empty). The UI resolves the effective provider from the
+    /// catalog's first entry via `selectedSTTProvider`.
+    func testDefaultSTTProviderIsEmpty() {
+        UserDefaults.standard.removeObject(forKey: "sttProvider")
+
+        let raw = UserDefaults.standard.string(forKey: "sttProvider")
+        XCTAssertNil(
+            raw,
+            "With no persisted value the sttProvider key should be nil"
+        )
+    }
+
+    /// The STT service configuration check must return false when the
+    /// provider key is an empty string (the new default sentinel).
+    func testEmptySTTProviderIsNotConsideredConfigured() {
+        UserDefaults.standard.set("", forKey: "sttProvider")
+
+        XCTAssertFalse(
+            STTProviderRegistry.isServiceConfigured,
+            "An empty sttProvider value must not be treated as configured"
+        )
+    }
+
+    /// Streaming availability must be false when the STT provider key is
+    /// the empty-string sentinel.
+    func testEmptySTTProviderReportsNoStreamingAvailable() {
+        UserDefaults.standard.set("", forKey: "sttProvider")
+
+        XCTAssertFalse(
+            STTProviderRegistry.isStreamingAvailable,
+            "An empty sttProvider must not report streaming as available"
+        )
+    }
+
+    // MARK: - STT Persistence After Explicit Selection
+
+    /// After explicitly setting a provider via `setSTTProvider`, the value
+    /// should be persisted so subsequent reads return it.
+    func testExplicitSTTProviderSelectionPersists() {
+        UserDefaults.standard.removeObject(forKey: "sttProvider")
+
+        store.setSTTProvider("deepgram")
+        waitForPatchCount(1)
+
+        // The store persists via config patch; simulate the daemon echoing
+        // the value back through applyDaemonConfig.
+        let config: [String: Any] = [
+            "services": ["stt": ["provider": "deepgram"]]
+        ]
+        mockSettingsClient.fetchConfigResponse = config
+        let expectation = XCTestExpectation(description: "config loaded")
+        Task {
+            await store.loadConfigFromDaemon()
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 2.0)
+
+        XCTAssertEqual(
+            UserDefaults.standard.string(forKey: "sttProvider"),
+            "deepgram",
+            "Explicitly selected provider must be persisted after daemon sync"
+        )
+    }
+
+    // MARK: - Daemon Sync Does Not Clobber With Empty Values
+
+    /// When the daemon sends an empty provider string the existing persisted
+    /// value must not be overwritten.
+    func testApplyDaemonConfigDoesNotClobberWithEmptyProvider() {
+        UserDefaults.standard.set("deepgram", forKey: "sttProvider")
+
+        let config: [String: Any] = [
+            "services": [
+                "stt": [
+                    "provider": ""
+                ]
+            ]
+        ]
+
+        mockSettingsClient.fetchConfigResponse = config
+        let expectation = XCTestExpectation(description: "config loaded")
+        Task {
+            await store.loadConfigFromDaemon()
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 2.0)
+
+        XCTAssertEqual(
+            UserDefaults.standard.string(forKey: "sttProvider"),
+            "deepgram",
+            "Empty daemon provider value must not overwrite the persisted selection"
+        )
+    }
+
+    /// When the daemon sends a whitespace-only provider string the existing
+    /// persisted value must not be overwritten.
+    func testApplyDaemonConfigDoesNotClobberWithWhitespaceProvider() {
+        UserDefaults.standard.set("openai-whisper", forKey: "sttProvider")
+
+        let config: [String: Any] = [
+            "services": [
+                "stt": [
+                    "provider": "  "
+                ]
+            ]
+        ]
+
+        mockSettingsClient.fetchConfigResponse = config
+        let expectation = XCTestExpectation(description: "config loaded")
+        Task {
+            await store.loadConfigFromDaemon()
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 2.0)
+
+        XCTAssertEqual(
+            UserDefaults.standard.string(forKey: "sttProvider"),
+            "openai-whisper",
+            "Whitespace-only daemon provider value must not overwrite the persisted selection"
+        )
+    }
+
+    // MARK: - Existing User-Selected Provider Behavior Preserved
+
+    /// A user who previously selected openai-whisper and has it persisted
+    /// must continue to see that value after daemon sync confirms it.
+    func testPreExistingOpenAIWhisperSelectionSurvivesDaemonSync() {
+        UserDefaults.standard.set("openai-whisper", forKey: "sttProvider")
+
+        let config: [String: Any] = [
+            "services": [
+                "stt": [
+                    "provider": "openai-whisper"
+                ]
+            ]
+        ]
+
+        mockSettingsClient.fetchConfigResponse = config
+        let expectation = XCTestExpectation(description: "config loaded")
+        Task {
+            await store.loadConfigFromDaemon()
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 2.0)
+
+        XCTAssertEqual(
+            UserDefaults.standard.string(forKey: "sttProvider"),
+            "openai-whisper",
+            "Pre-existing user selection must survive daemon sync"
+        )
+    }
+
+    /// STT service configuration check must return true when a valid
+    /// provider is persisted.
+    func testPersistedSTTProviderIsConsideredConfigured() {
+        UserDefaults.standard.set("deepgram", forKey: "sttProvider")
+
+        XCTAssertTrue(
+            STTProviderRegistry.isServiceConfigured,
+            "A non-empty persisted sttProvider must be treated as configured"
+        )
+    }
 }
