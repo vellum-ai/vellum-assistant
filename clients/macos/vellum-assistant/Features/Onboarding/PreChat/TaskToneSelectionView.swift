@@ -28,17 +28,17 @@ struct TaskToneSelectionView: View {
 
     private struct TaskCategory: Identifiable {
         let id: String
-        let icon: String
+        let icon: VIcon
         let label: String
     }
 
     private let taskCategories: [TaskCategory] = [
-        TaskCategory(id: "code-building", icon: "hammer", label: "Code & building"),
-        TaskCategory(id: "writing", icon: "pencil.line", label: "Writing & communication"),
-        TaskCategory(id: "research", icon: "magnifyingglass", label: "Research & analysis"),
-        TaskCategory(id: "project-management", icon: "list.clipboard", label: "Project management"),
-        TaskCategory(id: "scheduling", icon: "calendar", label: "Scheduling & calendar"),
-        TaskCategory(id: "personal", icon: "person", label: "Personal / life stuff"),
+        TaskCategory(id: "code-building", icon: .wrench, label: "Code & building"),
+        TaskCategory(id: "writing", icon: .pencil, label: "Writing & communication"),
+        TaskCategory(id: "research", icon: .search, label: "Research & analysis"),
+        TaskCategory(id: "project-management", icon: .clipboardList, label: "Project management"),
+        TaskCategory(id: "scheduling", icon: .calendar, label: "Scheduling & calendar"),
+        TaskCategory(id: "personal", icon: .user, label: "Personal / life stuff"),
     ]
 
     // MARK: - Tone Label
@@ -162,8 +162,7 @@ struct TaskToneSelectionView: View {
             }
         } label: {
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: category.icon)
-                    .font(.system(size: 16))
+                VIconView(category.icon, size: 16)
                     .foregroundStyle(isSelected ? VColor.primaryBase : VColor.contentSecondary)
                     .frame(width: 24, alignment: .center)
 
