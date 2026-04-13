@@ -54,18 +54,29 @@ public struct STTProviderRegistry: Decodable {
     }
 
     /// Whether the assistant has an LLM-based STT provider configured
-    /// (e.g. Deepgram, OpenAI Whisper).
+    /// **and credentialed** (e.g. Deepgram, OpenAI Whisper).
     ///
     /// When `true`, the app can use the assistant's STT service for
     /// transcription and native `SFSpeechRecognizer` permission is not
     /// required. The value is derived from the `sttProvider` key in
-    /// `UserDefaults`, which the assistant syncs via the
-    /// `client_settings_update` message (see `SettingsStore`).
+    /// `UserDefaults` (synced via `client_settings_update`) combined
+    /// with a credential check — a provider without an API key cannot
+    /// perform transcription.
     public static var isServiceConfigured: Bool {
-        guard let value = UserDefaults.standard.string(forKey: "sttProvider") else {
+        guard let providerId = UserDefaults.standard.string(forKey: "sttProvider"),
+              !providerId.isEmpty else {
             return false
         }
-        return !value.isEmpty
+        // Resolve the keychain/UserDefaults key name for this provider's API key.
+        let keyProvider = loadSTTProviderRegistry()
+            .provider(withId: providerId)?
+            .apiKeyProviderName ?? providerId
+        // Check that a credential actually exists — provider without a key can't transcribe.
+        guard let key = APIKeyManager.shared.getAPIKey(provider: keyProvider),
+              !key.isEmpty else {
+            return false
+        }
+        return true
     }
 }
 

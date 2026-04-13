@@ -721,46 +721,17 @@ final class VoiceInputManager {
 
         // Show the first-use primer when:
         // - mic is not yet determined (always need mic), OR
-        // - speech is not yet determined AND STT is NOT configured (speech required), OR
-        // - speech is not yet determined AND STT IS configured (nice-to-have primer)
-        if micNotDetermined || speechNotDetermined {
-            // Show a primer explaining why we need mic access, then request.
+        // - speech is not yet determined AND STT is NOT configured (speech required).
+        // When STT is configured, speech notDetermined is fine — skip the primer
+        // and proceed directly to recording with STT-only mode.
+        if micNotDetermined || (!sttConfigured && speechNotDetermined) {
             log.info("Showing permission primer (mic=\(String(describing: micStatus)) speech=\(String(describing: speechStatus)))")
             currentDictationContext = nil
-            if sttConfigured && !micNotDetermined && speechNotDetermined {
-                // STT configured + mic already authorized + speech notDetermined:
-                // show the primer as a nice-to-have for partial transcription, but
-                // if the user dismisses it, proceed with recording anyway.
-                permissionOverlay.show(kind: .firstUse, onDismiss: { [weak self] in
-                    Task { @MainActor in
-                        // User dismissed — proceed with mic-only recording.
-                        self?.beginRecording()
-                    }
-                }, onContinue: { [weak self] in
-                    Task { @MainActor in
-                        await self?.requestPermissionsAndRecord()
-                    }
-                })
-            } else if sttConfigured && micNotDetermined && speechNotDetermined {
-                // STT configured + both not determined: need mic auth, but if user
-                // dismisses the primer, still proceed with mic-only.
-                permissionOverlay.show(kind: .firstUse, onDismiss: { [weak self] in
-                    Task { @MainActor in
-                        await self?.requestPermissionsAndRecord()
-                    }
-                }, onContinue: { [weak self] in
-                    Task { @MainActor in
-                        await self?.requestPermissionsAndRecord()
-                    }
-                })
-            } else {
-                // STT not configured or mic-only not determined: standard primer.
-                permissionOverlay.show(kind: .firstUse, onDismiss: {}, onContinue: { [weak self] in
-                    Task { @MainActor in
-                        await self?.requestPermissionsAndRecord()
-                    }
-                })
-            }
+            permissionOverlay.show(kind: .firstUse, onDismiss: {}, onContinue: { [weak self] in
+                Task { @MainActor in
+                    await self?.requestPermissionsAndRecord()
+                }
+            })
             return
         }
         let micDenied = micStatus == .denied || micStatus == .restricted
@@ -1202,6 +1173,10 @@ final class VoiceInputManager {
                 recognitionRequest = nil
 
                 handleFinalTranscription("")
+                // handleFinalTranscription sets awaitingDaemonResponse = true (in dictation
+                // mode with context), so stopRecording() will keep the overlay visible.
+                // This mirrors what the native recognizer's isFinal callback does.
+                stopRecording()
                 return
             }
 
