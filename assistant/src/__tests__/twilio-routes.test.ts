@@ -433,7 +433,6 @@ describe("twilio webhook routes", () => {
     mockTwilioApiValidationBody = JSON.stringify({ sid: "AC_validated" });
     // Reset STT config to defaults between tests
     mockConfigObj.services.stt.provider = "deepgram" as any;
-    mockConfigObj.calls.voice.transcriptionProvider = "Deepgram" as any;
 
     globalThis.fetch = (async (
       url: string | URL | Request,
@@ -1146,10 +1145,10 @@ describe("twilio webhook routes", () => {
       expect(twiml).toContain('<Parameter name="callSessionId"');
     });
 
-    test("routing is driven by services.stt.provider, not calls.voice.transcriptionProvider", async () => {
-      // Set calls.voice.transcriptionProvider to Deepgram but services.stt
-      // to openai-whisper. The TwiML path must follow services.stt.
-      mockConfigObj.calls.voice.transcriptionProvider = "Deepgram" as any;
+    test("routing is driven exclusively by services.stt.provider", async () => {
+      // Telephony STT routing reads services.stt.provider only.
+      // calls.voice.transcriptionProvider is a legacy config field that
+      // no longer participates in the call setup path.
       mockConfigObj.services.stt.provider = "openai-whisper" as any;
       const session = createTestSession(
         "conv-stt-routing-1",

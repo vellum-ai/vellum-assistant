@@ -46,14 +46,29 @@ import {
 } from "./call-store.js";
 import { resolveCallHints } from "./stt-hints.js";
 import { resolveTelephonySttRouting } from "./telephony-stt-routing.js";
-import {
-  buildTwilioRelaySpeechConfig,
-  type TwilioRelaySpeechConfig,
-} from "./twilio-relay-speech-config.js";
 import type { CallStatus } from "./types.js";
 import { resolveVoiceQualityProfile } from "./voice-quality.js";
 
 const log = getLogger("twilio-routes");
+
+// ── Speech config type ───────────────────────────────────────────────
+
+/**
+ * Twilio ConversationRelay speech-to-text attributes.
+ *
+ * All values are pre-formatted strings ready for direct insertion into
+ * TwiML XML attribute values (XML escaping is the caller's responsibility).
+ */
+export interface TwilioRelaySpeechConfig {
+  /** STT provider name (e.g. "Deepgram", "Google"). */
+  transcriptionProvider: string;
+  /** ASR model identifier, or undefined when the provider default should be used. */
+  speechModel: string | undefined;
+  /** Comma-separated vocabulary hints for the STT provider, or undefined when no hints are available. */
+  hints: string | undefined;
+  /** How aggressively the provider detects the start of caller speech. */
+  interruptSensitivity: string;
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -346,9 +361,8 @@ function buildVoiceWebhookTwiml(
   );
 
   // Resolve telephony STT strategy from services.stt.provider.
-  // Pass calls.voice.speechModel for model normalization during the
-  // transition period (Twilio-native providers need it for the TwiML
-  // speechModel attribute).
+  // calls.voice.speechModel is passed for model normalization —
+  // Twilio-native providers need it for the TwiML speechModel attribute.
   const routingResult = resolveTelephonySttRouting(cfg.calls.voice.speechModel);
 
   if (routingResult.status === "unknown-provider") {
@@ -410,16 +424,14 @@ function buildConversationRelayResponse(
   verificationSessionId: string | null | undefined,
   sttAttrs: { transcriptionProvider: string; speechModel: string | undefined },
 ): Response {
-  const hints = resolveCallHints(sessionContext, profile.hints);
+  const rawHints = resolveCallHints(sessionContext, profile.hints);
 
-  const speechConfig = buildTwilioRelaySpeechConfig(
-    {
-      provider: sttAttrs.transcriptionProvider,
-      speechModel: sttAttrs.speechModel,
-    },
-    profile.interruptSensitivity,
-    hints || undefined,
-  );
+  const speechConfig: TwilioRelaySpeechConfig = {
+    transcriptionProvider: sttAttrs.transcriptionProvider,
+    speechModel: sttAttrs.speechModel,
+    hints: rawHints && rawHints.length > 0 ? rawHints : undefined,
+    interruptSensitivity: profile.interruptSensitivity,
+  };
 
   const relayUrl = getTwilioRelayUrl(cfg);
   const welcomeGreeting = buildWelcomeGreeting(sessionContext?.task ?? null);

@@ -21,8 +21,7 @@ export type SttProviderId = "openai-whisper" | "deepgram" | "google-gemini";
  * Telephony-specific STT support mode.
  *
  * Describes how a provider can participate in real-time telephony call
- * ingestion when wired through `services.stt` (as opposed to the
- * ConversationRelay-native STT path in `calls.voice.transcriptionProvider`).
+ * ingestion when wired through `services.stt`.
  *
  * - `"realtime-ws"` — provider offers a WebSocket streaming endpoint suitable
  *   for low-latency telephony audio. Future PRs will wire this into the
