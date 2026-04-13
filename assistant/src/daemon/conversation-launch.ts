@@ -75,6 +75,17 @@ export function registerLaunchConversationDeps(
   _deps = deps;
 }
 
+/**
+ * Test-only helper: reset the module-level `_deps` between test cases so
+ * accidental coupling between tests can't hide bugs (e.g. a test that does
+ * not register deps but happens to pass because an earlier test in the same
+ * file left deps registered and the validation short-circuit hides the
+ * "deps not registered" throw).
+ */
+export function resetLaunchConversationDeps(): void {
+  _deps = null;
+}
+
 // ── Helper ──────────────────────────────────────────────────────────
 
 export interface LaunchConversationParams {
@@ -115,6 +126,15 @@ export interface LaunchConversationParams {
 export async function launchConversation(
   params: LaunchConversationParams,
 ): Promise<{ conversationId: string }> {
+  // Belt-and-suspenders validation: callers (handleSurfaceAction) also check
+  // for these, but enforcing here keeps the helper self-contained so future
+  // direct callers can't accidentally emit `open_conversation` events with a
+  // blank title (which would create a blank-titled sidebar entry on macOS).
+  if (!params.title || !params.seedPrompt) {
+    throw new Error(
+      "launchConversation: title and seedPrompt are required",
+    );
+  }
   if (!_deps) {
     throw new Error(
       "launchConversation dependencies not registered — daemon may not be ready",
@@ -157,7 +177,12 @@ export async function launchConversation(
       {
         type: "open_conversation",
         conversationId,
-        title: params.title,
+        // Conditional spread so an empty / falsy title is omitted entirely
+        // instead of leaking into the Swift handler (`if let title = msg.title`
+        // accepts empty strings and would create a blank-titled sidebar entry).
+        // The validation guard above already rejects empty titles for our
+        // current callers, but this is defense-in-depth for future ones.
+        ...(params.title ? { title: params.title } : {}),
         ...(params.anchorMessageId
           ? { anchorMessageId: params.anchorMessageId }
           : {}),

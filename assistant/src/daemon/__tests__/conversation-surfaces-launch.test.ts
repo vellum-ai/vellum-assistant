@@ -80,9 +80,8 @@ mock.module("../../memory/conversation-crud.js", () => ({
 const { createSurfaceMutex, handleSurfaceAction } = await import(
   "../conversation-surfaces.js"
 );
-const { registerLaunchConversationDeps } = await import(
-  "../conversation-launch.js"
-);
+const { registerLaunchConversationDeps, resetLaunchConversationDeps } =
+  await import("../conversation-launch.js");
 type SurfaceConversationContext =
   import("../conversation-surfaces.js").SurfaceConversationContext;
 type TrustContext = import("../conversation-runtime-assembly.js").TrustContext;
@@ -255,6 +254,11 @@ describe("handleSurfaceAction — launch_conversation dispatch", () => {
     publishCalls.length = 0;
     updateTitleCalls.length = 0;
     nextKeyStoreResult = { conversationId: "conv-new" };
+    // Reset module-level `_deps` so a test that forgets to call
+    // `setupLaunchDeps()` cannot accidentally piggy-back on deps left
+    // registered by a previous test. Each test that exercises the launch
+    // helper must call `setupLaunchDeps()` explicitly.
+    resetLaunchConversationDeps();
   });
 
   test("launches new conversation with inherited trust context and no chat message", async () => {
@@ -441,5 +445,59 @@ describe("handleSurfaceAction — launch_conversation dispatch", () => {
     // the test completes.
     await Promise.resolve();
     await Promise.resolve();
+  });
+
+  test("dispatches launch even when pendingSurfaceActions has an entry for the surface (first-click case)", async () => {
+    // Regression for the gap that left the launch branch unreachable on the
+    // FIRST click of a freshly-rendered persistent launcher card. `ui_show`
+    // unconditionally sets `pendingSurfaceActions` for any interactive card
+    // (regardless of `persistent`), so without this fix `handleSurfaceAction`
+    // saw `pending` truthy, skipped the launch dispatch, and fell through to
+    // the pending path — emitting the `[User action on card surface: ...]`
+    // message and triggering a full LLM round-trip on every click. The plan
+    // claimed to eliminate that round-trip; this test enforces it.
+    nextKeyStoreResult = { conversationId: "conv-pending-set" };
+    const harness = setupLaunchDeps();
+    const ctx = makeContext();
+    registerCardSurface(ctx, "surface-pending");
+    // Simulate `ui_show` having stamped a pending entry for this surface
+    // (which it does for any interactive card, including persistent ones).
+    ctx.pendingSurfaceActions.set("surface-pending", { surfaceType: "card" });
+
+    const result = await handleSurfaceAction(
+      ctx,
+      "surface-pending",
+      "launch",
+      {
+        _action: "launch_conversation",
+        title: "T",
+        seedPrompt: "S",
+      },
+    );
+
+    expect(result).toEqual({
+      accepted: true,
+      conversationId: "conv-pending-set",
+    });
+
+    // Exactly one open_conversation event with focus: false — the launch
+    // branch ran, not the pending fallthrough.
+    const openEvents = openConversationEvents();
+    expect(openEvents).toHaveLength(1);
+    expect(openEvents[0].message.conversationId).toBe("conv-pending-set");
+    expect(openEvents[0].message.focus).toBe(false);
+
+    // Critical: NO message was enqueued onto the origin conversation. If the
+    // launch dispatch had fallen through to the pending path, the
+    // `[User action on card surface: ...]` text would have been enqueued and
+    // an LLM turn would have started.
+    expect(ctx.enqueueCalls).toHaveLength(0);
+
+    // Pending entry was deleted so subsequent sibling clicks on the same
+    // persistent card aren't blocked behind a stale "owes-an-answer" flag.
+    expect(ctx.pendingSurfaceActions.has("surface-pending")).toBe(false);
+
+    await harness.processStarted;
+    harness.resolveProcess();
   });
 });
