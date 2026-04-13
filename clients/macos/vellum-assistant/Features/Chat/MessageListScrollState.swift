@@ -105,6 +105,8 @@ final class MessageListScrollState {
     @ObservationIgnored var lastMessageId: UUID?
     @ObservationIgnored var lastActivityPhaseWhenIdle: String = ""
     @ObservationIgnored var pendingSendScrollToTop: Bool = false
+    @ObservationIgnored var isActiveTurnMinHeightApplied: Bool = false
+    @ObservationIgnored var hasCompletedInitialPushToTop: Bool = false
 
     // MARK: - Deep-link anchor
 
@@ -218,6 +220,8 @@ final class MessageListScrollState {
         currentConversationId = conversationId
         lastMessageId = nil
         pendingSendScrollToTop = false
+        isActiveTurnMinHeightApplied = false
+        hasCompletedInitialPushToTop = false
         scrollContentHeight = 0
         scrollContainerHeight = 0
         lastContentOffsetY = 0
