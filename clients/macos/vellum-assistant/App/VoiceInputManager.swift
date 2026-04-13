@@ -1160,21 +1160,31 @@ final class VoiceInputManager {
         return AudioWavEncoder.encode(pcmData: pcmData, format: wavFormat)
     }
 
-    /// Show the speech recognition permission prompt after an STT transcription failure.
-    /// When speech recognition is `.notDetermined`, this primes the user with a first-use
-    /// overlay before requesting authorization. When denied, it directs them to System Settings.
+    /// Show appropriate feedback after an STT transcription failure with no native fallback.
+    ///
+    /// - `.authorized`: Speech recognition is already granted — the failure is a transient
+    ///   STT service error (missing API key, network issue, silence). Show a generic error.
+    /// - `.notDetermined`: Show a speech-recognition-specific primer, then request
+    ///   authorization. If granted, the next recording will have native fallback.
+    /// - `.denied` / `.restricted`: Direct the user to System Settings.
     private func showSpeechRecognitionFallbackPrompt() {
         let speechStatus = speechRecognizerAdapter.authorizationStatus()
-        if speechStatus == .notDetermined {
-            // Show the first-use primer so the user understands why we're asking,
-            // then request authorization. If granted, the next recording attempt
-            // will have native partials + fallback.
-            permissionOverlay.show(kind: .firstUse, onDismiss: {}, onContinue: { [weak self] in
+        switch speechStatus {
+        case .authorized:
+            // Speech recognition is already authorized — the failure is not a permission
+            // issue. Show a generic transcription error in the dictation overlay.
+            overlayWindow.show(state: .error("Transcription failed. Please try again."))
+        case .notDetermined:
+            // Show a speech-recognition-specific fallback prompt, then request authorization.
+            // If granted, the next recording will have native partials + fallback.
+            permissionOverlay.show(kind: .speechFallback, onDismiss: {}, onContinue: { [weak self] in
                 self?.speechRecognizerAdapter.requestAuthorization { _ in }
             })
-        } else {
+        case .denied, .restricted:
             // Speech recognition was previously denied — direct to System Settings.
             permissionOverlay.show(kind: .denied(.speechRecognition), onDismiss: {}, onContinue: {})
+        @unknown default:
+            overlayWindow.show(state: .error("Transcription failed. Please try again."))
         }
     }
 
