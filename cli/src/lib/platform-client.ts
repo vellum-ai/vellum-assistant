@@ -146,6 +146,12 @@ export interface HatchedAssistant {
   status: string;
 }
 
+export interface HatchAssistantResult {
+  assistant: HatchedAssistant;
+  /** true when the platform returned an existing assistant (HTTP 200) */
+  reusedExisting: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Self-hosted local assistant registration
 // ---------------------------------------------------------------------------
@@ -306,7 +312,7 @@ export async function injectCredentialsIntoAssistant(
 export async function hatchAssistant(
   token: string,
   platformUrl?: string,
-): Promise<HatchedAssistant> {
+): Promise<HatchAssistantResult> {
   const resolvedUrl = platformUrl || getPlatformUrl();
   const url = `${resolvedUrl}/v1/assistants/hatch/`;
 
@@ -317,7 +323,8 @@ export async function hatchAssistant(
   });
 
   if (response.ok) {
-    return (await response.json()) as HatchedAssistant;
+    const assistant = (await response.json()) as HatchedAssistant;
+    return { assistant, reusedExisting: response.status === 200 };
   }
 
   if (response.status === 401 || response.status === 403) {

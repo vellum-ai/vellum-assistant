@@ -897,7 +897,16 @@ export async function resolveOrHatchTarget(
       process.exit(1);
     }
 
-    const result = await hatchAssistant(token);
+    const { assistant: result, reusedExisting } = await hatchAssistant(token);
+    if (reusedExisting) {
+      console.error(
+        `Error: You already have a platform assistant '${result.id}'.`,
+      );
+      console.error(
+        `Retire it first with 'vellum retire ${result.id}', then retry the teleport.`,
+      );
+      process.exit(1);
+    }
     const entry: AssistantEntry = {
       assistantId: result.id,
       runtimeUrl: getPlatformUrl(),

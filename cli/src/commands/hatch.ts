@@ -570,7 +570,7 @@ async function hatchVellumPlatform(): Promise<void> {
   console.log("   Hatching assistant on Vellum platform...");
   console.log("");
 
-  const result = await hatchAssistant(token);
+  const { assistant: result } = await hatchAssistant(token);
 
   const platformUrl = getPlatformUrl();
 

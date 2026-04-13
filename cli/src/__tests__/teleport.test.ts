@@ -66,9 +66,12 @@ mock.module("../lib/guardian-token.js", () => ({
 const readPlatformTokenMock = mock((): string | null => "platform-token");
 const getPlatformUrlMock = mock(() => "https://platform.vellum.ai");
 const hatchAssistantMock = mock(async () => ({
-  id: "platform-new-id",
-  name: "platform-new",
-  status: "active",
+  assistant: {
+    id: "platform-new-id",
+    name: "platform-new",
+    status: "active",
+  },
+  reusedExisting: false,
 }));
 const platformInitiateExportMock = mock(async () => ({
   jobId: "job-1",
@@ -250,9 +253,12 @@ beforeEach(() => {
   getPlatformUrlMock.mockReturnValue("https://platform.vellum.ai");
   hatchAssistantMock.mockReset();
   hatchAssistantMock.mockResolvedValue({
-    id: "platform-new-id",
-    name: "platform-new",
-    status: "active",
+    assistant: {
+      id: "platform-new-id",
+      name: "platform-new",
+      status: "active",
+    },
+    reusedExisting: false,
   });
   platformInitiateExportMock.mockReset();
   platformInitiateExportMock.mockResolvedValue({
@@ -770,6 +776,29 @@ describe("resolveOrHatchTarget", () => {
       }),
     );
     expect(result.assistantId).toBe("platform-new-id");
+  });
+
+  test("platform with no name -> blocks when hatch returns reusedExisting", async () => {
+    findAssistantByNameMock.mockReturnValue(null);
+    hatchAssistantMock.mockResolvedValue({
+      assistant: {
+        id: "existing-platform-id",
+        name: "existing-platform",
+        status: "active",
+      },
+      reusedExisting: true,
+    });
+
+    await expect(resolveOrHatchTarget("platform", undefined)).rejects.toThrow(
+      "process.exit:1",
+    );
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("already have a platform assistant"),
+    );
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Retire it first"),
+    );
+    expect(saveAssistantEntryMock).not.toHaveBeenCalled();
   });
 
   test("existing assistant with wrong cloud -> rejects", async () => {
@@ -1334,7 +1363,14 @@ describe("platform teleport org ID and reordered flow", () => {
 
     hatchAssistantMock.mockImplementation(async () => {
       callOrder.push("hatchAssistant");
-      return { id: "platform-new-id", name: "platform-new", status: "active" };
+      return {
+        assistant: {
+          id: "platform-new-id",
+          name: "platform-new",
+          status: "active",
+        },
+        reusedExisting: false,
+      };
     });
 
     const originalFetch = globalThis.fetch;

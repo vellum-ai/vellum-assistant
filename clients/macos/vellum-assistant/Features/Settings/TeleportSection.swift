@@ -52,6 +52,7 @@ private enum TeleportError: LocalizedError {
     case dockerAssistantNotFound
     case noOrganizations
     case multipleOrganizations
+    case existingPlatformAssistant(id: String)
 
     var errorDescription: String? {
         switch self {
@@ -75,6 +76,8 @@ private enum TeleportError: LocalizedError {
             return "No organizations found for this account"
         case .multipleOrganizations:
             return "Multiple organizations found — please select one in account settings first"
+        case .existingPlatformAssistant(let id):
+            return "You already have a platform assistant '\(id)'. Retire it first, then retry the teleport."
         }
     }
 }
@@ -374,7 +377,7 @@ struct TeleportSection: View {
         let platformAssistant: PlatformAssistant
         switch hatchResult {
         case .reusedExisting(let assistant):
-            platformAssistant = assistant
+            throw TeleportError.existingPlatformAssistant(id: assistant.id)
         case .createdNew(let assistant):
             platformAssistant = assistant
         }
@@ -513,7 +516,7 @@ struct TeleportSection: View {
         let platformAssistant: PlatformAssistant
         switch hatchResult {
         case .reusedExisting(let assistant):
-            platformAssistant = assistant
+            throw TeleportError.existingPlatformAssistant(id: assistant.id)
         case .createdNew(let assistant):
             platformAssistant = assistant
         }
