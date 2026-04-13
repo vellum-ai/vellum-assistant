@@ -41,6 +41,7 @@ import {
 } from "../memory/conversation-crud.js";
 import { updateMetaFile } from "../memory/conversation-disk-view.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
+import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { getProvider, initializeProviders } from "../providers/registry.js";
@@ -546,6 +547,11 @@ export class DaemonServer {
         emoji: fields.emoji,
         home: fields.home,
       });
+
+      // Best-effort sync of the assistant name to the platform record.
+      if (fields.name) {
+        void syncIdentityNameToPlatform(fields.name);
+      }
     } catch (err) {
       log.error({ err }, "Failed to broadcast identity change");
     }
