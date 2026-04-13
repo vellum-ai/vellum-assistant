@@ -145,18 +145,29 @@ struct HatchingStepView: View {
         AvatarCompositor.render(bodyShape: hatchBody, eyeStyle: hatchEyes, color: hatchColor)
     }
 
+    private var failureAvatarImage: NSImage? {
+        AvatarCompositor.render(
+            bodyShape: hatchBody,
+            eyeStyle: hatchEyes,
+            color: hatchColor,
+            overrideBodyColor: NSColor(VColor.contentDisabled)
+        )
+    }
+
     // MARK: - Character Animation
 
     private var characterAnimation: some View {
         ZStack {
-            if let image = hatchAvatarImage {
+            if let image = state.hatchFailed ? failureAvatarImage : hatchAvatarImage {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 122, height: 125)
+                    .rotationEffect(state.hatchFailed ? .degrees(45) : .zero)
                     .scaleEffect(characterAwake ? 1.1 : pulseScale)
-                    .opacity(showCharacter ? (characterAwake ? 1.0 : 0.6) : 0)
+                    .opacity(showCharacter ? (state.hatchFailed ? 1.0 : (characterAwake ? 1.0 : 0.6)) : 0)
                     .animation(.spring(duration: 0.6, bounce: 0.3), value: characterAwake)
+                    .animation(.easeOut(duration: 0.4), value: state.hatchFailed)
                     .accessibilityHidden(true)
             }
         }
@@ -270,7 +281,7 @@ struct HatchingStepView: View {
                     retryHatch()
                 }
 
-                VButton(label: "Go Back", style: .ghost) {
+                VButton(label: "Back", style: .outlined, isFullWidth: true) {
                     goBack()
                 }
             }

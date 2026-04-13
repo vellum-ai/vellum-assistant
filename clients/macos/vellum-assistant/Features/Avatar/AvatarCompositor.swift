@@ -4,13 +4,18 @@ import VellumAssistantShared
 @MainActor
 enum AvatarCompositor {
     /// Renders a composite avatar from body shape + eye style + color into an NSImage.
+    /// When `overrideBodyColor` is provided it replaces the avatar's own color for
+    /// the body fill — useful for rendering a greyed-out failure state with a
+    /// design-system token such as `VColor.contentDisabled`.
     static func render(
         bodyShape: AvatarBodyShape,
         eyeStyle: AvatarEyeStyle,
         color: AvatarColor,
+        overrideBodyColor: NSColor? = nil,
         size: CGFloat = 512
     ) -> NSImage {
-        let cacheKey = "\(bodyShape.rawValue)-\(eyeStyle.rawValue)-\(color.rawValue)-\(Int(size))"
+        let bodyNSColor = overrideBodyColor ?? color.nsColor
+        let cacheKey = "\(bodyShape.rawValue)-\(eyeStyle.rawValue)-\(overrideBodyColor?.description ?? color.rawValue)-\(Int(size))"
         if let cached = cache[cacheKey] {
             return cached
         }
@@ -24,7 +29,7 @@ enum AvatarCompositor {
 
         // Pre-parse SVG paths outside the drawing handler so they're computed once.
         let bodyPath = parseSVGPath(bodyShape.svgPath)
-        let bodyColor = color.nsColor.cgColor
+        let bodyColor = bodyNSColor.cgColor
 
         let faceCenter = AvatarTransforms.resolveFaceCenter(bodyShape: bodyShape, eyeStyle: eyeStyle)
         let eyeSourceViewBox = eyeStyle.sourceViewBox
