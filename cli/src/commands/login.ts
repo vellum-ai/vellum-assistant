@@ -3,7 +3,12 @@ import { spawn } from "child_process";
 import { randomBytes } from "crypto";
 
 import {
+  saveAssistantEntry,
+  setActiveAssistant,
+} from "../lib/assistant-config";
+import {
   clearPlatformToken,
+  fetchActiveAssistant,
   fetchCurrentUser,
   getPlatformUrl,
   readPlatformToken,
@@ -160,6 +165,25 @@ export async function login(): Promise<void> {
     const user = await fetchCurrentUser(token);
     savePlatformToken(token);
     console.log(`✅ Logged in as ${user.email}`);
+
+    // Register the user's active platform assistant in the lockfile
+    try {
+      const assistant = await fetchActiveAssistant(token);
+      if (assistant) {
+        const platformUrl = getPlatformUrl();
+        saveAssistantEntry({
+          assistantId: assistant.id,
+          runtimeUrl: platformUrl,
+          cloud: "vellum",
+          species: "vellum",
+          hatchedAt: new Date().toISOString(),
+        });
+        setActiveAssistant(assistant.id);
+        console.log(`Active assistant: ${assistant.name} (${assistant.id})`);
+      }
+    } catch {
+      // Non-fatal — login succeeded even if assistant registration fails
+    }
   } catch (error) {
     console.error(
       `❌ Login failed: ${error instanceof Error ? error.message : error}`,

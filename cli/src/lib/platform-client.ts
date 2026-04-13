@@ -146,6 +146,32 @@ export interface HatchedAssistant {
   status: string;
 }
 
+/**
+ * Fetch the user's active assistant from the platform.
+ * Returns null if no active assistant exists (404).
+ */
+export async function fetchActiveAssistant(
+  token: string,
+  platformUrl?: string,
+): Promise<HatchedAssistant | null> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const response = await fetch(`${resolvedUrl}/v1/assistants/active/`, {
+    headers: await authHeaders(token, platformUrl),
+  });
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch active assistant: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  return (await response.json()) as HatchedAssistant;
+}
+
 export async function hatchAssistant(
   token: string,
   platformUrl?: string,
