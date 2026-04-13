@@ -229,7 +229,10 @@ private struct DeveloperSettingsSectionContent: View {
                 selectedAssistantId = currentId
             } else if let first = assistants.first {
                 selectedAssistantId = first.id
+                switchAssistant(to: first.id)
             }
+        } catch is CancellationError {
+            // .task cancelled during navigation — not a user-visible error
         } catch {
             assistantLoadError = error.localizedDescription
         }
