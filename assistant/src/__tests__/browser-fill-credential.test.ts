@@ -61,8 +61,11 @@ let mockPage: {
 
 let snapshotBackendNodeMaps: Map<string, Map<string, number>>;
 
+const preferredBackendKinds = new Map<string, string>();
+
 mock.module("../tools/browser/browser-manager.js", () => {
   snapshotBackendNodeMaps = new Map();
+  preferredBackendKinds.clear();
   return {
     browserManager: {
       getOrCreateSessionPage: async () => mockPage,
@@ -84,6 +87,14 @@ mock.module("../tools/browser/browser-manager.js", () => {
       },
       clearSnapshotBackendNodeMap: (conversationId: string) => {
         snapshotBackendNodeMaps.delete(conversationId);
+      },
+      getPreferredBackendKind: (conversationId: string) =>
+        preferredBackendKinds.get(conversationId) ?? null,
+      setPreferredBackendKind: (conversationId: string, kind: string) => {
+        preferredBackendKinds.set(conversationId, kind);
+      },
+      clearPreferredBackendKind: (conversationId: string) => {
+        preferredBackendKinds.delete(conversationId);
       },
     },
   };
