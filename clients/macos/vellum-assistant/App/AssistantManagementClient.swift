@@ -1,5 +1,8 @@
 import Foundation
+import os
 import VellumAssistantShared
+
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AssistantManagementClient")
 
 /// Manages the lifecycle of a local assistant instance.
 ///
@@ -59,6 +62,69 @@ class AssistantManagementClient {
 
     // MARK: - Shared helpers
 
+    /// Best-effort deregistration of a self-hosted local assistant from the
+    /// platform. Resolves the platform assistant ID from credential storage,
+    /// calls `DELETE /v1/assistants/{id}/retire/`, and cleans up stored
+    /// credentials.
+    ///
+    /// Failures are logged but never thrown — platform deregistration must not
+    /// block the local retire flow.
+    func deregisterFromPlatformIfNeeded(runtimeAssistantId: String) async {
+        let credStorage = FileCredentialStorage()
+        let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+
+        guard let orgId, !orgId.isEmpty else {
+            log.info("No organization ID — skipping platform deregistration for '\(runtimeAssistantId, privacy: .public)'")
+            return
+        }
+
+        // Resolve the user ID so we can look up the platform assistant ID mapping.
+        let userId: String?
+        do {
+            let session = try await AuthService.shared.getSession()
+            userId = session.data?.user?.id
+        } catch {
+            log.info("Could not resolve user ID — skipping platform deregistration: \(error.localizedDescription)")
+            return
+        }
+        guard let userId, !userId.isEmpty else {
+            log.info("No user ID — skipping platform deregistration for '\(runtimeAssistantId, privacy: .public)'")
+            return
+        }
+
+        guard let platformAssistantId = PlatformAssistantIdResolver.resolve(
+            lockfileAssistantId: runtimeAssistantId,
+            isManaged: false,
+            organizationId: orgId,
+            userId: userId,
+            credentialStorage: credStorage
+        ) else {
+            log.info("No platform assistant ID found for '\(runtimeAssistantId, privacy: .public)' — skipping deregistration")
+            return
+        }
+
+        log.info("Deregistering platform assistant \(platformAssistantId, privacy: .public) for runtime '\(runtimeAssistantId, privacy: .public)'")
+
+        do {
+            try await AuthService.shared.retireSelfHostedLocalAssistant(
+                platformAssistantId: platformAssistantId
+            )
+            log.info("Platform deregistration succeeded for '\(runtimeAssistantId, privacy: .public)'")
+        } catch {
+            log.warning("Platform deregistration failed for '\(runtimeAssistantId, privacy: .public)': \(error.localizedDescription) — continuing with local retire")
+        }
+
+        // Clean up stored credentials regardless of whether the API call succeeded.
+        PlatformAssistantIdResolver.clear(
+            runtimeAssistantId: runtimeAssistantId,
+            organizationId: orgId,
+            userId: userId,
+            credentialStorage: credStorage
+        )
+        let credAccount = LocalAssistantBootstrapService.credentialAccount(for: runtimeAssistantId)
+        _ = credStorage.delete(account: credAccount)
+    }
+
     /// Shared post-retire orchestration: clears the active assistant ID
     /// (when the retired assistant *was* the active one) and returns the best
     /// remaining assistant for the current environment.
@@ -111,6 +177,7 @@ class AssistantManagementClient {
         guard let activeId = LockfileAssistant.loadActiveAssistantId() else {
             return nil
         }
+        await deregisterFromPlatformIfNeeded(runtimeAssistantId: activeId)
         LockfileAssistant.removeEntry(assistantId: activeId)
         LockfileAssistant.setActiveAssistantId(nil)
         return await findReplacementAfterRetire(retiredId: activeId)

@@ -688,6 +688,58 @@ public final class AuthService {
         }
     }
 
+    /// Retire (deregister) a self-hosted local assistant from the platform.
+    ///
+    /// Calls `DELETE /v1/assistants/{platformAssistantId}/retire/` to remove the
+    /// platform-side registration created by `ensureSelfHostedLocalRegistration`.
+    public func retireSelfHostedLocalAssistant(
+        platformAssistantId: String
+    ) async throws {
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/assistants/\(platformAssistantId)/retire/"
+        guard let url = URL(string: urlString) else {
+            throw PlatformAPIError.invalidURL
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "DELETE"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        urlRequest.timeoutInterval = 15
+
+        if let token = await SessionTokenManager.getTokenAsync() {
+            urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        } else {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: urlRequest)
+        } catch {
+            throw PlatformAPIError.networkError(error.localizedDescription)
+        }
+
+        let httpResponse = response as? HTTPURLResponse
+        let statusCode = httpResponse?.statusCode ?? 0
+
+        log.debug("Platform request DELETE assistants/\(platformAssistantId, privacy: .public)/retire/ -> \(statusCode)")
+
+        if statusCode == 401 || statusCode == 403 {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        // 404 is acceptable — the registration may have already been removed.
+        if statusCode == 404 {
+            log.info("Platform assistant \(platformAssistantId, privacy: .public) not found — already deregistered")
+            return
+        }
+
+        guard (200..<300).contains(statusCode) else {
+            let detail = String(data: data, encoding: .utf8)
+            throw PlatformAPIError.serverError(statusCode: statusCode, detail: detail)
+        }
+    }
+
     // MARK: - Allauth Requests
 
     private func request<T: Codable>(_ requestConfig: AuthRequestConfig) async throws -> AllauthResponse<T> {
