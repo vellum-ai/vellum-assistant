@@ -496,12 +496,15 @@ export class MediaStreamOutput implements CallTransport {
    * base64-encoded mu-law frames.
    *
    * For WAV files, we extract the raw PCM data and convert to mu-law.
-   * For other formats (mp3, opus), we generate a silence placeholder
-   * and log a warning — full codec support would require a native decoder
-   * dependency. The primary production path uses the synthesized-play
-   * mechanism in call-controller which streams audio through the audio
-   * store; this direct conversion is a fallback for the media-stream
-   * transport's simpler egress model.
+   * For other formats (mp3, opus), we send the raw bytes through
+   * {@link chunkMulawToBase64Frames} as a best-effort path. This works
+   * correctly when the TTS provider outputs mu-law or PCM directly
+   * (regardless of the nominal format label), but will produce garbled
+   * audio for genuinely compressed formats (mp3, opus) since we lack a
+   * native decoder. The primary production egress path routes TTS
+   * through the call-controller's audio store mechanism, which handles
+   * transcoding properly; this direct conversion is a fallback for the
+   * media-stream transport's simpler egress model.
    */
   private audioBufferToFrames(
     audio: Buffer,
