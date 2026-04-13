@@ -614,8 +614,19 @@ struct InputBarView: View {
             if let serviceText, !serviceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 log.info("Using STT service transcript (\(serviceText.count) chars)")
                 finalTranscript = serviceText
-            } else {
+            } else if !nativeTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 log.info("Falling back to native transcript (\(nativeTranscript.count) chars)")
+                finalTranscript = nativeTranscript
+            } else if isSTTOnlyMode {
+                // STT-only mode and service returned nothing — show error instead
+                // of silently delivering empty text.
+                log.warning("STT service returned empty result in STT-only mode — no fallback available")
+                viewModel.errorText = "Voice transcription failed. Please try again."
+                stopRecording()
+                isVoiceOrbExpanded = false
+                return
+            } else {
+                log.info("Both service and native transcripts empty")
                 finalTranscript = nativeTranscript
             }
 

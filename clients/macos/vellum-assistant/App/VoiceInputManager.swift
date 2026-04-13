@@ -988,9 +988,32 @@ final class VoiceInputManager {
             onTranscription?(text)
         case .dictation:
             guard let context = currentDictationContext else {
-                // No context captured (e.g. continuous recording path) — fall back to conversation
-                VoiceFeedback.playDeactivationChime()
-                onTranscription?(text)
+                // No context captured (e.g. continuous recording path or quick key release
+                // before context capture completes). If we have accumulated audio, resolve
+                // via the STT service so the user's speech isn't silently lost.
+                let accumulatedBuffers = audioAccumulator.drain()
+                let audioFormat = capturedAudioFormat
+                if !accumulatedBuffers.isEmpty, audioFormat != nil {
+                    let sttClient = self.sttClient
+                    Task { [weak self] in
+                        let resolvedText = await Self.resolveTranscription(
+                            nativeText: text,
+                            accumulatedBuffers: accumulatedBuffers,
+                            audioFormat: audioFormat,
+                            sttClient: sttClient
+                        )
+                        guard let self else { return }
+                        VoiceFeedback.playDeactivationChime()
+                        if !resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            self.onTranscription?(resolvedText)
+                        }
+                    }
+                } else {
+                    VoiceFeedback.playDeactivationChime()
+                    if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        onTranscription?(text)
+                    }
+                }
                 return
             }
 
