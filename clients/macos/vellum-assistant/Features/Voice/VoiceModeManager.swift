@@ -94,7 +94,12 @@ final class VoiceModeManager: ObservableObject {
         guard state == .off else { return }
         wasAutoDeactivated = false
 
-        guard speechRecognizerAdapter.authorizationStatus() == .authorized else {
+        // When an LLM-based STT provider is configured (e.g. Deepgram, OpenAI
+        // Whisper), native speech recognition permission is not required — the
+        // service handles transcription. Skip the speech auth guard entirely.
+        let sttConfigured = STTProviderRegistry.isServiceConfigured
+
+        guard sttConfigured || speechRecognizerAdapter.authorizationStatus() == .authorized else {
             log.error("Voice mode: speech recognition not authorized")
             awaitingAuthorization = true
             let status = speechRecognizerAdapter.authorizationStatus()
