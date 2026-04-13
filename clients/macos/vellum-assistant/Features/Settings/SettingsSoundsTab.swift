@@ -147,7 +147,7 @@ struct SettingsSoundsTab: View {
                 }
                 .frame(maxWidth: 220, alignment: .leading)
             } else {
-                ForEach(eventConfig.sounds, id: \.self) { filename in
+                ForEach(Array(eventConfig.sounds.enumerated()), id: \.offset) { index, filename in
                     HStack(spacing: VSpacing.xs) {
                         let displayLabel = labelsByFilename[filename]
                             ?? (filename as NSString).deletingPathExtension
@@ -165,7 +165,7 @@ struct SettingsSoundsTab: View {
                             style: .ghost,
                             tooltip: "Remove sound"
                         ) {
-                            removeSound(filename, for: event)
+                            removeSound(at: index, for: event)
                         }
                     }
                     .frame(maxWidth: 220, alignment: .leading)
@@ -177,9 +177,15 @@ struct SettingsSoundsTab: View {
                 .filter { !inPool.contains($0.filename) }
                 .map { (label: $0.label, value: $0.filename) }
 
-            if remainingOptions.isEmpty {
-                // Every available sound is already in the pool — show a disabled
-                // dropdown so the UI stays stable rather than visually jumping.
+            if sounds.isEmpty {
+                // Library is empty — render a subtle hint instead of a misleading "All sounds added" dropdown.
+                Text("No sound files yet")
+                    .font(VFont.bodyMediumLighter)
+                    .foregroundStyle(VColor.contentDisabled)
+                    .frame(maxWidth: 220, alignment: .leading)
+            } else if remainingOptions.isEmpty {
+                // Every available sound is already in the pool — show a disabled dropdown
+                // so the UI stays stable rather than visually jumping.
                 VDropdown(
                     placeholder: "All sounds added",
                     selection: .constant(""),
@@ -214,10 +220,11 @@ struct SettingsSoundsTab: View {
         soundManager.saveConfig(updated)
     }
 
-    private func removeSound(_ filename: String, for event: SoundEvent) {
+    private func removeSound(at index: Int, for event: SoundEvent) {
         var updated = soundManager.config
         var ec = updated.config(for: event)
-        ec.sounds = ec.sounds.filter { $0 != filename }
+        guard ec.sounds.indices.contains(index) else { return }
+        ec.sounds.remove(at: index)
         updated.events[event.rawValue] = ec
         soundManager.saveConfig(updated)
     }
