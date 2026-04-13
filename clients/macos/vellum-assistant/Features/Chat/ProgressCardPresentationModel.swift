@@ -43,6 +43,9 @@ struct ProgressCardPresentationModel: Equatable {
     let hasDeniedToolCalls: Bool
     /// Whether any tool call currently has a pending confirmation request.
     let hasPendingConfirmation: Bool
+    /// Whether any completed tool call has been stripped of its heavy content
+    /// (all detail fields cleared by `stripHeavyContent`).
+    let hasStrippedToolCalls: Bool
     /// Total number of tool calls in the group.
     let totalToolCount: Int
 
@@ -204,6 +207,15 @@ struct ProgressCardPresentationModel: Equatable {
             skillExecuteLabel = "Using my \(display) skill"
         }
 
+        // Whether any completed tool call has had its heavy content stripped
+        let hasStrippedToolCalls = toolCalls.contains { tc in
+            tc.isComplete
+                && tc.inputFull.isEmpty
+                && tc.result == nil
+                && tc.inputRawDict == nil
+                && tc.cachedImages.isEmpty
+        }
+
         // Check decidedConfirmations for denied state (fallback)
         if !hasDeniedToolCalls {
             for confirmation in decidedConfirmations {
@@ -242,6 +254,7 @@ struct ProgressCardPresentationModel: Equatable {
             deniedCount: deniedCount,
             hasDeniedToolCalls: hasDeniedToolCalls,
             hasPendingConfirmation: hasPendingConfirmation,
+            hasStrippedToolCalls: hasStrippedToolCalls,
             totalToolCount: toolCalls.count,
             groupId: groupId,
             currentCall: currentCall,

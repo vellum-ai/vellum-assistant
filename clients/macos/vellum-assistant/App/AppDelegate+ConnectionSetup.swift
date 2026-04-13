@@ -212,11 +212,15 @@ extension AppDelegate {
                     guard !self.isBootstrapping else { break }
                     self.ensureMainWindowExists()
                     // If the conversation isn't in the sidebar yet (e.g. just created by a
-                    // skill via the launch-conversation signal), stub a sidebar entry using
-                    // the optional title so openConversation's trySelect retries find it.
+                    // surface action with `_action: "launch_conversation"` that the daemon
+                    // dispatched inline, spawning a fresh conversation and emitting
+                    // open_conversation), stub a sidebar entry using the optional title so
+                    // openConversation's trySelect retries find it.
                     // Tag the stub with source: "open_conversation" so it's distinguishable
                     // from true notification-flow stubs (which use source: "notification"
                     // and may drive urgency/alerting behaviors that don't apply here).
+                    // This registration runs regardless of the focus flag so fan-out
+                    // callers (focus: false) still get the conversation in the sidebar.
                     if let title = msg.title,
                        let conversationManager = self.mainWindow?.conversationManager,
                        !conversationManager.conversations.contains(where: { $0.conversationId == msg.conversationId }) {
@@ -228,7 +232,12 @@ extension AppDelegate {
                             source: "open_conversation"
                         )
                     }
-                    self.openConversation(conversationId: msg.conversationId, anchorMessageId: msg.anchorMessageId)
+                    // Switch focus only when the emitter did not explicitly opt out
+                    // (msg.focus != false). Absent (nil) defaults to switching, which
+                    // preserves existing single-target behavior.
+                    if shouldFocusForOpenConversation(msg) {
+                        self.openConversation(conversationId: msg.conversationId, anchorMessageId: msg.anchorMessageId)
+                    }
                 case .navigateSettings(let msg):
                     self.showSettingsTab(msg.tab)
                 case .showPlatformLogin:

@@ -592,6 +592,66 @@ struct ProgressCardPresentationModelTests {
         #expect(model.shouldAutoExpand)
     }
 
+    // MARK: - Stripped Tool Calls
+
+    @Test
+    func hasStrippedToolCallsDetectsStrippedContent() {
+        // A completed tool call with all detail fields cleared simulates
+        // the state after stripHeavyContent has been applied.
+        var stripped = ToolCallData(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+            toolName: "edit_file",
+            inputSummary: "",
+            inputFull: "",
+            isComplete: true,
+            startedAt: Date(timeIntervalSince1970: 1000),
+            completedAt: Date(timeIntervalSince1970: 1001)
+        )
+        stripped.inputRawDict = nil
+        let model = ProgressCardPresentationModel.build(
+            toolCalls: [stripped],
+            decidedConfirmations: [],
+            context: Self.idleContext
+        )
+        #expect(model.hasStrippedToolCalls)
+    }
+
+    @Test
+    func hasStrippedToolCallsFalseForNormalToolCall() {
+        // A normal complete tool call with populated inputFull should not
+        // be detected as stripped.
+        let normal = Self.makeToolCall(
+            index: 1, isComplete: true,
+            completedAt: Date(timeIntervalSince1970: 1001)
+        )
+        let model = ProgressCardPresentationModel.build(
+            toolCalls: [normal],
+            decidedConfirmations: [],
+            context: Self.idleContext
+        )
+        #expect(!model.hasStrippedToolCalls)
+    }
+
+    @Test
+    func hasStrippedToolCallsFalseForIncompleteToolCall() {
+        // An incomplete tool call with empty fields should not be detected
+        // as stripped — only completed tool calls qualify.
+        let incomplete = ToolCallData(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+            toolName: "edit_file",
+            inputSummary: "",
+            inputFull: "",
+            isComplete: false,
+            startedAt: Date(timeIntervalSince1970: 1000)
+        )
+        let model = ProgressCardPresentationModel.build(
+            toolCalls: [incomplete],
+            decidedConfirmations: [],
+            context: Self.idleContext
+        )
+        #expect(!model.hasStrippedToolCalls)
+    }
+
     // MARK: - Equatable
 
     @Test

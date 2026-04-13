@@ -29,6 +29,7 @@ Use this skill to browse the web. After loading this skill, the following browse
 - `browser_extract` - Extract page text content
 - `browser_wait_for_download` - Wait for a file download to complete
 - `browser_fill_credential` - Fill a stored credential into a form field
+- `browser_status` - Diagnose browser backend readiness and setup steps
 
 ## Capabilities
 
@@ -56,12 +57,13 @@ Every browser tool accepts an optional `browser_mode` parameter that controls wh
 
 ## Typical Workflow
 
-1. `browser_attach` to establish the debugger session (extension path; optional on other backends)
-2. `browser_navigate` to load a page
-3. `browser_snapshot` to discover interactive elements
-4. Use `browser_click`, `browser_type`, `browser_press_key`, `browser_scroll`, `browser_select_option`, or `browser_hover` to interact
-5. `browser_extract` or `browser_screenshot` to capture results
-6. `browser_detach` to end the debugger session, or `browser_close` to close the page entirely
+1. (Optional) `browser_status` to diagnose backend availability and remediation when setup is unclear
+2. `browser_attach` to establish the debugger session (extension path; optional on other backends)
+3. `browser_navigate` to load a page
+4. `browser_snapshot` to discover interactive elements
+5. Use `browser_click`, `browser_type`, `browser_press_key`, `browser_scroll`, `browser_select_option`, or `browser_hover` to interact
+6. `browser_extract` or `browser_screenshot` to capture results
+7. `browser_detach` to end the debugger session, or `browser_close` to close the page entirely
 
 ## Interaction Strategies
 

@@ -11,9 +11,9 @@ import XCTest
 // the interaction produces valid, non-degenerate state.
 //
 // All data flows through:
-//   TranscriptProjector  — transcript render model
-//   ComposerController   — popup state machine
-//   ScrollCoordinator    — scroll policy decisions
+//   TranscriptProjector      — transcript render model
+//   ComposerController       — popup state machine
+//   MessageListScrollState   — flat scroll coordinator
 //
 // No legacy compatibility layers (MessageListDerivedState alias,
 // cachedDerivedState field, or dispatcher wrappers) are involved.
@@ -105,13 +105,15 @@ final class ChatSurfaceStabilityRegressionTests: XCTestCase {
                        "New user message must appear in projection")
         XCTAssertTrue(model2.hasUserMessage)
 
-        // The scroll coordinator must handle the send event without panic.
-        let coordinator = ScrollCoordinator()
-        let intents = coordinator.handle(.sendingChanged(isSending: true))
-        XCTAssertTrue(coordinator.isFollowingBottom,
-                      "Send must reattach to bottom")
-        XCTAssertTrue(intents.contains(.scrollToBottom(animated: true)),
-                      "Send must scroll to bottom")
+        // The scroll state must handle the send scenario without issues.
+        let scrollState = MessageListScrollState()
+        // After a send, scroll-to-latest should be hidden (user is at bottom).
+        scrollState.scrollContentHeight = 1000
+        scrollState.scrollContainerHeight = 800
+        scrollState.lastContentOffsetY = 200  // at bottom
+        scrollState.updateScrollToLatest()
+        XCTAssertFalse(scrollState.showScrollToLatest,
+                       "Send must not show scroll-to-latest when at bottom")
 
         // The projector must produce equal results for identical inputs
         // (idempotency — no hidden mutation).
@@ -127,36 +129,21 @@ final class ChatSurfaceStabilityRegressionTests: XCTestCase {
     // fight-back or mode oscillation.
 
     func testScrollDuringStreamingResponse() {
-        let coordinator = ScrollCoordinator()
+        let scrollState = MessageListScrollState()
 
-        // Simulate initial load and sending.
-        coordinator.handle(.appeared)
-        coordinator.handle(.sendingChanged(isSending: true))
-        XCTAssertTrue(coordinator.isFollowingBottom)
+        // Simulate user scrolled far from bottom during streaming.
+        scrollState.scrollContentHeight = 5000
+        scrollState.scrollContainerHeight = 800
+        scrollState.lastContentOffsetY = 2000  // 2200pt from bottom
+        scrollState.updateScrollToLatest()
+        XCTAssertTrue(scrollState.showScrollToLatest,
+                      "Must show scroll-to-latest when far from bottom")
 
-        // New messages arrive during streaming.
-        coordinator.handle(.messageCountChanged)
-        coordinator.handle(.messageCountChanged)
-        coordinator.handle(.messageCountChanged)
-
-        // User starts scrolling — enters interacting phase.
-        let _ = coordinator.handle(.scrollPhaseChanged(phase: .interacting))
-
-        // User scrolls up — manual browse intent.
-        let browseIntents = coordinator.handle(.manualBrowseIntent)
-        XCTAssertEqual(coordinator.mode, .freeBrowsing,
-                       "Manual scroll must enter free browsing")
-        XCTAssertTrue(browseIntents.contains(.cancelRecoveryWindow),
-                      "Must cancel recovery on manual browse")
-        XCTAssertTrue(browseIntents.contains(.showScrollToLatest),
-                      "Must show CTA in free browsing")
-
-        // More messages arrive while in free browsing.
-        let msgIntents = coordinator.handle(.messageCountChanged)
-        XCTAssertEqual(coordinator.mode, .freeBrowsing,
-                       "New messages must not reattach in free browsing")
-        XCTAssertFalse(msgIntents.contains(.scrollToBottom(animated: true)),
-                       "Must not auto-scroll in free browsing")
+        // User scrolls back to bottom.
+        scrollState.lastContentOffsetY = 4200  // 0pt from bottom
+        scrollState.updateScrollToLatest()
+        XCTAssertFalse(scrollState.showScrollToLatest,
+                       "Must hide scroll-to-latest when at bottom")
 
         // The projector must still produce valid state during free browsing.
         var messages = buildMessages(count: 20)
@@ -173,24 +160,16 @@ final class ChatSurfaceStabilityRegressionTests: XCTestCase {
     // enter stabilization and detach from follow-bottom.
 
     func testExpandToolBlockDuringStreaming() {
-        let coordinator = ScrollCoordinator()
-        coordinator.handle(.appeared)
-        coordinator.handle(.sendingChanged(isSending: true))
-        XCTAssertTrue(coordinator.isFollowingBottom)
+        let scrollState = MessageListScrollState()
 
-        // User expands a tool block.
-        let expandIntents = coordinator.handle(.manualExpansion)
-        XCTAssertEqual(coordinator.mode, .freeBrowsing,
-                       "Manual expansion must detach to free browsing")
-        XCTAssertTrue(expandIntents.contains(.cancelRecoveryWindow),
-                      "Must cancel recovery on expansion")
-        XCTAssertTrue(expandIntents.contains(.showScrollToLatest),
-                      "Must show CTA after expansion")
-
-        // New streaming content arrives — must not fight back.
-        let msgIntents = coordinator.handle(.messageCountChanged)
-        XCTAssertEqual(coordinator.mode, .freeBrowsing)
-        XCTAssertFalse(msgIntents.contains(.scrollToBottom(animated: true)))
+        // Simulate user expanding a tool block while content is below.
+        // The expansion shifts content so user is now far from bottom.
+        scrollState.scrollContentHeight = 5000
+        scrollState.scrollContainerHeight = 800
+        scrollState.lastContentOffsetY = 2000  // 2200pt from bottom
+        scrollState.updateScrollToLatest()
+        XCTAssertTrue(scrollState.showScrollToLatest,
+                      "Must show scroll-to-latest after expansion moves away from bottom")
 
         // Verify the projector handles tool calls correctly.
         var messages = buildMessages(count: 6)
@@ -349,17 +328,14 @@ final class ChatSurfaceStabilityRegressionTests: XCTestCase {
         XCTAssertEqual(model1, model2,
                        "Re-projection with identical inputs must be stable during typing")
 
-        // The scroll coordinator must be in a stable state.
-        let coordinator = ScrollCoordinator()
-        coordinator.handle(.appeared)
-        // Simulate that the user has been reading (not at bottom).
-        coordinator.handle(.manualBrowseIntent)
-        XCTAssertEqual(coordinator.mode, .freeBrowsing)
-
-        // Message count hasn't changed — no scroll events.
-        let intents = coordinator.handle(.messageCountChanged)
-        XCTAssertFalse(intents.contains(.scrollToBottom(animated: true)),
-                       "Must not auto-scroll in free browsing during typing")
+        // The scroll state must be stable when far from bottom (free browsing).
+        let scrollState = MessageListScrollState()
+        scrollState.scrollContentHeight = 3000
+        scrollState.scrollContainerHeight = 800
+        scrollState.lastContentOffsetY = 1000  // 1200pt from bottom
+        scrollState.updateScrollToLatest()
+        XCTAssertTrue(scrollState.showScrollToLatest,
+                      "Must show scroll-to-latest when scrolled up during typing")
 
         // Verify the ComposerController handles typing cleanly
         // without affecting the transcript state.
@@ -388,9 +364,11 @@ final class ChatSurfaceStabilityRegressionTests: XCTestCase {
         var messages = buildMessages(count: 10)
         appendStreamingAssistantMessage(to: &messages, text: "Streaming...")
 
-        let coordinator = ScrollCoordinator()
-        coordinator.handle(.appeared)
-        coordinator.handle(.sendingChanged(isSending: true))
+        let scrollState = MessageListScrollState()
+        scrollState.scrollContentHeight = 2000
+        scrollState.scrollContainerHeight = 800
+        scrollState.lastContentOffsetY = 1200  // at bottom
+        scrollState.updateScrollToLatest()
 
         let controller = ComposerController(
             slashCommandProvider: StubSlashCommandProvider(commands: []),
@@ -409,14 +387,14 @@ final class ChatSurfaceStabilityRegressionTests: XCTestCase {
         controller.performMenuRefresh()
         XCTAssertTrue(controller.showEmojiMenu)
 
-        // Operate the coordinator.
-        coordinator.handle(.messageCountChanged)
-        XCTAssertTrue(coordinator.isFollowingBottom)
+        // Scroll state remains stable.
+        XCTAssertFalse(scrollState.showScrollToLatest,
+                       "Must not show scroll-to-latest when at bottom")
 
-        // Re-project — must be unaffected by controller/coordinator state.
+        // Re-project — must be unaffected by controller/scroll state.
         let model2 = project(messages: messages, isSending: true)
         XCTAssertEqual(model, model2,
-                       "Projector output must be independent of controller/coordinator state")
+                       "Projector output must be independent of controller/scroll state")
     }
 }
 

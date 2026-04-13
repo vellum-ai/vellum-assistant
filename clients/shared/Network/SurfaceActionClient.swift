@@ -9,6 +9,31 @@ public protocol SurfaceActionClientProtocol {
     func sendSurfaceUndo(conversationId: String, surfaceId: String) async
 }
 
+/// Standard error envelope returned by /v1/* endpoints — see
+/// `assistant/src/runtime/http-errors.ts` (`HttpErrorResponse`). Decoded on
+/// non-2xx responses so misfires (e.g. `launch_conversation` with a missing
+/// title / seedPrompt) are diagnosable from the client logs alone.
+private struct SurfaceActionErrorResponse: Decodable {
+    struct ErrorBody: Decodable {
+        let code: String
+        let message: String
+    }
+    let error: ErrorBody
+}
+
+private func logSurfaceActionFailure(operation: String, statusCode: Int, data: Data) {
+    if let decoded = try? JSONDecoder().decode(SurfaceActionErrorResponse.self, from: data) {
+        log.error("\(operation, privacy: .public) failed (HTTP \(statusCode)): \(decoded.error.code, privacy: .public) — \(decoded.error.message, privacy: .public)")
+        return
+    }
+    if let raw = String(data: data, encoding: .utf8), !raw.isEmpty {
+        let preview = String(raw.prefix(200))
+        log.error("\(operation, privacy: .public) failed (HTTP \(statusCode)): \(preview, privacy: .public)")
+    } else {
+        log.error("\(operation, privacy: .public) failed (HTTP \(statusCode))")
+    }
+}
+
 /// Gateway-backed implementation of ``SurfaceActionClientProtocol``.
 public struct SurfaceActionClient: SurfaceActionClientProtocol {
     nonisolated public init() {}
@@ -33,7 +58,7 @@ public struct SurfaceActionClient: SurfaceActionClientProtocol {
 
             let response = try await GatewayHTTPClient.post(path: "assistants/{assistantId}/surface-actions", json: body, timeout: 10)
             if !response.isSuccess {
-                log.error("sendSurfaceAction failed (HTTP \(response.statusCode))")
+                logSurfaceActionFailure(operation: "sendSurfaceAction", statusCode: response.statusCode, data: response.data)
             }
         } catch {
             log.error("sendSurfaceAction error: \(error.localizedDescription)")
@@ -48,7 +73,7 @@ public struct SurfaceActionClient: SurfaceActionClientProtocol {
             ]
             let response = try await GatewayHTTPClient.post(path: "assistants/{assistantId}/surfaces/\(surfaceId)/undo", json: body, timeout: 10)
             if !response.isSuccess {
-                log.error("sendSurfaceUndo failed (HTTP \(response.statusCode))")
+                logSurfaceActionFailure(operation: "sendSurfaceUndo", statusCode: response.statusCode, data: response.data)
             }
         } catch {
             log.error("sendSurfaceUndo error: \(error.localizedDescription)")

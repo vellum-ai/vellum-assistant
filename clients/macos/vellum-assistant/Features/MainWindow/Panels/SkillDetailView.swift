@@ -179,21 +179,16 @@ struct SkillDetailView: View {
         switch skill.originMeta {
         case .clawhub(let meta):
             HStack(spacing: VSpacing.lg) {
-                if !meta.author.isEmpty {
-                    HStack(spacing: VSpacing.xs) {
-                        VIconView(.user, size: 12)
-                        Text(meta.author)
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.gitBranch, size: 12)
+                        .foregroundStyle(VColor.contentTertiary)
+                    if let url = meta.hubURL {
+                        VLink(meta.sourceLabel, destination: url)
+                    } else {
+                        Text(meta.sourceLabel)
                             .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
-                    .foregroundStyle(VColor.contentTertiary)
-                }
-                if meta.stars > 0 {
-                    HStack(spacing: VSpacing.xs) {
-                        VIconView(.star, size: 12)
-                        Text("\(meta.stars)")
-                            .font(VFont.labelDefault)
-                    }
-                    .foregroundStyle(VColor.contentTertiary)
                 }
                 if meta.installs > 0 {
                     HStack(spacing: VSpacing.xs) {
@@ -209,10 +204,15 @@ struct SkillDetailView: View {
                 if !meta.sourceRepo.isEmpty {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.gitBranch, size: 12)
-                        Text(meta.sourceRepo)
-                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                        if let url = meta.hubURL {
+                            VLink(meta.sourceRepo, destination: url)
+                        } else {
+                            Text(meta.sourceRepo)
+                                .font(VFont.labelDefault)
+                                .foregroundStyle(VColor.contentTertiary)
+                        }
                     }
-                    .foregroundStyle(VColor.contentTertiary)
                 }
                 if meta.installs > 0 {
                     HStack(spacing: VSpacing.xs) {

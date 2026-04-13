@@ -27,7 +27,7 @@ public enum MessageSendResult: Sendable {
 /// Focused client for uploading attachments and sending user messages.
 public protocol MessageClientProtocol {
     func uploadAttachment(filename: String, mimeType: String, data: String, filePath: String?) async -> AttachmentUploadResult
-    func sendMessage(content: String?, conversationKey: String, attachmentIds: [String], conversationType: String?, automated: Bool?, bypassSecretCheck: Bool?) async -> MessageSendResult
+    func sendMessage(content: String?, conversationKey: String, attachmentIds: [String], conversationType: String?, automated: Bool?, bypassSecretCheck: Bool?, onboarding: PreChatOnboardingContext?) async -> MessageSendResult
 }
 
 /// Gateway-backed implementation of ``MessageClientProtocol``.
@@ -101,7 +101,7 @@ public struct MessageClient: MessageClientProtocol {
         }
     }
 
-    public func sendMessage(content: String?, conversationKey: String, attachmentIds: [String] = [], conversationType: String? = nil, automated: Bool? = nil, bypassSecretCheck: Bool? = nil) async -> MessageSendResult {
+    public func sendMessage(content: String?, conversationKey: String, attachmentIds: [String] = [], conversationType: String? = nil, automated: Bool? = nil, bypassSecretCheck: Bool? = nil, onboarding: PreChatOnboardingContext? = nil) async -> MessageSendResult {
         log.info("[send-pipeline] message request start — uploadedAttachmentIds=\(attachmentIds.count)")
 
         var body: [String: Any] = [
@@ -129,6 +129,20 @@ public struct MessageClient: MessageClientProtocol {
         }
         if let hostUsername = Self.hostUsername {
             body["hostUsername"] = hostUsername
+        }
+        if let onboarding {
+            var onboardingDict: [String: Any] = [
+                "tools": onboarding.tools,
+                "tasks": onboarding.tasks,
+                "tone": onboarding.tone
+            ]
+            if let userName = onboarding.userName {
+                onboardingDict["userName"] = userName
+            }
+            if let assistantName = onboarding.assistantName {
+                onboardingDict["assistantName"] = assistantName
+            }
+            body["onboarding"] = onboardingDict
         }
 
         do {

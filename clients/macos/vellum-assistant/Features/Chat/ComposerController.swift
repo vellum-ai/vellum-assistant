@@ -9,9 +9,9 @@ import VellumAssistantShared
 /// currently spread across ComposerView body logic and SwiftUI bindings.
 ///
 /// Accepts explicit events (`textChanged`, `cursorMoved`, `focusChanged`,
-/// `interactionEnabledChanged`, `dictationStarted`, `dictationStopped`)
-/// instead of reading SwiftUI bindings directly. All popup/focus decisions
-/// live here so they can be unit-tested without importing SwiftUI view types.
+/// `interactionEnabledChanged`) instead of reading SwiftUI bindings
+/// directly. All popup/focus decisions live here so they can be
+/// unit-tested without importing SwiftUI view types.
 @Observable
 @MainActor
 final class ComposerController {
@@ -45,9 +45,6 @@ final class ComposerController {
     @ObservationIgnored private(set) var suppressEmojiReopen = false
 
     // MARK: - Internal bookkeeping
-
-    /// Snapshot of input text captured when dictation starts, used to restore on cancel.
-    @ObservationIgnored private(set) var preDictationText: String = ""
 
     /// Current cursor position (UTF-16 offset).
     @ObservationIgnored private var cursorPosition: Int = 0
@@ -114,16 +111,6 @@ final class ComposerController {
             suppressSlashReopen = false
             suppressEmojiReopen = false
         }
-    }
-
-    /// Called when dictation starts.
-    func dictationStarted() {
-        preDictationText = inputText
-    }
-
-    /// Called when dictation stops (accepted or cancelled).
-    func dictationStopped() {
-        preDictationText = ""
     }
 
     // MARK: - Menu refresh scheduling

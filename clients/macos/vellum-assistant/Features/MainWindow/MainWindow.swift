@@ -317,7 +317,8 @@ public final class MainWindow {
         services: AppServices,
         updateManager: UpdateManager,
         assistantFeatureFlagStore: AssistantFeatureFlagStore,
-        isFirstLaunch: Bool = false
+        isFirstLaunch: Bool = false,
+        preChatContext: PreChatOnboardingContext? = nil
     ) {
         self.services = services
         self.updateManager = updateManager
@@ -325,7 +326,8 @@ public final class MainWindow {
         self.conversationManager = ConversationManager(
             connectionManager: services.connectionManager,
             eventStreamClient: services.connectionManager.eventStreamClient,
-            isFirstLaunch: isFirstLaunch
+            isFirstLaunch: isFirstLaunch,
+            preChatContext: preChatContext
         )
         self.usageDashboardStore = UsageDashboardStore()
         self.usageDashboardStore.updateTimezone(services.settingsStore.userTimezone)

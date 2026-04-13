@@ -56,22 +56,18 @@ struct ComposerView: View, Equatable {
 
     // MARK: - ComposerMode
 
-    /// Three-mode state machine for the composer.
+    /// Two-mode state machine for the composer.
     private enum ComposerMode: Equatable {
         /// Normal text entry with attach/send buttons.
         case textEntry
-        /// Inline dictation: text field visible with a recording strip below.
-        case dictationInline
         /// Full voice conversation with inverse/high-contrast container.
         case voiceConversation
     }
 
-    /// The current mode derived from recording and voice-mode state.
+    /// The current mode derived from voice-mode state.
     private var currentMode: ComposerMode {
         if voiceModeManager.map({ $0.state != .off }) ?? false {
             return .voiceConversation
-        } else if isRecording {
-            return .dictationInline
         } else {
             return .textEntry
         }
@@ -157,13 +153,10 @@ struct ComposerView: View, Equatable {
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
-            // Composer box — switches on the three-mode state machine
+            // Composer box — switches on the two-mode state machine
             switch currentMode {
             case .voiceConversation:
                 voiceConversationComposer
-
-            case .dictationInline:
-                dictationInlineComposer
 
             case .textEntry:
                 textEntryComposer
@@ -199,9 +192,6 @@ struct ComposerView: View, Equatable {
         }
         .onChange(of: currentMode) {
             composerLog.debug("Composer mode: \(String(describing: currentMode))")
-            if currentMode == .dictationInline {
-                composerController.dictationStarted()
-            }
         }
         .onChange(of: isInteractionEnabled) { _, enabled in
             composerController.interactionEnabledChanged(enabled, hasPendingConfirmation: hasPendingConfirmation)
@@ -407,7 +397,7 @@ struct ComposerView: View, Equatable {
 
     // MARK: - Text Entry Mode
 
-    /// Standard composer shell with border, used for textEntry and dictationInline modes.
+    /// Standard composer shell with border, used for textEntry mode.
     @ViewBuilder
     private func standardComposerShell<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(spacing: 0) {
@@ -433,8 +423,24 @@ struct ComposerView: View, Equatable {
                 composerTextField
                     .padding(.leading, VSpacing.xs)
                     .frame(minHeight: composerActionButtonSize)
+
+                if isRecording {
+                    VStreamingWaveform(
+                        amplitude: liveAmplitude,
+                        isActive: true,
+                        style: .scrolling,
+                        foregroundColor: VColor.contentTertiary,
+                        lineWidth: 2
+                    )
+                    .frame(height: 32)
+                    .frame(maxWidth: .infinity)
+                }
+
                 composerActionBar
             }
+        }
+        .onReceive(VoiceInputManager.amplitudeSubject.receive(on: RunLoop.main)) { amp in
+            liveAmplitude = amp
         }
     }
 
@@ -503,53 +509,55 @@ struct ComposerView: View, Equatable {
                     .vTooltip("Live voice conversation")
                 }
 
-                // Dictate button
-                VButton(
-                    label: "Dictate",
-                    iconOnly: VIcon.mic.rawValue,
-                    style: .ghost,
-                    iconSize: composerActionButtonSize,
-                    action: { (onDictateToggle ?? onMicrophoneToggle)() }
-                )
-
-                .vTooltip(micTooltipText)
-
-                // Send button (always visible, disabled when empty)
-                VButton(
-                    label: "Send message",
-                    iconOnly: VIcon.arrowUp.rawValue,
-                    style: .primary,
-                    isDisabled: !canSend,
-                    iconSize: composerActionButtonSize
-                ) {
-                    composerFocus = true
-                    performSendAction()
-                }
-                .vTooltip("Type a message to send")
-            } else if !hasPendingConfirmation {
-                // Mic button (visible with or without text)
+                // Dictate / stop button
                 VButton(
                     label: isRecording ? "Stop recording" : "Dictate",
-                    iconOnly: VIcon.mic.rawValue,
+                    iconOnly: isRecording ? VIcon.circleStop.rawValue : VIcon.mic.rawValue,
                     style: .ghost,
                     iconSize: composerActionButtonSize,
                     action: { (onDictateToggle ?? onMicrophoneToggle)() }
                 )
+                .vTooltip(isRecording ? "Stop recording" : micTooltipText)
 
-                .vTooltip(micTooltipText)
-
-                // Send button
-                VButton(
-                    label: "Send message",
-                    iconOnly: VIcon.arrowUp.rawValue,
-                    style: .primary,
-                    isDisabled: !canSend,
-                    iconSize: composerActionButtonSize
-                ) {
-                    composerFocus = true
-                    performSendAction()
+                if !isRecording {
+                    // Send button (hidden during recording)
+                    VButton(
+                        label: "Send message",
+                        iconOnly: VIcon.arrowUp.rawValue,
+                        style: .primary,
+                        isDisabled: !canSend,
+                        iconSize: composerActionButtonSize
+                    ) {
+                        composerFocus = true
+                        performSendAction()
+                    }
+                    .vTooltip("Type a message to send")
                 }
-                .vTooltip(canSend ? "Send" : "Type a message to send")
+            } else if !hasPendingConfirmation {
+                // Mic / stop button
+                VButton(
+                    label: isRecording ? "Stop recording" : "Dictate",
+                    iconOnly: isRecording ? VIcon.circleStop.rawValue : VIcon.mic.rawValue,
+                    style: .ghost,
+                    iconSize: composerActionButtonSize,
+                    action: { (onDictateToggle ?? onMicrophoneToggle)() }
+                )
+                .vTooltip(isRecording ? "Stop recording" : micTooltipText)
+
+                if !isRecording {
+                    // Send button (hidden during recording)
+                    VButton(
+                        label: "Send message",
+                        iconOnly: VIcon.arrowUp.rawValue,
+                        style: .primary,
+                        isDisabled: !canSend,
+                        iconSize: composerActionButtonSize
+                    ) {
+                        composerFocus = true
+                        performSendAction()
+                    }
+                    .vTooltip(canSend ? "Send" : "Type a message to send")
+                }
             } else {
                 // Pending confirmation — show same buttons as empty-input state
                 if onVoiceModeToggle != nil {
@@ -560,86 +568,32 @@ struct ComposerView: View, Equatable {
                         iconSize: composerActionButtonSize,
                         action: { onVoiceModeToggle?() }
                     )
+                    .vTooltip("Live voice conversation")
                 }
 
                 VButton(
                     label: isRecording ? "Stop recording" : "Dictate",
-                    iconOnly: VIcon.mic.rawValue,
+                    iconOnly: isRecording ? VIcon.circleStop.rawValue : VIcon.mic.rawValue,
                     style: .ghost,
                     iconSize: composerActionButtonSize,
                     action: { (onDictateToggle ?? onMicrophoneToggle)() }
                 )
+                .vTooltip(isRecording ? "Stop recording" : micTooltipText)
 
-
-                VButton(
-                    label: "Send message",
-                    iconOnly: VIcon.arrowUp.rawValue,
-                    style: .primary,
-                    isDisabled: !canSend,
-                    iconSize: composerActionButtonSize
-                ) {
-                    composerFocus = true
-                    performSendAction()
-                }
-            }
-        }
-    }
-
-    // MARK: - Dictation Inline Mode
-
-
-    @ViewBuilder
-    private var dictationInlineComposer: some View {
-        standardComposerShell {
-            VStack(spacing: VSpacing.sm) {
-                // Text field remains visible for live transcription
-                composerTextField
-                    .frame(minHeight: composerActionButtonSize)
-
-                // Inline recording strip
-                HStack(alignment: .center, spacing: VSpacing.sm) {
-VStreamingWaveform(
-                        amplitude: liveAmplitude,
-                        isActive: true,
-                        style: .scrolling,
-                        foregroundColor: VColor.contentTertiary,
-                        lineWidth: 2
-                    )
-                    .padding(.trailing, VSpacing.lg)
-                    .frame(height: 44)
-                    .frame(maxWidth: .infinity)
-
-                    // Cancel: stop dictation and discard transcribed text
+                if !isRecording {
                     VButton(
-                        label: "Cancel dictation",
-                        iconOnly: VIcon.x.rawValue,
-                        style: .danger,
-                        iconSize: composerActionButtonSize,
-                        action: {
-                            inputText = composerController.preDictationText
-                            composerController.dictationStopped()
-                            (onDictateToggle ?? onMicrophoneToggle)()
-                        }
-                    )
-                    .vTooltip("Cancel")
-
-                    // Accept: stop dictation and keep transcribed text
-                    VButton(
-                        label: "Accept dictation",
-                        iconOnly: VIcon.check.rawValue,
+                        label: "Send message",
+                        iconOnly: VIcon.arrowUp.rawValue,
                         style: .primary,
-                        iconSize: composerActionButtonSize,
-                        action: {
-                            composerController.dictationStopped()
-                            (onDictateToggle ?? onMicrophoneToggle)()
-                        }
-                    )
-                    .vTooltip("Done")
+                        isDisabled: !canSend,
+                        iconSize: composerActionButtonSize
+                    ) {
+                        composerFocus = true
+                        performSendAction()
+                    }
+                    .vTooltip(canSend ? "Send" : "Type a message to send")
                 }
             }
-        }
-        .onReceive(VoiceInputManager.amplitudeSubject.receive(on: RunLoop.main)) { amp in
-            liveAmplitude = amp
         }
     }
 

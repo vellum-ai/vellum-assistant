@@ -812,8 +812,11 @@ public struct UiSurfaceShowMessage: Decodable, Sendable {
     public let display: String?
     /// The message ID that this surface belongs to (for history loading).
     public let messageId: String?
+    /// When `true`, clicking an action does not dismiss the surface — the client keeps the card
+    /// visible and only marks the clicked `actionId` as spent so siblings remain clickable.
+    public let persistent: Bool?
 
-    public init(conversationId: String?, surfaceId: String, surfaceType: String, title: String?, data: AnyCodable, actions: [SurfaceActionData]?, display: String?, messageId: String?) {
+    public init(conversationId: String?, surfaceId: String, surfaceType: String, title: String?, data: AnyCodable, actions: [SurfaceActionData]?, display: String?, messageId: String?, persistent: Bool? = nil) {
         self.conversationId = conversationId
         self.surfaceId = surfaceId
         self.surfaceType = surfaceType
@@ -822,6 +825,7 @@ public struct UiSurfaceShowMessage: Decodable, Sendable {
         self.actions = actions
         self.display = display
         self.messageId = messageId
+        self.persistent = persistent
     }
 }
 
@@ -1094,6 +1098,30 @@ public struct ClawhubOriginMeta: Codable, Sendable, Equatable {
     public let reports: Int
     public let publishedAt: String?
     public let version: String?
+
+    /// Display label for the source row (e.g. "pskoett/self-improving-agent").
+    public var sourceLabel: String {
+        author.isEmpty ? slug : "\(author)/\(slug)"
+    }
+
+    /// URL to this skill's page on clawhub.ai.
+    /// Uses `author/slug` when author is known; falls back to the raw slug
+    /// when it already contains a "/" (installed skills may store `author/slug`
+    /// as the slug itself). Returns nil only when no valid path can be built.
+    public var hubURL: URL? {
+        let path: String
+        if !author.isEmpty {
+            path = "\(author)/\(slug)"
+        } else if slug.contains("/") {
+            path = slug
+        } else {
+            return nil
+        }
+        let encoded = path.split(separator: "/").map {
+            String($0).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0)
+        }.joined(separator: "/")
+        return URL(string: "https://clawhub.ai/\(encoded)")
+    }
 }
 
 /// Origin-specific metadata for a skill sourced from Skills.sh.
@@ -1102,6 +1130,18 @@ public struct SkillsshOriginMeta: Codable, Sendable, Equatable {
     public let sourceRepo: String
     public let installs: Int
     public let audit: [String: PartnerAudit]?
+
+    /// URL to this skill's page on skills.sh.
+    public var hubURL: URL? {
+        guard !sourceRepo.isEmpty else { return nil }
+        let skillName = slug.split(separator: "/").last.map(String.init) ?? slug
+        // Encode each path segment separately to preserve the separator slash in sourceRepo.
+        let encodedPath = sourceRepo.split(separator: "/").map {
+            String($0).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0)
+        }.joined(separator: "/")
+        let encodedSkillName = skillName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? skillName
+        return URL(string: "https://skills.sh/\(encodedPath)/\(encodedSkillName)")
+    }
 }
 
 /// Discriminated union over the `origin` field of a skill.
@@ -3105,4 +3145,25 @@ extension WorkItemsListResponseItem {
     public func withPriorityTier(_ newTier: Double) -> Self {
         Self(id: id, taskId: taskId, title: title, notes: notes, status: status, priorityTier: newTier, sortIndex: sortIndex, lastRunId: lastRunId, lastRunConversationId: lastRunConversationId, lastRunStatus: lastRunStatus, sourceType: sourceType, sourceId: sourceId, createdAt: createdAt, updatedAt: updatedAt)
     }
+}
+
+// MARK: - Open Conversation Helpers
+
+extension OpenConversation {
+    /// Whether the client should switch focus to this conversation.
+    ///
+    /// The daemon emits `focus: false` for fan-out flows (e.g. surface-action
+    /// launches that spawn a background conversation) so the new conversation
+    /// appears in the sidebar without stealing focus from the origin surface.
+    /// Any other value — `true` or absent — defaults to switching focus to
+    /// preserve existing single-target behavior.
+    public var shouldSwitchFocus: Bool {
+        focus != false
+    }
+}
+
+/// Pure helper for the `.openConversation` handler's focus decision.
+/// Extracted so it can be unit-tested without spinning up AppDelegate.
+public func shouldFocusForOpenConversation(_ msg: OpenConversation) -> Bool {
+    msg.shouldSwitchFocus
 }

@@ -42,6 +42,37 @@ final class VoiceInputManager {
     /// before falling back to the Apple recognizer's native text.
     private let sttClient: any STTClientProtocol
 
+    /// Factory that creates a new `STTStreamingClientProtocol` instance for each
+    /// streaming session. Injected at init for testability — tests supply a mock
+    /// factory that returns controllable streaming clients.
+    private let streamingClientFactory: () -> any STTStreamingClientProtocol
+
+    /// Active streaming STT client for the current conversation recording session.
+    /// Non-nil only while a streaming session is in progress.
+    private var streamingClient: (any STTStreamingClientProtocol)?
+
+    /// Whether the streaming client has received a `ready` event and is accepting audio.
+    /// Internal access for testability via `@testable import`.
+    var streamingSessionActive = false
+
+    /// Accumulates final transcript segments from the streaming session.
+    /// Multiple `.final` events may arrive during a single recording; they are
+    /// concatenated to form the complete transcript.
+    /// Internal access for testability via `@testable import`.
+    var streamingFinalText = ""
+
+    /// Whether the streaming session has delivered at least one `.final` event.
+    /// Used to decide whether to use the streaming transcript or fall back to
+    /// batch STT resolution when recording stops.
+    /// Internal access for testability via `@testable import`.
+    var streamingReceivedFinal = false
+
+    /// Set to `true` when the streaming session encounters a failure (connection
+    /// error, provider error, abnormal closure). When set, `stopRecording()` falls
+    /// back to the batch STT resolution path instead of using streaming finals.
+    /// Internal access for testability via `@testable import`.
+    var streamingFailed = false
+
     /// Called when dictation processing returns a response (cleaned-up text + action plan).
     var onDictationResponse: ((DictationResponse) -> Void)?
 
@@ -172,11 +203,13 @@ final class VoiceInputManager {
     init(
         dictationClient: any DictationClientProtocol = DictationClient(),
         speechRecognizerAdapter: any SpeechRecognizerAdapter = AppleSpeechRecognizerAdapter(),
-        sttClient: any STTClientProtocol = STTClient()
+        sttClient: any STTClientProtocol = STTClient(),
+        streamingClientFactory: @escaping () -> any STTStreamingClientProtocol = { STTStreamingClient() }
     ) {
         self.dictationClient = dictationClient
         self.speechRecognizerAdapter = speechRecognizerAdapter
         self.sttClient = sttClient
+        self.streamingClientFactory = streamingClientFactory
         self.speechRecognizer = speechRecognizerAdapter.makeRecognizer(locale: Locale(identifier: "en-US"))
     }
 
@@ -297,6 +330,30 @@ final class VoiceInputManager {
         recognitionTask = nil
         recognitionRequest?.endAudio()
         recognitionRequest = nil
+        tearDownStreamingSession()
+    }
+
+    /// Clean up the streaming STT session. Safe to call even when no streaming
+    /// session is active. Signals graceful stop before forcible close.
+    ///
+    /// The `stop()` and `close()` calls are fire-and-forget — the streaming
+    /// session state is reset synchronously below regardless of whether the
+    /// server has acknowledged the stop. Any in-flight finals from the server
+    /// are discarded. This is safe because callers of `tearDownStreamingSession`
+    /// have already committed to a resolution path (e.g. batch STT or the
+    /// streaming finals that were received before teardown).
+    private func tearDownStreamingSession() {
+        if let client = streamingClient {
+            Task {
+                await client.stop()
+                await client.close()
+            }
+        }
+        streamingClient = nil
+        streamingSessionActive = false
+        streamingFinalText = ""
+        streamingReceivedFinal = false
+        streamingFailed = false
     }
 
     // MARK: - Continuous Recording (Voice Mode)
@@ -787,6 +844,10 @@ final class VoiceInputManager {
         audioAccumulator.reset()
         capturedAudioFormat = nil
 
+        // Determine whether to start a streaming STT session for this recording.
+        // Streaming is used in conversation mode when the configured provider supports it.
+        let useConversationStreaming = currentMode == .conversation && STTProviderRegistry.isStreamingAvailable
+
         let accumulator = audioAccumulator
         let tapBlock: AVAudioNodeTapBlock = { [weak self] buffer, _ in
             // Capture the audio format from the first buffer for WAV encoding.
@@ -810,6 +871,33 @@ final class VoiceInputManager {
                     }
                 }
                 accumulator.append(copy)
+            }
+
+            // Forward audio to the streaming STT client when a streaming session
+            // is active. Converts float PCM → 16-bit signed integer PCM (the
+            // format expected by the gateway's STT streaming endpoint).
+            // Always send mono (channel 0 only) regardless of the input device's
+            // channel count — the Deepgram adapter sends `channels=1`, so
+            // multi-channel interleaved PCM would be misinterpreted.
+            if useConversationStreaming,
+               let channelData = buffer.floatChannelData {
+                let frameCount = Int(buffer.frameLength)
+                let channelCount = Int(buffer.format.channelCount)
+                if frameCount > 0, channelCount > 0 {
+                    var pcmData = Data(capacity: frameCount * 2)
+                    for frame in 0..<frameCount {
+                        let sample = channelData[0][frame]
+                        let clamped = max(-1.0, min(1.0, sample))
+                        let int16 = Int16(clamped * Float(Int16.max))
+                        withUnsafeBytes(of: int16.littleEndian) { pcmData.append(contentsOf: $0) }
+                    }
+                    let capturedGeneration = generation
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, self.isRecording, self.recordingGeneration == capturedGeneration,
+                              self.streamingSessionActive else { return }
+                        Task { await self.streamingClient?.sendAudio(pcmData) }
+                    }
+                }
             }
 
             guard let channelData = buffer.floatChannelData else { return }
@@ -876,6 +964,14 @@ final class VoiceInputManager {
             }
             self.hasInstalledTap = true
 
+            // Start the streaming STT session if conversation streaming is enabled.
+            // This runs concurrently with the native recognizer (if available) —
+            // streaming provides live partials and finals while the native recognizer
+            // serves as a fallback source.
+            if useConversationStreaming {
+                self.startStreamingSession(generation: generation)
+            }
+
             // When native recognizer is not available/authorized, recording
             // still proceeds — STT service handles transcription on stop.
             guard useNativeRecognizer, let recognizer = self.speechRecognizer, let req = request else {
@@ -904,7 +1000,14 @@ final class VoiceInputManager {
                             self.recognitionTask = nil
                             self.stopRecording()
                         } else {
-                            self.onPartialTranscription?(text)
+                            // When a streaming STT session is active and healthy,
+                            // streaming partials take priority over native recognizer
+                            // partials to avoid competing UI updates. Native partials
+                            // still serve as fallback when streaming has failed.
+                            let streamingOwnsPartials = self.streamingSessionActive && !self.streamingFailed
+                            if !streamingOwnsPartials {
+                                self.onPartialTranscription?(text)
+                            }
                             if self.currentMode == .dictation {
                                 self.overlayWindow.updatePartialTranscription(text)
                             }
@@ -923,9 +1026,104 @@ final class VoiceInputManager {
         }
     }
 
+    // MARK: - Streaming STT Session
+
+    /// Start an STT streaming session for conversation mode.
+    ///
+    /// Creates a new `STTStreamingClient` via the injected factory, connects to
+    /// the gateway WebSocket, and wires up event/failure callbacks. The streaming
+    /// session provides live partial transcript updates that are forwarded through
+    /// `onPartialTranscription`, and final transcript segments that are accumulated
+    /// for use when recording stops.
+    ///
+    /// The `generation` parameter is captured at recording start and checked in
+    /// all callbacks to suppress stale-session deliveries.
+    private func startStreamingSession(generation: UInt64) {
+        guard let providerId = UserDefaults.standard.string(forKey: "sttProvider"),
+              !providerId.isEmpty else {
+            log.warning("Streaming session requested but no STT provider configured")
+            streamingFailed = true
+            return
+        }
+
+        let client = streamingClientFactory()
+        self.streamingClient = client
+
+        // Determine audio format parameters. `capturedAudioFormat` is set from
+        // the first audio buffer; if not yet available, the server will use its
+        // default sample rate.
+        let sampleRate: Int? = capturedAudioFormat.map { Int($0.sampleRate) }
+
+        Task { [weak self] in
+            await client.start(
+                provider: providerId,
+                mimeType: "audio/pcm",
+                sampleRate: sampleRate,
+                onEvent: { [weak self] event in
+                    guard let self else { return }
+                    // Suppress events from stale sessions.
+                    guard self.isRecording, self.recordingGeneration == generation else {
+                        log.debug("Streaming event from stale generation \(generation) — ignoring")
+                        return
+                    }
+                    self.handleStreamingEvent(event)
+                },
+                onFailure: { [weak self] failure in
+                    guard let self else { return }
+                    guard self.isRecording, self.recordingGeneration == generation else {
+                        log.debug("Streaming failure from stale generation \(generation) — ignoring")
+                        return
+                    }
+                    self.handleStreamingFailure(failure)
+                }
+            )
+        }
+    }
+
+    /// Handle an incoming event from the streaming STT session.
+    private func handleStreamingEvent(_ event: STTStreamEvent) {
+        switch event {
+        case .ready(let provider):
+            log.info("Streaming STT ready: provider=\(provider)")
+            streamingSessionActive = true
+
+        case .partial(let text, _):
+            // Forward streaming partials to the UI. In conversation mode,
+            // these update the chat composer / quick input in real time.
+            onPartialTranscription?(text)
+
+        case .final(let text, _):
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                if streamingFinalText.isEmpty {
+                    streamingFinalText = text
+                } else {
+                    streamingFinalText += " " + text
+                }
+                streamingReceivedFinal = true
+                log.info("Streaming final segment: \"\(text, privacy: .public)\"")
+            }
+
+        case .error(let category, let message, _):
+            log.warning("Streaming STT error: category=\(category), message=\(message)")
+            // Provider errors during an active session mark the stream as
+            // failed so we fall back to batch on stop.
+            streamingFailed = true
+
+        case .closed:
+            log.info("Streaming STT session closed")
+            streamingSessionActive = false
+        }
+    }
+
+    /// Handle a streaming session failure (connection error, timeout, etc.).
+    private func handleStreamingFailure(_ failure: STTStreamFailure) {
+        log.warning("Streaming STT failure: \(String(describing: failure)) — will fall back to batch STT")
+        streamingFailed = true
+        streamingSessionActive = false
+    }
+
     // MARK: - Permission Prompt
-
-
 
     /// Request microphone (and optionally speech recognition) permissions,
     /// then start recording if granted.
@@ -977,6 +1175,10 @@ final class VoiceInputManager {
 
     /// Routes a final transcription based on the current mode.
     ///
+    /// In conversation mode, prefers the streaming STT final text when available
+    /// and the stream has not failed. Falls back to the provided `text` (from the
+    /// native recognizer or batch STT) otherwise.
+    ///
     /// For dictation mode, resolves the final text with service-first precedence:
     /// 1. If the STT service returns a non-empty transcription, use that.
     /// 2. If the STT service is unconfigured, fails, or returns empty text,
@@ -984,8 +1186,23 @@ final class VoiceInputManager {
     func handleFinalTranscription(_ text: String) {
         switch currentMode {
         case .conversation:
+            // Prefer streaming final text when the stream succeeded and delivered
+            // at least one final segment. Fall back to the native/batch text
+            // when streaming was not used, failed, or produced no finals.
+            let resolvedText: String
+            if streamingReceivedFinal && !streamingFailed {
+                let trimmed = streamingFinalText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    log.info("Using streaming STT final for conversation: \"\(self.streamingFinalText, privacy: .public)\"")
+                    resolvedText = streamingFinalText
+                } else {
+                    resolvedText = text
+                }
+            } else {
+                resolvedText = text
+            }
             VoiceFeedback.playDeactivationChime()
-            onTranscription?(text)
+            onTranscription?(resolvedText)
         case .dictation:
             guard let context = currentDictationContext else {
                 // No context captured (e.g. continuous recording path or quick key release
@@ -1003,9 +1220,12 @@ final class VoiceInputManager {
                             sttClient: sttClient
                         )
                         guard let self else { return }
-                        VoiceFeedback.playDeactivationChime()
                         if !resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            VoiceFeedback.playDeactivationChime()
                             self.onTranscription?(resolvedText)
+                        } else {
+                            VoiceFeedback.playDeactivationChime()
+                            self.showSpeechRecognitionFallbackPrompt()
                         }
                     }
                 } else {
@@ -1040,6 +1260,20 @@ final class VoiceInputManager {
                     sttClient: sttClient
                 )
                 log.info("Resolved transcription for dictation (serviceFirst=\(resolvedText != text)): \"\(resolvedText, privacy: .public)\"")
+
+                // When both STT service and native recognizer produced nothing,
+                // show an error overlay instead of sending empty text to the daemon.
+                if resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    log.warning("STT-only dictation produced no transcription — prompting for speech recognition")
+                    await MainActor.run { [weak self] in
+                        guard let self else { return }
+                        self.awaitingDaemonResponse = false
+                        self.overlayWindow.dismiss()
+                        VoiceFeedback.playDeactivationChime()
+                        self.showSpeechRecognitionFallbackPrompt()
+                    }
+                    return
+                }
 
                 let request = DictationRequest(
                     transcription: resolvedText,
@@ -1143,6 +1377,34 @@ final class VoiceInputManager {
         return AudioWavEncoder.encode(pcmData: pcmData, format: wavFormat)
     }
 
+    /// Show appropriate feedback after an STT transcription failure with no native fallback.
+    ///
+    /// - `.authorized`: Speech recognition is already granted — the failure is a transient
+    ///   STT service error (missing API key, network issue, silence). Show a generic error.
+    /// - `.notDetermined`: Show a speech-recognition-specific primer, then request
+    ///   authorization. If granted, the next recording will have native fallback.
+    /// - `.denied` / `.restricted`: Direct the user to System Settings.
+    private func showSpeechRecognitionFallbackPrompt() {
+        let speechStatus = speechRecognizerAdapter.authorizationStatus()
+        switch speechStatus {
+        case .authorized:
+            // Speech recognition is already authorized — the failure is not a permission
+            // issue. Show a generic transcription error in the dictation overlay.
+            overlayWindow.show(state: .error("Transcription failed. Please try again."))
+        case .notDetermined:
+            // Show a speech-recognition-specific fallback prompt, then request authorization.
+            // If granted, the next recording will have native partials + fallback.
+            permissionOverlay.show(kind: .speechFallback, onDismiss: {}, onContinue: { [weak self] in
+                self?.speechRecognizerAdapter.requestAuthorization { _ in }
+            })
+        case .denied, .restricted:
+            // Speech recognition was previously denied — direct to System Settings.
+            permissionOverlay.show(kind: .denied(.speechRecognition), onDismiss: {}, onContinue: {})
+        @unknown default:
+            overlayWindow.show(state: .error("Transcription failed. Please try again."))
+        }
+    }
+
     /// Handle the dictation response — insert cleaned text or route action mode to a task.
     func handleDictationResponse(text: String, mode: String) {
         awaitingDaemonResponse = false
@@ -1239,12 +1501,57 @@ final class VoiceInputManager {
         }
 
         // In conversation mode with STT-only recording (no recognition task),
-        // drain audio and send to the STT service for transcription.
+        // check if the streaming session produced finals before falling back
+        // to batch STT resolution.
         if currentMode == .conversation && recognitionTask == nil && STTProviderRegistry.isServiceConfigured {
+            // Signal end-of-recording to the streaming client so it can flush
+            // any remaining finals before we check the results.
+            //
+            // Design note: `client.stop()` is fire-and-forget — the server
+            // may not have flushed its final transcript by the time we check
+            // `streamingReceivedFinal` below. This is intentional. If streaming
+            // has already delivered a `.final` event during the recording
+            // session, we use it immediately. If it hasn't (e.g. the stop
+            // signal hasn't round-tripped yet), we fall through to the batch
+            // STT resolution path below, which re-encodes the full audio and
+            // sends it to the STT service. The batch path is the reliable
+            // safety net — it always has the complete audio and doesn't depend
+            // on WebSocket timing. This avoids adding latency by awaiting the
+            // stop signal while still preferring streaming when it's ready.
+            if let client = streamingClient, streamingSessionActive {
+                Task { await client.stop() }
+            }
+
+            // When the streaming session succeeded and delivered finals, use
+            // them directly without batch resolution. If streaming hasn't
+            // delivered finals yet (race with the fire-and-forget stop above),
+            // this check falls through to batch STT — see design note above.
+            if streamingReceivedFinal && !streamingFailed {
+                let finalText = streamingFinalText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !finalText.isEmpty {
+                    log.info("Streaming STT finals available in conversation stop — delivering: \"\(finalText, privacy: .public)\"")
+                    isRecording = false
+                    onRecordingStateChanged?(false)
+                    activeOrigin = .hotkey
+                    amplitudeState.reset()
+                    Self.amplitudeSubject.send(0)
+                    onAmplitudeChanged?(0)
+                    audioAccumulator.reset()
+                    capturedAudioFormat = nil
+                    overlayWindow.dismiss()
+                    VoiceFeedback.playDeactivationChime()
+                    onTranscription?(streamingFinalText)
+                    tearDownAudioState()
+                    return
+                }
+            }
+
+            // Streaming not available, failed, or produced no finals — fall
+            // back to batch STT resolution.
             let accumulatedBuffers = audioAccumulator.drain()
             let audioFormat = capturedAudioFormat
             if !accumulatedBuffers.isEmpty, let format = audioFormat {
-                log.info("STT-only conversation mode — resolving transcription via STT service (\(accumulatedBuffers.count) buffers)")
+                log.info("Conversation mode batch fallback — resolving transcription via STT service (\(accumulatedBuffers.count) buffers)")
                 let sttClient = self.sttClient
                 isRecording = false
                 onRecordingStateChanged?(false)
@@ -1269,8 +1576,9 @@ final class VoiceInputManager {
                         VoiceFeedback.playDeactivationChime()
                         self.onTranscription?(resolvedText)
                     } else {
-                        log.warning("STT-only conversation transcription empty — discarding")
+                        log.warning("STT-only conversation transcription empty — prompting for speech recognition")
                         VoiceFeedback.playDeactivationChime()
+                        self.showSpeechRecognitionFallbackPrompt()
                     }
                 }
                 return

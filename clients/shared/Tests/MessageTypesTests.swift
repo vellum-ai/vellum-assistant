@@ -178,4 +178,55 @@ final class MessageTypesTests: XCTestCase {
         XCTAssertNil(request.title)
         XCTAssertNil(request.anchorMessageId)
     }
+
+    // MARK: - open_conversation focus gating
+    //
+    // The macOS `.openConversation` handler always registers the conversation
+    // in the sidebar but only switches focus when `msg.focus != false`. These
+    // tests cover the `shouldFocusForOpenConversation` helper used by that
+    // handler, which encodes the focus-gating decision so it can be unit
+    // tested without spinning up AppDelegate.
+
+    /// `focus: true` → focus switches.
+    func testShouldFocus_trueWhenFocusIsTrue() {
+        let msg = OpenConversation(
+            type: "open_conversation",
+            conversationId: "conv-focus-true",
+            title: "Focus on this",
+            anchorMessageId: nil,
+            focus: true
+        )
+        XCTAssertTrue(shouldFocusForOpenConversation(msg))
+        XCTAssertTrue(msg.shouldSwitchFocus)
+    }
+
+    /// `focus: false` → focus does NOT switch (but sidebar-registration logic
+    /// in the handler still runs; see `testDecodes_openConversation_*` plus
+    /// the handler code itself for that half of the contract).
+    func testShouldFocus_falseWhenFocusIsFalse() {
+        let msg = OpenConversation(
+            type: "open_conversation",
+            conversationId: "conv-focus-false",
+            title: "Background fan-out",
+            anchorMessageId: nil,
+            focus: false
+        )
+        XCTAssertFalse(shouldFocusForOpenConversation(msg))
+        XCTAssertFalse(msg.shouldSwitchFocus)
+    }
+
+    /// `focus` absent (nil) → focus switches. Preserves backward-compat
+    /// behavior for any existing single-target caller that doesn't set the
+    /// new field.
+    func testShouldFocus_trueWhenFocusIsNil() {
+        let msg = OpenConversation(
+            type: "open_conversation",
+            conversationId: "conv-focus-nil",
+            title: "Legacy caller",
+            anchorMessageId: nil,
+            focus: nil
+        )
+        XCTAssertTrue(shouldFocusForOpenConversation(msg))
+        XCTAssertTrue(msg.shouldSwitchFocus)
+    }
 }

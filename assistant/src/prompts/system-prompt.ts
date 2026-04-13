@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { getIsContainerized } from "../config/env-registry.js";
 import { loadConfig } from "../config/loader.js";
 import { listConnections } from "../oauth/oauth-store.js";
+import type { OnboardingContext } from "../types/onboarding-context.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -225,6 +226,7 @@ export interface BuildSystemPromptOptions {
   userPersona?: string | null;
   channelPersona?: string | null;
   userSlug?: string | null;
+  onboardingContext?: OnboardingContext;
 }
 
 /**
@@ -312,6 +314,17 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
         "BOOTSTRAP.md is present — this is your first conversation. Follow its instructions.\n\n" +
         bootstrapWithSlug,
     );
+
+    if (options?.onboardingContext) {
+      dynamicParts.push(
+        "## Pre-chat Onboarding Context\n\n" +
+          "The user completed the native pre-chat onboarding. Here is their context:\n\n" +
+          "```json\n" +
+          JSON.stringify(options.onboardingContext, null, 2) +
+          "\n```\n\n" +
+          "Use this to personalize your opener and skip redundant discovery.",
+      );
+    }
   }
   if (updates) {
     dynamicParts.push(

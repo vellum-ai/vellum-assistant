@@ -163,7 +163,7 @@ struct ChatView: View {
         // children (808pt fallback) or when rapid drag updates are batched.
         GeometryReader { proxy in
             ZStack {
-                mainContentStack(containerWidth: proxy.size.width)
+                mainContentStack(containerWidth: proxy.size.width, containerHeight: proxy.size.height)
                     .background(alignment: .bottom) {
                         chatBackground
                     }
@@ -257,7 +257,7 @@ struct ChatView: View {
     // MARK: - Body Subviews (extracted to help the Swift type checker)
 
     @ViewBuilder
-    private func mainContentStack(containerWidth: CGFloat) -> some View {
+    private func mainContentStack(containerWidth: CGFloat, containerHeight: CGFloat) -> some View {
         VStack(spacing: 0) {
             if showSkeleton {
                 ChatLoadingSkeleton()
@@ -325,7 +325,7 @@ struct ChatView: View {
                     .id(conversationId)
                 }
             } else {
-                activeConversationContent(containerWidth: containerWidth)
+                activeConversationContent(containerWidth: containerWidth, containerHeight: containerHeight)
             }
         }
     }
@@ -337,16 +337,15 @@ struct ChatView: View {
     ///   to produce an immutable `TranscriptRenderModel` from the raw messages.
     /// - **ComposerController** — popup state (slash/emoji) and focus intents flow
     ///   through the controller's event-driven state machine, not raw bindings.
-    /// - **ScrollCoordinator** — scroll policy decisions (follow-bottom, anchor jumps,
-    ///   stabilization) flow through the coordinator's `handle(_:)` method and are
-    ///   translated into concrete `ScrollPosition` mutations by the view layer.
+    /// - **MessageListScrollState** — flat scroll coordinator tracking geometry,
+    ///   distance-based scroll-to-latest visibility, and pagination state.
     ///
     /// The raw viewModel properties passed here (`messages`, `isSending`, etc.)
     /// are the projector's inputs — `MessageListView` does not observe them
     /// individually; it feeds them into the projector and renders the resulting
     /// `TranscriptRenderModel` via `MessageListContentView`.
     @ViewBuilder
-    private func activeConversationContent(containerWidth: CGFloat) -> some View {
+    private func activeConversationContent(containerWidth: CGFloat, containerHeight: CGFloat = 0) -> some View {
         let layoutMetrics = MessageListLayoutMetrics(containerWidth: containerWidth)
         VStack(spacing: 0) {
             MessageListView(
@@ -397,12 +396,13 @@ struct ChatView: View {
                 hasMoreMessages: viewModel.hasMoreMessages,
                 isLoadingMoreMessages: viewModel.isLoadingMoreMessages,
                 loadPreviousMessagePage: { await viewModel.loadPreviousMessagePage() },
-                // -- ScrollCoordinator inputs --
+                // -- Scroll state inputs --
                 conversationId: conversationId,
                 anchorMessageId: $anchorMessageId,
                 highlightedMessageId: $highlightedMessageId,
                 isInteractionEnabled: isInteractionEnabled,
-                containerWidth: containerWidth
+                containerWidth: containerWidth,
+                containerHeight: containerHeight
             )
 
             if let error = viewModel.errorManager.conversationError, error.isCreditsExhausted {

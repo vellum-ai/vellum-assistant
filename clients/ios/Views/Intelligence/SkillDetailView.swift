@@ -177,6 +177,18 @@ struct SkillDetailView: View {
         .accessibilityLabel("\(label): \(value)")
     }
 
+    private func detailLinkRow(label: String, text: String, destination: URL) -> some View {
+        HStack {
+            Text(label)
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentTertiary)
+            Spacer()
+            VLink(text, destination: destination, font: VFont.bodyMediumLighter)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(label): \(text)")
+    }
+
     // MARK: - File Row
 
     @ViewBuilder
@@ -241,15 +253,24 @@ struct SkillDetailView: View {
     private var detailsSection: some View {
         switch skill.originMeta {
         case .clawhub(let meta):
-            if !meta.author.isEmpty {
-                detailRow(label: "Author", value: meta.author)
+            if let url = meta.hubURL {
+                detailLinkRow(label: "Source", text: meta.sourceLabel, destination: url)
+            } else {
+                detailRow(label: "Source", value: meta.sourceLabel)
             }
-            if meta.stars > 0 {
-                detailRow(label: "Stars", value: "\(meta.stars)")
+            if meta.installs > 0 {
+                detailRow(label: "Installs", value: "\(meta.installs)")
             }
         case .skillssh(let meta):
             if !meta.sourceRepo.isEmpty {
-                detailRow(label: "Source Repo", value: meta.sourceRepo)
+                if let url = meta.hubURL {
+                    detailLinkRow(label: "Source", text: meta.sourceRepo, destination: url)
+                } else {
+                    detailRow(label: "Source", value: meta.sourceRepo)
+                }
+            }
+            if meta.installs > 0 {
+                detailRow(label: "Installs", value: "\(meta.installs)")
             }
         case .vellum, .custom:
             EmptyView()

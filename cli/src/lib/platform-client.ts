@@ -146,6 +146,163 @@ export interface HatchedAssistant {
   status: string;
 }
 
+// ---------------------------------------------------------------------------
+// Self-hosted local assistant registration
+// ---------------------------------------------------------------------------
+
+export interface EnsureRegistrationResponse {
+  assistant: { id: string; name: string };
+  registration: {
+    client_installation_id: string;
+    runtime_assistant_id: string;
+    client_platform: string;
+  };
+  assistant_api_key: string | null;
+  webhook_secret: string;
+}
+
+/**
+ * Register (or re-confirm) a self-hosted local assistant with the platform.
+ *
+ * Calls `POST /v1/assistants/self-hosted-local/ensure-registration/`.
+ * The endpoint is idempotent: the first call provisions an API key;
+ * subsequent calls return `assistant_api_key: null`.
+ */
+export async function ensureSelfHostedLocalRegistration(
+  token: string,
+  organizationId: string,
+  clientInstallationId: string,
+  runtimeAssistantId: string,
+  clientPlatform: string,
+  assistantVersion?: string,
+  platformUrl?: string,
+): Promise<EnsureRegistrationResponse> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const body: Record<string, string> = {
+    client_installation_id: clientInstallationId,
+    runtime_assistant_id: runtimeAssistantId,
+    client_platform: clientPlatform,
+  };
+  if (assistantVersion) {
+    body.assistant_version = assistantVersion;
+  }
+
+  const response = await fetch(
+    `${resolvedUrl}/v1/assistants/self-hosted-local/ensure-registration/`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "X-Session-Token": token,
+        "Vellum-Organization-Id": organizationId,
+      },
+      body: JSON.stringify(body),
+    },
+  );
+
+  if (response.status === 401 || response.status === 403) {
+    throw new Error("Authentication required for assistant registration.");
+  }
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      `Registration failed (${response.status}): ${detail || response.statusText}`,
+    );
+  }
+
+  return (await response.json()) as EnsureRegistrationResponse;
+}
+
+// ---------------------------------------------------------------------------
+// Credential injection into running assistant via gateway
+// ---------------------------------------------------------------------------
+
+/**
+ * Inject a single credential into the assistant's secret store via the
+ * gateway's `POST /v1/secrets` endpoint.
+ *
+ * Mirrors the desktop app's `GatewayHTTPClient.post(path: "secrets", …)`
+ * calls in `LocalAssistantBootstrapService.swift`.
+ */
+async function injectGatewayCredential(
+  gatewayUrl: string,
+  name: string,
+  value: string,
+  bearerToken?: string,
+): Promise<boolean> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (bearerToken) {
+    headers["Authorization"] = `Bearer ${bearerToken}`;
+  }
+
+  const response = await fetch(`${gatewayUrl}/v1/secrets`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ type: "credential", name, value }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  return response.ok;
+}
+
+export interface CredentialInjectionParams {
+  gatewayUrl: string;
+  bearerToken?: string;
+  assistantApiKey?: string | null;
+  platformAssistantId: string;
+  platformBaseUrl: string;
+  organizationId: string;
+  userId?: string;
+  webhookSecret?: string | null;
+}
+
+/**
+ * Inject platform credentials into a running assistant via the gateway,
+ * mirroring `LocalAssistantBootstrapService.injectKeyIntoAssistant` et al.
+ *
+ * Each credential is posted individually. Failures are collected but do
+ * not prevent the remaining credentials from being injected.
+ *
+ * Returns true if all injections succeeded.
+ */
+export async function injectCredentialsIntoAssistant(
+  params: CredentialInjectionParams,
+): Promise<boolean> {
+  const inject = (name: string, value: string) =>
+    injectGatewayCredential(params.gatewayUrl, name, value, params.bearerToken);
+
+  const promises: Promise<boolean>[] = [];
+
+  if (params.assistantApiKey) {
+    promises.push(inject("vellum:assistant_api_key", params.assistantApiKey));
+  }
+
+  promises.push(
+    inject("vellum:platform_assistant_id", params.platformAssistantId),
+  );
+
+  promises.push(inject("vellum:platform_base_url", params.platformBaseUrl));
+
+  promises.push(
+    inject("vellum:platform_organization_id", params.organizationId),
+  );
+
+  if (params.userId) {
+    promises.push(inject("vellum:platform_user_id", params.userId));
+  }
+
+  if (params.webhookSecret) {
+    promises.push(inject("vellum:webhook_secret", params.webhookSecret));
+  }
+
+  const results = await Promise.all(promises);
+  return results.every(Boolean);
+}
+
 export async function hatchAssistant(
   token: string,
   platformUrl?: string,

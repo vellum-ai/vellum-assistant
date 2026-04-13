@@ -47,6 +47,7 @@ public struct VDropdown<T: Hashable>: View {
     public var emptyValue: T?
     public var maxWidth: CGFloat = .infinity
     public var menuWidth: CGFloat = 180
+    public var menuMaxHeight: CGFloat?
     public var icon: VIcon?
     public var optionIcon: ((T) -> VIcon?)?
     public var onChange: ((T) -> Void)?
@@ -62,6 +63,7 @@ public struct VDropdown<T: Hashable>: View {
         emptyValue: T? = nil,
         maxWidth: CGFloat = .infinity,
         menuWidth: CGFloat = 180,
+        menuMaxHeight: CGFloat? = nil,
         icon: VIcon? = nil,
         optionIcon: ((T) -> VIcon?)? = nil,
         onChange: ((T) -> Void)? = nil
@@ -73,6 +75,7 @@ public struct VDropdown<T: Hashable>: View {
         self.emptyValue = emptyValue
         self.maxWidth = maxWidth
         self.menuWidth = menuWidth
+        self.menuMaxHeight = menuMaxHeight
         self.icon = icon
         self.optionIcon = optionIcon
         self.onChange = onChange
@@ -87,6 +90,7 @@ public struct VDropdown<T: Hashable>: View {
         emptyValue: T? = nil,
         maxWidth: CGFloat = .infinity,
         menuWidth: CGFloat = 180,
+        menuMaxHeight: CGFloat? = nil,
         icon: VIcon? = nil,
         optionIcon: ((T) -> VIcon?)? = nil,
         onChange: ((T) -> Void)? = nil
@@ -98,6 +102,7 @@ public struct VDropdown<T: Hashable>: View {
         self.emptyValue = emptyValue
         self.maxWidth = maxWidth
         self.menuWidth = menuWidth
+        self.menuMaxHeight = menuMaxHeight
         self.icon = icon
         self.optionIcon = optionIcon
         self.onChange = onChange
@@ -218,7 +223,7 @@ public struct VDropdown<T: Hashable>: View {
         // window) — attaching to the wrong parent shoves the modal behind via
         // `addChildWindow`.
         activePanel = VMenuPanel.show(at: screenPoint, sourceWindow: window, sourceAppearance: appearance, excludeRect: triggerScreenRect) {
-            VMenu(width: menuWidth) {
+            VMenu(width: menuWidth, maxHeight: menuMaxHeight) {
                 ForEach(optionList) { option in
                     VMenuItem(
                         icon: option.icon?.rawValue ?? optionIcon?(option.value)?.rawValue,

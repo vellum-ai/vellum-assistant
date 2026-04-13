@@ -37,13 +37,104 @@ final class MarkdownSegmentViewTests: XCTestCase {
         super.tearDown()
     }
 
-    func testItalicMarkdownUsesObliqueDMSansFont() throws {
+    func testItalicMarkdownAppliesObliquenessAttribute() throws {
         let (rendered, hasUnresolvedEmphasis) = makeRenderedMarkdown("*settles in*")
         let font = try renderedFont(from: rendered)
+        let obliqueness = renderedObliqueness(from: rendered)
 
         XCTAssertFalse(hasUnresolvedEmphasis)
         XCTAssertEqual(familyName(for: font), "DM Sans")
-        XCTAssertGreaterThan(abs(CTFontGetMatrix(font as CTFont).c), 0.0001)
+        XCTAssertNotNil(obliqueness, "Italic emphasis must set the .obliqueness attribute")
+        XCTAssertGreaterThan(
+            abs(CGFloat(truncating: obliqueness!)), 0.01,
+            "Italic emphasis must apply a non-zero obliqueness"
+        )
+    }
+
+    func testItalicAtStartOfMultiLineRendersWithObliqueness() throws {
+        let input = "*...the room goes completely quiet*\n\na following paragraph with no emphasis"
+
+        let source = try makeAttributedString(from: input)
+        let emphasizedRuns = source.runs.filter {
+            $0.inlinePresentationIntent?.contains(.emphasized) == true
+        }
+        XCTAssertFalse(
+            emphasizedRuns.isEmpty,
+            "Apple parser must emit .emphasized for `*...text*` at start of multi-line input. "
+            + "Got runs: \(source.runs.map { (String(source[$0.range].characters), $0.inlinePresentationIntent) })"
+        )
+
+        let (rendered, hasUnresolvedEmphasis) = makeRenderedMarkdown(input)
+        XCTAssertFalse(hasUnresolvedEmphasis)
+        let font = try renderedFont(from: rendered)
+        XCTAssertEqual(familyName(for: font), "DM Sans")
+        let obliqueness = renderedObliqueness(from: rendered)
+        XCTAssertNotNil(obliqueness, "Emphasis at offset 0 must have a non-nil obliqueness attribute")
+        XCTAssertGreaterThan(
+            abs(CGFloat(truncating: obliqueness!)), 0.01,
+            "Emphasis at offset 0 must apply a non-zero obliqueness"
+        )
+    }
+
+    /// Exercises the FULL chat-message rendering pipeline (parseMarkdownSegments
+    /// → MarkdownSegmentView convert) when emphasis appears at the start of a
+    /// multi-paragraph message, with additional emphasis spans embedded in
+    /// later paragraphs. Verifies that the obliqueness attribute survives all
+    /// the way to NSTextStorage — closing the gap that plain font-matrix slant
+    /// has, where NSTextView can normalize the matrix away during
+    /// setAttributedString.
+    func testItalicFirstLineSurvivesFullMessagePipeline() throws {
+        let input = """
+        *...the room goes completely quiet*
+
+        first paragraph after the opening italics, no emphasis here.
+
+        second paragraph with mid-line *emphasis.*
+
+        third paragraph with trailing *italics*. that's it.
+        """
+
+        let segments = parseMarkdownSegments(input)
+        guard case .text(let combinedText) = segments.first else {
+            return XCTFail("Expected first segment to be .text, got \(segments)")
+        }
+        XCTAssertTrue(
+            combinedText.hasPrefix("*...the room goes completely quiet*"),
+            "Pipeline must preserve the italic markers on the first line; got prefix: "
+            + "\(String(combinedText.prefix(60)))"
+        )
+
+        let source = try makeAttributedString(from: combinedText)
+        let firstRun = source.runs.first!
+        let firstRunText = String(source[firstRun.range].characters)
+        let firstRunIntent = firstRun.inlinePresentationIntent
+        XCTAssertTrue(
+            firstRunIntent?.contains(.emphasized) == true,
+            "First run must be .emphasized. Got text=\(firstRunText), intent=\(String(describing: firstRunIntent))"
+        )
+
+        let view = MarkdownSegmentView(segments: segments)
+        let result = view.resolveSelectableRunMeasurementResult(segments)
+        XCTAssertFalse(result.hasUnresolvedEmphasis)
+        let obliquenessAtZero = result.nsAttributedString.attribute(.obliqueness, at: 0, effectiveRange: nil) as? NSNumber
+        XCTAssertNotNil(obliquenessAtZero, "First-line emphasis must apply obliqueness via the full pipeline")
+        XCTAssertGreaterThan(abs(CGFloat(truncating: obliquenessAtZero!)), 0.01)
+
+        // Feed through the real NSTextView path used by VSelectableTextView —
+        // .obliqueness must survive the bridge that previously dropped font
+        // matrix transforms.
+        let textStorage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        textStorage.addLayoutManager(layoutManager)
+        let textContainer = NSTextContainer(size: NSSize(width: 600, height: CGFloat.greatestFiniteMagnitude))
+        textContainer.lineFragmentPadding = 0
+        layoutManager.addTextContainer(textContainer)
+        textStorage.setAttributedString(result.nsAttributedString)
+        layoutManager.ensureLayout(for: textContainer)
+
+        let displayedObliqueness = textStorage.attribute(.obliqueness, at: 0, effectiveRange: nil) as? NSNumber
+        XCTAssertNotNil(displayedObliqueness, "NSTextStorage must keep the .obliqueness attribute at offset 0")
+        XCTAssertGreaterThan(abs(CGFloat(truncating: displayedObliqueness!)), 0.01)
     }
 
     func testBoldMarkdownUsesWeightedDMSansFont() throws {
@@ -54,18 +145,21 @@ final class MarkdownSegmentViewTests: XCTestCase {
         XCTAssertFalse(hasUnresolvedEmphasis)
         XCTAssertEqual(familyName(for: font), "DM Sans")
         XCTAssertEqual(weight, 700, accuracy: 0.5)
-        XCTAssertEqual(CTFontGetMatrix(font as CTFont).c, 0, accuracy: 0.0001)
+        let obliqueness = renderedObliqueness(from: rendered)
+        XCTAssertNil(obliqueness, "Bold-only emphasis must not apply obliqueness")
     }
 
-    func testBoldItalicMarkdownUsesWeightedObliqueDMSansFont() throws {
+    func testBoldItalicMarkdownAppliesWeightAndObliqueness() throws {
         let (rendered, hasUnresolvedEmphasis) = makeRenderedMarkdown("***ideas for something fun***")
         let font = try renderedFont(from: rendered)
         let weight = try XCTUnwrap(weightAxis(for: font))
+        let obliqueness = renderedObliqueness(from: rendered)
 
         XCTAssertFalse(hasUnresolvedEmphasis)
         XCTAssertEqual(familyName(for: font), "DM Sans")
         XCTAssertEqual(weight, 700, accuracy: 0.5)
-        XCTAssertGreaterThan(abs(CTFontGetMatrix(font as CTFont).c), 0.0001)
+        XCTAssertNotNil(obliqueness)
+        XCTAssertGreaterThan(abs(CGFloat(truncating: obliqueness!)), 0.01)
     }
 
     func testInvalidEmphasisFontsSkipMeasurementCaching() throws {
@@ -155,7 +249,7 @@ final class MarkdownSegmentViewTests: XCTestCase {
         }
         #endif
 
-        let segments = parseMarkdownSegments("*collar jingles*")
+        let segments = parseMarkdownSegments("*bell jingles*")
         let view = MarkdownSegmentView(segments: segments)
         let generationBefore = VFont.typographyGeneration
 
@@ -176,11 +270,13 @@ final class MarkdownSegmentViewTests: XCTestCase {
             typographyGeneration: VFont.typographyGeneration
         )
         let font = try? renderedFont(from: secondResult.nsAttributedString)
+        let obliqueness = renderedObliqueness(from: secondResult.nsAttributedString)
 
         XCTAssertFalse(secondResult.hasUnresolvedEmphasis)
         XCTAssertEqual(MarkdownSegmentView._measuredTextCacheInsertCount, 1)
         XCTAssertEqual(font.map(familyName(for:)), "DM Sans")
-        XCTAssertGreaterThan(abs(CTFontGetMatrix((try XCTUnwrap(font)) as CTFont).c), 0.0001)
+        XCTAssertNotNil(obliqueness, "Italic emphasis should set obliqueness once fonts resolve")
+        XCTAssertGreaterThan(abs(CGFloat(truncating: try XCTUnwrap(obliqueness))), 0.01)
     }
 
     func testHeadingFontSurvivesConversionPipeline() throws {
@@ -246,6 +342,10 @@ final class MarkdownSegmentViewTests: XCTestCase {
         return try XCTUnwrap(font)
     }
 
+    private func renderedObliqueness(from rendered: NSAttributedString) -> NSNumber? {
+        rendered.attribute(.obliqueness, at: 0, effectiveRange: nil) as? NSNumber
+    }
+
     private func familyName(for font: NSFont) -> String {
         CTFontCopyFamilyName(font as CTFont) as String
     }
@@ -261,8 +361,8 @@ final class MarkdownSegmentViewTests: XCTestCase {
     private func validFontSet(size: CGFloat) -> VFont.ChatMarkdownFontSet {
         let regular = VFont.resolvedDMSansFont(weight: 400, size: size)
         let bold = VFont.resolvedDMSansFont(weight: 700, size: size)
-        let italic = VFont.resolvedDMSansFont(weight: 400, size: size, obliqueDegrees: 12)
-        let boldItalic = VFont.resolvedDMSansFont(weight: 700, size: size, obliqueDegrees: 12)
+        let italic = VFont.resolvedDMSansFont(weight: 400, size: size)
+        let boldItalic = VFont.resolvedDMSansFont(weight: 700, size: size)
         return VFont.ChatMarkdownFontSet(
             regular: regular,
             bold: bold,

@@ -5,8 +5,6 @@ import os.signpost
 import SwiftUI
 import VellumAssistantShared
 
-private let scrollDiag = Logger(subsystem: Bundle.appBundleIdentifier, category: "ScrollDiag")
-
 struct MessageListView: View {
 
     let messages: [ChatMessage]
@@ -79,6 +77,9 @@ struct MessageListView: View {
     /// Measured width of the full chat pane. `layoutMetrics` derives the
     /// centered transcript column width from this value.
     var containerWidth: CGFloat = 0
+    /// Stable height of the full chat pane (from GeometryReader). Unlike
+    /// scroll viewport height, this doesn't fluctuate when the composer resizes.
+    var containerHeight: CGFloat = 0
     var layoutMetrics: MessageListLayoutMetrics {
         MessageListLayoutMetrics(containerWidth: containerWidth)
     }
@@ -99,26 +100,17 @@ struct MessageListView: View {
     /// re-evaluates views that read the specific property that changed.
     /// See `MessageListScrollState.swift` for details.
     @State var scrollState = MessageListScrollState()
-    /// Pure policy coordinator that models scroll decisions. All scroll
-    /// policy flows through this coordinator's `handle(_:)` method; the
-    /// resulting output intents are translated into concrete `scrollState`
-    /// / `ScrollPosition` mutations by the view layer.
-    @State var scrollCoordinator = ScrollCoordinator()
+    /// Preserves thinking-block expanded/collapsed state across the
+    /// start/end of an active turn. See `ThinkingBlockExpansionStore.swift`.
+    @State var thinkingBlockExpansionStore = ThinkingBlockExpansionStore()
+    /// Owned here (same level as `thinkingBlockExpansionStore`) so the state
+    /// survives view-tree destruction. See `FilePreviewExpansionStore.swift`.
+    @State var filePreviewExpansionStore = FilePreviewExpansionStore()
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State var resizeScrollTask: Task<Void, Never>?
     /// Native SwiftUI scroll position struct (macOS 15+). Replaces
     /// `ScrollViewReader` + `proxy.scrollTo()` and distance-from-bottom math.
     @State var scrollPosition = ScrollPosition()
-    /// Tracks expand/collapse state for every thinking block in this list.
-    /// Owned here (above the `.if` min-height wrapper in
-    /// `MessageListContentView`) so the state survives the view-tree
-    /// destruction that happens when `state.isActiveTurn` flips at the
-    /// start/end of an active turn. See `ThinkingBlockExpansionStore.swift`.
-    @State var thinkingBlockExpansionStore = ThinkingBlockExpansionStore()
-    /// Tracks expand/collapse state for file preview cards in this list.
-    /// Owned here (same level as `thinkingBlockExpansionStore`) so the state
-    /// survives view-tree destruction. See `FilePreviewExpansionStore.swift`.
-    @State var filePreviewExpansionStore = FilePreviewExpansionStore()
 
     // MARK: - Body
 
@@ -148,104 +140,33 @@ struct MessageListView: View {
             }
             .scrollContentBackground(.hidden)
             .scrollDisabled(messages.isEmpty && !isSending)
-            // Apply only to .initialOffset — where the scroll view starts
-            // when first displayed (including .id() recreation on switch).
-            // Deliberately NOT using the all-roles overload (.sizeChanges)
-            // because it fights user scroll-up during streaming: SwiftUI's
-            // definition of "at bottom" for anchor purposes can differ from
-            // our hysteresis-based isAtBottom, causing the viewport to snap
-            // back to bottom on every content-height change even after the
-            // user has entered freeBrowsing. Our explicit content-height
-            // auto-follow handles streaming growth with proper mode checks.
-            // https://developer.apple.com/documentation/swiftui/view/defaultscrollanchor(_:for:)
-            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            // Apply only to .initialOffset — threads open at top.
+            .defaultScrollAnchor(.top, for: .initialOffset)
             .scrollPosition($scrollPosition)
             .environment(\.thinkingBlockExpansionStore, thinkingBlockExpansionStore)
             .environment(\.filePreviewExpansionStore, filePreviewExpansionStore)
-            .environment(\.suppressAutoScroll, { [self] in
-                os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=manualExpansionDetach")
-                // Coordinator owns the 200ms expansion timeout internally
-                // (generation-tracked, cancellable) — no view-layer Task needed.
-                let intents = scrollCoordinator.handle(.manualExpansion)
-                executeCoordinatorIntents(intents)
-                // Keep scrollState in sync as runtime executor.
-                scrollState.handleManualExpansionInteraction()
-            })
-            .onScrollPhaseChange { oldPhase, newPhase in
-                let coordinatorPhase = ScrollCoordinator.Phase.from(newPhase)
-                let intents = scrollCoordinator.handle(.scrollPhaseChanged(phase: coordinatorPhase))
-                executeCoordinatorIntents(intents)
-                // Keep scrollState in sync as runtime executor.
-                scrollState.scrollPhase = newPhase
-                if newPhase == .idle && oldPhase != .idle && scrollState.isAtBottom {
-                    scrollState.handleReachedBottom()
-                }
-            }
             .scrollIndicators(scrollState.scrollIndicatorsHidden ? .hidden : .automatic)
             .id(conversationId)
             .frame(width: widths.scrollSurfaceWidth)
             .overlay(alignment: .bottom) {
-                ScrollToLatestOverlayView(scrollState: scrollState)
+                ScrollToLatestOverlayView(scrollState: scrollState, onScrollToBottom: { scrollPosition = ScrollPosition(edge: .bottom) })
             }
             .onAppear {
-                let intents = scrollCoordinator.handle(.appeared)
-                executeCoordinatorIntents(intents)
                 handleAppear()
             }
             .onDisappear {
-                scrollCoordinator.reset()
                 scrollState.cancelAll()
-                // Do NOT clear scrollPosition here. The old ScrollView's
-                // onDisappear fires AFTER the new ScrollView's onAppear
-                // (confirmed by diagnostic logs: 10-225ms delay). Since
-                // both share the same @State var scrollPosition (the .id()
-                // modifier is on ScrollView, not MessageListView), clearing
-                // here overwrites the scrollTo(edge: .bottom) that
-                // handleConversationSwitched() just issued — leaving the
-                // viewport stranded in blank space.
-                //
-                // The stale-dedup concern (old edge:.bottom deduping with
-                // new edge:.bottom) is addressed by:
-                //   1. Imperative .scrollTo() methods (commands, not state)
-                //   2. restoreScrollToBottom() 100ms fallback
-                //   3. Content-height auto-follow on message load
-                //   4. Recovery window convergence
-                let convStr = conversationId?.uuidString ?? "nil"
-                scrollDiag.debug("onDisappear: leaving conv=\(convStr, privacy: .public)")
                 resizeScrollTask?.cancel()
                 resizeScrollTask = nil
                 highlightedMessageId = nil
             }
             .onChange(of: isSending) {
-                let intents = scrollCoordinator.handle(.sendingChanged(isSending: isSending))
-                executeCoordinatorIntents(intents)
                 handleSendingChanged()
             }
             .onChange(of: messages.count) {
-                let intents = scrollCoordinator.handle(.messageCountChanged)
-                executeCoordinatorIntents(intents)
                 handleMessagesCountChanged()
             }
             .onChange(of: containerWidth) { handleContainerWidthChanged() }
-            .onChange(of: conversationId) {
-                // Safety net for rapid conversation switching. When the
-                // user switches conversations faster than SwiftUI can
-                // complete .id() lifecycle events, intermediate onAppear/
-                // onDisappear pairs are coalesced — handleConversationSwitched()
-                // never runs, leaving scrollState with stale data (wrong
-                // lastMessageId, expired recoveryDeadline). This onChange
-                // fires synchronously on every conversationId change,
-                // guaranteeing handleConversationSwitched() runs even when
-                // lifecycle events are dropped.
-                if scrollState.currentConversationId != conversationId,
-                   conversationId != nil {
-                    let oldConv = scrollState.currentConversationId?.uuidString ?? "nil"
-                    let newConv = conversationId?.uuidString ?? "nil"
-                    scrollDiag.debug("onChange(conversationId): detected switch old=\(oldConv, privacy: .public) new=\(newConv, privacy: .public)")
-                    configureScrollCallbacks()
-                    handleConversationSwitched()
-                }
-            }
             .onChange(of: activePendingRequestId) {
                 #if os(macOS)
                 handleConfirmationFocusIfNeeded()

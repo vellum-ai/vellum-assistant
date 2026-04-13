@@ -219,6 +219,7 @@ export function createToolExecutor(
             data: s.data,
             actions: s.actions,
             display: s.display,
+            ...(s.persistent ? { persistent: true } : {}),
           });
         }
       },

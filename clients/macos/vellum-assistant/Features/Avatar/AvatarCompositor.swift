@@ -4,13 +4,43 @@ import VellumAssistantShared
 @MainActor
 enum AvatarCompositor {
     /// Renders a composite avatar from body shape + eye style + color into an NSImage.
+    /// When `overrideBodyColor` is provided it replaces the avatar's own color for
+    /// the body fill — useful for rendering a greyed-out failure state with a
+    /// design-system token such as `VColor.contentDisabled`.
+    /// Supply a matching `overrideBodyColorKey` so the render cache uses a stable
+    /// identifier instead of `NSColor.description`. The cache automatically appends
+    /// the current appearance name so dynamic colors that resolve differently in
+    /// light vs dark mode produce separate cache entries.
     static func render(
         bodyShape: AvatarBodyShape,
         eyeStyle: AvatarEyeStyle,
         color: AvatarColor,
+        overrideBodyColor: NSColor? = nil,
+        overrideBodyColorKey: String? = nil,
         size: CGFloat = 512
     ) -> NSImage {
-        let cacheKey = "\(bodyShape.rawValue)-\(eyeStyle.rawValue)-\(color.rawValue)-\(Int(size))"
+        let bodyNSColor = overrideBodyColor ?? color.nsColor
+
+        if overrideBodyColor != nil, overrideBodyColorKey == nil {
+            assertionFailure(
+                "overrideBodyColor requires a matching overrideBodyColorKey for a stable cache key"
+            )
+        }
+
+        let colorKey: String
+        if let overrideKey = overrideBodyColorKey {
+            // Dynamic design-system colors resolve to different concrete values
+            // per appearance, so include the appearance to avoid serving a stale
+            // cached image after a light↔dark mode switch.
+            colorKey = "\(overrideKey)-\(Self.appearanceKey)"
+        } else if overrideBodyColor != nil {
+            // Fallback so release builds (where assertionFailure is a no-op)
+            // never poison the normal avatar's cache slot.
+            colorKey = "override-\(bodyNSColor.description)-\(Self.appearanceKey)"
+        } else {
+            colorKey = color.rawValue
+        }
+        let cacheKey = "\(bodyShape.rawValue)-\(eyeStyle.rawValue)-\(colorKey)-\(Int(size))"
         if let cached = cache[cacheKey] {
             return cached
         }
@@ -24,7 +54,7 @@ enum AvatarCompositor {
 
         // Pre-parse SVG paths outside the drawing handler so they're computed once.
         let bodyPath = parseSVGPath(bodyShape.svgPath)
-        let bodyColor = color.nsColor.cgColor
+        let bodyColor = bodyNSColor.cgColor
 
         let faceCenter = AvatarTransforms.resolveFaceCenter(bodyShape: bodyShape, eyeStyle: eyeStyle)
         let eyeSourceViewBox = eyeStyle.sourceViewBox
@@ -204,6 +234,10 @@ enum AvatarCompositor {
 
         cache[cacheKey] = image
         return image
+    }
+
+    private static var appearanceKey: String {
+        NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])?.rawValue ?? "aqua"
     }
 
     private static var cache: [String: NSImage] = [:]

@@ -27,3 +27,16 @@ export function getWorkspaceDir(): string {
   if (override) return override;
   return join(getRootDir(), "workspace");
 }
+
+/**
+ * Directory containing files private to the gateway container.
+ *
+ * In Docker, this is a dedicated volume mounted at /gateway-security via the
+ * GATEWAY_SECURITY_DIR env var. In local (non-Docker) mode, falls back to
+ * ~/.vellum/protected/ for backwards compatibility.
+ */
+export function getGatewaySecurityDir(): string {
+  const override = process.env.GATEWAY_SECURITY_DIR?.trim();
+  if (override) return override;
+  return join(getRootDir(), "protected");
+}

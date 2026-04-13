@@ -30,27 +30,22 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 // Provider factory tests
 // ---------------------------------------------------------------------------
-describe("email provider factory", () => {
-  test("getActiveProviderName defaults to agentmail", async () => {
-    const { getActiveProviderName } =
-      await import("../email/providers/index.js");
-    expect(getActiveProviderName()).toBe("agentmail");
+describe("email provider (via service)", () => {
+  test("getProviderName returns platform", async () => {
+    const { getEmailService } = await import("../email/service.js");
+    const svc = getEmailService();
+    expect(svc.getProviderName()).toBe("platform");
   });
 
-  test("SUPPORTED_PROVIDERS includes agentmail", async () => {
-    const { SUPPORTED_PROVIDERS } = await import("../email/providers/index.js");
-    expect(SUPPORTED_PROVIDERS).toContain("agentmail");
-  });
-
-  test("createProvider throws without API key", async () => {
-    const { createProvider } = await import("../email/providers/index.js");
+  test("provider() throws (local providers removed)", async () => {
+    const { getEmailService } = await import("../email/service.js");
+    const svc = getEmailService();
     try {
-      await createProvider("agentmail");
-      // If we get here, the API key might be set in the env
-      // The important thing is it doesn't throw for wrong reasons
+      await svc.status();
+      throw new Error("should have thrown");
     } catch (err) {
       expect(err instanceof Error).toBe(true);
-      expect((err as Error).message).toContain("API key");
+      expect((err as Error).message).toContain("removed");
     }
   });
 });
@@ -187,12 +182,6 @@ describe("email service guardrails integration", () => {
     expect(a).toBe(b);
   });
 
-  test("service getProviderName returns default", async () => {
-    const { getEmailService } = await import("../email/service.js");
-    const svc = getEmailService();
-    expect(svc.getProviderName()).toBe("agentmail");
-  });
-
   test("service guardrails methods work", async () => {
     const { getEmailService } = await import("../email/service.js");
     const svc = getEmailService();
@@ -257,41 +246,5 @@ describe("email JSON contract", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Provider interface conformance
+// AgentMailProvider removed — local providers replaced by platform email
 // ---------------------------------------------------------------------------
-describe("AgentMailProvider interface", () => {
-  test("AgentMailProvider implements all required methods", async () => {
-    const { AgentMailProvider } =
-      await import("../email/providers/agentmail.js");
-
-    // Create with a dummy client — we won't call any methods
-    const provider = new AgentMailProvider({} as never);
-
-    // Verify all interface methods exist
-    const requiredMethods = [
-      "health",
-      "setupDomain",
-      "getDomainDnsRecords",
-      "verifyDomain",
-      "ensureInboxes",
-      "setupWebhook",
-      "createDraft",
-      "listDrafts",
-      "getDraft",
-      "deleteDraft",
-      "sendDraft",
-      "listMessages",
-      "getMessage",
-      "listThreads",
-      "getThread",
-    ];
-
-    for (const method of requiredMethods) {
-      expect(
-        typeof (provider as unknown as Record<string, unknown>)[method],
-      ).toBe("function");
-    }
-
-    expect(provider.name).toBe("agentmail");
-  });
-});

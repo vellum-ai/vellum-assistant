@@ -20,6 +20,9 @@ final class PermissionPromptOverlay {
         case firstUse
         /// Post-denial prompt directing to System Settings.
         case denied(DeniedPermission)
+        /// Speech recognition fallback prompt shown after an STT service failure.
+        /// Explains that enabling speech recognition improves reliability.
+        case speechFallback
     }
 
     enum DeniedPermission {
@@ -39,6 +42,17 @@ final class PermissionPromptOverlay {
         case .firstUse:
             contentView = AnyView(FirstUsePromptView(
                 sttConfigured: STTProviderRegistry.isServiceConfigured,
+                onDismiss: { [weak self] in
+                    self?.dismiss()
+                    onDismiss()
+                },
+                onContinue: { [weak self] in
+                    self?.dismiss()
+                    onContinue()
+                }
+            ))
+        case .speechFallback:
+            contentView = AnyView(SpeechFallbackPromptView(
                 onDismiss: { [weak self] in
                     self?.dismiss()
                     onDismiss()
@@ -152,9 +166,7 @@ private struct FirstUsePromptView: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.horizontal, VSpacing.xl)
-            .padding(.top, VSpacing.xl)
-            .padding(.bottom, VSpacing.lg)
+            .padding(EdgeInsets(top: VSpacing.xl, leading: VSpacing.xl, bottom: VSpacing.lg, trailing: VSpacing.xl))
 
             HStack(spacing: VSpacing.sm) {
                 VButton(label: "Not Now", style: .outlined, size: .compact) {
@@ -164,8 +176,54 @@ private struct FirstUsePromptView: View {
                     onContinue()
                 }
             }
-            .padding(.horizontal, VSpacing.xl)
-            .padding(.bottom, VSpacing.lg)
+            .padding(EdgeInsets(top: 0, leading: VSpacing.xl, bottom: VSpacing.lg, trailing: VSpacing.xl))
+        }
+        .frame(width: 320)
+        .background(VColor.surfaceOverlay)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(VColor.borderBase, lineWidth: 1)
+        )
+    }
+}
+
+// MARK: - Speech Fallback Prompt
+
+/// Shown after an STT service failure to suggest enabling native speech recognition
+/// as a reliable fallback. Uses informational styling (not error) since the user
+/// hasn't done anything wrong — their cloud STT provider just didn't work.
+private struct SpeechFallbackPromptView: View {
+    let onDismiss: () -> Void
+    let onContinue: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: VSpacing.sm) {
+                VIconView(.audioWaveform, size: 20)
+                    .foregroundStyle(VColor.primaryBase)
+
+                Text("Enable Speech Recognition")
+                    .font(VFont.titleSmall)
+                    .foregroundStyle(VColor.contentDefault)
+
+                Text("Improves transcription accuracy and provides a reliable fallback when the cloud service is unavailable.")
+                    .font(VFont.bodyMediumLighter)
+                    .foregroundStyle(VColor.contentSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(EdgeInsets(top: VSpacing.xl, leading: VSpacing.xl, bottom: VSpacing.lg, trailing: VSpacing.xl))
+
+            HStack(spacing: VSpacing.sm) {
+                VButton(label: "Not Now", style: .outlined, size: .compact) {
+                    onDismiss()
+                }
+                VButton(label: "Enable", style: .primary, size: .compact) {
+                    onContinue()
+                }
+            }
+            .padding(EdgeInsets(top: 0, leading: VSpacing.xl, bottom: VSpacing.lg, trailing: VSpacing.xl))
         }
         .frame(width: 320)
         .background(VColor.surfaceOverlay)
@@ -223,9 +281,7 @@ private struct DeniedPromptView: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.horizontal, VSpacing.xl)
-            .padding(.top, VSpacing.xl)
-            .padding(.bottom, VSpacing.lg)
+            .padding(EdgeInsets(top: VSpacing.xl, leading: VSpacing.xl, bottom: VSpacing.lg, trailing: VSpacing.xl))
 
             HStack(spacing: VSpacing.sm) {
                 VButton(label: "Dismiss", style: .outlined, size: .compact) {
@@ -235,8 +291,7 @@ private struct DeniedPromptView: View {
                     onOpenSettings()
                 }
             }
-            .padding(.horizontal, VSpacing.xl)
-            .padding(.bottom, VSpacing.lg)
+            .padding(EdgeInsets(top: 0, leading: VSpacing.xl, bottom: VSpacing.lg, trailing: VSpacing.xl))
         }
         .frame(width: 320)
         .background(VColor.surfaceOverlay)

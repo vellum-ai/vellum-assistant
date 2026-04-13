@@ -1,3 +1,4 @@
+import { getConfig } from "../../config/loader.js";
 import type { ImageContent } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
@@ -19,12 +20,21 @@ import {
 import type { RouteHandler } from "./browser-manager.js";
 import { browserManager } from "./browser-manager.js";
 import { type BrowserMode, normalizeBrowserMode } from "./browser-mode.js";
+import { BROWSER_MODE } from "./browser-mode-constants.js";
 import {
   ensureScreencast,
   getSender,
   stopAllScreencasts,
   stopBrowserScreencast,
 } from "./browser-screencast.js";
+import {
+  BROWSER_STATUS_INPUT_FIELD,
+  BROWSER_STATUS_MODE,
+  BROWSER_STATUS_MODES,
+  type BrowserStatusMode,
+  CDP_INSPECT_STATUS_DISCOVERY_CODE,
+  EXTENSION_STATUS_ERROR_MARKER,
+} from "./browser-status-constants.js";
 import {
   formatAxSnapshot,
   transformAxTree,
@@ -48,8 +58,17 @@ import {
   waitForText as cdpWaitForText,
 } from "./cdp-client/cdp-dom-helpers.js";
 import { CdpError } from "./cdp-client/errors.js";
-import { getCdpClient } from "./cdp-client/factory.js";
-import type { AttemptDiagnostic, CdpClient } from "./cdp-client/types.js";
+import {
+  buildCandidateList,
+  getCdpClient,
+  isDesktopAutoCooldownActive,
+} from "./cdp-client/factory.js";
+import type {
+  AttemptDiagnostic,
+  CdpClient,
+  CdpClientKind,
+} from "./cdp-client/types.js";
+import { checkBrowserRuntime } from "./runtime-check.js";
 
 const log = getLogger("headless-browser");
 
@@ -62,6 +81,37 @@ export const ACTION_TIMEOUT_MS = 10_000;
 export const MAX_WAIT_MS = 30_000;
 
 export const MAX_EXTRACT_LENGTH = 50_000;
+
+type StatusCheckMode = BrowserStatusMode;
+
+const MODE_TRADEOFFS: Record<StatusCheckMode, string[]> = {
+  [BROWSER_STATUS_MODE.EXTENSION]: [
+    "Controls the user's existing Chrome profile and tabs.",
+    "Requires the Vellum extension to be paired and actively connected.",
+    "Best when the user wants the assistant to operate in their real browser session.",
+  ],
+  [BROWSER_STATUS_MODE.CDP_INSPECT]: [
+    "Controls an existing Chrome instance launched with --remote-debugging-port.",
+    "Does not require the extension to be connected.",
+    "Requires remote debugging to stay enabled on localhost, which is more manual to maintain.",
+  ],
+  [BROWSER_STATUS_MODE.LOCAL]: [
+    "Runs a dedicated Playwright-managed Chromium profile.",
+    "Most isolated and reliable fallback when extension/CDP inspect are unavailable.",
+    "Does not use the user's existing browser profile, so sessions/cookies may differ.",
+  ],
+};
+
+interface BrowserStatusModeResult {
+  mode: StatusCheckMode;
+  available: boolean;
+  verified: "active_probe" | "preflight";
+  autoCandidate: boolean;
+  summary: string;
+  userActions: string[];
+  tradeoffs: string[];
+  details: Record<string, unknown>;
+}
 
 /**
  * IIFE evaluated inside the page via `Runtime.evaluate` to auto-dismiss
@@ -262,7 +312,7 @@ function collectRemediationHints(
   // the error code with a generic candidate kind derived from the mode.
   if (diagnostics.length === 0 && error.code) {
     // Try to infer the candidate kind from the error message
-    for (const kind of ["extension", "cdp-inspect", "local"] as const) {
+    for (const kind of BROWSER_STATUS_MODES) {
       if (error.message.toLowerCase().includes(kind)) {
         addHints(`${kind}:${error.code}`);
       }
@@ -1945,5 +1995,489 @@ export async function executeBrowserFillCredential(
     return { content: `Error: Fill credential failed: ${msg}`, isError: true };
   } finally {
     cdp.dispose();
+  }
+}
+
+function dedupeStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    if (!value) continue;
+    if (seen.has(value)) continue;
+    seen.add(value);
+    out.push(value);
+  }
+  return out;
+}
+
+function modeTradeoffs(mode: StatusCheckMode): string[] {
+  return MODE_TRADEOFFS[mode];
+}
+
+function extensionSetupActions(): string[] {
+  return [
+    "Install and enable the Vellum Relay Chrome extension.",
+    "Open the extension popup and click Pair with local assistant.",
+    "Keep the extension connected to the assistant relay.",
+  ];
+}
+
+function cdpInspectSetupActions(): string[] {
+  return [
+    "Launch Chrome with --remote-debugging-port=9222 (or your configured port).",
+    "Keep Chrome running while browser tools are in use.",
+    "Ensure the configured host is loopback (localhost / 127.0.0.1 / ::1).",
+  ];
+}
+
+function localSetupActions(): string[] {
+  return [
+    "Install assistant dependencies with bun install in assistant/.",
+    "Install Chromium for Playwright: bunx playwright install chromium.",
+  ];
+}
+
+function extractDiscoveryCodes(error: CdpError): string[] {
+  const diagnostics = error.attemptDiagnostics ?? [];
+  const codes: string[] = [];
+  for (const diag of diagnostics) {
+    if (diag.discoveryCode) codes.push(diag.discoveryCode);
+  }
+  return dedupeStrings(codes);
+}
+
+function containsTokenCaseInsensitive(text: string, token: string): boolean {
+  return text.toLowerCase().includes(token.toLowerCase());
+}
+
+function probeFailureActions(mode: StatusCheckMode, error: CdpError): string[] {
+  const actions: string[] = [];
+  const message = error.message.toLowerCase();
+  const discoveryCodes = extractDiscoveryCodes(error).map((c) =>
+    c.toLowerCase(),
+  );
+
+  if (mode === BROWSER_STATUS_MODE.EXTENSION) {
+    actions.push(...extensionSetupActions());
+    if (
+      containsTokenCaseInsensitive(
+        message,
+        EXTENSION_STATUS_ERROR_MARKER.UNAUTHORIZED_ORIGIN,
+      )
+    ) {
+      actions.push(
+        "Ensure this extension ID is present in meta/browser-extension/chrome-extension-allowlist.json and restart the assistant.",
+      );
+    }
+    if (
+      containsTokenCaseInsensitive(
+        message,
+        EXTENSION_STATUS_ERROR_MARKER.NATIVE_MESSAGING_HOST,
+      )
+    ) {
+      actions.push(
+        "Reinstall the native messaging host manifest and confirm it allows this extension ID.",
+      );
+    }
+    if (
+      containsTokenCaseInsensitive(
+        message,
+        EXTENSION_STATUS_ERROR_MARKER.HTTP_401,
+      )
+    ) {
+      actions.push(
+        "Re-pair the extension so it refreshes its local relay credential.",
+      );
+    }
+  }
+
+  if (mode === BROWSER_STATUS_MODE.CDP_INSPECT) {
+    actions.push(...cdpInspectSetupActions());
+    if (discoveryCodes.includes(CDP_INSPECT_STATUS_DISCOVERY_CODE.NO_TARGETS)) {
+      actions.push("Open at least one normal web page tab and retry.");
+    }
+    if (
+      discoveryCodes.includes(
+        CDP_INSPECT_STATUS_DISCOVERY_CODE.INVALID_RESPONSE,
+      ) ||
+      discoveryCodes.includes(
+        CDP_INSPECT_STATUS_DISCOVERY_CODE.WS_FALLBACK_FAILED,
+      )
+    ) {
+      actions.push(
+        "Verify nothing else is bound to the configured CDP port and exposing non-DevTools responses.",
+      );
+    }
+  }
+
+  if (mode === BROWSER_STATUS_MODE.LOCAL) {
+    actions.push(...localSetupActions());
+  }
+
+  return dedupeStrings(actions);
+}
+
+async function probePinnedBrowserMode(
+  mode: StatusCheckMode,
+  context: ToolContext,
+): Promise<
+  | {
+      ok: true;
+      backendKind: CdpClientKind;
+    }
+  | {
+      ok: false;
+      error: CdpError;
+      diagnostic: string;
+    }
+> {
+  let cdp: ReturnType<typeof getCdpClient> | null = null;
+  try {
+    cdp = getCdpClient(context, { mode });
+    await cdp.send(
+      "Runtime.evaluate",
+      {
+        expression: "document.readyState",
+        returnByValue: true,
+      },
+      context.signal,
+    );
+    return { ok: true, backendKind: cdp.kind };
+  } catch (err) {
+    if (err instanceof CdpError) {
+      return {
+        ok: false,
+        error: err,
+        diagnostic: formatModeSelectionFailure(mode, err),
+      };
+    }
+    const wrapped = new CdpError(
+      "transport_error",
+      err instanceof Error ? err.message : String(err),
+      { underlying: err },
+    );
+    return {
+      ok: false,
+      error: wrapped,
+      diagnostic: formatModeSelectionFailure(mode, wrapped),
+    };
+  } finally {
+    cdp?.dispose();
+  }
+}
+
+async function checkExtensionModeStatus(
+  context: ToolContext,
+  autoCandidate: boolean,
+): Promise<BrowserStatusModeResult> {
+  const proxyBound = Boolean(context.hostBrowserProxy);
+  const proxyConnected = context.hostBrowserProxy?.isAvailable() ?? false;
+
+  if (!proxyBound) {
+    return {
+      mode: BROWSER_STATUS_MODE.EXTENSION,
+      available: false,
+      verified: "preflight",
+      autoCandidate,
+      summary:
+        "Extension mode is unavailable: no host browser proxy is bound to this conversation.",
+      userActions: extensionSetupActions(),
+      tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.EXTENSION),
+      details: {
+        proxyBound,
+        proxyConnected,
+      },
+    };
+  }
+
+  if (!proxyConnected) {
+    return {
+      mode: BROWSER_STATUS_MODE.EXTENSION,
+      available: false,
+      verified: "preflight",
+      autoCandidate,
+      summary:
+        "Extension mode is unavailable: the extension transport is currently disconnected.",
+      userActions: extensionSetupActions(),
+      tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.EXTENSION),
+      details: {
+        proxyBound,
+        proxyConnected,
+      },
+    };
+  }
+
+  const probe = await probePinnedBrowserMode(
+    BROWSER_STATUS_MODE.EXTENSION,
+    context,
+  );
+  if (probe.ok) {
+    return {
+      mode: BROWSER_STATUS_MODE.EXTENSION,
+      available: true,
+      verified: "active_probe",
+      autoCandidate,
+      summary: "Extension mode is ready and responded to an active CDP probe.",
+      userActions: [],
+      tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.EXTENSION),
+      details: {
+        proxyBound,
+        proxyConnected,
+        backendKind: probe.backendKind,
+      },
+    };
+  }
+
+  return {
+    mode: BROWSER_STATUS_MODE.EXTENSION,
+    available: false,
+    verified: "active_probe",
+    autoCandidate,
+    summary: `Extension mode probe failed: ${probe.error.message}`,
+    userActions: probeFailureActions(
+      BROWSER_STATUS_MODE.EXTENSION,
+      probe.error,
+    ),
+    tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.EXTENSION),
+    details: {
+      proxyBound,
+      proxyConnected,
+      errorCode: probe.error.code,
+      diagnostic: probe.diagnostic,
+      attemptDiagnostics: probe.error.attemptDiagnostics ?? [],
+    },
+  };
+}
+
+async function checkCdpInspectModeStatus(
+  context: ToolContext,
+  autoCandidate: boolean,
+): Promise<BrowserStatusModeResult> {
+  const cdpInspectConfig = getConfig().hostBrowser.cdpInspect;
+  const desktopAutoEnabled =
+    context.transportInterface === "macos" &&
+    cdpInspectConfig.desktopAuto.enabled;
+  const cooldownActive =
+    desktopAutoEnabled &&
+    isDesktopAutoCooldownActive(cdpInspectConfig.desktopAuto.cooldownMs);
+
+  const probe = await probePinnedBrowserMode(
+    BROWSER_STATUS_MODE.CDP_INSPECT,
+    context,
+  );
+  if (probe.ok) {
+    return {
+      mode: BROWSER_STATUS_MODE.CDP_INSPECT,
+      available: true,
+      verified: "active_probe",
+      autoCandidate,
+      summary:
+        "CDP inspect mode is ready and responded to an active CDP probe.",
+      userActions: [],
+      tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.CDP_INSPECT),
+      details: {
+        backendKind: probe.backendKind,
+        configEnabled: cdpInspectConfig.enabled,
+        configHost: cdpInspectConfig.host,
+        configPort: cdpInspectConfig.port,
+        desktopAutoEnabled,
+        desktopAutoCooldownActive: cooldownActive,
+      },
+    };
+  }
+
+  return {
+    mode: BROWSER_STATUS_MODE.CDP_INSPECT,
+    available: false,
+    verified: "active_probe",
+    autoCandidate,
+    summary: `CDP inspect probe failed: ${probe.error.message}`,
+    userActions: probeFailureActions(
+      BROWSER_STATUS_MODE.CDP_INSPECT,
+      probe.error,
+    ),
+    tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.CDP_INSPECT),
+    details: {
+      errorCode: probe.error.code,
+      discoveryCodes: extractDiscoveryCodes(probe.error),
+      diagnostic: probe.diagnostic,
+      attemptDiagnostics: probe.error.attemptDiagnostics ?? [],
+      configEnabled: cdpInspectConfig.enabled,
+      configHost: cdpInspectConfig.host,
+      configPort: cdpInspectConfig.port,
+      desktopAutoEnabled,
+      desktopAutoCooldownActive: cooldownActive,
+    },
+  };
+}
+
+async function checkLocalModeStatus(
+  context: ToolContext,
+  autoCandidate: boolean,
+  checkLocalLaunch: boolean,
+): Promise<BrowserStatusModeResult> {
+  const runtime = await checkBrowserRuntime();
+  if (!runtime.playwrightAvailable || !runtime.chromiumInstalled) {
+    return {
+      mode: BROWSER_STATUS_MODE.LOCAL,
+      available: false,
+      verified: "preflight",
+      autoCandidate,
+      summary:
+        runtime.error ??
+        "Local mode preflight failed: Playwright Chromium runtime is not ready.",
+      userActions: localSetupActions(),
+      tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.LOCAL),
+      details: {
+        runtime,
+        launchProbeRequested: checkLocalLaunch,
+      },
+    };
+  }
+
+  if (!checkLocalLaunch) {
+    return {
+      mode: BROWSER_STATUS_MODE.LOCAL,
+      available: true,
+      verified: "preflight",
+      autoCandidate,
+      summary:
+        "Local mode preflight passed (Playwright + Chromium are present). Launch probe was skipped.",
+      userActions: [],
+      tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.LOCAL),
+      details: {
+        runtime,
+        launchProbeRequested: checkLocalLaunch,
+      },
+    };
+  }
+
+  const probe = await probePinnedBrowserMode(
+    BROWSER_STATUS_MODE.LOCAL,
+    context,
+  );
+  if (probe.ok) {
+    return {
+      mode: BROWSER_STATUS_MODE.LOCAL,
+      available: true,
+      verified: "active_probe",
+      autoCandidate,
+      summary: "Local mode is ready and responded to an active CDP probe.",
+      userActions: [],
+      tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.LOCAL),
+      details: {
+        runtime,
+        launchProbeRequested: checkLocalLaunch,
+        backendKind: probe.backendKind,
+      },
+    };
+  }
+
+  return {
+    mode: BROWSER_STATUS_MODE.LOCAL,
+    available: false,
+    verified: "active_probe",
+    autoCandidate,
+    summary: `Local mode probe failed: ${probe.error.message}`,
+    userActions: probeFailureActions(BROWSER_STATUS_MODE.LOCAL, probe.error),
+    tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.LOCAL),
+    details: {
+      runtime,
+      launchProbeRequested: checkLocalLaunch,
+      errorCode: probe.error.code,
+      diagnostic: probe.diagnostic,
+      attemptDiagnostics: probe.error.attemptDiagnostics ?? [],
+    },
+  };
+}
+
+// ── browser_status ────────────────────────────────────────────────────
+
+export async function executeBrowserStatus(
+  input: Record<string, unknown>,
+  context: ToolContext,
+): Promise<ToolExecutionResult> {
+  const parsedMode = parseBrowserMode(input);
+  if (!parsedMode.ok) {
+    return { content: parsedMode.error, isError: true };
+  }
+
+  if (
+    input[BROWSER_STATUS_INPUT_FIELD.CHECK_LOCAL_LAUNCH] !== undefined &&
+    typeof input[BROWSER_STATUS_INPUT_FIELD.CHECK_LOCAL_LAUNCH] !== "boolean"
+  ) {
+    return {
+      content: `Error: ${BROWSER_STATUS_INPUT_FIELD.CHECK_LOCAL_LAUNCH} must be a boolean when provided.`,
+      isError: true,
+    };
+  }
+
+  const checkLocalLaunch =
+    input[BROWSER_STATUS_INPUT_FIELD.CHECK_LOCAL_LAUNCH] === true;
+  const requestedMode = parsedMode.mode;
+  const modesToCheck: readonly StatusCheckMode[] =
+    requestedMode === BROWSER_MODE.AUTO
+      ? BROWSER_STATUS_MODES
+      : [requestedMode];
+
+  const autoCandidateKinds = buildCandidateList(context).map((c) => c.kind);
+  const autoCandidateSet = new Set<CdpClientKind>(autoCandidateKinds);
+
+  try {
+    const modeResults: BrowserStatusModeResult[] = [];
+    for (const mode of modesToCheck) {
+      const autoCandidate = autoCandidateSet.has(mode);
+      if (mode === BROWSER_STATUS_MODE.EXTENSION) {
+        modeResults.push(
+          await checkExtensionModeStatus(context, autoCandidate),
+        );
+      } else if (mode === BROWSER_STATUS_MODE.CDP_INSPECT) {
+        modeResults.push(
+          await checkCdpInspectModeStatus(context, autoCandidate),
+        );
+      } else {
+        modeResults.push(
+          await checkLocalModeStatus(context, autoCandidate, checkLocalLaunch),
+        );
+      }
+    }
+
+    const stickyMode = browserManager.getPreferredBackendKind(
+      context.conversationId,
+    );
+    const availableModes = modeResults
+      .filter((r) => r.available)
+      .map((r) => r.mode);
+    const recommendedMode =
+      autoCandidateKinds.find((candidate) =>
+        modeResults.some(
+          (result) => result.mode === candidate && result.available,
+        ),
+      ) ??
+      availableModes[0] ??
+      null;
+
+    return {
+      content: JSON.stringify(
+        {
+          requestedMode,
+          checkedModes: modesToCheck,
+          autoCandidateOrder: autoCandidateKinds,
+          stickyConversationMode: stickyMode,
+          recommendedMode,
+          checkLocalLaunch,
+          modes: modeResults,
+        },
+        null,
+        2,
+      ),
+      isError: false,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      content: `Error: browser_status failed: ${msg}`,
+      isError: true,
+    };
   }
 }

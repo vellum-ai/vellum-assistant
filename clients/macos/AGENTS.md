@@ -129,9 +129,17 @@ A background screen-watching system that runs alongside the manual session loop:
 3. If the service returns a non-empty transcription, that text is used as the final result.
 4. If the service is unconfigured (503), unavailable, or returns empty text, the native `SFSpeechRecognizer` result is used as fallback.
 
+**Conversation mode (streaming STT):** When `VoiceInputManager.currentMode == .conversation` and `STTProviderRegistry.isStreamingAvailable` is `true` (the configured provider's `conversationStreamingMode` is `realtime-ws` or `incremental-batch`), the manager opens a real-time STT streaming session via `STTStreamingClient` in addition to the native `SFSpeechRecognizer` session. Key behaviors:
+
+- `startStreamingSession(generation:)` creates a new `STTStreamingClient` per recording session via the injected `streamingClientFactory` closure. The generation token prevents stale-session event delivery after reconnects.
+- While the streaming session is active and healthy (`streamingSessionActive && !streamingFailed`), streaming partials take priority over native `SFSpeechRecognizer` partials for UI display.
+- When recording stops, if `streamingReceivedFinal && !streamingFailed`, the accumulated `streamingFinalText` is used directly. Otherwise, the batch STT resolution path (`STTClient.transcribe()`) provides the fallback.
+- On streaming failure (`STTStreamFailure` — connection error, timeout, rejected, abnormal closure), `streamingFailed` is set to `true` and the batch path handles completion on stop.
+- `tearDownStreamingSession()` signals graceful stop (`client.stop()`) before forcible close (`client.close()`). All streaming state (`streamingClient`, `streamingSessionActive`, `streamingFinalText`, `streamingReceivedFinal`, `streamingFailed`) is reset.
+
 **Voice mode (streaming):** `OpenAIVoiceService` follows the same service-first pattern for turn-final transcript resolution. Per-turn PCM audio is encoded to WAV and sent to the STT service. The service result takes precedence; the live `SFSpeechRecognizer` transcript is used as fallback.
 
-**STT adapter:** The `SpeechRecognizerAdapter` protocol (`Features/Voice/SpeechRecognizerAdapter.swift`) abstracts `SFSpeechRecognizer` static APIs and instance creation for partial transcription and fallback. The production implementation is `AppleSpeechRecognizerAdapter`. Both `VoiceInputManager` and `OpenAIVoiceService` accept the adapter and `STTClient` via init injection, enabling tests to substitute mocks without hardware or permission dependencies.
+**STT adapter:** The `SpeechRecognizerAdapter` protocol (`Features/Voice/SpeechRecognizerAdapter.swift`) abstracts `SFSpeechRecognizer` static APIs and instance creation for partial transcription and fallback. The production implementation is `AppleSpeechRecognizerAdapter`. Both `VoiceInputManager` and `OpenAIVoiceService` accept the adapter, `STTClient`, and `streamingClientFactory` via init injection, enabling tests to substitute mocks without hardware or permission dependencies.
 
 **Keyboard shortcut detection:** Uses defense-in-depth to distinguish voice activation from keyboard shortcuts (Control+C, Fn+arrow). Timer starts on key press, but recording only begins if no other keys are pressed during the 300ms hold period. Flag check (`otherKeyPressedDuringHold`) handles cases where apps consume keyDown events (e.g., Terminal).
 

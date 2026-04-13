@@ -549,14 +549,14 @@ describe("bundled browser skill", () => {
     );
   });
 
-  test("browser skill has a valid tool manifest with 16 tools", () => {
+  test("browser skill has a valid tool manifest with all browser tools", () => {
     const catalog = loadSkillCatalog();
     const browserSkill = catalog.find((s) => s.id === "browser");
     expect(browserSkill).toBeDefined();
     expect(browserSkill!.toolManifest).toBeDefined();
     expect(browserSkill!.toolManifest!.present).toBe(true);
     expect(browserSkill!.toolManifest!.valid).toBe(true);
-    expect(browserSkill!.toolManifest!.toolCount).toBe(16);
+    expect(browserSkill!.toolManifest!.toolCount).toBe(17);
     expect(browserSkill!.toolManifest!.toolNames).toEqual([
       "browser_navigate",
       "browser_snapshot",
@@ -574,6 +574,7 @@ describe("bundled browser skill", () => {
       "browser_extract",
       "browser_wait_for_download",
       "browser_fill_credential",
+      "browser_status",
     ]);
   });
 });

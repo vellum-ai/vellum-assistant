@@ -1,6 +1,7 @@
 import ApplicationServices
 import AppKit
 import AVFoundation
+import ScreenCaptureKit
 import Speech
 import UserNotifications
 
@@ -102,6 +103,16 @@ enum PermissionManager {
         // to the prompt. On the first call we therefore trust the native prompt
         // and skip the System Settings fallback to avoid showing both at once.
         CGRequestScreenCaptureAccess()
+
+        // Also invoke a real ScreenCaptureKit API. On recent macOS,
+        // CGRequestScreenCaptureAccess alone does not reliably enroll the
+        // app in TCC's Screen Recording list — without an actual
+        // SCShareableContent/SCStream call, the app never shows up in
+        // System Settings > Privacy & Security > Screen & System Audio
+        // Recording, leaving the user no row to toggle on.
+        Task.detached {
+            _ = try? await SCShareableContent.current
+        }
 
         if !hasRequestedBefore {
             UserDefaults.standard.set(true, forKey: hasRequestedScreenRecordingFlag)

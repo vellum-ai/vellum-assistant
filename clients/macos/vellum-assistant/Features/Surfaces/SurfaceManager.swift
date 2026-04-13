@@ -68,7 +68,18 @@ final class SurfaceManager {
 
     /// Surfaces that have already sent an action to the daemon.
     /// Prevents duplicate actions (e.g. submit followed by dismiss) from racing.
+    /// Only used for non-persistent surfaces. Persistent surfaces use
+    /// `spentActionIdsBySurface` for per-action dedupe instead.
     @ObservationIgnored private var respondedSurfaces: Set<String> = []
+
+    /// Per-surface set of action IDs already dispatched for persistent surfaces.
+    /// A persistent surface stays visible after a click and allows distinct actions to
+    /// fire, but the same `actionId` will not fire twice within a single surface lifetime.
+    @ObservationIgnored private var spentActionIdsBySurface: [String: Set<String>] = [:]
+
+    /// Surface IDs whose `persistent` flag was true at show time. Carried out-of-band so the
+    /// action dispatch path can branch without consulting the message again.
+    @ObservationIgnored private var persistentSurfaces: Set<String> = []
 
     /// Surfaces routed to the workspace instead of floating NSPanels.
     /// Tracked so that update/dismiss messages can be forwarded via notifications.
@@ -114,6 +125,10 @@ final class SurfaceManager {
         activeSurfaces[surface.id] = surface
         surfaceOrder.append(surface.id)
 
+        if message.persistent == true {
+            persistentSurfaces.insert(surface.id)
+        }
+
         // Extract and track appId for persistent app RPC routing.
         let dict = message.data.value as? [String: Any?] ?? [:]
         if let appId = dict["appId"] as? String {
@@ -140,9 +155,12 @@ final class SurfaceManager {
         let viewModel = SurfaceViewModel(
             surface: surface,
             onAction: { [weak self] actionId, data in
-                guard let self, !self.respondedSurfaces.contains(surface.id) else { return }
-                self.respondedSurfaces.insert(surface.id)
-                self.onAction?(surface.conversationId, surface.id, actionId, data)
+                self?.handleSurfaceAction(
+                    conversationId: surface.conversationId,
+                    surfaceId: surface.id,
+                    actionId: actionId,
+                    data: data
+                )
             },
             onDismiss: { [weak self] in
                 guard let self, !self.respondedSurfaces.contains(surface.id) else {
@@ -271,6 +289,50 @@ final class SurfaceManager {
         log.info("Showing surface: id=\(surface.id), type=\(surface.type.rawValue)")
     }
 
+    // MARK: - Action Dispatch
+
+    /// Dispatches a user-initiated action to the `onAction` callback, branching on whether the
+    /// surface was shown with `persistent == true`:
+    ///
+    /// - Non-persistent surfaces are single-shot: the first action latches `respondedSurfaces`
+    ///   and subsequent actions (including the implicit post-action dismiss) are suppressed.
+    /// - Persistent surfaces stay visible and accept sibling actions. The same `actionId` is
+    ///   de-duplicated via `spentActionIdsBySurface`, but distinct action IDs on the same
+    ///   surface are all delivered.
+    ///
+    /// Internal for unit testing — production callers go through the `SurfaceViewModel.onAction`
+    /// closure registered in `showSurface`.
+    func handleSurfaceAction(conversationId: String?, surfaceId: String, actionId: String, data: [String: Any]?) {
+        if persistentSurfaces.contains(surfaceId) {
+            var spent = spentActionIdsBySurface[surfaceId] ?? []
+            guard !spent.contains(actionId) else { return }
+            spent.insert(actionId)
+            spentActionIdsBySurface[surfaceId] = spent
+            // Persistent: do NOT insert into respondedSurfaces; do NOT dismiss. Fire the action.
+            onAction?(conversationId, surfaceId, actionId, data)
+            return
+        }
+
+        // Non-persistent: single-shot with latching dedupe.
+        guard !respondedSurfaces.contains(surfaceId) else { return }
+        respondedSurfaces.insert(surfaceId)
+        onAction?(conversationId, surfaceId, actionId, data)
+    }
+
+    /// Test-only hook so unit tests can exercise `handleSurfaceAction` and surface lifecycle
+    /// without creating NSPanels. Mirrors the `activeSurfaces`/`persistentSurfaces` side effects
+    /// that `showSurface` performs in production.
+    #if DEBUG
+    func registerForTesting(surface: Surface, persistent: Bool) {
+        activeSurfaces[surface.id] = surface
+        if persistent {
+            persistentSurfaces.insert(surface.id)
+        } else {
+            persistentSurfaces.remove(surface.id)
+        }
+    }
+    #endif
+
     // MARK: - Update
 
     func updateSurface(_ message: UiSurfaceUpdateMessage) {
@@ -355,6 +417,8 @@ final class SurfaceManager {
         surfaceAppIds.removeAll()
         surfaceCoordinators.removeAll()
         respondedSurfaces.removeAll()
+        spentActionIdsBySurface.removeAll()
+        persistentSurfaces.removeAll()
 
         if hadWorkspaceRouted {
             NotificationCenter.default.post(
@@ -378,6 +442,8 @@ final class SurfaceManager {
         surfaceAppIds.removeValue(forKey: surfaceId)
         surfaceCoordinators.removeValue(forKey: surfaceId)
         respondedSurfaces.remove(surfaceId)
+        spentActionIdsBySurface.removeValue(forKey: surfaceId)
+        persistentSurfaces.remove(surfaceId)
         surfaceOrder.removeAll { $0 == surfaceId }
         repositionAllPanels()
 

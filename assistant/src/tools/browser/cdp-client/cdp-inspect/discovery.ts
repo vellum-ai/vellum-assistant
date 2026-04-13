@@ -42,6 +42,20 @@ export type DevToolsDiscoveryErrorCode =
   | "ws_fallback_failed";
 
 /**
+ * Canonical discovery-code constants for callers that need stable,
+ * typo-safe comparisons without repeating raw string literals.
+ */
+export const DEVTOOLS_DISCOVERY_CODE = {
+  UNREACHABLE: "unreachable",
+  NON_LOOPBACK: "non_loopback",
+  NON_CHROME: "non_chrome",
+  INVALID_RESPONSE: "invalid_response",
+  NO_TARGETS: "no_targets",
+  TIMEOUT: "timeout",
+  WS_FALLBACK_FAILED: "ws_fallback_failed",
+} as const satisfies Record<string, DevToolsDiscoveryErrorCode>;
+
+/**
  * Single error type thrown by all discovery helpers. Mirrors the
  * shape of {@link import("../errors.js").CdpError} so catch sites can
  * rely on an explicit `code` field and an optional underlying cause.

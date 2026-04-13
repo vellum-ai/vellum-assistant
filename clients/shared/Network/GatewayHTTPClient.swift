@@ -742,6 +742,67 @@ public enum GatewayHTTPClient {
         return try constructURL(path: path, params: params, connection: connection)
     }
 
+    // MARK: - WebSocket Helpers
+
+    /// Constructs an authenticated WebSocket URL for the given gateway path.
+    ///
+    /// Converts the gateway base URL scheme from `http(s)` to `ws(s)` and
+    /// appends an auth token as a query parameter (since `URLSessionWebSocketTask`
+    /// does not support custom headers on the upgrade request). The token is
+    /// passed as a `token` query parameter which the gateway accepts as an
+    /// alternative to the `Authorization` header for WebSocket upgrades.
+    ///
+    /// - Parameters:
+    ///   - path: Path segment after `/v1/` (e.g. `"stt/stream"`).
+    ///   - params: Additional query parameters to include in the URL.
+    /// - Returns: A `URLRequest` configured for a WebSocket upgrade with auth.
+    /// - Throws: `ClientError` if the connection cannot be resolved or the URL is invalid.
+    public static func buildWebSocketRequest(path: String, params: [String: String]? = nil) throws -> URLRequest {
+        let connection = try resolveConnection()
+
+        // Merge auth token into query params — WebSocket upgrades cannot carry
+        // custom HTTP headers via URLSessionWebSocketTask, so the gateway
+        // accepts a `token` query parameter as an alternative.
+        var mergedParams = params ?? [:]
+        if let auth = connection.authHeader {
+            if auth.field == "Authorization", auth.value.hasPrefix("Bearer ") {
+                mergedParams["token"] = String(auth.value.dropFirst("Bearer ".count))
+            } else if auth.field == "X-Session-Token" {
+                mergedParams["token"] = auth.value
+            }
+        }
+
+        let httpURL = try constructURL(path: path, params: mergedParams, connection: connection)
+
+        // Convert http(s) scheme to ws(s) for the WebSocket transport.
+        guard var components = URLComponents(url: httpURL, resolvingAgainstBaseURL: false) else {
+            throw ClientError.invalidURL
+        }
+
+        // Strip trailing slash from the path — constructURL always appends one,
+        // but WebSocket upgrade handlers match exact paths (e.g. /v1/stt/stream
+        // not /v1/stt/stream/).
+        if components.path.hasSuffix("/"), components.path != "/" {
+            components.path = String(components.path.dropLast())
+        }
+        switch components.scheme {
+        case "https": components.scheme = "wss"
+        case "http": components.scheme = "ws"
+        default: break
+        }
+        guard let wsURL = components.url else {
+            throw ClientError.invalidURL
+        }
+
+        var request = URLRequest(url: wsURL)
+        // Include org ID header — URLSession forwards custom headers on the
+        // initial HTTP upgrade request even for WebSocket tasks.
+        if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
+            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
+        }
+        return request
+    }
+
     /// Builds the gateway URL from path, query parameters, and connection info.
     private static func constructURL(
         path: String,

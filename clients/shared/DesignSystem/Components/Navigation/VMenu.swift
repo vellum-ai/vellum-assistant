@@ -133,6 +133,7 @@ public extension EnvironmentValues {
 /// ```
 public struct VMenu<Content: View>: View {
     public let width: CGFloat?
+    public let maxHeight: CGFloat?
     public let content: Content
 
     #if os(macOS)
@@ -147,18 +148,35 @@ public struct VMenu<Content: View>: View {
 
     public init(
         width: CGFloat? = nil,
+        maxHeight: CGFloat? = nil,
         @ViewBuilder content: () -> Content
     ) {
         self.width = width
+        self.maxHeight = maxHeight
         self.content = content()
     }
 
-    public var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
+    /// The menu's inner content, optionally wrapped in a vertical `ScrollView` when
+    /// `maxHeight` is set. Keeping the scroll wrapper conditional preserves the
+    /// intrinsic-size path for existing callers that don't opt into a height cap.
+    @ViewBuilder
+    private var innerContent: some View {
+        let stack = VStack(alignment: .leading, spacing: VSpacing.xs) {
             content
         }
         .padding(VSpacing.sm)
+
+        if maxHeight != nil {
+            ScrollView(.vertical) { stack }
+        } else {
+            stack
+        }
+    }
+
+    public var body: some View {
+        innerContent
         .frame(width: width)
+        .frame(maxHeight: maxHeight)
         .environment(\.vMenuParentWidth, width)
         #if os(macOS)
         .environment(\.vMenuFocusedItemID, focusedItemID)

@@ -10,7 +10,8 @@ Add a new entry to the `CATALOG` map with:
 
 - `id` — a unique `SttProviderId` string (e.g. `"google-gemini"`).
 - `credentialProvider` — the credential-store key name used by `getProviderKeyAsync` to retrieve the API key. If the provider shares an API key with another service (e.g. `openai-whisper` shares the `"openai"` key, or `google-gemini` shares the `"gemini"` key), reuse that name; otherwise use the provider's own name (e.g. `"deepgram"` maps to `"deepgram"`).
-- `supportedBoundaries` — the set of `SttBoundaryId` values the provider supports (currently only `"daemon-batch"` exists).
+- `supportedBoundaries` — the set of `SttBoundaryId` values the provider supports. Valid values are `"daemon-batch"` (post-recording transcription) and `"daemon-streaming"` (real-time streaming transcription during conversation).
+- `conversationStreamingMode` — how the provider handles streaming transcription in conversation mode: `"realtime-ws"` (provider supports real-time streaming natively via WebSocket), `"incremental-batch"` (streaming emulated via throttled polling), or `"none"` (no streaming support). Required for all providers.
 - `telephonyMode` — how the provider participates in real-time telephony STT: `"realtime-ws"`, `"batch-only"`, or `"none"`.
 
 ## 2. Type-system registration
@@ -53,14 +54,15 @@ If the new provider **shares** an existing credential name (e.g. reuses `"openai
 
 Add a new entry to the `providers` array with the following fields:
 
-| Field                | Description                                                              |
-| -------------------- | ------------------------------------------------------------------------ |
-| `id`                 | Must match the `SttProviderId` used in step 1.                           |
-| `displayName`        | Human-readable name shown in client settings UI.                         |
-| `subtitle`           | Short description displayed below the provider selector.                 |
-| `setupMode`          | `"api-key"` (inline key field) or `"cli"` (instructions-only).           |
-| `setupHint`          | Brief guidance shown during setup.                                       |
-| `apiKeyProviderName` | Must match the `credentialProvider` value from the daemon catalog entry. |
+| Field                       | Description                                                                                                                           |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                        | Must match the `SttProviderId` used in step 1.                                                                                        |
+| `displayName`               | Human-readable name shown in client settings UI.                                                                                      |
+| `subtitle`                  | Short description displayed below the provider selector.                                                                              |
+| `setupMode`                 | `"api-key"` (inline key field) or `"cli"` (instructions-only).                                                                        |
+| `setupHint`                 | Brief guidance shown during setup.                                                                                                    |
+| `apiKeyProviderName`        | Must match the `credentialProvider` value from the daemon catalog entry.                                                              |
+| `conversationStreamingMode` | Must match the `conversationStreamingMode` value from the daemon catalog entry (`"realtime-ws"`, `"incremental-batch"`, or `"none"`). |
 
 **Naming/mapping examples:**
 
@@ -78,7 +80,7 @@ Insertion order in the JSON array must match the daemon catalog insertion order.
 
 **File:** `clients/shared/Utilities/STTProviderRegistry.swift`
 
-Add a matching fallback entry in `fallbackRegistry` with the same `id`, `displayName`, `subtitle`, `setupMode`, `setupHint`, and `apiKeyProviderName` as the JSON catalog entry. The fallback keeps client startup resilient when the bundled JSON is missing.
+Add a matching fallback entry in `fallbackRegistry` with the same `id`, `displayName`, `subtitle`, `setupMode`, `setupHint`, `apiKeyProviderName`, and `conversationStreamingMode` as the JSON catalog entry. The fallback keeps client startup resilient when the bundled JSON is missing.
 
 ### macOS settings key behavior
 

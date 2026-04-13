@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -39,7 +38,6 @@ import {
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
-  updateConversationTitle,
 } from "../memory/conversation-crud.js";
 import { updateMetaFile } from "../memory/conversation-disk-view.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
@@ -58,7 +56,6 @@ import { updatePublishedAppDeployment } from "../services/published-app-updater.
 import { registerCancelCallback } from "../signals/cancel.js";
 import { registerConversationUndoCallback } from "../signals/conversation-undo.js";
 import { appendEventToStream } from "../signals/event-stream.js";
-import { registerLaunchConversationCallback } from "../signals/launch-conversation.js";
 import { registerUserMessageCallback } from "../signals/user-message.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { summarizeToolInput } from "../tools/tool-input-summary.js";
@@ -80,6 +77,7 @@ import {
   DEFAULT_MEMORY_POLICY,
 } from "./conversation.js";
 import { ConversationEvictor } from "./conversation-evictor.js";
+import { registerLaunchConversationDeps } from "./conversation-launch.js";
 import { formatCompactResult } from "./conversation-process.js";
 import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
 import { resolveSlash, type SlashContext } from "./conversation-slash.js";
@@ -756,68 +754,30 @@ export class DaemonServer {
       return { accepted: true };
     });
 
-    registerLaunchConversationCallback(async (params) => {
-      try {
-        // Each launch gets a globally unique conversation key so the skill
-        // always creates a fresh conversation rather than reusing any prior
-        // mapping. `getOrCreateConversation` will insert a new row.
-        const conversationKey = `launcher-${randomUUID()}`;
-        const { conversationId } = getOrCreateConversation(conversationKey);
-
-        // Set the user-facing title immediately so clients that stub a
-        // sidebar entry from the open_conversation event see the right
-        // label even before the turn completes.
-        updateConversationTitle(conversationId, params.title, 0);
-
-        // Seed the conversation by running the seed prompt through the same
-        // pipeline POST /v1/messages uses. Publishing to the hub lets any
-        // connected client stream the turn live.
-        const hubSender = (msg: ServerMessage) => {
-          const msgConversationId =
-            "conversationId" in msg &&
-            typeof (msg as { conversationId?: unknown }).conversationId ===
-              "string"
-              ? (msg as { conversationId: string }).conversationId
-              : undefined;
-          this.publishAssistantEvent(msg, msgConversationId ?? conversationId);
-        };
-
-        await this.persistAndProcessMessage(
+    // Wire the launchConversation helper to daemon-side state so
+    // handleSurfaceAction can spawn conversations through it.
+    registerLaunchConversationDeps({
+      getOrCreateConversation: (id, options) =>
+        this.getOrCreateConversation(id, options),
+      persistAndProcessMessage: (
+        conversationId,
+        content,
+        attachmentIds,
+        options,
+        sourceChannel,
+        sourceInterface,
+      ) =>
+        this.persistAndProcessMessage(
           conversationId,
-          params.seedPrompt,
-          undefined,
-          { onEvent: hubSender },
-          "vellum",
-          "cli",
-        );
-
-        // Tell connected clients to focus the new conversation. The client
-        // stubs a sidebar entry from the optional title if the conversation
-        // isn't already in its list.
-        await assistantEventHub.publish(
-          buildAssistantEvent(
-            this.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-            {
-              type: "open_conversation",
-              conversationId,
-              title: params.title,
-              ...(params.anchorMessageId
-                ? { anchorMessageId: params.anchorMessageId }
-                : {}),
-            },
-            conversationId,
-          ),
-        );
-
-        return { accepted: true, conversationId };
-      } catch (err) {
-        log.warn({ err }, "Failed to launch conversation via signal");
-        return {
-          accepted: false,
-          error: "launch_failed" as const,
-          message: err instanceof Error ? err.message : String(err),
-        };
-      }
+          content,
+          attachmentIds,
+          options,
+          sourceChannel,
+          sourceInterface,
+        ),
+      publishAssistantEvent: (msg, conversationId) =>
+        this.publishAssistantEvent(msg, conversationId),
+      getAssistantId: () => this.assistantId,
     });
 
     this.configWatcher.start(

@@ -496,28 +496,6 @@ final class ComposerControllerTests: XCTestCase {
         XCTAssertFalse(controller.suppressEmojiReopen)
     }
 
-    // MARK: - Dictation
-
-    @MainActor
-    func testDictationStartedCapturesPreDictationText() {
-        let controller = makeController()
-        controller.textChanged("hello world")
-        controller.dictationStarted()
-
-        XCTAssertEqual(controller.preDictationText, "hello world")
-    }
-
-    @MainActor
-    func testDictationStoppedClearsPreDictationText() {
-        let controller = makeController()
-        controller.textChanged("hello world")
-        controller.dictationStarted()
-        XCTAssertEqual(controller.preDictationText, "hello world")
-
-        controller.dictationStopped()
-        XCTAssertEqual(controller.preDictationText, "")
-    }
-
     // MARK: - Query helpers
 
     @MainActor

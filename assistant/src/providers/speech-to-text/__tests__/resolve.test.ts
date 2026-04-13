@@ -43,6 +43,7 @@ mock.module("../../../security/credential-key.js", () => ({
 
 import {
   resolveBatchTranscriber,
+  resolveConversationStreamingSttCapability,
   resolveTelephonySttCapability,
 } from "../resolve.js";
 
@@ -405,6 +406,139 @@ describe("telephony routing catalog alignment", () => {
       if (result.status === "supported") {
         expect(result.providerId).toBe(id);
       }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — resolveConversationStreamingSttCapability
+// ---------------------------------------------------------------------------
+
+describe("resolveConversationStreamingSttCapability", () => {
+  beforeEach(() => {
+    mockConfig = buildConfig({});
+    mockProviderKeys = {};
+  });
+
+  // -------------------------------------------------------------------------
+  // Deepgram — realtime-ws streaming
+  // -------------------------------------------------------------------------
+
+  test("returns 'supported' with realtime-ws mode for deepgram", async () => {
+    mockProviderKeys["deepgram"] = "dg-stream-key";
+    mockConfig = buildConfig({ provider: "deepgram" });
+
+    const result = await resolveConversationStreamingSttCapability();
+
+    expect(result.status).toBe("supported");
+    if (result.status === "supported") {
+      expect(result.providerId).toBe("deepgram");
+      expect(result.streamingMode).toBe("realtime-ws");
+    }
+  });
+
+  test("returns 'missing-credentials' for deepgram without an API key", async () => {
+    mockProviderKeys = {};
+    mockConfig = buildConfig({ provider: "deepgram" });
+
+    const result = await resolveConversationStreamingSttCapability();
+
+    expect(result.status).toBe("missing-credentials");
+    if (result.status === "missing-credentials") {
+      expect(result.providerId).toBe("deepgram");
+      expect(result.credentialProvider).toBe("deepgram");
+      expect(result.reason).toContain("deepgram");
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Google Gemini — incremental-batch streaming
+  // -------------------------------------------------------------------------
+
+  test("returns 'supported' with incremental-batch mode for google-gemini", async () => {
+    mockProviderKeys["gemini"] = "gemini-stream-key";
+    mockConfig = buildConfig({ provider: "google-gemini" });
+
+    const result = await resolveConversationStreamingSttCapability();
+
+    expect(result.status).toBe("supported");
+    if (result.status === "supported") {
+      expect(result.providerId).toBe("google-gemini");
+      expect(result.streamingMode).toBe("incremental-batch");
+    }
+  });
+
+  test("returns 'missing-credentials' for google-gemini without a gemini key", async () => {
+    mockProviderKeys = {};
+    mockConfig = buildConfig({ provider: "google-gemini" });
+
+    const result = await resolveConversationStreamingSttCapability();
+
+    expect(result.status).toBe("missing-credentials");
+    if (result.status === "missing-credentials") {
+      expect(result.providerId).toBe("google-gemini");
+      expect(result.credentialProvider).toBe("gemini");
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // OpenAI Whisper — no streaming support
+  // -------------------------------------------------------------------------
+
+  test("returns 'unsupported' for openai-whisper (no conversation streaming)", async () => {
+    mockProviderKeys["openai"] = "sk-stream-test";
+    mockConfig = buildConfig({ provider: "openai-whisper" });
+
+    const result = await resolveConversationStreamingSttCapability();
+
+    expect(result.status).toBe("unsupported");
+    if (result.status === "unsupported") {
+      expect(result.providerId).toBe("openai-whisper");
+      expect(result.reason).toContain("openai-whisper");
+      expect(result.reason).toContain(
+        "does not support conversation streaming",
+      );
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Unknown / unconfigured provider
+  // -------------------------------------------------------------------------
+
+  test("returns 'unconfigured' when provider is not in the catalog", async () => {
+    mockProviderKeys["unknown-provider"] = "key-doesnt-matter";
+    mockConfig = buildConfig({ provider: "unknown-provider" as string });
+
+    const result = await resolveConversationStreamingSttCapability();
+
+    expect(result.status).toBe("unconfigured");
+    if (result.status === "unconfigured") {
+      expect(result.reason).toContain("unknown-provider");
+      expect(result.reason).toContain("not in the provider catalog");
+    }
+  });
+
+  test("returns 'unconfigured' for empty-string provider", async () => {
+    mockConfig = buildConfig({ provider: "" as string });
+
+    const result = await resolveConversationStreamingSttCapability();
+
+    expect(result.status).toBe("unconfigured");
+  });
+
+  // -------------------------------------------------------------------------
+  // Config-driven behaviour
+  // -------------------------------------------------------------------------
+
+  test("uses config-driven provider, not a hardcoded default", async () => {
+    mockProviderKeys["deepgram"] = "dg-config-test";
+    mockConfig = buildConfig({ provider: "deepgram" });
+
+    const result = await resolveConversationStreamingSttCapability();
+
+    expect(result.status).toBe("supported");
+    if (result.status === "supported") {
+      expect(result.providerId).toBe("deepgram");
     }
   });
 });

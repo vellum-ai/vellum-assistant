@@ -13,6 +13,10 @@ import VellumAssistantShared
 /// model that downstream views can consume without re-deriving layout.
 enum TranscriptProjector {
 
+    /// Stable UUID for the thinking placeholder row so ForEach maintains
+    /// view identity across re-projections. Must not collide with real message IDs.
+    private static let thinkingPlaceholderId = UUID(uuidString: "00000000-0000-0000-0000-FFFFFFFFFFFF")!
+
     // MARK: - Projection
 
     /// Project the current chat state into a fully resolved render model.
@@ -148,7 +152,7 @@ enum TranscriptProjector {
 
         // --- Build row models ---
 
-        let rows: [TranscriptRowModel] = visibleMessages.enumerated().map { index, message in
+        var rows: [TranscriptRowModel] = visibleMessages.enumerated().map { index, message in
             TranscriptRowModel(
                 message: message,
                 showTimestamp: timestampSet.contains(message.id),
@@ -160,6 +164,31 @@ enum TranscriptProjector {
                 isConfirmationRenderedInline: isConfirmationRenderedInlineByIndex.contains(index),
                 isAnchoredThinkingRow: index == anchoredThinkingIndex
             )
+        }
+
+        // When thinking indicator should show but no assistant message exists yet,
+        // append a synthetic placeholder row so the thinking indicator renders
+        // inside the ForEach's minHeight wrapper — same container that will later
+        // hold the real assistant message. Eliminates layout jump on transition.
+        if shouldShowThinkingIndicator {
+            let placeholderMessage = ChatMessage(
+                id: Self.thinkingPlaceholderId,
+                role: .assistant,
+                text: ""
+            )
+            let placeholder = TranscriptRowModel(
+                message: placeholderMessage,
+                showTimestamp: false,
+                hasPrecedingAssistant: false,
+                isLatestAssistant: true,
+                isHighlighted: false,
+                index: rows.count,
+                decidedConfirmation: nil,
+                isConfirmationRenderedInline: false,
+                isAnchoredThinkingRow: false,
+                isThinkingPlaceholder: true
+            )
+            rows.append(placeholder)
         }
 
         return TranscriptRenderModel(

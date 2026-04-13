@@ -137,7 +137,8 @@ public final class EventStreamClient {
         attachments: [UserMessageAttachment]? = nil,
         conversationType: String? = nil,
         automated: Bool? = nil,
-        bypassSecretCheck: Bool? = nil
+        bypassSecretCheck: Bool? = nil,
+        onboarding: PreChatOnboardingContext? = nil
     ) {
         locallyOwnedConversationIds.insert(conversationId)
         pendingMappingLocalIds.insert(conversationId)
@@ -187,7 +188,8 @@ public final class EventStreamClient {
                 attachmentIds: attachmentIds,
                 conversationType: resolvedConversationType,
                 automated: automated,
-                bypassSecretCheck: bypassSecretCheck
+                bypassSecretCheck: bypassSecretCheck,
+                onboarding: onboarding
             )
 
             switch sendResult {

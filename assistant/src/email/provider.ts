@@ -34,7 +34,7 @@ export interface EnsureInboxesOpts {
 export interface CreateInboxOpts {
   /** Username/local part (e.g. "sam"). */
   username: string;
-  /** Domain (e.g. "agentmail.to"). If omitted, provider uses its default. */
+  /** Domain (e.g. "vellum.me"). If omitted, provider uses its default. */
   domain?: string;
   /** Display name (e.g. "Samwise"). */
   displayName?: string;
@@ -81,7 +81,7 @@ export interface ListThreadsOpts {
 // ---------------------------------------------------------------------------
 
 export interface EmailProvider {
-  /** Unique provider identifier (e.g. 'agentmail'). */
+  /** Unique provider identifier (e.g. 'platform'). */
   readonly name: string;
 
   // --- Health ---

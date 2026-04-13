@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, userInfo } from "node:os";
-import { getGatewaySecurityDir } from "../config.js";
+import { getGatewaySecurityDir } from "../paths.js";
 import { runDataMigrations } from "./data-migrations/index.js";
 
 let db: Database | null = null;
