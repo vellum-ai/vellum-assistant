@@ -15,9 +15,10 @@
  *     (`persistAndProcessMessage`) is fire-and-forget.
  *   - `originTrustContext` is forwarded to the spawned conversation.
  *
- * The historical double-emit bug — both sites publishing, with the
- * helper's default-true `focus` arriving first and stealing focus away
- * from the origin — is the regression covered here.
+ * These tests guard the single-emitter invariant: exactly one
+ * `open_conversation` event is published per launch, with the
+ * caller-supplied `focus` value preserved so fan-out launchers do not
+ * steal focus from the origin.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -286,9 +287,8 @@ describe("handleSurfaceAction — launch_conversation dispatch", () => {
     });
 
     // 2. Exactly ONE `open_conversation` event was published for the new
-    //    id, with focus: false. This is the regression barrier for the
-    //    historical double-emit bug — `handleSurfaceAction` no longer
-    //    publishes its own event on top of the helper's.
+    //    id, with focus: false. `launchConversation` is the sole emitter;
+    //    `handleSurfaceAction` delegates entirely to it.
     const openEvents = openConversationEvents();
     expect(openEvents).toHaveLength(1);
     expect(openEvents[0].message.conversationId).toBe("conv-launched-1");
