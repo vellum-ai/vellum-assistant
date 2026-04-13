@@ -474,6 +474,7 @@ export interface SkillListFilter {
   kind?: string;
   q?: string;
   category?: string;
+  includeCatalog?: boolean;
 }
 
 /** Human-readable labels matching Swift's `sourceLabel`. */
@@ -518,7 +519,10 @@ export async function listSkillsFiltered(
   categoryCounts: Record<string, number>;
   totalCount: number;
 }> {
-  let skills = await listSkillsWithCatalog(ctx);
+  let skills =
+    filter.includeCatalog !== false
+      ? await listSkillsWithCatalog(ctx)
+      : listSkills(ctx);
 
   // Apply origin filter
   if (filter.origin) {

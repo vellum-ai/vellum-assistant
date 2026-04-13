@@ -203,6 +203,7 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
               ...(kind ? { kind } : {}),
               ...(q ? { q } : {}),
               ...(category ? { category } : {}),
+              includeCatalog: include === "catalog",
             },
             ctx(),
           );
