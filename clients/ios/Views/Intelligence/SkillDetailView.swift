@@ -293,8 +293,8 @@ struct SkillDetailView: View {
     private func originLabel(_ origin: String) -> String {
         switch origin {
         case "vellum": return "Core"
-        case "clawhub": return "Community"
-        case "skillssh": return "Community"
+        case "clawhub": return "Clawhub"
+        case "skillssh": return "skills.sh"
         case "custom": return "Created"
         default: return origin.capitalized
         }
