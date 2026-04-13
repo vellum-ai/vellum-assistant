@@ -41,8 +41,7 @@ struct FactChipView: View {
                 .truncationMode(.tail)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10))
         .frame(maxWidth: maxWidth, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -104,71 +103,4 @@ struct FactChipView: View {
         }
         return "\(categoryLabel) fact, \(confidenceLabel) confidence: \(fact.text)"
     }
-}
-
-#Preview("Fact chips — Light") {
-    factChipPreviewGrid
-        .padding(20)
-        .background(VColor.surfaceBase)
-        .preferredColorScheme(.light)
-}
-
-#Preview("Fact chips — Dark") {
-    factChipPreviewGrid
-        .padding(20)
-        .background(VColor.surfaceBase)
-        .preferredColorScheme(.dark)
-}
-
-private var factChipPreviewGrid: some View {
-    let facts: [Fact] = [
-        Fact(
-            id: "f1",
-            category: .voice,
-            text: "Prefers concise, direct prose without filler words.",
-            confidence: .strong,
-            source: .onboarding
-        ),
-        Fact(
-            id: "f2",
-            category: .voice,
-            text: "Uses lowercase headers in casual notes.",
-            confidence: .uncertain,
-            source: .inferred
-        ),
-        Fact(
-            id: "f3",
-            category: .world,
-            text: "Lives in Brooklyn, NY. Works remotely from a home office.",
-            confidence: .strong,
-            source: .inferred
-        ),
-        Fact(
-            id: "f4",
-            category: .world,
-            text: "Has a dog named Pepper.",
-            confidence: .uncertain,
-            source: .onboarding
-        ),
-        Fact(
-            id: "f5",
-            category: .priorities,
-            text: "Shipping the home page redesign is the top focus this quarter.",
-            confidence: .strong,
-            source: .inferred
-        ),
-        Fact(
-            id: "f6",
-            category: .priorities,
-            text: "Wants more deep-work blocks on Tuesdays and Thursdays.",
-            confidence: .uncertain,
-            source: .onboarding
-        ),
-    ]
-    return FlowLayout(spacing: 8) {
-        ForEach(facts) { fact in
-            FactChipView(fact: fact)
-        }
-    }
-    .frame(width: 560, alignment: .leading)
 }
