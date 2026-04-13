@@ -312,18 +312,37 @@ export async function clawhubSearch(
       };
     }
   } catch {
-    // CLI outputs text: "slug vVersion  DisplayName  (score)"
+    // CLI outputs text — fall through to line parser below.
   }
 
-  // Parse text output lines: "slug vVersion  Display Name  (score)"
+  // Parse text output lines. The CLI format varies by version:
+  //   With version: "slug v1.0.0  Display Name  (3.459)"
+  //   Without version: "slug  Display Name  (3.459)"
   const skills: ClawhubSearchResultItem[] = [];
   for (const line of result.stdout.split("\n")) {
-    const match = line.match(/^(\S+)\s+v(\S+)\s+(.+?)\s+\([\d.]+\)\s*$/);
-    if (match) {
+    // Try format with version first
+    const withVersion = line.match(/^(\S+)\s+v(\S+)\s+(.+?)\s+\([\d.]+\)\s*$/);
+    if (withVersion) {
       skills.push({
-        slug: match[1],
-        version: match[2],
-        name: match[3].trim(),
+        slug: withVersion[1],
+        version: withVersion[2],
+        name: withVersion[3].trim(),
+        description: "",
+        author: "",
+        stars: 0,
+        installs: 0,
+        createdAt: 0,
+        source: "clawhub",
+      });
+      continue;
+    }
+    // Try format without version
+    const withoutVersion = line.match(/^(\S+)\s+(.+?)\s+\([\d.]+\)\s*$/);
+    if (withoutVersion) {
+      skills.push({
+        slug: withoutVersion[1],
+        version: "",
+        name: withoutVersion[2].trim(),
         description: "",
         author: "",
         stars: 0,
