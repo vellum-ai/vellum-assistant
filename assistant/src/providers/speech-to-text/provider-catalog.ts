@@ -11,6 +11,7 @@
  */
 
 import type {
+  ConversationStreamingMode,
   SttBoundaryId,
   SttProviderId,
   TelephonySttMode,
@@ -47,6 +48,17 @@ export interface SttProviderEntry {
    * participate in real-time call ingestion via `services.stt`.
    */
   readonly telephonyMode: TelephonySttMode;
+
+  /**
+   * Conversation streaming mode — describes whether and how the provider
+   * can participate in real-time conversation chat message capture
+   * (chat composer and iOS input bar).
+   *
+   * - `"realtime-ws"` — native WebSocket streaming with partial/final events.
+   * - `"incremental-batch"` — polling-based incremental batch approximation.
+   * - `"none"` — no streaming support; fall back to batch transcription.
+   */
+  readonly conversationStreamingMode: ConversationStreamingMode;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,6 +85,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       credentialProvider: "openai",
       supportedBoundaries: new Set<SttBoundaryId>(["daemon-batch"]),
       telephonyMode: "batch-only",
+      conversationStreamingMode: "none",
     },
   ],
   [
@@ -80,8 +93,12 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
     {
       id: "deepgram",
       credentialProvider: "deepgram",
-      supportedBoundaries: new Set<SttBoundaryId>(["daemon-batch"]),
+      supportedBoundaries: new Set<SttBoundaryId>([
+        "daemon-batch",
+        "daemon-streaming",
+      ]),
       telephonyMode: "realtime-ws",
+      conversationStreamingMode: "realtime-ws",
     },
   ],
   [
@@ -89,8 +106,12 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
     {
       id: "google-gemini",
       credentialProvider: "gemini",
-      supportedBoundaries: new Set<SttBoundaryId>(["daemon-batch"]),
+      supportedBoundaries: new Set<SttBoundaryId>([
+        "daemon-batch",
+        "daemon-streaming",
+      ]),
       telephonyMode: "batch-only",
+      conversationStreamingMode: "incremental-batch",
     },
   ],
 ]);

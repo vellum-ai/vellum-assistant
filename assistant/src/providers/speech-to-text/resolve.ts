@@ -132,3 +132,93 @@ export async function resolveTelephonySttCapability(): Promise<TelephonySttCapab
     telephonyMode: entry.telephonyMode,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Conversation streaming capability resolver
+// ---------------------------------------------------------------------------
+
+/**
+ * Result of resolving whether the configured `services.stt` provider
+ * supports conversation streaming for chat message capture.
+ */
+export type ConversationStreamingSttCapability =
+  | {
+      /** The configured provider supports conversation streaming. */
+      status: "supported";
+      providerId: SttProviderId;
+      /** How the provider implements conversation streaming. */
+      streamingMode: "realtime-ws" | "incremental-batch";
+    }
+  | {
+      /** The configured provider does not support conversation streaming. */
+      status: "unsupported";
+      providerId: SttProviderId;
+      reason: string;
+    }
+  | {
+      /** The configured provider is unknown or not in the catalog. */
+      status: "unconfigured";
+      reason: string;
+    }
+  | {
+      /** The provider is eligible but missing credentials. */
+      status: "missing-credentials";
+      providerId: SttProviderId;
+      credentialProvider: string;
+      reason: string;
+    };
+
+/**
+ * Validate whether the configured `services.stt` provider supports
+ * conversation streaming for chat message capture (chat composer and
+ * iOS input bar).
+ *
+ * This resolver does **not** create a live streaming session — it only
+ * validates that the configuration, catalog entry, and credentials are
+ * all in order. The actual session creation is handled by the runtime
+ * session orchestrator (PR 5).
+ *
+ * Callers can branch on the discriminated `status` field:
+ * - `"supported"` — the provider supports streaming and credentials exist.
+ * - `"unsupported"` — the provider exists but has
+ *   `conversationStreamingMode: "none"`.
+ * - `"unconfigured"` — the provider is unknown or missing from the catalog.
+ * - `"missing-credentials"` — the provider is eligible but has no API key.
+ */
+export async function resolveConversationStreamingSttCapability(): Promise<ConversationStreamingSttCapability> {
+  const config = getConfig();
+  const provider = config.services.stt.provider;
+
+  const entry = getProviderEntry(provider as SttProviderId);
+  if (!entry) {
+    return {
+      status: "unconfigured",
+      reason: `STT provider "${provider}" is not in the provider catalog`,
+    };
+  }
+
+  if (entry.conversationStreamingMode === "none") {
+    return {
+      status: "unsupported",
+      providerId: entry.id,
+      reason: `STT provider "${entry.id}" does not support conversation streaming`,
+    };
+  }
+
+  // Provider is streaming-eligible — verify credentials exist.
+  const apiKey = await getProviderKeyAsync(entry.credentialProvider);
+  if (!apiKey) {
+    return {
+      status: "missing-credentials",
+      providerId: entry.id,
+      credentialProvider: entry.credentialProvider,
+      reason: `No API key configured for credential provider "${entry.credentialProvider}"`,
+    };
+  }
+
+  return {
+    status: "supported",
+    providerId: entry.id,
+    streamingMode: entry.conversationStreamingMode,
+  };
+}
