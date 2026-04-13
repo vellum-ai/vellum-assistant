@@ -4,7 +4,6 @@ import SwiftUI
 import VellumAssistantShared
 
 private let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "LayoutStall")
-private let scrollDiag = Logger(subsystem: Bundle.appBundleIdentifier, category: "ScrollDiag")
 
 // MARK: - MessageListContentView
 
@@ -46,6 +45,7 @@ struct MessageListContentView: View, Equatable {
             && lhs.configuredProviders == rhs.configuredProviders
             && lhs.subagentDetailStore === rhs.subagentDetailStore
             && lhs.assistantStatusText == rhs.assistantStatusText
+            && lhs.containerHeight == rhs.containerHeight
     }
 
     // MARK: - Data properties (compared in ==)
@@ -69,6 +69,9 @@ struct MessageListContentView: View, Equatable {
     let configuredProviders: Set<String>
     let subagentDetailStore: SubagentDetailStore
     let assistantStatusText: String?
+    /// Stable height of the full chat pane. Used for minHeight instead of
+    /// scroll viewport height which fluctuates with composer resizing.
+    let containerHeight: CGFloat
 
     // MARK: - @Observable references (not compared in ==; reads occur in closures or child views)
 
@@ -128,79 +131,31 @@ struct MessageListContentView: View, Equatable {
         .transition(.opacity)
     }
 
+    // MARK: - Transcript row rendering
+
+    /// Renders a single transcript row (either a real message cell or the
+    /// synthetic thinking placeholder) with the `active turn` minHeight
+    /// wrapper applied when the row is the latest assistant and also the
+    /// tail of `state.rows` (so the user's last message sits at the top
+    /// of the viewport while the assistant streams).
     @ViewBuilder
-    private var thinkingAvatarRow: some View {
-        let appearance = AvatarAppearanceManager.shared
-        let avatarSize = ConversationAvatarFollower.avatarSize
-        HStack {
-            if appearance.customAvatarImage != nil {
-                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
-            } else if let body = appearance.characterBodyShape,
-                      let eyes = appearance.characterEyeStyle,
-                      let color = appearance.characterColor {
-                AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color,
-                                   size: avatarSize, blinkEnabled: true, pokeEnabled: true,
-                                   isStreaming: true)
-                    .frame(width: avatarSize, height: avatarSize)
+    private func transcriptRow(
+        row: TranscriptRowModel,
+        isUnanchoredThinking: Bool,
+        thinkingLabel: String,
+        turnMinHeight: CGFloat
+    ) -> some View {
+        Group {
+            if row.isThinkingPlaceholder {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    if isCompacting {
+                        compactingIndicatorRow()
+                    } else {
+                        thinkingIndicatorRow(hasUserMessage: state.hasUserMessage)
+                    }
+                    thinkingAvatarRow
+                }
             } else {
-                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
-            }
-            Spacer()
-        }
-        .padding(.top, VSpacing.sm)
-        .accessibilityHidden(true)
-    }
-
-    // MARK: - Body
-
-    var body: some View {
-        // WARNING: This LazyVStack uses .transaction { $0.animation = nil } to suppress
-        // all insertion/removal animations. Without this, SwiftUI calls motionVectors()
-        // during any item insertion, which measures ALL children via sizeThatFits —
-        // causing multi-minute hangs on long conversations. Do NOT remove the
-        // .transaction modifier or wrap content changes in withAnimation.
-        LazyVStack(alignment: .leading, spacing: VSpacing.md) {
-            if isLoadingMoreMessages {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                        .controlSize(.small)
-                    Spacer()
-                }
-                .padding(.vertical, VSpacing.sm)
-                .id("page-loading-indicator")
-            }
-
-            let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
-            // Min height for the active assistant turn — ensures the user message
-            // can reach the top of the viewport when content is short.
-            // viewportHeight is initialized to .infinity until the scroll view lays
-            // out; guard against non-finite values so we never pass NaN/∞ into
-            // .frame(minHeight:), which trips _NSViewValidateGeometry in AppKit.
-            let turnMinHeight: CGFloat = scrollState.viewportHeight.isFinite
-                ? max(0, scrollState.viewportHeight - 150)
-                : 0
-            // Track whether the minHeight wrapper is applied so
-            // executeScrollToBottom can target the content-bottom marker.
-            let minHeightApplied: Bool = {
-                guard state.isActiveTurn, let lastRow = state.rows.last else { return false }
-                return lastRow.isLatestAssistant
-            }()
-            let _ = {
-                let wasApplied = scrollState.isActiveTurnMinHeightApplied
-                scrollState.isActiveTurnMinHeightApplied = minHeightApplied
-                // Reset the push-to-top flag when the active turn ends so
-                // the next turn gets a fresh initial pin with lastMessageId.
-                if !minHeightApplied { scrollState.hasCompletedInitialPushToTop = false }
-                if wasApplied != minHeightApplied {
-                    scrollDiag.debug("minHeightApplied changed: \(wasApplied, privacy: .public) → \(minHeightApplied, privacy: .public) isActiveTurn=\(state.isActiveTurn, privacy: .public) rowCount=\(state.rows.count, privacy: .public)")
-                }
-            }()
-            let isUnanchoredThinking = state.shouldShowThinkingIndicator && !state.rows.contains(where: \.isAnchoredThinkingRow)
-            let thinkingLabel = !hasEverSentMessage && state.hasUserMessage
-                ? "Waking up..."
-                : (state.effectiveStatusText ?? "Thinking")
-            ForEach(state.rows) { row in
                 // Only pass activePendingRequestId to cells that could use it:
                 // confirmation bubbles need it for keyboard focus, tool-call messages
                 // need it for inline confirmation rendering in AssistantProgressView.
@@ -251,16 +206,127 @@ struct MessageListContentView: View, Equatable {
                     providerCatalogHash: providerCatalogHash
                 )
                 .equatable()
-                // Active assistant turn: wrap in VStack with minHeight so user
-                // message sits at top. Only applies while the assistant has an
-                // active turn (sending, thinking, streaming, tool running).
-                .if(state.isActiveTurn && row.isLatestAssistant && row.message.id == state.rows.last?.message.id) { view in
-                    VStack(spacing: 0) {
-                        view
-                        Color.clear.frame(height: 1)
-                            .id("active-turn-content-bottom")
+            }
+        }
+        // Latest assistant message (or thinking placeholder): wrap in
+        // VStack with minHeight so user message sits at top. The same
+        // wrapper applies to both the placeholder and the real assistant
+        // message, eliminating layout jump on transition.
+        .if(row.isLatestAssistant && row.message.id == state.rows.last?.message.id) { view in
+            VStack(spacing: 0) {
+                view
+                Color.clear.frame(height: 1)
+                    .id("active-turn-content-bottom")
+            }
+            .frame(minHeight: turnMinHeight, alignment: .top)
+        }
+    }
+
+    @ViewBuilder
+    private var thinkingAvatarRow: some View {
+        let appearance = AvatarAppearanceManager.shared
+        let avatarSize = ConversationAvatarFollower.avatarSize
+        HStack {
+            if appearance.customAvatarImage != nil {
+                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
+            } else if let body = appearance.characterBodyShape,
+                      let eyes = appearance.characterEyeStyle,
+                      let color = appearance.characterColor {
+                AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color,
+                                   size: avatarSize, blinkEnabled: true, pokeEnabled: true,
+                                   isStreaming: true)
+                    .frame(width: avatarSize, height: avatarSize)
+            } else {
+                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
+            }
+            Spacer()
+        }
+        .padding(.top, VSpacing.sm)
+        .accessibilityHidden(true)
+    }
+
+    // MARK: - Body
+
+    var body: some View {
+        // WARNING: This LazyVStack uses .transaction { $0.animation = nil } to suppress
+        // all insertion/removal animations. Without this, SwiftUI calls motionVectors()
+        // during any item insertion, which measures ALL children via sizeThatFits —
+        // causing multi-minute hangs on long conversations. Do NOT remove the
+        // .transaction modifier or wrap content changes in withAnimation.
+        LazyVStack(alignment: .leading, spacing: VSpacing.md) {
+            if isLoadingMoreMessages {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                        .controlSize(.small)
+                    Spacer()
+                }
+                .padding(.vertical, VSpacing.sm)
+                .id("page-loading-indicator")
+            }
+
+            let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
+            // Estimate user message cell height for precise minHeight offset.
+            let estimatedUserHeight: CGFloat = {
+                guard let lastUser = state.rows.last(where: { $0.message.role == .user }) else {
+                    return 80
+                }
+                // Messages with attachments are always collapsed — use max height
+                if !lastUser.message.attachments.isEmpty {
+                    return 260
+                }
+                let text = lastUser.message.text as NSString
+                let contentWidth = max(layoutMetrics.bubbleMaxWidth - 2 * VSpacing.lg, 0)
+                let font = NSFont.systemFont(ofSize: 14, weight: .regular)
+                let textRect = text.boundingRect(
+                    with: NSSize(width: contentWidth, height: .greatestFiniteMagnitude),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    attributes: [.font: font]
+                )
+                let textHeight = ceil(textRect.height)
+                // Bubble padding (24) + timestamp (24) + spacing (12) + show more button (30) + gradient (10)
+                let cellOverhead: CGFloat = 100
+                // Cap at collapsed bubble height (150pt content + overhead)
+                return min(textHeight + cellOverhead, 260)
+            }()
+            // Precise minHeight: fill the space between user message and composer.
+            // containerHeight = full chat pane (stable, from GeometryReader)
+            // composerHeight = 80pt static (empty after send — when minHeight matters)
+            // layoutPadding = LazyVStack top/bottom padding + inter-item spacing + anchor
+            let composerHeight: CGFloat = 80
+            let layoutPadding: CGFloat = VSpacing.md * 3 + 1
+            let turnMinHeight: CGFloat = containerHeight > 0
+                ? max(0, containerHeight - composerHeight - estimatedUserHeight - layoutPadding)
+                : 0
+            let isUnanchoredThinking = state.shouldShowThinkingIndicator && !state.rows.contains(where: \.isAnchoredThinkingRow)
+            let thinkingLabel = !hasEverSentMessage && state.hasUserMessage
+                ? "Waking up..."
+                : (state.effectiveStatusText ?? "Thinking")
+            // Collapse consecutive inline queued user bubbles into a single
+            // marker. The queued messages are still managed in the drawer
+            // (`QueuedMessagesDrawer`) — rendering them inline here duplicates
+            // the information and clutters the transcript when many follow-ups
+            // are queued. The pure helper `TranscriptItems.build(from:)` is
+            // shared in `clients/shared/Features/Chat/TranscriptItems.swift`.
+            let rowsByMessageId: [UUID: TranscriptRowModel] = Dictionary(
+                uniqueKeysWithValues: state.rows.map { ($0.message.id, $0) }
+            )
+            let displayedItems = TranscriptItems.build(from: state.rows.map(\.message))
+            ForEach(displayedItems) { item in
+                switch item {
+                case .queuedMarker(let count, _):
+                    QueuedMessagesMarker(count: count)
+                case .message(let message):
+                    // Safe: every displayed message originates from `state.rows`
+                    // so `rowsByMessageId[message.id]` is always present.
+                    if let row = rowsByMessageId[message.id] {
+                        transcriptRow(
+                            row: row,
+                            isUnanchoredThinking: isUnanchoredThinking,
+                            thinkingLabel: thinkingLabel,
+                            turnMinHeight: turnMinHeight
+                        )
                     }
-                    .frame(minHeight: turnMinHeight, alignment: .top)
                 }
             }
 
@@ -279,17 +345,7 @@ struct MessageListContentView: View, Equatable {
                     .transition(.opacity)
             }
 
-            if isUnanchoredThinking {
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    if isCompacting {
-                        compactingIndicatorRow()
-                    } else {
-                        thinkingIndicatorRow(hasUserMessage: state.hasUserMessage)
-                    }
-                    thinkingAvatarRow
-                }
-                .frame(minHeight: turnMinHeight, alignment: .top)
-            } else if state.isStreamingWithoutText && !state.canInlineProcessing {
+            if state.isStreamingWithoutText && !state.canInlineProcessing {
                 VStack(spacing: 0) {
                     HStack {
                         TypingIndicatorView()
@@ -307,15 +363,6 @@ struct MessageListContentView: View, Equatable {
 
             Color.clear.frame(height: 1)
                 .id("scroll-bottom-anchor")
-                .onAppear {
-                    // Signal that the bottom anchor has materialized —
-                    // isAtBottom is now reliable (based on actual content
-                    // height, not LazyVStack estimates).
-                    scrollState.bottomAnchorAppeared = true
-                    if !scrollState.hasBeenInteracted {
-                        scrollState.handleReachedBottom()
-                    }
-                }
         }
         .disabled(!isInteractionEnabled)
         .transaction { $0.animation = nil }

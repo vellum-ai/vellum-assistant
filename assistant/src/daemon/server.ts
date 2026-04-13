@@ -59,6 +59,7 @@ import { appendEventToStream } from "../signals/event-stream.js";
 import { registerUserMessageCallback } from "../signals/user-message.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { summarizeToolInput } from "../tools/tool-input-summary.js";
+import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import {
   getAvatarImagePath,
@@ -627,7 +628,13 @@ export class DaemonServer {
       const conversation = this.conversations.get(conversationId);
       if (!conversation) return false;
       this.evictor.touch(conversationId);
-      conversation.abort();
+      conversation.abort(
+        createAbortReason(
+          "signal_cancel",
+          "registerCancelCallback",
+          conversationId,
+        ),
+      );
       getSubagentManager().abortAllForParent(conversationId);
       return true;
     });

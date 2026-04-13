@@ -212,7 +212,7 @@ extension AppDelegate {
                     guard !self.isBootstrapping else { break }
                     self.ensureMainWindowExists()
                     // If the conversation isn't in the sidebar yet (e.g. just created by a
-                    // surface action with `_action: "launch_conversation"` that the daemon
+                    // surface action with `_action: "launch_conversation"` that the assistant
                     // dispatched inline, spawning a fresh conversation and emitting
                     // open_conversation), stub a sidebar entry using the optional title so
                     // openConversation's trySelect retries find it.
@@ -221,12 +221,11 @@ extension AppDelegate {
                     // and may drive urgency/alerting behaviors that don't apply here).
                     // This registration runs regardless of the focus flag so fan-out
                     // callers (focus: false) still get the conversation in the sidebar.
-                    if let title = msg.title,
-                       let conversationManager = self.mainWindow?.conversationManager,
+                    if let conversationManager = self.mainWindow?.conversationManager,
                        !conversationManager.conversations.contains(where: { $0.conversationId == msg.conversationId }) {
                         conversationManager.createNotificationConversation(
                             conversationId: msg.conversationId,
-                            title: title,
+                            title: msg.title ?? "Untitled",
                             sourceEventName: "open_conversation",
                             groupId: nil,
                             source: "open_conversation"

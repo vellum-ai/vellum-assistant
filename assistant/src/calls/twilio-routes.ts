@@ -1,13 +1,31 @@
 /**
  * HTTP route handlers for Twilio voice webhooks.
  *
- * - handleVoiceWebhook: initial voice webhook; returns TwiML to connect ConversationRelay
+ * - handleVoiceWebhook: initial voice webhook; returns TwiML to connect
+ *   ConversationRelay (Twilio-native STT) or Stream (custom media-stream STT)
  * - handleStatusCallback: call status updates (ringing, in-progress, completed, etc.)
  * - handleConnectAction: called when the ConversationRelay connection ends
+ *
+ * ## STT routing
+ *
+ * TwiML generation is driven by `services.stt.provider` via
+ * {@link resolveTelephonySttRouting}. The resolver returns a discriminated
+ * strategy that determines which TwiML path to use:
+ *
+ * - **`conversation-relay-native`** (deepgram, google-gemini) — emits
+ *   `<Connect><ConversationRelay>` with Twilio-native `transcriptionProvider`
+ *   and `speechModel` attributes.
+ *
+ * - **`media-stream-custom`** (openai-whisper) — emits
+ *   `<Connect><Stream>` so the daemon receives raw audio and transcribes
+ *   server-side.
  */
 
 import { loadConfig } from "../config/loader.js";
-import { getTwilioRelayUrl } from "../inbound/public-ingress-urls.js";
+import {
+  getTwilioMediaStreamUrl,
+  getTwilioRelayUrl,
+} from "../inbound/public-ingress-urls.js";
 import { mintEdgeRelayToken } from "../runtime/auth/token-service.js";
 import { getLogger } from "../util/logger.js";
 import { persistCallCompletionMessage } from "./call-conversation-messages.js";
@@ -27,15 +45,30 @@ import {
   updateCallSession,
 } from "./call-store.js";
 import { resolveCallHints } from "./stt-hints.js";
-import { resolveTelephonySttProfile } from "./stt-profile.js";
-import {
-  buildTwilioRelaySpeechConfig,
-  type TwilioRelaySpeechConfig,
-} from "./twilio-relay-speech-config.js";
+import { resolveTelephonySttRouting } from "./telephony-stt-routing.js";
 import type { CallStatus } from "./types.js";
 import { resolveVoiceQualityProfile } from "./voice-quality.js";
 
 const log = getLogger("twilio-routes");
+
+// ── Speech config type ───────────────────────────────────────────────
+
+/**
+ * Twilio ConversationRelay speech-to-text attributes.
+ *
+ * All values are pre-formatted strings ready for direct insertion into
+ * TwiML XML attribute values (XML escaping is the caller's responsibility).
+ */
+export interface TwilioRelaySpeechConfig {
+  /** STT provider name (e.g. "Deepgram", "Google"). */
+  transcriptionProvider: string;
+  /** ASR model identifier, or undefined when the provider default should be used. */
+  speechModel: string | undefined;
+  /** Comma-separated vocabulary hints for the STT provider, or undefined when no hints are available. */
+  hints: string | undefined;
+  /** How aggressively the provider detects the start of caller speech. */
+  interruptSensitivity: string;
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -103,6 +136,61 @@ ${greetingAttr}
       dtmfDetection="true"
       interruptSensitivity="${escapeXml(speechConfig.interruptSensitivity)}"${speechConfig.hints ? `\n      hints="${escapeXml(speechConfig.hints)}"` : ""}
     ${relayClose}
+  </Connect>
+</Response>`;
+}
+
+/**
+ * Generate `<Connect><Stream>` TwiML for the media-stream STT path.
+ *
+ * Used when the telephony STT routing resolver selects `media-stream-custom`
+ * (e.g. OpenAI Whisper). Twilio opens a WebSocket to `streamUrl` and sends
+ * raw audio frames; the daemon transcribes server-side.
+ *
+ * `callSessionId` and `token` are encoded as query parameters on the
+ * WebSocket URL so the gateway can validate and route the upgrade request
+ * before any Twilio `start` frame arrives. They are also propagated as
+ * `<Parameter>` children so Twilio includes them in the `start` event's
+ * `customParameters` object for downstream observability.
+ */
+export function generateStreamTwiML(
+  callSessionId: string,
+  streamUrl: string,
+  relayToken?: string,
+  customParameters?: Record<string, string>,
+): string {
+  // Build the WebSocket URL with callSessionId and token as query params.
+  // The gateway validates these during the upgrade handshake before any
+  // Twilio frames are available.
+  const urlObj = new URL(streamUrl);
+  urlObj.searchParams.set("callSessionId", callSessionId);
+  if (relayToken) {
+    urlObj.searchParams.set("token", relayToken);
+  }
+  const fullStreamUrl = urlObj.toString();
+
+  // Build <Parameter> elements for the Twilio start event payload.
+  // Spread customParameters first so callSessionId and token cannot be
+  // overridden by caller-supplied values.
+  const allParams: Record<string, string> = {
+    ...customParameters,
+    callSessionId,
+  };
+
+  if (relayToken) {
+    allParams.token = relayToken;
+  }
+
+  let parameterElements = "";
+  for (const [key, value] of Object.entries(allParams)) {
+    parameterElements += `\n      <Parameter name="${escapeXml(key)}" value="${escapeXml(value)}" />`;
+  }
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Connect>
+    <Stream url="${escapeXml(fullStreamUrl)}">${parameterElements}
+    </Stream>
   </Connect>
 </Response>`;
 }
@@ -235,8 +323,17 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
 
 /**
  * Shared TwiML generation for both inbound and outbound voice webhooks.
- * Resolves voice quality profile, relay URL, and welcome greeting,
- * then returns a Response with the generated TwiML.
+ *
+ * Resolves the telephony STT routing strategy from `services.stt.provider`
+ * and branches:
+ *
+ * - **`conversation-relay-native`** — emits `<Connect><ConversationRelay>`
+ *   TwiML with Twilio-native STT attributes (`transcriptionProvider`,
+ *   `speechModel`). Used for deepgram and google-gemini.
+ *
+ * - **`media-stream-custom`** — emits `<Connect><Stream>` TwiML so the
+ *   daemon receives raw audio for server-side transcription. Used for
+ *   openai-whisper.
  *
  * When `verificationSessionId` is provided, it is included as a
  * `<Parameter>` in the TwiML for observability and compatibility with
@@ -258,25 +355,85 @@ function buildVoiceWebhookTwiml(
   const cfg = loadConfig();
   const profile = resolveVoiceQualityProfile(cfg);
 
-  const hints = resolveCallHints(sessionContext, profile.hints);
-
-  // Build STT attributes via the serialization helper so that route code
-  // never mixes STT config resolution with XML attribute composition.
-  const sttProfile = resolveTelephonySttProfile(cfg.calls.voice);
-  const speechConfig = buildTwilioRelaySpeechConfig(
-    sttProfile,
-    profile.interruptSensitivity,
-    hints || undefined,
-  );
-
   log.info(
     { callSessionId, ttsProvider: profile.ttsProvider, voice: profile.voice },
     "Voice quality profile resolved",
   );
 
+  // Resolve telephony STT strategy from services.stt.provider.
+  // The routing resolver handles speech-model defaults internally per provider.
+  const routingResult = resolveTelephonySttRouting();
+
+  if (routingResult.status === "unknown-provider") {
+    log.error(
+      {
+        callSessionId,
+        providerId: routingResult.providerId,
+        reason: routingResult.reason,
+      },
+      "Telephony STT routing failed — unknown provider; falling back to ConversationRelay with Deepgram",
+    );
+    // Graceful degradation: fall back to Deepgram ConversationRelay so
+    // calls don't fail entirely on a misconfigured provider.
+    return buildConversationRelayResponse(
+      callSessionId,
+      cfg,
+      profile,
+      sessionContext,
+      verificationSessionId,
+      { transcriptionProvider: "Deepgram", speechModel: "nova-3" },
+    );
+  }
+
+  const { strategy } = routingResult;
+
+  if (strategy.strategy === "conversation-relay-native") {
+    return buildConversationRelayResponse(
+      callSessionId,
+      cfg,
+      profile,
+      sessionContext,
+      verificationSessionId,
+      {
+        transcriptionProvider: strategy.transcriptionProvider,
+        speechModel: strategy.speechModel,
+      },
+    );
+  }
+
+  // media-stream-custom path
+  return buildMediaStreamResponse(callSessionId, cfg, verificationSessionId);
+}
+
+/**
+ * Build a ConversationRelay TwiML response for Twilio-native STT providers.
+ */
+function buildConversationRelayResponse(
+  callSessionId: string,
+  cfg: ReturnType<typeof loadConfig>,
+  profile: ReturnType<typeof resolveVoiceQualityProfile>,
+  sessionContext: {
+    task: string | null;
+    toNumber: string;
+    fromNumber: string;
+    direction: "inbound" | "outbound";
+    inviteFriendName: string | null;
+    inviteGuardianName: string | null;
+  } | null,
+  verificationSessionId: string | null | undefined,
+  sttAttrs: { transcriptionProvider: string; speechModel: string | undefined },
+): Response {
+  const rawHints = resolveCallHints(sessionContext, profile.hints);
+
+  const speechConfig: TwilioRelaySpeechConfig = {
+    transcriptionProvider: sttAttrs.transcriptionProvider,
+    speechModel: sttAttrs.speechModel,
+    hints: rawHints && rawHints.length > 0 ? rawHints : undefined,
+    interruptSensitivity: profile.interruptSensitivity,
+  };
+
   const relayUrl = getTwilioRelayUrl(cfg);
   const welcomeGreeting = buildWelcomeGreeting(sessionContext?.task ?? null);
-
   const relayToken = mintEdgeRelayToken();
 
   // Propagate verificationSessionId as a TwiML <Parameter> for
@@ -295,7 +452,46 @@ function buildVoiceWebhookTwiml(
     customParameters,
   );
 
-  log.info({ callSessionId }, "Returning ConversationRelay TwiML");
+  log.info(
+    {
+      callSessionId,
+      strategy: "conversation-relay-native",
+      transcriptionProvider: sttAttrs.transcriptionProvider,
+    },
+    "Returning ConversationRelay TwiML",
+  );
+
+  return new Response(twiml, {
+    status: 200,
+    headers: { "Content-Type": "text/xml" },
+  });
+}
+
+/**
+ * Build a Stream TwiML response for custom media-stream STT providers.
+ */
+function buildMediaStreamResponse(
+  callSessionId: string,
+  cfg: ReturnType<typeof loadConfig>,
+  verificationSessionId: string | null | undefined,
+): Response {
+  const streamUrl = getTwilioMediaStreamUrl(cfg);
+  const relayToken = mintEdgeRelayToken();
+
+  const customParameters: Record<string, string> | undefined =
+    verificationSessionId ? { verificationSessionId } : undefined;
+
+  const twiml = generateStreamTwiML(
+    callSessionId,
+    streamUrl,
+    relayToken,
+    customParameters,
+  );
+
+  log.info(
+    { callSessionId, strategy: "media-stream-custom" },
+    "Returning Stream TwiML",
+  );
 
   return new Response(twiml, {
     status: 200,

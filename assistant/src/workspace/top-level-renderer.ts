@@ -2,6 +2,18 @@ import { homedir, userInfo } from "node:os";
 
 import type { TopLevelSnapshot } from "./top-level-scanner.js";
 
+// `os.userInfo()` throws `SystemError` when the current UID has no passwd
+// entry (possible in sandboxed/containerized envs, including the daemon's
+// own container). Guarding here keeps the renderer safe since this runs
+// inside the daemon and crashing would break workspace context injection.
+function safeUserInfoUsername(): string {
+  try {
+    return userInfo().username;
+  } catch {
+    return "unknown";
+  }
+}
+
 export interface WorkspaceTopLevelRenderOptions {
   conversationAttachmentsPath?: string | null;
   /**
@@ -41,7 +53,7 @@ export function renderWorkspaceTopLevelContext(
     lines.push("(list truncated — more entries exist)");
   }
   lines.push(`Host home directory: ${options.hostHomeDir ?? homedir()}`);
-  lines.push(`Host username: ${options.hostUsername ?? userInfo().username}`);
+  lines.push(`Host username: ${options.hostUsername ?? safeUserInfoUsername()}`);
   lines.push("</workspace>");
   return lines.join("\n");
 }

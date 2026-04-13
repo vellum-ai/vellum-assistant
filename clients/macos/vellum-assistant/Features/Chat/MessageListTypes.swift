@@ -2,21 +2,6 @@ import Foundation
 import SwiftUI
 import VellumAssistantShared
 
-// MARK: - Scroll Suppression Environment
-
-/// Environment key that child views (e.g. AssistantProgressView) call to
-/// temporarily suppress auto-scroll-to-bottom during content expansion.
-struct SuppressAutoScrollKey: EnvironmentKey {
-    static let defaultValue: (() -> Void)? = nil
-}
-
-extension EnvironmentValues {
-    var suppressAutoScroll: (() -> Void)? {
-        get { self[SuppressAutoScrollKey.self] }
-        set { self[SuppressAutoScrollKey.self] = newValue }
-    }
-}
-
 // MARK: - Precomputed Cache Key
 
 /// Lightweight key that captures all inputs to `precomputedState`.

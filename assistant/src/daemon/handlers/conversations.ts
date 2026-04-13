@@ -16,6 +16,7 @@ import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { summarizeToolInput } from "../../tools/tool-input-summary.js";
+import { createAbortReason } from "../../util/abort-reasons.js";
 import { truncate } from "../../util/truncate.js";
 import type { Conversation } from "../conversation.js";
 import type {
@@ -323,7 +324,9 @@ export function cancelGeneration(
     return false;
   }
   ctx.touchConversation(conversationId);
-  conversation.abort();
+  conversation.abort(
+    createAbortReason("user_cancel", "cancelGeneration", conversationId),
+  );
   // Also abort any child subagents spawned by this conversation.
   // Omit sendToClient to suppress parent notifications — the parent is
   // being cancelled, so enqueuing synthetic messages would trigger

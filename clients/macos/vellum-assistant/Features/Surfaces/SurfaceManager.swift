@@ -163,13 +163,10 @@ final class SurfaceManager {
                 )
             },
             onDismiss: { [weak self] in
-                guard let self, !self.respondedSurfaces.contains(surface.id) else {
-                    self?.dismissSurfaceById(surface.id)
-                    return
-                }
-                self.respondedSurfaces.insert(surface.id)
-                self.onAction?(surface.conversationId, surface.id, "dismiss", nil)
-                self.dismissSurfaceById(surface.id)
+                self?.handleSurfaceDismiss(
+                    conversationId: surface.conversationId,
+                    surfaceId: surface.id
+                )
             },
             appId: appId,
             onDataRequest: appId != nil ? { [weak self] callId, method, recordId, data in
@@ -319,6 +316,33 @@ final class SurfaceManager {
         onAction?(conversationId, surfaceId, actionId, data)
     }
 
+    /// Handles a user-initiated dismissal (panel close button, Escape, or an explicit
+    /// cancel flow that invokes `onDismiss`).
+    ///
+    /// Emits a synthetic `"dismiss"` action so the daemon can clean up its pending-surface
+    /// state, unless the surface already dispatched an action this turn — in which case
+    /// the dismiss would race with the action (e.g. a cancel-style button that fires both
+    /// `onAction` and `onDismiss` for a single click).
+    ///
+    /// "Already dispatched" is tracked differently for the two modes:
+    /// - Non-persistent surfaces latch via `respondedSurfaces` in `handleSurfaceAction`.
+    /// - Persistent surfaces never enter `respondedSurfaces`; instead, any prior action
+    ///   leaves an entry in `spentActionIdsBySurface`, which we use as the signal.
+    func handleSurfaceDismiss(conversationId: String?, surfaceId: String) {
+        let alreadyDispatched: Bool
+        if persistentSurfaces.contains(surfaceId) {
+            alreadyDispatched = !(spentActionIdsBySurface[surfaceId]?.isEmpty ?? true)
+        } else {
+            alreadyDispatched = respondedSurfaces.contains(surfaceId)
+        }
+
+        if !alreadyDispatched {
+            respondedSurfaces.insert(surfaceId)
+            onAction?(conversationId, surfaceId, "dismiss", nil)
+        }
+        dismissSurfaceById(surfaceId)
+    }
+
     /// Test-only hook so unit tests can exercise `handleSurfaceAction` and surface lifecycle
     /// without creating NSPanels. Mirrors the `activeSurfaces`/`persistentSurfaces` side effects
     /// that `showSurface` performs in production.
@@ -382,10 +406,17 @@ final class SurfaceManager {
     /// Dismiss only floating panel surfaces, leaving workspace-routed surfaces untouched.
     /// Used by the global Escape handler to avoid destroying workspace apps when the user
     /// presses Escape in another application.
+    ///
+    /// Routes each dismissal through `handleSurfaceDismiss` so the daemon receives a synthetic
+    /// `"dismiss"` action (matching the close-button path) and can clean up its pending-surface
+    /// state. Without this, Escape would leave the daemon with a stale pending entry.
     func dismissFloatingOnly() {
-        let floatingIds = Array(panels.keys).filter { !workspaceRoutedSurfaces.contains($0) }
+        let floatingIds = activeSurfaces.keys.filter { !workspaceRoutedSurfaces.contains($0) }
         for id in floatingIds {
-            dismissSurfaceById(id)
+            handleSurfaceDismiss(
+                conversationId: activeSurfaces[id]?.conversationId,
+                surfaceId: id
+            )
         }
     }
 

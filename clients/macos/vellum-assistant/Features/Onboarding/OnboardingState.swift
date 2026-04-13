@@ -108,6 +108,12 @@ final class OnboardingState {
     var hatchTotalSteps: Int = 1
     var hatchCurrentStep: Int = 0
 
+    /// Pre-chat onboarding context collected after hatching when the
+    /// `onboarding-pre-chat` feature flag is enabled. Threaded through
+    /// AppDelegate → ConversationManager → ChatViewModel so the first
+    /// message POST includes it for assistant personalization.
+    var preChatContext: PreChatOnboardingContext?
+
     /// Avatar traits generated during the hatching animation. Stored here
     /// (rather than as @State in HatchingStepView) so they survive view
     /// disappearance and are available to the post-hatch sync logic.

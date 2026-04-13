@@ -148,6 +148,20 @@ struct ChatContentView: View {
                 genericErrorBanner(errorText)
             }
 
+            // Queue drawer — lists user messages still waiting to be sent.
+            // Collapses when the queue is empty.
+            if !viewModel.queuedMessages.isEmpty {
+                QueuedMessagesDrawer_iOS(
+                    viewModel: viewModel,
+                    composerText: $viewModel.inputText,
+                    composerAttachments: $viewModel.pendingAttachments
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .animation(
+                    .spring(duration: 0.28, bounce: 0.15),
+                    value: viewModel.queuedMessages.count
+                )
+            }
 
             // Input bar
             InputBarView(
@@ -178,16 +192,24 @@ struct ChatContentView: View {
                 LazyVStack(spacing: VSpacing.md) {
                     paginationHeader(proxy: proxy)
 
+                    // Collapse consecutive inline queued user bubbles into a
+                    // single marker. The queued messages are still managed in
+                    // the drawer (`QueuedMessagesDrawer_iOS`) — rendering them
+                    // inline here duplicates the information and clutters the
+                    // transcript when many follow-ups are queued. The pure
+                    // helper `TranscriptItems.build(from:)` is shared in
+                    // `clients/shared/Features/Chat/TranscriptItems.swift`.
                     let messages = visibleMessages
-                    ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
-                        messageBubble(message: message, index: index, messages: messages)
-
-                        // Subagent chips anchored to the message that spawned them
-                        ForEach(viewModel.activeSubagents.filter { $0.parentMessageId == message.id }) { subagent in
-                            SubagentStatusChip(subagent: subagent)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .id("subagent-\(subagent.id)")
-                        }
+                    let indexByMessageId: [UUID: Int] = Dictionary(
+                        uniqueKeysWithValues: messages.enumerated().map { ($0.element.id, $0.offset) }
+                    )
+                    let transcriptItems = TranscriptItems.build(from: messages)
+                    ForEach(transcriptItems) { item in
+                        transcriptRowContent(
+                            item: item,
+                            messages: messages,
+                            indexByMessageId: indexByMessageId
+                        )
                     }
 
                     // Subagents with no parent message (e.g. from history load)
@@ -380,6 +402,36 @@ struct ChatContentView: View {
                         }
                     }
                 }
+        }
+    }
+
+    // MARK: - Transcript Row
+
+    /// Renders a single item from the collapsed transcript. Either the queue
+    /// marker (in place of one or more inline queued user bubbles) or a normal
+    /// message bubble plus any subagent chips anchored to it.
+    @ViewBuilder
+    private func transcriptRowContent(
+        item: TranscriptItem,
+        messages: [ChatMessage],
+        indexByMessageId: [UUID: Int]
+    ) -> some View {
+        switch item {
+        case .queuedMarker(let count, let anchorId):
+            QueuedMessagesMarker_iOS(count: count)
+                .id(anchorId)
+        case .message(let message):
+            // Safe: every `.message` in the collapsed transcript originates
+            // from `messages`, so the index lookup is always present.
+            let index = indexByMessageId[message.id] ?? 0
+            messageBubble(message: message, index: index, messages: messages)
+
+            // Subagent chips anchored to the message that spawned them
+            ForEach(viewModel.activeSubagents.filter { $0.parentMessageId == message.id }) { subagent in
+                SubagentStatusChip(subagent: subagent)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .id("subagent-\(subagent.id)")
+            }
         }
     }
 

@@ -14,7 +14,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 let mockRawConfig: Record<string, unknown> | undefined;
 let mockSecureKeys: Record<string, string>;
 let mockHasTwilioCredentials: boolean;
-let mockPrimaryInboxAddress: string | undefined;
 
 mock.module("../calls/twilio-rest.js", () => ({
   hasTwilioCredentials: () => mockHasTwilioCredentials,
@@ -24,7 +23,7 @@ mock.module("../calls/twilio-rest.js", () => ({
 mock.module("../config/env.js", () => ({}));
 
 mock.module("../config/loader.js", () => ({
-  loadRawConfig: () => mockRawConfig,
+  loadRawConfig: () => mockRawConfig ?? {},
   loadConfig: () => {
     const raw = mockRawConfig ?? {};
     const wa = (raw.whatsapp ?? {}) as Record<string, unknown>;
@@ -43,17 +42,20 @@ mock.module("../config/loader.js", () => ({
       whatsapp: { phoneNumber: (wa.phoneNumber as string) ?? "" },
     };
   },
+  getNestedValue: (obj: Record<string, unknown>, path: string) => {
+    const keys = path.split(".");
+    let current: unknown = obj;
+    for (const key of keys) {
+      if (current == null || typeof current !== "object") return undefined;
+      current = (current as Record<string, unknown>)[key];
+    }
+    return current;
+  },
   invalidateConfigCache: () => {},
 }));
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (key: string) => mockSecureKeys[key] ?? null,
-}));
-
-mock.module("../email/service.js", () => ({
-  getEmailService: () => ({
-    getPrimaryInboxAddress: async () => mockPrimaryInboxAddress,
-  }),
 }));
 
 mock.module("../email/feature-gate.js", () => ({
@@ -76,7 +78,6 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
     mockRawConfig = undefined;
     mockSecureKeys = {};
     mockHasTwilioCredentials = false;
-    mockPrimaryInboxAddress = undefined;
   });
 
   // -------------------------------------------------------------------------
@@ -96,19 +97,19 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
       ).toBe(false);
     });
 
-    test("reports not ready when AgentMail API key is missing", async () => {
+    test("reports platform email check as passing", async () => {
       mockRawConfig = {};
       const service = createReadinessService();
       const [snapshot] = await service.getReadiness("email");
 
-      expect(snapshot.ready).toBe(false);
-      expect(snapshot.reasons.some((r) => r.code === "agentmail_api_key")).toBe(
-        true,
+      const platformCheck = snapshot.localChecks.find(
+        (c) => c.name === "platform_email",
       );
+      expect(platformCheck).toBeDefined();
+      expect(platformCheck!.passed).toBe(true);
     });
 
     test("checks invite policy", async () => {
-      mockSecureKeys = { agentmail: "test-key" };
       mockRawConfig = {
         ingress: { publicBaseUrl: "https://example.com", enabled: true },
       };
@@ -124,7 +125,6 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
     });
 
     test("checks ingress configuration", async () => {
-      mockSecureKeys = { agentmail: "test-key" };
       mockRawConfig = {};
       const service = createReadinessService();
       const [snapshot] = await service.getReadiness("email");
@@ -137,11 +137,10 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
     });
 
     test("ready when all prerequisites are met (including inbox)", async () => {
-      mockSecureKeys = { agentmail: "test-key" };
       mockRawConfig = {
         ingress: { publicBaseUrl: "https://example.com", enabled: true },
+        email: { address: "hello@vellum.me" },
       };
-      mockPrimaryInboxAddress = "hello@example.agentmail.to";
       const service = createReadinessService();
       const [snapshot] = await service.getReadiness("email", true);
 
@@ -150,11 +149,9 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
     });
 
     test("not ready when inbox is missing (remote check)", async () => {
-      mockSecureKeys = { agentmail: "test-key" };
       mockRawConfig = {
         ingress: { publicBaseUrl: "https://example.com", enabled: true },
       };
-      mockPrimaryInboxAddress = undefined;
       const service = createReadinessService();
       const [snapshot] = await service.getReadiness("email", true);
 
@@ -165,7 +162,6 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
     });
 
     test("local-only readiness still passes without inbox check", async () => {
-      mockSecureKeys = { agentmail: "test-key" };
       mockRawConfig = {
         ingress: { publicBaseUrl: "https://example.com", enabled: true },
       };

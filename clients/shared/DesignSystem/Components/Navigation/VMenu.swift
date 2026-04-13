@@ -167,7 +167,17 @@ public struct VMenu<Content: View>: View {
         .padding(VSpacing.sm)
 
         if maxHeight != nil {
-            ScrollView(.vertical) { stack }
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) { stack }
+                    #if os(macOS)
+                    .onChange(of: focusedItemID) { _, newValue in
+                        guard let newValue else { return }
+                        withAnimation {
+                            proxy.scrollTo(newValue, anchor: .center)
+                        }
+                    }
+                    #endif
+            }
         } else {
             stack
         }
@@ -432,6 +442,7 @@ public struct VMenuItem<Trailing: View>: View {
             #if os(macOS)
             .preference(key: VMenuItemRegistrationKey.self, value: [VMenuItemRegistration(id: itemID, isSubmenu: false)])
             .background(VMenuItemNSViewCapture(itemID: itemID, level: panelLevel, coordinator: coordinator))
+            .id(itemID)
             .onAppear {
                 coordinator?.registerItemAction(level: panelLevel, id: itemID) {
                     dismissMenu?(); action()
@@ -480,6 +491,7 @@ public struct VMenuItem<Trailing: View>: View {
             #if os(macOS)
             .preference(key: VMenuItemRegistrationKey.self, value: [VMenuItemRegistration(id: itemID, isSubmenu: false)])
             .background(VMenuItemNSViewCapture(itemID: itemID, level: panelLevel, coordinator: coordinator))
+            .id(itemID)
             .onAppear {
                 coordinator?.registerItemAction(level: panelLevel, id: itemID) {
                     dismissMenu?(); action()
@@ -649,6 +661,7 @@ public struct VSubMenuItem<Content: View>: View {
         }
         .preference(key: VMenuItemRegistrationKey.self, value: [VMenuItemRegistration(id: itemID, isSubmenu: true)])
         .background(VMenuItemNSViewCapture(itemID: itemID, level: panelLevel, coordinator: coordinator))
+        .id(itemID)
         .onAppear {
             // Register both item action (Enter/Space) and submenu action (right arrow).
             // For submenus, both trigger the same behavior: open the child panel.

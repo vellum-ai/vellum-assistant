@@ -3,9 +3,8 @@
  * override values.
  *
  * Mirrors the trust-store.ts pattern: file path resolution via
- * GATEWAY_SECURITY_DIR (Docker) or ~/.vellum/protected/ (local), atomic
- * writes (temp file + rename), 0o600 permissions, and module-level caching
- * with manual invalidation.
+ * getGatewaySecurityDir(), atomic writes (temp file + rename), 0o600
+ * permissions, and module-level caching with manual invalidation.
  */
 
 import {
@@ -19,7 +18,7 @@ import {
 import { dirname, join } from "node:path";
 
 import { getLogger } from "./logger.js";
-import { getRootDir } from "./credential-reader.js";
+import { getGatewaySecurityDir } from "./paths.js";
 
 const log = getLogger("feature-flag-store");
 
@@ -37,11 +36,7 @@ interface FeatureFlagFileData {
 // ---------------------------------------------------------------------------
 
 export function getFeatureFlagStorePath(): string {
-  const securityDir = process.env.GATEWAY_SECURITY_DIR;
-  if (securityDir) {
-    return join(securityDir, "feature-flags.json");
-  }
-  return join(getRootDir(), "protected", "feature-flags.json");
+  return join(getGatewaySecurityDir(), "feature-flags.json");
 }
 
 // ---------------------------------------------------------------------------

@@ -1105,22 +1105,17 @@ public struct ClawhubOriginMeta: Codable, Sendable, Equatable {
     }
 
     /// URL to this skill's page on clawhub.ai.
-    /// Uses `author/slug` when author is known; falls back to the raw slug
-    /// when it already contains a "/" (installed skills may store `author/slug`
-    /// as the slug itself). Returns nil only when no valid path can be built.
+    /// Namespaced slugs (e.g. "author/skill") use the root path directly;
+    /// simple slugs use the `/skills/` prefix.
     public var hubURL: URL? {
-        let path: String
-        if !author.isEmpty {
-            path = "\(author)/\(slug)"
-        } else if slug.contains("/") {
-            path = slug
-        } else {
-            return nil
+        if slug.contains("/") {
+            let encoded = slug.split(separator: "/").map {
+                String($0).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0)
+            }.joined(separator: "/")
+            return URL(string: "https://clawhub.ai/\(encoded)")
         }
-        let encoded = path.split(separator: "/").map {
-            String($0).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0)
-        }.joined(separator: "/")
-        return URL(string: "https://clawhub.ai/\(encoded)")
+        let encodedSlug = slug.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? slug
+        return URL(string: "https://clawhub.ai/skills/\(encodedSlug)")
     }
 }
 
@@ -2400,11 +2395,18 @@ public enum ServerMessage: Decodable, Sendable {
     case serviceGroupUpdateProgress(ServiceGroupUpdateProgressMessage)
     case serviceGroupUpdateComplete(ServiceGroupUpdateCompleteMessage)
     case conversationIdResolved(localId: String, serverId: String)
+    case relationshipStateUpdated(updatedAt: String)
     case pong
     case unknown(String)
 
     private enum CodingKeys: String, CodingKey {
         case type
+    }
+
+    /// Keys for hand-decoded inline payload cases that don't wrap a
+    /// codegen'd struct (e.g. `relationshipStateUpdated`).
+    private enum InlinePayloadKeys: String, CodingKey {
+        case updatedAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -2872,6 +2874,10 @@ public enum ServerMessage: Decodable, Sendable {
         case "service_group_update_complete":
             let message = try ServiceGroupUpdateCompleteMessage(from: decoder)
             self = .serviceGroupUpdateComplete(message)
+        case "relationship_state_updated":
+            let payloadContainer = try decoder.container(keyedBy: InlinePayloadKeys.self)
+            let updatedAt = try payloadContainer.decode(String.self, forKey: .updatedAt)
+            self = .relationshipStateUpdated(updatedAt: updatedAt)
         case "pong":
             self = .pong
         default:

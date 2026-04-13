@@ -15,7 +15,6 @@
         "@vellumai/ces-contracts": "file:../packages/ces-contracts",
         "@vellumai/credential-storage": "file:../packages/credential-storage",
         "@vellumai/egress-proxy": "file:../packages/egress-proxy",
-        "agentmail": "0.1.19",
         "archiver": "7.0.1",
         "commander": "13.1.0",
         "croner": "10.0.1",
@@ -400,8 +399,6 @@
     "acorn-jsx": ["acorn-jsx@5.3.2", "", { "peerDependencies": { "acorn": "^6.0.0 || ^7.0.0 || ^8.0.0" } }, "sha512-rq9s+JNhf0IChjtDXxllJ7g41oZk5SlXtp0LHwyA5cejwn7vKmKp4pPri6YEePv2PU65sAsegbXtIinmDFDXgQ=="],
 
     "agent-base": ["agent-base@7.1.4", "", {}, "sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ=="],
-
-    "agentmail": ["agentmail@0.1.19", "", { "dependencies": { "ws": "^8.16.0" } }, "sha512-L0au0GnyH24Ob7l0QrkkdwJWL25Aa26f6YnuQlpvwtQMVOTu6IiMftJ8LnVVwQtKwBSZ6cWLS+9SdCvgw+LWGg=="],
 
     "ajv": ["ajv@6.14.0", "", { "dependencies": { "fast-deep-equal": "^3.1.1", "fast-json-stable-stringify": "^2.0.0", "json-schema-traverse": "^0.4.1", "uri-js": "^4.2.2" } }, "sha512-IWrosm/yrn43eiKqkfkHis7QioDleaXQHdDVPKg0FSwwd/DuvyX79TZnFOnYpB7dcsFAMmtFztZuXPDvSePkFw=="],
 

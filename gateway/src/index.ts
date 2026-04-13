@@ -39,6 +39,11 @@ import {
   getMediaStreamWebsocketHandlers,
   type MediaStreamSocketData,
 } from "./http/routes/twilio-media-websocket.js";
+import {
+  createSttStreamWebsocketHandler,
+  getSttStreamWebsocketHandlers,
+  type SttStreamSocketData,
+} from "./http/routes/stt-stream-websocket.js";
 import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js";
 import { createWhatsAppDeliverHandler } from "./http/routes/whatsapp-deliver.js";
 import { createEmailWebhookHandler } from "./http/routes/email-webhook.js";
@@ -176,6 +181,14 @@ function isMediaStreamSocketData(data: unknown): data is MediaStreamSocketData {
   );
 }
 
+function isSttStreamSocketData(data: unknown): data is SttStreamSocketData {
+  return (
+    !!data &&
+    typeof data === "object" &&
+    (data as { wsType?: unknown }).wsType === "stt-stream"
+  );
+}
+
 function getClientIp(
   req: Request,
   server: ReturnType<typeof Bun.serve>,
@@ -254,9 +267,11 @@ async function main() {
     configFile: configFileCache,
   });
   const handleBrowserRelayWs = createBrowserRelayWebsocketHandler(config);
+  const handleSttStreamWs = createSttStreamWebsocketHandler(config);
   const twilioRelayWebsocketHandlers = getRelayWebsocketHandlers();
   const twilioMediaStreamWebsocketHandlers = getMediaStreamWebsocketHandlers();
   const browserRelayWebsocketHandlers = getBrowserRelayWebsocketHandlers();
+  const sttStreamWebsocketHandlers = getSttStreamWebsocketHandlers();
   const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } =
     createWhatsAppWebhookHandler(config, {
       credentials: credentialCache,
@@ -1067,6 +1082,10 @@ async function main() {
           twilioMediaStreamWebsocketHandlers.open(ws as never);
           return;
         }
+        if (isSttStreamSocketData(ws.data)) {
+          sttStreamWebsocketHandlers.open(ws as never);
+          return;
+        }
         twilioRelayWebsocketHandlers.open(ws as never);
       },
       message(ws, message) {
@@ -1078,6 +1097,10 @@ async function main() {
           twilioMediaStreamWebsocketHandlers.message(ws as never, message);
           return;
         }
+        if (isSttStreamSocketData(ws.data)) {
+          sttStreamWebsocketHandlers.message(ws as never, message);
+          return;
+        }
         twilioRelayWebsocketHandlers.message(ws as never, message);
       },
       close(ws, code, reason) {
@@ -1087,6 +1110,10 @@ async function main() {
         }
         if (isMediaStreamSocketData(ws.data)) {
           twilioMediaStreamWebsocketHandlers.close(ws as never, code, reason);
+          return;
+        }
+        if (isSttStreamSocketData(ws.data)) {
+          sttStreamWebsocketHandlers.close(ws as never, code, reason);
           return;
         }
         twilioRelayWebsocketHandlers.close(ws as never, code, reason);
@@ -1219,6 +1246,12 @@ async function main() {
 
       if (config.runtimeProxyEnabled && url.pathname === "/v1/browser-relay") {
         const upgradeResult = handleBrowserRelayWs(req, server);
+        if (upgradeResult !== undefined) return upgradeResult;
+        return undefined as unknown as Response;
+      }
+
+      if (url.pathname === "/v1/stt/stream") {
+        const upgradeResult = handleSttStreamWs(req, server);
         if (upgradeResult !== undefined) return upgradeResult;
         return undefined as unknown as Response;
       }

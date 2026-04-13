@@ -20,7 +20,6 @@ import {
 import {
   addActiveRelease,
   getActiveReleases,
-  getCompletedReleases,
   isReleaseCompleted,
   markReleasesCompleted,
   setActiveReleases,
@@ -85,21 +84,23 @@ export function syncUpdateBulletinOnStartup(): void {
   const workspacePath = getWorkspacePromptPath("UPDATES.md");
 
   // --- Dismissal detection ---
-  // If UPDATES.md is missing or empty AND we've materialized it at least
-  // once before (i.e. there's prior release state), treat it as a dismissal:
-  // mark the active set plus the current release completed and stop. The
-  // "has ever materialized" guard preserves fresh-install semantics — on a
-  // brand-new DB we want to create the file, not treat its absence as
-  // dismissal of the current release.
+  // If UPDATES.md is missing or empty AND the CURRENT release has been
+  // materialized before (i.e. it's in the active set, or already marked
+  // completed), treat it as a dismissal: mark the active set plus the
+  // current release completed and stop. Scoping to the current release is
+  // critical — a prior release having been completed must NOT cause a new
+  // version's bulletin to be suppressed as "already dismissed". It also
+  // preserves fresh-install semantics: on a brand-new DB we want to create
+  // the file, not treat its absence as dismissal.
   const activeReleases = getActiveReleases();
   const fileMissing = !existsSync(workspacePath);
   const fileEmpty =
-    !fileMissing &&
-    readFileSync(workspacePath, "utf-8").trim().length === 0;
-  const hasEverMaterialized =
-    activeReleases.length > 0 || getCompletedReleases().length > 0;
+    !fileMissing && readFileSync(workspacePath, "utf-8").trim().length === 0;
+  const currentReleaseMaterialized =
+    activeReleases.includes(currentReleaseId) ||
+    isReleaseCompleted(currentReleaseId);
 
-  if ((fileMissing || fileEmpty) && hasEverMaterialized) {
+  if ((fileMissing || fileEmpty) && currentReleaseMaterialized) {
     markReleasesCompleted([...activeReleases, currentReleaseId]);
     setActiveReleases([]);
     return;
@@ -122,10 +123,7 @@ export function syncUpdateBulletinOnStartup(): void {
   } else {
     const existing = readFileSync(workspacePath, "utf-8");
     if (!hasReleaseBlock(existing, currentReleaseId)) {
-      const contentToAppend = filterNewContentBlocks(
-        templateContent,
-        existing,
-      );
+      const contentToAppend = filterNewContentBlocks(templateContent, existing);
       if (contentToAppend.length > 0) {
         const updated = appendReleaseBlock(
           existing,

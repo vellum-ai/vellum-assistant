@@ -190,6 +190,14 @@ mock.module("../lib/retire-local.js", () => ({
   retireLocal: retireLocalMock,
 }));
 
+const fetchCurrentVersionMock = mock(
+  async (_runtimeUrl: string): Promise<string | undefined> => undefined,
+);
+
+mock.module("../lib/upgrade-lifecycle.js", () => ({
+  fetchCurrentVersion: fetchCurrentVersionMock,
+}));
+
 import {
   teleport,
   parseArgs,
@@ -331,6 +339,8 @@ beforeEach(() => {
   retireDockerMock.mockResolvedValue(undefined);
   retireLocalMock.mockReset();
   retireLocalMock.mockResolvedValue(undefined);
+  fetchCurrentVersionMock.mockReset();
+  fetchCurrentVersionMock.mockResolvedValue(undefined);
   sleepContainersMock.mockReset();
   sleepContainersMock.mockResolvedValue(undefined);
   stopProcessByPidFileMock.mockReset();
@@ -1418,6 +1428,361 @@ describe("platform teleport org ID and reordered flow", () => {
       );
       // Inline import should NOT be used since signed upload succeeded
       expect(platformImportBundleMock).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Version guard: block platform→non-platform when target is behind
+// ---------------------------------------------------------------------------
+
+describe("version guard: block platform→non-platform when target is behind", () => {
+  test("blocks platform→local when local version is behind platform", async () => {
+    setArgv("--from", "my-platform", "--local", "my-local");
+
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    // Source (platform) is on 0.7.0, target (local) is on 0.6.0
+    fetchCurrentVersionMock.mockImplementation((url: string) => {
+      if (url === "https://platform.vellum.ai") return Promise.resolve("0.7.0");
+      return Promise.resolve("0.6.0");
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await expect(teleport()).rejects.toThrow("process.exit:1");
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("is running 0.6.0"),
+      );
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Upgrade your local assistant first"),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("allows platform→local when versions are equal", async () => {
+    setArgv("--from", "my-platform", "--local", "my-local");
+
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    // Both on 0.7.0
+    fetchCurrentVersionMock.mockResolvedValue("0.7.0");
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Teleport complete"),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("allows platform→local when local is ahead of platform", async () => {
+    setArgv("--from", "my-platform", "--local", "my-local");
+
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    // Source (platform) is on 0.7.0, target (local) is on 0.8.0
+    fetchCurrentVersionMock.mockImplementation((url: string) => {
+      if (url === "https://platform.vellum.ai") return Promise.resolve("0.7.0");
+      return Promise.resolve("0.8.0");
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Teleport complete"),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("allows teleport when source version cannot be fetched (best-effort)", async () => {
+    setArgv("--from", "my-platform", "--local", "my-local");
+
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    // Source (platform) is unreachable, target (local) is on 0.6.0
+    fetchCurrentVersionMock.mockImplementation((url: string) => {
+      if (url === "https://platform.vellum.ai")
+        return Promise.resolve(undefined);
+      return Promise.resolve("0.6.0");
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Teleport complete"),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("allows teleport when target version cannot be fetched (best-effort)", async () => {
+    setArgv("--from", "my-platform", "--local", "my-local");
+
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    // Source (platform) is on 0.7.0, target (local) is unreachable
+    fetchCurrentVersionMock.mockImplementation((url: string) => {
+      if (url === "https://platform.vellum.ai") return Promise.resolve("0.7.0");
+      return Promise.resolve(undefined);
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Teleport complete"),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("pre-release target is behind release source: 0.7.0-local.xxx < 0.7.0", async () => {
+    setArgv("--from", "my-platform", "--local", "my-local");
+
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    // Per semver, pre-release < release for same core version
+    fetchCurrentVersionMock.mockImplementation((url: string) => {
+      if (url === "https://platform.vellum.ai") return Promise.resolve("0.7.0");
+      return Promise.resolve("0.7.0-local.20260411.abc123");
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await expect(teleport()).rejects.toThrow("process.exit:1");
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("is running 0.7.0-local.20260411.abc123"),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("blocks platform→docker when docker version is behind platform", async () => {
+    setArgv("--from", "my-platform", "--docker", "my-docker");
+
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const dockerEntry = makeEntry("my-docker", { cloud: "docker" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
+      if (name === "my-docker") return dockerEntry;
+      return null;
+    });
+
+    // Source (platform) is on 0.7.0, target (docker) is on 0.5.0
+    fetchCurrentVersionMock.mockImplementation((url: string) => {
+      if (url === "https://platform.vellum.ai") return Promise.resolve("0.7.0");
+      return Promise.resolve("0.5.0");
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await expect(teleport()).rejects.toThrow("process.exit:1");
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("is running 0.5.0"),
+      );
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Upgrade your docker assistant first"),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("dry-run: blocks platform→local when local version is behind", async () => {
+    setArgv("--from", "my-platform", "--local", "my-local", "--dry-run");
+
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    // Source (platform) is on 0.7.0, target (local) is on 0.6.0
+    fetchCurrentVersionMock.mockImplementation((url: string) => {
+      if (url === "https://platform.vellum.ai") return Promise.resolve("0.7.0");
+      return Promise.resolve("0.6.0");
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await expect(teleport()).rejects.toThrow("process.exit:1");
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("is running 0.6.0"),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("newly hatched target is cleaned up when version check fails", async () => {
+    // No existing local target — teleport will hatch a new one, then
+    // the version guard should retire it to avoid orphans.
+    setArgv("--from", "my-platform", "--local");
+
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const newLocalEntry = makeEntry("new-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
+      return null;
+    });
+
+    // Simulate hatch creating a new local entry
+    loadAllAssistantsMock.mockImplementation(() => {
+      if (hatchLocalMock.mock.calls.length > 0) {
+        return [platformEntry, newLocalEntry];
+      }
+      return [platformEntry];
+    });
+
+    // Source (platform) is on 0.7.0, newly hatched local is on 0.6.0
+    fetchCurrentVersionMock.mockImplementation((url: string) => {
+      if (url === "https://platform.vellum.ai") return Promise.resolve("0.7.0");
+      return Promise.resolve("0.6.0");
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await expect(teleport()).rejects.toThrow("process.exit:1");
+      // Should have hatched a new local assistant
+      expect(hatchLocalMock).toHaveBeenCalled();
+      // Should retire the orphaned assistant
+      expect(retireLocalMock).toHaveBeenCalledWith("new-local", newLocalEntry);
+      expect(removeAssistantEntryMock).toHaveBeenCalledWith("new-local");
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Cleaning up newly hatched assistant"),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("does not check versions for local→platform direction", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+      // fetchCurrentVersion should NOT be called for local→platform
+      expect(fetchCurrentVersionMock).not.toHaveBeenCalled();
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Teleport complete"),
+      );
     } finally {
       globalThis.fetch = originalFetch;
     }

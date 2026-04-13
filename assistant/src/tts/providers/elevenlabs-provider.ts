@@ -92,19 +92,29 @@ function resolveVoiceId(
 }
 
 /**
- * Choose the ElevenLabs output format based on the use case.
+ * Choose the ElevenLabs output format based on the use case and optional
+ * format hint.
  *
- * Phone calls benefit from lower-latency, smaller payloads (mp3 at 22050/32).
- * Message playback uses higher quality (mp3 at 44100/128).
+ * When the caller requests `outputFormat: "pcm"` (e.g. the media-stream
+ * transport which needs raw PCM for mu-law transcoding), we use `pcm_16000`
+ * — 16-bit signed little-endian at 16 kHz. The media-stream transport's
+ * `audioBufferToFrames` handles the 16 kHz -> 8 kHz downsample.
+ *
+ * Otherwise:
+ * - Phone calls benefit from lower-latency, smaller payloads (mp3 at 22050/32).
+ * - Message playback uses higher quality (mp3 at 44100/128).
  */
 function resolveOutputFormat(request: TtsSynthesisRequest): string {
+  if (request.outputFormat === "pcm") {
+    return "pcm_16000";
+  }
   return request.useCase === "phone-call" ? "mp3_22050_32" : "mp3_44100_128";
 }
 
 export function createElevenLabsProvider(): TtsProvider {
   const capabilities: TtsProviderCapabilities = {
     supportsStreaming: false,
-    supportedFormats: ["mp3"],
+    supportedFormats: ["mp3", "pcm"],
   };
 
   return {
@@ -146,6 +156,8 @@ export function createElevenLabsProvider(): TtsProvider {
         "Starting ElevenLabs TTS synthesis",
       );
 
+      const acceptType = FORMAT_CONTENT_TYPE[outputFormat] ?? "audio/mpeg";
+
       let response: Response;
       try {
         response = await fetch(`${url}?output_format=${outputFormat}`, {
@@ -153,7 +165,7 @@ export function createElevenLabsProvider(): TtsProvider {
           headers: {
             "Content-Type": "application/json",
             "xi-api-key": apiKey,
-            Accept: "audio/mpeg",
+            Accept: acceptType,
           },
           body: JSON.stringify(body),
           signal: request.signal,

@@ -2,17 +2,16 @@
  * Email channel invite adapter.
  *
  * Resolves the assistant's email address for use in invite instructions.
- * Uses the EmailService's cached primary inbox lookup so the real address
- * is returned when an inbox is configured. Falls back to `undefined` when
- * no inbox exists, which causes the invite instruction generator to emit
- * generic "on Email" wording instead of a misleading stub address.
+ * Reads the address from workspace config (`email.address`). Returns
+ * `undefined` when no address is configured, which causes the invite
+ * instruction generator to emit generic "on Email" wording.
  *
  * Email invites use the universal 6-digit code path for redemption, so
  * this adapter only implements `resolveChannelHandleAsync` — no
  * `buildShareLink` or `extractInboundToken` needed.
  */
 
-import { getEmailService } from "../../email/service.js";
+import { getNestedValue, loadRawConfig } from "../../config/loader.js";
 import type { ChannelInviteAdapter } from "../channel-invite-transport.js";
 
 // ---------------------------------------------------------------------------
@@ -23,6 +22,15 @@ export const emailInviteAdapter: ChannelInviteAdapter = {
   channel: "email",
 
   async resolveChannelHandleAsync(): Promise<string | undefined> {
-    return getEmailService().getPrimaryInboxAddress();
+    try {
+      const raw = loadRawConfig();
+      const address = getNestedValue(raw, "email.address");
+      if (typeof address === "string" && address.length > 0) {
+        return address;
+      }
+    } catch {
+      // Config unavailable
+    }
+    return undefined;
   },
 };

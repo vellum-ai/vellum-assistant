@@ -92,16 +92,24 @@ export function createFishAudioProvider(): TtsProvider {
       const config = getConfig().services.tts.providers["fish-audio"];
       const referenceId = resolveReferenceId(request, config);
 
+      // When PCM output is requested, override to WAV. Fish Audio
+      // doesn't support raw PCM, but WAV gives us PCM in a container
+      // that audioBufferToFrames can extract.
+      const effectiveFormat =
+        request.outputFormat === "pcm" ? "wav" : config.format;
+
       // Build an effective config with the resolved reference ID
+      // and the potentially overridden format.
       const effectiveConfig: TtsFishAudioProviderConfig = {
         ...config,
         referenceId,
+        format: effectiveFormat,
       };
 
       log.info(
         {
           referenceId,
-          format: config.format,
+          format: effectiveFormat,
           textLength: request.text.length,
         },
         "Starting Fish Audio TTS synthesis",
@@ -120,7 +128,7 @@ export function createFishAudioProvider(): TtsProvider {
         );
       }
 
-      const contentType = FORMAT_CONTENT_TYPE[config.format] ?? "audio/mpeg";
+      const contentType = FORMAT_CONTENT_TYPE[effectiveFormat] ?? "audio/mpeg";
 
       return { audio, contentType };
     },
@@ -132,15 +140,22 @@ export function createFishAudioProvider(): TtsProvider {
       const config = getConfig().services.tts.providers["fish-audio"];
       const referenceId = resolveReferenceId(request, config);
 
+      // When PCM output is requested, override to WAV. Fish Audio
+      // doesn't support raw PCM, but WAV gives us PCM in a container
+      // that audioBufferToFrames can extract.
+      const effectiveFormat =
+        request.outputFormat === "pcm" ? "wav" : config.format;
+
       const effectiveConfig: TtsFishAudioProviderConfig = {
         ...config,
         referenceId,
+        format: effectiveFormat,
       };
 
       log.info(
         {
           referenceId,
-          format: config.format,
+          format: effectiveFormat,
           textLength: request.text.length,
         },
         "Starting Fish Audio TTS streaming synthesis",
@@ -160,7 +175,7 @@ export function createFishAudioProvider(): TtsProvider {
         );
       }
 
-      const contentType = FORMAT_CONTENT_TYPE[config.format] ?? "audio/mpeg";
+      const contentType = FORMAT_CONTENT_TYPE[effectiveFormat] ?? "audio/mpeg";
 
       return { audio, contentType };
     },

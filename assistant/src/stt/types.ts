@@ -1,10 +1,15 @@
 /**
- * Provider-agnostic speech-to-text domain types for daemon batch transcription.
+ * Provider-agnostic speech-to-text domain types for daemon transcription.
  *
  * These types define the boundary between callers that need audio transcription
  * and the concrete STT provider implementations. The goal is to let daemon
  * callsites program against a single typed interface so that provider swaps are
  * localized to the adapter layer.
+ *
+ * Two execution modes are supported:
+ * - **Batch** — a single audio buffer is sent and a final transcript returned.
+ * - **Streaming** — audio chunks are sent over a persistent session, and the
+ *   provider emits partial/final transcript events in real time.
  */
 
 // ---------------------------------------------------------------------------
@@ -12,7 +17,7 @@
 // ---------------------------------------------------------------------------
 
 /**
- * Canonical provider identifiers for daemon-hosted batch STT backends.
+ * Canonical provider identifiers for daemon-hosted STT backends.
  * Extend this union as new providers are integrated.
  */
 export type SttProviderId = "openai-whisper" | "deepgram" | "google-gemini";
@@ -21,8 +26,7 @@ export type SttProviderId = "openai-whisper" | "deepgram" | "google-gemini";
  * Telephony-specific STT support mode.
  *
  * Describes how a provider can participate in real-time telephony call
- * ingestion when wired through `services.stt` (as opposed to the
- * ConversationRelay-native STT path in `calls.voice.transcriptionProvider`).
+ * ingestion when wired through `services.stt`.
  *
  * - `"realtime-ws"` — provider offers a WebSocket streaming endpoint suitable
  *   for low-latency telephony audio. Future PRs will wire this into the
@@ -33,6 +37,27 @@ export type SttProviderId = "openai-whisper" | "deepgram" | "google-gemini";
  */
 export type TelephonySttMode = "realtime-ws" | "batch-only" | "none";
 
+/**
+ * Conversation streaming STT support mode.
+ *
+ * Describes how a provider can participate in real-time conversation
+ * streaming when used for chat message capture (chat composer and iOS
+ * input bar).
+ *
+ * - `"realtime-ws"` — provider offers a native WebSocket streaming endpoint
+ *   that accepts audio chunks and emits partial/final transcript events
+ *   with low latency (e.g. Deepgram live transcription).
+ * - `"incremental-batch"` — provider does not offer true streaming but can
+ *   be polled with incremental audio batches to approximate streaming
+ *   behaviour (e.g. Google Gemini multimodal).
+ * - `"none"` — provider has no conversation streaming support; callers
+ *   should fall back to batch transcription.
+ */
+export type ConversationStreamingMode =
+  | "realtime-ws"
+  | "incremental-batch"
+  | "none";
+
 // ---------------------------------------------------------------------------
 // Boundary identifier
 // ---------------------------------------------------------------------------
@@ -41,8 +66,10 @@ export type TelephonySttMode = "realtime-ws" | "batch-only" | "none";
  * Runtime boundary through which STT is executed.
  * - `daemon-batch` — transcription runs in the daemon process via a REST API
  *   call to the provider (e.g. OpenAI Whisper).
+ * - `daemon-streaming` — transcription runs in the daemon process over a
+ *   persistent streaming session (e.g. WebSocket or incremental-batch loop).
  */
-export type SttBoundaryId = "daemon-batch";
+export type SttBoundaryId = "daemon-batch" | "daemon-streaming";
 
 // ---------------------------------------------------------------------------
 // Call-context hints
@@ -151,4 +178,133 @@ export interface BatchTranscriber {
    * structured {@link SttErrorCategory}.
    */
   transcribe(request: SttTranscribeRequest): Promise<SttTranscribeResult>;
+}
+
+// ---------------------------------------------------------------------------
+// Streaming client events (client -> daemon)
+// ---------------------------------------------------------------------------
+
+/**
+ * Events that a client sends to the daemon streaming session.
+ *
+ * The discriminated `type` field lets the runtime session handler
+ * dispatch to the correct streaming adapter method without coupling
+ * to transport-level framing (WebSocket opcodes, HTTP/2 frames, etc.).
+ */
+export type SttStreamClientEvent =
+  | SttStreamClientAudioEvent
+  | SttStreamClientStopEvent;
+
+/** A chunk of audio data to be transcribed. */
+export interface SttStreamClientAudioEvent {
+  readonly type: "audio";
+  /** Raw audio data for the current chunk. */
+  readonly audio: Buffer;
+  /** MIME type of the audio data (e.g. "audio/webm", "audio/pcm"). */
+  readonly mimeType: string;
+}
+
+/** Signals that the client has finished sending audio. */
+export interface SttStreamClientStopEvent {
+  readonly type: "stop";
+}
+
+// ---------------------------------------------------------------------------
+// Streaming server events (daemon -> client)
+// ---------------------------------------------------------------------------
+
+/**
+ * Events that the daemon streaming session emits to the client.
+ *
+ * The discriminated `type` field allows clients to handle partial
+ * and final transcripts, errors, and session lifecycle signals in a
+ * type-safe manner.
+ */
+export type SttStreamServerEvent =
+  | SttStreamServerPartialEvent
+  | SttStreamServerFinalEvent
+  | SttStreamServerErrorEvent
+  | SttStreamServerClosedEvent;
+
+/**
+ * A partial (interim) transcript — may be revised by subsequent
+ * partial or final events.
+ */
+export interface SttStreamServerPartialEvent {
+  readonly type: "partial";
+  /** Interim transcript text. May change with subsequent events. */
+  readonly text: string;
+}
+
+/**
+ * A final (committed) transcript — this segment will not be revised.
+ */
+export interface SttStreamServerFinalEvent {
+  readonly type: "final";
+  /** Committed transcript text for a completed speech segment. */
+  readonly text: string;
+}
+
+/** An error occurred during streaming transcription. */
+export interface SttStreamServerErrorEvent {
+  readonly type: "error";
+  /** Normalized error category for caller branching. */
+  readonly category: SttErrorCategory;
+  /** Human-readable error description. */
+  readonly message: string;
+}
+
+/** The streaming session has closed (no more events will be emitted). */
+export interface SttStreamServerClosedEvent {
+  readonly type: "closed";
+}
+
+// ---------------------------------------------------------------------------
+// Streaming transcriber interface
+// ---------------------------------------------------------------------------
+
+/**
+ * Daemon-hosted streaming transcriber contract.
+ *
+ * Implementations manage a persistent session that accepts audio chunks
+ * and emits partial/final transcript events. The runtime session
+ * orchestrator (PR 5) drives this interface from the gateway WebSocket
+ * path.
+ *
+ * Lifecycle:
+ * 1. Call {@link start} to open the provider session.
+ * 2. Feed audio chunks via {@link sendAudio}.
+ * 3. Call {@link stop} when the client finishes recording.
+ * 4. The `onEvent` callback receives server events until `closed`.
+ */
+export interface StreamingTranscriber {
+  /** Which provider backs this transcriber. */
+  readonly providerId: SttProviderId;
+  /** Which runtime boundary this transcriber operates in. */
+  readonly boundaryId: "daemon-streaming";
+
+  /**
+   * Open the streaming session with the provider.
+   *
+   * Must be called once before {@link sendAudio}. Rejects if the
+   * provider session cannot be established.
+   */
+  start(onEvent: (event: SttStreamServerEvent) => void): Promise<void>;
+
+  /**
+   * Feed a chunk of audio into the streaming session.
+   *
+   * Callers must not call this before {@link start} resolves or after
+   * {@link stop} has been called.
+   */
+  sendAudio(audio: Buffer, mimeType: string): void;
+
+  /**
+   * Signal that the client has finished sending audio.
+   *
+   * The provider may emit additional final events after stop is called.
+   * The session is fully closed when the `onEvent` callback receives a
+   * `closed` event.
+   */
+  stop(): void;
 }

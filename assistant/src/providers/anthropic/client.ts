@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/system-prompt.js";
+import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
@@ -1103,6 +1104,12 @@ export class AnthropicProvider implements Provider {
         rawResponse: response,
       };
     } catch (error) {
+      // Propagate a tagged AbortReason (set by the daemon at controller.abort())
+      // so wrapped errors can be classified as user cancellation downstream.
+      const abortReason =
+        signal?.aborted && isAbortReason(signal.reason)
+          ? signal.reason
+          : undefined;
       if (error instanceof Anthropic.APIError) {
         // Log detailed message structure for tool_use/tool_result ordering errors
         if (
@@ -1118,20 +1125,33 @@ export class AnthropicProvider implements Provider {
             "Anthropic 400: tool_use/tool_result pairing error — dumping message structure",
           );
         }
-        log.error(
-          {
-            status: error.status,
-            message: error.message,
-            headers: Object.fromEntries(error.headers?.entries() ?? []),
-          },
-          `Anthropic API error (${error.status})`,
-        );
+        if (abortReason) {
+          log.info(
+            { abortReason, message: error.message },
+            "Anthropic request aborted by daemon",
+          );
+        } else {
+          log.error(
+            {
+              status: error.status,
+              message: error.message,
+              headers: Object.fromEntries(error.headers?.entries() ?? []),
+            },
+            `Anthropic API error (${error.status})`,
+          );
+        }
         const retryAfterMs = extractRetryAfterMs(error.headers);
+        const errorOptions: {
+          retryAfterMs?: number;
+          abortReason?: unknown;
+        } = {};
+        if (retryAfterMs !== undefined) errorOptions.retryAfterMs = retryAfterMs;
+        if (abortReason) errorOptions.abortReason = abortReason;
         throw new ProviderError(
           `Anthropic API error (${error.status}): ${error.message}`,
           "anthropic",
           error.status,
-          retryAfterMs !== undefined ? { retryAfterMs } : undefined,
+          Object.keys(errorOptions).length > 0 ? errorOptions : undefined,
         );
       }
       throw new ProviderError(
@@ -1140,7 +1160,7 @@ export class AnthropicProvider implements Provider {
         }`,
         "anthropic",
         undefined,
-        { cause: error },
+        abortReason ? { cause: error, abortReason } : { cause: error },
       );
     }
   }

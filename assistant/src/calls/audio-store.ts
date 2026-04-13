@@ -24,7 +24,7 @@ let currentBytes = 0;
 
 export function storeAudio(
   buffer: Buffer,
-  format: "mp3" | "wav" | "opus",
+  format: "mp3" | "wav" | "opus" | "pcm",
 ): string {
   evictExpired();
   // Evict oldest if over capacity
@@ -50,7 +50,7 @@ export interface StreamingAudioHandle {
 }
 
 export function createStreamingEntry(
-  format: "mp3" | "wav" | "opus",
+  format: "mp3" | "wav" | "opus" | "pcm",
 ): StreamingAudioHandle {
   evictExpired();
   const id = randomUUID();
@@ -151,19 +151,25 @@ export function getAudio(id: string): AudioResult | null {
     removeEntry(id);
     return null;
   }
-  return { type: "buffer", buffer: entry.buffer, contentType: entry.contentType };
+  return {
+    type: "buffer",
+    buffer: entry.buffer,
+    contentType: entry.contentType,
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-function contentTypeForFormat(format: "mp3" | "wav" | "opus"): string {
+function contentTypeForFormat(format: "mp3" | "wav" | "opus" | "pcm"): string {
   return format === "mp3"
     ? "audio/mpeg"
     : format === "wav"
       ? "audio/wav"
-      : "audio/opus";
+      : format === "pcm"
+        ? "audio/pcm"
+        : "audio/opus";
 }
 
 function mergeChunks(chunks: Uint8Array[]): Uint8Array {

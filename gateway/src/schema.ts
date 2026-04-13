@@ -870,6 +870,88 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/stt/stream": {
+        get: {
+          summary: "STT stream WebSocket",
+          description:
+            "Accepts a WebSocket upgrade for real-time speech-to-text streaming. Authenticates the client using an edge JWT (actor principal) and proxies audio frames bidirectionally to the assistant runtime's /v1/stt/stream endpoint using a gateway service token. Requires provider and mimeType query parameters.",
+          operationId: "sttStreamWebsocket",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "provider",
+              in: "query",
+              required: true,
+              schema: { type: "string" },
+              description:
+                "STT provider identifier (e.g. 'deepgram', 'google-gemini').",
+            },
+            {
+              name: "mimeType",
+              in: "query",
+              required: true,
+              schema: { type: "string" },
+              description:
+                "MIME type of the audio being streamed (e.g. 'audio/webm;codecs=opus').",
+            },
+            {
+              name: "sampleRate",
+              in: "query",
+              required: false,
+              schema: { type: "integer" },
+              description: "Audio sample rate in Hz, when applicable.",
+            },
+            {
+              name: "token",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description:
+                "Edge JWT for authentication (alternative to Authorization header, since browser WebSocket upgrades cannot set custom headers).",
+            },
+          ],
+          responses: {
+            "101": {
+              description:
+                "WebSocket upgrade successful — bidirectional STT audio/transcription frame proxying begins.",
+            },
+            "400": {
+              description:
+                "Missing required query parameters (provider, mimeType)",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid token",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "426": {
+              description:
+                "Upgrade Required — request is not a WebSocket upgrade",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "500": {
+              description: "WebSocket upgrade failed",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/webhooks/oauth/callback": {
         get: {
           summary: "OAuth2 callback",

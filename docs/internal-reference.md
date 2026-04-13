@@ -24,12 +24,17 @@ Detailed reference documentation for the Vellum Assistant platform. For an overv
 - [**Development Workflow**](#development-workflow)
   - [Claude Code Workflow](#claude-code-workflow)
   - [Release Management](#release-management)
-- [**Telephony STT Cutover Runbook**](#telephony-stt-cutover-runbook)
-  - [Background](#background)
-  - [Prerequisites](#prerequisites-1)
-  - [Cutover Steps](#cutover-steps)
-  - [Rollback Plan](#rollback-plan)
-  - [Verification](#verification)
+- [**Telephony STT Architecture**](#telephony-stt-architecture)
+  - [Overview](#overview)
+  - [Provider-Conditional Routing](#provider-conditional-routing)
+  - [Troubleshooting Matrix](#troubleshooting-matrix)
+- [**Conversation STT Streaming Operator Runbook**](#conversation-stt-streaming-operator-runbook)
+  - [Architecture Summary](#architecture-summary)
+  - [Debugging Stream Sessions](#debugging-stream-sessions)
+  - [Log Anchors](#log-anchors)
+  - [Expected Event Sequences](#expected-event-sequences)
+  - [Common Failure Scenarios](#common-failure-scenarios)
+  - [Rollout Validation Checklist](#rollout-validation-checklist)
 
 ## Getting Started
 
@@ -628,75 +633,259 @@ New users download the latest DMG from the [releases page](https://github.com/ve
 
 ---
 
-## Telephony STT Cutover Runbook
+## Telephony STT Architecture
 
-This runbook documents the exact steps to migrate telephony STT from ConversationRelay-native transcription (`calls.voice.transcriptionProvider`) to `services.stt`-driven transcription via Twilio Media Streams. All preparation work is complete (PRs 1-6 of the `twilio-services-stt-provider-unification` plan). This section exists so the cutover can be executed in a single focused follow-up PR.
+Telephony speech-to-text is driven by the unified `services.stt.provider` configuration. The voice webhook generates provider-conditional TwiML at call setup time, selecting between two Twilio integration paths based on the active STT provider's capabilities.
 
-### Background
+### Overview
 
-**Current production path:** Voice calls use the Twilio ConversationRelay element in TwiML. STT is handled natively by ConversationRelay using Deepgram or Google, configured via `calls.voice.transcriptionProvider`. The daemon receives transcribed text from the relay — it never sees raw audio.
+The telephony STT routing resolver (`assistant/src/calls/telephony-stt-routing.ts`) reads `services.stt.provider` from config and maps it to a discriminated strategy:
 
-**Prepared dark path:** A complete alternative path exists using Twilio Media Streams. Raw audio flows from Twilio through the gateway's media-stream WebSocket proxy to the assistant's media-stream server, which uses `services.stt` for transcription. All modules are wired, tested, and registered — but no production TwiML points to them.
+- **`conversation-relay-native`** — Providers natively supported by Twilio ConversationRelay (Deepgram, Google). TwiML emits `<Connect><ConversationRelay>` with `transcriptionProvider` and `speechModel` attributes. Twilio handles audio ingestion and transcription; the daemon receives transcribed text.
 
-### Prerequisites
+- **`media-stream-custom`** — Providers not natively supported by Twilio (OpenAI Whisper). TwiML emits `<Connect><Stream>` pointing to the daemon's media-stream server. Raw audio flows from Twilio through the gateway's WebSocket proxy to the daemon, which transcribes server-side via the provider's batch API.
 
-Before executing the cutover, verify all prerequisites pass:
+Both paths share the same `CallController`, `voice-session-bridge`, and `RunOrchestrator` pipeline downstream of transcription. The only difference is where audio-to-text conversion happens (Twilio-side vs daemon-side).
 
-1. **`services.stt` provider must be telephony-eligible.** Run `evaluateServicesSttReadiness()` from `assistant/src/calls/stt-profile.ts` — it must return `status: "ready"`. This validates that the configured provider is in the catalog with a compatible `telephonyMode` and has valid credentials.
+### Provider-Conditional Routing
 
-2. **Provider catalog must include a `realtime-ws` telephony provider.** The current catalog only has `openai-whisper` with `telephonyMode: "batch-only"`. A realtime-capable provider entry must be added to `assistant/src/providers/speech-to-text/provider-catalog.ts` before cutover.
+| `services.stt.provider` | Strategy                    | TwiML Element                  | Audio Path                                         |
+| ------------------------ | --------------------------- | ------------------------------ | -------------------------------------------------- |
+| `deepgram`               | `conversation-relay-native` | `<Connect><ConversationRelay>` | Twilio transcribes natively; daemon receives text   |
+| `google-gemini`          | `conversation-relay-native` | `<Connect><ConversationRelay>` | Twilio transcribes natively; daemon receives text   |
+| `openai-whisper`         | `media-stream-custom`       | `<Connect><Stream>`            | Raw audio to daemon; server-side batch transcription |
 
-3. **Gateway media-stream proxy route must be deployed.** The route in `gateway/src/http/routes/twilio-media-websocket.ts` must be live on the gateway that serves the public ingress URL.
+Model normalization for Twilio-native providers:
+- Deepgram defaults `speechModel` to `"nova-3"` when unset.
+- Google leaves `speechModel` undefined when unset. The legacy Deepgram default `"nova-3"` is treated as unset for Google so workspaces that switched providers do not send a Deepgram model name to Google's API.
 
-4. **ConversationRelay STT guardrail tests must be updated.** The tests in `__tests__/twilio-routes-twiml.test.ts` and `__tests__/twilio-routes.test.ts` that assert `<ConversationRelay>` and `transcriptionProvider="Deepgram"` must be updated in the cutover PR to assert the new `<Stream>` element and media-stream URL instead.
+Workspace migration `034-remove-calls-voice-transcription-provider` preserves existing Google STT preferences from the former `calls.voice.transcriptionProvider` key into `services.stt.provider`.
 
-### Cutover Steps
+### Troubleshooting Matrix
 
-Execute these changes in a single PR:
+| Symptom | Likely Provider | Check | Expected Log |
+| ------- | --------------- | ----- | ------------ |
+| Call connects but no transcription | Deepgram / Google | Verify Deepgram or Google API key is configured in credential store | `[twilio-routes] telephony STT strategy resolved: conversation-relay-native` |
+| Call connects, TTS works, but STT silent | OpenAI Whisper | Verify OpenAI API key is configured; check media-stream server is reachable via gateway | `[twilio-routes] telephony STT strategy resolved: media-stream-custom` |
+| TwiML error / call drops immediately | Any | Check `services.stt.provider` is a recognized catalog entry | `[twilio-routes] unknown STT provider — cannot resolve telephony routing` |
+| Deepgram transcription uses wrong model | Deepgram | The routing resolver defaults Deepgram to `nova-3`; custom model overrides are set via `services.stt.providers.deepgram` config | `speechModel="nova-3"` in TwiML output |
+| Google transcription sends Deepgram model | Google | Model normalization should suppress `nova-3` for Google; verify migration 034 ran | `speechModel` attribute absent from TwiML |
+| Media-stream WebSocket fails to connect | OpenAI Whisper | Verify gateway `/webhooks/twilio/media-stream` route is deployed and reachable | `[gateway] media-stream WebSocket proxy connected` |
+| Audio heard but transcription garbled | OpenAI Whisper | Check audio transcode pipeline (`media-stream-audio-transcode.ts`); verify sample rate matches provider expectations | `[media-stream-stt-session] transcription result` |
 
-1. **Switch TwiML element in `twilio-routes.ts`:**
-   - Replace the `<ConversationRelay>` element in `generateTwiML()` with a `<Connect><Stream>` element.
-   - Point the Stream URL to the media-stream server endpoint (`/v1/calls/media-stream`) instead of the relay server (`/v1/calls/relay`).
-   - Remove ConversationRelay-specific attributes (`transcriptionProvider`, `speechModel`, `interruptSensitivity`, `hints`, `ttsProvider`, `voice`, `welcomeGreeting`) and replace with Stream-appropriate attributes.
+---
 
-2. **Update `buildVoiceWebhookTwiml()` in `twilio-routes.ts`:**
-   - Replace the call to `resolveTelephonySttProfile(cfg.calls.voice)` with a call to `resolveTelephonySttCapability()` or equivalent resolver that reads from `services.stt`.
-   - Remove the `buildTwilioRelaySpeechConfig()` call (no longer needed — STT config is resolved server-side in the media-stream STT session).
+## Conversation STT Streaming Operator Runbook
 
-3. **Migrate config keys:**
-   - Add a workspace migration that copies `calls.voice.transcriptionProvider` and `calls.voice.speechModel` values to the equivalent `services.stt` settings (if not already configured).
-   - Mark `calls.voice.transcriptionProvider` and `calls.voice.speechModel` as deprecated in the config schema (keep them readable for rollback).
+This runbook covers debugging and validating real-time STT streaming for conversation chat message capture on macOS and iOS. The streaming path uses a WebSocket session from the native client through the gateway to the daemon, where a provider-specific streaming adapter transcribes audio in real time.
 
-4. **Update guardrail tests:**
-   - Update `__tests__/twilio-routes-twiml.test.ts` ConversationRelay guardrails to assert `<Stream>` instead.
-   - Update `__tests__/twilio-routes.test.ts` integration guardrails to verify TwiML uses media-stream URL.
+For full architectural details, see the "Conversation streaming boundary" section in [`assistant/ARCHITECTURE.md`](../assistant/ARCHITECTURE.md).
 
-5. **Remove legacy code (deferred):**
-   - `calls.voice.transcriptionProvider` and `calls.voice.speechModel` config keys can be removed in a follow-up cleanup PR after the cutover is stable.
-   - `twilio-relay-speech-config.ts` and the ConversationRelay-specific code path in `stt-profile.ts` can be removed once rollback is no longer needed.
+### Architecture Summary
 
-### Rollback Plan
+```
+macOS/iOS Client                     Gateway                              Daemon (Runtime)
+─────────────────                    ───────                              ────────────────
+STTStreamingClient  ──WSS──>  stt-stream-websocket.ts  ──WS──>  http-server.ts /v1/stt/stream
+  (URLSessionWebSocketTask)    (edge JWT auth → service token)     (SttStreamSession)
+                                                                        │
+                                                            resolveStreamingTranscriber()
+                                                                        │
+                                                         ┌──────────────┴──────────────┐
+                                                         │                             │
+                                                  DeepgramRealtime          GoogleGeminiStreaming
+                                                  Transcriber               Transcriber
+                                                  (realtime-ws)             (incremental-batch)
+                                                         │                             │
+                                                  WSS to Deepgram           HTTP polling to
+                                                  /v1/listen                Gemini API
+```
 
-If the cutover introduces regressions, revert to the ConversationRelay path:
+**Provider support matrix:**
 
-1. **Revert the TwiML change:** Restore `<ConversationRelay>` element in `generateTwiML()` with the original attributes. The ConversationRelay relay server (`relay-server.ts`) is still registered and will resume handling calls.
+| Provider        | `conversationStreamingMode` | Streaming adapter | Batch fallback |
+| --------------- | --------------------------- | ----------------- | -------------- |
+| `deepgram`      | `realtime-ws`               | Yes               | Yes            |
+| `google-gemini` | `incremental-batch`         | Yes               | Yes            |
+| `openai-whisper` | `none`                     | No (batch only)   | Yes            |
 
-2. **Revert the STT resolution:** Restore the `resolveTelephonySttProfile(cfg.calls.voice)` call in `buildVoiceWebhookTwiml()`.
+### Debugging Stream Sessions
 
-3. **Config keys are preserved:** Since `calls.voice.transcriptionProvider` and `calls.voice.speechModel` are deprecated but not removed, they still contain valid values for the rollback path.
+#### 1. Verify provider supports streaming
 
-4. **No data migration needed for rollback:** The workspace migration (step 3 in cutover) copies values forward — it does not delete the originals. Both config paths remain readable.
+Check the configured STT provider in the assistant's config (`services.stt.provider`). Only `deepgram` and `google-gemini` support conversation streaming. If `openai-whisper` is configured, streaming sessions will not be attempted by the client (the client checks `STTProviderRegistry.isStreamingAvailable` before opening a WebSocket).
 
-The rollback is a single-commit revert of the cutover PR. No user data is lost and no config migration is needed.
+#### 2. Verify credentials are configured
 
-### Verification
+The daemon resolves credentials via `resolveStreamingTranscriber()` in `src/providers/speech-to-text/resolve.ts`. If the API key for the configured provider is not set, the function returns `null` and the session emits an `error` event with category `provider-error` followed by `closed`.
 
-After cutover, verify:
+To validate credentials without starting a session, call `resolveConversationStreamingSttCapability()` from the same module. It returns a discriminated union with `status: "supported"`, `"unsupported"`, `"unconfigured"`, or `"missing-credentials"`.
 
-- [ ] Outbound calls connect and produce audible speech.
-- [ ] Inbound calls are answered with transcription working.
-- [ ] STT provider shown in call logs matches the `services.stt` provider.
-- [ ] `evaluateServicesSttReadiness()` returns `status: "ready"`.
-- [ ] No `<ConversationRelay>` elements appear in TwiML responses.
-- [ ] The media-stream WebSocket connection appears in gateway logs.
-- [ ] Existing `calls.voice.transcriptionProvider` config value is still readable (for rollback).
+#### 3. Check gateway logs for upstream connection
+
+The gateway proxy (`stt-stream-websocket.ts`) logs:
+
+- **On downstream connect:** `"Opening upstream STT stream WS to runtime"` with `provider`, `mimeType`, `sampleRate` fields (token redacted).
+- **On upstream open:** `"Upstream STT stream WS connected"` with `provider` field.
+- **On upstream close:** `"Upstream STT stream WS closed"` with `code` and `provider` fields.
+- **On upstream error:** `"Upstream STT stream WS error"` with `error` and `provider` fields.
+- **On downstream close:** `"STT stream downstream WS closed"` with `code`, `reason`, `provider` fields.
+- **Buffer overflow:** `"STT stream pending message buffer overflow"` -- more than 100 messages buffered before upstream connects. Downstream is closed with code 1008.
+
+#### 4. Check daemon logs for session lifecycle
+
+The daemon session orchestrator (`stt-stream-session.ts`, logger: `stt-stream-session`) logs:
+
+- **Session started:** `"STT stream session started"` with `provider` field.
+- **Unsupported provider:** `"Streaming transcriber unavailable for provider"` -- `resolveStreamingTranscriber()` returned `null`.
+- **Start failure:** `"Failed to start STT stream session"` with `provider` and `error` fields.
+- **WebSocket closed:** `"STT stream WebSocket closed"` with `provider`, `code`, `reason` fields.
+- **Idle timeout:** `"STT stream session idle timeout"` with `provider` field -- no client message received within 60 seconds.
+- **Session destroyed:** `"STT stream session destroyed"` -- runtime shutdown cleanup.
+
+#### 5. Check provider-specific adapter logs
+
+**Deepgram (`deepgram-realtime`, logger: `deepgram-realtime`):**
+
+- `"Opening Deepgram realtime session"` -- WebSocket URL (token redacted).
+- `"Deepgram realtime session opened"` -- connection established.
+- `"Stopping Deepgram realtime session"` -- `CloseStream` sent.
+- `"Deepgram realtime session closed normally"` -- clean close after stop.
+- `"Deepgram realtime session closed unexpectedly"` with `code`, `reason` -- provider-side disconnect.
+- `"Deepgram realtime WebSocket error"` -- provider WebSocket error event.
+- `"Deepgram realtime backpressure: dropping audio frame"` -- outbound buffer > 1 MiB.
+- `"Deepgram realtime inactivity timeout"` -- no provider message for 30 seconds.
+- `"Deepgram realtime connect timeout"` -- WebSocket did not open within 10 seconds.
+- `"Deepgram realtime close grace timeout"` -- provider did not close within 5 seconds after `CloseStream`.
+
+**Google Gemini (`google-gemini-stream`):** This adapter does not have its own logger category (uses default module-level logging). Key indicators are `error` events with `category: "provider-error"` in the session event stream. Poll errors during active streaming are non-fatal (logged as transient); only the final batch request on `stop()` is critical.
+
+### Log Anchors
+
+These are the key strings to search for when triaging streaming STT issues. Search daemon logs for the `stt-stream-session` and `deepgram-realtime` logger categories.
+
+| Log message                                         | Logger                | Meaning                                              |
+| --------------------------------------------------- | --------------------- | ---------------------------------------------------- |
+| `STT stream session started`                        | `stt-stream-session`  | Session initialized and `ready` event sent to client |
+| `STT stream session idle timeout`                   | `stt-stream-session`  | No client activity for 60 seconds                    |
+| `STT stream WebSocket closed`                       | `stt-stream-session`  | Client or transport closed the connection            |
+| `Streaming transcriber unavailable for provider`    | `stt-stream-session`  | Provider does not support streaming                  |
+| `Failed to start STT stream session`                | `stt-stream-session`  | Transcriber `start()` threw (auth, network, etc.)    |
+| `Opening Deepgram realtime session`                 | `deepgram-realtime`   | Deepgram WebSocket connection attempt                |
+| `Deepgram realtime session closed unexpectedly`     | `deepgram-realtime`   | Provider-side disconnect with non-normal code        |
+| `Deepgram realtime connect timeout`                 | `deepgram-realtime`   | Could not connect to Deepgram within 10 seconds      |
+| `Deepgram realtime inactivity timeout`              | `deepgram-realtime`   | No data from Deepgram for 30 seconds                 |
+| `Opening upstream STT stream WS to runtime`         | `stt-stream-ws`       | Gateway opening upstream connection to daemon        |
+| `STT stream WS: authentication failed`              | `stt-stream-ws`       | Client edge JWT validation failed                    |
+| `STT stream pending message buffer overflow`        | `stt-stream-ws`       | Gateway buffer exceeded 100 messages                 |
+
+### Expected Event Sequences
+
+**Successful session (Deepgram):**
+
+```
+Client -> Gateway: WSS upgrade with ?provider=deepgram&mimeType=audio/pcm&sampleRate=16000
+Gateway -> Daemon: WS upgrade to /v1/stt/stream with service token
+Daemon: resolveStreamingTranscriber() -> DeepgramRealtimeTranscriber
+Daemon -> Deepgram: WSS to wss://api.deepgram.com/v1/listen?model=nova-2&...
+Deepgram -> Daemon: WS open
+Daemon -> Client: {"type":"ready","provider":"deepgram"}
+Client -> Daemon: binary audio frames (16-bit PCM)
+Deepgram -> Daemon: {"type":"Results","is_final":false,...}  ->  Daemon -> Client: {"type":"partial","text":"hello","seq":0}
+Deepgram -> Daemon: {"type":"Results","is_final":true,...}   ->  Daemon -> Client: {"type":"final","text":"hello world","seq":1}
+Client -> Daemon: {"type":"stop"}
+Daemon -> Deepgram: {"type":"CloseStream"}
+Deepgram -> Daemon: WS close 1000
+Daemon -> Client: {"type":"closed","seq":2}
+Daemon: WS close 1000
+```
+
+**Successful session (Google Gemini):**
+
+```
+Client -> Gateway: WSS upgrade with ?provider=google-gemini&mimeType=audio/webm
+Gateway -> Daemon: WS upgrade to /v1/stt/stream with service token
+Daemon: resolveStreamingTranscriber() -> GoogleGeminiStreamingTranscriber
+Daemon -> Client: {"type":"ready","provider":"google-gemini"}
+Client -> Daemon: binary audio frames
+Daemon: (accumulates audio, polls Gemini API every ~1 second)
+Daemon -> Gemini API: POST models.generateContent (full accumulated audio)
+Gemini API -> Daemon: transcript text
+Daemon -> Client: {"type":"partial","text":"hello world","seq":0}
+Client -> Daemon: {"type":"stop"}
+Daemon -> Gemini API: POST models.generateContent (final complete audio)
+Gemini API -> Daemon: final transcript text
+Daemon -> Client: {"type":"final","text":"hello world how are you","seq":1}
+Daemon -> Client: {"type":"closed","seq":2}
+Daemon: WS close 1000
+```
+
+**Auth failure:**
+
+```
+Client -> Gateway: WSS upgrade with invalid/expired edge JWT
+Gateway: "STT stream WS: authentication failed"
+Gateway -> Client: HTTP 401 Unauthorized (no WebSocket upgrade)
+Client: STTStreamFailure.rejected(statusCode: 401)
+Client: Falls back to batch STT path
+```
+
+**Unsupported provider:**
+
+```
+Client: STTProviderRegistry.isStreamingAvailable -> false (provider is openai-whisper)
+Client: Does not open WebSocket; uses batch STT path directly
+```
+
+**Provider disconnect mid-session (Deepgram):**
+
+```
+(session in progress, audio flowing)
+Deepgram -> Daemon: WS close 1008 (auth error)
+Daemon: "Deepgram realtime session closed unexpectedly" code=1008
+Daemon -> Client: {"type":"error","category":"auth","message":"Deepgram WebSocket closed (code=1008, ...)","seq":N}
+Daemon -> Client: {"type":"closed","seq":N+1}
+Client: streamingFailed = true / isStreamingActive = false
+Client: Falls back to batch STT on recording stop
+```
+
+### Common Failure Scenarios
+
+| Symptom | Likely cause | Diagnosis |
+| --- | --- | --- |
+| No streaming session opened | Provider is `openai-whisper` (no streaming support) or STT not configured | Check `services.stt.provider` config; check `STTProviderRegistry.isStreamingAvailable` |
+| `ready` event never received | Gateway cannot reach daemon, or daemon failed to start transcriber | Check gateway logs for upstream connection errors; check daemon logs for `"Failed to start STT stream session"` |
+| Auth failure (HTTP 401 before upgrade) | Expired or invalid edge JWT; no `Authorization` header or `token` query param | Check gateway `stt-stream-ws` logs for `"authentication failed"` with reason |
+| Partials but no final (Deepgram) | Deepgram session closed before client sent `stop` | Check for `"Deepgram realtime session closed unexpectedly"` or `"inactivity timeout"` |
+| Slow partials (Google Gemini) | Expected: incremental-batch polls every ~1 second | This is by design; reduce poll interval only for testing via `GoogleGeminiStreamOptions.pollIntervalMs` |
+| Idle timeout after 60 seconds | Client stopped sending audio without sending `stop` event | Check client-side audio pipeline; ensure `stop` event is sent on recording end |
+| Buffer overflow (gateway) | Upstream daemon connection slow to establish; client sending audio too fast | Check gateway `"STT stream pending message buffer overflow"` log; check daemon startup time |
+| Empty final transcript | Audio too short, no speech detected, or provider returned empty | Check audio format (mimeType, sampleRate); try with known-good audio |
+
+### Rollout Validation Checklist
+
+Use this checklist when rolling out conversation STT streaming to macOS and iOS.
+
+**macOS conversation chat capture:**
+
+- [ ] Configure `services.stt.provider` to `deepgram`. Record a conversation message. Verify partial transcripts appear in real time in the chat composer. Verify the final transcript matches spoken audio.
+- [ ] Configure `services.stt.provider` to `google-gemini`. Record a conversation message. Verify partial transcripts appear (with ~1-second latency). Verify the final transcript matches spoken audio.
+- [ ] Configure `services.stt.provider` to `openai-whisper`. Record a conversation message. Verify no streaming session is opened (no WebSocket in gateway logs). Verify batch STT produces a final transcript.
+- [ ] With `deepgram` configured, simulate a network disconnect mid-recording (e.g. disable WiFi). Verify the client falls back to batch STT and produces a final transcript.
+- [ ] With `deepgram` configured, remove the Deepgram API key. Start a recording. Verify the session fails gracefully and batch STT is used.
+- [ ] Verify dictation mode (not conversation) still uses the batch STT path regardless of streaming availability.
+
+**iOS conversation chat capture:**
+
+- [ ] Configure `services.stt.provider` to `deepgram`. Record via the input bar. Verify streaming partials update the text field. Verify the final transcript is committed via `onVoiceResult`.
+- [ ] Configure `services.stt.provider` to `google-gemini`. Record via the input bar. Verify incremental partials appear. Verify the final transcript is committed.
+- [ ] Configure `services.stt.provider` to `openai-whisper`. Record via the input bar. Verify batch STT path is used (no streaming session).
+- [ ] Simulate streaming failure (e.g. bad API key). Verify `resolveTranscriptWithServiceFirst()` fires and batch STT produces a result.
+- [ ] Verify auto-stop coordination: when auto-stop fires and streaming is active, verify the streaming final takes precedence. When streaming has closed/failed before auto-stop, verify batch fallback is triggered.
+
+**Cross-platform:**
+
+- [ ] Verify no regressions in voice mode (OpenAIVoiceService) -- voice mode does not use conversation streaming.
+- [ ] Verify gateway logs show `"Upstream STT stream WS connected"` for each streaming session.
+- [ ] Verify daemon logs show `"STT stream session started"` with the correct provider.
+- [ ] Verify no `<ConversationRelay>` or telephony STT paths are affected by conversation streaming changes.

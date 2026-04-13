@@ -62,6 +62,41 @@ public enum VFont {
         #endif
     }
 
+    /// Creates a DM Sans font at the given weight and size with the `tnum` OpenType
+    /// feature enabled (tabular numerals — every digit occupies the same advance width).
+    ///
+    /// Used for elements where digit columns must align (position pills like "#1"/"#12",
+    /// counters, timers). Equivalent to `dmSans(weight:size:)` plus a
+    /// `.featureSettings(.init(tag: "tnum", value: 1))` treatment applied at the
+    /// CoreText layer so the feature survives the SwiftUI→CT→NS/UIFont bridge.
+    private static func dmSansTabular(weight: Int, size: CGFloat) -> Font {
+        let baseName = "DMSans-Regular" as CFString
+        let baseFont = CTFontCreateWithName(baseName, size, nil)
+        let variations: [CFNumber: CFNumber] = [
+            wghtTag as CFNumber: weight as CFNumber,
+        ]
+        // OpenType feature "tnum" = tabular numerals. CoreText's OpenType feature keys
+        // expect the tag as a 4-character CFString and the value as a CFNumber (1 = on).
+        let openTypeFeatures: [[CFString: Any]] = [[
+            kCTFontOpenTypeFeatureTag: "tnum" as CFString,
+            kCTFontOpenTypeFeatureValue: 1 as CFNumber,
+        ]]
+        let descriptor = CTFontDescriptorCreateWithAttributes([
+            kCTFontVariationAttribute: variations,
+            kCTFontFeatureSettingsAttribute: openTypeFeatures,
+        ] as CFDictionary)
+        let variantFont = CTFontCreateCopyWithAttributes(baseFont, size, nil, descriptor)
+        #if os(macOS)
+        let nsFont = variantFont as NSFont
+        return Font(nsFont)
+        #elseif os(iOS)
+        let uiFont = variantFont as! UIFont
+        return Font(uiFont)
+        #else
+        return Font.custom("DMSans-Regular", fixedSize: size)
+        #endif
+    }
+
     /// Creates an Instrument Serif font at the given CSS weight and size.
     private static func instrumentSerif(weight: Int, size: CGFloat) -> Font {
         let baseName = "InstrumentSerif-Regular" as CFString
@@ -117,6 +152,10 @@ public enum VFont {
 
     public static let labelDefault = dmSans(weight: 400, size: 11)
     public static let labelSmall   = dmSans(weight: 400, size: 10)
+
+    /// DM Sans at label size with tabular numerals (`tnum`) enabled — for position pills,
+    /// counters, and other short numeric labels where digits must align in a column.
+    public static let numericMono = dmSansTabular(weight: 400, size: 11)
 
     // MARK: - Menu
 
@@ -310,6 +349,7 @@ public enum VFont {
         _ = bodySmallEmphasised
         _ = labelDefault
         _ = labelSmall
+        _ = numericMono
         _ = menuCompact
         _ = chat
 

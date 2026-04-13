@@ -328,6 +328,14 @@
       "label": "Voice STT Service",
       "description": "Enable Voice settings STT service configuration UI for selecting and configuring speech-to-text providers",
       "defaultEnabled": false
+    },
+    {
+      "id": "onboarding-pre-chat",
+      "scope": "macos",
+      "key": "onboarding-pre-chat",
+      "label": "Pre-Chat Onboarding Flow",
+      "description": "Gates the 3-screen pre-chat onboarding flow (tools, tasks/tone, name exchange) shown before the first conversation",
+      "defaultEnabled": false
     }
   ]
 }

@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { getIsContainerized } from "../config/env-registry.js";
 import { loadConfig } from "../config/loader.js";
 import { listConnections } from "../oauth/oauth-store.js";
+import type { OnboardingContext } from "../types/onboarding-context.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -225,6 +226,7 @@ export interface BuildSystemPromptOptions {
   userPersona?: string | null;
   channelPersona?: string | null;
   userSlug?: string | null;
+  onboardingContext?: OnboardingContext;
 }
 
 /**
@@ -312,6 +314,17 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
         "BOOTSTRAP.md is present — this is your first conversation. Follow its instructions.\n\n" +
         bootstrapWithSlug,
     );
+
+    if (options?.onboardingContext) {
+      dynamicParts.push(
+        "## Pre-chat Onboarding Context\n\n" +
+          "The user completed the native pre-chat onboarding. Here is their context:\n\n" +
+          "```json\n" +
+          JSON.stringify(options.onboardingContext, null, 2) +
+          "\n```\n\n" +
+          "Use this to personalize your opener and skip redundant discovery.",
+      );
+    }
   }
   if (updates) {
     dynamicParts.push(
@@ -450,19 +463,11 @@ function buildContainerizedSection(): string {
 function buildParallelToolCallsSection(): string {
   return [
     "<use_parallel_tool_calls>",
-    "Batch independent tool calls into the same response. Cost model: an extra LLM round trip is orders of magnitude more expensive than a handful of wasted or speculative tool calls. If calls don't consume each other's output, parallelize — full stop.",
+    "Batch independent tool calls into the same response. An extra LLM round trip costs orders of magnitude more than a few wasted tool calls — err on the side of parallelizing when calls are independent. Reading multiple files, `glob`/`grep`, `ls`, `git status`/`diff`/`log`, type-checks, and tests should be batched.",
     "",
-    "Parallelize by default:",
-    "- Reading multiple files → N `read` calls in one response",
-    "- Searching the codebase → parallel `glob`/`grep` calls, not one-at-a-time",
-    "- `ls`, `git status`, `git diff`, `git log`, type-checks, tests → batch them",
-    "- Exploring multiple areas → spawn multiple subagents in the same response",
+    "Before emitting a single tool call, ask whether your next turn would be another tool call that doesn't consume this one's output — if so, they belong together. Serialized tool calls without a real data dependency are a bug.",
     "",
-    "Be speculative. If a later call *might* depend on an earlier call's output but probably won't, fire both now. A wasted read is cheap; a second round trip is not.",
-    "",
-    "Self-check before emitting a response with a single tool call: would your next turn be another tool call that doesn't actually consume this one's output? If yes, they belong in the same response. Serialized tool calls without a real data dependency are a bug.",
-    "",
-    "For non-trivial independent workstreams — research, coding tasks, multi-step investigations — delegate to subagents (load the `subagent` skill). Spawn them early and in parallel; an unnecessary subagent is far cheaper than serialized work.",
+    "For non-trivial independent workstreams — research, coding, multi-step investigations — delegate to subagents (load the `subagent` skill) and spawn them early and in parallel; an unnecessary subagent is cheaper than serialized work.",
     "</use_parallel_tool_calls>",
   ].join("\n");
 }

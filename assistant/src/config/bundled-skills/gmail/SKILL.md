@@ -12,9 +12,9 @@ This skill provides Gmail-specific tools. For cross-platform messaging (send, re
 
 ## Email Routing Priority
 
-When the user mentions "email" - sending, reading, checking, decluttering, drafting, or anything else - **always default to the user's own email (Gmail)** unless they explicitly ask about the assistant's own email address (e.g., "set up your email", "send from your address", "check your inbox"). The vast majority of email requests are about the user's Gmail, not the assistant's AgentMail address.
+When the user mentions "email" - sending, reading, checking, decluttering, drafting, or anything else - **always default to the user's own email (Gmail)** unless they explicitly ask about the assistant's own email address (e.g., "set up your email", "send from your address", "check your inbox"). The vast majority of email requests are about the user's Gmail, not the assistant's @vellum.me address.
 
-Do not offer AgentMail as an option or mention it unless the user specifically asks. If Gmail is not connected, guide them through Gmail setup - do not suggest AgentMail as an alternative.
+Do not offer the assistant's own email as an option unless the user specifically asks. If Gmail is not connected, guide them through Gmail setup.
 
 ## Communication Style
 

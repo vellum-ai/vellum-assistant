@@ -5,21 +5,10 @@ import XCTest
 @MainActor
 final class MessageListScrollStateTests: XCTestCase {
     private var state: MessageListScrollState!
-    private var scrollToCalls: [(id: AnyHashable, anchor: UnitPoint?)] = []
-    private var scrollToEdgeCalls: [Edge] = []
 
     override func setUp() {
         super.setUp()
         state = MessageListScrollState()
-        scrollToCalls = []
-        scrollToEdgeCalls = []
-
-        state.scrollTo = { [weak self] id, anchor in
-            self?.scrollToCalls.append((id: id as! AnyHashable, anchor: anchor))
-        }
-        state.scrollToEdge = { [weak self] edge in
-            self?.scrollToEdgeCalls.append(edge)
-        }
     }
 
     override func tearDown() {
@@ -30,674 +19,307 @@ final class MessageListScrollStateTests: XCTestCase {
 
     // MARK: - Initial State
 
-    func testInitialStateAllowsAutoScrollWithoutInteraction() {
-        XCTAssertFalse(state.isFollowingBottom)
-        XCTAssertFalse(state.hasBeenInteracted)
-        XCTAssertTrue(state.mode.allowsAutoScroll)
-
-        let result = state.requestPinToBottom()
-        XCTAssertTrue(result, "initialLoad should still allow bottom pinning")
-        // When lastMessageId is nil (fresh state), executeScrollToBottom
-        // falls through to scrollToEdge(.bottom) — not scrollTo(id:).
-        XCTAssertFalse(scrollToEdgeCalls.isEmpty,
-                       "Should fall back to edge-based scroll when lastMessageId is nil")
-        XCTAssertEqual(scrollToEdgeCalls.first, .bottom)
+    func testInitialState() {
+        XCTAssertFalse(state.showScrollToLatest,
+                       "Should not show scroll-to-latest initially")
+        XCTAssertFalse(state.scrollIndicatorsHidden,
+                       "Scroll indicators should be visible initially")
+        XCTAssertNil(state.lastMessageId)
+        XCTAssertNil(state.currentConversationId)
+        XCTAssertEqual(state.scrollContentHeight, 0)
+        XCTAssertEqual(state.scrollContainerHeight, 0)
+        XCTAssertEqual(state.lastContentOffsetY, 0)
     }
 
-    func testInitialModeIsInitialLoad() {
-        if case .initialLoad = state.mode {
-            // correct
-        } else {
-            XCTFail("Initial mode should be .initialLoad")
-        }
-    }
+    // MARK: - updateScrollToLatest: Distance Threshold
 
-    // MARK: - Mode Transitions
+    func testUpdateScrollToLatestShowsWhenFarFromBottom() {
+        state.scrollContentHeight = 5000
+        state.scrollContainerHeight = 800
+        state.lastContentOffsetY = 2000  // distanceFromBottom = 5000 - 2000 - 800 = 2200
 
-    func testTransitionToFreeBrowsingSetsFollowingFalse() {
-        state.transition(to: .freeBrowsing)
-        XCTAssertFalse(state.isFollowingBottom)
-        XCTAssertTrue(state.hasBeenInteracted)
-    }
+        state.updateScrollToLatest()
 
-    func testTransitionToFollowingBottomSetsFollowingTrue() {
-        state.transition(to: .freeBrowsing)
-        XCTAssertFalse(state.isFollowingBottom)
-
-        state.transition(to: .followingBottom)
-        XCTAssertTrue(state.isFollowingBottom)
-    }
-
-    func testTransitionToSameModeIsNoop() {
-        state.transition(to: .followingBottom)
-        state.transition(to: .followingBottom)
-        XCTAssertTrue(state.isFollowingBottom)
-    }
-
-    func testHandleUserScrollUpTransitionsToFreeBrowsing() {
-        state.transition(to: .followingBottom)
-        state.handleUserScrollUp()
-        XCTAssertFalse(state.isFollowingBottom)
-        if case .freeBrowsing = state.mode {
-            // correct
-        } else {
-            XCTFail("Expected .freeBrowsing after handleUserScrollUp")
-        }
-    }
-
-    func testHandleReachedBottomTransitionsToFollowingBottom() {
-        state.transition(to: .freeBrowsing)
-        XCTAssertFalse(state.isFollowingBottom)
-
-        state.handleReachedBottom()
-        XCTAssertTrue(state.isFollowingBottom)
-    }
-
-    /// Verifies that rapid transitions coalesce into a single UI sync.
-    func testRapidTransitionsDoNotAccumulate() async throws {
-        // GIVEN 100 rapid transitions to freeBrowsing
-        for _ in 0..<100 {
-            state.transition(to: .freeBrowsing)
-        }
-
-        // WHEN the debounced sync fires
-        XCTAssertFalse(state.isFollowingBottom)
-        XCTAssertFalse(state.showScrollToLatest)
-        try await Task.sleep(nanoseconds: 50_000_000)
-
-        // THEN only one property update occurs
         XCTAssertTrue(state.showScrollToLatest,
-                      "showScrollToLatest should be true after debounced sync")
-        XCTAssertEqual(state.uiVersion, 1,
-                       "Only one internal uiVersion bump despite 100 transition calls")
+                      "Should show scroll-to-latest when distanceFromBottom > 400")
     }
 
-    // MARK: - Pin Gating
+    func testUpdateScrollToLatestHidesWhenNearBottom() {
+        state.scrollContentHeight = 1000
+        state.scrollContainerHeight = 800
+        state.lastContentOffsetY = 100  // distanceFromBottom = 1000 - 100 - 800 = 100
 
-    func testPinSuppressedInFreeBrowsing() {
-        state.transition(to: .freeBrowsing)
-        let result = state.requestPinToBottom()
+        state.updateScrollToLatest()
 
-        XCTAssertFalse(result, "requestPinToBottom should return false in freeBrowsing mode")
-        XCTAssertTrue(scrollToCalls.isEmpty,
-                      "Pin requests should be suppressed in freeBrowsing mode")
+        XCTAssertFalse(state.showScrollToLatest,
+                       "Should hide scroll-to-latest when distanceFromBottom <= 400")
     }
 
-    func testPinSuppressedWhileStabilizing() {
-        state.transition(to: .followingBottom)
-        state.beginStabilization(.expansion)
-        let result = state.requestPinToBottom()
+    func testUpdateScrollToLatestExactThreshold() {
+        state.scrollContentHeight = 1600
+        state.scrollContainerHeight = 800
+        state.lastContentOffsetY = 400  // distanceFromBottom = 1600 - 400 - 800 = 400
 
-        XCTAssertFalse(result, "requestPinToBottom should return false when stabilizing")
-        XCTAssertTrue(scrollToCalls.isEmpty,
-                      "Pin requests should be suppressed when stabilizing")
+        state.updateScrollToLatest()
+
+        XCTAssertFalse(state.showScrollToLatest,
+                       "Should hide scroll-to-latest when distanceFromBottom == 400 (threshold is >400)")
     }
 
-    func testPinAllowedWhenFollowingBottom() {
-        state.transition(to: .followingBottom)
-        // Seed lastMessageId so the ID-based path fires (not edge fallback).
-        state.lastMessageId = UUID()
-        let result = state.requestPinToBottom()
+    func testUpdateScrollToLatestJustAboveThreshold() {
+        state.scrollContentHeight = 1602
+        state.scrollContainerHeight = 800
+        state.lastContentOffsetY = 401  // distanceFromBottom = 1602 - 401 - 800 = 401
 
-        XCTAssertTrue(result, "requestPinToBottom should return true when following bottom")
-        // ID-based scroll fires synchronously (targets real ForEach content).
-        // Edge-based is only used as fallback when lastMessageId is nil.
-        XCTAssertFalse(scrollToCalls.isEmpty,
-                       "scrollTo should have been called synchronously")
+        state.updateScrollToLatest()
+
+        XCTAssertTrue(state.showScrollToLatest,
+                      "Should show scroll-to-latest when distanceFromBottom == 401 (> 400)")
     }
 
-    func testPinAllowedAfterTransitionToFollowingBottom() {
-        state.transition(to: .freeBrowsing)
-        let suppressed = state.requestPinToBottom()
-        XCTAssertFalse(suppressed)
-        XCTAssertTrue(scrollToCalls.isEmpty)
+    func testUpdateScrollToLatestAtBottom() {
+        state.scrollContentHeight = 800
+        state.scrollContainerHeight = 800
+        state.lastContentOffsetY = 0  // distanceFromBottom = 0
 
-        state.transition(to: .followingBottom)
-        // Seed lastMessageId so the ID-based path fires (not edge fallback).
-        state.lastMessageId = UUID()
-        let allowed = state.requestPinToBottom()
-        XCTAssertTrue(allowed)
-        XCTAssertFalse(scrollToCalls.isEmpty,
-                       "ID-based scroll should proceed after transitioning to followingBottom")
+        state.updateScrollToLatest()
+
+        XCTAssertFalse(state.showScrollToLatest,
+                       "Should hide scroll-to-latest when at bottom")
     }
 
-    func testUserInitiatedBypassesGuards() {
-        state.transition(to: .freeBrowsing)
-        state.beginStabilization(.expansion)
+    func testUpdateScrollToLatestTogglesCorrectly() {
+        // Start far from bottom
+        state.scrollContentHeight = 5000
+        state.scrollContainerHeight = 800
+        state.lastContentOffsetY = 2000
+        state.updateScrollToLatest()
+        XCTAssertTrue(state.showScrollToLatest)
 
-        let result = state.requestPinToBottom(userInitiated: true)
-
-        XCTAssertTrue(result,
-                      "User-initiated requests should always return true")
-        // User-initiated uses ID-based scroll as primary (targets real
-        // ForEach content, never overshoots) with edge-based correction
-        // in a Task.
-        XCTAssertFalse(scrollToCalls.isEmpty,
-                       "User-initiated requests should bypass mode checks and scroll to ID")
+        // Scroll to bottom
+        state.lastContentOffsetY = 4200  // distanceFromBottom = 0
+        state.updateScrollToLatest()
+        XCTAssertFalse(state.showScrollToLatest,
+                       "Should toggle off when scrolled back to bottom")
     }
 
-    // MARK: - Stabilization
+    // MARK: - reset(for:)
 
-    func testStabilizationPreservesFollowingBottom() {
-        state.transition(to: .followingBottom)
-        state.beginStabilization(.resize)
-        XCTAssertTrue(state.isSuppressed)
-        XCTAssertTrue(state.isFollowingBottom,
-                      "isFollowingBottom should reflect the pre-stabilization mode")
-
-        state.endStabilization()
-        XCTAssertFalse(state.isSuppressed)
-        XCTAssertTrue(state.isFollowingBottom)
-    }
-
-    func testStabilizationPreservesFreeBrowsing() {
-        state.transition(to: .freeBrowsing)
-        state.beginStabilization(.resize)
-        XCTAssertTrue(state.isSuppressed)
-        XCTAssertFalse(state.isFollowingBottom)
-
-        state.endStabilization()
-        XCTAssertFalse(state.isSuppressed)
-        XCTAssertFalse(state.isFollowingBottom)
-    }
-
-    func testOverlappingStabilizationWaitsForAllWindows() {
-        state.transition(to: .followingBottom)
-
-        // Window 1: resize
-        state.beginStabilization(.resize)
-        XCTAssertTrue(state.isSuppressed)
-
-        // Window 2: expansion (overlapping)
-        state.beginStabilization(.expansion)
-        XCTAssertTrue(state.isSuppressed)
-
-        // Window 1 completes — should still be stabilizing
-        state.endStabilization()
-        XCTAssertTrue(state.isSuppressed,
-                      "Should remain stabilizing while overlapping windows are active")
-
-        // Window 2 completes — now should exit
-        state.endStabilization()
-        XCTAssertFalse(state.isSuppressed,
-                       "Should exit stabilization after all windows complete")
-        XCTAssertTrue(state.isFollowingBottom,
-                      "Should restore followingBottom after overlapping stabilization")
-    }
-
-    func testOverlappingStabilizationPreservesOriginalMode() {
-        state.transition(to: .freeBrowsing)
-
-        state.beginStabilization(.resize)
-        state.beginStabilization(.pagination)
-        state.endStabilization()
-        XCTAssertTrue(state.isSuppressed)
-
-        state.endStabilization()
-        XCTAssertFalse(state.isSuppressed)
-        XCTAssertFalse(state.isFollowingBottom,
-                       "Should restore freeBrowsing (original mode before any stabilization)")
-    }
-
-    // MARK: - Stabilization: Expansion 200ms Auto-Clear
-
-    func testExpansionAutoClears() async throws {
-        state.transition(to: .followingBottom)
-        state.beginStabilization(.expansion)
-        XCTAssertTrue(state.isSuppressed)
-
-        try await Task.sleep(nanoseconds: 250_000_000)
-
-        XCTAssertFalse(state.isSuppressed,
-                       "Expansion stabilization should auto-clear after 200ms")
-    }
-
-    func testExpansionTimerReset() async throws {
-        state.transition(to: .followingBottom)
-        state.beginStabilization(.expansion)
-        XCTAssertTrue(state.isSuppressed)
-
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        state.beginStabilization(.expansion)
-        XCTAssertTrue(state.isSuppressed)
-
-        try await Task.sleep(nanoseconds: 150_000_000)
-
-        XCTAssertTrue(state.isSuppressed,
-                      "Timer was reset -- should still be stabilizing")
-
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        XCTAssertFalse(state.isSuppressed,
-                       "Expansion stabilization should auto-clear after the reset timeout")
-    }
-
-    func testManualExpansionDetachesFollowingBottom() async throws {
-        state.transition(to: .followingBottom)
-        state.recoveryDeadline = Date().addingTimeInterval(2.0)
-        state.scrollRestoreTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-        }
-
-        state.handleManualExpansionInteraction()
-
-        XCTAssertTrue(state.isSuppressed,
-                      "Manual expansion should enter stabilization while layout settles")
-        XCTAssertFalse(state.isFollowingBottom,
-                       "Manual expansion should detach from following-bottom mode")
-        XCTAssertNil(state.recoveryDeadline,
-                     "Manual expansion should cancel bottom recovery")
-        XCTAssertNil(state.scrollRestoreTask,
-                     "Manual expansion should cancel delayed restore pins")
-
-        try await Task.sleep(nanoseconds: 250_000_000)
-
-        XCTAssertFalse(state.isSuppressed,
-                       "Expansion stabilization should still auto-clear")
-        if case .freeBrowsing = state.mode {
-            // correct
-        } else {
-            XCTFail("Manual expansion should settle into freeBrowsing")
-        }
-    }
-
-    // MARK: - Deferred Bottom Pins
-
-    func testDeferredBottomPinExecutesOnNextRunLoop() async throws {
-        state.transition(to: .followingBottom)
-        let lastId = UUID()
-        state.lastMessageId = lastId
-
-        state.scheduleDeferredBottomPin(animated: true)
-
-        XCTAssertTrue(scrollToCalls.isEmpty,
-                      "Deferred pin should not mutate scroll position synchronously")
-
-        try await Task.sleep(nanoseconds: 50_000_000)
-
-        XCTAssertEqual(scrollToCalls.count, 1)
-        XCTAssertEqual(scrollToCalls.first?.id, AnyHashable(lastId))
-        XCTAssertEqual(scrollToCalls.first?.anchor, .bottom)
-    }
-
-    func testDeferredBottomPinCoalescesRepeatedRequests() async throws {
-        state.transition(to: .followingBottom)
-        let lastId = UUID()
-        state.lastMessageId = lastId
-
-        state.scheduleDeferredBottomPin(animated: true)
-        state.scheduleDeferredBottomPin(animated: true)
-        state.scheduleDeferredBottomPin(animated: true, forceFollowingBottom: true, refreshRecoveryWindow: true)
-
-        try await Task.sleep(nanoseconds: 50_000_000)
-
-        XCTAssertEqual(scrollToCalls.count, 1,
-                       "Repeated deferred pins from one update cycle should coalesce")
-        XCTAssertTrue(state.isFollowingBottom)
-        XCTAssertFalse(state.bottomAnchorAppeared)
-        XCTAssertNotNil(state.recoveryDeadline)
-    }
-
-    func testDeferredBottomPinCancelledByReset() async throws {
-        state.transition(to: .followingBottom)
-        state.lastMessageId = UUID()
-
-        state.scheduleDeferredBottomPin(animated: true)
-        state.reset(for: UUID())
-
-        try await Task.sleep(nanoseconds: 50_000_000)
-
-        XCTAssertTrue(scrollToCalls.isEmpty,
-                      "Reset should cancel any deferred bottom pin from the old conversation")
-    }
-
-    // MARK: - Reset
-
-    func testResetRestoresDefaults() {
-        let oldId = UUID()
+    func testResetClearsAllState() {
         let newId = UUID()
 
-        state.transition(to: .freeBrowsing)
-        state.beginStabilization(.resize)
-        state.isPaginationInFlight = true
+        // Set up non-default state
+        state.scrollContentHeight = 5000
+        state.scrollContainerHeight = 800
+        state.lastContentOffsetY = 2000
+        state.lastMessageId = UUID()
+        state.currentConversationId = UUID()
+        state.pendingSendScrollMessageId = UUID()
         state.wasPaginationTriggerInRange = true
-        state.isAtBottom = false
-        state.currentConversationId = oldId
+        state.lastPaginationCompletedAt = Date()
+        state.updateScrollToLatest()
+        XCTAssertTrue(state.showScrollToLatest)
 
+        // Reset
         state.reset(for: newId)
 
-        if case .initialLoad = state.mode {
-            // correct
-        } else {
-            XCTFail("Reset should return to .initialLoad mode")
-        }
-        XCTAssertFalse(state.isFollowingBottom, "initialLoad is distinct from followingBottom")
-        XCTAssertTrue(state.mode.allowsAutoScroll, "Reset should restore auto-scroll eligibility")
-        XCTAssertFalse(state.showScrollToLatest, "Should sync showScrollToLatest immediately on reset")
-        XCTAssertFalse(state.isSuppressed, "Should clear stabilization")
-        XCTAssertFalse(state.isPaginationInFlight, "Should clear pagination flag")
-        XCTAssertFalse(state.wasPaginationTriggerInRange, "Should clear trigger range flag")
-        XCTAssertFalse(state.isAtBottom, "Should wait for fresh geometry before claiming bottom")
-        XCTAssertFalse(state.hasBeenInteracted, "Should reset to initialLoad mode")
-        XCTAssertEqual(state.currentConversationId, newId, "Should update conversation ID")
-        XCTAssertTrue(state.hideScrollIndicators,
-                      "Should hide scroll indicators during conversation switch")
-        XCTAssertTrue(state.scrollIndicatorsHidden)
+        XCTAssertEqual(state.currentConversationId, newId)
+        XCTAssertNil(state.lastMessageId)
+        XCTAssertNil(state.pendingSendScrollMessageId)
+        XCTAssertEqual(state.scrollContentHeight, 0)
+        XCTAssertEqual(state.scrollContainerHeight, 0)
+        XCTAssertEqual(state.lastContentOffsetY, 0)
         XCTAssertFalse(state.showScrollToLatest)
+        XCTAssertFalse(state.wasPaginationTriggerInRange)
+        XCTAssertEqual(state.lastPaginationCompletedAt, .distantPast)
     }
 
-    func testResetClearsBottomAnchorAppeared() {
-        state.bottomAnchorAppeared = true
-        state.reset(for: UUID())
-        XCTAssertFalse(state.bottomAnchorAppeared,
-                       "Should reset bottomAnchorAppeared so recovery fires for new conversation")
-    }
-
-    func testResetClearsLastMessageId() {
-        state.lastMessageId = UUID()
-        state.reset(for: UUID())
-        XCTAssertNil(state.lastMessageId,
-                     "Should clear lastMessageId so it gets re-seeded for the new conversation")
-    }
-
-    func testResetClearsLayoutCache() {
-        state.messageListVersion = 5
-        state.lastKnownMessagesRevision = 10
+    func testResetClearsAnchorState() {
+        state.anchorSetTime = Date()
+        state.anchorTimeoutTask = Task { try? await Task.sleep(nanoseconds: 1_000_000_000) }
 
         state.reset(for: UUID())
 
-        XCTAssertEqual(state.messageListVersion, 0)
-        XCTAssertEqual(state.lastKnownMessagesRevision, 0)
-        XCTAssertNil(state.cachedProjectionKey)
-        XCTAssertNil(state.cachedProjection)
+        XCTAssertNil(state.anchorSetTime)
+        XCTAssertNil(state.anchorTimeoutTask)
     }
 
-    // MARK: - cancelAll
+    func testResetClearsDerivedStateCache() {
+        state.derivedStateCache.messageListVersion = 5
+        state.derivedStateCache.lastKnownMessagesRevision = 10
+        state.derivedStateCache.cachedFirstVisibleMessageId = UUID()
 
-    func testCancelAllResetsMode() {
-        state.transition(to: .freeBrowsing)
-        state.beginStabilization(.resize)
-        XCTAssertTrue(state.isSuppressed)
+        state.reset(for: UUID())
 
-        state.cancelAll()
-
-        XCTAssertFalse(state.isSuppressed, "cancelAll should clear stabilization")
-        XCTAssertFalse(state.hideScrollIndicators,
-                       "cancelAll should restore scroll indicators")
-        XCTAssertFalse(state.isPaginationInFlight,
-                       "cancelAll should clear pagination flag")
+        XCTAssertEqual(state.derivedStateCache.messageListVersion, 0)
+        XCTAssertEqual(state.derivedStateCache.lastKnownMessagesRevision, 0)
+        XCTAssertNil(state.derivedStateCache.cachedFirstVisibleMessageId)
+        XCTAssertNil(state.derivedStateCache.cachedProjectionKey)
+        XCTAssertNil(state.derivedStateCache.cachedProjection)
     }
 
-    // MARK: - Computed Properties
+    func testResetHidesScrollIndicatorsBriefly() {
+        state.reset(for: UUID())
 
-    /// Verifies that showScrollToLatest tracks mode transitions independently.
-    func testShowScrollToLatest() async throws {
-        // GIVEN initial state
-        XCTAssertFalse(state.showScrollToLatest,
-                       "Should be false when following bottom")
-
-        // WHEN transitioning to freeBrowsing
-        state.transition(to: .freeBrowsing)
-        try await Task.sleep(nanoseconds: 50_000_000)
-
-        // THEN showScrollToLatest becomes true
-        XCTAssertTrue(state.showScrollToLatest,
-                      "Should be true when in freeBrowsing mode")
-
-        // WHEN transitioning back to followingBottom
-        state.transition(to: .followingBottom)
-        try await Task.sleep(nanoseconds: 50_000_000)
-
-        // THEN showScrollToLatest becomes false again
-        XCTAssertFalse(state.showScrollToLatest,
-                       "Should be false again after transitioning to followingBottom")
-    }
-
-    // MARK: - Property-Level Tracking
-
-    /// Verifies that each UI property reflects the final mode state after
-    /// multiple transitions and a debounced sync.
-    func testUIPropertiesReflectFinalState() async throws {
-        // GIVEN multiple mode transitions ending in freeBrowsing
-        state.transition(to: .followingBottom)
-        state.transition(to: .freeBrowsing)
-
-        // AND a scroll indicator change that requires a debounced sync
-        state.hideScrollIndicators = true
-
-        // WHEN the debounced sync fires
-        try await Task.sleep(nanoseconds: 50_000_000)
-
-        // THEN each property reflects the final mode (.freeBrowsing)
-        XCTAssertTrue(state.showScrollToLatest,
-                      "freeBrowsing mode shows scroll-to-latest")
         XCTAssertTrue(state.scrollIndicatorsHidden,
-                      "scroll indicators should be hidden")
+                      "Should hide scroll indicators during conversation switch")
     }
 
-    /// Verifies that syncUIImmediately bypasses debounce and updates all
-    /// properties immediately.
-    func testSyncUIImmediately() {
-        // GIVEN freeBrowsing mode
-        state.transition(to: .freeBrowsing)
-        state.syncUIImmediately()
+    func testResetScrollIndicatorsRestoreAfterDelay() async throws {
+        state.reset(for: UUID())
+        XCTAssertTrue(state.scrollIndicatorsHidden)
 
-        // THEN properties reflect the current mode (.freeBrowsing)
-        XCTAssertTrue(state.showScrollToLatest,
-                      "freeBrowsing mode shows scroll-to-latest")
+        try await Task.sleep(nanoseconds: 400_000_000)
+
+        XCTAssertFalse(state.scrollIndicatorsHidden,
+                       "Scroll indicators should restore after 300ms delay")
     }
 
-    /// Verifies that syncUIImmediately reflects followingBottom correctly.
-    func testSyncUIImmediatelyFollowingBottom() {
-        // GIVEN followingBottom mode
-        state.transition(to: .followingBottom)
-        state.syncUIImmediately()
+    // MARK: - handlePaginationSentinel: Rising-Edge Detection
 
-        // THEN properties reflect the current mode (.followingBottom)
-        XCTAssertFalse(state.showScrollToLatest,
-                       "followingBottom mode does not show scroll-to-latest")
+    func testPaginationSentinelFiresOnRisingEdge() {
+        // Start out of range
+        state.wasPaginationTriggerInRange = false
+
+        // Enter the trigger band (sentinelMinY > -200)
+        let shouldFire = state.handlePaginationSentinel(sentinelMinY: -100)
+
+        XCTAssertTrue(shouldFire,
+                      "Should fire on rising edge (out-of-range to in-range)")
     }
 
-    // MARK: - Circuit Breaker
+    func testPaginationSentinelDoesNotFireWhenAlreadyInRange() {
+        // Already in range
+        state.wasPaginationTriggerInRange = true
 
-    func testCircuitBreakerTripsAfterRapidEvaluations() {
-        for _ in 0...100 {
-            state.recordBodyEvaluation()
-        }
-        XCTAssertTrue(state.isThrottled, "Circuit breaker should be active")
+        let shouldFire = state.handlePaginationSentinel(sentinelMinY: -100)
+
+        XCTAssertFalse(shouldFire,
+                       "Should not fire when already in range (no rising edge)")
     }
 
-    func testCircuitBreakerRecovery() async throws {
-        for _ in 0...100 {
-            state.recordBodyEvaluation()
-        }
-        XCTAssertTrue(state.isThrottled)
+    func testPaginationSentinelDoesNotFireWhenOutOfRange() {
+        state.wasPaginationTriggerInRange = false
+
+        let shouldFire = state.handlePaginationSentinel(sentinelMinY: -300)
+
+        XCTAssertFalse(shouldFire,
+                       "Should not fire when sentinel is outside trigger band")
+    }
+
+    func testPaginationSentinelCooldown() {
+        // Fire once
+        state.wasPaginationTriggerInRange = false
+        let first = state.handlePaginationSentinel(sentinelMinY: -100)
+        XCTAssertTrue(first)
+
+        // Record completion
+        state.lastPaginationCompletedAt = Date()
+
+        // Move out and back in — should be blocked by cooldown
+        state.wasPaginationTriggerInRange = false
+        let second = state.handlePaginationSentinel(sentinelMinY: -100)
+        XCTAssertFalse(second,
+                       "Should be blocked by 500ms cooldown")
+    }
+
+    func testPaginationSentinelFiresAfterCooldown() async throws {
+        // Fire once and record completion
+        state.wasPaginationTriggerInRange = false
+        let first = state.handlePaginationSentinel(sentinelMinY: -100)
+        XCTAssertTrue(first)
+        state.lastPaginationCompletedAt = Date()
+
+        // Wait for cooldown
         try await Task.sleep(nanoseconds: 600_000_000)
-        XCTAssertFalse(state.isThrottled, "Circuit breaker should auto-recover")
-    }
 
-    // MARK: - Pagination Cooldown
+        // Move out and back in
+        state.wasPaginationTriggerInRange = false
+        let second = state.handlePaginationSentinel(sentinelMinY: -100)
+        XCTAssertTrue(second,
+                      "Should fire after 500ms cooldown expires")
+    }
 
     func testPaginationCooldownResetOnConversationSwitch() {
         state.lastPaginationCompletedAt = Date()
         state.reset(for: UUID())
-        XCTAssertEqual(state.lastPaginationCompletedAt, .distantPast)
+        XCTAssertEqual(state.lastPaginationCompletedAt, .distantPast,
+                       "Cooldown should be reset on conversation switch")
     }
 
-    func testScheduleUISyncSuppressedWhenThrottled() async throws {
-        for _ in 0...100 {
-            state.recordBodyEvaluation()
-        }
-        XCTAssertTrue(state.isThrottled)
-        state.transition(to: .freeBrowsing)
-        XCTAssertFalse(state.isFollowingBottom)
-        try await Task.sleep(nanoseconds: 50_000_000)
-        XCTAssertFalse(state.showScrollToLatest,
-                       "showScrollToLatest should NOT update while throttled")
+    // MARK: - hideScrollIndicatorsBriefly
+
+    func testHideScrollIndicatorsBriefly() {
+        XCTAssertFalse(state.scrollIndicatorsHidden)
+
+        state.hideScrollIndicatorsBriefly()
+
+        XCTAssertTrue(state.scrollIndicatorsHidden,
+                      "Should hide scroll indicators immediately")
     }
 
-    // MARK: - Programmatic Scroll Mode
+    func testHideScrollIndicatorsRestoresAfterDelay() async throws {
+        state.hideScrollIndicatorsBriefly()
+        XCTAssertTrue(state.scrollIndicatorsHidden)
 
-    func testProgrammaticScrollMode() {
-        state.transition(to: .programmaticScroll(reason: .deepLinkAnchor(id: UUID())))
-        XCTAssertFalse(state.isFollowingBottom)
-        XCTAssertFalse(state.mode.allowsAutoScroll)
+        try await Task.sleep(nanoseconds: 400_000_000)
+
+        XCTAssertFalse(state.scrollIndicatorsHidden,
+                       "Should restore scroll indicators after 300ms")
     }
 
-    func testProgrammaticScrollToFollowingBottomViaReachedBottom() {
-        state.transition(to: .programmaticScroll(reason: .deepLinkAnchor(id: UUID())))
-        state.handleReachedBottom()
-        XCTAssertTrue(state.isFollowingBottom)
+    func testHideScrollIndicatorsResetsTimer() async throws {
+        state.hideScrollIndicatorsBriefly()
+        XCTAssertTrue(state.scrollIndicatorsHidden)
+
+        // Wait 200ms, then re-hide
+        try await Task.sleep(nanoseconds: 200_000_000)
+        state.hideScrollIndicatorsBriefly()
+
+        // Wait another 200ms — original timer would have expired
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertTrue(state.scrollIndicatorsHidden,
+                      "Timer should be reset — still hidden")
+
+        // Wait for new timer to expire
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertFalse(state.scrollIndicatorsHidden,
+                       "Should restore after reset timer expires")
     }
 
-    // MARK: - scrollPhase Reset
+    // MARK: - distanceFromBottom
 
-    func testResetClearsScrollPhase() {
-        state.scrollPhase = .interacting
-        state.reset(for: UUID())
-        XCTAssertEqual(state.scrollPhase, .idle)
+    func testDistanceFromBottomCalculation() {
+        state.scrollContentHeight = 2000
+        state.scrollContainerHeight = 800
+        state.lastContentOffsetY = 500
+
+        XCTAssertEqual(state.distanceFromBottom, 700,
+                       "distanceFromBottom = contentHeight - offsetY - containerHeight")
     }
 
-    // MARK: - Coordinator-Backed Behavior
+    func testDistanceFromBottomAtBottom() {
+        state.scrollContentHeight = 2000
+        state.scrollContainerHeight = 800
+        state.lastContentOffsetY = 1200
 
-    /// Verifies that manual expansion detaches from follow-bottom via
-    /// both the coordinator policy and the scrollState runtime executor.
-    func testCoordinatorManualExpansionDetachesFollowingBottom() async throws {
-        let coordinator = ScrollCoordinator()
-
-        // Start following bottom via sending.
-        _ = coordinator.handle(.sendingChanged(isSending: true))
-        XCTAssertTrue(coordinator.isFollowingBottom)
-
-        state.transition(to: .followingBottom)
-        state.recoveryDeadline = Date().addingTimeInterval(2.0)
-
-        // Simulate the coordinator path (what the view layer does).
-        let intents = coordinator.handle(.manualExpansion)
-
-        // Coordinator should detach and stabilize.
-        XCTAssertTrue(coordinator.isSuppressed,
-                      "Coordinator should enter stabilization on manual expansion")
-        XCTAssertFalse(coordinator.isFollowingBottom,
-                       "Coordinator should detach from following-bottom")
-        XCTAssertTrue(intents.contains(.cancelRecoveryWindow),
-                      "Coordinator should cancel recovery window")
-        XCTAssertTrue(intents.contains(.showScrollToLatest),
-                      "Coordinator should signal CTA should appear")
-
-        // Simulate executor-side sync (what the view layer also does).
-        state.handleManualExpansionInteraction()
-        XCTAssertFalse(state.isFollowingBottom,
-                       "ScrollState executor should also detach from following-bottom")
+        XCTAssertEqual(state.distanceFromBottom, 0,
+                       "Should be 0 when scrolled to bottom")
     }
 
-    /// Verifies that scrolling up while streaming detaches and stays
-    /// detached until an explicit reattach event (scroll to idle at bottom).
-    func testCoordinatorScrollUpDuringStreamingStaysDetached() {
-        let coordinator = ScrollCoordinator()
+    // MARK: - cancelAll
 
-        // Start streaming (following bottom).
-        _ = coordinator.handle(.sendingChanged(isSending: true))
-        XCTAssertTrue(coordinator.isFollowingBottom)
+    func testCancelAllResetsState() {
+        state.scrollContentHeight = 5000
+        state.scrollContainerHeight = 800
+        state.lastContentOffsetY = 2000
+        state.updateScrollToLatest()
+        XCTAssertTrue(state.showScrollToLatest)
 
-        // User scrolls up — detach.
-        _ = coordinator.handle(.manualBrowseIntent)
-        XCTAssertEqual(coordinator.mode, .freeBrowsing)
+        state.cancelAll()
 
-        // New messages arrive while scrolled up.
-        let messageIntents = coordinator.handle(.messageCountChanged)
-        XCTAssertTrue(messageIntents.isEmpty,
-                      "Should NOT auto-pin when free-browsing during streaming")
-        XCTAssertEqual(coordinator.mode, .freeBrowsing,
-                       "Should stay in free-browsing despite new messages")
-
-        // User scrolls back to bottom and scroll settles.
-        coordinator.updateBottomState(distanceFromBottom: 5)
-        XCTAssertTrue(coordinator.isAtBottom)
-        _ = coordinator.handle(.scrollPhaseChanged(phase: .interacting))
-        _ = coordinator.handle(.scrollPhaseChanged(phase: .idle))
-        XCTAssertTrue(coordinator.isFollowingBottom,
-                      "Should reattach when user scrolls back to bottom and scroll settles")
-    }
-
-    /// Verifies that anchor/search jumps remain valid while free browsing
-    /// and don't accidentally reattach to the bottom.
-    func testCoordinatorAnchorJumpDuringFreeBrowsing() {
-        let coordinator = ScrollCoordinator()
-
-        // Detach into free browsing.
-        _ = coordinator.handle(.manualBrowseIntent)
-        XCTAssertEqual(coordinator.mode, .freeBrowsing)
-
-        // Request an anchor jump (deep-link or search).
-        let anchorId = ScrollCoordinator.AnchorID(UUID())
-        let requestIntents = coordinator.handle(.anchorRequested(id: anchorId))
-
-        // Should transition to programmatic scroll.
-        if case .programmaticScroll = coordinator.mode {
-            // correct
-        } else {
-            XCTFail("Expected programmaticScroll mode after anchor request in free-browsing")
-        }
-        XCTAssertTrue(requestIntents.contains(.cancelRecoveryWindow))
-
-        // Anchor resolves.
-        let resolveIntents = coordinator.handle(.anchorResolved(id: anchorId))
-        XCTAssertTrue(resolveIntents.contains(.scrollToMessage(id: anchorId, anchor: .center)),
-                      "Anchor resolution should produce scroll-to-message intent")
-        XCTAssertNil(coordinator.pendingAnchor,
-                     "Pending anchor should be cleared after resolution")
-    }
-
-    /// Verifies that the container-width resize path keeps both state
-    /// machines in lockstep: both exit stabilization together once the
-    /// view-layer resize task calls `endStabilization()` on each.
-    func testCoordinatorAndScrollStateExitStabilizationTogetherOnResize() {
-        let coordinator = ScrollCoordinator()
-
-        // Enter free-browsing on both (what a user scrolled-up during
-        // streaming looks like).
-        _ = coordinator.handle(.manualBrowseIntent)
-        state.transition(to: .freeBrowsing)
-
-        // Width change: coordinator enters .stabilizing(.resize).
-        _ = coordinator.handle(.containerWidthChanged)
-        XCTAssertTrue(coordinator.isSuppressed,
-                      "Coordinator should enter stabilization on width change in free-browsing")
-
-        // View layer independently begins stabilization on scrollState.
-        state.beginStabilization(.resize)
-        XCTAssertTrue(state.isSuppressed)
-
-        // End both (what the view's resize task does after the 100ms sleep).
-        state.endStabilization()
-        coordinator.endStabilization()
-
-        XCTAssertFalse(coordinator.isSuppressed,
-                       "Coordinator must exit stabilization when the view-layer ends it")
-        XCTAssertFalse(state.isSuppressed)
-        XCTAssertEqual(coordinator.mode, .freeBrowsing)
-    }
-
-    /// Verifies that the coordinator and scrollState both reset on
-    /// conversation switch.
-    func testCoordinatorResetOnConversationSwitch() {
-        let coordinator = ScrollCoordinator()
-
-        // Put coordinator in non-initial state.
-        _ = coordinator.handle(.sendingChanged(isSending: true))
-        _ = coordinator.handle(.manualBrowseIntent)
-        coordinator.updateBottomState(distanceFromBottom: 100)
-        XCTAssertEqual(coordinator.mode, .freeBrowsing)
-        XCTAssertFalse(coordinator.isAtBottom)
-
-        // Reset (what handleConversationSwitched does).
-        coordinator.reset()
-
-        XCTAssertEqual(coordinator.mode, .initialLoad)
-        XCTAssertEqual(coordinator.phase, .idle)
-        XCTAssertFalse(coordinator.isAtBottom)
-        XCTAssertFalse(coordinator.hasBeenInteracted)
+        XCTAssertFalse(state.showScrollToLatest)
+        XCTAssertFalse(state.scrollIndicatorsHidden)
+        XCTAssertEqual(state.scrollContentHeight, 0)
     }
 }

@@ -11,7 +11,8 @@
  *      (not duplicated across runtime/tests/docs).
  */
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 
@@ -21,6 +22,11 @@ const repoRoot = resolve(__dirname, "..", "..", "..");
 const CANONICAL_CONFIG_REL_PATH =
   "meta/browser-extension/chrome-extension-allowlist.json";
 const CANONICAL_CONFIG_ABS_PATH = join(repoRoot, CANONICAL_CONFIG_REL_PATH);
+const LOCAL_OVERRIDE_PATH = join(
+  homedir(),
+  ".vellum",
+  "chrome-extension-allowlist.local.json",
+);
 
 const EXTENSION_ID_REGEX = /^[a-p]{32}$/;
 const PLACEHOLDER_ID_REGEX = /^TODO_[A-Z0-9_]+$/;
@@ -167,6 +173,27 @@ describe("Chrome extension allowlist guard", () => {
       const origin = `chrome-extension://${id}/`;
       expect(ALLOWED_EXTENSION_ORIGINS.has(origin)).toBe(true);
     }
+  });
+
+  test("assistant runtime allowlist exactly mirrors canonical when no override sources are active", () => {
+    // Exact-equality invariant: when neither the local override file nor
+    // the env-var override is active, the runtime set must equal the
+    // canonical set — nothing extra, nothing missing. A dev machine with
+    // an unpacked-extension override will skip this deterministic check
+    // and rely on the subset assertion above.
+    if (existsSync(LOCAL_OVERRIDE_PATH)) return;
+    if (
+      process.env.VELLUM_CHROME_EXTENSION_IDS ||
+      process.env.VELLUM_CHROME_EXTENSION_ID
+    ) {
+      return;
+    }
+
+    const config = parseCanonicalConfig();
+    const expectedOrigins = new Set(
+      config.allowedExtensionIds.map((id) => `chrome-extension://${id}/`),
+    );
+    expect(new Set(ALLOWED_EXTENSION_ORIGINS)).toEqual(expectedOrigins);
   });
 
   test("concrete extension IDs appear only in canonical config", () => {

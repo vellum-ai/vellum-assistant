@@ -3,6 +3,7 @@ import Foundation
 import Network
 import Observation
 import os
+import SwiftUI
 import UniformTypeIdentifiers
 #if os(macOS)
 import AppKit
@@ -364,6 +365,47 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         get { messageManager.pendingQueuedCount }
         set { messageManager.pendingQueuedCount = newValue }
     }
+    /// User-role messages currently in the queue, ordered by queue position ascending.
+    /// The queue drawer consumes this to render each queued message row.
+    public var queuedMessages: [ChatMessage] {
+        messages
+            .filter { $0.role == .user && isQueued($0.status) }
+            .sorted { lhs, rhs in
+                queuePosition(of: lhs.status) < queuePosition(of: rhs.status)
+            }
+    }
+    /// ID of the queued user message with the highest position (i.e. the tail of
+    /// the queue that will be processed last). `nil` when no user messages are
+    /// currently queued. Used to drive "edit last queued message" affordances.
+    ///
+    /// On position ties (e.g. multiple messages queued before any `message_queued`
+    /// acks arrive — all start at position 0), prefer the most recently added
+    /// message. `messages` is maintained in chronological (append) order, so
+    /// `>=` with iteration ensures the last-at-max wins.
+    public var tailQueuedMessageId: UUID? {
+        var tailId: UUID?
+        var tailPosition = Int.min
+        for message in messages where message.role == .user {
+            guard case let .queued(position) = message.status else { continue }
+            if position >= tailPosition {
+                tailPosition = position
+                tailId = message.id
+            }
+        }
+        return tailId
+    }
+    /// Returns true when the status is `.queued(position:)`, false otherwise.
+    private func isQueued(_ status: ChatMessageStatus) -> Bool {
+        if case .queued = status { return true }
+        return false
+    }
+    /// Extracts the position from a queued status, or `Int.max` for other statuses
+    /// so non-queued messages sort after queued ones (defensive — `queuedMessages`
+    /// already filters to queued-only).
+    private func queuePosition(of status: ChatMessageStatus) -> Int {
+        if case let .queued(position) = status { return position }
+        return .max
+    }
     public var suggestion: String? {
         get { messageManager.suggestion }
         set { messageManager.suggestion = newValue }
@@ -521,7 +563,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     private let trustRuleClient: any TrustRuleClientProtocol = TrustRuleClient()
     private let guardianClient: any GuardianClientProtocol = GuardianClient()
     private let regenerateClient: any RegenerateClientProtocol = RegenerateClient()
-    let conversationQueueClient: any ConversationQueueClientProtocol = ConversationQueueClient()
+    let conversationQueueClient: any ConversationQueueClientProtocol
     /// Tracks the action submitted for each guardian decision requestId so the
     /// response handler can display the correct resolved state (the server does
     /// not echo back the action in its acknowledgement).
@@ -623,6 +665,9 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// Skill IDs to pre-activate in the conversation. Included in the
     /// `conversation_create` request for deterministic skill activation.
     public var preactivatedSkillIds: [String]?
+    /// Pre-chat onboarding context to include in the first message POST.
+    /// Consumed (nilled out) by MessageSendCoordinator on the first send.
+    public var pendingOnboardingContext: PreChatOnboardingContext?
     /// Whether this view model is currently bootstrapping a new conversation
     /// (conversation_create sent, awaiting conversation_info). Used by ConversationManager
     /// to decide whether it's safe to release the VM on archive.
@@ -1021,12 +1066,14 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         eventStreamClient: EventStreamClient,
         settingsClient: any SettingsClientProtocol = SettingsClient(),
         interactionClient: any InteractionClientProtocol = InteractionClient(),
+        conversationQueueClient: any ConversationQueueClientProtocol = ConversationQueueClient(),
         onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)? = nil
     ) {
         self.connectionManager = connectionManager
         self.eventStreamClient = eventStreamClient
         self.settingsClient = settingsClient
         self.interactionClient = interactionClient
+        self.conversationQueueClient = conversationQueueClient
         self.onToolCallsComplete = onToolCallsComplete
         self.paginationState = ChatPaginationState(
             messageManager: messageManager
@@ -1500,6 +1547,20 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                 log.error("Failed to delete queued message")
             }
         }
+    }
+
+    /// Pop the tail (highest-position) queued message back into the composer
+    /// bindings and delete it from the queue. No-op when the queue is empty.
+    /// Used by the queue drawer's "edit last queued" affordance.
+    public func editQueuedTail(
+        into text: Binding<String>,
+        attachments: Binding<[ChatAttachment]>
+    ) {
+        guard let tailId = tailQueuedMessageId,
+              let message = messages.first(where: { $0.id == tailId }) else { return }
+        text.wrappedValue = message.text
+        attachments.wrappedValue = message.attachments
+        deleteQueuedMessage(messageId: tailId)
     }
 
     /// Update local state after the server confirms a queued message deletion.

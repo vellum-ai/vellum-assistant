@@ -209,6 +209,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// can access the randomly-generated avatar traits.
     var onboardingState: OnboardingState?
 
+    /// Pre-chat onboarding context collected after hatching. Stored here
+    /// temporarily and forwarded to ConversationManager when the first
+    /// conversation is created, so the first message POST includes it.
+    var pendingPreChatContext: PreChatOnboardingContext?
+
     /// Guards `.appOpen` sound so it fires only once per app session,
     /// even if `proceedToApp()` is called again after assistant switches
     /// or re-authentication flows.

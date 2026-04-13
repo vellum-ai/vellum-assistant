@@ -41,7 +41,8 @@ extension AppDelegate {
             self?.startSession(task: text, source: "voice")
         }
         voiceInput?.onPartialTranscription = { [weak self] text in
-            // Skip if recording already stopped (late callback from speech recognizer)
+            // Skip if recording already stopped (late callback from speech recognizer
+            // or streaming STT session).
             guard self?.voiceInput?.isRecording == true else { return }
 
             // Priority 0: Route partial text to quick input bar if visible

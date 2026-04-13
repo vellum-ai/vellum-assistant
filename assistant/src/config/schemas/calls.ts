@@ -5,8 +5,6 @@ export const VALID_CALLER_IDENTITY_MODES = [
   "assistant_number",
   "user_number",
 ] as const;
-const VALID_CALL_TRANSCRIPTION_PROVIDERS = ["Deepgram", "Google"] as const;
-
 export const CallsDisclosureConfigSchema = z
   .object({
     enabled: z
@@ -49,20 +47,6 @@ export const CallsVoiceConfigSchema = z
       .string({ error: "calls.voice.language must be a string" })
       .default("en-US")
       .describe("BCP-47 language code for speech recognition and synthesis"),
-    transcriptionProvider: z
-      .enum(VALID_CALL_TRANSCRIPTION_PROVIDERS, {
-        error: `calls.voice.transcriptionProvider must be one of: ${VALID_CALL_TRANSCRIPTION_PROVIDERS.join(
-          ", ",
-        )}`,
-      })
-      .default("Deepgram")
-      .describe("Speech-to-text provider used for call transcription"),
-    speechModel: z
-      .string({ error: "calls.voice.speechModel must be a string" })
-      .optional()
-      .describe(
-        "ASR model to use for speech recognition (e.g. nova-3, nova-2-phonecall for Deepgram; telephony, long for Google)",
-      ),
     hints: z
       .array(z.string({ error: "calls.voice.hints values must be strings" }))
       .default([])
