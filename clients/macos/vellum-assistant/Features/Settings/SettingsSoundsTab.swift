@@ -108,8 +108,8 @@ struct SettingsSoundsTab: View {
                 )
             }
 
-            HStack(spacing: VSpacing.sm) {
-                soundPicker(for: event, eventConfig: eventConfig, sounds: sounds)
+            HStack(alignment: .top, spacing: VSpacing.sm) {
+                soundPoolEditor(for: event, eventConfig: eventConfig, sounds: sounds)
 
                 VButton(
                     label: "Preview sound",
@@ -127,40 +127,105 @@ struct SettingsSoundsTab: View {
     }
 
     @ViewBuilder
-    private func soundPicker(
+    private func soundPoolEditor(
         for event: SoundEvent,
         eventConfig: SoundEventConfig,
         sounds: [(label: String, filename: String)]
     ) -> some View {
-        // We use an optional String binding where nil means "Default Blip".
-        // VDropdown needs a Hashable selection, so we use "" as the sentinel for default.
-        let selectedFilename = eventConfig.sound ?? ""
+        // Build a lookup from filename → display label, mirroring `availableSounds()`
+        // so a sound that was removed from the library still shows a readable name.
+        let labelsByFilename = Dictionary(uniqueKeysWithValues: sounds.map { ($0.filename, $0.label) })
 
-        let options: [(label: String, value: String)] = [
-            (label: "Default Blip", value: "")
-        ] + sounds.map { (label: $0.label, value: $0.filename) }
-
-        VDropdown(
-            placeholder: "Default Blip",
-            selection: Binding(
-                get: { selectedFilename },
-                set: { newValue in
-                    var updated = soundManager.config
-                    var ec = updated.config(for: event)
-                    ec.sound = newValue.isEmpty ? nil : newValue
-                    updated.events[event.rawValue] = ec
-                    soundManager.saveConfig(updated)
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            if eventConfig.sounds.isEmpty {
+                // Empty-pool placeholder: shows the user that the default blip will play.
+                HStack {
+                    Text("Default Blip")
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.contentDisabled)
+                    Spacer()
                 }
-            ),
-            options: options,
-            maxWidth: 220
-        )
+                .frame(maxWidth: 220, alignment: .leading)
+            } else {
+                ForEach(eventConfig.sounds, id: \.self) { filename in
+                    HStack(spacing: VSpacing.xs) {
+                        let displayLabel = labelsByFilename[filename]
+                            ?? (filename as NSString).deletingPathExtension
+                        Text(displayLabel)
+                            .font(VFont.bodyMediumLighter)
+                            .foregroundStyle(VColor.contentDefault)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+
+                        Spacer()
+
+                        VButton(
+                            label: "Remove sound",
+                            iconOnly: VIcon.trash.rawValue,
+                            style: .ghost,
+                            tooltip: "Remove sound"
+                        ) {
+                            removeSound(filename, for: event)
+                        }
+                    }
+                    .frame(maxWidth: 220, alignment: .leading)
+                }
+            }
+
+            let inPool = Set(eventConfig.sounds)
+            let remainingOptions = sounds
+                .filter { !inPool.contains($0.filename) }
+                .map { (label: $0.label, value: $0.filename) }
+
+            if remainingOptions.isEmpty {
+                // Every available sound is already in the pool — show a disabled
+                // dropdown so the UI stays stable rather than visually jumping.
+                VDropdown(
+                    placeholder: "All sounds added",
+                    selection: .constant(""),
+                    options: [(label: "All sounds added", value: "")],
+                    maxWidth: 220
+                )
+                .disabled(true)
+            } else {
+                VDropdown(
+                    placeholder: "Add sound…",
+                    selection: Binding(
+                        get: { "" },
+                        set: { newValue in
+                            guard !newValue.isEmpty else { return }
+                            addSound(newValue, for: event)
+                        }
+                    ),
+                    options: remainingOptions,
+                    maxWidth: 220
+                )
+            }
+        }
+        .frame(maxWidth: 220, alignment: .leading)
+    }
+
+    private func addSound(_ filename: String, for event: SoundEvent) {
+        var updated = soundManager.config
+        var ec = updated.config(for: event)
+        guard !ec.sounds.contains(filename) else { return }
+        ec.sounds.append(filename)
+        updated.events[event.rawValue] = ec
+        soundManager.saveConfig(updated)
+    }
+
+    private func removeSound(_ filename: String, for event: SoundEvent) {
+        var updated = soundManager.config
+        var ec = updated.config(for: event)
+        ec.sounds = ec.sounds.filter { $0 != filename }
+        updated.events[event.rawValue] = ec
+        soundManager.saveConfig(updated)
     }
 
     // MARK: - Helper Text
 
     private var helperTextSection: some View {
-        Text("Send your assistant a sound file or ask it to customize your sounds")
+        Text("Add one or more sounds per event. When multiple are configured, one plays at random.")
             .font(VFont.labelDefault)
             .foregroundStyle(VColor.contentTertiary)
     }
