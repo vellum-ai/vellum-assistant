@@ -128,20 +128,31 @@ mock.module("../runtime/assistant-scope.js", () => ({
 }));
 
 // Mock the relay setup router so handleStart() doesn't query the database.
-// Returns a normal_call outcome with minimal resolved context.
-mock.module("../calls/relay-setup-router.js", () => ({
-  routeSetup: jest.fn(() => ({
-    outcome: { action: "normal_call" as const, isInbound: true },
-    resolved: {
-      assistantId: "self",
-      isInbound: true,
-      otherPartyNumber: "+15551234567",
-      actorTrust: {
-        trustClass: "guardian" as const,
-        memberRecord: null,
-      },
+// Default returns normal_call; individual tests can override via
+// `mockRouteSetupResult` to exercise deny and unsupported-flow branches.
+let mockRouteSetupResult: {
+  outcome: { action: string; [key: string]: unknown };
+  resolved: {
+    assistantId: string;
+    isInbound: boolean;
+    otherPartyNumber: string;
+    actorTrust: { trustClass: string; memberRecord: null };
+  };
+} = {
+  outcome: { action: "normal_call" as const, isInbound: true },
+  resolved: {
+    assistantId: "self",
+    isInbound: true,
+    otherPartyNumber: "+15551234567",
+    actorTrust: {
+      trustClass: "guardian" as const,
+      memberRecord: null,
     },
-  })),
+  },
+};
+
+mock.module("../calls/relay-setup-router.js", () => ({
+  routeSetup: jest.fn(() => mockRouteSetupResult),
 }));
 
 // Mock the actor trust resolver (used by handleStart to derive trust context)
@@ -181,6 +192,7 @@ mock.module("../calls/resolve-call-tts-provider.js", () => ({
 // Now import the module under test.
 // ---------------------------------------------------------------------------
 
+import { speakSystemPrompt } from "../calls/call-speech-output.js";
 import { registerCallController } from "../calls/call-state.js";
 import { recordCallEvent, updateCallSession } from "../calls/call-store.js";
 import { finalizeCall } from "../calls/finalize-call.js";
@@ -306,6 +318,20 @@ beforeEach(() => {
   (recordCallEvent as jest.Mock).mockClear();
   (updateCallSession as jest.Mock).mockClear();
   (finalizeCall as jest.Mock).mockClear();
+  (speakSystemPrompt as jest.Mock).mockClear();
+  // Reset routeSetup to default normal_call
+  mockRouteSetupResult = {
+    outcome: { action: "normal_call" as const, isInbound: true },
+    resolved: {
+      assistantId: "self",
+      isInbound: true,
+      otherPartyNumber: "+15551234567",
+      actorTrust: {
+        trustClass: "guardian" as const,
+        memberRecord: null,
+      },
+    },
+  };
 });
 
 afterEach(() => {
@@ -726,5 +752,330 @@ describe("activeMediaStreamSessions registry", () => {
     expect(activeMediaStreamSessions.get("call-1")).toBe(session);
     activeMediaStreamSessions.delete("call-1");
     expect(activeMediaStreamSessions.get("call-1")).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scenario-driven setup outcome coverage
+// ---------------------------------------------------------------------------
+// These tests exercise the deny and unsupported-action branches in
+// MediaStreamCallSession.handleStart by overriding mockRouteSetupResult
+// before sending a start message.
+
+describe("media-stream setup outcome scenarios", () => {
+  describe("deny outcome", () => {
+    test("deny outcome records inbound_acl_denied event and sets status to failed", () => {
+      mockRouteSetupResult = {
+        outcome: {
+          action: "deny",
+          message: "This number is not authorized.",
+          logReason: "Inbound voice ACL: blocked caller",
+        },
+        resolved: {
+          assistantId: "self",
+          isInbound: true,
+          otherPartyNumber: "+15559998888",
+          actorTrust: { trustClass: "unknown", memberRecord: null },
+        },
+      };
+
+      const mockWs = createMockWs();
+      mockSessions.set("call-deny-1", {
+        id: "call-deny-1",
+        conversationId: "conv-deny-1",
+        status: "initiated",
+        task: null,
+        startedAt: null,
+        fromNumber: "+15559998888",
+        toNumber: "+15550001111",
+      });
+
+      const session = new MediaStreamCallSession(mockWs.ws, "call-deny-1");
+      session.handleMessage(makeStartMessage());
+
+      // Should record an inbound_acl_denied event
+      expect(recordCallEvent).toHaveBeenCalledWith(
+        "call-deny-1",
+        "inbound_acl_denied",
+        expect.objectContaining({
+          from: "+15559998888",
+        }),
+      );
+
+      // Should update session to failed
+      expect(updateCallSession).toHaveBeenCalledWith(
+        "call-deny-1",
+        expect.objectContaining({
+          status: "failed",
+          lastError: "Inbound voice ACL: blocked caller",
+        }),
+      );
+
+      // Should NOT register a controller (deny path skips it)
+      expect(registerCallController).not.toHaveBeenCalled();
+    });
+
+    test("deny outcome speaks the denial message", () => {
+      mockRouteSetupResult = {
+        outcome: {
+          action: "deny",
+          message: "This number is not authorized to use this assistant.",
+          logReason: "Inbound voice ACL: member policy deny",
+        },
+        resolved: {
+          assistantId: "self",
+          isInbound: true,
+          otherPartyNumber: "+15559998888",
+          actorTrust: { trustClass: "unknown", memberRecord: null },
+        },
+      };
+
+      const mockWs = createMockWs();
+      mockSessions.set("call-deny-speak-1", {
+        id: "call-deny-speak-1",
+        conversationId: "conv-deny-speak-1",
+        status: "initiated",
+        task: null,
+        startedAt: null,
+        fromNumber: "+15559998888",
+        toNumber: "+15550001111",
+      });
+
+      const session = new MediaStreamCallSession(
+        mockWs.ws,
+        "call-deny-speak-1",
+      );
+      session.handleMessage(makeStartMessage());
+
+      // speakSystemPrompt should be called with the denial message
+      expect(speakSystemPrompt).toHaveBeenCalledWith(
+        expect.anything(),
+        "This number is not authorized to use this assistant.",
+      );
+    });
+
+    test("deny outcome runs finalization", () => {
+      mockRouteSetupResult = {
+        outcome: {
+          action: "deny",
+          message: "Not authorized.",
+          logReason: "ACL deny",
+        },
+        resolved: {
+          assistantId: "self",
+          isInbound: true,
+          otherPartyNumber: "+15559998888",
+          actorTrust: { trustClass: "unknown", memberRecord: null },
+        },
+      };
+
+      const mockWs = createMockWs();
+      mockSessions.set("call-deny-finalize-1", {
+        id: "call-deny-finalize-1",
+        conversationId: "conv-deny-finalize-1",
+        status: "initiated",
+        task: null,
+        startedAt: null,
+        fromNumber: "+15559998888",
+        toNumber: "+15550001111",
+      });
+
+      const session = new MediaStreamCallSession(
+        mockWs.ws,
+        "call-deny-finalize-1",
+      );
+      session.handleMessage(makeStartMessage());
+
+      // finalizeCall should be called because early teardown runs it inline
+      expect(finalizeCall).toHaveBeenCalledWith(
+        "call-deny-finalize-1",
+        "conv-deny-finalize-1",
+      );
+    });
+  });
+
+  describe("unsupported interactive setup flow", () => {
+    test("verification outcome records call_failed with preflight-bypass reason", () => {
+      mockRouteSetupResult = {
+        outcome: {
+          action: "verification",
+          assistantId: "self",
+          fromNumber: "+14155551234",
+        },
+        resolved: {
+          assistantId: "self",
+          isInbound: true,
+          otherPartyNumber: "+14155551234",
+          actorTrust: { trustClass: "unknown", memberRecord: null },
+        },
+      };
+
+      const mockWs = createMockWs();
+      mockSessions.set("call-unsup-verify-1", {
+        id: "call-unsup-verify-1",
+        conversationId: "conv-unsup-verify-1",
+        status: "initiated",
+        task: null,
+        startedAt: null,
+        fromNumber: "+14155551234",
+        toNumber: "+15550001111",
+      });
+
+      const session = new MediaStreamCallSession(
+        mockWs.ws,
+        "call-unsup-verify-1",
+      );
+      session.handleMessage(makeStartMessage());
+
+      // Should record call_failed event with preflight-bypass note
+      expect(recordCallEvent).toHaveBeenCalledWith(
+        "call-unsup-verify-1",
+        "call_failed",
+        expect.objectContaining({
+          reason: expect.stringContaining("verification"),
+          transport: "media-stream",
+        }),
+      );
+
+      // Should set session status to failed
+      expect(updateCallSession).toHaveBeenCalledWith(
+        "call-unsup-verify-1",
+        expect.objectContaining({
+          status: "failed",
+          lastError: expect.stringContaining("preflight guard"),
+        }),
+      );
+
+      // Should NOT register a controller
+      expect(registerCallController).not.toHaveBeenCalled();
+    });
+
+    test("name_capture outcome speaks generic apology and tears down", () => {
+      mockRouteSetupResult = {
+        outcome: {
+          action: "name_capture",
+          assistantId: "self",
+          fromNumber: "+14155551234",
+        },
+        resolved: {
+          assistantId: "self",
+          isInbound: true,
+          otherPartyNumber: "+14155551234",
+          actorTrust: { trustClass: "unknown", memberRecord: null },
+        },
+      };
+
+      const mockWs = createMockWs();
+      mockSessions.set("call-unsup-name-1", {
+        id: "call-unsup-name-1",
+        conversationId: "conv-unsup-name-1",
+        status: "initiated",
+        task: null,
+        startedAt: null,
+        fromNumber: "+14155551234",
+        toNumber: "+15550001111",
+      });
+
+      const session = new MediaStreamCallSession(
+        mockWs.ws,
+        "call-unsup-name-1",
+      );
+      session.handleMessage(makeStartMessage());
+
+      // speakSystemPrompt should be called with the generic apology
+      expect(speakSystemPrompt).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.stringContaining("additional verification"),
+      );
+
+      // Should run finalization inline
+      expect(finalizeCall).toHaveBeenCalledWith(
+        "call-unsup-name-1",
+        "conv-unsup-name-1",
+      );
+    });
+
+    test("callee_verification outcome fails with explicit reason", () => {
+      mockRouteSetupResult = {
+        outcome: {
+          action: "callee_verification",
+          verificationConfig: { maxAttempts: 3, codeLength: 6 },
+        },
+        resolved: {
+          assistantId: "self",
+          isInbound: false,
+          otherPartyNumber: "+14155551234",
+          actorTrust: { trustClass: "guardian", memberRecord: null },
+        },
+      };
+
+      const mockWs = createMockWs();
+      mockSessions.set("call-unsup-callee-1", {
+        id: "call-unsup-callee-1",
+        conversationId: "conv-unsup-callee-1",
+        status: "initiated",
+        task: null,
+        startedAt: null,
+        fromNumber: "+15550001111",
+        toNumber: "+14155551234",
+      });
+
+      const session = new MediaStreamCallSession(
+        mockWs.ws,
+        "call-unsup-callee-1",
+      );
+      session.handleMessage(makeStartMessage());
+
+      // Should record the failure with the specific action
+      expect(recordCallEvent).toHaveBeenCalledWith(
+        "call-unsup-callee-1",
+        "call_failed",
+        expect.objectContaining({
+          reason: expect.stringContaining("callee_verification"),
+        }),
+      );
+
+      // Session should be failed
+      expect(updateCallSession).toHaveBeenCalledWith(
+        "call-unsup-callee-1",
+        expect.objectContaining({ status: "failed" }),
+      );
+    });
+
+    test("normal_call after deny scenario still creates controller", () => {
+      // Verify that after a deny-scenario test, resetting to normal_call
+      // properly creates a controller (no cross-test pollution).
+      mockRouteSetupResult = {
+        outcome: { action: "normal_call", isInbound: true },
+        resolved: {
+          assistantId: "self",
+          isInbound: true,
+          otherPartyNumber: "+15551234567",
+          actorTrust: { trustClass: "guardian", memberRecord: null },
+        },
+      };
+
+      const mockWs = createMockWs();
+      mockSessions.set("call-reset-1", {
+        id: "call-reset-1",
+        conversationId: "conv-reset-1",
+        status: "initiated",
+        task: "Test task",
+        startedAt: null,
+        toNumber: "+15551234567",
+      });
+
+      const session = new MediaStreamCallSession(mockWs.ws, "call-reset-1");
+      session.handleMessage(makeStartMessage());
+
+      // Controller should be registered for normal calls
+      expect(registerCallController).toHaveBeenCalledWith(
+        "call-reset-1",
+        expect.anything(),
+      );
+
+      // Initial greeting should fire
+      expect(mockStartInitialGreeting).toHaveBeenCalled();
+    });
   });
 });

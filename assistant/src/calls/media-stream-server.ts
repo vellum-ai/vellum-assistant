@@ -387,24 +387,27 @@ export class MediaStreamCallSession {
       default:
         // All interactive sub-flows (verification, invite_redemption,
         // name_capture, callee_verification, outbound_verification) are
-        // not supported on the media-stream transport. Speak a generic
-        // apology and end the session rather than silently bypassing
-        // policy enforcement.
-        log.warn(
+        // not supported on the media-stream transport. The TwiML preflight
+        // in twilio-routes.ts should have caught this and fallen back to
+        // ConversationRelay — reaching here indicates the preflight was
+        // bypassed or a new setup action was added without updating the
+        // preflight guard. Speak a generic apology and end the session
+        // rather than silently bypassing policy enforcement.
+        log.error(
           {
             callSessionId: this.callSessionId,
             action: outcome.action,
           },
-          "Media-stream transport does not support interactive setup flow — ending session",
+          "Media-stream transport received unsupported setup flow — preflight guard should have prevented this",
         );
         recordCallEvent(this.callSessionId, "call_failed", {
-          reason: `Setup flow '${outcome.action}' not supported on media-stream transport`,
+          reason: `Setup flow '${outcome.action}' not supported on media-stream transport (preflight guard bypass)`,
           transport: "media-stream",
         });
         updateCallSession(this.callSessionId, {
           status: "failed",
           endedAt: Date.now(),
-          lastError: `Setup flow '${outcome.action}' not supported on media-stream transport`,
+          lastError: `Setup flow '${outcome.action}' not supported on media-stream transport — preflight guard should have prevented this`,
         });
         // Run finalization now because handleTransportClosed will see
         // terminal status and exit early when the WebSocket closes.
@@ -416,7 +419,7 @@ export class MediaStreamCallSession {
           setTimeout(
             () =>
               this.output.endSession(
-                `Unsupported setup flow: ${outcome.action}`,
+                `Unsupported setup flow: ${outcome.action} (preflight guard bypass)`,
               ),
             3000,
           );
