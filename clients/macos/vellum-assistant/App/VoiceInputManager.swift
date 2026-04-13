@@ -276,7 +276,7 @@ final class VoiceInputManager {
     /// The `origin` parameter tracks which UI surface initiated the recording.
     func toggleRecording(origin: VoiceInputOrigin = .hotkey) {
         if isRecording {
-            stopRecording()
+            stopRecordingByMode()
         } else {
             activeOrigin = origin
             log.debug("Dictation started (origin: \(String(describing: origin)))")
