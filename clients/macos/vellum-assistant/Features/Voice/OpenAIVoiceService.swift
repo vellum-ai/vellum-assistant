@@ -162,74 +162,94 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         livePartialText = ""
         capturedPCMData = Data()
 
+        let sttConfigured = STTProviderRegistry.isServiceConfigured
+
         // Reuse existing SFSpeechRecognizer across turns to avoid OS resource
         // release delays that make isAvailable return false on the second turn.
         // Recreate if transiently unavailable (e.g. after sleep/wake or heavy use).
         if speechRecognizer == nil || speechRecognizer?.isAvailable != true {
             speechRecognizer = speechRecognizerAdapter.makeRecognizer(locale: Locale(identifier: "en-US"))
         }
-        guard let recognizer = speechRecognizer, recognizer.isAvailable else {
+
+        // When STT is configured, the native recognizer is optional — we can
+        // record audio and rely entirely on the STT service for transcription.
+        // When STT is NOT configured, the recognizer is required.
+        let recognizerAvailable = speechRecognizer != nil && speechRecognizer!.isAvailable
+        guard sttConfigured || recognizerAvailable else {
             log.error("SFSpeechRecognizer not available")
             return false
         }
 
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        if recognizer.supportsOnDeviceRecognition {
-            request.requiresOnDeviceRecognition = true
-        }
-        request.addsPunctuation = false
-        recognitionRequest = request
+        // Set up native recognition request and task only when the recognizer
+        // is available. In STT-only mode (recognizer unavailable), the audio
+        // tap still runs, PCM accumulates, and silence detection works — but
+        // livePartialText remains empty and resolveLocalTranscription returns nil.
+        if let recognizer = speechRecognizer, recognizer.isAvailable {
+            let request = SFSpeechAudioBufferRecognitionRequest()
+            request.shouldReportPartialResults = true
+            if recognizer.supportsOnDeviceRecognition {
+                request.requiresOnDeviceRecognition = true
+            }
+            request.addsPunctuation = false
+            recognitionRequest = request
 
-        // Start recognition task
-        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
-            guard let self else { return }
+            // Start recognition task
+            recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+                guard let self else { return }
 
-            if let result {
-                let text = result.bestTranscription.formattedString
-                log.debug("Partial transcription: \(text, privacy: .public)")
-                Task { @MainActor [weak self] in
-                    self?.latestTranscription = text
-                    self?.livePartialText = text
+                if let result {
+                    let text = result.bestTranscription.formattedString
+                    log.debug("Partial transcription: \(text, privacy: .public)")
+                    Task { @MainActor [weak self] in
+                        self?.latestTranscription = text
+                        self?.livePartialText = text
+                    }
+
+                    if result.isFinal {
+                        let finalText = text
+                        Task { @MainActor [weak self] in
+                            guard let self else { return }
+                            log.info("Final transcription: \(finalText, privacy: .public)")
+                            self.transcriptionContinuation?.resume(returning: finalText.isEmpty ? nil : finalText)
+                            self.transcriptionContinuation = nil
+                        }
+                    }
                 }
 
-                if result.isFinal {
-                    let finalText = text
+                if let error {
+                    let nsError = error as NSError
+                    // Ignore cancellation errors (code 216) — expected when we call endAudio()
+                    if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 216 {
+                        return
+                    }
+                    // Code 1110 = "no speech detected" — not a real error, just empty input
+                    if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 1110 {
+                        log.info("No speech detected in audio")
+                        Task { @MainActor [weak self] in
+                            guard let self else { return }
+                            self.transcriptionContinuation?.resume(returning: nil)
+                            self.transcriptionContinuation = nil
+                        }
+                        return
+                    }
+                    log.error("Recognition error: \(nsError.domain, privacy: .public)/\(nsError.code, privacy: .public) \(error.localizedDescription, privacy: .public)")
                     Task { @MainActor [weak self] in
                         guard let self else { return }
-                        log.info("Final transcription: \(finalText, privacy: .public)")
-                        self.transcriptionContinuation?.resume(returning: finalText.isEmpty ? nil : finalText)
+                        // If we have partial transcription, use it despite the error
+                        let text = self.latestTranscription
+                        self.transcriptionContinuation?.resume(returning: text.isEmpty ? nil : text)
                         self.transcriptionContinuation = nil
                     }
                 }
             }
-
-            if let error {
-                let nsError = error as NSError
-                // Ignore cancellation errors (code 216) — expected when we call endAudio()
-                if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 216 {
-                    return
-                }
-                // Code 1110 = "no speech detected" — not a real error, just empty input
-                if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 1110 {
-                    log.info("No speech detected in audio")
-                    Task { @MainActor [weak self] in
-                        guard let self else { return }
-                        self.transcriptionContinuation?.resume(returning: nil)
-                        self.transcriptionContinuation = nil
-                    }
-                    return
-                }
-                log.error("Recognition error: \(nsError.domain, privacy: .public)/\(nsError.code, privacy: .public) \(error.localizedDescription, privacy: .public)")
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    // If we have partial transcription, use it despite the error
-                    let text = self.latestTranscription
-                    self.transcriptionContinuation?.resume(returning: text.isEmpty ? nil : text)
-                    self.transcriptionContinuation = nil
-                }
-            }
+        } else {
+            log.info("Recording without native recognizer — STT service will handle transcription")
         }
+
+        // Capture a local reference to the recognition request (may be nil in
+        // STT-only mode) so the audio tap closure doesn't need to capture self
+        // to read the property.
+        let activeRequest = recognitionRequest
 
         // Atomically validate format, install tap, and start engine.
         // Passes nil for format so AVAudioEngine uses its internal hardware
@@ -239,8 +259,8 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
             let frameCount = Int(buffer.frameLength)
             guard frameCount > 0 else { return }
 
-            // Feed buffer to speech recognizer
-            request.append(buffer)
+            // Feed buffer to speech recognizer (when available)
+            activeRequest?.append(buffer)
 
             // Capture raw PCM for service STT: convert float32 to 16-bit PCM
             // and accumulate alongside the live recognizer path.
@@ -301,7 +321,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         isRecording = true
         lastSpeechTime = Date()
         recordingStartTime = Date()
-        log.info("Recording started (SFSpeechRecognizer, onDevice: \(recognizer.supportsOnDeviceRecognition, privacy: .public))")
+        log.info("Recording started (recognizer: \(recognizerAvailable ? "active" : "none (STT-only)"), sttConfigured: \(sttConfigured, privacy: .public))")
         return true
     }
 
@@ -348,7 +368,18 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
     /// Resolve the local SFSpeechRecognizer transcription. Returns the current
     /// partial text immediately if available, otherwise waits briefly for the
     /// final recognition callback.
+    ///
+    /// When no recognition task exists (STT-only mode — native recognizer was
+    /// unavailable), returns nil immediately rather than waiting for a result
+    /// that will never arrive.
     private func resolveLocalTranscription() async -> String? {
+        // In STT-only mode there is no recognition task — return nil
+        // immediately so we don't block waiting for a callback that won't come.
+        guard recognitionTask != nil else {
+            log.info("No native recognition task — skipping local transcription")
+            return nil
+        }
+
         let currentText = latestTranscription.trimmingCharacters(in: .whitespacesAndNewlines)
         if !currentText.isEmpty {
             return currentText

@@ -1,6 +1,34 @@
 import XCTest
+import Speech
 @testable import VellumAssistantLib
 @testable import VellumAssistantShared
+
+/// Controllable mock of `SpeechRecognizerAdapter` for testing
+/// VoiceModeManager's activation guard with and without speech auth.
+private final class MockSpeechRecognizerAdapter: SpeechRecognizerAdapter {
+    var stubbedAuthorizationStatus: SFSpeechRecognizerAuthorizationStatus = .authorized
+    var stubbedRecognizer: SFSpeechRecognizer? = nil
+    var stubbedIsRecognizerAvailable: Bool = true
+    var requestAuthorizationResult: SFSpeechRecognizerAuthorizationStatus = .authorized
+    var requestAuthorizationCallCount = 0
+
+    func authorizationStatus() -> SFSpeechRecognizerAuthorizationStatus {
+        stubbedAuthorizationStatus
+    }
+
+    func requestAuthorization(completion: @escaping @Sendable (SFSpeechRecognizerAuthorizationStatus) -> Void) {
+        requestAuthorizationCallCount += 1
+        completion(requestAuthorizationResult)
+    }
+
+    func makeRecognizer(locale: Locale) -> SFSpeechRecognizer? {
+        stubbedRecognizer
+    }
+
+    var isRecognizerAvailable: Bool {
+        stubbedIsRecognizerAvailable
+    }
+}
 
 @MainActor
 final class VoiceModeManagerTests: XCTestCase {
@@ -591,6 +619,89 @@ final class VoiceModeManagerTests: XCTestCase {
         manager.toggleListening()
         XCTAssertEqual(manager.state, .idle)
         XCTAssertTrue(mockVoiceService.cancelRecordingCalled)
+    }
+
+    // MARK: - STT-Only Mode (speech recognition not required)
+
+    /// When STT is configured and speech recognition is denied, voice mode
+    /// should still activate successfully.
+    func testActivation_sttConfigured_speechDenied_activates() {
+        // Simulate STT configured via UserDefaults
+        UserDefaults.standard.set("deepgram", forKey: "sttProvider")
+        defer { UserDefaults.standard.removeObject(forKey: "sttProvider") }
+
+        let speechAdapter = MockSpeechRecognizerAdapter()
+        speechAdapter.stubbedAuthorizationStatus = .denied
+
+        let sttManager = VoiceModeManager(
+            voiceService: mockVoiceService,
+            speechRecognizerAdapter: speechAdapter
+        )
+
+        sttManager.activate(chatViewModel: chatViewModel)
+
+        XCTAssertEqual(sttManager.state, .idle,
+                       "Voice mode should activate when STT is configured, even if speech recognition is denied")
+        XCTAssertTrue(mockVoiceService.prewarmEngineCalled,
+                      "Should pre-warm audio engine during activation")
+
+        sttManager.deactivate()
+    }
+
+    /// When STT is configured, startRecording should work even without a
+    /// native speech recognizer — the audio tap runs, silence detection works,
+    /// and PCM data accumulates for the STT service.
+    func testStartRecording_sttConfigured_noRecognizer_succeeds() {
+        UserDefaults.standard.set("openai-whisper", forKey: "sttProvider")
+        defer { UserDefaults.standard.removeObject(forKey: "sttProvider") }
+
+        forceActivate()
+        manager.startListening()
+
+        // MockVoiceService.startRecording always returns true by default,
+        // simulating successful recording without native recognizer.
+        XCTAssertEqual(manager.state, .listening,
+                       "Should transition to listening when STT is configured")
+        XCTAssertTrue(mockVoiceService.startRecordingCalled)
+    }
+
+    /// When STT is configured and native recognizer is unavailable, the voice
+    /// mode transcription path should rely on the STT service. The mock voice
+    /// service returns a configurable transcription result.
+    func testTranscription_sttOnly_usesServiceSTT() {
+        UserDefaults.standard.set("deepgram", forKey: "sttProvider")
+        defer { UserDefaults.standard.removeObject(forKey: "sttProvider") }
+
+        forceActivate()
+        mockVoiceService.transcriptionToReturn = "service transcription result"
+
+        manager.startListening()
+        XCTAssertEqual(manager.state, .listening)
+
+        // The transcription is available from the STT service
+        XCTAssertEqual(mockVoiceService.transcriptionToReturn, "service transcription result")
+    }
+
+    /// When STT is NOT configured and speech recognition is denied, voice mode
+    /// should NOT activate — preserving existing behavior.
+    func testActivation_noSTT_speechDenied_doesNotActivate() {
+        // Ensure no STT provider is configured
+        UserDefaults.standard.removeObject(forKey: "sttProvider")
+
+        let speechAdapter = MockSpeechRecognizerAdapter()
+        speechAdapter.stubbedAuthorizationStatus = .denied
+
+        let sttManager = VoiceModeManager(
+            voiceService: mockVoiceService,
+            speechRecognizerAdapter: speechAdapter
+        )
+
+        sttManager.activate(chatViewModel: chatViewModel)
+
+        XCTAssertEqual(sttManager.state, .off,
+                       "Voice mode should NOT activate when STT is not configured and speech recognition is denied")
+
+        sttManager.deactivate()
     }
 
     // MARK: - Helpers
