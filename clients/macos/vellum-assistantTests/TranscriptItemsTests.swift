@@ -31,8 +31,13 @@ final class TranscriptItemsTests: XCTestCase {
         XCTAssertEqual(result.count, 4)
         XCTAssertEqual(result[0], .message(assistantSent))
         XCTAssertEqual(result[1], .message(userSent))
-        XCTAssertEqual(result[2], .queuedMarker(count: 2, anchorId: userQueued1.id))
+        XCTAssertEqual(result[2], .queuedMarker(count: 2))
         XCTAssertEqual(result[3], .message(assistantSent2))
+        // The marker uses the stable sentinel id, not any message id, so
+        // SwiftUI keeps the same view across queue mutations (e.g. when the
+        // head dequeues and the "first queued message" changes).
+        XCTAssertEqual(result[2].id, TranscriptItems.queueMarkerId)
+        XCTAssertNotEqual(result[2].id, userQueued1.id)
     }
 
     func test_transcriptItems_noQueuedMessagesYieldsOriginalList() {
@@ -64,14 +69,19 @@ final class TranscriptItemsTests: XCTestCase {
         XCTAssertEqual(result.count, 3)
         XCTAssertEqual(result[0], .message(assistantSent))
         XCTAssertEqual(result[1], .message(userSent))
-        XCTAssertEqual(result.last, .queuedMarker(count: 3, anchorId: queued1.id))
+        XCTAssertEqual(result.last, .queuedMarker(count: 3))
+        XCTAssertEqual(result.last?.id, TranscriptItems.queueMarkerId)
     }
 
     // MARK: - Identity
 
-    func test_transcriptItem_id_marker_usesAnchorId() {
-        let anchor = UUID()
-        XCTAssertEqual(TranscriptItem.queuedMarker(count: 2, anchorId: anchor).id, anchor)
+    func test_transcriptItem_id_marker_usesStableSentinel() {
+        // The marker's identity must be a constant sentinel — not a message
+        // id — so SwiftUI `ForEach` / animation diffing treats it as the same
+        // view across queue mutations (e.g. when the head of the queue
+        // dequeues, the "first queued message" id would otherwise change).
+        XCTAssertEqual(TranscriptItem.queuedMarker(count: 2).id, TranscriptItems.queueMarkerId)
+        XCTAssertEqual(TranscriptItem.queuedMarker(count: 7).id, TranscriptItems.queueMarkerId)
     }
 
     func test_transcriptItem_id_message_usesMessageId() {
@@ -90,7 +100,8 @@ final class TranscriptItemsTests: XCTestCase {
 
         XCTAssertEqual(result.count, 2)
         XCTAssertEqual(result[0], .message(assistantSent))
-        XCTAssertEqual(result[1], .queuedMarker(count: 1, anchorId: queued.id))
+        XCTAssertEqual(result[1], .queuedMarker(count: 1))
+        XCTAssertEqual(result[1].id, TranscriptItems.queueMarkerId)
     }
 
     func test_transcriptItems_queuedAssistantMessage_isNotCollapsed() {

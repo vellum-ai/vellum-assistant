@@ -417,9 +417,11 @@ struct ChatContentView: View {
         indexByMessageId: [UUID: Int]
     ) -> some View {
         switch item {
-        case .queuedMarker(let count, let anchorId):
+        case .queuedMarker(let count):
+            // No `.id(...)` needed — the enclosing `ForEach` keys rows by
+            // `TranscriptItem.id`, and `.queuedMarker` returns the stable
+            // sentinel `TranscriptItems.queueMarkerId`.
             QueuedMessagesMarker_iOS(count: count)
-                .id(anchorId)
         case .message(let message):
             // Safe: every `.message` in the collapsed transcript originates
             // from `messages`, so the index lookup is always present.

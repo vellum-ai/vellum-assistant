@@ -35,8 +35,12 @@ final class TranscriptItemsIOSTests: XCTestCase {
         XCTAssertEqual(result.count, 4)
         XCTAssertEqual(result[0], .message(assistantSent))
         XCTAssertEqual(result[1], .message(userSent))
-        XCTAssertEqual(result[2], .queuedMarker(count: 2, anchorId: userQueued1.id))
+        XCTAssertEqual(result[2], .queuedMarker(count: 2))
         XCTAssertEqual(result[3], .message(assistantSent2))
+        // The marker's id is the stable sentinel — not the first queued
+        // message's id — so SwiftUI keeps the same row across queue mutations.
+        XCTAssertEqual(result[2].id, TranscriptItems.queueMarkerId)
+        XCTAssertNotEqual(result[2].id, userQueued1.id)
     }
 
     func test_transcriptItems_noQueuedMessagesYieldsOriginalList() {
@@ -68,6 +72,7 @@ final class TranscriptItemsIOSTests: XCTestCase {
         XCTAssertEqual(result.count, 3)
         XCTAssertEqual(result[0], .message(assistantSent))
         XCTAssertEqual(result[1], .message(userSent))
-        XCTAssertEqual(result.last, .queuedMarker(count: 3, anchorId: queued1.id))
+        XCTAssertEqual(result.last, .queuedMarker(count: 3))
+        XCTAssertEqual(result.last?.id, TranscriptItems.queueMarkerId)
     }
 }

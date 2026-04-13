@@ -9,19 +9,22 @@ import Foundation
 ///
 /// - `message`: a regular chat message that should be rendered as a bubble.
 /// - `queuedMarker`: a collapsed placeholder standing in for one or more
-///   queued user messages. The `anchorId` is the id of the first collapsed
-///   queued message so the marker has a stable identity across re-projections
-///   (used by SwiftUI `ForEach` / animation diffing).
+///   queued user messages. Its identity is `TranscriptItems.queueMarkerId`,
+///   a constant sentinel UUID, so SwiftUI `ForEach` / animation diffing
+///   treats the marker as the same view across queue mutations (e.g. when
+///   the head of the queue dequeues and the "first queued message" id
+///   would otherwise change). Mirrors the
+///   `TranscriptProjector.thinkingPlaceholderId` pattern.
 public enum TranscriptItem: Equatable, Identifiable {
     case message(ChatMessage)
-    case queuedMarker(count: Int, anchorId: UUID)
+    case queuedMarker(count: Int)
 
     public var id: UUID {
         switch self {
         case .message(let message):
             return message.id
-        case .queuedMarker(_, let anchorId):
-            return anchorId
+        case .queuedMarker:
+            return TranscriptItems.queueMarkerId
         }
     }
 }
@@ -40,6 +43,13 @@ public enum TranscriptItem: Equatable, Identifiable {
 /// Non-queued messages (and assistant messages in general) pass through
 /// unchanged.
 public enum TranscriptItems {
+
+    /// Stable sentinel UUID for the queued-messages marker so SwiftUI `ForEach`
+    /// maintains view identity across queue mutations (in particular when the
+    /// head of the queue dequeues and the "first queued message" id would
+    /// otherwise change). Mirrors `TranscriptProjector.thinkingPlaceholderId`.
+    /// Must not collide with real message IDs.
+    public static let queueMarkerId = UUID(uuidString: "00000000-0000-0000-0000-0000000055EE")!
 
     /// Builds the ordered list of transcript items to display.
     ///
@@ -68,7 +78,7 @@ public enum TranscriptItems {
             }()
             if isQueuedUser {
                 if !markerInserted {
-                    result.append(.queuedMarker(count: queuedCount, anchorId: message.id))
+                    result.append(.queuedMarker(count: queuedCount))
                     markerInserted = true
                 }
                 // Otherwise: collapse into the already-inserted marker.

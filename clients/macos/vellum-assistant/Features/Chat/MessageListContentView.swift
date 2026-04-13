@@ -314,7 +314,7 @@ struct MessageListContentView: View, Equatable {
             let displayedItems = TranscriptItems.build(from: state.rows.map(\.message))
             ForEach(displayedItems) { item in
                 switch item {
-                case .queuedMarker(let count, _):
+                case .queuedMarker(let count):
                     QueuedMessagesMarker(count: count)
                 case .message(let message):
                     // Safe: every displayed message originates from `state.rows`
