@@ -312,7 +312,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
             try? FileManager.default.removeItem(atPath: sock)
         }
 
-        // 4. Best-effort: deregister from the platform before local cleanup.
+        // 4. Deregister from the platform.
         await deregisterFromPlatformIfNeeded(runtimeAssistantId: resolvedName)
 
         // 5. Remove the guardian token file.

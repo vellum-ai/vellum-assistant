@@ -78,7 +78,6 @@ class AssistantManagementClient {
             return
         }
 
-        // Resolve the user ID so we can look up the platform assistant ID mapping.
         let userId: String?
         do {
             let session = try await AuthService.shared.getSession()

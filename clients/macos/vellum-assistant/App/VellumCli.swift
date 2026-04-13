@@ -224,9 +224,8 @@ final class VellumCli: AssistantManagementClient {
             throw CLIError.binaryNotFound
         }
 
-        // Best-effort: deregister from the platform before local cleanup.
-        // The CLI does not have access to credential storage, so this must
-        // happen here in the macOS app layer.
+        // The CLI does not have access to credential storage, so platform
+        // deregistration must happen here in the macOS app layer.
         await deregisterFromPlatformIfNeeded(runtimeAssistantId: resolvedName)
 
         log.info("Running retire via CLI at \(binaryURL.path, privacy: .public) for '\(resolvedName, privacy: .public)'")
