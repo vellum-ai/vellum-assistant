@@ -78,7 +78,7 @@ After rendering the card, end your turn. The click pipeline handles everything:
 
 ## UX contract the client enforces
 
-- The card stays open until dismissed by the user.
+- The card stays open and clickable for the lifetime of the live conversation — multiple buttons can be fired in succession without losing the user's place. If the conversation is closed and reopened later from history, the restored card reverts to single-click behavior (history rehydration drops the `persistent` flag — out of scope for this skill).
 - Each `action.id` fires at most once per card lifetime; sibling actions remain clickable.
 - Each spawned conversation inherits this conversation's guardian / trust context automatically.
 - Sidebar focus stays on this conversation. The user sees new entries appear and can navigate in at their pace.
