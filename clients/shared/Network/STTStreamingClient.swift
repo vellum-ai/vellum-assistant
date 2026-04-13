@@ -70,10 +70,12 @@ public enum STTStreamFailure: Sendable, Equatable {
 /// connect, send audio chunks, receive partial/final transcripts, and
 /// handle close/error events.
 public protocol STTStreamingClientProtocol: Sendable {
-    /// Start a streaming STT session with the given provider and audio format.
+    /// Start a streaming STT session with the given audio format.
+    ///
+    /// The server resolves the STT provider from its own configuration —
+    /// clients do not need to specify a provider identifier.
     ///
     /// - Parameters:
-    ///   - provider: STT provider identifier (e.g. `"deepgram"`, `"google-gemini"`).
     ///   - mimeType: MIME type of the audio being streamed (e.g. `"audio/pcm"`).
     ///   - sampleRate: Sample rate in Hz (e.g. `16000`). Optional.
     ///   - onEvent: Callback invoked on the main actor for each server event.
@@ -81,7 +83,6 @@ public protocol STTStreamingClientProtocol: Sendable {
     ///     or terminates abnormally. After this fires, the session is closed and
     ///     callers should fall back to batch STT.
     func start(
-        provider: String,
         mimeType: String,
         sampleRate: Int?,
         onEvent: @escaping @MainActor (STTStreamEvent) -> Void,
@@ -131,7 +132,6 @@ public final class STTStreamingClient: STTStreamingClientProtocol {
     // MARK: - Lifecycle
 
     public func start(
-        provider: String,
         mimeType: String,
         sampleRate: Int?,
         onEvent: @escaping @MainActor (STTStreamEvent) -> Void,
@@ -147,8 +147,9 @@ public final class STTStreamingClient: STTStreamingClientProtocol {
         self.state = .connecting
 
         // Build query parameters for the WebSocket URL.
+        // The server resolves the STT provider from its own configuration —
+        // clients only send audio format metadata.
         var params: [String: String] = [
-            "provider": provider,
             "mimeType": mimeType,
         ]
         if let sampleRate {
@@ -160,7 +161,7 @@ public final class STTStreamingClient: STTStreamingClientProtocol {
                 path: "stt/stream",
                 params: params
             )
-            log.info("Opening STT stream WebSocket: provider=\(provider), mimeType=\(mimeType), sampleRate=\(sampleRate.map(String.init) ?? "nil")")
+            log.info("Opening STT stream WebSocket: mimeType=\(mimeType), sampleRate=\(sampleRate.map(String.init) ?? "nil")")
 
             let task = URLSession.shared.webSocketTask(with: request)
             self.webSocketTask = task

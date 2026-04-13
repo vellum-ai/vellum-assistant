@@ -18,7 +18,6 @@ private final class MockSTTStreamingClient: STTStreamingClientProtocol {
     var stopCallCount = 0
     var closeCallCount = 0
 
-    var startedProvider: String?
     var startedMimeType: String?
     var startedSampleRate: Int?
 
@@ -28,14 +27,12 @@ private final class MockSTTStreamingClient: STTStreamingClientProtocol {
     var onFailure: (@MainActor (STTStreamFailure) -> Void)?
 
     func start(
-        provider: String,
         mimeType: String,
         sampleRate: Int?,
         onEvent: @escaping @MainActor (STTStreamEvent) -> Void,
         onFailure: @escaping @MainActor (STTStreamFailure) -> Void
     ) async {
         startCallCount += 1
-        startedProvider = provider
         startedMimeType = mimeType
         startedSampleRate = sampleRate
         self.onEvent = onEvent
