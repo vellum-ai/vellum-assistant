@@ -1,8 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { RetryProvider } from "../providers/retry.js";
-import { createAbortReason } from "../util/abort-reasons.js";
-import { ProviderError } from "../util/errors.js";
 import type {
   ContentBlock,
   Message,
@@ -12,6 +10,8 @@ import type {
   SendMessageOptions,
   ToolDefinition,
 } from "../providers/types.js";
+import { createAbortReason } from "../util/abort-reasons.js";
+import { ProviderError } from "../util/errors.js";
 
 // ---------------------------------------------------------------------------
 // Mock openai module — must be before importing the provider
