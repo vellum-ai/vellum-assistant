@@ -15,6 +15,7 @@ import { withQdrantBreaker } from "../memory/qdrant-circuit-breaker.js";
 import { getQdrantClient } from "../memory/qdrant-client.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
+import { truncate } from "../util/truncate.js";
 import type { ServerMessage } from "./message-protocol.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 
@@ -564,22 +565,43 @@ export async function regenerate(
   // in both this.messages and the DB.
   conversation.processing = true;
   conversation.abortController = new AbortController();
-  conversation.currentRequestId = requestId ?? uuid();
+  const resolvedRequestId = requestId ?? uuid();
+  conversation.currentRequestId = resolvedRequestId;
 
   // Fire-and-forget: matches the /v1/messages pattern so the HTTP handler
   // returns 202 immediately rather than blocking on the full agent turn.
   // Otherwise the client's 15s POST timeout fires on any non-trivial
   // regenerate and surfaces a misleading "Failed to regenerate message"
   // banner even though the response streams in normally via SSE.
+  //
+  // runAgentLoop catches most errors internally and emits `request_error`
+  // itself, but anything thrown from its `finally` block (commit, drain,
+  // profiler) would otherwise escape silently now that the caller is no
+  // longer awaiting. Mirror the prior handler-level trace emission so the
+  // observability contract is preserved on those paths too.
   void conversation
     .runAgentLoop(content, existingUserMessageId, onEvent, {
       skipPreMessageRollback: true,
       isUserMessage: true,
     })
     .catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
       log.error(
         { err, conversationId: conversation.conversationId },
         "runAgentLoop after regenerate failed",
+      );
+      conversation.traceEmitter.emit(
+        "request_error",
+        truncate(message, 200, ""),
+        {
+          requestId: resolvedRequestId,
+          status: "error",
+          attributes: {
+            errorClass: err instanceof Error ? err.constructor.name : "Error",
+            message: truncate(message, 500, ""),
+            source: "regenerate_fire_and_forget",
+          },
+        },
       );
     });
 }
