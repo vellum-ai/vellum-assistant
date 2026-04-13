@@ -1,6 +1,6 @@
 # STT Provider Onboarding Checklist
 
-Step-by-step guide for adding a new speech-to-text provider to the assistant. Follow each section in order; the parity tests (step 6) will fail CI if any side is out of sync.
+Step-by-step guide for adding a new speech-to-text provider to the assistant. Follow each section in order; the parity tests (step 7) will fail CI if any side is out of sync.
 
 ## 1. Daemon provider catalog entry
 
