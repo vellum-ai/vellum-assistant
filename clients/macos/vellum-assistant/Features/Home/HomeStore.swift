@@ -46,6 +46,12 @@ public final class HomeStore {
     @ObservationIgnored var sseTask: Task<Void, Never>?
     @ObservationIgnored private var foregroundObserver: NSObjectProtocol?
 
+    /// Tracks whether `load()` has completed at least once. Used by the SSE
+    /// handler to suppress the unseen-changes dot on the very first cold-load
+    /// (otherwise the initial `relationshipStateUpdated` replay would light up
+    /// the badge the moment the app boots).
+    @ObservationIgnored var hasLoadedOnce: Bool = false
+
     // MARK: - Lifecycle
 
     public init(client: HomeStateClient, messageStream: AsyncStream<ServerMessage>) {
@@ -74,9 +80,18 @@ public final class HomeStore {
         do {
             let next = try await client.fetchRelationshipState()
             self.state = next
+            self.hasLoadedOnce = true
         } catch {
             log.error("HomeStore.load failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Producer-side flip for the unseen-changes badge. Invoked by the SSE
+    /// handler when an update arrives while the Home tab is not visible.
+    /// Kept at `internal` so the `HomeStore+SSE` extension can drive it
+    /// without exposing it to the rest of the app.
+    func flagUnseenChanges() {
+        hasUnseenChanges = true
     }
 
     /// Clears the unseen-changes badge. Called by the Home tab host when the

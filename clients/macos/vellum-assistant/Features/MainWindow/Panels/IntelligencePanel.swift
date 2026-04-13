@@ -79,6 +79,15 @@ struct IntelligencePanel: View {
                 withAnimation(VAnimation.fast) { selectedTab = .memories }
             }
         }
+        .onChange(of: selectedTab) { _, newValue in
+            // Clear the sidebar unseen-changes dot as soon as the user
+            // navigates onto the Home sub-tab. `.onAppear` on the Home
+            // branch covers the first render; this onChange covers every
+            // subsequent tab switch back to Home.
+            if newValue == .home {
+                homeStore?.markSeen()
+            }
+        }
         .task {
             let info = await IdentityInfo.loadAsync()
             cachedAssistantName = AssistantDisplayName.resolve(info?.name, fallback: "Your Assistant")
@@ -106,6 +115,13 @@ struct IntelligencePanel: View {
                     onPrimaryCTA: { capability in onCapabilityCTA?(capability) },
                     onShortcutCTA: { capability in onCapabilityShortcutCTA?(capability) }
                 )
+                .onAppear {
+                    homeStore.isHomeTabVisible = true
+                    homeStore.markSeen()
+                }
+                .onDisappear {
+                    homeStore.isHomeTabVisible = false
+                }
                 .padding(.top, VSpacing.sm)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 .clipped()

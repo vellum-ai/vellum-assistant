@@ -18,7 +18,16 @@ extension HomeStore {
             for await message in stream {
                 if Task.isCancelled { break }
                 if case .relationshipStateUpdated = message {
+                    // Capture the cold-load sentinel BEFORE `load()` flips it
+                    // so the initial fetch never lights up the unseen-changes
+                    // dot. Events that arrive while the Home tab is already
+                    // visible leave the flag alone — the user is looking at
+                    // the new state as it lands.
+                    let wasFirstLoad = !self.hasLoadedOnce
                     await self.load()
+                    if !wasFirstLoad && !self.isHomeTabVisible {
+                        self.flagUnseenChanges()
+                    }
                 }
             }
         }
