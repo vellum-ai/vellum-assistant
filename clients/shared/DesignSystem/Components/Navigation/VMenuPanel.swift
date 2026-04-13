@@ -16,6 +16,11 @@ public class VMenuPanel: NSPanel {
     /// Guard to prevent recursive coordinator notification from `close()`.
     private var isClosingFromCoordinator: Bool = false
 
+    /// The currently active root-level menu panel. Only one root panel should
+    /// be visible at a time, matching native NSMenu behavior. Child panels
+    /// (submenus via showAnchored) are managed by the coordinator, not here.
+    private static weak var activeRootPanel: VMenuPanel?
+
     /// Extra padding added around the VMenu content so its shadow can render
     /// without being clipped by the hosting view's bounds.
     static let shadowInset: CGFloat = 14
@@ -47,6 +52,12 @@ public class VMenuPanel: NSPanel {
         @ViewBuilder content: () -> Content,
         onDismiss: @escaping () -> Void
     ) -> VMenuPanel {
+        // Dismiss any existing root panel before showing a new one.
+        // This matches NSMenu's native behavior: only one menu visible at a time.
+        // Using the coordinator's dismissAll() ensures the entire panel tree
+        // (root + submenus) is closed and the old onDismiss handler fires.
+        activeRootPanel?.coordinator?.dismissAll()
+
         let panel = VMenuPanel(
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -140,6 +151,8 @@ public class VMenuPanel: NSPanel {
                 NSAccessibility.post(element: hostingView, notification: .focusedUIElementChanged)
             }
         }
+
+        activeRootPanel = panel
 
         return panel
     }
@@ -289,6 +302,10 @@ public class VMenuPanel: NSPanel {
     }
 
     public override func close() {
+        if self === VMenuPanel.activeRootPanel {
+            VMenuPanel.activeRootPanel = nil
+        }
+
         clickMonitor.flatMap(NSEvent.removeMonitor)
         clickMonitor = nil
 
