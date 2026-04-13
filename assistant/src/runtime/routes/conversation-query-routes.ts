@@ -39,6 +39,7 @@ import {
 } from "../../daemon/handlers/config-model.js";
 import {
   getMessageContent,
+  listConversationMessages,
   performConversationSearch,
 } from "../../daemon/handlers/conversation-history.js";
 import { deleteQueuedMessage } from "../../daemon/handlers/conversations.js";
@@ -418,6 +419,33 @@ export function conversationQueryRouteDefinitions(
           maxMessagesPerConversation: maxMessages,
         });
         return Response.json({ query: q, results });
+      },
+    },
+
+    // ── Conversation history (cold-open hydration) ─────────────────────
+    {
+      endpoint: "conversations/:id/history",
+      method: "GET",
+      policyKey: "conversations/history",
+      summary: "Fetch conversation history for cold-open hydration",
+      description:
+        "Paginated messages for a conversation, ordered oldest-first.",
+      tags: ["conversations"],
+      handler: ({ url, params }) => {
+        const conversationId = params.id;
+        if (!conversationId) {
+          return httpError("BAD_REQUEST", "id is required", 400);
+        }
+        const limitRaw = url.searchParams.get("limit");
+        const limit = limitRaw ? Math.min(parseInt(limitRaw, 10), 500) : 100;
+        const beforeRaw = url.searchParams.get("beforeTimestamp");
+        const beforeTimestamp = beforeRaw ? parseInt(beforeRaw, 10) : undefined;
+        const result = listConversationMessages(
+          conversationId,
+          limit,
+          beforeTimestamp,
+        );
+        return Response.json(result);
       },
     },
 

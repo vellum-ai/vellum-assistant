@@ -1,4 +1,7 @@
-import { getMessageById } from "../../memory/conversation-crud.js";
+import {
+  getMessageById,
+  getMessagesPaginated,
+} from "../../memory/conversation-crud.js";
 import {
   listConversations,
   searchConversations,
@@ -32,6 +35,90 @@ export function performConversationSearch(params: ConversationSearchParams) {
     maxMessagesPerConversation: params.maxMessagesPerConversation,
   });
 }
+
+// ---------------------------------------------------------------------------
+// Conversation history (paginated)
+// ---------------------------------------------------------------------------
+
+export interface ConversationHistoryMessage {
+  id: string;
+  role: "user" | "assistant";
+  text?: string;
+  toolCalls?: Array<{
+    name: string;
+    input?: Record<string, unknown>;
+    result?: string;
+  }>;
+  createdAt: number;
+}
+
+export interface ConversationHistoryResult {
+  conversationId: string;
+  messages: ConversationHistoryMessage[];
+  hasMore: boolean;
+  nextBeforeTimestamp?: number;
+}
+
+/** Return paginated messages for a conversation, oldest-first. */
+export function listConversationMessages(
+  conversationId: string,
+  limit: number,
+  beforeTimestamp?: number,
+): ConversationHistoryResult {
+  const { messages: rows, hasMore } = getMessagesPaginated(
+    conversationId,
+    limit,
+    beforeTimestamp,
+  );
+
+  const messages: ConversationHistoryMessage[] = rows.map((row) => {
+    const role: "user" | "assistant" =
+      row.role === "user" ? "user" : "assistant";
+    let text: string | undefined;
+    let toolCalls:
+      | Array<{
+          name: string;
+          input?: Record<string, unknown>;
+          result?: string;
+        }>
+      | undefined;
+
+    try {
+      const content = JSON.parse(row.content);
+      const rendered = renderHistoryContent(content);
+      text = rendered.text || undefined;
+      if (rendered.toolCalls.length > 0) {
+        toolCalls = rendered.toolCalls.map((tc) => ({
+          name: tc.name,
+          input: tc.input,
+          ...(tc.result !== undefined ? { result: tc.result } : {}),
+        }));
+      }
+    } catch {
+      text = row.content || undefined;
+    }
+
+    return {
+      id: row.id,
+      role,
+      ...(text !== undefined ? { text } : {}),
+      ...(toolCalls ? { toolCalls } : {}),
+      createdAt: row.createdAt,
+    };
+  });
+
+  return {
+    conversationId,
+    messages,
+    hasMore,
+    nextBeforeTimestamp:
+      hasMore && messages.length > 0 ? messages[0].createdAt : undefined,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Single message content
+// ---------------------------------------------------------------------------
 
 export interface MessageContentResult {
   conversationId?: string;
