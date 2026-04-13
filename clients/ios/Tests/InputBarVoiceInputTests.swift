@@ -341,13 +341,9 @@ final class InputBarVoiceInputTests: XCTestCase {
         adapter.authorizationStatus = .denied
         adapter.available = false
 
-        // Simulate STT provider configured via UserDefaults (provider + credential)
+        // Simulate STT provider configured via UserDefaults
         UserDefaults.standard.set("deepgram", forKey: "sttProvider")
-        APIKeyManager.shared.setAPIKey("test-key", provider: "deepgram")
-        defer {
-            UserDefaults.standard.removeObject(forKey: "sttProvider")
-            APIKeyManager.shared.deleteAPIKey(provider: "deepgram")
-        }
+        defer { UserDefaults.standard.removeObject(forKey: "sttProvider") }
 
         XCTAssertTrue(
             STTProviderRegistry.isServiceConfigured,
@@ -377,8 +373,6 @@ final class InputBarVoiceInputTests: XCTestCase {
 
         // Ensure no STT provider is configured
         UserDefaults.standard.removeObject(forKey: "sttProvider")
-        APIKeyManager.shared.deleteAPIKey(provider: "deepgram")
-        APIKeyManager.shared.deleteAPIKey(provider: "openai")
 
         XCTAssertFalse(
             STTProviderRegistry.isServiceConfigured,
@@ -417,13 +411,9 @@ final class InputBarVoiceInputTests: XCTestCase {
         adapter.authorizationStatus = .authorized
         adapter.available = true
 
-        // Simulate STT provider configured (provider + credential)
+        // Simulate STT provider configured
         UserDefaults.standard.set("openai-whisper", forKey: "sttProvider")
-        APIKeyManager.shared.setAPIKey("test-key", provider: "openai")
-        defer {
-            UserDefaults.standard.removeObject(forKey: "sttProvider")
-            APIKeyManager.shared.deleteAPIKey(provider: "openai")
-        }
+        defer { UserDefaults.standard.removeObject(forKey: "sttProvider") }
 
         XCTAssertTrue(STTProviderRegistry.isServiceConfigured)
 
