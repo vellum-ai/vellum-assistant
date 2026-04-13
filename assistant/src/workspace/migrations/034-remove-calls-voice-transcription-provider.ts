@@ -65,8 +65,15 @@ export const removeCallsVoiceTranscriptionProviderMigration: WorkspaceMigration 
         const stt = services ? getObj(services, "stt") : null;
 
         if (stt && typeof stt.provider === "string") {
-          // Only overwrite if it's still the migration 033 default
-          if (stt.provider === "deepgram") {
+          // Only overwrite if services.stt looks like the untouched 033 default.
+          // Migration 033 backfilled { mode: "your-own", provider: "deepgram",
+          // providers: {} }. If the user later customized the section (changed
+          // mode, added provider-specific config, or set a different provider),
+          // we treat it as an intentional choice and leave it alone. Checking
+          // for extra keys beyond the 033 structural set avoids overriding a
+          // user who explicitly chose deepgram after 033 ran and then tweaked
+          // provider settings.
+          if (stt.provider === "deepgram" && looksLike033Default(stt)) {
             stt.provider = "google-gemini";
             changed = true;
           }
@@ -161,6 +168,34 @@ function ensureObj(
     parent[key] = {};
   }
   return parent[key] as Record<string, unknown>;
+}
+
+/**
+ * Check whether `services.stt` contains only the structural keys that
+ * migration 033 backfilled (`mode`, `provider`, `providers`) with their
+ * default values. If any other key is present or if `mode`/`providers`
+ * differ from the 033 defaults, the user has actively configured this
+ * section and we should not override their provider choice.
+ */
+function looksLike033Default(stt: Record<string, unknown>): boolean {
+  const keys033 = new Set(["mode", "provider", "providers"]);
+  for (const key of Object.keys(stt)) {
+    if (!keys033.has(key)) return false;
+  }
+  // Verify the other structural values match the 033 defaults
+  if ("mode" in stt && stt.mode !== "your-own") return false;
+  if ("providers" in stt) {
+    const providers = stt.providers;
+    if (
+      !providers ||
+      typeof providers !== "object" ||
+      Array.isArray(providers) ||
+      Object.keys(providers as Record<string, unknown>).length > 0
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**

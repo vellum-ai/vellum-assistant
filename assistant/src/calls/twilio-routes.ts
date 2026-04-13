@@ -346,8 +346,7 @@ function buildVoiceWebhookTwiml(
   );
 
   // Resolve telephony STT strategy from services.stt.provider.
-  // speechModel is no longer part of the voice config — the routing
-  // resolver handles model defaults internally per provider.
+  // The routing resolver handles speech-model defaults internally per provider.
   const routingResult = resolveTelephonySttRouting();
 
   if (routingResult.status === "unknown-provider") {

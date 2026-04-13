@@ -94,6 +94,80 @@ describe("034-remove-calls-voice-transcription-provider migration", () => {
     expect(voice.language).toBe("en-US");
   });
 
+  test("does not overwrite deepgram when services.stt has customized provider-specific config", () => {
+    // User had Google legacy provider but then explicitly configured deepgram
+    // with provider-specific settings — the extra keys in services.stt signal
+    // intentional customization beyond the 033 backfill.
+    writeConfig({
+      calls: { voice: { transcriptionProvider: "Google" } },
+      services: {
+        stt: {
+          mode: "your-own",
+          provider: "deepgram",
+          providers: {},
+          model: "nova-3",
+        },
+      },
+    });
+
+    removeCallsVoiceTranscriptionProviderMigration.run(workspaceDir);
+
+    const config = readConfig();
+    const stt = (config.services as Record<string, unknown>).stt as Record<
+      string,
+      unknown
+    >;
+    // Extra keys mean intentional customization — provider left as-is
+    expect(stt.provider).toBe("deepgram");
+    expect(stt.model).toBe("nova-3");
+  });
+
+  test("does not overwrite deepgram when services.stt.providers has entries", () => {
+    // User explicitly added per-provider config entries, signaling they
+    // customized beyond the 033 default even though the top-level keys match.
+    writeConfig({
+      calls: { voice: { transcriptionProvider: "Google" } },
+      services: {
+        stt: {
+          mode: "your-own",
+          provider: "deepgram",
+          providers: { deepgram: { model: "nova-3" } },
+        },
+      },
+    });
+
+    removeCallsVoiceTranscriptionProviderMigration.run(workspaceDir);
+
+    const config = readConfig();
+    const stt = (config.services as Record<string, unknown>).stt as Record<
+      string,
+      unknown
+    >;
+    expect(stt.provider).toBe("deepgram");
+  });
+
+  test("does not overwrite deepgram when services.stt.mode differs from 033 default", () => {
+    writeConfig({
+      calls: { voice: { transcriptionProvider: "Google" } },
+      services: {
+        stt: {
+          mode: "managed",
+          provider: "deepgram",
+          providers: {},
+        },
+      },
+    });
+
+    removeCallsVoiceTranscriptionProviderMigration.run(workspaceDir);
+
+    const config = readConfig();
+    const stt = (config.services as Record<string, unknown>).stt as Record<
+      string,
+      unknown
+    >;
+    expect(stt.provider).toBe("deepgram");
+  });
+
   test("does not overwrite services.stt.provider if it is not the migration 033 default", () => {
     writeConfig({
       calls: { voice: { transcriptionProvider: "Google" } },
