@@ -9,10 +9,17 @@ import VellumAssistantShared
 ///
 /// Shape mirrors the macOS `QueuedMessageRow` but sized for touch: minimum
 /// 44pt row height and 44x44pt icon hit areas per Apple HIG.
+///
+/// `isComposerEmpty` is provided by the drawer so the pencil button can be
+/// disabled while the composer has user-typed content or staged attachments.
+/// This prevents a one-click data-loss hazard: the underlying view-model guard
+/// already no-ops the call, and disabling the button gives the user clear
+/// visual feedback (and an accessibility hint) before tapping.
 struct QueuedMessageRow_iOS: View {
     let message: ChatMessage
     let positionLabel: String
     let isTail: Bool
+    let isComposerEmpty: Bool
     let onEdit: () -> Void
     let onCancel: () -> Void
 
@@ -45,6 +52,8 @@ struct QueuedMessageRow_iOS: View {
                         accessibilityLabel: "Edit queued message",
                         action: onEdit
                     )
+                    .disabled(!isComposerEmpty)
+                    .accessibilityHint(isComposerEmpty ? "" : "Clear the composer to edit")
                 }
                 QueuedRowIconButton(
                     icon: .x,

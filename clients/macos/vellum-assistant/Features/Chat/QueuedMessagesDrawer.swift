@@ -65,12 +65,18 @@ struct QueuedMessagesDrawer: View {
     }
 
     private func rows(queuedMessages: [ChatMessage], tailId: UUID?) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
+        // Computed once per render so the pencil button can be disabled when
+        // the user has an in-progress composer draft. The view-model guard is
+        // the source of truth, but the disabled state gives visual feedback.
+        let isComposerEmpty = composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && composerAttachments.isEmpty
+        return VStack(alignment: .leading, spacing: VSpacing.xs) {
             ForEach(Array(queuedMessages.enumerated()), id: \.element.id) { index, message in
                 QueuedMessageRow(
                     message: message,
                     positionLabel: "#\(index + 1)",
                     isTail: message.id == tailId,
+                    isComposerEmpty: isComposerEmpty,
                     onEdit: {
                         viewModel.editQueuedTail(
                             into: $composerText,

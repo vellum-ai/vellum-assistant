@@ -29,7 +29,12 @@ struct QueuedMessagesDrawer_iOS: View {
     }
 
     private func container(queuedMessages: [ChatMessage], tailId: UUID?) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
+        // Computed once per render so the pencil button can be disabled when
+        // the user has an in-progress composer draft. The view-model guard is
+        // the source of truth, but the disabled state gives visual feedback.
+        let isComposerEmpty = composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && composerAttachments.isEmpty
+        return VStack(alignment: .leading, spacing: VSpacing.sm) {
             header(queuedMessages: queuedMessages)
 
             LazyVStack(spacing: 0) {
@@ -41,6 +46,7 @@ struct QueuedMessagesDrawer_iOS: View {
                         message: message,
                         positionLabel: "#\(index + 1)",
                         isTail: message.id == tailId,
+                        isComposerEmpty: isComposerEmpty,
                         onEdit: {
                             viewModel.editQueuedTail(
                                 into: $composerText,

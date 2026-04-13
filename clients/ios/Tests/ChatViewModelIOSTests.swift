@@ -709,6 +709,122 @@ final class ChatViewModelIOSTests: XCTestCase {
         XCTAssertTrue(composerAttachments.isEmpty, "Attachments binding should not be modified when queue is empty")
         XCTAssertTrue(mockQueueClient.calls.isEmpty, "No delete_queued_message call should be dispatched")
     }
+
+    func test_editQueuedTail_whenComposerNonEmpty_isNoOp() async {
+        // Regression guard for the one-tap composer-clobber bug: tapping the
+        // pencil with an in-progress draft must not overwrite text or
+        // attachments, and must not dispatch a delete_queued_message.
+        let mockQueueClient = MockConversationQueueClient()
+        mockQueueClient.deleteResult = true
+
+        let connection = GatewayConnectionManager()
+        connection.isConnected = true
+        let vm = ChatViewModel(
+            connectionManager: connection,
+            eventStreamClient: connection.eventStreamClient,
+            conversationQueueClient: mockQueueClient
+        )
+        vm.conversationId = "sess-guard-ios"
+
+        let queuedAttachment = ChatAttachment(
+            id: "queued-att",
+            filename: "queued.txt",
+            mimeType: "text/plain",
+            data: "cXVldWVk",
+            thumbnailData: nil,
+            dataLength: 6,
+            thumbnailImage: nil
+        )
+        var tail = ChatMessage(role: .user, text: "Tail content", status: .queued(position: 0))
+        tail.attachments = [queuedAttachment]
+        vm.messages = [tail]
+        vm.requestIdToMessageId = ["req-tail": tail.id]
+        vm.pendingQueuedCount = 1
+
+        let draftAttachment = ChatAttachment(
+            id: "draft-att",
+            filename: "draft.txt",
+            mimeType: "text/plain",
+            data: "ZHJhZnQ=",
+            thumbnailData: nil,
+            dataLength: 5,
+            thumbnailImage: nil
+        )
+
+        // Case A: composer has text only.
+        var composerText = "in-progress draft"
+        var composerAttachments: [ChatAttachment] = []
+        var textBinding = Binding<String>(
+            get: { composerText },
+            set: { composerText = $0 }
+        )
+        var attachmentsBinding = Binding<[ChatAttachment]>(
+            get: { composerAttachments },
+            set: { composerAttachments = $0 }
+        )
+
+        vm.editQueuedTail(into: textBinding, attachments: attachmentsBinding)
+
+        try? await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(composerText, "in-progress draft",
+                       "Composer text must not be overwritten when a draft is present")
+        XCTAssertTrue(composerAttachments.isEmpty,
+                      "Attachments binding must not be populated when composer has draft text")
+        XCTAssertTrue(mockQueueClient.calls.isEmpty,
+                      "No delete_queued_message must be dispatched while composer has content")
+
+        // Case B: composer has attachments only (no text).
+        composerText = ""
+        composerAttachments = [draftAttachment]
+        textBinding = Binding<String>(
+            get: { composerText },
+            set: { composerText = $0 }
+        )
+        attachmentsBinding = Binding<[ChatAttachment]>(
+            get: { composerAttachments },
+            set: { composerAttachments = $0 }
+        )
+
+        vm.editQueuedTail(into: textBinding, attachments: attachmentsBinding)
+
+        try? await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(composerText, "",
+                       "Composer text must remain empty when only attachments are staged")
+        XCTAssertEqual(composerAttachments.count, 1)
+        XCTAssertEqual(composerAttachments.first?.id, "draft-att",
+                       "Staged attachment must not be overwritten by the queued attachment")
+        XCTAssertTrue(mockQueueClient.calls.isEmpty,
+                      "No delete_queued_message must be dispatched while composer has attachments")
+
+        // Case C: composer has whitespace-only text — still treated as empty,
+        // so the guard should permit the overwrite.
+        composerText = "   \n  "
+        composerAttachments = []
+        textBinding = Binding<String>(
+            get: { composerText },
+            set: { composerText = $0 }
+        )
+        attachmentsBinding = Binding<[ChatAttachment]>(
+            get: { composerAttachments },
+            set: { composerAttachments = $0 }
+        )
+
+        vm.editQueuedTail(into: textBinding, attachments: attachmentsBinding)
+
+        let deadline = ContinuousClock.now + .seconds(2)
+        while mockQueueClient.calls.isEmpty && ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(composerText, "Tail content",
+                       "Whitespace-only composer should be treated as empty and accept the overwrite")
+        XCTAssertEqual(composerAttachments.count, 1)
+        XCTAssertEqual(composerAttachments.first?.id, "queued-att")
+        XCTAssertEqual(mockQueueClient.calls.count, 1,
+                       "Whitespace-only composer should permit the delete_queued_message dispatch")
+    }
 }
 
 // MARK: - Test Doubles

@@ -1552,10 +1552,18 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// Pop the tail (highest-position) queued message back into the composer
     /// bindings and delete it from the queue. No-op when the queue is empty.
     /// Used by the queue drawer's "edit last queued" affordance.
+    ///
+    /// Guards against clobbering an in-progress composer draft: if the composer
+    /// already has text (post-trim) or attachments, the call is a no-op — no
+    /// overwrite, no delete. Callers should also disable the edit affordance
+    /// when the composer is non-empty so the user gets visual feedback before
+    /// clicking.
     public func editQueuedTail(
         into text: Binding<String>,
         attachments: Binding<[ChatAttachment]>
     ) {
+        guard text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              attachments.wrappedValue.isEmpty else { return }
         guard let tailId = tailQueuedMessageId,
               let message = messages.first(where: { $0.id == tailId }) else { return }
         text.wrappedValue = message.text
