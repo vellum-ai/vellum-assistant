@@ -997,12 +997,16 @@ export class DaemonServer {
       // overwrite the in-flight conversation's transportHints.
       if (!conversation.isProcessing()) {
         this.applyTransportMetadata(conversation, options);
+        // trustContext is reapplied here only when the conversation is idle,
+        // so concurrent requests cannot overwrite an in-flight turn's guardian
+        // scope. Direct callers (e.g. schedule-routes run-now) that invoke
+        // processMessage without going through prepareConversationForMessage
+        // rely on this to pick up the trustContext passed in options.
+        // prepareConversationForMessage also reapplies after its own idle check.
+        if (options?.trustContext !== undefined) {
+          conversation.setTrustContext(options.trustContext);
+        }
       }
-      // Note: trustContext reapplication for reused conversations is handled
-      // in prepareConversationForMessage AFTER the isProcessing() idle check.
-      // Applying it here would race concurrent requests — a busy-rejected
-      // caller could still overwrite the in-flight turn's guardian scope,
-      // changing authorization mid-turn.
       this.evictor.touch(conversationId);
     }
     return conversation;
