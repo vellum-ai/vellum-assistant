@@ -235,10 +235,10 @@ describe("syncUpdateBulletinOnStartup", () => {
   });
 
   it("materializes new version bulletin after a prior release was dismissed", () => {
-    // Regression: hasEverMaterialized previously tripped on ANY completed
-    // release, so once 0.9.0 had been dismissed, every future version saw
-    // "file missing" and was auto-marked completed — suppressing its bulletin
-    // forever. The fix scopes the check to the current release.
+    // Verifies that a new version's bulletin is materialized even when a
+    // prior release exists in the completed set. Dismissal detection is
+    // scoped to the current release — only suppress if this version was
+    // already active or completed, not because an unrelated version was.
     store.set("updates:completed_releases", JSON.stringify(["0.9.0"]));
     expect(existsSync(workspacePath)).toBe(false);
 
