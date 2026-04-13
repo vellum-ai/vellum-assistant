@@ -163,17 +163,10 @@ final class SurfaceManager {
                 )
             },
             onDismiss: { [weak self] in
-                guard let self else { return }
-                // Persistent surfaces never emit the synthetic "dismiss" — a co-fired
-                // onAction+onDismiss (e.g. cancel-style buttons) would otherwise race.
-                guard !self.persistentSurfaces.contains(surface.id),
-                      !self.respondedSurfaces.contains(surface.id) else {
-                    self.dismissSurfaceById(surface.id)
-                    return
-                }
-                self.respondedSurfaces.insert(surface.id)
-                self.onAction?(surface.conversationId, surface.id, "dismiss", nil)
-                self.dismissSurfaceById(surface.id)
+                self?.handleSurfaceDismiss(
+                    conversationId: surface.conversationId,
+                    surfaceId: surface.id
+                )
             },
             appId: appId,
             onDataRequest: appId != nil ? { [weak self] callId, method, recordId, data in
@@ -321,6 +314,33 @@ final class SurfaceManager {
         guard !respondedSurfaces.contains(surfaceId) else { return }
         respondedSurfaces.insert(surfaceId)
         onAction?(conversationId, surfaceId, actionId, data)
+    }
+
+    /// Handles a user-initiated dismissal (panel close button, Escape, or an explicit
+    /// cancel flow that invokes `onDismiss`).
+    ///
+    /// Emits a synthetic `"dismiss"` action so the daemon can clean up its pending-surface
+    /// state, unless the surface already dispatched an action this turn — in which case
+    /// the dismiss would race with the action (e.g. a cancel-style button that fires both
+    /// `onAction` and `onDismiss` for a single click).
+    ///
+    /// "Already dispatched" is tracked differently for the two modes:
+    /// - Non-persistent surfaces latch via `respondedSurfaces` in `handleSurfaceAction`.
+    /// - Persistent surfaces never enter `respondedSurfaces`; instead, any prior action
+    ///   leaves an entry in `spentActionIdsBySurface`, which we use as the signal.
+    func handleSurfaceDismiss(conversationId: String?, surfaceId: String) {
+        let alreadyDispatched: Bool
+        if persistentSurfaces.contains(surfaceId) {
+            alreadyDispatched = !(spentActionIdsBySurface[surfaceId]?.isEmpty ?? true)
+        } else {
+            alreadyDispatched = respondedSurfaces.contains(surfaceId)
+        }
+
+        if !alreadyDispatched {
+            respondedSurfaces.insert(surfaceId)
+            onAction?(conversationId, surfaceId, "dismiss", nil)
+        }
+        dismissSurfaceById(surfaceId)
     }
 
     /// Test-only hook so unit tests can exercise `handleSurfaceAction` and surface lifecycle

@@ -584,49 +584,45 @@ All guardian decisions for voice access requests flow through:
 
 ### Speech-to-Text (STT) Boundaries
 
-Audio-to-text conversion occurs in five distinct runtime boundaries, each with its own provider model and adapter layer. The `services.stt` config block controls provider selection for the daemon's STT service; other boundaries resolve providers independently based on their runtime context.
+Audio-to-text conversion occurs in five distinct runtime boundaries, each with its own provider model and adapter layer. The `services.stt` config block is the single source of truth for STT provider selection across both daemon and telephony boundaries.
 
 **Provider catalog model:** The daemon's canonical provider catalog (`src/providers/speech-to-text/provider-catalog.ts`) is the single source of truth for STT provider metadata — credential mappings, supported boundaries, telephony mode, and conversation streaming mode. The client-facing catalog (`meta/stt-provider-catalog.json`) carries display metadata (names, hints, setup mode, `conversationStreamingMode`) and is bundled into native apps at build time. A CI parity test (`src/__tests__/stt-catalog-parity.test.ts`) enforces that provider IDs, ordering, and credential-provider name mappings stay aligned between the two catalogs. To add a new provider, follow the checklist in `docs/stt-provider-onboarding.md`.
 
 **Boundary overview:**
 
-| Boundary                     | Runtime                                      | Provider (current)                             | Adapter module                                                                                                                               | Caller                                                                                               |
-| ---------------------------- | -------------------------------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| **Telephony-native**         | Twilio ConversationRelay                     | Deepgram or Google (config-driven)             | `src/calls/stt-profile.ts`                                                                                                                   | `src/calls/twilio-routes.ts`                                                                         |
-| **Daemon batch**             | Daemon process (REST API to provider)        | Configured STT provider (via `services.stt`)   | `src/stt/daemon-batch-transcriber.ts`                                                                                                        | `src/runtime/routes/inbound-stages/transcribe-audio.ts`                                              |
-| **Conversation streaming**   | Daemon process (WebSocket/incremental-batch) | Deepgram or Google Gemini (via `services.stt`) | `src/stt/stt-stream-session.ts`, `src/providers/speech-to-text/deepgram-realtime.ts`, `src/providers/speech-to-text/google-gemini-stream.ts` | `VoiceInputManager` (macOS conversation), `InputBarView` (iOS conversation) via gateway WS proxy     |
-| **Client service-first**     | macOS / iOS via gateway → daemon             | Configured STT provider (via `services.stt`)   | `src/runtime/routes/stt-routes.ts`, `clients/shared/Network/STTClient.swift`                                                                 | `VoiceInputManager` (macOS dictation), `InputBarView` (iOS), `OpenAIVoiceService` (macOS voice mode) |
-| **Client-native (fallback)** | macOS / iOS on-device                        | Apple Speech (`SFSpeechRecognizer`)            | `clients/macos/.../SpeechRecognizerAdapter.swift`, `clients/ios/.../SpeechRecognizerAdapter.swift`                                           | Fallback when STT service is unconfigured or fails                                                   |
+| Boundary                     | Runtime                                                                       | Provider (current)                             | Adapter module                                                                                                                               | Caller                                                                                               |
+| ---------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **Telephony (hybrid)**       | Twilio-native ConversationRelay or daemon media-stream (provider-conditional) | Configured STT provider (via `services.stt`)   | `src/calls/telephony-stt-routing.ts`                                                                                                         | `src/calls/twilio-routes.ts`                                                                         |
+| **Daemon batch**             | Daemon process (REST API to provider)                                         | Configured STT provider (via `services.stt`)   | `src/stt/daemon-batch-transcriber.ts`                                                                                                        | `src/runtime/routes/inbound-stages/transcribe-audio.ts`                                              |
+| **Conversation streaming**   | Daemon process (WebSocket/incremental-batch)                                  | Deepgram or Google Gemini (via `services.stt`) | `src/stt/stt-stream-session.ts`, `src/providers/speech-to-text/deepgram-realtime.ts`, `src/providers/speech-to-text/google-gemini-stream.ts` | `VoiceInputManager` (macOS conversation), `InputBarView` (iOS conversation) via gateway WS proxy     |
+| **Client service-first**     | macOS / iOS via gateway → daemon                                              | Configured STT provider (via `services.stt`)   | `src/runtime/routes/stt-routes.ts`, `clients/shared/Network/STTClient.swift`                                                                 | `VoiceInputManager` (macOS dictation), `InputBarView` (iOS), `OpenAIVoiceService` (macOS voice mode) |
+| **Client-native (fallback)** | macOS / iOS on-device                                                         | Apple Speech (`SFSpeechRecognizer`)            | `clients/macos/.../SpeechRecognizerAdapter.swift`, `clients/ios/.../SpeechRecognizerAdapter.swift`                                           | Fallback when STT service is unconfigured or fails                                                   |
 
-**Telephony-native boundary (current production path):**
+**Telephony boundary (hybrid routing):**
 
-STT runs inside the telephony platform (Twilio ConversationRelay). The daemon does not receive raw audio — it receives transcribed text from the relay. Provider selection is config-driven (`calls.voice.transcriptionProvider`, `calls.voice.speechModel`).
+Telephony STT uses a provider-conditional hybrid model driven by `services.stt.provider`. The routing resolver (`src/calls/telephony-stt-routing.ts`) maps the configured provider to a discriminated strategy at call setup time:
 
-- `resolveTelephonySttProfile()` in `src/calls/stt-profile.ts` maps config values to a provider-agnostic `TelephonySttProfile` with provider-specific defaults (Deepgram defaults to `"nova-3"`; Google leaves the model undefined).
-- `buildTwilioRelaySpeechConfig()` in `src/calls/twilio-relay-speech-config.ts` serializes the profile into Twilio ConversationRelay TwiML attributes.
-- `twilio-routes.ts` calls both at call setup time.
-- Guard tests in `__tests__/twilio-routes-twiml.test.ts` ("ConversationRelay STT attribute guardrails") and `__tests__/twilio-routes.test.ts` ("ConversationRelay STT integration guardrails") assert that TwiML always emits `<ConversationRelay>` with `transcriptionProvider` sourced from `calls.voice` config.
+- **`conversation-relay-native`** (Deepgram, Google) — TwiML emits `<Connect><ConversationRelay>` with `transcriptionProvider` and `speechModel` attributes. Twilio handles audio ingestion and transcription natively; the daemon receives transcribed text via the relay WebSocket. Model normalization: Deepgram defaults `speechModel` to `"nova-3"` when unset; Google leaves `speechModel` undefined (suppresses the Deepgram default to avoid sending a Deepgram model name to Google's API).
 
-To add a new telephony STT provider: add a branch in `resolveEffectiveSpeechModel()` for the provider's default model behavior, then ensure `buildTwilioRelaySpeechConfig` passes the provider name through to the TwiML.
+- **`media-stream-custom`** (OpenAI Whisper) — TwiML emits `<Connect><Stream>` pointing to the daemon's media-stream server. Raw audio flows from Twilio through the gateway's WebSocket proxy (`twilio-media-websocket.ts`) to the daemon, which transcribes server-side via the provider's batch API.
 
-**Prepared dark path — `services.stt` telephony cutover:**
+Key modules:
 
-A parallel set of modules is fully wired but **not** connected to the production call setup path. These form the activation seam for a future cutover from ConversationRelay-native STT to `services.stt`-driven telephony STT via the Twilio Media Streams protocol:
+| Module                                              | Purpose                                                                |
+| --------------------------------------------------- | ---------------------------------------------------------------------- |
+| `src/calls/telephony-stt-routing.ts`                | Maps `services.stt.provider` to a discriminated `TelephonySttStrategy` |
+| `src/calls/twilio-routes.ts`                        | Voice webhook handler; generates provider-conditional TwiML            |
+| `src/calls/media-stream-parser.ts`                  | Twilio Media Streams protocol parser                                   |
+| `src/calls/media-turn-detector.ts`                  | Energy-based VAD turn detector for raw audio                           |
+| `src/calls/media-stream-stt-session.ts`             | STT session that transcribes audio turns via `services.stt`            |
+| `src/calls/call-transport.ts`                       | Transport interface decoupling CallController from wire protocol       |
+| `src/calls/media-stream-output.ts`                  | Output adapter for sending TTS audio back via Media Streams            |
+| `src/calls/media-stream-server.ts`                  | WebSocket server binding media-stream lifecycle to call sessions       |
+| `gateway/src/http/routes/twilio-media-websocket.ts` | Gateway WebSocket proxy for Media Streams frames                       |
 
-| Module                                                                      | Purpose                                                                       | Status       |
-| --------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------ |
-| `src/providers/speech-to-text/provider-catalog.ts`                          | Provider catalog with `telephonyMode` metadata per entry                      | Ready (PR 5) |
-| `src/providers/speech-to-text/resolve.ts` (`resolveTelephonySttCapability`) | Validates whether `services.stt` provider is telephony-eligible               | Ready (PR 5) |
-| `src/calls/stt-profile.ts` (`evaluateServicesSttReadiness`)                 | Preflight helper — checks config + catalog + credentials without side effects | Ready (PR 6) |
-| `src/calls/media-stream-parser.ts`                                          | Twilio Media Streams protocol parser                                          | Ready (PR 2) |
-| `src/calls/media-turn-detector.ts`                                          | Energy-based VAD turn detector for raw audio                                  | Ready (PR 2) |
-| `src/calls/media-stream-stt-session.ts`                                     | STT session that transcribes audio turns via `services.stt`                   | Ready (PR 2) |
-| `src/calls/call-transport.ts`                                               | Transport interface decoupling CallController from wire protocol              | Ready (PR 1) |
-| `src/calls/media-stream-output.ts`                                          | Output adapter for sending TTS audio back via Media Streams                   | Ready (PR 3) |
-| `src/calls/media-stream-server.ts`                                          | WebSocket server binding media-stream lifecycle to call sessions              | Ready (PR 3) |
-| `gateway/src/http/routes/twilio-media-websocket.ts`                         | Gateway WebSocket proxy for Media Streams frames (inactive)                   | Ready (PR 4) |
+Guard tests in `__tests__/twilio-routes-twiml.test.ts` and `__tests__/twilio-routes.test.ts` assert that TwiML generation matches the provider-conditional strategy for each supported provider.
 
-**Activation seam:** The single change needed to activate this path is in `twilio-routes.ts` — switch the TwiML element from `<ConversationRelay>` to `<Connect><Stream>` and route the WebSocket URL to the media-stream server instead of the relay server. See the cutover runbook in `docs/internal-reference.md` for the exact steps.
+To add a new telephony STT provider: add the provider to `TWILIO_NATIVE_PROVIDER_MAP` in `telephony-stt-routing.ts` if it is Twilio-native, or leave it absent to use the media-stream custom path. Add model normalization logic in `resolveNativeSpeechModel()` for Twilio-native providers.
 
 **Daemon batch boundary:**
 
@@ -741,10 +737,8 @@ These differences are intentional — the adapters were designed for their respe
 
 **Cross-boundary notes:**
 
-- The `services.stt` config block controls provider selection for the daemon batch boundary, the conversation streaming boundary, and the client service-first boundary. The batch and streaming resolvers (`resolveBatchTranscriber()`, `resolveStreamingTranscriber()`) both read from `services.stt.provider` and resolve credentials through the same catalog. The daemon provider catalog (`src/providers/speech-to-text/provider-catalog.ts`) is the authoritative registry of supported providers; the client catalog (`meta/stt-provider-catalog.json`) mirrors it for display purposes (including `conversationStreamingMode`). The parity guard test (`src/__tests__/stt-catalog-parity.test.ts`) fails CI when the two catalogs diverge on provider IDs, ordering, or credential-provider name mappings.
+- The `services.stt` config block is the single source of truth for STT provider selection across the daemon batch boundary, the conversation streaming boundary, the client service-first boundary, and the telephony boundary. The batch and streaming resolvers (`resolveBatchTranscriber()`, `resolveStreamingTranscriber()`) both read from `services.stt.provider` and resolve credentials through the same catalog; the telephony boundary uses `resolveTelephonySttRouting()` to determine the Twilio integration strategy. The daemon provider catalog (`src/providers/speech-to-text/provider-catalog.ts`) is the authoritative registry of supported providers; the client catalog (`meta/stt-provider-catalog.json`) mirrors it for display purposes (including `conversationStreamingMode`). The parity guard test (`src/__tests__/stt-catalog-parity.test.ts`) fails CI when the two catalogs diverge on provider IDs, ordering, or credential-provider name mappings.
 - Conversation streaming does not replace the client service-first batch path. When streaming is available, it runs concurrently during recording and provides real-time partials and finals. The batch path remains the fallback for providers that do not support streaming, when streaming fails mid-session, or when streaming produces no final transcript.
-- Telephony STT is configured separately via `calls.voice.transcriptionProvider` and operates in a different runtime boundary (Twilio ConversationRelay). A prepared (but inactive) dark path exists to unify telephony STT under `services.stt` — see "Prepared dark path" above and the cutover runbook in `docs/internal-reference.md`.
-- `evaluateServicesSttReadiness()` in `src/calls/stt-profile.ts` can validate cutover prerequisites without affecting active calls.
 - Credential mapping is catalog-driven: `provider-secret-catalog.ts` derives STT API-key provider names from the daemon catalog via `listCredentialProviderNames()`, deduplicating against the LLM/search provider list. Adding a provider to the catalog automatically includes its credential name in `API_KEY_PROVIDERS`.
 - Terminology: "STT" and "transcription" refer to the same operation (converting audio to text). "Speech recognition" is used in client-native contexts where Apple's Speech framework terminology is canonical. All three terms map to the same conceptual operation.
 - **Onboarding**: For a step-by-step guide to adding a new STT provider, see `docs/stt-provider-onboarding.md`.

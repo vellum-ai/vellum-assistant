@@ -34,6 +34,21 @@ export interface ResolvedCallTts {
 }
 
 // ---------------------------------------------------------------------------
+// Options
+// ---------------------------------------------------------------------------
+
+export interface ResolveCallTtsOptions {
+  /**
+   * When true, force `audioFormat` to `"wav"` regardless of the
+   * provider's configured format. The media-stream transport sets this
+   * because its {@link audioBufferToFrames} can only correctly
+   * transcode WAV (PCM) to mu-law -- compressed formats (mp3, opus)
+   * are sent as raw bytes and produce garbled audio.
+   */
+  preferWav?: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -52,7 +67,9 @@ export interface ResolvedCallTts {
  * missing a `services.tts` block or the provider is not registered
  * (e.g. unit tests or early startup).
  */
-export function resolveCallTtsProvider(): ResolvedCallTts {
+export function resolveCallTtsProvider(
+  options?: ResolveCallTtsOptions,
+): ResolvedCallTts {
   try {
     const config = loadConfig();
     const resolved = resolveTtsConfig(config);
@@ -66,13 +83,22 @@ export function resolveCallTtsProvider(): ResolvedCallTts {
     // Read the user-configured audio format from the resolved provider
     // config so the streaming store entry's content-type matches the
     // actual audio bytes the provider produces.
-    const configuredFormat = (resolved.providerConfig as { format?: string })
-      .format;
-    const audioFormat = (
-      configuredFormat && ["mp3", "wav", "opus"].includes(configuredFormat)
-        ? configuredFormat
-        : "mp3"
-    ) as "mp3" | "wav" | "opus";
+    //
+    // When preferWav is set (media-stream transport), force WAV so
+    // audioBufferToFrames receives PCM it can transcode to mu-law.
+    const audioFormat: "mp3" | "wav" | "opus" = options?.preferWav
+      ? "wav"
+      : (() => {
+          const configuredFormat = (
+            resolved.providerConfig as { format?: string }
+          ).format;
+          return (
+            configuredFormat &&
+            ["mp3", "wav", "opus"].includes(configuredFormat)
+              ? configuredFormat
+              : "mp3"
+          ) as "mp3" | "wav" | "opus";
+        })();
 
     return { provider, useSynthesizedPath, audioFormat };
   } catch {

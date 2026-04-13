@@ -705,7 +705,7 @@ export async function handleSurfaceAction(
     // The helper also kicks off the seed turn fire-and-forget, so this
     // `await` resolves as soon as the conversation is created + titled +
     // published to the event hub. The HTTP POST /v1/surface-actions
-    // response no longer blocks on the full LLM turn.
+    // response returns promptly — the seed turn runs in the background.
     const originTrustContext = ctx.trustContext;
     const { conversationId } = await launchConversation({
       title,

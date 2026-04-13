@@ -590,6 +590,7 @@ function annotatePersistedAssistantMessage(
         data: surface.data,
         actions: surface.actions,
         display: surface.display,
+        ...(surface.persistent ? { persistent: true } : {}),
       } as unknown as ContentBlock);
     }
     modified = true;
@@ -759,6 +760,7 @@ export async function handleMessageComplete(
       data: surface.data,
       actions: surface.actions,
       display: surface.display,
+      ...(surface.persistent ? { persistent: true } : {}),
     } as unknown as ContentBlock);
   }
 

@@ -1077,7 +1077,8 @@ describe("Batched drain", () => {
     await conversation.loadFromDb();
 
     const budget = 4000;
-    (conversation as unknown as { queue: MessageQueue }).queue = new MessageQueue(budget);
+    (conversation as unknown as { queue: MessageQueue }).queue =
+      new MessageQueue(budget);
 
     // Start in-flight so subsequent enqueues are queued (not processed).
     const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");

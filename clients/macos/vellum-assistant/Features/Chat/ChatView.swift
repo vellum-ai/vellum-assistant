@@ -436,6 +436,16 @@ struct ChatView: View {
                 .padding(.bottom, -VSpacing.sm)
             }
 
+            if !viewModel.queuedMessages.isEmpty {
+                QueuedMessagesDrawer(
+                    viewModel: viewModel,
+                    composerText: $viewModel.inputText,
+                    composerAttachments: $viewModel.pendingAttachments
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .animation(.spring(duration: 0.28, bounce: 0.15), value: viewModel.queuedMessages.count)
+            }
+
             if isReadonly {
                 centeredChatColumn(width: layoutMetrics.chatColumnWidth) {
                     HStack(spacing: VSpacing.xs) {

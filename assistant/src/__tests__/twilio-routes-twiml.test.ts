@@ -1,11 +1,14 @@
 /**
- * Unit tests for TwiML generation with voice quality profiles and the
- * Twilio ConversationRelay speech config helper.
+ * Unit tests for TwiML generation with voice quality profiles.
  *
  * Tests that generateTwiML correctly uses profile values for
  * ttsProvider, voice, and language, and that STT attributes
  * (transcriptionProvider, speechModel, interruptSensitivity, hints)
- * are driven by the TwilioRelaySpeechConfig helper.
+ * are correctly rendered in the ConversationRelay TwiML output.
+ *
+ * Speech config objects are constructed inline — STT provider routing
+ * is driven by `services.stt` via `resolveTelephonySttRouting` in the
+ * production path. These tests exercise the TwiML serializer only.
  */
 import { describe, expect, mock, test } from "bun:test";
 
@@ -16,75 +19,110 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { resolveTelephonySttProfile } from "../calls/stt-profile.js";
-import { buildTwilioRelaySpeechConfig } from "../calls/twilio-relay-speech-config.js";
-import { generateTwiML } from "../calls/twilio-routes.js";
+import type { TwilioRelaySpeechConfig } from "../calls/twilio-routes.js";
+import { generateStreamTwiML, generateTwiML } from "../calls/twilio-routes.js";
 
-// ── Helper to build speech config from raw provider settings ─────────
+// ── Helper to build speech config inline ─────────────────────────────
 
-function speechConfigFor(
-  transcriptionProvider: "Deepgram" | "Google",
+function speechConfig(
+  transcriptionProvider: string,
   speechModel: string | undefined,
   interruptSensitivity: string,
   hints?: string,
-) {
-  const sttProfile = resolveTelephonySttProfile({
+): TwilioRelaySpeechConfig {
+  return {
     transcriptionProvider,
     speechModel,
-  });
-  return buildTwilioRelaySpeechConfig(sttProfile, interruptSensitivity, hints);
+    hints: hints && hints.length > 0 ? hints : undefined,
+    interruptSensitivity,
+  };
 }
 
-// ── buildTwilioRelaySpeechConfig unit tests ──────────────────────────
+// ── TwilioRelaySpeechConfig rendering ────────────────────────────────
 
-describe("buildTwilioRelaySpeechConfig", () => {
-  test("Deepgram: provider and default speechModel are set", () => {
-    const config = speechConfigFor("Deepgram", undefined, "low");
-    expect(config.transcriptionProvider).toBe("Deepgram");
-    expect(config.speechModel).toBe("nova-3");
-    expect(config.interruptSensitivity).toBe("low");
-    expect(config.hints).toBeUndefined();
+describe("TwilioRelaySpeechConfig rendering in TwiML", () => {
+  test("Deepgram provider and speechModel are rendered", () => {
+    const twiml = generateTwiML(
+      "sc-1",
+      "wss://test.example.com/relay",
+      null,
+      { language: "en-US", ttsProvider: "ElevenLabs", voice: "voice1" },
+      speechConfig("Deepgram", "nova-3", "low"),
+    );
+    expect(twiml).toContain('transcriptionProvider="Deepgram"');
+    expect(twiml).toContain('speechModel="nova-3"');
+    expect(twiml).toContain('interruptSensitivity="low"');
+    expect(twiml).not.toContain("hints=");
   });
 
-  test("Deepgram: explicit speechModel is preserved", () => {
-    const config = speechConfigFor("Deepgram", "nova-2-phonecall", "medium");
-    expect(config.transcriptionProvider).toBe("Deepgram");
-    expect(config.speechModel).toBe("nova-2-phonecall");
-    expect(config.interruptSensitivity).toBe("medium");
+  test("explicit speechModel is preserved in TwiML", () => {
+    const twiml = generateTwiML(
+      "sc-2",
+      "wss://test.example.com/relay",
+      null,
+      { language: "en-US", ttsProvider: "ElevenLabs", voice: "voice1" },
+      speechConfig("Deepgram", "nova-2-phonecall", "medium"),
+    );
+    expect(twiml).toContain('transcriptionProvider="Deepgram"');
+    expect(twiml).toContain('speechModel="nova-2-phonecall"');
+    expect(twiml).toContain('interruptSensitivity="medium"');
   });
 
-  test("Google: speechModel is undefined when unset", () => {
-    const config = speechConfigFor("Google", undefined, "low");
-    expect(config.transcriptionProvider).toBe("Google");
-    expect(config.speechModel).toBeUndefined();
+  test("Google provider with no speechModel omits speechModel attribute", () => {
+    const twiml = generateTwiML(
+      "sc-3",
+      "wss://test.example.com/relay",
+      null,
+      { language: "en-US", ttsProvider: "ElevenLabs", voice: "voice1" },
+      speechConfig("Google", undefined, "low"),
+    );
+    expect(twiml).toContain('transcriptionProvider="Google"');
+    expect(twiml).not.toContain("speechModel=");
   });
 
-  test("Google: legacy Deepgram default nova-3 is stripped", () => {
-    const config = speechConfigFor("Google", "nova-3", "low");
-    expect(config.transcriptionProvider).toBe("Google");
-    expect(config.speechModel).toBeUndefined();
-  });
-
-  test("Google: explicit non-legacy speechModel is preserved", () => {
-    const config = speechConfigFor("Google", "telephony", "high");
-    expect(config.transcriptionProvider).toBe("Google");
-    expect(config.speechModel).toBe("telephony");
-    expect(config.interruptSensitivity).toBe("high");
+  test("Google provider with explicit model includes speechModel", () => {
+    const twiml = generateTwiML(
+      "sc-4",
+      "wss://test.example.com/relay",
+      null,
+      { language: "en-US", ttsProvider: "ElevenLabs", voice: "voice1" },
+      speechConfig("Google", "telephony", "low"),
+    );
+    expect(twiml).toContain('transcriptionProvider="Google"');
+    expect(twiml).toContain('speechModel="telephony"');
   });
 
   test("hints included when non-empty", () => {
-    const config = speechConfigFor("Deepgram", undefined, "low", "Alice,Bob");
-    expect(config.hints).toBe("Alice,Bob");
+    const twiml = generateTwiML(
+      "sc-5",
+      "wss://test.example.com/relay",
+      null,
+      { language: "en-US", ttsProvider: "ElevenLabs", voice: "voice1" },
+      speechConfig("Deepgram", "nova-3", "low", "Alice,Bob"),
+    );
+    expect(twiml).toContain('hints="Alice,Bob"');
   });
 
-  test("hints undefined when empty string", () => {
-    const config = speechConfigFor("Deepgram", undefined, "low", "");
-    expect(config.hints).toBeUndefined();
+  test("hints omitted when empty string", () => {
+    const twiml = generateTwiML(
+      "sc-6",
+      "wss://test.example.com/relay",
+      null,
+      { language: "en-US", ttsProvider: "ElevenLabs", voice: "voice1" },
+      speechConfig("Deepgram", "nova-3", "low", ""),
+    );
+    expect(twiml).not.toContain("hints=");
   });
 
-  test("hints undefined when not provided", () => {
-    const config = speechConfigFor("Deepgram", undefined, "low");
-    expect(config.hints).toBeUndefined();
+  test("hints omitted when not provided", () => {
+    const twiml = generateTwiML(
+      "sc-7",
+      "wss://test.example.com/relay",
+      null,
+      { language: "en-US", ttsProvider: "ElevenLabs", voice: "voice1" },
+      speechConfig("Deepgram", "nova-3", "low"),
+    );
+    expect(twiml).not.toContain("hints=");
   });
 });
 
@@ -105,7 +143,7 @@ describe("generateTwiML with voice quality profile", () => {
         ttsProvider: "Google",
         voice: "Google.en-US-Journey-O",
       },
-      speechConfigFor("Deepgram", undefined, "low"),
+      speechConfig("Deepgram", "nova-3", "low"),
     );
 
     expect(twiml).toContain('ttsProvider="Google"');
@@ -124,7 +162,7 @@ describe("generateTwiML with voice quality profile", () => {
         ttsProvider: "ElevenLabs",
         voice: "voice123-turbo_v2_5-1_0.5_0.75",
       },
-      speechConfigFor("Deepgram", undefined, "low"),
+      speechConfig("Deepgram", "nova-3", "low"),
     );
 
     expect(twiml).toContain('ttsProvider="ElevenLabs"');
@@ -141,7 +179,7 @@ describe("generateTwiML with voice quality profile", () => {
         ttsProvider: "Google",
         voice: "Google.en-US-Journey-O",
       },
-      speechConfigFor("Deepgram", undefined, "low"),
+      speechConfig("Deepgram", "nova-3", "low"),
     );
 
     expect(twiml).toContain('voice="Google.en-US-Journey-O"');
@@ -157,7 +195,7 @@ describe("generateTwiML with voice quality profile", () => {
         ttsProvider: "ElevenLabs",
         voice: "abc123-turbo_v2_5-1_0.5_0.75",
       },
-      speechConfigFor("Deepgram", undefined, "low"),
+      speechConfig("Deepgram", "nova-3", "low"),
     );
 
     expect(twiml).toContain('voice="abc123-turbo_v2_5-1_0.5_0.75"');
@@ -173,7 +211,7 @@ describe("generateTwiML with voice quality profile", () => {
         ttsProvider: "Google",
         voice: "Google.es-MX-Standard-A",
       },
-      speechConfigFor("Google", undefined, "low"),
+      speechConfig("Google", undefined, "low"),
     );
 
     expect(twiml).toContain('language="es-MX"');
@@ -189,7 +227,7 @@ describe("generateTwiML with voice quality profile", () => {
         ttsProvider: "ElevenLabs",
         voice: "voice123",
       },
-      speechConfigFor("Deepgram", undefined, "low"),
+      speechConfig("Deepgram", "nova-3", "low"),
     );
 
     expect(twiml).toContain('transcriptionProvider="Deepgram"');
@@ -206,7 +244,7 @@ describe("generateTwiML with voice quality profile", () => {
         ttsProvider: "ElevenLabs",
         voice: "voice123",
       },
-      speechConfigFor("Google", undefined, "low"),
+      speechConfig("Google", undefined, "low"),
     );
 
     expect(twiml).toContain('transcriptionProvider="Google"');
@@ -223,7 +261,7 @@ describe("generateTwiML with voice quality profile", () => {
         ttsProvider: "ElevenLabs",
         voice: "voice123",
       },
-      speechConfigFor("Google", "telephony", "low"),
+      speechConfig("Google", "telephony", "low"),
     );
 
     expect(twiml).toContain('transcriptionProvider="Google"');
@@ -240,7 +278,7 @@ describe("generateTwiML with voice quality profile", () => {
         ttsProvider: "ElevenLabs",
         voice: "voice123",
       },
-      speechConfigFor("Deepgram", "nova-2-phonecall", "low"),
+      speechConfig("Deepgram", "nova-2-phonecall", "low"),
     );
 
     expect(twiml).toContain('transcriptionProvider="Deepgram"');
@@ -257,7 +295,7 @@ describe("generateTwiML with voice quality profile", () => {
         ttsProvider: "Google",
         voice: 'voice<>&"test',
       },
-      speechConfigFor("Deepgram", undefined, "low"),
+      speechConfig("Deepgram", "nova-3", "low"),
     );
 
     expect(twiml).toContain('voice="voice&lt;&gt;&amp;&quot;test"');
@@ -274,7 +312,7 @@ describe("generateTwiML with voice quality profile", () => {
         ttsProvider: "Google",
         voice: "Google.en-US-Journey-O",
       },
-      speechConfigFor("Deepgram", undefined, "low"),
+      speechConfig("Deepgram", "nova-3", "low"),
     );
 
     expect(twiml).toContain(`callSessionId=${callSessionId}`);
@@ -290,7 +328,7 @@ describe("generateTwiML with voice quality profile", () => {
         ttsProvider: "Google",
         voice: "Google.en-US-Journey-O",
       },
-      speechConfigFor("Deepgram", undefined, "low"),
+      speechConfig("Deepgram", "nova-3", "low"),
     );
 
     expect(twiml).toContain('interruptible="true"');
@@ -307,7 +345,7 @@ describe("generateTwiML with voice quality profile", () => {
         ttsProvider: "Google",
         voice: "Google.en-US-Journey-O",
       },
-      speechConfigFor("Deepgram", undefined, "low"),
+      speechConfig("Deepgram", "nova-3", "low"),
     );
 
     expect(twiml).not.toContain("welcomeGreeting=");
@@ -323,7 +361,7 @@ describe("generateTwiML with voice quality profile", () => {
         ttsProvider: "Google",
         voice: "Google.en-US-Journey-O",
       },
-      speechConfigFor("Deepgram", undefined, "low"),
+      speechConfig("Deepgram", "nova-3", "low"),
     );
 
     expect(twiml).toContain('interruptSensitivity="low"');
@@ -339,7 +377,7 @@ describe("generateTwiML with voice quality profile", () => {
         ttsProvider: "Google",
         voice: "Google.en-US-Journey-O",
       },
-      speechConfigFor("Deepgram", undefined, "medium"),
+      speechConfig("Deepgram", "nova-3", "medium"),
     );
 
     expect(twimlMedium).toContain('interruptSensitivity="medium"');
@@ -353,7 +391,7 @@ describe("generateTwiML with voice quality profile", () => {
         ttsProvider: "Google",
         voice: "Google.en-US-Journey-O",
       },
-      speechConfigFor("Deepgram", undefined, "high"),
+      speechConfig("Deepgram", "nova-3", "high"),
     );
 
     expect(twimlHigh).toContain('interruptSensitivity="high"');
@@ -369,7 +407,7 @@ describe("generateTwiML with voice quality profile", () => {
         ttsProvider: "ElevenLabs",
         voice: "voice123",
       },
-      speechConfigFor("Deepgram", undefined, "low", "Alice,Bob,Vellum"),
+      speechConfig("Deepgram", "nova-3", "low", "Alice,Bob,Vellum"),
     );
 
     expect(twiml).toContain('hints="Alice,Bob,Vellum"');
@@ -385,7 +423,7 @@ describe("generateTwiML with voice quality profile", () => {
         ttsProvider: "ElevenLabs",
         voice: "voice123",
       },
-      speechConfigFor("Deepgram", undefined, "low"),
+      speechConfig("Deepgram", "nova-3", "low"),
     );
 
     expect(twiml).not.toContain("hints=");
@@ -401,7 +439,7 @@ describe("generateTwiML with voice quality profile", () => {
         ttsProvider: "ElevenLabs",
         voice: "voice123",
       },
-      speechConfigFor("Deepgram", undefined, "low", ""),
+      speechConfig("Deepgram", "nova-3", "low", ""),
     );
 
     expect(twiml).not.toContain("hints=");
@@ -417,9 +455,9 @@ describe("generateTwiML with voice quality profile", () => {
         ttsProvider: "ElevenLabs",
         voice: "voice123",
       },
-      speechConfigFor(
+      speechConfig(
         "Deepgram",
-        undefined,
+        "nova-3",
         "low",
         'O\'Brien,Smith & Jones,"Dr. Lee"',
       ),
@@ -432,89 +470,158 @@ describe("generateTwiML with voice quality profile", () => {
   });
 });
 
-// ── ConversationRelay STT guardrail tests ─────────────────────────────
-// These tests assert that production TwiML continues to emit
-// ConversationRelay-native STT attributes sourced from
-// calls.voice.transcriptionProvider (not from services.stt). They serve
-// as regression guardrails for the future cutover — if a change
-// inadvertently switches the STT source, these tests will fail.
+// ── generateStreamTwiML unit tests ────────────────────────────────────
+// Tests for the <Connect><Stream> TwiML generator used by the
+// media-stream-custom strategy (e.g. OpenAI Whisper).
 
-describe("ConversationRelay STT attribute guardrails", () => {
-  const callSessionId = "guardrail-session-1";
-  const relayUrl = "wss://test.example.com/v1/calls/relay";
+describe("generateStreamTwiML", () => {
+  const callSessionId = "stream-session-1";
+  const streamUrl = "wss://test.example.com/webhooks/twilio/media-stream";
 
-  test("TwiML contains <ConversationRelay> element with transcriptionProvider attribute", () => {
-    const twiml = generateTwiML(
-      callSessionId,
-      relayUrl,
-      null,
-      {
-        language: "en-US",
-        ttsProvider: "Google",
-        voice: "Google.en-US-Journey-O",
-      },
-      speechConfigFor("Deepgram", undefined, "low"),
+  test("emits <Stream> element with callSessionId in URL query params", () => {
+    const twiml = generateStreamTwiML(callSessionId, streamUrl);
+
+    expect(twiml).toContain("<Stream");
+    expect(twiml).toContain(
+      `url="wss://test.example.com/webhooks/twilio/media-stream?callSessionId=${callSessionId}"`,
     );
-
-    // Must use ConversationRelay (not <Stream> or media-stream)
-    expect(twiml).toContain("<ConversationRelay");
-    expect(twiml).not.toContain("<Stream");
-    // transcriptionProvider is a ConversationRelay-native attribute
-    expect(twiml).toContain('transcriptionProvider="Deepgram"');
+    expect(twiml).not.toContain("<ConversationRelay");
   });
 
-  test("Deepgram default: TwiML emits transcriptionProvider=Deepgram and speechModel=nova-3", () => {
+  test("includes callSessionId as <Parameter>", () => {
+    const twiml = generateStreamTwiML(callSessionId, streamUrl);
+
+    expect(twiml).toContain(
+      `<Parameter name="callSessionId" value="${callSessionId}" />`,
+    );
+  });
+
+  test("includes auth token in URL query params and as <Parameter> when provided", () => {
+    const twiml = generateStreamTwiML(
+      callSessionId,
+      streamUrl,
+      "test-relay-token-123",
+    );
+
+    // Token in URL query params for gateway auth during WS upgrade
+    expect(twiml).toContain("token=test-relay-token-123");
+    // Token also in <Parameter> for Twilio start event payload
+    expect(twiml).toContain(
+      '<Parameter name="token" value="test-relay-token-123" />',
+    );
+  });
+
+  test("omits token from URL and Parameter when not provided", () => {
+    const twiml = generateStreamTwiML(callSessionId, streamUrl);
+
+    expect(twiml).not.toContain('name="token"');
+    // URL should not contain a token query param
+    expect(twiml).not.toContain("token=");
+  });
+
+  test("includes custom parameters as <Parameter> elements", () => {
+    const twiml = generateStreamTwiML(callSessionId, streamUrl, "tok", {
+      verificationSessionId: "vs-123",
+    });
+
+    expect(twiml).toContain(
+      '<Parameter name="verificationSessionId" value="vs-123" />',
+    );
+    expect(twiml).toContain(
+      `<Parameter name="callSessionId" value="${callSessionId}" />`,
+    );
+    expect(twiml).toContain('<Parameter name="token" value="tok" />');
+  });
+
+  test("callSessionId cannot be overridden by customParameters", () => {
+    const twiml = generateStreamTwiML(callSessionId, streamUrl, undefined, {
+      callSessionId: "attacker-session",
+    });
+
+    // The real callSessionId must win over the custom parameter
+    expect(twiml).toContain(
+      `<Parameter name="callSessionId" value="${callSessionId}" />`,
+    );
+    expect(twiml).not.toContain('value="attacker-session"');
+    // URL must also have the correct callSessionId
+    expect(twiml).toContain(`callSessionId=${callSessionId}`);
+    expect(twiml).not.toContain("callSessionId=attacker-session");
+  });
+
+  test("does not include ConversationRelay STT attributes", () => {
+    const twiml = generateStreamTwiML(callSessionId, streamUrl);
+
+    expect(twiml).not.toContain("transcriptionProvider=");
+    expect(twiml).not.toContain("speechModel=");
+    expect(twiml).not.toContain("interruptSensitivity=");
+    expect(twiml).not.toContain("ttsProvider=");
+    expect(twiml).not.toContain("voice=");
+    expect(twiml).not.toContain("language=");
+  });
+
+  test("wraps in valid TwiML structure", () => {
+    const twiml = generateStreamTwiML(callSessionId, streamUrl);
+
+    expect(twiml).toContain('<?xml version="1.0" encoding="UTF-8"?>');
+    expect(twiml).toContain("<Response>");
+    expect(twiml).toContain("<Connect>");
+    expect(twiml).toContain("</Stream>");
+    expect(twiml).toContain("</Connect>");
+    expect(twiml).toContain("</Response>");
+  });
+});
+
+// ── Provider-conditional TwiML generation ─────────────────────────────
+// These tests verify that the two TwiML generators produce the correct
+// structure for each provider strategy:
+// - Deepgram/Google -> ConversationRelay with STT attributes
+// - OpenAI Whisper -> Stream with no STT attributes
+
+describe("Provider-conditional TwiML generation", () => {
+  const callSessionId = "provider-test-1";
+  const relayUrl = "wss://test.example.com/v1/calls/relay";
+  const streamUrl = "wss://test.example.com/webhooks/twilio/media-stream";
+
+  test("Deepgram: ConversationRelay with transcriptionProvider=Deepgram and speechModel=nova-3", () => {
     const twiml = generateTwiML(
       callSessionId,
       relayUrl,
       null,
       { language: "en-US", ttsProvider: "ElevenLabs", voice: "voice1" },
-      speechConfigFor("Deepgram", undefined, "low"),
+      speechConfig("Deepgram", "nova-3", "low"),
     );
 
+    expect(twiml).toContain("<ConversationRelay");
+    expect(twiml).not.toContain("<Stream");
     expect(twiml).toContain('transcriptionProvider="Deepgram"');
     expect(twiml).toContain('speechModel="nova-3"');
   });
 
-  test("Google default: TwiML emits transcriptionProvider=Google with no speechModel", () => {
+  test("Google Gemini: ConversationRelay with transcriptionProvider=Google (no speechModel when unset)", () => {
     const twiml = generateTwiML(
       callSessionId,
       relayUrl,
       null,
       { language: "en-US", ttsProvider: "ElevenLabs", voice: "voice1" },
-      speechConfigFor("Google", undefined, "low"),
+      speechConfig("Google", undefined, "low"),
     );
 
+    expect(twiml).toContain("<ConversationRelay");
+    expect(twiml).not.toContain("<Stream");
     expect(twiml).toContain('transcriptionProvider="Google"');
     expect(twiml).not.toContain("speechModel=");
   });
 
-  test("STT attributes are sourced from resolveTelephonySttProfile (calls.voice config), not services.stt", () => {
-    // This test verifies the data flow: calls.voice.transcriptionProvider
-    // -> resolveTelephonySttProfile -> buildTwilioRelaySpeechConfig -> TwiML.
-    // The services.stt provider (openai-whisper) must NOT appear in TwiML.
-    const sttProfile = resolveTelephonySttProfile({
-      transcriptionProvider: "Deepgram",
-      speechModel: undefined,
-    });
-    const speechConfig = buildTwilioRelaySpeechConfig(
-      sttProfile,
-      "low",
-      undefined,
-    );
+  test("OpenAI Whisper: Stream path with no ConversationRelay STT attributes", () => {
+    const twiml = generateStreamTwiML(callSessionId, streamUrl, "tok");
 
-    const twiml = generateTwiML(
-      callSessionId,
-      relayUrl,
-      null,
-      { language: "en-US", ttsProvider: "ElevenLabs", voice: "voice1" },
-      speechConfig,
+    expect(twiml).toContain("<Stream");
+    expect(twiml).not.toContain("<ConversationRelay");
+    expect(twiml).not.toContain("transcriptionProvider=");
+    expect(twiml).not.toContain("speechModel=");
+    expect(twiml).toContain(
+      `<Parameter name="callSessionId" value="${callSessionId}" />`,
     );
-
-    // The TwiML must contain the calls.voice provider, not services.stt
-    expect(twiml).toContain('transcriptionProvider="Deepgram"');
-    expect(twiml).not.toContain("openai-whisper");
-    expect(twiml).not.toContain("openai");
   });
 
   test("ConversationRelay element contains all required STT-related attributes", () => {
@@ -527,10 +634,9 @@ describe("ConversationRelay STT attribute guardrails", () => {
         ttsProvider: "Google",
         voice: "Google.en-US-Journey-O",
       },
-      speechConfigFor("Deepgram", "nova-3", "medium", "Alice,Bob"),
+      speechConfig("Deepgram", "nova-3", "medium", "Alice,Bob"),
     );
 
-    // All STT-related attributes that ConversationRelay supports
     expect(twiml).toContain('transcriptionProvider="Deepgram"');
     expect(twiml).toContain('speechModel="nova-3"');
     expect(twiml).toContain('interruptSensitivity="medium"');

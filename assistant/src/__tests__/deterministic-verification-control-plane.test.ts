@@ -31,7 +31,7 @@ mock.module("../config/env.js", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import type { TwilioRelaySpeechConfig } from "../calls/twilio-relay-speech-config.js";
+import type { TwilioRelaySpeechConfig } from "../calls/twilio-routes.js";
 import { generateTwiML } from "../calls/twilio-routes.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
