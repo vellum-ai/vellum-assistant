@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantShared
 
 /// A reusable circular progress ring that renders a gradient stroke over a
 /// neutral track. The ring is decoupled from any domain model so it can be
