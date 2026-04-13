@@ -1266,8 +1266,8 @@ describe("AssistantConfigSchema", () => {
   });
 
   test("existing configs with explicit per-provider objects continue to parse", () => {
-    // Simulates a config written by a previous migration that seeded both
-    // provider entries — these must continue to round-trip successfully.
+    // Configs with explicit per-provider objects must continue to
+    // parse and round-trip successfully.
     const result = AssistantConfigSchema.parse({
       services: {
         stt: {

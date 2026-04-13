@@ -439,8 +439,8 @@ describe("033-stt-service-explicit-config migration", () => {
   });
 
   test("does not write file when nothing changed (config with per-provider entries from prior migration)", () => {
-    // Configs written by the old migration version had per-provider keys.
-    // The new migration must not re-write them — it should remain a no-op.
+    // Configs that include per-provider keys are already complete — the
+    // migration treats them as a no-op and must not rewrite the file.
     const original = {
       services: {
         stt: {
