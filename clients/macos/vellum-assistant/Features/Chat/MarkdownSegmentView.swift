@@ -587,11 +587,8 @@ struct MarkdownSegmentView: View, Equatable {
 
     /// Shear applied to italic glyphs via `NSAttributedString.Key.obliqueness`.
     /// DM Sans has no italic font face, so the slant has to be synthesized.
-    /// Negative because `.obliqueness`'s sign convention is the opposite of
-    /// the font-matrix shear — a negative attribute value produces a rightward
-    /// (forward) slant, which is the correct italic appearance. Value matches
-    /// the historical 12° font-matrix transform (tan(12°) ≈ 0.213).
-    private static let emphasisObliqueness: NSNumber = -0.213 as NSNumber
+    /// Value matches the historical 12° font-matrix transform (tan(12°) ≈ 0.213).
+    private static let emphasisObliqueness: NSNumber = 0.213 as NSNumber
 
     #if os(macOS)
     /// Converts a SwiftUI `AttributedString` to `NSAttributedString` with a
