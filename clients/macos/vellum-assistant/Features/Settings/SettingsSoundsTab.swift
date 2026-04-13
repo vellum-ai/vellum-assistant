@@ -109,7 +109,6 @@ struct SettingsSoundsTab: View {
             }
 
             soundPoolEditor(for: event, eventConfig: eventConfig, sounds: sounds)
-                .disabled(!eventConfig.enabled)
         }
         .padding(.vertical, VSpacing.xs)
     }
