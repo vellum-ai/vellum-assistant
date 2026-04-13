@@ -1,5 +1,15 @@
 import { describe, expect, mock, test } from "bun:test";
 
+// Stub out sleep so retry tests don't wait for real delays.
+mock.module("../util/retry.js", () => {
+  const actual =
+    require("../util/retry.js") as typeof import("../util/retry.js");
+  return {
+    ...actual,
+    sleep: () => Promise.resolve(),
+  };
+});
+
 import type { VellumPlatformClient } from "../platform/client.js";
 import { BackendError, VellumError } from "../util/errors.js";
 import {
@@ -224,6 +234,96 @@ describe("PlatformOAuthConnection", () => {
     await expect(conn.withToken(async (token) => token)).rejects.toThrow(
       "Raw token access is not supported for platform-managed connections. Use connection.request() instead.",
     );
+  });
+
+  test("retries on 429 and succeeds", async () => {
+    let callCount = 0;
+    const client = makeMockClient(
+      mock(async () => {
+        callCount++;
+        if (callCount <= 2) {
+          return new Response("", { status: 429 });
+        }
+        return new Response(
+          JSON.stringify({ status: 200, headers: {}, body: { ok: true } }),
+          { status: 200 },
+        );
+      }) as unknown as typeof globalThis.fetch,
+    );
+
+    const conn = new PlatformOAuthConnection({ ...DEFAULT_OPTIONS, client });
+    const result = await conn.request({ method: "GET", path: "/test" });
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ ok: true });
+    expect(callCount).toBe(3);
+  });
+
+  test("throws after exhausting retries on 429", async () => {
+    const client = makeMockClient(
+      mock(
+        async () => new Response("", { status: 429 }),
+      ) as unknown as typeof globalThis.fetch,
+    );
+
+    const conn = new PlatformOAuthConnection({ ...DEFAULT_OPTIONS, client });
+    await expect(
+      conn.request({ method: "GET", path: "/test" }),
+    ).rejects.toThrow("Platform proxy returned unexpected status 429");
+  });
+
+  test("retries on 500 and succeeds", async () => {
+    let callCount = 0;
+    const client = makeMockClient(
+      mock(async () => {
+        callCount++;
+        if (callCount === 1) {
+          return new Response("", { status: 500 });
+        }
+        return new Response(
+          JSON.stringify({ status: 200, headers: {}, body: null }),
+          { status: 200 },
+        );
+      }) as unknown as typeof globalThis.fetch,
+    );
+
+    const conn = new PlatformOAuthConnection({ ...DEFAULT_OPTIONS, client });
+    const result = await conn.request({ method: "GET", path: "/test" });
+
+    expect(result.status).toBe(200);
+    expect(callCount).toBe(2);
+  });
+
+  test("does not retry on 424", async () => {
+    let callCount = 0;
+    const client = makeMockClient(
+      mock(async () => {
+        callCount++;
+        return new Response("", { status: 424 });
+      }) as unknown as typeof globalThis.fetch,
+    );
+
+    const conn = new PlatformOAuthConnection({ ...DEFAULT_OPTIONS, client });
+    await expect(
+      conn.request({ method: "GET", path: "/test" }),
+    ).rejects.toThrow(CredentialRequiredError);
+    expect(callCount).toBe(1);
+  });
+
+  test("does not retry on 403", async () => {
+    let callCount = 0;
+    const client = makeMockClient(
+      mock(async () => {
+        callCount++;
+        return new Response("", { status: 403 });
+      }) as unknown as typeof globalThis.fetch,
+    );
+
+    const conn = new PlatformOAuthConnection({ ...DEFAULT_OPTIONS, client });
+    await expect(
+      conn.request({ method: "GET", path: "/test" }),
+    ).rejects.toThrow("Platform proxy returned unexpected status 403");
+    expect(callCount).toBe(1);
   });
 
   test("uses connectionId in proxy URL regardless of provider format", async () => {
