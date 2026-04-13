@@ -661,7 +661,7 @@ Workspace migration `034-remove-calls-voice-transcription-provider` preserves ex
 | Call connects but no transcription | Deepgram / Google | Verify Deepgram or Google API key is configured in credential store | `[twilio-routes] telephony STT strategy resolved: conversation-relay-native` |
 | Call connects, TTS works, but STT silent | OpenAI Whisper | Verify OpenAI API key is configured; check media-stream server is reachable via gateway | `[twilio-routes] telephony STT strategy resolved: media-stream-custom` |
 | TwiML error / call drops immediately | Any | Check `services.stt.provider` is a recognized catalog entry | `[twilio-routes] unknown STT provider — cannot resolve telephony routing` |
-| Deepgram transcription uses wrong model | Deepgram | Check `calls.voice.speechModel` config (defaults to `nova-3`) | `speechModel="nova-3"` in TwiML output |
+| Deepgram transcription uses wrong model | Deepgram | The routing resolver defaults Deepgram to `nova-3`; custom model overrides are set via `services.stt.providers.deepgram` config | `speechModel="nova-3"` in TwiML output |
 | Google transcription sends Deepgram model | Google | Model normalization should suppress `nova-3` for Google; verify migration 034 ran | `speechModel` attribute absent from TwiML |
 | Media-stream WebSocket fails to connect | OpenAI Whisper | Verify gateway `/webhooks/twilio/media-stream` route is deployed and reachable | `[gateway] media-stream WebSocket proxy connected` |
 | Audio heard but transcription garbled | OpenAI Whisper | Check audio transcode pipeline (`media-stream-audio-transcode.ts`); verify sample rate matches provider expectations | `[media-stream-stt-session] transcription result` |
