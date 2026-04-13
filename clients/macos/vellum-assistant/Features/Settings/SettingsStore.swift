@@ -692,6 +692,26 @@ public final class SettingsStore: ObservableObject {
             await self?.refreshManagedAssistantRecoveryMode()
         }
 
+        // Eagerly fetch daemon config so config-dependent state (e.g.
+        // userTimezone, mediaEmbeds, service providers) is hydrated on
+        // app startup. The daemon only broadcasts config_changed on file
+        // mutations, so without this the store would stay at init
+        // defaults until the user edits config.json.
+        Task { @MainActor [weak self] in
+            await self?.loadConfigFromDaemon()
+        }
+
+        // Refresh config on daemon (re)connect so config-dependent state
+        // recovers after the daemon restarts or after a network blip.
+        NotificationCenter.default.publisher(for: .daemonDidReconnect)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.loadConfigFromDaemon()
+                }
+            }
+            .store(in: &cancellables)
+
         // Refresh config when the daemon notifies us that config.json changed.
         NotificationCenter.default.publisher(for: .configChanged)
             .receive(on: RunLoop.main)
