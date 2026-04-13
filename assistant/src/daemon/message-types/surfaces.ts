@@ -184,6 +184,8 @@ interface UiSurfaceShowBase {
   display?: "inline" | "panel";
   /** The message ID that this surface belongs to (for history loading). */
   messageId?: string;
+  /** When `true`, clicking an action does not dismiss the surface — the client keeps the card visible and only marks the clicked `actionId` as spent so siblings remain clickable. */
+  persistent?: boolean;
 }
 
 export interface UiSurfaceShowCard extends UiSurfaceShowBase {
