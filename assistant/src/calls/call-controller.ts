@@ -541,8 +541,14 @@ export class CallController {
     // providers buffer text, synthesize via provider API, and stream
     // audio chunks to Twilio via play-URL. Native-twilio providers
     // stream text tokens to the relay for Twilio's built-in TTS.
+    //
+    // When the transport requires WAV (media-stream), request WAV so
+    // the audio store entry and any downstream fetch/transcode receives
+    // PCM that audioBufferToFrames can convert to mu-law.
     const { provider, useSynthesizedPath, audioFormat } =
-      resolveCallTtsProvider();
+      resolveCallTtsProvider({
+        preferWav: this.transport.requiresWavAudio,
+      });
 
     // Buffer incoming tokens so we can strip control markers ([ASK_GUARDIAN:...], [END_CALL])
     // before they reach TTS. We hold text whenever an unmatched '[' appears, since it

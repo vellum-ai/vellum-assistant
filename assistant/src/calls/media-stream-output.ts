@@ -93,6 +93,12 @@ export class MediaStreamOutput implements CallTransport {
   /** Monotonic version counter — incremented on clearAudio to invalidate stale work. */
   private playbackVersion = 0;
 
+  /**
+   * The media-stream transport requires WAV (PCM) audio because its
+   * mu-law transcoder cannot decode compressed formats (mp3, opus).
+   */
+  readonly requiresWavAudio = true;
+
   constructor(ws: ServerWebSocket<unknown>, streamSid: string) {
     this.ws = ws;
     this.streamSid = streamSid;

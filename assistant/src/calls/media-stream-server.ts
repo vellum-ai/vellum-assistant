@@ -34,10 +34,11 @@
 import type { ServerWebSocket } from "bun";
 
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { toTrustContext } from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
 import { CallController } from "./call-controller.js";
 import { addPointerMessage, formatDuration } from "./call-pointer-messages.js";
+import { speakSystemPrompt } from "./call-speech-output.js";
 import {
   fireCallTranscriptNotifier,
   registerCallController,
@@ -57,6 +58,7 @@ import {
   type MediaStreamSttSessionCallbacks,
   type MediaStreamSttSessionConfig,
 } from "./media-stream-stt-session.js";
+import { routeSetup } from "./relay-setup-router.js";
 
 const log = getLogger("media-stream-server");
 
@@ -297,13 +299,36 @@ export class MediaStreamCallSession {
       transport: "media-stream",
     });
 
+    // ── Setup-policy routing ────────────────────────────────────────
+    // Run the same routeSetup() that the ConversationRelay path uses
+    // to enforce ACL/deny/escalate, verification, and invite flows.
+    // The media-stream transport does not support interactive sub-flows
+    // (DTMF entry, name capture, guardian wait), so non-normal outcomes
+    // are rejected gracefully with a TTS message and session teardown.
+    const from = session?.fromNumber ?? "";
+    const to = session?.toNumber ?? "";
+
+    const { outcome, resolved } = routeSetup({
+      callSessionId: this.callSessionId,
+      session: session ?? null,
+      from,
+      to,
+      customParameters: event.start.customParameters,
+    });
+
+    const initialTrustContext = toTrustContext(
+      resolved.actorTrust,
+      resolved.otherPartyNumber,
+    );
+
     // Create the call controller bound to the media-stream output.
     this.controller = new CallController(
       this.callSessionId,
       this.output,
       session?.task ?? null,
       {
-        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+        assistantId: resolved.assistantId,
+        trustContext: initialTrustContext,
       },
     );
     registerCallController(this.callSessionId, this.controller);
@@ -313,17 +338,81 @@ export class MediaStreamCallSession {
         callSessionId: this.callSessionId,
         streamSid: this.streamSid,
         callSid: this.callSid,
+        setupAction: outcome.action,
       },
       "Media stream session started — controller registered",
     );
 
-    // Fire the initial greeting.
-    this.controller.startInitialGreeting().catch((err) => {
-      log.error(
-        { err, callSessionId: this.callSessionId },
-        "Failed to start initial greeting on media-stream session",
-      );
-    });
+    switch (outcome.action) {
+      case "normal_call":
+        // Normal call — fire the initial greeting.
+        this.controller.startInitialGreeting().catch((err) => {
+          log.error(
+            { err, callSessionId: this.callSessionId },
+            "Failed to start initial greeting on media-stream session",
+          );
+        });
+        return;
+
+      case "deny":
+        // Deny — speak the denial message and tear down.
+        log.warn(
+          {
+            callSessionId: this.callSessionId,
+            reason: outcome.logReason,
+          },
+          "Media-stream setup denied by ACL policy",
+        );
+        recordCallEvent(this.callSessionId, "inbound_acl_denied", {
+          from,
+          trustClass: resolved.actorTrust.trustClass,
+        });
+        updateCallSession(this.callSessionId, {
+          status: "failed",
+          endedAt: Date.now(),
+          lastError: outcome.logReason,
+        });
+        void speakSystemPrompt(this.output, outcome.message).then(() => {
+          setTimeout(() => this.output.endSession(outcome.logReason), 3000);
+        });
+        return;
+
+      default:
+        // All interactive sub-flows (verification, invite_redemption,
+        // name_capture, callee_verification, outbound_verification) are
+        // not supported on the media-stream transport. Speak a generic
+        // apology and end the session rather than silently bypassing
+        // policy enforcement.
+        log.warn(
+          {
+            callSessionId: this.callSessionId,
+            action: outcome.action,
+          },
+          "Media-stream transport does not support interactive setup flow — ending session",
+        );
+        recordCallEvent(this.callSessionId, "call_failed", {
+          reason: `Setup flow '${outcome.action}' not supported on media-stream transport`,
+          transport: "media-stream",
+        });
+        updateCallSession(this.callSessionId, {
+          status: "failed",
+          endedAt: Date.now(),
+          lastError: `Setup flow '${outcome.action}' not supported on media-stream transport`,
+        });
+        void speakSystemPrompt(
+          this.output,
+          "Sorry, this call requires additional verification that isn't available right now. Please try calling back. Goodbye.",
+        ).then(() => {
+          setTimeout(
+            () =>
+              this.output.endSession(
+                `Unsupported setup flow: ${outcome.action}`,
+              ),
+            3000,
+          );
+        });
+        return;
+    }
   }
 
   // ── STT callbacks ─────────────────────────────────────────────────

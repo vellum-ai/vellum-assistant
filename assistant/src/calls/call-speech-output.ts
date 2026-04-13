@@ -45,8 +45,13 @@ export function speakSystemPrompt(
   relay: CallTransport,
   text: string,
 ): Promise<void> {
-  const { provider, useSynthesizedPath, audioFormat } =
-    resolveCallTtsProvider();
+  // When the transport requires WAV (media-stream), request WAV so
+  // the audio store entry contains PCM that audioBufferToFrames can
+  // transcode to mu-law. Without this, compressed formats (mp3, opus)
+  // are fetched by processFetchUrlItem and produce garbled audio.
+  const { provider, useSynthesizedPath, audioFormat } = resolveCallTtsProvider({
+    preferWav: relay.requiresWavAudio,
+  });
 
   if (!useSynthesizedPath || !provider) {
     // Native path — send text for Twilio's built-in TTS.
