@@ -18,6 +18,68 @@ import type {
 } from "../../stt/types.js";
 
 // ---------------------------------------------------------------------------
+// Telephony routing metadata
+// ---------------------------------------------------------------------------
+
+/**
+ * Strategy kind for telephony call setup.
+ *
+ * Determines how the telephony routing resolver (`telephony-stt-routing.ts`)
+ * wires the STT provider into a Twilio call:
+ *
+ * - `"conversation-relay-native"` — the provider is natively supported by
+ *   Twilio ConversationRelay. TwiML includes `transcriptionProvider` /
+ *   `speechModel` attributes and Twilio handles audio ingestion.
+ * - `"media-stream-custom"` — the provider is not natively supported by
+ *   Twilio. A `<Stream>` media-stream is opened and the daemon transcribes
+ *   audio server-side via the provider's batch API.
+ */
+export type TelephonyStrategyKind =
+  | "conversation-relay-native"
+  | "media-stream-custom";
+
+/**
+ * Twilio-native ConversationRelay provider name.
+ *
+ * These are the values Twilio accepts in the `transcriptionProvider` TwiML
+ * attribute on `<ConversationRelay>`.
+ */
+export type TwilioNativeProvider = "Deepgram" | "Google";
+
+/**
+ * Twilio-native mapping details for providers routed through
+ * ConversationRelay. Only present when `strategyKind` is
+ * `"conversation-relay-native"`.
+ */
+export interface TwilioNativeMapping {
+  /** Twilio-native provider name for the TwiML `transcriptionProvider` attribute. */
+  readonly provider: TwilioNativeProvider;
+  /**
+   * Default ASR speech model identifier, or `undefined` to use the
+   * provider's default model. Individual providers override as needed
+   * (e.g. Deepgram defaults to `"nova-3"`).
+   */
+  readonly defaultSpeechModel: string | undefined;
+}
+
+/**
+ * Telephony routing metadata — the single source of truth for how a
+ * provider is wired into Twilio call setup.
+ *
+ * The telephony routing resolver reads these fields from the catalog
+ * instead of maintaining its own hardcoded maps.
+ */
+export interface TelephonyRouting {
+  /** Which Twilio call-setup strategy this provider uses. */
+  readonly strategyKind: TelephonyStrategyKind;
+  /**
+   * Twilio-native mapping details. Present when `strategyKind` is
+   * `"conversation-relay-native"`, absent for `"media-stream-custom"`.
+   */
+  readonly twilioNativeMapping?: TwilioNativeMapping;
+}
+
+// ---------------------------------------------------------------------------
 // Catalog entry
 // ---------------------------------------------------------------------------
 
@@ -44,8 +106,8 @@ export interface SttProviderEntry {
   readonly supportedBoundaries: ReadonlySet<SttBoundaryId>;
 
   /**
-   * Telephony support mode — describes whether and how the provider can
-   * participate in real-time call ingestion via `services.stt`.
+   * Telephony capability class — describes the provider's native
+   * audio-ingestion capability for telephony contexts.
    */
   readonly telephonyMode: TelephonySttMode;
 
@@ -59,6 +121,13 @@ export interface SttProviderEntry {
    * - `"none"` — no streaming support; fall back to batch transcription.
    */
   readonly conversationStreamingMode: ConversationStreamingMode;
+
+  /**
+   * Telephony routing metadata — describes how this provider is wired
+   * into Twilio call setup. This is the single source of truth for
+   * strategy selection and Twilio-native mapping details.
+   */
+  readonly telephonyRouting: TelephonyRouting;
 }
 
 // ---------------------------------------------------------------------------
@@ -86,6 +155,9 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       supportedBoundaries: new Set<SttBoundaryId>(["daemon-batch"]),
       telephonyMode: "batch-only",
       conversationStreamingMode: "none",
+      telephonyRouting: {
+        strategyKind: "media-stream-custom",
+      },
     },
   ],
   [
@@ -99,6 +171,13 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       ]),
       telephonyMode: "realtime-ws",
       conversationStreamingMode: "realtime-ws",
+      telephonyRouting: {
+        strategyKind: "conversation-relay-native",
+        twilioNativeMapping: {
+          provider: "Deepgram",
+          defaultSpeechModel: "nova-3",
+        },
+      },
     },
   ],
   [
@@ -112,6 +191,13 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       ]),
       telephonyMode: "batch-only",
       conversationStreamingMode: "incremental-batch",
+      telephonyRouting: {
+        strategyKind: "conversation-relay-native",
+        twilioNativeMapping: {
+          provider: "Google",
+          defaultSpeechModel: undefined,
+        },
+      },
     },
   ],
 ]);

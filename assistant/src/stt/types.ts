@@ -23,16 +23,22 @@
 export type SttProviderId = "openai-whisper" | "deepgram" | "google-gemini";
 
 /**
- * Telephony-specific STT support mode.
+ * Telephony-specific STT capability class.
  *
- * Describes how a provider can participate in real-time telephony call
- * ingestion when wired through `services.stt`.
+ * Describes the provider's native audio-ingestion capability when used in
+ * a telephony context. This is a **capability classification**, not a direct
+ * Twilio strategy selector — the telephony routing resolver
+ * (`telephony-stt-routing.ts`) maps capability classes plus catalog routing
+ * metadata to concrete Twilio setup strategies (conversation-relay-native
+ * vs media-stream-custom).
  *
  * - `"realtime-ws"` — provider offers a WebSocket streaming endpoint suitable
- *   for low-latency telephony audio. Future PRs will wire this into the
- *   media-stream call adapter.
- * - `"batch-only"` — provider supports only REST batch transcription; not
- *   suitable for real-time telephony.
+ *   for low-latency telephony audio (e.g. Deepgram live transcription).
+ * - `"batch-only"` — provider supports only REST batch transcription as its
+ *   native capability. A `batch-only` provider may still participate in
+ *   telephony via Twilio-native ConversationRelay (e.g. Google Gemini) or
+ *   via the media-stream custom path — the routing strategy is determined
+ *   by the catalog's telephony routing metadata, not this field alone.
  * - `"none"` — provider has no telephony support.
  */
 export type TelephonySttMode = "realtime-ws" | "batch-only" | "none";

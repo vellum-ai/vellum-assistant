@@ -335,8 +335,8 @@ describe("telephony routing catalog alignment", () => {
    * These tests verify that the assumptions made by the telephony STT
    * routing resolver (telephony-stt-routing.ts) remain consistent with
    * the provider catalog entries. If a catalog entry changes its
-   * telephonyMode or a new provider is added, these tests will catch
-   * misalignment early.
+   * telephonyMode, routing metadata, or a new provider is added, these
+   * tests will catch misalignment early.
    */
 
   test("deepgram catalog entry has realtime-ws telephonyMode (Twilio-native eligible)", () => {
@@ -381,6 +381,85 @@ describe("telephony routing catalog alignment", () => {
       const entry = getProviderEntry(id);
       expect(entry).toBeDefined();
       expect(entry!.telephonyMode).not.toBe("none");
+    }
+  });
+
+  // -----------------------------------------------------------------------
+  // Telephony routing metadata invariants
+  // -----------------------------------------------------------------------
+
+  test("every catalog provider has telephonyRouting metadata", () => {
+    for (const id of listProviderIds()) {
+      const entry = getProviderEntry(id);
+      expect(entry).toBeDefined();
+      expect(entry!.telephonyRouting).toBeDefined();
+      expect(["conversation-relay-native", "media-stream-custom"]).toContain(
+        entry!.telephonyRouting.strategyKind,
+      );
+    }
+  });
+
+  test("conversation-relay-native providers have twilioNativeMapping with non-empty provider name", () => {
+    for (const id of listProviderIds()) {
+      const entry = getProviderEntry(id)!;
+      if (entry.telephonyRouting.strategyKind === "conversation-relay-native") {
+        expect(entry.telephonyRouting.twilioNativeMapping).toBeDefined();
+        expect(
+          entry.telephonyRouting.twilioNativeMapping!.provider.length,
+        ).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  test("media-stream-custom providers do not have twilioNativeMapping", () => {
+    for (const id of listProviderIds()) {
+      const entry = getProviderEntry(id)!;
+      if (entry.telephonyRouting.strategyKind === "media-stream-custom") {
+        expect(entry.telephonyRouting.twilioNativeMapping).toBeUndefined();
+      }
+    }
+  });
+
+  test("deepgram routing metadata maps to Twilio-native Deepgram with nova-3 speech model", () => {
+    const entry = getProviderEntry("deepgram")!;
+    expect(entry.telephonyRouting.strategyKind).toBe(
+      "conversation-relay-native",
+    );
+    expect(entry.telephonyRouting.twilioNativeMapping?.provider).toBe(
+      "Deepgram",
+    );
+    expect(entry.telephonyRouting.twilioNativeMapping?.defaultSpeechModel).toBe(
+      "nova-3",
+    );
+  });
+
+  test("google-gemini routing metadata maps to Twilio-native Google with no default speech model", () => {
+    const entry = getProviderEntry("google-gemini")!;
+    expect(entry.telephonyRouting.strategyKind).toBe(
+      "conversation-relay-native",
+    );
+    expect(entry.telephonyRouting.twilioNativeMapping?.provider).toBe("Google");
+    expect(
+      entry.telephonyRouting.twilioNativeMapping?.defaultSpeechModel,
+    ).toBeUndefined();
+  });
+
+  test("openai-whisper routing metadata uses media-stream-custom without Twilio mapping", () => {
+    const entry = getProviderEntry("openai-whisper")!;
+    expect(entry.telephonyRouting.strategyKind).toBe("media-stream-custom");
+    expect(entry.telephonyRouting.twilioNativeMapping).toBeUndefined();
+  });
+
+  // -----------------------------------------------------------------------
+  // Stable provider identity
+  // -----------------------------------------------------------------------
+
+  test("provider IDs remain stable across catalog lookups", () => {
+    // Guard against accidental ID mutation or aliasing bugs.
+    for (const id of listProviderIds()) {
+      const entry = getProviderEntry(id);
+      expect(entry).toBeDefined();
+      expect(entry!.id).toBe(id);
     }
   });
 
