@@ -198,7 +198,12 @@ export class SttStreamSession {
       this.state = "active";
       this.resetIdleTimer();
 
-      // Send a ready event so the client knows it can start sending audio.
+      // `ready` is intentionally sent via sendJson() rather than sendEvent().
+      // It is a session lifecycle signal — not a content event — so it lives
+      // outside the sequenced (seq-numbered) event stream.  The client already
+      // handles `ready` without a `seq` field; all subsequent content events
+      // (partial, final, error, closed) go through sendEvent() which assigns
+      // monotonic seq numbers for ordering guarantees.
       this.sendJson({ type: "ready", provider: transcriber.providerId });
 
       log.info(
