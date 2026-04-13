@@ -38,6 +38,20 @@ bash build.sh
 
 Then in `chrome://extensions`, click **Reload** on the unpacked extension.
 
+## Publishing to Chrome Web Store
+
+To create a zip for manual upload to the [Chrome Web Store developer dashboard](https://chrome.google.com/webstore/devconsole):
+
+```bash
+cd clients/chrome-extension
+bash build.sh
+cd dist && zip -r ../vellum-browser-relay.zip .
+```
+
+Upload `vellum-browser-relay.zip` through the dashboard.
+
+For automated publishing, the `release.yml` GitHub Actions workflow builds, packages, and uploads to CWS when a release tag is created.
+
 ## Usage
 
 1. Open the extension popup.
