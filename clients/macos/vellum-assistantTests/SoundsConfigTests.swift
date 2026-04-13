@@ -31,14 +31,12 @@ final class SoundsConfigTests: XCTestCase {
         let config = try decode(#"{"enabled": true, "sound": "gentle.aiff"}"#)
         XCTAssertTrue(config.enabled)
         XCTAssertEqual(config.sounds, ["gentle.aiff"])
-        XCTAssertEqual(config.sound, "gentle.aiff")
     }
 
     func test_legacyDecode_explicitNull_emptyPool() throws {
         let config = try decode(#"{"enabled": true, "sound": null}"#)
         XCTAssertTrue(config.enabled)
         XCTAssertEqual(config.sounds, [])
-        XCTAssertNil(config.sound)
     }
 
     func test_legacyDecode_missingField_emptyPool() throws {
@@ -73,20 +71,6 @@ final class SoundsConfigTests: XCTestCase {
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(SoundEventConfig.self, from: data)
         XCTAssertEqual(decoded, original)
-    }
-
-    // MARK: - Shim setter
-
-    func test_shimSetter_nonNil_replacesPool() {
-        var config = SoundEventConfig(enabled: true, sounds: [])
-        config.sound = "x.wav"
-        XCTAssertEqual(config.sounds, ["x.wav"])
-    }
-
-    func test_shimSetter_nil_clearsPool() {
-        var config = SoundEventConfig(enabled: true, sounds: ["a.wav", "b.wav"])
-        config.sound = nil
-        XCTAssertEqual(config.sounds, [])
     }
 
     // MARK: - Top-level decode
