@@ -709,6 +709,13 @@ struct InputBarView: View {
                 return
             }
 
+            // Re-check after the async gap: another concurrent call may have
+            // committed while we were awaiting the service response.
+            guard !voiceResultCommitted else {
+                log.info("Voice result committed by concurrent resolution during await — skipping")
+                return
+            }
+
             // Determine which transcript to use: service result if non-empty, else native fallback.
             let finalTranscript: String
             if let serviceText, !serviceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
