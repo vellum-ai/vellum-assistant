@@ -354,17 +354,29 @@ public extension View {
     ///         VMenuItem(icon: VIcon.trash.rawValue, label: "Delete") { handleDelete() }
     ///     }
     /// ```
+    ///
+    /// - Parameters:
+    ///   - width: Optional fixed width for the menu.
+    ///   - isPresented: Optional binding that lets the caller programmatically
+    ///     show/dismiss the menu (e.g. from an ellipsis button). When provided,
+    ///     setting it to `true` opens the menu at the current mouse location;
+    ///     setting it to `false` dismisses it. The modifier keeps this binding
+    ///     in sync with the panel lifecycle (including right-click triggers).
+    ///   - content: The menu items to display.
     func vContextMenu<Content: View>(
         width: CGFloat? = nil,
+        isPresented: Binding<Bool>? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
-        modifier(VContextMenuModifier(menuWidth: width, menuContent: content))
+        modifier(VContextMenuModifier(menuWidth: width, menuContent: content, isPresented: isPresented))
     }
 }
 
 private struct VContextMenuModifier<MenuContent: View>: ViewModifier {
     let menuWidth: CGFloat?
     @ViewBuilder let menuContent: () -> MenuContent
+    /// Optional binding so callers can programmatically show/dismiss the menu.
+    var isPresented: Binding<Bool>?
 
     /// Weak reference avoids retain cycles — the window server keeps the panel
     /// alive while it's visible; we only need this to close on re-open.
@@ -373,32 +385,51 @@ private struct VContextMenuModifier<MenuContent: View>: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onRightClick { screenPoint in
-                // Close any existing panel synchronously before creating a new one.
-                // Nil the ref first so the old panel's onDismiss doesn't race.
-                let oldPanel = panelRef.value
-                panelRef.value = nil
-                oldPanel?.close()
-
-                // Capture appearance from the window under the cursor at click time.
-                // Use `orderedWindows` (front-to-back z-order) so we pick the topmost
-                // window the click landed in — `NSApp.windows` is creation order and
-                // can return an older window stacked behind a newer one.
-                let appearance = NSApp.orderedWindows
-                    .first(where: { $0.isVisible && $0.frame.contains(screenPoint) })?
-                    .effectiveAppearance
-
-                let newPanel = VMenuPanel.show(
-                    at: screenPoint,
-                    sourceAppearance: appearance
-                ) {
-                    VMenu(width: menuWidth) {
-                        menuContent()
-                    }
-                } onDismiss: { [weak panelRef] in
-                    panelRef?.value = nil
-                }
-                panelRef.value = newPanel
+                showMenu(at: screenPoint)
             }
+            .onChange(of: isPresented?.wrappedValue) { oldValue, newValue in
+                if newValue == true && panelRef.value == nil {
+                    // External trigger (e.g. ellipsis button) — show the menu.
+                    showMenu(at: NSEvent.mouseLocation)
+                } else if newValue == false && panelRef.value != nil {
+                    // Programmatic dismiss — close the panel.
+                    let oldPanel = panelRef.value
+                    panelRef.value = nil
+                    oldPanel?.close()
+                }
+            }
+    }
+
+    /// Show a menu panel at the given screen point. Closes any existing panel
+    /// first, then creates a new one. Keeps `panelRef` and `isPresented` in sync.
+    private func showMenu(at screenPoint: CGPoint) {
+        // Close any existing panel synchronously before creating a new one.
+        // Nil the ref first so the old panel's onDismiss doesn't race.
+        let oldPanel = panelRef.value
+        panelRef.value = nil
+        oldPanel?.close()
+
+        // Capture appearance from the window under the cursor at click time.
+        // Use `orderedWindows` (front-to-back z-order) so we pick the topmost
+        // window the click landed in — `NSApp.windows` is creation order and
+        // can return an older window stacked behind a newer one.
+        let appearance = NSApp.orderedWindows
+            .first(where: { $0.isVisible && $0.frame.contains(screenPoint) })?
+            .effectiveAppearance
+
+        let newPanel = VMenuPanel.show(
+            at: screenPoint,
+            sourceAppearance: appearance
+        ) {
+            VMenu(width: menuWidth) {
+                menuContent()
+            }
+        } onDismiss: { [weak panelRef] in
+            panelRef?.value = nil
+            isPresented?.wrappedValue = false
+        }
+        panelRef.value = newPanel
+        isPresented?.wrappedValue = true
     }
 }
 

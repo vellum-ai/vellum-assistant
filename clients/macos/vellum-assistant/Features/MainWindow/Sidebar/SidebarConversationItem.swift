@@ -238,25 +238,13 @@ struct SidebarConversationItem: View, Equatable {
                     tooltip: "More options",
                     iconColor: VColor.contentSecondary
                 ) {
-                    guard !isMenuOpen else { return }
-                    isMenuOpen = true
-                    let appearance = NSApp.keyWindow?.effectiveAppearance
-                    VMenuPanel.show(
-                        at: NSEvent.mouseLocation,
-                        sourceAppearance: appearance
-                    ) {
-                        VMenu(width: 200) {
-                            contextMenuContent
-                        }
-                    } onDismiss: {
-                        isMenuOpen = false
-                    }
+                    isMenuOpen.toggle()
                 }
                 .padding(.trailing, VSpacing.xs)
             }
         }
         .padding(.horizontal, 0)
-        .vContextMenu(width: 200) {
+        .vContextMenu(width: 200, isPresented: $isMenuOpen) {
             contextMenuContent
         }
         .pointerCursor { hovering in
