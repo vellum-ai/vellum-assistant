@@ -23,7 +23,11 @@ function openBrowser(url: string): void {
     platform === "win32"
       ? ["/c", "start", '""', url.replace(/&/g, "^&")]
       : [url];
-  spawn(cmd, args, { stdio: "ignore", detached: true }).unref();
+  const child = spawn(cmd, args, { stdio: "ignore", detached: true });
+  child.on("error", () => {
+    // Silently ignore — the user can still copy the URL from the console
+  });
+  child.unref();
 }
 
 /**
@@ -85,6 +89,7 @@ function browserLogin(platformUrl: string): Promise<string> {
       }
     }
 
+    server.on("error", (err) => cleanup(err.message));
     server.listen(0, "127.0.0.1", () => {
       const addr = server.address();
       if (!addr || typeof addr === "string") {
@@ -93,7 +98,7 @@ function browserLogin(platformUrl: string): Promise<string> {
       }
 
       const port = addr.port;
-      const returnTo = `/cli/auth/callback?port=${port}&state=${state}`;
+      const returnTo = `/accounts/cli/callback?port=${port}&state=${state}`;
       const loginUrl = `${platformUrl}/account/login?returnTo=${encodeURIComponent(returnTo)}`;
 
       console.log("Opening browser for login...");
@@ -116,6 +121,10 @@ export async function login(): Promise<void> {
     console.log("");
     console.log("Options:");
     console.log("  --token <token>    Session token from the Vellum platform");
+    console.log("");
+    console.log("Examples:");
+    console.log("  vellum login");
+    console.log("  vellum login --token <session-token>");
     process.exit(0);
   }
 
