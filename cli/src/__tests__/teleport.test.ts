@@ -1435,62 +1435,10 @@ describe("platform teleport org ID and reordered flow", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Version guard: block platform→local/docker when target is behind
+// Version guard: block platform→non-platform when target is behind
 // ---------------------------------------------------------------------------
 
-/**
- * Creates a fetch mock that also responds to the releases API endpoint.
- * @param platformVersion - The version to return from the releases API, or null to simulate failure.
- */
-function createFetchMockWithReleases(platformVersion: string | null) {
-  return mock(async (url: string | URL | Request) => {
-    const urlStr = typeof url === "string" ? url : url.toString();
-    if (urlStr.includes("/v1/releases/")) {
-      if (platformVersion === null) {
-        return new Response("Internal Server Error", { status: 500 });
-      }
-      return new Response(JSON.stringify([{ version: platformVersion }]), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-    if (urlStr.includes("/export")) {
-      return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
-    }
-    if (urlStr.includes("/import-preflight")) {
-      return new Response(
-        JSON.stringify({
-          can_import: true,
-          summary: {
-            files_to_create: 1,
-            files_to_overwrite: 0,
-            files_unchanged: 0,
-            total_files: 1,
-          },
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
-    }
-    if (urlStr.includes("/import")) {
-      return new Response(
-        JSON.stringify({
-          success: true,
-          summary: {
-            total_files: 1,
-            files_created: 1,
-            files_overwritten: 0,
-            files_skipped: 0,
-            backups_created: 0,
-          },
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
-    }
-    return new Response("not found", { status: 404 });
-  });
-}
-
-describe("version guard: block platform→local/docker when target is behind", () => {
+describe("version guard: block platform→non-platform when target is behind", () => {
   test("blocks platform→local when local version is behind platform", async () => {
     setArgv("--from", "my-platform", "--local", "my-local");
 
@@ -1506,13 +1454,14 @@ describe("version guard: block platform→local/docker when target is behind", (
       return null;
     });
 
-    // Local is on 0.6.0, platform is on 0.7.0
-    fetchCurrentVersionMock.mockResolvedValue("0.6.0");
+    // Source (platform) is on 0.7.0, target (local) is on 0.6.0
+    fetchCurrentVersionMock.mockImplementation((url: string) => {
+      if (url === "https://platform.vellum.ai") return Promise.resolve("0.7.0");
+      return Promise.resolve("0.6.0");
+    });
 
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMockWithReleases(
-      "0.7.0",
-    ) as unknown as typeof globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
 
     try {
       await expect(teleport()).rejects.toThrow("process.exit:1");
@@ -1546,9 +1495,7 @@ describe("version guard: block platform→local/docker when target is behind", (
     fetchCurrentVersionMock.mockResolvedValue("0.7.0");
 
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMockWithReleases(
-      "0.7.0",
-    ) as unknown as typeof globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
 
     try {
       await teleport();
@@ -1575,13 +1522,14 @@ describe("version guard: block platform→local/docker when target is behind", (
       return null;
     });
 
-    // Local is on 0.8.0, platform is on 0.7.0
-    fetchCurrentVersionMock.mockResolvedValue("0.8.0");
+    // Source (platform) is on 0.7.0, target (local) is on 0.8.0
+    fetchCurrentVersionMock.mockImplementation((url: string) => {
+      if (url === "https://platform.vellum.ai") return Promise.resolve("0.7.0");
+      return Promise.resolve("0.8.0");
+    });
 
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMockWithReleases(
-      "0.7.0",
-    ) as unknown as typeof globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
 
     try {
       await teleport();
@@ -1593,7 +1541,7 @@ describe("version guard: block platform→local/docker when target is behind", (
     }
   });
 
-  test("allows teleport when platform version cannot be fetched (best-effort)", async () => {
+  test("allows teleport when source version cannot be fetched (best-effort)", async () => {
     setArgv("--from", "my-platform", "--local", "my-local");
 
     const platformEntry = makeEntry("my-platform", {
@@ -1608,13 +1556,15 @@ describe("version guard: block platform→local/docker when target is behind", (
       return null;
     });
 
-    fetchCurrentVersionMock.mockResolvedValue("0.6.0");
+    // Source (platform) is unreachable, target (local) is on 0.6.0
+    fetchCurrentVersionMock.mockImplementation((url: string) => {
+      if (url === "https://platform.vellum.ai")
+        return Promise.resolve(undefined);
+      return Promise.resolve("0.6.0");
+    });
 
-    // Releases API returns 500
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMockWithReleases(
-      null,
-    ) as unknown as typeof globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
 
     try {
       await teleport();
@@ -1626,7 +1576,7 @@ describe("version guard: block platform→local/docker when target is behind", (
     }
   });
 
-  test("allows teleport when local version cannot be fetched (best-effort)", async () => {
+  test("allows teleport when target version cannot be fetched (best-effort)", async () => {
     setArgv("--from", "my-platform", "--local", "my-local");
 
     const platformEntry = makeEntry("my-platform", {
@@ -1641,13 +1591,14 @@ describe("version guard: block platform→local/docker when target is behind", (
       return null;
     });
 
-    // fetchCurrentVersion returns undefined (unreachable)
-    fetchCurrentVersionMock.mockResolvedValue(undefined);
+    // Source (platform) is on 0.7.0, target (local) is unreachable
+    fetchCurrentVersionMock.mockImplementation((url: string) => {
+      if (url === "https://platform.vellum.ai") return Promise.resolve("0.7.0");
+      return Promise.resolve(undefined);
+    });
 
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMockWithReleases(
-      "0.7.0",
-    ) as unknown as typeof globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
 
     try {
       await teleport();
@@ -1659,7 +1610,7 @@ describe("version guard: block platform→local/docker when target is behind", (
     }
   });
 
-  test("ignores pre-release suffixes: local 0.7.0-local.xxx is NOT behind platform 0.7.0", async () => {
+  test("pre-release target is behind release source: 0.7.0-local.xxx < 0.7.0", async () => {
     setArgv("--from", "my-platform", "--local", "my-local");
 
     const platformEntry = makeEntry("my-platform", {
@@ -1674,18 +1625,19 @@ describe("version guard: block platform→local/docker when target is behind", (
       return null;
     });
 
-    // Local dev build with pre-release suffix, same core version
-    fetchCurrentVersionMock.mockResolvedValue("0.7.0-local.20260411.abc123");
+    // Per semver, pre-release < release for same core version
+    fetchCurrentVersionMock.mockImplementation((url: string) => {
+      if (url === "https://platform.vellum.ai") return Promise.resolve("0.7.0");
+      return Promise.resolve("0.7.0-local.20260411.abc123");
+    });
 
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMockWithReleases(
-      "0.7.0",
-    ) as unknown as typeof globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
 
     try {
-      await teleport();
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Teleport complete"),
+      await expect(teleport()).rejects.toThrow("process.exit:1");
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("is running 0.7.0-local.20260411.abc123"),
       );
     } finally {
       globalThis.fetch = originalFetch;
@@ -1707,13 +1659,14 @@ describe("version guard: block platform→local/docker when target is behind", (
       return null;
     });
 
-    // Docker is on 0.5.0, platform is on 0.7.0
-    fetchCurrentVersionMock.mockResolvedValue("0.5.0");
+    // Source (platform) is on 0.7.0, target (docker) is on 0.5.0
+    fetchCurrentVersionMock.mockImplementation((url: string) => {
+      if (url === "https://platform.vellum.ai") return Promise.resolve("0.7.0");
+      return Promise.resolve("0.5.0");
+    });
 
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMockWithReleases(
-      "0.7.0",
-    ) as unknown as typeof globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
 
     try {
       await expect(teleport()).rejects.toThrow("process.exit:1");
@@ -1743,13 +1696,14 @@ describe("version guard: block platform→local/docker when target is behind", (
       return null;
     });
 
-    // Local is behind
-    fetchCurrentVersionMock.mockResolvedValue("0.6.0");
+    // Source (platform) is on 0.7.0, target (local) is on 0.6.0
+    fetchCurrentVersionMock.mockImplementation((url: string) => {
+      if (url === "https://platform.vellum.ai") return Promise.resolve("0.7.0");
+      return Promise.resolve("0.6.0");
+    });
 
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMockWithReleases(
-      "0.7.0",
-    ) as unknown as typeof globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
 
     try {
       await expect(teleport()).rejects.toThrow("process.exit:1");
@@ -1785,13 +1739,14 @@ describe("version guard: block platform→local/docker when target is behind", (
       return [platformEntry];
     });
 
-    // Newly hatched local is on 0.6.0, platform is on 0.7.0
-    fetchCurrentVersionMock.mockResolvedValue("0.6.0");
+    // Source (platform) is on 0.7.0, newly hatched local is on 0.6.0
+    fetchCurrentVersionMock.mockImplementation((url: string) => {
+      if (url === "https://platform.vellum.ai") return Promise.resolve("0.7.0");
+      return Promise.resolve("0.6.0");
+    });
 
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMockWithReleases(
-      "0.7.0",
-    ) as unknown as typeof globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
 
     try {
       await expect(teleport()).rejects.toThrow("process.exit:1");

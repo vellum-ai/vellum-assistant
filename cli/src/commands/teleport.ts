@@ -36,7 +36,7 @@ import { retireLocal } from "../lib/retire-local.js";
 import { validateAssistantName } from "../lib/retire-archive.js";
 import { stopProcessByPidFile } from "../lib/process.js";
 import { fetchCurrentVersion } from "../lib/upgrade-lifecycle.js";
-import { parseVersion } from "../lib/version-compat.js";
+import { compareVersions } from "../lib/version-compat.js";
 import { join } from "node:path";
 
 function printHelp(): void {
@@ -203,45 +203,6 @@ function resolveCloud(entry: AssistantEntry): string {
   return (
     entry.cloud || (entry.project ? "gcp" : entry.sshUser ? "custom" : "local")
   );
-}
-
-/**
- * Fetch the latest stable platform release version from the releases API.
- * Returns undefined when the endpoint is unreachable or returns no releases.
- */
-async function fetchLatestPlatformVersion(): Promise<string | undefined> {
-  try {
-    const platformUrl = getPlatformUrl();
-    const resp = await fetch(`${platformUrl}/v1/releases/?stable=true`, {
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!resp.ok) return undefined;
-    const releases = (await resp.json()) as Array<{ version?: string }>;
-    if (releases.length > 0 && releases[0].version) {
-      return releases[0].version;
-    }
-  } catch {
-    // Best-effort — don't block teleport if releases API is unavailable
-  }
-  return undefined;
-}
-
-/**
- * Compare core versions (major.minor.patch only, ignoring pre-release
- * suffixes) and return true when the target is strictly behind the source.
- *
- * Pre-release suffixes (e.g. `-local.20260411.abc123`) are intentionally
- * ignored: a local dev build of 0.7.0-local.xxx is NOT "behind" a
- * platform release of 0.7.0.
- */
-function isCoreBehind(targetVersion: string, sourceVersion: string): boolean {
-  const t = parseVersion(targetVersion);
-  const s = parseVersion(sourceVersion);
-  if (!t || !s) return false;
-
-  if (t.major !== s.major) return t.major < s.major;
-  if (t.minor !== s.minor) return t.minor < s.minor;
-  return t.patch < s.patch;
 }
 
 // ---------------------------------------------------------------------------
@@ -1185,23 +1146,20 @@ export async function teleport(): Promise<void> {
         process.exit(1);
       }
 
-      // Version guard: block platform→local/docker when target is behind
-      if (
-        fromCloud === "vellum" &&
-        (toCloud === "local" || toCloud === "docker")
-      ) {
-        const [platformVersion, targetVersion] = await Promise.all([
-          fetchLatestPlatformVersion(),
+      // Version guard: block platform→non-platform when target is behind
+      if (fromCloud === "vellum" && toCloud !== "vellum") {
+        const [sourceVersion, targetVersion] = await Promise.all([
+          fetchCurrentVersion(fromEntry.runtimeUrl),
           fetchCurrentVersion(existingTarget.runtimeUrl),
         ]);
-        if (
-          platformVersion &&
-          targetVersion &&
-          isCoreBehind(targetVersion, platformVersion)
-        ) {
+        const cmp =
+          sourceVersion && targetVersion
+            ? compareVersions(targetVersion, sourceVersion)
+            : null;
+        if (cmp !== null && cmp < 0) {
           console.error(
             `Error: Target assistant '${existingTarget.assistantId}' is running ${targetVersion}, ` +
-              `but the platform source is on ${platformVersion}.`,
+              `but the platform source is on ${sourceVersion}.`,
           );
           console.error(
             `Upgrade your ${toCloud} assistant first: vellum upgrade ${existingTarget.assistantId}`,
@@ -1318,18 +1276,18 @@ export async function teleport(): Promise<void> {
   if (fromCloud === "vellum" && targetIsLocalOrDocker && targetName) {
     const existingTarget = findAssistantByName(targetName);
     if (existingTarget) {
-      const [platformVersion, existingVersion] = await Promise.all([
-        fetchLatestPlatformVersion(),
+      const [sourceVersion, existingVersion] = await Promise.all([
+        fetchCurrentVersion(fromEntry.runtimeUrl),
         fetchCurrentVersion(existingTarget.runtimeUrl),
       ]);
-      if (
-        platformVersion &&
-        existingVersion &&
-        isCoreBehind(existingVersion, platformVersion)
-      ) {
+      const cmp =
+        sourceVersion && existingVersion
+          ? compareVersions(existingVersion, sourceVersion)
+          : null;
+      if (cmp !== null && cmp < 0) {
         console.error(
           `Error: Target assistant '${existingTarget.assistantId}' is running ${existingVersion}, ` +
-            `but the platform source is on ${platformVersion}.`,
+            `but the platform source is on ${sourceVersion}.`,
         );
         console.error(
           `Upgrade your ${targetEnv} assistant first: vellum upgrade ${existingTarget.assistantId}`,
@@ -1375,20 +1333,16 @@ export async function teleport(): Promise<void> {
   // hatch because the assistant doesn't exist yet before. If it fails, clean
   // up the freshly hatched assistant to avoid orphans.
   // Skip if the pre-hatch guard already ran for an existing target.
-  if (
-    !versionGuardPassed &&
-    fromCloud === "vellum" &&
-    (toCloud === "local" || toCloud === "docker")
-  ) {
-    const [platformVersion, targetVersion] = await Promise.all([
-      fetchLatestPlatformVersion(),
+  if (!versionGuardPassed && fromCloud === "vellum" && toCloud !== "vellum") {
+    const [sourceVersion, targetVersion] = await Promise.all([
+      fetchCurrentVersion(fromEntry.runtimeUrl),
       fetchCurrentVersion(toEntry.runtimeUrl),
     ]);
-    if (
-      platformVersion &&
-      targetVersion &&
-      isCoreBehind(targetVersion, platformVersion)
-    ) {
+    const cmp =
+      sourceVersion && targetVersion
+        ? compareVersions(targetVersion, sourceVersion)
+        : null;
+    if (cmp !== null && cmp < 0) {
       // Clean up the freshly hatched assistant to avoid orphans
       console.error(
         `Cleaning up newly hatched assistant '${toEntry.assistantId}'...`,
@@ -1401,7 +1355,7 @@ export async function teleport(): Promise<void> {
       removeAssistantEntry(toEntry.assistantId);
       console.error(
         `Error: Target assistant '${toEntry.assistantId}' was running ${targetVersion}, ` +
-          `but the platform source is on ${platformVersion}.`,
+          `but the platform source is on ${sourceVersion}.`,
       );
       console.error(
         `Upgrade your ${toCloud} environment first, then retry the teleport.`,
