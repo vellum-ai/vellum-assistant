@@ -162,28 +162,58 @@ function tryAtomicCreateLock(lockPath: string): boolean {
  * returning), we conservatively treat it as "not our lock".
  */
 function verifyLockOwnership(lockPath: string): boolean {
-  const pid = readLockHolderPid(lockPath);
-  return pid === process.pid;
+  const result = readLockHolder(lockPath);
+  return result.kind === "pid" && result.pid === process.pid;
 }
 
 /**
- * Parse the lock file and extract the holder PID. Returns `null` if the file
- * is missing, empty, or does not contain a valid positive integer.
+ * Result of inspecting the lock file. We distinguish three cases because the
+ * acquire loop must react to each one differently:
+ *
+ *   - `pid`: the lock has a parseable holder PID — check liveness and, if
+ *     dead, proceed to stale-takeover.
+ *   - `empty`: the file exists but has no parseable PID. Either a live holder
+ *     is mid-write between `O_EXCL` and `writeSync`, or the file is garbage.
+ *     Wait-and-retry; if still empty after the budget, surface a conflict.
+ *     Never unlink — unlinking a live holder's in-progress lock is exactly
+ *     the TOCTOU double-acquire this module exists to prevent.
+ *   - `missing`: the file vanished between our `EEXIST` from `O_EXCL` and
+ *     our read. The holder already released it. Retry the outer acquire
+ *     loop — `O_EXCL` should now succeed on the empty slot.
+ *
+ * Collapsing `missing` into `empty` (as a prior revision did) causes
+ * `createSnapshotNow` to spuriously fail when a concurrent holder releases
+ * the lock during this very narrow window.
  */
-function readLockHolderPid(lockPath: string): number | null {
+type LockReadResult =
+  | { kind: "pid"; pid: number }
+  | { kind: "empty" }
+  | { kind: "missing" };
+
+/**
+ * Parse the lock file and classify its state. `ENOENT` is surfaced as
+ * `missing` so the caller can re-attempt `O_EXCL` acquire; all other read
+ * failures (including an empty or unparseable payload) collapse to `empty`
+ * so the caller waits for a potential live-writer to flush its PID.
+ */
+function readLockHolder(lockPath: string): LockReadResult {
+  let raw: string;
   try {
-    const raw = readFileSync(lockPath, "utf-8").trim();
-    if (raw.length === 0) return null;
-    // The payload is `<pid> <timestamp>`, but be lenient about formats: any
-    // leading positive integer is treated as the PID.
-    const match = /^\d+/.exec(raw);
-    if (!match) return null;
-    const pid = Number.parseInt(match[0], 10);
-    if (!Number.isFinite(pid) || pid <= 0) return null;
-    return pid;
-  } catch {
-    return null;
+    raw = readFileSync(lockPath, "utf-8");
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return { kind: "missing" };
+    return { kind: "empty" };
   }
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return { kind: "empty" };
+  // The payload is `<pid> <timestamp>`, but be lenient about formats: any
+  // leading positive integer is treated as the PID.
+  const match = /^\d+/.exec(trimmed);
+  if (!match) return { kind: "empty" };
+  const pid = Number.parseInt(match[0], 10);
+  if (!Number.isFinite(pid) || pid <= 0) return { kind: "empty" };
+  return { kind: "pid", pid };
 }
 
 /**
@@ -263,16 +293,26 @@ export async function acquireSnapshotLock(
       if (verifyLockOwnership(lockPath)) {
         return makeRelease(lockPath);
       }
-      const winnerPid = readLockHolderPid(lockPath);
+      const winner = readLockHolder(lockPath);
       throw new Error(
-        winnerPid != null
-          ? `snapshot in progress (locked by pid ${winnerPid})`
+        winner.kind === "pid"
+          ? `snapshot in progress (locked by pid ${winner.pid})`
           : "snapshot in progress (race detected)",
       );
     }
 
     // --- Step 2: inspect the existing lock ---
-    let holderPid = readLockHolderPid(lockPath);
+    let holder = readLockHolder(lockPath);
+
+    // Race between `tryAtomicCreateLock` (saw `EEXIST`) and this read: the
+    // holder released the lock in between. The slot is free — retry the
+    // outer loop so `O_EXCL` can succeed. Treating this case as contended
+    // (as a prior revision did) caused `createSnapshotNow` to spuriously
+    // fail and `runBackupTick` to skip a due cycle.
+    if (holder.kind === "missing") {
+      await sleep(ACQUIRE_RETRY_DELAY_MS);
+      continue;
+    }
 
     // Partial-write window: the file exists but has no parseable PID. This
     // can happen in the tiny window between `O_EXCL` create and the payload
@@ -280,11 +320,19 @@ export async function acquireSnapshotLock(
     // do with it.
     for (
       let retry = 0;
-      retry < EMPTY_FILE_MAX_RETRIES && holderPid == null;
+      retry < EMPTY_FILE_MAX_RETRIES && holder.kind === "empty";
       retry += 1
     ) {
       await sleep(EMPTY_FILE_RETRY_DELAY_MS);
-      holderPid = readLockHolderPid(lockPath);
+      holder = readLockHolder(lockPath);
+    }
+
+    // The lock vanished while we were waiting on the partial-write window.
+    // Same recovery as above: retry the outer loop and let `O_EXCL` take
+    // the now-empty slot.
+    if (holder.kind === "missing") {
+      await sleep(ACQUIRE_RETRY_DELAY_MS);
+      continue;
     }
 
     // If the file is still unreadable, a live holder may be mid-write.
@@ -293,15 +341,15 @@ export async function acquireSnapshotLock(
     // acquire this module exists to prevent. Surface as a conflict and
     // let the caller retry; we only ever take over a lock with a parseable
     // PID that points at a non-running process.
-    if (holderPid == null) {
+    if (holder.kind === "empty") {
       throw new Error(
         "snapshot in progress (lock holder unidentified; possible partial write)",
       );
     }
 
-    if (isProcessAlive(holderPid)) {
+    if (isProcessAlive(holder.pid)) {
       throw new Error(
-        `snapshot in progress (locked by pid ${holderPid})`,
+        `snapshot in progress (locked by pid ${holder.pid})`,
       );
     }
 
@@ -311,6 +359,7 @@ export async function acquireSnapshotLock(
     // processes race, only one wins the rename — the loser sees ENOENT and
     // retries the acquire loop from the top. The winner's next `tryAcquire`
     // can then succeed on the empty slot.
+    const holderPid = holder.pid;
     lastHolderPid = holderPid;
     const sidebandPath = `${lockPath}.stale.${process.pid}.${Date.now()}.${attempt}`;
     log.info(
