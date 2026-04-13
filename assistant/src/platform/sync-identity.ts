@@ -84,6 +84,7 @@ async function doSync(name: string, requestSeq: number): Promise<void> {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
+        signal: AbortSignal.timeout(15_000),
       },
     );
 
