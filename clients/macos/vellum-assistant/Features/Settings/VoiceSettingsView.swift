@@ -503,6 +503,25 @@ struct VoiceSettingsView: View {
         return APIKeyManager.getKey(for: keyProvider) != nil
     }
 
+    // MARK: - STT Key Ownership Helpers
+
+    /// Whether the STT reset button should be shown for the current provider.
+    ///
+    /// The reset button is only shown when:
+    /// 1. A key already exists for the provider, AND
+    /// 2. The provider owns its key exclusively (not shared with another
+    ///    service like Inference).
+    ///
+    /// This prevents accidental clearing of shared credentials — e.g.
+    /// resetting `openai-whisper` must not delete the `openai` key that
+    /// Inference also depends on.
+    ///
+    /// Provider-agnostic: adding a third STT provider only requires a
+    /// catalog entry, not a new conditional here.
+    private var sttResetAllowed: Bool {
+        sttProviderHasKey && SettingsStore.sttKeyIsExclusive(for: draftSTTProvider)
+    }
+
     /// Clears the stored TTS credential for the given provider.
     private func clearTTSCredential(for provider: String) {
         switch provider {
@@ -555,21 +574,17 @@ struct VoiceSettingsView: View {
                     }
                 }
 
-                // Save + Reset actions
+                // Save + Reset actions — reset is only shown for
+                // exclusive-key providers to avoid clearing shared
+                // credentials (e.g. `openai` used by both Inference and
+                // Whisper STT).
                 ServiceCardActions(
                     hasChanges: sttHasChanges,
                     isSaving: sttSaving,
                     onSave: { saveSTT() },
                     savingLabel: "Saving...",
-                    onReset: {
-                        store.clearSTTKey(sttProviderId: draftSTTProvider)
-                        sttProviderHasKey = false
-                        sttApiKeyText = ""
-                    },
-                    showReset: sttProviderHasKey && {
-                        let entry = sttRegistry.provider(withId: draftSTTProvider)
-                        return entry.map { $0.apiKeyProviderName == $0.id } ?? true
-                    }()
+                    onReset: { resetSTTKey() },
+                    showReset: sttResetAllowed
                 )
             }
         }
@@ -592,6 +607,17 @@ struct VoiceSettingsView: View {
             errorMessage: sttSaveError
         )
         .disabled(sttSaving)
+    }
+
+    // MARK: - STT Reset
+
+    /// Clears the STT API key for the current draft provider and resets the
+    /// associated UI state. Only called for exclusive-key providers — shared
+    /// credentials are never cleared through the STT settings card.
+    private func resetSTTKey() {
+        store.clearSTTKey(sttProviderId: draftSTTProvider)
+        sttProviderHasKey = false
+        sttApiKeyText = ""
     }
 
     // MARK: - STT Save

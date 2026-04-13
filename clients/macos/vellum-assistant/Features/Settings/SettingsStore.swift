@@ -3060,6 +3060,37 @@ public final class SettingsStore: ObservableObject {
             .apiKeyProviderName ?? sttProviderId
     }
 
+    /// Whether the given STT provider owns its API key exclusively — i.e. the
+    /// key is not shared with any other service. Exclusive-key providers can
+    /// safely have their key cleared through the STT reset flow without
+    /// affecting other features.
+    ///
+    /// A provider's key is exclusive when its `apiKeyProviderName` matches its
+    /// own `id` (e.g. `deepgram` → `deepgram`). Shared-key providers map to a
+    /// different credential name (e.g. `openai-whisper` → `openai`).
+    ///
+    /// This helper is provider-agnostic: adding a new provider only requires a
+    /// catalog entry — no new conditionals here or in the UI layer.
+    static func sttKeyIsExclusive(for sttProviderId: String) -> Bool {
+        let entry = loadSTTProviderRegistry().provider(withId: sttProviderId)
+        guard let entry else {
+            // Unknown providers are assumed exclusive — clearing an unknown
+            // key cannot collide with a known service.
+            return true
+        }
+        return entry.apiKeyProviderName == entry.id
+    }
+
+    /// Whether the given STT provider's API key is shared with another
+    /// service. The inverse of `sttKeyIsExclusive(for:)`.
+    ///
+    /// Shared-key providers should not expose a "Reset" action in the STT
+    /// settings card because clearing the key would break the sibling service
+    /// that depends on it.
+    static func sttKeyIsShared(for sttProviderId: String) -> Bool {
+        !sttKeyIsExclusive(for: sttProviderId)
+    }
+
     /// Schedules a delayed refresh of provider routing sources, giving the
     /// daemon time to re-initialize providers after a key change.
     private func scheduleRoutingSourceRefresh() {
