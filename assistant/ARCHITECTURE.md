@@ -586,6 +586,8 @@ All guardian decisions for voice access requests flow through:
 
 Audio-to-text conversion occurs in four distinct runtime boundaries, each with its own provider model and adapter layer. The `services.stt` config block controls provider selection for the daemon's STT service; other boundaries resolve providers independently based on their runtime context.
 
+**Provider catalog model:** The daemon's canonical provider catalog (`src/providers/speech-to-text/provider-catalog.ts`) is the single source of truth for STT provider metadata — credential mappings, supported boundaries, and telephony mode. The client-facing catalog (`meta/stt-provider-catalog.json`) carries display metadata (names, hints, setup mode) and is bundled into native apps at build time. A CI parity test (`src/__tests__/stt-catalog-parity.test.ts`) enforces that provider IDs, ordering, and credential-provider name mappings stay aligned between the two catalogs. To add a new provider, follow the checklist in `docs/stt-provider-onboarding.md`.
+
 **Boundary overview:**
 
 | Boundary                     | Runtime                               | Provider (current)                           | Adapter module                                                                                     | Caller                                                                                               |
@@ -634,7 +636,7 @@ The daemon transcribes audio attachments (e.g. voice messages from channel inbou
 - `resolveBatchTranscriber()` in `src/providers/speech-to-text/resolve.ts` is the credential-aware entry point — it reads the configured provider from `services.stt`, resolves the corresponding API key from the secure key store, and delegates to the factory.
 - `tryTranscribeAudioAttachments()` in `src/runtime/routes/inbound-stages/transcribe-audio.ts` is the callsite that uses the facade for channel audio attachment transcription.
 
-To add a new daemon batch STT provider: add a new `SttProviderId` variant in `types.ts`, implement `BatchTranscriber` in a new adapter class alongside `WhisperBatchTranscriber` and `DeepgramBatchTranscriber`, update the factory in `daemon-batch-transcriber.ts` to select the adapter based on configuration, and add the provider to `meta/stt-provider-catalog.json` so clients can display it in settings.
+To add a new daemon batch STT provider, follow the full checklist in `docs/stt-provider-onboarding.md` — it covers the daemon catalog, type registration, config schema, adapter wiring, credential plumbing, client catalog, and parity tests.
 
 **Client service-first boundary:**
 
@@ -669,9 +671,12 @@ These differences are intentional — the adapters were designed for their respe
 
 **Cross-boundary notes:**
 
-- The `services.stt` config block controls provider selection for both the daemon batch boundary and the client service-first boundary (they share `resolveBatchTranscriber()`). Supported providers include OpenAI Whisper (`openai-whisper`) and Deepgram (`deepgram`). Telephony STT is configured separately via `calls.voice.transcriptionProvider`. A prepared (but inactive) dark path exists to unify telephony STT under `services.stt` — see "Prepared dark path" above and the cutover runbook in `docs/internal-reference.md`.
+- The `services.stt` config block controls provider selection for both the daemon batch boundary and the client service-first boundary (they share `resolveBatchTranscriber()`). The daemon provider catalog (`src/providers/speech-to-text/provider-catalog.ts`) is the authoritative registry of supported providers; the client catalog (`meta/stt-provider-catalog.json`) mirrors it for display purposes. The parity guard test (`src/__tests__/stt-catalog-parity.test.ts`) fails CI when the two catalogs diverge on provider IDs, ordering, or credential-provider name mappings.
+- Telephony STT is configured separately via `calls.voice.transcriptionProvider` and operates in a different runtime boundary (Twilio ConversationRelay). A prepared (but inactive) dark path exists to unify telephony STT under `services.stt` — see "Prepared dark path" above and the cutover runbook in `docs/internal-reference.md`.
 - `evaluateServicesSttReadiness()` in `src/calls/stt-profile.ts` can validate cutover prerequisites without affecting active calls.
+- Credential mapping is catalog-driven: `provider-secret-catalog.ts` derives STT API-key provider names from the daemon catalog via `listCredentialProviderNames()`, deduplicating against the LLM/search provider list. Adding a provider to the catalog automatically includes its credential name in `API_KEY_PROVIDERS`.
 - Terminology: "STT" and "transcription" refer to the same operation (converting audio to text). "Speech recognition" is used in client-native contexts where Apple's Speech framework terminology is canonical. All three terms map to the same conceptual operation.
+- **Onboarding**: For a step-by-step guide to adding a new STT provider, see `docs/stt-provider-onboarding.md`.
 
 ### Update Bulletin System
 
