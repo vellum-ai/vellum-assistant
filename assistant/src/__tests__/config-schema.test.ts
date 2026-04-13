@@ -1148,8 +1148,22 @@ describe("AssistantConfigSchema", () => {
 
   // ── services.stt config ──────────────────────────────────────────────
 
-  test("applies services.stt defaults when not specified", () => {
-    const result = AssistantConfigSchema.parse({});
+  test("rejects services.stt without explicit provider", () => {
+    const result = AssistantConfigSchema.safeParse({
+      services: { stt: { mode: "your-own" } },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.some((i) => i.path.join(".").includes("provider")),
+      ).toBe(true);
+    }
+  });
+
+  test("applies services.stt structural defaults when provider is explicit", () => {
+    const result = AssistantConfigSchema.parse({
+      services: { stt: { provider: "openai-whisper" } },
+    });
     expect(result.services.stt.mode).toBe("your-own");
     expect(result.services.stt.provider).toBe("openai-whisper");
     expect(result.services.stt.providers["openai-whisper"]).toEqual({});
@@ -1168,6 +1182,7 @@ describe("AssistantConfigSchema", () => {
     const result = AssistantConfigSchema.parse({
       services: {
         stt: {
+          provider: "openai-whisper",
           providers: {
             "openai-whisper": {},
           },
@@ -1213,6 +1228,7 @@ describe("AssistantConfigSchema", () => {
     const result = AssistantConfigSchema.parse({
       services: {
         stt: {
+          provider: "deepgram",
           providers: {
             deepgram: {},
           },
@@ -1222,22 +1238,33 @@ describe("AssistantConfigSchema", () => {
     expect(result.services.stt.providers.deepgram).toEqual({});
   });
 
-  test("deepgram provider default is openai-whisper (not deepgram)", () => {
-    const result = AssistantConfigSchema.parse({});
-    expect(result.services.stt.provider).toBe("openai-whisper");
+  test("services.stt.provider is required (no implicit default)", () => {
+    const result = AssistantConfigSchema.safeParse({
+      services: { stt: {} },
+    });
+    expect(result.success).toBe(false);
   });
 
   test("services.stt.mode only accepts your-own as literal", () => {
     // Explicit your-own should work
-    const valid = SttServiceSchema.safeParse({ mode: "your-own" });
+    const valid = SttServiceSchema.safeParse({
+      mode: "your-own",
+      provider: "openai-whisper",
+    });
     expect(valid.success).toBe(true);
 
     // managed should be rejected
-    const invalid = SttServiceSchema.safeParse({ mode: "managed" });
+    const invalid = SttServiceSchema.safeParse({
+      mode: "managed",
+      provider: "openai-whisper",
+    });
     expect(invalid.success).toBe(false);
 
     // Any other string should be rejected
-    const invalid2 = SttServiceSchema.safeParse({ mode: "self-hosted" });
+    const invalid2 = SttServiceSchema.safeParse({
+      mode: "self-hosted",
+      provider: "openai-whisper",
+    });
     expect(invalid2.success).toBe(false);
   });
 

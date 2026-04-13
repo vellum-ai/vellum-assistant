@@ -141,7 +141,7 @@ export function normalizeSttError(err: unknown): SttError {
  */
 export function createDaemonBatchTranscriber(
   apiKey: string | null | undefined,
-  providerId: SttProviderId = "openai-whisper",
+  providerId: SttProviderId,
 ): BatchTranscriber | null {
   if (!apiKey) return null;
 

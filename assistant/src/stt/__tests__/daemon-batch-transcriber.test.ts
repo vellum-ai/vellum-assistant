@@ -53,26 +53,37 @@ describe("createDaemonBatchTranscriber", () => {
   // -------------------------------------------------------------------------
 
   test("returns null when no API key is provided", () => {
-    expect(createDaemonBatchTranscriber(null)).toBeNull();
-    expect(createDaemonBatchTranscriber(undefined)).toBeNull();
+    expect(createDaemonBatchTranscriber(null, "openai-whisper")).toBeNull();
+    expect(
+      createDaemonBatchTranscriber(undefined, "openai-whisper"),
+    ).toBeNull();
   });
 
   test("returns a BatchTranscriber when API key is present", () => {
-    const transcriber = createDaemonBatchTranscriber("sk-test-key");
+    const transcriber = createDaemonBatchTranscriber(
+      "sk-test-key",
+      "openai-whisper",
+    );
     expect(transcriber).not.toBeNull();
   });
 
   // -------------------------------------------------------------------------
-  // Provider identity — Whisper (default)
+  // Provider identity — Whisper
   // -------------------------------------------------------------------------
 
-  test("reports providerId as openai-whisper by default", () => {
-    const transcriber = createDaemonBatchTranscriber("sk-test-key");
+  test("reports providerId as openai-whisper when created with openai-whisper", () => {
+    const transcriber = createDaemonBatchTranscriber(
+      "sk-test-key",
+      "openai-whisper",
+    );
     expect(transcriber!.providerId).toBe("openai-whisper");
   });
 
   test("reports boundaryId as daemon-batch", () => {
-    const transcriber = createDaemonBatchTranscriber("sk-test-key");
+    const transcriber = createDaemonBatchTranscriber(
+      "sk-test-key",
+      "openai-whisper",
+    );
     expect(transcriber!.boundaryId).toBe("daemon-batch");
   });
 
@@ -83,7 +94,10 @@ describe("createDaemonBatchTranscriber", () => {
   test("delegates transcription to the Whisper provider", async () => {
     mockWhisperTranscribeResult = { text: "Hello from Whisper" };
 
-    const transcriber = createDaemonBatchTranscriber("sk-test-key");
+    const transcriber = createDaemonBatchTranscriber(
+      "sk-test-key",
+      "openai-whisper",
+    );
     const result = await transcriber!.transcribe({
       audio: Buffer.from("fake-audio"),
       mimeType: "audio/ogg",
@@ -104,7 +118,10 @@ describe("createDaemonBatchTranscriber", () => {
     );
     mockWhisperTranscribeError = original;
 
-    const transcriber = createDaemonBatchTranscriber("sk-test-key");
+    const transcriber = createDaemonBatchTranscriber(
+      "sk-test-key",
+      "openai-whisper",
+    );
 
     try {
       await transcriber!.transcribe({
@@ -122,7 +139,10 @@ describe("createDaemonBatchTranscriber", () => {
     const original = new Error("Something went wrong");
     mockWhisperTranscribeError = original;
 
-    const transcriber = createDaemonBatchTranscriber("sk-test-key");
+    const transcriber = createDaemonBatchTranscriber(
+      "sk-test-key",
+      "openai-whisper",
+    );
 
     try {
       await transcriber!.transcribe({

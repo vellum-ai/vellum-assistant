@@ -70,7 +70,6 @@ export const SttServiceSchema = z
       .enum(VALID_STT_PROVIDERS, {
         error: `services.stt.provider must be one of: ${VALID_STT_PROVIDERS.join(", ")}`,
       })
-      .default("openai-whisper")
       .describe("Active STT provider used for speech-to-text transcription"),
     providers: SttProvidersSchema.default(SttProvidersSchema.parse({})),
   })
