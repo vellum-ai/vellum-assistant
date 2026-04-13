@@ -467,6 +467,134 @@ export async function listSkillsWithCatalog(
   return merged;
 }
 
+// ─── Filtered skill listing ──────────────────────────────────────────────────
+
+export interface SkillListFilter {
+  origin?: string;
+  kind?: string;
+  q?: string;
+  category?: string;
+}
+
+/** Human-readable labels matching Swift's `sourceLabel`. */
+export function originDisplayLabel(origin: string): string {
+  switch (origin) {
+    case "vellum":
+      return "Vellum";
+    case "clawhub":
+      return "Clawhub";
+    case "skillssh":
+      return "skills.sh";
+    case "custom":
+      return "Custom";
+    default:
+      return origin;
+  }
+}
+
+/** Check if a skill's origin matches a text query (matching Swift logic). */
+export function originMatchesQuery(origin: string, query: string): boolean {
+  const label = originDisplayLabel(origin).toLowerCase();
+  if (label.includes(query)) return true;
+  // "community" umbrella matches clawhub and skillssh
+  if (
+    (origin === "clawhub" || origin === "skillssh") &&
+    "community".includes(query)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * List skills with filtering, category counts, and sorting.
+ * Calls listSkillsWithCatalog for the full merged list, then applies filters.
+ */
+export async function listSkillsFiltered(
+  filter: SkillListFilter,
+  ctx: SkillOperationContext,
+): Promise<{
+  skills: SlimSkillResponse[];
+  categoryCounts: Record<string, number>;
+  totalCount: number;
+}> {
+  let skills = await listSkillsWithCatalog(ctx);
+
+  // Apply origin filter
+  if (filter.origin) {
+    skills = skills.filter((s) => s.origin === filter.origin);
+  }
+
+  // Apply kind/status filter
+  if (filter.kind) {
+    switch (filter.kind) {
+      case "installed":
+        skills = skills.filter(
+          (s) => s.kind === "installed" || s.kind === "bundled",
+        );
+        break;
+      case "available":
+        skills = skills.filter((s) => s.status === "available");
+        break;
+      default:
+        skills = skills.filter((s) => s.kind === filter.kind);
+        break;
+    }
+  }
+
+  // Apply text search
+  if (filter.q) {
+    const query = filter.q.trim().toLowerCase();
+    if (query) {
+      skills = skills.filter((s) => {
+        if (s.name.toLowerCase().includes(query)) return true;
+        if (s.description.toLowerCase().includes(query)) return true;
+        if (s.id.toLowerCase().includes(query)) return true;
+        if (originMatchesQuery(s.origin, query)) return true;
+        return false;
+      });
+    }
+  }
+
+  // Compute category counts BEFORE applying the category filter
+  const categoryCounts: Record<string, number> = {};
+  for (const s of skills) {
+    const cat = inferCategory(s.name, s.description);
+    categoryCounts[cat] = (categoryCounts[cat] ?? 0) + 1;
+  }
+  const totalCount = skills.length;
+
+  // Apply category filter
+  if (filter.category) {
+    skills = skills.filter(
+      (s) => inferCategory(s.name, s.description) === filter.category,
+    );
+  }
+
+  // Sort: installed first, community origins before core within installed,
+  // then alphabetical by name (matching Swift sorting logic)
+  skills.sort((a, b) => {
+    // Installed (bundled + installed) before catalog (available)
+    const aInstalled = a.kind === "installed" || a.kind === "bundled" ? 0 : 1;
+    const bInstalled = b.kind === "installed" || b.kind === "bundled" ? 0 : 1;
+    if (aInstalled !== bInstalled) return aInstalled - bInstalled;
+
+    // Within installed, community origins (clawhub, skillssh) before core (vellum)
+    if (aInstalled === 0 && bInstalled === 0) {
+      const aCommunity =
+        a.origin === "clawhub" || a.origin === "skillssh" ? 0 : 1;
+      const bCommunity =
+        b.origin === "clawhub" || b.origin === "skillssh" ? 0 : 1;
+      if (aCommunity !== bCommunity) return aCommunity - bCommunity;
+    }
+
+    // Alphabetical by name
+    return a.name.localeCompare(b.name);
+  });
+
+  return { skills, categoryCounts, totalCount };
+}
+
 /** Look up a single skill by ID from the resolved catalog, returning its SlimSkillResponse. */
 function findSkillById(
   skillId: string,
