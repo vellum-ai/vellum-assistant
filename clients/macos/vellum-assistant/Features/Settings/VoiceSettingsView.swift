@@ -10,7 +10,7 @@ struct VoiceSettingsView: View {
     @AppStorage("activationKey") private var activationKey: String = "fn"
     @AppStorage("voiceConversationTimeoutSeconds") private var conversationTimeoutSeconds: Int = 30
     @AppStorage("ttsProvider") private var ttsProviderRaw: String = "elevenlabs"
-    @AppStorage("sttProvider") private var sttProviderRaw: String = "openai-whisper"
+    @AppStorage("sttProvider") private var sttProviderRaw: String = ""
 
     // TTS draft-based state (mirrors Inference card pattern)
     /// Uncommitted provider selection — only persisted on Save.
@@ -34,11 +34,14 @@ struct VoiceSettingsView: View {
 
     // STT draft-based state
     /// Uncommitted provider selection — persisted only on Save.
-    @State private var draftSTTProvider: String = "openai-whisper"
+    /// Empty-string sentinel means "no explicit selection" — the UI
+    /// resolves the effective provider from the catalog via
+    /// `selectedSTTProvider` which falls back to the first registry entry.
+    @State private var draftSTTProvider: String = ""
     /// API key input text (replaces the old Connect/Set Up flow).
     @State private var sttApiKeyText: String = ""
     /// Baseline provider for change detection — set on appear and after save.
-    @State private var initialSTTProvider: String = "openai-whisper"
+    @State private var initialSTTProvider: String = ""
     /// Whether the current STT provider already has a stored API key.
     @State private var sttProviderHasKey: Bool = false
     /// Save-in-progress indicator.

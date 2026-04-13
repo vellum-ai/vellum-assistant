@@ -3552,10 +3552,13 @@ public final class SettingsStore: ObservableObject {
 
         // Sync the global STT provider from the daemon config so the client
         // stays aligned after restart or reconnection. The canonical path
-        // is services.stt.provider.
+        // is services.stt.provider. Empty/whitespace-only values are
+        // treated as "not configured" and are not persisted — this avoids
+        // clobbering a previously selected provider with a no-op sentinel.
         if let services = config["services"] as? [String: Any],
            let stt = services["stt"] as? [String: Any],
-           let sttProvider = stt["provider"] as? String {
+           let sttProvider = stt["provider"] as? String,
+           !sttProvider.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             UserDefaults.standard.set(sttProvider, forKey: "sttProvider")
         }
 
