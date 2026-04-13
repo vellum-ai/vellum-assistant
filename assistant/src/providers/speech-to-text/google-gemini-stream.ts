@@ -190,7 +190,15 @@ export class GoogleGeminiStreamingTranscriber implements StreamingTranscriber {
       // Guard: if stop() was called while we were awaiting the API
       // response, emitFinal() may have already sent final/closed.
       // Emitting a partial after closed violates the streaming contract.
-      if (this.stopped) return;
+      // However, preserve the transcribed text so the fallback final in
+      // emitFinal() uses the most up-to-date transcript if the final
+      // batch request fails.
+      if (this.stopped) {
+        if (text && text.length >= this.lastEmittedText.length) {
+          this.lastEmittedText = text;
+        }
+        return;
+      }
 
       // Only emit a partial if the text has actually changed AND is
       // a forward progression (longer or substantially different).
