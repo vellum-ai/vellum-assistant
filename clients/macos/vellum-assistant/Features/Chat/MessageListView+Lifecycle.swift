@@ -74,7 +74,9 @@ extension MessageListView {
             // jump the viewport to an older user message.
             let isConfirmationResume = scrollState.lastActivityPhaseWhenIdle == "awaiting_confirmation"
             if !isConfirmationResume {
-                scrollState.pendingSendScrollToTop = true
+                if let userMessage = messages.last(where: { $0.role == .user }) {
+                    scrollState.pendingSendScrollMessageId = userMessage.id
+                }
             }
         } else {
             // Capture the activity phase at the moment sending stops.
@@ -119,16 +121,27 @@ extension MessageListView {
                 return
             }
         }
+        // --- Safety net: detect new user message added before isSending onChange fired ---
+        // MessageSendCoordinator appends the user message and calls flushCoalescedPublish()
+        // before setting isSending = true, so messages.count can change first.
+        // Must run before lastMessageId is updated so we can detect the change.
+        if scrollState.pendingSendScrollMessageId == nil {
+            if let lastUser = paginatedVisibleMessages.last(where: { $0.role == .user }),
+               scrollState.lastMessageId != nil,
+               lastUser.id != scrollState.lastMessageId,
+               paginatedVisibleMessages.last?.id != scrollState.lastMessageId {
+                scrollState.pendingSendScrollMessageId = lastUser.id
+            }
+        }
         // --- Update lastMessageId ---
         if let lastId = paginatedVisibleMessages.last?.id {
             scrollState.lastMessageId = lastId
         }
         // --- Scroll user message to top on send ---
-        if scrollState.pendingSendScrollToTop {
-            if let userMessage = messages.last(where: { $0.role == .user }) {
-                scrollPosition = ScrollPosition(id: userMessage.id, anchor: .top)
-            }
-            scrollState.pendingSendScrollToTop = false
+        if let targetId = scrollState.pendingSendScrollMessageId,
+           paginatedVisibleMessages.contains(where: { $0.id == targetId }) {
+            scrollPosition = ScrollPosition(id: targetId, anchor: .top)
+            scrollState.pendingSendScrollMessageId = nil
         }
         // --- Confirmation focus handoff ---
         #if os(macOS)
