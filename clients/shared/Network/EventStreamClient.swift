@@ -475,8 +475,9 @@ public final class EventStreamClient {
             // handleParsedMessage (called from inside the SSE loop) would
             // tear down the very session it's reading from.
             Task { @MainActor [weak self] in
-                self?.stopSSE()
-                self?.startSSE()
+                guard let self, self.shouldReconnect else { return }
+                self.stopSSE()
+                self.startSSE()
             }
             return
         }
