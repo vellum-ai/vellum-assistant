@@ -377,12 +377,17 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// ID of the queued user message with the highest position (i.e. the tail of
     /// the queue that will be processed last). `nil` when no user messages are
     /// currently queued. Used to drive "edit last queued message" affordances.
+    ///
+    /// On position ties (e.g. multiple messages queued before any `message_queued`
+    /// acks arrive — all start at position 0), prefer the most recently added
+    /// message. `messages` is maintained in chronological (append) order, so
+    /// `>=` with iteration ensures the last-at-max wins.
     public var tailQueuedMessageId: UUID? {
         var tailId: UUID?
         var tailPosition = Int.min
         for message in messages where message.role == .user {
             guard case let .queued(position) = message.status else { continue }
-            if position > tailPosition {
+            if position >= tailPosition {
                 tailPosition = position
                 tailId = message.id
             }
