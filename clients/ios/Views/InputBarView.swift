@@ -119,6 +119,12 @@ struct InputBarView: View {
     /// so, streaming updates are suppressed to avoid overwriting user input.
     @State private var textBeforeStreamingPartials: String = ""
 
+    /// True once `onVoiceResult` has been called for the current recording session.
+    /// Prevents duplicate delivery when batch resolution and streaming final race
+    /// (e.g. auto-stop fires before `.ready`, then streaming delivers a `.final`
+    /// after the batch task has already committed).
+    @State private var voiceResultCommitted = false
+
     var body: some View {
         VStack(spacing: 0) {
             // Attachment strip (shown only when there are pending attachments)
@@ -487,6 +493,7 @@ struct InputBarView: View {
         streamingFinalReceived = false
         isStreamingActive = false
         textBeforeStreamingPartials = text
+        voiceResultCommitted = false
 
         // Tear down any leftover streaming client from a previous session.
         if let oldClient = activeStreamingClient {
@@ -653,6 +660,13 @@ struct InputBarView: View {
     /// stream is still active, this method is a no-op — the streaming result takes precedence
     /// over batch.
     private func resolveTranscriptWithServiceFirst(nativeTranscript: String) {
+        // If a result was already committed for this session (either by streaming final
+        // or a previous batch resolution), skip duplicate delivery.
+        guard !voiceResultCommitted else {
+            log.info("Voice result already committed for this session — skipping duplicate delivery")
+            return
+        }
+
         // If the streaming path already committed a final transcript, do not overwrite it
         // with a batch result.
         guard !streamingFinalReceived else {
@@ -719,6 +733,7 @@ struct InputBarView: View {
             // Only apply the final transcription if the user has not typed anything since auto-stop.
             if !wasAutoStopPending || text == savedTextAtAutoStop {
                 text = finalTranscript
+                voiceResultCommitted = true
                 onVoiceResult?(finalTranscript)
             }
             stopRecording()
@@ -792,8 +807,9 @@ struct InputBarView: View {
             log.info("STT streaming session ready — streaming audio chunks")
 
         case .partial(let partialText, let seq):
-            // Only apply partials if the user has not manually typed since recording started.
-            guard text == textBeforeStreamingPartials || isStreamingActive else { return }
+            // Only apply partials if the stream is active and the user has not manually
+            // typed since the last partial was applied.
+            guard isStreamingActive, text == textBeforeStreamingPartials else { return }
             log.debug("STT streaming partial (seq=\(seq)): \(partialText.prefix(80), privacy: .public)")
             text = partialText
             // Track the latest partial as the baseline for user-typing detection.
@@ -802,8 +818,16 @@ struct InputBarView: View {
         case .final(let finalText, let seq):
             log.info("STT streaming final (seq=\(seq), \(finalText.count) chars)")
             streamingFinalReceived = true
+            // Skip if a result was already committed (e.g. batch resolution won the race).
+            guard !voiceResultCommitted else {
+                log.info("Voice result already committed — skipping streaming final delivery")
+                stopRecording()
+                isVoiceOrbExpanded = false
+                return
+            }
             text = finalText
             textBeforeStreamingPartials = finalText
+            voiceResultCommitted = true
             onVoiceResult?(finalText)
             // Tear down the session — the streaming final is the authoritative result.
             stopRecording()
@@ -814,10 +838,20 @@ struct InputBarView: View {
             // Stream errored — fall back to batch. Clear streaming state so batch
             // resolution proceeds normally.
             isStreamingActive = false
+            // If auto-stop was waiting on a streaming final that never arrived,
+            // trigger batch fallback now to avoid a stuck session.
+            if isSTTOnlyMode && !streamingFinalReceived && isAutoStopPending {
+                resolveTranscriptWithServiceFirst(nativeTranscript: "")
+            }
 
         case .closed:
             log.info("STT streaming session closed")
             isStreamingActive = false
+            // If auto-stop was waiting on a streaming final that never arrived,
+            // trigger batch fallback now to avoid a stuck session.
+            if isSTTOnlyMode && !streamingFinalReceived && isAutoStopPending {
+                resolveTranscriptWithServiceFirst(nativeTranscript: "")
+            }
         }
     }
 
@@ -828,6 +862,11 @@ struct InputBarView: View {
         log.warning("STT streaming failed: \(String(describing: failure)) — falling back to batch STT")
         isStreamingActive = false
         activeStreamingClient = nil
+        // If auto-stop was waiting on a streaming final that never arrived,
+        // trigger batch fallback now to avoid a stuck session.
+        if isSTTOnlyMode && !streamingFinalReceived && isAutoStopPending {
+            resolveTranscriptWithServiceFirst(nativeTranscript: "")
+        }
     }
 
     private func stopRecording() {
