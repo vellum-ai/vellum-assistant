@@ -53,4 +53,12 @@ export interface EnvironmentDefinition {
 
   /** Override for the XDG config directory. */
   configDirOverride?: string;
+
+  /**
+   * Override for the directory containing the lockfile. Populated by the
+   * resolver from `VELLUM_LOCKFILE_DIR` (an existing e2e test escape hatch
+   * — see `cli/src/lib/assistant-config.ts:getLockfileDir`) so path helpers
+   * don't read env vars directly.
+   */
+  lockfileDirOverride?: string;
 }

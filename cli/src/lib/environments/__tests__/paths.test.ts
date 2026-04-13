@@ -25,6 +25,7 @@ const {
   getDataDir,
   getDefaultPorts,
   getLockfilePath,
+  getLockfilePaths,
   getMultiInstanceDir,
 } = await import("../paths.js");
 type EnvironmentDefinition = import("../types.js").EnvironmentDefinition;
@@ -157,6 +158,62 @@ describe("path helpers", () => {
         configDirOverride: "/tmp/cfg",
       };
       expect(getLockfilePath(env)).toBe("/tmp/cfg/lockfile.json");
+    });
+
+    test("production respects lockfileDirOverride", () => {
+      const env: EnvironmentDefinition = {
+        ...prod,
+        lockfileDirOverride: "/tmp/lock",
+      };
+      expect(getLockfilePath(env)).toBe("/tmp/lock/.vellum.lock.json");
+    });
+
+    test("non-prod respects lockfileDirOverride (overrides configDir)", () => {
+      const env: EnvironmentDefinition = {
+        ...dev,
+        configDirOverride: "/tmp/cfg",
+        lockfileDirOverride: "/tmp/lock",
+      };
+      expect(getLockfilePath(env)).toBe("/tmp/lock/lockfile.json");
+    });
+  });
+
+  describe("getLockfilePaths", () => {
+    test("production returns both current and legacy filenames in priority order", () => {
+      expect(getLockfilePaths(prod)).toEqual([
+        join(TEST_HOME, ".vellum.lock.json"),
+        join(TEST_HOME, ".vellum.lockfile.json"),
+      ]);
+    });
+
+    test("non-prod returns a single canonical path", () => {
+      expect(getLockfilePaths(dev)).toEqual([
+        join(TEST_HOME, ".config", "vellum-dev", "lockfile.json"),
+      ]);
+    });
+
+    test("production with lockfileDirOverride applies to both candidates", () => {
+      const env: EnvironmentDefinition = {
+        ...prod,
+        lockfileDirOverride: "/tmp/lock",
+      };
+      expect(getLockfilePaths(env)).toEqual([
+        "/tmp/lock/.vellum.lock.json",
+        "/tmp/lock/.vellum.lockfile.json",
+      ]);
+    });
+
+    test("non-prod with lockfileDirOverride overrides the config dir", () => {
+      const env: EnvironmentDefinition = {
+        ...dev,
+        lockfileDirOverride: "/tmp/lock",
+      };
+      expect(getLockfilePaths(env)).toEqual(["/tmp/lock/lockfile.json"]);
+    });
+
+    test("getLockfilePath returns the first entry from getLockfilePaths", () => {
+      expect(getLockfilePath(prod)).toBe(getLockfilePaths(prod)[0]);
+      expect(getLockfilePath(dev)).toBe(getLockfilePaths(dev)[0]);
     });
   });
 

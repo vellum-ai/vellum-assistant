@@ -6,6 +6,7 @@ const ENV_VARS_TO_SAVE = [
   "VELLUM_ENVIRONMENT",
   "VELLUM_PLATFORM_URL",
   "VELLUM_ASSISTANT_PLATFORM_URL",
+  "VELLUM_LOCKFILE_DIR",
 ] as const;
 
 describe("getCurrentEnvironment", () => {
@@ -122,6 +123,25 @@ describe("getCurrentEnvironment", () => {
     expect(() => getCurrentEnvironment()).toThrow(
       /unknown environment "my-custom"/,
     );
+  });
+
+  test("VELLUM_LOCKFILE_DIR populates lockfileDirOverride on the resolved definition", () => {
+    process.env.VELLUM_LOCKFILE_DIR = "/tmp/test-lockfile-dir";
+    const env = getCurrentEnvironment();
+    expect(env.lockfileDirOverride).toBe("/tmp/test-lockfile-dir");
+  });
+
+  test("lockfileDirOverride is undefined when VELLUM_LOCKFILE_DIR is unset", () => {
+    const env = getCurrentEnvironment();
+    expect(env.lockfileDirOverride).toBeUndefined();
+  });
+
+  test("lockfileDirOverride applies to non-prod envs too", () => {
+    process.env.VELLUM_ENVIRONMENT = "dev";
+    process.env.VELLUM_LOCKFILE_DIR = "/tmp/test-lockfile-dir";
+    const env = getCurrentEnvironment();
+    expect(env.name).toBe("dev");
+    expect(env.lockfileDirOverride).toBe("/tmp/test-lockfile-dir");
   });
 });
 

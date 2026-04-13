@@ -25,11 +25,12 @@ export function getSeed(name: string): EnvironmentDefinition | undefined {
  *   3. (future) user context file
  *   4. Default: `production`
  *
- * Two per-field env-var overrides are honored on the resolved definition as
- * ad-hoc escape hatches for one-off testing (they do not materialize new
- * environments):
+ * Per-field env-var overrides are honored on the resolved definition as
+ * ad-hoc escape hatches (they do not materialize new environments):
  *   - `VELLUM_PLATFORM_URL` overrides `platformUrl`
  *   - `VELLUM_ASSISTANT_PLATFORM_URL` overrides `assistantPlatformUrl`
+ *   - `VELLUM_LOCKFILE_DIR` overrides `lockfileDirOverride` (legacy e2e
+ *     test hook used by `cli/src/lib/assistant-config.ts:getLockfileDir`)
  *
  * This function should be the single entrypoint for environment resolution.
  * No other code should drive off `VELLUM_ENVIRONMENT` directly.
@@ -56,6 +57,11 @@ export function getCurrentEnvironment(
     process.env.VELLUM_ASSISTANT_PLATFORM_URL?.trim();
   if (assistantPlatformUrlOverride) {
     resolved.assistantPlatformUrl = assistantPlatformUrlOverride;
+  }
+
+  const lockfileDirOverride = process.env.VELLUM_LOCKFILE_DIR?.trim();
+  if (lockfileDirOverride) {
+    resolved.lockfileDirOverride = lockfileDirOverride;
   }
 
   return resolved;

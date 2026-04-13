@@ -6,5 +6,6 @@ export {
   getDataDir,
   getDefaultPorts,
   getLockfilePath,
+  getLockfilePaths,
   getMultiInstanceDir,
 } from "./paths.js";

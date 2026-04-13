@@ -5,6 +5,17 @@ import type { EnvironmentDefinition, PortMap } from "./types.js";
 
 const PRODUCTION_ENVIRONMENT_NAME = "production";
 
+/**
+ * Production lockfile filenames in priority order. Mirrors `LOCKFILE_NAMES`
+ * in `cli/src/lib/constants.ts`. The current name is `.vellum.lock.json`;
+ * `.vellum.lockfile.json` is the legacy name kept for backward compatibility
+ * with installs that predate the rename.
+ */
+const PRODUCTION_LOCKFILE_NAMES = [
+  ".vellum.lock.json",
+  ".vellum.lockfile.json",
+] as const;
+
 const DEFAULT_PORTS: Readonly<PortMap> = {
   daemon: 7821,
   gateway: 7830,
@@ -42,15 +53,38 @@ export function getConfigDir(env: EnvironmentDefinition): string {
 }
 
 /**
- * Lockfile path for an environment.
- * Production keeps the legacy `~/.vellum.lock.json` location;
- * non-production environments store the lockfile under the env-scoped config directory.
+ * Lockfile candidate paths for an environment, in priority order.
+ *
+ * For production, returns both the current `.vellum.lock.json` and the
+ * legacy `.vellum.lockfile.json` so read-side callers can fall back to the
+ * legacy filename on installs that predate the rename. Non-production
+ * environments are new and have a single canonical path under the env-scoped
+ * XDG config directory.
+ *
+ * Read-side callers should iterate this array and use the first existing
+ * file (matching `cli/src/lib/assistant-config.ts:readLockfile`). Write-side
+ * callers should use {@link getLockfilePath}, which returns the first
+ * (canonical) entry.
+ *
+ * `env.lockfileDirOverride` (populated by the resolver from
+ * `VELLUM_LOCKFILE_DIR`) overrides the directory the lockfile lives in for
+ * both production and non-production environments.
+ */
+export function getLockfilePaths(env: EnvironmentDefinition): string[] {
+  if (env.name === PRODUCTION_ENVIRONMENT_NAME) {
+    const dir = env.lockfileDirOverride ?? homedir();
+    return PRODUCTION_LOCKFILE_NAMES.map((name) => join(dir, name));
+  }
+  const dir = env.lockfileDirOverride ?? getConfigDir(env);
+  return [join(dir, "lockfile.json")];
+}
+
+/**
+ * Canonical lockfile path for writes. For production this is the current
+ * `.vellum.lock.json` (legacy reads handled by {@link getLockfilePaths}).
  */
 export function getLockfilePath(env: EnvironmentDefinition): string {
-  if (env.name === PRODUCTION_ENVIRONMENT_NAME) {
-    return join(homedir(), ".vellum.lock.json");
-  }
-  return join(getConfigDir(env), "lockfile.json");
+  return getLockfilePaths(env)[0]!;
 }
 
 /**
