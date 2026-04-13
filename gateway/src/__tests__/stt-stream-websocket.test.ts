@@ -158,7 +158,7 @@ describe("createSttStreamWebsocketHandler", () => {
     expect(server.upgrade).not.toHaveBeenCalled();
   });
 
-  test("returns 400 when provider is missing", () => {
+  test("upgrades successfully when provider is omitted (config-authoritative)", () => {
     const config = makeConfig();
     const handler = createSttStreamWebsocketHandler(config);
     const req = new Request(
@@ -168,8 +168,15 @@ describe("createSttStreamWebsocketHandler", () => {
     const server = makeFakeServer();
     const res = handler(req, server);
 
-    expect(res).toBeInstanceOf(Response);
-    expect(res!.status).toBe(400);
+    expect(res).toBeUndefined();
+    expect(server.upgrade).toHaveBeenCalledTimes(1);
+
+    // Verify provider is undefined in socket data
+    const upgradeCall = (server.upgrade as ReturnType<typeof mock>).mock
+      .calls[0] as unknown[];
+    const opts = upgradeCall[1] as { data: SttStreamSocketData };
+    expect(opts.data.provider).toBeUndefined();
+    expect(opts.data.mimeType).toBe("audio/webm");
   });
 
   test("returns 400 when mimeType is missing", () => {
@@ -177,6 +184,20 @@ describe("createSttStreamWebsocketHandler", () => {
     const handler = createSttStreamWebsocketHandler(config);
     const req = new Request(
       `http://localhost:7830/v1/stt/stream?token=${TEST_TOKEN}&provider=deepgram`,
+      { headers: { upgrade: "websocket" } },
+    );
+    const server = makeFakeServer();
+    const res = handler(req, server);
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(400);
+  });
+
+  test("returns 400 when mimeType is missing and provider is also missing", () => {
+    const config = makeConfig();
+    const handler = createSttStreamWebsocketHandler(config);
+    const req = new Request(
+      `http://localhost:7830/v1/stt/stream?token=${TEST_TOKEN}`,
       { headers: { upgrade: "websocket" } },
     );
     const server = makeFakeServer();
@@ -227,11 +248,25 @@ describe("createSttStreamWebsocketHandler", () => {
     expect(server.upgrade).toHaveBeenCalledTimes(1);
   });
 
-  test("returns 400 when auth is disabled but provider is missing", () => {
+  test("upgrades when auth is disabled and provider is omitted", () => {
     const config = makeConfig({ runtimeProxyRequireAuth: false });
     const handler = createSttStreamWebsocketHandler(config);
     const req = new Request(
       "http://localhost:7830/v1/stt/stream?mimeType=audio/webm",
+      { headers: { upgrade: "websocket" } },
+    );
+    const server = makeFakeServer();
+    const res = handler(req, server);
+
+    expect(res).toBeUndefined();
+    expect(server.upgrade).toHaveBeenCalledTimes(1);
+  });
+
+  test("returns 400 when auth is disabled but mimeType is missing", () => {
+    const config = makeConfig({ runtimeProxyRequireAuth: false });
+    const handler = createSttStreamWebsocketHandler(config);
+    const req = new Request(
+      "http://localhost:7830/v1/stt/stream?provider=deepgram",
       { headers: { upgrade: "websocket" } },
     );
     const server = makeFakeServer();

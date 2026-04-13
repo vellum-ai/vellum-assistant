@@ -55,16 +55,18 @@ The request carries base64-encoded WAV audio and a MIME type. The daemon resolve
 
 Native clients (macOS, iOS) open WebSocket connections through the gateway to the daemon's real-time STT streaming endpoint for conversation chat message capture. The gateway authenticates the downstream client using an edge JWT (actor principal required), then opens an upstream WebSocket connection to the daemon's `/v1/stt/stream` endpoint with a short-lived gateway service token. This keeps the daemon's WebSocket endpoint unreachable from the public internet while allowing authenticated clients to stream audio for real-time transcription.
 
-**Client path:** `wss://<gateway>/v1/stt/stream?provider=<id>&mimeType=<mime>[&sampleRate=<hz>]`
+**Config-authoritative model:** The runtime always resolves the streaming transcriber from `services.stt.provider` in the assistant config, regardless of any `provider` query parameter. The `provider` parameter is optional compatibility metadata — when supplied and it disagrees with the configured provider, the runtime logs a mismatch warning for operator visibility.
+
+**Client path:** `wss://<gateway>/v1/stt/stream?mimeType=<mime>[&provider=<id>][&sampleRate=<hz>]`
 
 **Query parameters:**
 
-| Parameter    | Required | Description                                                              |
-| ------------ | -------- | ------------------------------------------------------------------------ |
-| `provider`   | Yes      | STT provider identifier (`deepgram`, `google-gemini`)                    |
-| `mimeType`   | Yes      | MIME type of the audio being streamed (e.g. `audio/webm;codecs=opus`)    |
-| `sampleRate` | No       | Sample rate in Hz (e.g. `16000`). Passed through to the daemon.          |
-| `token`      | No       | Edge JWT (alternative to `Authorization: Bearer` header for WS upgrades) |
+| Parameter    | Required | Description                                                                                                                                                                      |
+| ------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mimeType`   | Yes      | MIME type of the audio being streamed (e.g. `audio/webm;codecs=opus`)                                                                                                            |
+| `provider`   | No       | Optional STT provider identifier (`deepgram`, `google-gemini`). Forwarded as compatibility metadata — the runtime resolves the transcriber from config, not from this parameter. |
+| `sampleRate` | No       | Sample rate in Hz (e.g. `16000`). Passed through to the daemon.                                                                                                                  |
+| `token`      | No       | Edge JWT (alternative to `Authorization: Bearer` header for WS upgrades)                                                                                                         |
 
 **Auth model:** STT streaming is an authenticated, assistant-scoped path. The client must present a valid edge JWT with an actor principal. Service tokens are rejected. When `runtimeProxyRequireAuth` is globally disabled (dev bypass), the upgrade proceeds without token validation.
 

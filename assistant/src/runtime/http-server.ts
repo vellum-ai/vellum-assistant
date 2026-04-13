@@ -41,6 +41,7 @@ import {
   hasUngatedHttpAuthDisabled,
   isHttpAuthDisabled,
 } from "../config/env.js";
+import { getConfig } from "../config/loader.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { PairingStore } from "../daemon/pairing-store.js";
 import {
@@ -310,10 +311,15 @@ interface MediaStreamWebSocketData {
  * WebSocket data attached to `/v1/stt/stream` connections.
  * The `wsType` discriminator routes frames to the STT streaming
  * session orchestrator instead of the other WebSocket handlers.
+ *
+ * `provider` is optional compatibility metadata from the client/gateway.
+ * The runtime is config-authoritative — it always resolves the streaming
+ * transcriber from `services.stt.provider` in the assistant config.
  */
 interface SttStreamWebSocketData {
   wsType: "stt-stream";
-  provider: string;
+  /** Optional requested provider — metadata only; runtime uses config. */
+  provider?: string;
   mimeType: string;
   sampleRate?: number;
   /** The session ID for tracking in the active sessions registry. */
@@ -462,9 +468,30 @@ export class RuntimeHttpServer {
           }
           if ("wsType" in data && data.wsType === "stt-stream") {
             const sttData = data as SttStreamWebSocketData;
+
+            // The runtime is config-authoritative: always resolve the
+            // provider from `services.stt.provider` regardless of what
+            // the client/gateway requested.
+            const configuredProvider = getConfig().services.stt.provider;
+
+            // Mismatch telemetry: when the optional requested provider
+            // disagrees with the configured provider, log a warning so
+            // operators can detect stale client builds.
+            if (sttData.provider && sttData.provider !== configuredProvider) {
+              log.warn(
+                {
+                  requestedProvider: sttData.provider,
+                  configuredProvider,
+                  sessionId: sttData.sessionId,
+                },
+                "STT stream provider mismatch — requested provider differs from configured provider; using configured provider",
+              );
+            }
+
             log.info(
               {
-                provider: sttData.provider,
+                requestedProvider: sttData.provider ?? "(none)",
+                configuredProvider,
                 mimeType: sttData.mimeType,
                 sessionId: sttData.sessionId,
               },
@@ -472,7 +499,7 @@ export class RuntimeHttpServer {
             );
             const session = new SttStreamSession(
               ws,
-              sttData.provider,
+              configuredProvider,
               sttData.mimeType,
               { sampleRate: sttData.sampleRate },
             );
@@ -1328,13 +1355,14 @@ export class RuntimeHttpServer {
     }
 
     const wsUrl = new URL(req.url);
-    const provider = wsUrl.searchParams.get("provider");
+    // provider is optional compatibility metadata — the runtime resolves
+    // the streaming transcriber from config (`services.stt.provider`).
+    const provider = wsUrl.searchParams.get("provider") ?? undefined;
     const mimeType = wsUrl.searchParams.get("mimeType");
-    if (!provider || !mimeType) {
-      return new Response(
-        "Missing required query parameters: provider, mimeType",
-        { status: 400 },
-      );
+    if (!mimeType) {
+      return new Response("Missing required query parameter: mimeType", {
+        status: 400,
+      });
     }
 
     const sampleRateRaw = wsUrl.searchParams.get("sampleRate");

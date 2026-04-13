@@ -9,8 +9,10 @@
  * WebSocket connection with per-session ordering guarantees.
  *
  * Session lifecycle:
- * 1. Client opens a WebSocket to `/v1/stt/stream` with `provider` and
- *    `mimeType` query parameters.
+ * 1. Client opens a WebSocket to `/v1/stt/stream` with required `mimeType`
+ *    query parameter and optional `provider` metadata. The runtime is
+ *    config-authoritative — it resolves the transcriber from
+ *    `services.stt.provider` regardless of the requested provider.
  * 2. The orchestrator resolves a {@link StreamingTranscriber} via
  *    `resolveStreamingTranscriber()` and starts the provider session.
  * 3. The client sends `audio` frames (binary or base64-encoded JSON) and
