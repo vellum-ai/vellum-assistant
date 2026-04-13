@@ -24,7 +24,6 @@ import { handleBashSignal } from "../signals/bash.js";
 import { handleCancelSignal } from "../signals/cancel.js";
 import { handleConversationUndoSignal } from "../signals/conversation-undo.js";
 import { handleEmitEventSignal } from "../signals/emit-event.js";
-import { handleLaunchConversationSignal } from "../signals/launch-conversation.js";
 import { handleMcpReloadSignal } from "../signals/mcp-reload.js";
 import { handleShotgunSignal } from "../signals/shotgun.js";
 import { handleUserMessageSignal } from "../signals/user-message.js";
@@ -399,7 +398,6 @@ export class ConfigWatcher {
       "bash.": handleBashSignal,
       "shotgun.": handleShotgunSignal,
       "user-message.": handleUserMessageSignal,
-      "launch-conversation.": handleLaunchConversationSignal,
     };
 
     try {

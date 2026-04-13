@@ -56,7 +56,6 @@ import { updatePublishedAppDeployment } from "../services/published-app-updater.
 import { registerCancelCallback } from "../signals/cancel.js";
 import { registerConversationUndoCallback } from "../signals/conversation-undo.js";
 import { appendEventToStream } from "../signals/event-stream.js";
-import { registerLaunchConversationCallback } from "../signals/launch-conversation.js";
 import { registerUserMessageCallback } from "../signals/user-message.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { summarizeToolInput } from "../tools/tool-input-summary.js";
@@ -78,10 +77,7 @@ import {
   DEFAULT_MEMORY_POLICY,
 } from "./conversation.js";
 import { ConversationEvictor } from "./conversation-evictor.js";
-import {
-  launchConversation,
-  registerLaunchConversationDeps,
-} from "./conversation-launch.js";
+import { registerLaunchConversationDeps } from "./conversation-launch.js";
 import { formatCompactResult } from "./conversation-process.js";
 import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
 import { resolveSlash, type SlashContext } from "./conversation-slash.js";
@@ -758,8 +754,8 @@ export class DaemonServer {
       return { accepted: true };
     });
 
-    // Wire the launchConversation helper to daemon-side state so both the
-    // signal-driven path (below) and the handleSurfaceAction path can use it.
+    // Wire the launchConversation helper to daemon-side state so
+    // handleSurfaceAction can spawn conversations through it.
     registerLaunchConversationDeps({
       getOrCreateConversation: (id, options) =>
         this.getOrCreateConversation(id, options),
@@ -782,30 +778,6 @@ export class DaemonServer {
       publishAssistantEvent: (msg, conversationId) =>
         this.publishAssistantEvent(msg, conversationId),
       getAssistantId: () => this.assistantId,
-    });
-
-    registerLaunchConversationCallback(async (params) => {
-      try {
-        // Signal payload carries no origin context — preserves the existing
-        // behavior where signal-launched conversations run without an
-        // inherited trust context.
-        const { conversationId } = await launchConversation({
-          title: params.title,
-          seedPrompt: params.seedPrompt,
-          ...(params.anchorMessageId
-            ? { anchorMessageId: params.anchorMessageId }
-            : {}),
-          originTrustContext: undefined,
-        });
-        return { accepted: true, conversationId };
-      } catch (err) {
-        log.warn({ err }, "Failed to launch conversation via signal");
-        return {
-          accepted: false,
-          error: "launch_failed" as const,
-          message: err instanceof Error ? err.message : String(err),
-        };
-      }
     });
 
     this.configWatcher.start(

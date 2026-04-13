@@ -24,15 +24,17 @@ describe("conversation-launcher skill regression", () => {
   });
 
   test("does not resurrect the deprecated bash + signal-file launch flow", () => {
-    // PRs 5-7 replaced the bash step that wrote
-    // `signals/launch-conversation.<id>` with a direct surface-action
-    // dispatch. None of the old-flow tokens should reappear.
+    // PRs 5-7 replaced the bash step that wrote a per-request signal file
+    // under `<workspace>/signals/` with a direct surface-action dispatch.
+    // None of the old-flow tokens should reappear.
     const forbiddenTokens = [
       "bash",
       "curl",
       "signals/",
       "jq ",
-      "launch-conversation.",
+      // Deleted signal-file prefix; built from parts so the literal doesn't
+      // appear in repo code (prod code should no longer reference it).
+      ["launch", "conversation."].join("-"),
       "VELLUM_WORKSPACE_DIR",
       "INTERNAL_GATEWAY_BASE_URL",
       "emit-event",

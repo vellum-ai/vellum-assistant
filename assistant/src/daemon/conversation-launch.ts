@@ -2,19 +2,14 @@
  * Helper that creates, titles, and seeds a fresh conversation for the
  * conversation-launcher flow.
  *
- * Extracted from the `registerLaunchConversationCallback` body in
- * {@link file:./server.ts}. Callers include:
- *
- *   - The launch-conversation signal handler (no origin trust context).
- *   - `handleSurfaceAction` (future caller — will pass the origin
- *     conversation's `TrustContext` so spawned conversations inherit
- *     guardian / trust class).
+ * Called from `handleSurfaceAction` when a persistent `ui_show` card fires a
+ * `launch_conversation` action — the origin conversation's `TrustContext` is
+ * forwarded so spawned conversations inherit guardian / trust class.
  *
  * The helper depends on DaemonServer state (conversation map,
  * `persistAndProcessMessage`, assistant ID, hub publisher) and is wired via
- * {@link registerLaunchConversationDeps} at daemon startup — mirroring the
- * callback-registration pattern used by `signals/launch-conversation.ts` and
- * friends. Tests can stub deps directly via the same registration.
+ * {@link registerLaunchConversationDeps} at daemon startup. Tests can stub
+ * deps directly via the same registration.
  */
 
 import { randomUUID } from "node:crypto";
@@ -93,7 +88,7 @@ export interface LaunchConversationParams {
  * If `originTrustContext` is provided, it is applied to the new conversation
  * before seeding so guardian / trust-class state is inherited from the
  * spawning context. When absent, the conversation runs without an inherited
- * trust context — the same behavior as the legacy signal-driven path.
+ * trust context.
  *
  * Throws if the helper's daemon-side dependencies have not been registered
  * or if any step of the pipeline fails.
@@ -120,8 +115,7 @@ export async function launchConversation(
   const conversation = await deps.getOrCreateConversation(conversationId);
 
   // Inherit guardian / trust-class state from the caller when available.
-  // The signal-driven callsite passes undefined; the handleSurfaceAction
-  // callsite (PR 5) passes the origin conversation's trustContext.
+  // `handleSurfaceAction` passes the origin conversation's trustContext.
   if (params.originTrustContext) {
     conversation.setTrustContext(params.originTrustContext);
   }

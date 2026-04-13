@@ -5,10 +5,8 @@
  * `launchConversation` is mocked at the module level so we can assert what
  * parameters the dispatch branch passes in (including `originTrustContext`
  * inherited from the origin conversation) without standing up a real DB.
- * The mocking style mirrors
- * `assistant/src/__tests__/signal-launch-conversation.test.ts` — dynamic
- * imports after `mock.module` calls so the modules under test see the
- * stubs.
+ * Mocks use dynamic imports after `mock.module` calls so the modules under
+ * test see the stubs.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
