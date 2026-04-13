@@ -812,8 +812,11 @@ public struct UiSurfaceShowMessage: Decodable, Sendable {
     public let display: String?
     /// The message ID that this surface belongs to (for history loading).
     public let messageId: String?
+    /// When `true`, clicking an action does not dismiss the surface — the client keeps the card
+    /// visible and only marks the clicked `actionId` as spent so siblings remain clickable.
+    public let persistent: Bool?
 
-    public init(conversationId: String?, surfaceId: String, surfaceType: String, title: String?, data: AnyCodable, actions: [SurfaceActionData]?, display: String?, messageId: String?) {
+    public init(conversationId: String?, surfaceId: String, surfaceType: String, title: String?, data: AnyCodable, actions: [SurfaceActionData]?, display: String?, messageId: String?, persistent: Bool? = nil) {
         self.conversationId = conversationId
         self.surfaceId = surfaceId
         self.surfaceType = surfaceType
@@ -822,6 +825,7 @@ public struct UiSurfaceShowMessage: Decodable, Sendable {
         self.actions = actions
         self.display = display
         self.messageId = messageId
+        self.persistent = persistent
     }
 }
 
