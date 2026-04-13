@@ -7,8 +7,10 @@ enum AvatarCompositor {
     /// When `overrideBodyColor` is provided it replaces the avatar's own color for
     /// the body fill — useful for rendering a greyed-out failure state with a
     /// design-system token such as `VColor.contentDisabled`.
-    /// Supply a matching `overrideBodyColorKey` so the render cache uses a stable,
-    /// appearance-independent key instead of `NSColor.description`.
+    /// Supply a matching `overrideBodyColorKey` so the render cache uses a stable
+    /// identifier instead of `NSColor.description`. The cache automatically appends
+    /// the current appearance name so dynamic colors that resolve differently in
+    /// light vs dark mode produce separate cache entries.
     static func render(
         bodyShape: AvatarBodyShape,
         eyeStyle: AvatarEyeStyle,
@@ -18,7 +20,15 @@ enum AvatarCompositor {
         size: CGFloat = 512
     ) -> NSImage {
         let bodyNSColor = overrideBodyColor ?? color.nsColor
-        let colorKey = overrideBodyColorKey ?? color.rawValue
+        let colorKey: String
+        if let overrideKey = overrideBodyColorKey {
+            // Dynamic design-system colors resolve to different concrete values
+            // per appearance, so include the appearance to avoid serving a stale
+            // cached image after a light↔dark mode switch.
+            colorKey = "\(overrideKey)-\(Self.appearanceKey)"
+        } else {
+            colorKey = color.rawValue
+        }
         let cacheKey = "\(bodyShape.rawValue)-\(eyeStyle.rawValue)-\(colorKey)-\(Int(size))"
         if let cached = cache[cacheKey] {
             return cached
@@ -213,6 +223,10 @@ enum AvatarCompositor {
 
         cache[cacheKey] = image
         return image
+    }
+
+    private static var appearanceKey: String {
+        NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])?.rawValue ?? "aqua"
     }
 
     private static var cache: [String: NSImage] = [:]
