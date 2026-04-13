@@ -16,7 +16,7 @@ let db: Database | null = null;
  */
 function getLegacyRootDir(): string {
   return join(
-    process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? homedir()),
+    process.env.BASE_DATA_DIR?.trim() || process.env.HOME || homedir(),
     ".vellum",
   );
 }

@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 
 import {
   getBackupDirOverride,
@@ -46,16 +46,27 @@ export function getLocalBackupsDir(override?: string | null): string {
  * Reads `process.env.HOME` at call time before falling back to `homedir()`.
  * `homedir()` is snapshot at process start on some platforms, so consulting
  * `$HOME` on each call keeps this function honest under tests that redirect
- * the home directory mid-process.
+ * the home directory mid-process. Uses `||` (not `??`) so an empty-string
+ * `HOME` — legal in some sandboxed envs — also falls back to `homedir()`
+ * rather than producing a relative `Library/...` path. Asserts the result is
+ * absolute so callers downstream (`deriveSafeAncestor`, the offsite writer)
+ * never see a relative path regardless of how the home lookup resolved.
  */
 export function getICloudDriveRoot(): string {
-  const home = process.env.HOME ?? homedir();
-  return join(
+  const home = process.env.HOME || homedir();
+  const root = join(
     home,
     "Library",
     "Mobile Documents",
     "com~apple~CloudDocs",
   );
+  if (!isAbsolute(root)) {
+    throw new Error(
+      `getICloudDriveRoot resolved to a relative path: ${root}. ` +
+        `HOME and homedir() both returned empty or relative values.`,
+    );
+  }
+  return root;
 }
 
 /**
