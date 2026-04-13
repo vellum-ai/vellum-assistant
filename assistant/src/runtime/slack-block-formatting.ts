@@ -67,6 +67,15 @@ export function textToSlackBlocks(text: string): Block[] | undefined {
         type: "header",
         text: { type: "plain_text", text: segment.content },
       });
+    } else if (segment.type === "table") {
+      const structured = convertTableToStructuredText(
+        segment.headers,
+        segment.rows,
+      );
+      blocks.push({
+        type: "section",
+        text: { type: "mrkdwn", text: markdownToMrkdwn(structured) },
+      });
     } else {
       blocks.push({
         type: "section",
@@ -113,7 +122,13 @@ interface HeaderSegment {
   content: string;
 }
 
-type Segment = TextSegment | CodeSegment | HeaderSegment;
+interface TableSegment {
+  type: "table";
+  headers: string[];
+  rows: string[][];
+}
+
+type Segment = TextSegment | CodeSegment | HeaderSegment | TableSegment;
 
 function splitIntoSegments(text: string): Segment[] {
   const lines = text.split("\n");
@@ -155,12 +170,108 @@ function splitIntoSegments(text: string): Segment[] {
       continue;
     }
 
+    // Detect markdown tables: header row + separator row + data rows
+    const tableSegment = tryParseTable(lines, i);
+    if (tableSegment) {
+      flushText();
+      segments.push(tableSegment.segment);
+      i = tableSegment.nextIndex;
+      continue;
+    }
+
     currentTextLines.push(line);
     i++;
   }
 
   flushText();
   return segments;
+}
+
+/**
+ * Parse cells from a pipe-delimited table row, trimming whitespace.
+ */
+function parseTableRow(line: string): string[] {
+  return line
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+/**
+ * Check if a line is a markdown table separator row (e.g., |---|---|).
+ */
+function isSeparatorRow(line: string): boolean {
+  return /^\|[\s:-]+(\|[\s:-]+)*\|?\s*$/.test(line);
+}
+
+/**
+ * Try to parse a markdown table starting at the given line index.
+ * Returns the parsed table segment and the next line index, or null
+ * if the lines don't form a valid table (header + separator + at least
+ * one data row).
+ */
+function tryParseTable(
+  lines: string[],
+  startIndex: number,
+): { segment: TableSegment; nextIndex: number } | null {
+  // Need at least 3 lines: header, separator, one data row
+  if (startIndex + 2 >= lines.length) return null;
+
+  const headerLine = lines[startIndex];
+  const separatorLine = lines[startIndex + 1];
+
+  // Header must be a pipe-delimited row
+  if (!headerLine.includes("|") || !headerLine.match(/^\|.*\|$/)) return null;
+  if (!isSeparatorRow(separatorLine)) return null;
+
+  const headers = parseTableRow(headerLine);
+
+  // Collect data rows
+  const rows: string[][] = [];
+  let i = startIndex + 2;
+  while (
+    i < lines.length &&
+    lines[i].includes("|") &&
+    lines[i].match(/^\|.*\|$/)
+  ) {
+    if (!isSeparatorRow(lines[i])) {
+      rows.push(parseTableRow(lines[i]));
+    }
+    i++;
+  }
+
+  // Need at least one data row to qualify as a table
+  if (rows.length === 0) return null;
+
+  return {
+    segment: { type: "table", headers, rows },
+    nextIndex: i,
+  };
+}
+
+/**
+ * Convert a parsed table into structured bullet-point text suitable
+ * for Slack rendering. Uses the first column as the entry label,
+ * listing remaining columns as sub-bullets.
+ */
+function convertTableToStructuredText(
+  headers: string[],
+  rows: string[][],
+): string {
+  const lines: string[] = [];
+
+  for (const row of rows) {
+    const label = row[0] ?? "";
+    lines.push(`**${label}**`);
+    for (let c = 1; c < headers.length; c++) {
+      const value = row[c] ?? "";
+      lines.push(`  - ${headers[c]}: ${value}`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n").trim();
 }
 
 function markdownToMrkdwn(text: string): string {
