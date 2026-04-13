@@ -316,23 +316,6 @@ export class MediaStreamCallSession {
       customParameters: event.start.customParameters,
     });
 
-    const initialTrustContext = toTrustContext(
-      resolved.actorTrust,
-      resolved.otherPartyNumber,
-    );
-
-    // Create the call controller bound to the media-stream output.
-    this.controller = new CallController(
-      this.callSessionId,
-      this.output,
-      session?.task ?? null,
-      {
-        assistantId: resolved.assistantId,
-        trustContext: initialTrustContext,
-      },
-    );
-    registerCallController(this.callSessionId, this.controller);
-
     log.info(
       {
         callSessionId: this.callSessionId,
@@ -340,12 +323,32 @@ export class MediaStreamCallSession {
         callSid: this.callSid,
         setupAction: outcome.action,
       },
-      "Media stream session started — controller registered",
+      "Media stream session started",
     );
 
     switch (outcome.action) {
-      case "normal_call":
-        // Normal call — fire the initial greeting.
+      case "normal_call": {
+        // Create the call controller only for normal calls. Deny and
+        // unsupported-flow paths speak a message via the output adapter
+        // directly and don't need a controller. Creating it eagerly
+        // would start duration/silence timers that leak when the
+        // session is torn down before destroy() runs.
+        const initialTrustContext = toTrustContext(
+          resolved.actorTrust,
+          resolved.otherPartyNumber,
+        );
+        this.controller = new CallController(
+          this.callSessionId,
+          this.output,
+          session?.task ?? null,
+          {
+            assistantId: resolved.assistantId,
+            trustContext: initialTrustContext,
+          },
+        );
+        registerCallController(this.callSessionId, this.controller);
+
+        // Fire the initial greeting.
         this.controller.startInitialGreeting().catch((err) => {
           log.error(
             { err, callSessionId: this.callSessionId },
@@ -353,6 +356,7 @@ export class MediaStreamCallSession {
           );
         });
         return;
+      }
 
       case "deny":
         // Deny — speak the denial message and tear down.
