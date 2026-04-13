@@ -11,30 +11,14 @@ struct SoundEventConfig: Equatable {
         self.enabled = enabled
         self.sounds = sounds
     }
-
-    /// Compatibility shim — new code should read/write `sounds` directly.
-    /// Scheduled for removal once all consumers migrate.
-    ///
-    /// Getter returns the first entry in the pool (or `nil` when empty).
-    /// Setter replaces the pool: a non-empty string becomes a single-entry pool,
-    /// `nil` or empty string clears the pool.
-    var sound: String? {
-        get { sounds.first }
-        set {
-            if let newValue, !newValue.isEmpty {
-                sounds = [newValue]
-            } else {
-                sounds = []
-            }
-        }
-    }
 }
 
 extension SoundEventConfig: Codable {
     enum CodingKeys: String, CodingKey {
         case enabled
         case sounds
-        case sound
+        // "sound" is the pre-pool legacy JSON key; we still decode it for old config files.
+        case legacySound = "sound"
     }
 
     init(from decoder: Decoder) throws {
@@ -46,7 +30,7 @@ extension SoundEventConfig: Codable {
         let decodedSounds: [String]
         if let pool = try container.decodeIfPresent([String].self, forKey: .sounds) {
             decodedSounds = pool
-        } else if let legacy = try container.decodeIfPresent(String.self, forKey: .sound) {
+        } else if let legacy = try container.decodeIfPresent(String.self, forKey: .legacySound) {
             decodedSounds = [legacy]
         } else {
             decodedSounds = []
