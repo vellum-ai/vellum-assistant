@@ -46,42 +46,35 @@ For each option you plan to surface, prepare:
    }
    ```
 
-2. **Parse the action result.** When the user clicks a button, you receive the `actionId` and its `data` payload. Extract `title` and `seed_prompt`.
+2. **Bind the clicked action's payload.** When the user clicks a button, you receive the `actionId` and its `data` payload. Bind the values before continuing:
 
-3. **Create the new conversation.** Generate a fresh idempotency key (any unique string, e.g. a UUID or timestamp-based slug) and call:
+   - `NEW_CONV_TITLE` = the `title` field from the clicked action's `data`.
+   - `SEED_PROMPT` = the `seed_prompt` field from the clicked action's `data`.
 
-    ```bash
-    curl -sf -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/conversations" \
-      -H "Content-Type: application/json" \
-      -d "{\"conversationKey\":\"launcher-$(date +%s)-$RANDOM\"}"
-    ```
-
-    Capture the returned `id` as `NEW_CONV_ID`.
-
-4. **Seed the new conversation.** Post the seed prompt to it:
+3. **Launch the conversation.** Write a single signal file. The assistant picks it up, creates a fresh conversation, titles it, seeds it with `$SEED_PROMPT` as the first user message, and emits an `open_conversation` event so the UI navigates automatically.
 
     ```bash
-    curl -sf -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/messages" \
-      -H "Content-Type: application/json" \
-      -d "{\"conversationKey\":\"${NEW_CONV_ID}\",\"content\":\"${SEED_PROMPT}\"}"
+    REQUEST_ID=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)
+    SIGNALS_DIR="${VELLUM_WORKSPACE_DIR:-$HOME/.vellum/workspace}/signals"
+    mkdir -p "$SIGNALS_DIR"
+
+    # Safely encode user-provided strings as JSON (handles quotes, newlines, $, etc.)
+    PAYLOAD=$(jq -n \
+      --arg requestId "$REQUEST_ID" \
+      --arg title "$NEW_CONV_TITLE" \
+      --arg seedPrompt "$SEED_PROMPT" \
+      '{requestId: $requestId, title: $title, seedPrompt: $seedPrompt}')
+
+    printf '%s' "$PAYLOAD" > "$SIGNALS_DIR/launch-conversation.$REQUEST_ID"
     ```
 
-    (`conversationKey` here accepts either the idempotency key or the conversation ID — the resolver handles both.)
+    `jq` is available in the skill sandbox. Do not interpolate `$NEW_CONV_TITLE` or `$SEED_PROMPT` directly into a JSON string — user prompts commonly contain quotes, backslashes, newlines, or `$`, which break raw interpolation.
 
-5. **Open the new conversation in the UI.** Write a JSON event to the signals directory; the assistant's config watcher publishes it to connected clients:
-
-    ```bash
-    cat > "${HOME}/.vellum/workspace/signals/emit-event" <<EOF
-    {"type":"open_conversation","conversationId":"${NEW_CONV_ID}","title":"${NEW_CONV_TITLE}"}
-    EOF
-    ```
-
-    Use the conversation's `title` so the client can stub a sidebar entry if the conversation isn't in its list yet.
-
-6. **Don't say anything else.** The UI switch is the signal. No chat response needed after the launch.
+4. **Don't say anything else.** The UI switch is the signal. No chat response needed after the launch.
 
 ## Notes
 
+- One signal file per launch — the assistant handles create + title + seed + open. Do not issue any HTTP calls from this skill.
 - If the user hasn't named the threads, name them concisely yourself (3–5 words, specific not generic).
 - Don't invent threads. Only surface what the user has actually discussed or what they asked about.
 - If there's only one reasonable option, do not use this skill — just continue in the current conversation.

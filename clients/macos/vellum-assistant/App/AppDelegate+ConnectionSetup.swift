@@ -212,8 +212,11 @@ extension AppDelegate {
                     guard !self.isBootstrapping else { break }
                     self.ensureMainWindowExists()
                     // If the conversation isn't in the sidebar yet (e.g. just created by a
-                    // skill via POST /v1/conversations), stub a sidebar entry using the
-                    // optional title so openConversation's trySelect retries find it.
+                    // skill via the launch-conversation signal), stub a sidebar entry using
+                    // the optional title so openConversation's trySelect retries find it.
+                    // Tag the stub with source: "open_conversation" so it's distinguishable
+                    // from true notification-flow stubs (which use source: "notification"
+                    // and may drive urgency/alerting behaviors that don't apply here).
                     if let title = msg.title,
                        let conversationManager = self.mainWindow?.conversationManager,
                        !conversationManager.conversations.contains(where: { $0.conversationId == msg.conversationId }) {
@@ -222,7 +225,7 @@ extension AppDelegate {
                             title: title,
                             sourceEventName: "open_conversation",
                             groupId: nil,
-                            source: nil
+                            source: "open_conversation"
                         )
                     }
                     self.openConversation(conversationId: msg.conversationId, anchorMessageId: msg.anchorMessageId)

@@ -59,6 +59,7 @@
       "name": "conversation-launcher",
       "description": "Render an inline card where each button creates a new focused conversation seeded with specific context, then opens it",
       "metadata": {
+        "emoji": "🧭",
         "vellum": {
           "display-name": "Conversation Launcher"
         }

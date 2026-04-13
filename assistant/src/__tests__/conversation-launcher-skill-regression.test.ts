@@ -13,18 +13,33 @@ describe("conversation-launcher skill regression", () => {
     expect(skillContent).not.toContain("ui_show(");
   });
 
-  test("creates conversations via POST /v1/conversations", () => {
-    expect(skillContent).toContain("/v1/conversations");
-    expect(skillContent).toContain("conversationKey");
+  test("launches via the launch-conversation signal (single write, no curl)", () => {
+    // One signal file per launch — the daemon creates+titles+seeds+opens.
+    expect(skillContent).toContain("launch-conversation.");
+    // Docker-safe path honors VELLUM_WORKSPACE_DIR.
+    expect(skillContent).toContain("VELLUM_WORKSPACE_DIR");
   });
 
-  test("seeds the new conversation via POST /v1/messages", () => {
-    expect(skillContent).toContain("/v1/messages");
+  test("uses jq -n --arg to build the JSON payload (no raw interpolation)", () => {
+    expect(skillContent).toContain("jq -n");
   });
 
-  test("opens the new conversation via the emit-event signal", () => {
-    expect(skillContent).toContain("open_conversation");
-    expect(skillContent).toContain("signals/emit-event");
+  test("payload includes the wire contract fields the daemon reads", () => {
+    expect(skillContent).toContain("requestId");
+    expect(skillContent).toContain("title");
+    expect(skillContent).toContain("seedPrompt");
+  });
+
+  test("explicitly binds NEW_CONV_TITLE and SEED_PROMPT from the action payload", () => {
+    expect(skillContent).toContain("NEW_CONV_TITLE");
+    expect(skillContent).toContain("SEED_PROMPT");
+  });
+
+  test("does not issue HTTP calls — the signal handler does everything server-side", () => {
+    expect(skillContent).not.toContain("curl");
+    expect(skillContent).not.toContain("/v1/conversations");
+    expect(skillContent).not.toContain("/v1/messages");
+    expect(skillContent).not.toContain("signals/emit-event");
   });
 
   test("does not instruct the assistant to reply in chat after launching", () => {
