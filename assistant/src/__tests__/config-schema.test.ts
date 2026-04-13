@@ -671,7 +671,6 @@ describe("AssistantConfigSchema", () => {
       },
       voice: {
         language: "en-US",
-        transcriptionProvider: "Deepgram",
         hints: [],
         interruptSensitivity: "low",
       },
@@ -779,7 +778,8 @@ describe("AssistantConfigSchema", () => {
   test("config without calls.voice parses correctly and produces defaults", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.calls.voice.language).toBe("en-US");
-    expect(result.calls.voice.transcriptionProvider).toBe("Deepgram");
+    expect(result.calls.voice.hints).toEqual([]);
+    expect(result.calls.voice.interruptSensitivity).toBe("low");
   });
 
   test("accepts valid calls.voice overrides", () => {
@@ -787,25 +787,20 @@ describe("AssistantConfigSchema", () => {
       calls: {
         voice: {
           language: "es-ES",
-          transcriptionProvider: "Google",
         },
       },
     });
     expect(result.calls.voice.language).toBe("es-ES");
-    expect(result.calls.voice.transcriptionProvider).toBe("Google");
   });
 
-  test("rejects invalid calls.voice.transcriptionProvider", () => {
-    const result = AssistantConfigSchema.safeParse({
-      calls: { voice: { transcriptionProvider: "AWS" } },
+  test("transcriptionProvider is no longer part of the voice config schema", () => {
+    // Zod strips unrecognized keys by default — the legacy field is silently ignored.
+    const result = AssistantConfigSchema.parse({
+      calls: { voice: { transcriptionProvider: "Google" } },
     });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const msgs = result.error.issues.map((i) => i.message);
-      expect(
-        msgs.some((m) => m.includes("calls.voice.transcriptionProvider")),
-      ).toBe(true);
-    }
+    expect(
+      (result.calls.voice as Record<string, unknown>).transcriptionProvider,
+    ).toBeUndefined();
   });
 
   test("accepts optional calls.model", () => {
@@ -2087,7 +2082,9 @@ describe("loadConfig with schema validation", () => {
     expect(config.calls.disclosure.enabled).toBe(true);
     expect(config.calls.safety.denyCategories).toEqual([]);
     expect(config.calls.voice.language).toBe("en-US");
-    expect(config.calls.voice.transcriptionProvider).toBe("Deepgram");
+    expect(
+      (config.calls.voice as Record<string, unknown>).transcriptionProvider,
+    ).toBeUndefined();
     expect(
       (config.calls.voice as Record<string, unknown>).ttsProvider,
     ).toBeUndefined();
