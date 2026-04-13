@@ -116,12 +116,8 @@ struct AssistantProgressView: View {
         )
     }
 
-    private var phase: ProgressCardPhase { model.phase }
-
-    private var isActive: Bool { model.isActive }
-
-    private var headlineText: String {
-        switch phase {
+    private func headlineText(for model: ProgressCardPresentationModel) -> String {
+        switch model.phase {
         case .thinking:
             return "Thinking..."
         case .toolRunning:
@@ -174,20 +170,21 @@ struct AssistantProgressView: View {
         }
     }
 
-    private var hasChevron: Bool {
-        model.hasTools
-    }
-
     // MARK: - Body
 
     var body: some View {
+        // Build the presentation model once per body evaluation. All rendering
+        // sub-views receive this cached value instead of recomputing it.
+        let model = self.model
+        let phase = model.phase
+
         VStack(alignment: .leading, spacing: 0) {
             // Header row (always visible)
-            headerRow
+            headerRow(model: model, phase: phase)
 
             // Expanded content
             if isExpanded {
-                expandedContent
+                expandedContent(model: model, phase: phase)
                     .padding(.bottom, VSpacing.xs)
             }
 
@@ -253,7 +250,7 @@ struct AssistantProgressView: View {
             && !hasUserCardPreference
             && MacOSClientFeatureFlagManager.shared.isEnabled("expand-completed-steps")
         deferProgressStateMutation {
-            if newPhase == .processing, phase == .processing {
+            if newPhase == .processing, model.phase == .processing {
                 processingStartDate = Date()
                 if model.earliestStartedAt == nil {
                     startDate = Date()
@@ -276,7 +273,7 @@ struct AssistantProgressView: View {
         if expanded, onRehydrate != nil {
             // Trigger rehydrate when expanding if any complete tool call
             // has been stripped (all detail fields cleared by stripHeavyContent).
-            if hasStrippedToolCalls {
+            if model.hasStrippedToolCalls {
                 // Track rehydration in ProgressCardUIState to prevent redundant calls
                 if let key = cardKey {
                     progressUIState.markRehydrated(groupId: key)
@@ -306,11 +303,11 @@ struct AssistantProgressView: View {
     private func handleOnAppear() {
         let wasExpandedOnEntry = isExpanded
         let shouldAutoExpandPendingOnAppear = model.hasPendingConfirmation && !isExpanded
-        let shouldRehydrateOnAppear = wasExpandedOnEntry && onRehydrate != nil && hasStrippedToolCalls
+        let shouldRehydrateOnAppear = wasExpandedOnEntry && onRehydrate != nil && model.hasStrippedToolCalls
 
         deferProgressStateMutation {
             syncStartDateFromModelIfNeeded()
-            if phase == .processing && processingStartDate == nil {
+            if model.phase == .processing && processingStartDate == nil {
                 processingStartDate = Date()
                 if model.earliestStartedAt == nil {
                     startDate = Date()
@@ -337,17 +334,6 @@ struct AssistantProgressView: View {
         }
     }
 
-    /// Whether any completed tool call has been stripped of its heavy content.
-    private var hasStrippedToolCalls: Bool {
-        toolCalls.contains { tc in
-            tc.isComplete
-                && tc.inputFull.isEmpty
-                && tc.result == nil
-                && tc.inputRawDict == nil
-                && tc.cachedImages.isEmpty
-        }
-    }
-
     private func deferProgressStateMutation(_ update: @escaping @MainActor () -> Void) {
         DispatchQueue.main.async {
             Task { @MainActor in
@@ -365,13 +351,13 @@ struct AssistantProgressView: View {
 
     // MARK: - Header Row
 
-    private var headerRow: some View {
+    private func headerRow(model: ProgressCardPresentationModel, phase: ProgressCardPhase) -> some View {
         Button(action: {
             if suppressNextExpand {
                 suppressNextExpand = false
                 return
             }
-            guard hasChevron else { return }
+            guard model.hasTools else { return }
             // Prevent collapsing while a confirmation is pending — the inline
             // bubble is the only visible approval UI when the standalone is suppressed.
             if isExpanded && model.hasPendingConfirmation { return }
@@ -389,8 +375,8 @@ struct AssistantProgressView: View {
             // state from a geometry callback, which can create layout feedback
             // loops while the progress card is updating mid-send.
             ViewThatFits(in: .horizontal) {
-                headerRowContent(showInlinePermissionChips: !isExpanded)
-                headerRowContent(showInlinePermissionChips: false)
+                headerRowContent(model: model, phase: phase, showInlinePermissionChips: !isExpanded)
+                headerRowContent(model: model, phase: phase, showInlinePermissionChips: false)
             }
             .contentShape(Rectangle())
         }
@@ -400,13 +386,13 @@ struct AssistantProgressView: View {
     }
 
     @ViewBuilder
-    private func headerRowContent(showInlinePermissionChips: Bool) -> some View {
+    private func headerRowContent(model: ProgressCardPresentationModel, phase: ProgressCardPhase, showInlinePermissionChips: Bool) -> some View {
         HStack(spacing: VSpacing.sm) {
             // Status icon
-            statusIcon
+            statusIcon(model: model, phase: phase)
 
             // Headline text with cross-fade
-            headlineLabel
+            headlineLabel(model: model, phase: phase)
 
             if showInlinePermissionChips {
                 inlinePermissionChips
@@ -415,14 +401,14 @@ struct AssistantProgressView: View {
             Spacer()
 
             // Elapsed time: live counter when active, final duration when complete
-            if isActive {
-                elapsedTimeLabel
+            if model.isActive {
+                ElapsedTimeLabel(startDate: startDate)
             } else if model.hasTools {
-                completedDurationLabel
+                completedDurationLabel(model: model)
             }
 
             // Chevron (only if tools exist)
-            if hasChevron {
+            if model.hasTools {
                 VIconView(isExpanded ? .chevronUp : .chevronDown, size: 9)
                     .foregroundStyle(VColor.contentTertiary)
             }
@@ -432,7 +418,7 @@ struct AssistantProgressView: View {
     // MARK: - Status Icon
 
     @ViewBuilder
-    private var statusIcon: some View {
+    private func statusIcon(model: ProgressCardPresentationModel, phase: ProgressCardPhase) -> some View {
         switch phase {
         case .complete:
             VIconView(model.hasDeniedToolCalls ? .triangleAlert : .circleCheck, size: 12)
@@ -452,65 +438,21 @@ struct AssistantProgressView: View {
 
     // MARK: - Headline Label
 
-    private var headlineLabel: some View {
-        Group {
+    private func headlineLabel(model: ProgressCardPresentationModel, phase: ProgressCardPhase) -> some View {
+        let text = headlineText(for: model)
+        return Group {
             if phase == .processing {
-                processingLabel
+                ProcessingDotsLabel(
+                    processingStatusText: processingStatusText,
+                    anchor: processingStartDate ?? Date()
+                )
             } else {
-                Text(ToolCallData.displaySafe(headlineText))
+                Text(ToolCallData.displaySafe(text))
                     .font(VFont.bodyMediumLighter)
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .animation(.easeInOut(duration: 0.3), value: headlineText)
-            }
-        }
-    }
-
-    /// Progressive labels for the processing phase that cycle through at 8-second intervals.
-    /// Uses `processingStartDate` (set when entering `.processing`) so label cycling starts
-    /// from zero regardless of how long the view has been alive.
-    private var processingLabel: some View {
-        let initialLabel = ChatBubble.friendlyProcessingLabel(processingStatusText)
-        // Pin the label when compacting — don't cycle to generic labels.
-        let pinLabel = processingStatusText?.lowercased().contains("compacting") == true
-        let labels: [String] = pinLabel ? [initialLabel] : [
-            initialLabel,
-            "Putting this together",
-            "Finalizing your response",
-        ]
-        let anchor = processingStartDate ?? Date()
-
-        return TimelineView(.periodic(from: .now, by: 0.4)) { context in
-            let elapsed = max(0, context.date.timeIntervalSince(anchor))
-            let labelIndex = max(0, min(Int(elapsed / 8), labels.count - 1))
-            let dotPhase = max(0, Int(elapsed / 0.4) % 3)
-
-            HStack(spacing: VSpacing.xs) {
-                Text(labels[labelIndex])
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentDefault)
-                    .animation(.easeInOut(duration: 0.3), value: labelIndex)
-
-                ForEach(0..<3, id: \.self) { index in
-                    Circle()
-                        .fill(VColor.contentSecondary)
-                        .frame(width: 5, height: 5)
-                        .opacity(dotPhase == index ? 1.0 : 0.4)
-                }
-            }
-        }
-    }
-
-    // MARK: - Elapsed Time
-
-    private var elapsedTimeLabel: some View {
-        TimelineView(.periodic(from: .now, by: 1.0)) { context in
-            let elapsed = max(0, context.date.timeIntervalSince(startDate))
-            if elapsed >= 5 {
-                Text(RunningIndicator.formatElapsed(elapsed))
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentTertiary)
+                    .animation(.easeInOut(duration: 0.3), value: text)
             }
         }
     }
@@ -518,7 +460,7 @@ struct AssistantProgressView: View {
     // MARK: - Completed Duration
 
     @ViewBuilder
-    private var completedDurationLabel: some View {
+    private func completedDurationLabel(model: ProgressCardPresentationModel) -> some View {
         if let start = model.earliestStartedAt, let end = model.latestCompletedAt {
             let seconds = end.timeIntervalSince(start)
             Text(seconds < 60
@@ -544,7 +486,7 @@ struct AssistantProgressView: View {
     }
 
     @ViewBuilder
-    private var expandedContent: some View {
+    private func expandedContent(model: ProgressCardPresentationModel, phase: ProgressCardPhase) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(toolCalls) { toolCall in
                 StepDetailRow(
@@ -994,6 +936,66 @@ private struct StepDetailRow: View {
             : "\(Int(seconds) / 60)m \(Int(seconds) % 60)s"
     }
 
+}
+
+// MARK: - Processing Dots Label (Isolated TimelineView)
+
+/// Self-contained view for the processing phase label with animated dots.
+/// Extracted so the TimelineView's periodic ticks (every 0.4s) only
+/// re-evaluate this small subtree, not the entire progress card.
+private struct ProcessingDotsLabel: View {
+    let processingStatusText: String?
+    let anchor: Date
+
+    var body: some View {
+        let initialLabel = ChatBubble.friendlyProcessingLabel(processingStatusText)
+        let pinLabel = processingStatusText?.lowercased().contains("compacting") == true
+        let labels: [String] = pinLabel ? [initialLabel] : [
+            initialLabel,
+            "Putting this together",
+            "Finalizing your response",
+        ]
+
+        TimelineView(.periodic(from: .now, by: 0.4)) { context in
+            let elapsed = max(0, context.date.timeIntervalSince(anchor))
+            let labelIndex = max(0, min(Int(elapsed / 8), labels.count - 1))
+            let dotPhase = max(0, Int(elapsed / 0.4) % 3)
+
+            HStack(spacing: VSpacing.xs) {
+                Text(labels[labelIndex])
+                    .font(VFont.bodyMediumLighter)
+                    .foregroundStyle(VColor.contentDefault)
+                    .animation(.easeInOut(duration: 0.3), value: labelIndex)
+
+                ForEach(0..<3, id: \.self) { index in
+                    Circle()
+                        .fill(VColor.contentSecondary)
+                        .frame(width: 5, height: 5)
+                        .opacity(dotPhase == index ? 1.0 : 0.4)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Elapsed Time Label (Isolated TimelineView)
+
+/// Self-contained view for the elapsed time counter.
+/// Extracted so the TimelineView's periodic ticks (every 1.0s) only
+/// re-evaluate this small subtree, not the entire progress card.
+private struct ElapsedTimeLabel: View {
+    let startDate: Date
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1.0)) { context in
+            let elapsed = max(0, context.date.timeIntervalSince(startDate))
+            if elapsed >= 5 {
+                Text(RunningIndicator.formatElapsed(elapsed))
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+        }
+    }
 }
 
 // MARK: - Compact Permission Chip
