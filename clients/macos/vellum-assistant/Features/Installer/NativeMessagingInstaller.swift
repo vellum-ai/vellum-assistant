@@ -84,7 +84,8 @@ public enum NativeMessagingInstaller {
             helperBinaryPath: helperBinaryPath,
             extensionIds: extensionIds,
             homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
-            fileManager: FileManager.default
+            fileManager: FileManager.default,
+            gatekeeperAssessment: Self.runGatekeeperAssessment(at:)
         )
     }
 
@@ -106,10 +107,25 @@ public enum NativeMessagingInstaller {
         helperBinaryPath: URL,
         extensionIds: [String],
         homeDirectory: URL,
-        fileManager: FileManager
+        fileManager: FileManager,
+        gatekeeperAssessment: (String) -> Bool = { _ in true }
     ) throws {
         guard fileManager.fileExists(atPath: helperBinaryPath.path) else {
             throw InstallError.helperBinaryMissing(helperBinaryPath)
+        }
+
+        // Chrome refuses to launch a native messaging host that
+        // Gatekeeper rejects, so installing a manifest that points at a
+        // rejected helper leaves the extension permanently unable to
+        // connect — and worse, clobbers any working manually-installed
+        // manifest on every app launch. Skip the install in that case
+        // and let the developer fall back to the manual setup documented
+        // in clients/chrome-extension/README.md.
+        guard gatekeeperAssessment(helperBinaryPath.path) else {
+            log.warning(
+                "Skipping Chrome native messaging manifest install: bundled helper at \(helperBinaryPath.path, privacy: .public) is not accepted by Gatekeeper (expected for local dev builds with a self-signed helper). Follow the manual setup in clients/chrome-extension/README.md to install the extension bridge."
+            )
+            return
         }
 
         let targetDir = manifestDirectory(under: homeDirectory)
@@ -178,5 +194,24 @@ public enum NativeMessagingInstaller {
             .appendingPathComponent("Google", isDirectory: true)
             .appendingPathComponent("Chrome", isDirectory: true)
             .appendingPathComponent("NativeMessagingHosts", isDirectory: true)
+    }
+
+    /// Runs `spctl -a -vv <path>` and returns `true` when Gatekeeper
+    /// accepts the binary. Local dev builds ship a self-signed helper
+    /// that fails this check; notarized release builds pass.
+    private static func runGatekeeperAssessment(at path: String) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/spctl")
+        process.arguments = ["-a", "-vv", path]
+        let sink = Pipe()
+        process.standardOutput = sink
+        process.standardError = sink
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
     }
 }
