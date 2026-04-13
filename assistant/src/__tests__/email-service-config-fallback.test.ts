@@ -1,26 +1,12 @@
 /**
  * Tests that getPrimaryInboxAddress() falls back to the workspace config's
- * email.address when the provider can't list inboxes.
+ * email.address when the provider is unavailable (local providers removed).
  */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mock dependencies before importing the service
 // ---------------------------------------------------------------------------
-
-let mockProviderThrows = false;
-let mockProviderInboxes: { address: string }[] = [];
-
-mock.module("../email/providers/index.js", () => ({
-  createProvider: async () => ({
-    name: "mock",
-    health: async () => {
-      if (mockProviderThrows) throw new Error("provider unavailable");
-      return { inboxes: mockProviderInboxes, domains: [] };
-    },
-  }),
-  getActiveProviderName: () => "mock",
-}));
 
 let mockRawConfig: Record<string, unknown> = {};
 
@@ -60,39 +46,18 @@ const { EmailService } = await import("../email/service.js");
 
 describe("getPrimaryInboxAddress — config fallback", () => {
   afterEach(() => {
-    mockProviderThrows = false;
-    mockProviderInboxes = [];
     mockRawConfig = {};
   });
 
-  test("returns provider inbox address when available", async () => {
-    mockProviderInboxes = [{ address: "inbox@provider.example" }];
+  test("falls back to email.address from config (provider removed)", async () => {
+    mockRawConfig = { email: { address: "configured@vellum.me" } };
     const svc = new EmailService();
 
     const addr = await svc.getPrimaryInboxAddress();
-    expect(addr).toBe("inbox@provider.example");
+    expect(addr).toBe("configured@vellum.me");
   });
 
-  test("falls back to email.address from config when provider returns no inboxes", async () => {
-    mockProviderInboxes = [];
-    mockRawConfig = { email: { address: "configured@example.com" } };
-    const svc = new EmailService();
-
-    const addr = await svc.getPrimaryInboxAddress();
-    expect(addr).toBe("configured@example.com");
-  });
-
-  test("falls back to email.address from config when provider throws", async () => {
-    mockProviderThrows = true;
-    mockRawConfig = { email: { address: "fallback@example.com" } };
-    const svc = new EmailService();
-
-    const addr = await svc.getPrimaryInboxAddress();
-    expect(addr).toBe("fallback@example.com");
-  });
-
-  test("returns undefined when neither provider nor config has an address", async () => {
-    mockProviderThrows = true;
+  test("returns undefined when config has no address", async () => {
     mockRawConfig = {};
     const svc = new EmailService();
 

@@ -30,22 +30,18 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 // Provider factory tests
 // ---------------------------------------------------------------------------
-describe("email provider factory", () => {
-  test("getActiveProviderName returns platform", async () => {
-    const { getActiveProviderName } =
-      await import("../email/providers/index.js");
-    expect(getActiveProviderName()).toBe("platform");
+describe("email provider (via service)", () => {
+  test("getProviderName returns platform", async () => {
+    const { getEmailService } = await import("../email/service.js");
+    const svc = getEmailService();
+    expect(svc.getProviderName()).toBe("platform");
   });
 
-  test("SUPPORTED_PROVIDERS is empty (local providers removed)", async () => {
-    const { SUPPORTED_PROVIDERS } = await import("../email/providers/index.js");
-    expect(SUPPORTED_PROVIDERS).toHaveLength(0);
-  });
-
-  test("createProvider throws (local providers removed)", async () => {
-    const { createProvider } = await import("../email/providers/index.js");
+  test("provider() throws (local providers removed)", async () => {
+    const { getEmailService } = await import("../email/service.js");
+    const svc = getEmailService();
     try {
-      await createProvider();
+      await svc.status();
       throw new Error("should have thrown");
     } catch (err) {
       expect(err instanceof Error).toBe(true);
@@ -184,12 +180,6 @@ describe("email service guardrails integration", () => {
     const a = getEmailService();
     const b = getEmailService();
     expect(a).toBe(b);
-  });
-
-  test("service getProviderName returns platform", async () => {
-    const { getEmailService } = await import("../email/service.js");
-    const svc = getEmailService();
-    expect(svc.getProviderName()).toBe("platform");
   });
 
   test("service guardrails methods work", async () => {
