@@ -2,12 +2,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import type { SttProviderId } from "../../../stt/types.js";
+import type { SttProviderId } from "../stt/types.js";
 import {
   getProviderEntry,
   listCredentialProviderNames,
   listProviderIds,
-} from "../provider-catalog.js";
+} from "../providers/speech-to-text/provider-catalog.js";
 
 /**
  * Parity guard: daemon STT provider catalog vs client STT catalog JSON.
