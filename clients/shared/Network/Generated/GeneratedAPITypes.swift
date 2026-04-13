@@ -2964,12 +2964,14 @@ public struct OpenConversation: Codable, Sendable {
     public let conversationId: String
     public let title: String?
     public let anchorMessageId: String?
+    public let focus: Bool?
 
-    public init(type: String, conversationId: String, title: String? = nil, anchorMessageId: String? = nil) {
+    public init(type: String, conversationId: String, title: String? = nil, anchorMessageId: String? = nil, focus: Bool? = nil) {
         self.type = type
         self.conversationId = conversationId
         self.title = title
         self.anchorMessageId = anchorMessageId
+        self.focus = focus
     }
 }
 
@@ -4899,7 +4901,34 @@ public struct UiSurfaceDismiss: Codable, Sendable {
     }
 }
 
+public struct UiSurfaceShow: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+    public let surfaceId: String
+    public let surfaceType: String
+    public let title: String?
+    public let data: [String: AnyCodable]
+    public let actions: [SurfaceAction]?
+    /// `"inline"` embeds in chat, `"panel"` shows a floating window.
+    public let display: String?
+    /// The message ID that this surface belongs to (for history loading).
+    public let messageId: String?
+    /// When `true`, clicking an action does not dismiss the surface — the client keeps the card visible and only marks the clicked `actionId` as spent so siblings remain clickable.
+    public let persistent: Bool?
 
+    public init(type: String, conversationId: String, surfaceId: String, surfaceType: String, title: String? = nil, data: [String: AnyCodable], actions: [SurfaceAction]? = nil, display: String? = nil, messageId: String? = nil, persistent: Bool? = nil) {
+        self.type = type
+        self.conversationId = conversationId
+        self.surfaceId = surfaceId
+        self.surfaceType = surfaceType
+        self.title = title
+        self.data = data
+        self.actions = actions
+        self.display = display
+        self.messageId = messageId
+        self.persistent = persistent
+    }
+}
 
 public struct UiSurfaceUndoRequest: Codable, Sendable {
     public let type: String
