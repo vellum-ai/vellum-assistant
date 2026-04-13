@@ -63,6 +63,7 @@ extension MessageListView {
         scrollState.isPaginationInFlight = true
         let anchorId = scrollState.derivedStateCache.cachedFirstVisibleMessageId
         let taskConversationId = scrollState.currentConversationId
+        let scrollBinding = $scrollPosition
         os_signpost(.event, log: PerfSignposts.log, name: "paginationSentinelFired")
         scrollState.paginationTask = Task { [scrollState] in
             defer {
@@ -78,53 +79,15 @@ extension MessageListView {
             }
             let hadMore = await loadPreviousMessagePage?() ?? false
             if hadMore, let id = anchorId {
-                    scrollState.beginStabilization(.pagination)
                     try? await Task.sleep(nanoseconds: 100_000_000)
-                    guard !Task.isCancelled else {
-                        scrollState.endStabilization()
-                        return
-                    }
+                    guard !Task.isCancelled else { return }
                     os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=paginationAnchor")
-                    scrollState.performScrollTo(id, anchor: .top)
-                    scrollState.endStabilization()
+                    scrollBinding.wrappedValue = ScrollPosition(id: id, anchor: .top)
             }
         }
     }
 
     // MARK: - Scroll helpers
-
-    /// Restores scroll-to-bottom after a conversation load or app restart.
-    /// Issues a delayed fallback pin that catches cases where the declarative
-    /// `ScrollPosition(edge: .bottom)` hasn't fully resolved for the new content.
-    /// The `isAtBottom` guard is intentionally omitted: during a conversation
-    /// switch, `isAtBottom` is unreliable because scroll geometry hasn't updated
-    /// yet for the new content. An extra pin when already at bottom is a no-op.
-    func restoreScrollToBottom() {
-        scrollState.scrollRestoreTask?.cancel()
-        scrollState.scrollRestoreTask = Task { @MainActor [scrollState] in
-            try? await Task.sleep(nanoseconds: 100_000_000)
-            guard !Task.isCancelled else { return }
-            if anchorMessageId == nil,
-               case .freeBrowsing = scrollState.mode {
-                // User scrolled away during the restore window — respect that.
-            } else if anchorMessageId == nil,
-                      case .programmaticScroll = scrollState.mode {
-                // A deep-link anchor scroll resolved and cleared anchorMessageId
-                // before this task fired. Don't yank the viewport back to bottom.
-            } else if anchorMessageId == nil,
-                      case .stabilizing = scrollState.mode {
-                // A resize or expansion stabilization started during the
-                // restore window. Overriding with .followingBottom would
-                // leak activeStabilizationCount — endStabilization() checks
-                // `guard case .stabilizing = mode` and bails if mode changed.
-            } else if anchorMessageId == nil {
-                os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=fallback")
-                scrollState.transition(to: .followingBottom)
-                scrollState.requestPinToBottom()
-            }
-            scrollState.scrollRestoreTask = nil
-        }
-    }
 
     /// Flash-highlights a message and schedules auto-dismiss after 1.5 seconds.
     func flashHighlight(messageId: UUID) {
@@ -142,56 +105,4 @@ extension MessageListView {
         }
     }
 
-    /// Configures scroll action closures on the scroll state so it can
-    /// perform programmatic scrolls via the view-owned ScrollPosition.
-    func configureScrollCallbacks() {
-        let binding = $scrollPosition
-        // Replace the entire ScrollPosition value instead of calling the
-        // mutating `.scrollTo(id:anchor:)` method. Value replacement
-        // forces SwiftUI to process a fresh scroll command every time.
-        // The `.scrollTo()` method can be silently deduped when the
-        // position was previously set to the same ID (e.g. from a
-        // conversation switch `ScrollPosition(id: lastId, .bottom)`) —
-        // even after the user has scrolled away, the internal state may
-        // still consider itself "at" that ID.
-        scrollState.scrollTo = { id, anchor in
-            if let uuidId = id as? UUID {
-                binding.wrappedValue = ScrollPosition(id: uuidId, anchor: anchor)
-            } else if let stringId = id as? String {
-                binding.wrappedValue = ScrollPosition(id: stringId, anchor: anchor)
-            }
-        }
-        // Replace the entire ScrollPosition value (same as the ID-based
-        // closure above) instead of calling the mutating `.scrollTo(edge:)`
-        // method. Value replacement forces SwiftUI to process a fresh
-        // scroll command every time. The mutating method can be silently
-        // deduped when SwiftUI considers the position "already at that
-        // edge" — the same class of bug that affected `.scrollTo(id:)`.
-        // After SwiftUI processes the edge scroll, it updates the binding
-        // to the actual content offset, so the next value replacement
-        // with ScrollPosition(edge:) is always a new value.
-        scrollState.scrollToEdge = { edge in
-            binding.wrappedValue = ScrollPosition(edge: edge)
-        }
-        // Cancel in-flight spring animations on the scroll position.
-        //
-        // SwiftUI's `withAnimation { scrollPosition = ScrollPosition(...) }`
-        // creates a SwiftUI-managed spring animation that does NOT cancel
-        // when the user starts a new scroll gesture — unlike UIKit's
-        // `UIScrollView.setContentOffset(animated:)` which cancels on touch.
-        //
-        // Writing an empty `ScrollPosition()` (no target) with animations
-        // disabled overwrites the animated value, cancelling the spring.
-        // During `.interacting` phase the user's gesture has priority, so
-        // the empty position doesn't move the viewport — it just stops the
-        // animation from fighting the user's drag.
-        scrollState.cancelScrollAnimation = {
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                binding.wrappedValue = ScrollPosition()
-            }
-        }
-        scrollState.currentConversationId = conversationId
-    }
 }

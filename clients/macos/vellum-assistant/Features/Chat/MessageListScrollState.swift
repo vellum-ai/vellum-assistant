@@ -1,85 +1,12 @@
 import Foundation
-import os
 import SwiftUI
 import VellumAssistantShared
-
-// MARK: - Legacy enums (still referenced by view layer callers)
-
-/// Legacy enum retained because MessageListView+ScrollHandling pattern-matches
-/// on `.freeBrowsing`, `.programmaticScroll`, `.stabilizing` in restoreScrollToBottom().
-/// Remove once those callers are migrated.
-enum ScrollMode: Equatable, CustomStringConvertible {
-    case initialLoad
-    case followingBottom
-    case freeBrowsing
-    case programmaticScroll(reason: ProgrammaticScrollReason)
-    case stabilizing(previousMode: StabilizedMode, reason: StabilizationReason)
-
-    var description: String {
-        switch self {
-        case .initialLoad: "initialLoad"
-        case .followingBottom: "followingBottom"
-        case .freeBrowsing: "freeBrowsing"
-        case .programmaticScroll(let reason): "programmaticScroll(\(reason))"
-        case .stabilizing(let prev, let reason): "stabilizing(\(prev), \(reason))"
-        }
-    }
-
-    /// Stub — always returns true. Remove with enum.
-    var allowsAutoScroll: Bool { true }
-
-    /// Stub — always returns false. Remove with enum.
-    var showsScrollToLatest: Bool { false }
-}
-
-enum ProgrammaticScrollReason: Equatable, CustomStringConvertible {
-    case deepLinkAnchor(id: UUID)
-
-    var description: String {
-        switch self {
-        case .deepLinkAnchor(let id): "deepLinkAnchor(\(id))"
-        }
-    }
-}
-
-enum StabilizationReason: Equatable, CustomStringConvertible {
-    case resize
-    case expansion
-    case pagination
-
-    var description: String {
-        switch self {
-        case .resize: "resize"
-        case .expansion: "expansion"
-        case .pagination: "pagination"
-        }
-    }
-}
-
-enum StabilizedMode: Equatable, CustomStringConvertible {
-    case followingBottom
-    case freeBrowsing
-
-    var description: String {
-        switch self {
-        case .followingBottom: "followingBottom"
-        case .freeBrowsing: "freeBrowsing"
-        }
-    }
-}
-
-private let scrollLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "ScrollState")
 
 // MARK: - MessageListScrollState
 
 /// Flat scroll coordinator — tracks geometry, distance-based scroll-to-latest
 /// visibility, pagination sentinel, and deep-link anchor state. No mode
 /// transitions, stabilization, or recovery logic.
-///
-/// Legacy `ScrollMode` enum, mode-transition methods, and scroll closures are
-/// retained as stubs because the view layer (MessageListView+ScrollHandling,
-/// MessageListView+Lifecycle, MessageListContentView) still references them.
-/// Remove once those callers are migrated to the flat coordinator API.
 @Observable @MainActor
 final class MessageListScrollState {
 
@@ -230,15 +157,8 @@ final class MessageListScrollState {
         scrollIndicatorRestoreTask?.cancel()
         derivedStateCache.reset()
 
-        // Reset stub state
-        mode = .initialLoad
-        scrollPhase = .idle
-        isAtBottom = false
-        bottomAnchorAppeared = false
         isPaginationInFlight = false
         lastHandledChatColumnWidth = 0
-        scrollRestoreTask?.cancel()
-        scrollRestoreTask = nil
         paginationTask?.cancel()
         paginationTask = nil
         highlightDismissTask?.cancel()
@@ -255,20 +175,10 @@ final class MessageListScrollState {
         scrollIndicatorRestoreTask?.cancel()
         scrollIndicatorRestoreTask = nil
         derivedStateCache.reset()
-
-        // Cancel stub tasks
-        scrollRestoreTask?.cancel()
-        scrollRestoreTask = nil
         paginationTask?.cancel()
         paginationTask = nil
         highlightDismissTask?.cancel()
         highlightDismissTask = nil
-
-        // Reset stub state
-        mode = .initialLoad
-        scrollPhase = .idle
-        isAtBottom = false
-        bottomAnchorAppeared = false
         isPaginationInFlight = false
         lastMessageId = nil
         scrollContentHeight = 0
@@ -279,110 +189,11 @@ final class MessageListScrollState {
         lastPaginationCompletedAt = .distantPast
     }
 
-    // MARK: - Legacy stubs (still referenced by view layer)
-    //
-    // These properties and methods are referenced by MessageListView,
-    // MessageListContentView, MessageListView+ScrollHandling,
-    // MessageListView+Lifecycle, and MessageListView+DerivedState.
-    // Remove once those callers are migrated to the flat coordinator API.
+    // MARK: - Live properties (used by view layer)
 
-    // --- Mode (stub, no real transitions) ---
-
-    @ObservationIgnored var mode: ScrollMode = .initialLoad
-
-    /// No-op stub. Remove once view layer callers are migrated.
-    func transition(to newMode: ScrollMode) {
-        mode = newMode
-    }
-
-    // --- Scroll closures (set by MessageListView+ScrollHandling) ---
-
-    @ObservationIgnored var scrollTo: ((_ id: any Hashable, _ anchor: UnitPoint?) -> Void)?
-    @ObservationIgnored var scrollToEdge: ((_ edge: Edge) -> Void)?
-    @ObservationIgnored var cancelScrollAnimation: (() -> Void)?
-
-    // --- Geometry stubs ---
-
-    @ObservationIgnored var scrollPhase: ScrollPhase = .idle
-    @ObservationIgnored var isAtBottom: Bool = false
-    @ObservationIgnored var bottomAnchorAppeared: Bool = false
     @ObservationIgnored var lastHandledChatColumnWidth: CGFloat = 0
-
-    // --- Pagination stubs ---
-
     @ObservationIgnored var isPaginationInFlight: Bool = false
-
-    var hideScrollIndicators: Bool {
-        get { scrollIndicatorsHidden }
-        set { scrollIndicatorsHidden = newValue }
-    }
-
-    // --- Task stubs ---
-
     @ObservationIgnored var paginationTask: Task<Void, Never>?
-    @ObservationIgnored var scrollRestoreTask: Task<Void, Never>?
     @ObservationIgnored var highlightDismissTask: Task<Void, Never>?
-
-    // --- Convenience stubs ---
-
-    /// No-op stub. Remove once view layer callers are migrated.
-    var hasBeenInteracted: Bool { true }
-
-    /// No-op stub. Remove once view layer callers are migrated.
-    var isFollowingBottom: Bool { false }
-
-    /// No-op stub. Remove once view layer callers are migrated.
-    var isSuppressed: Bool { false }
-
-    // --- Method stubs ---
-
-    /// No-op stub. Remove once view layer callers are migrated.
-    func handleReachedBottom() {}
-
-    /// Stub that preserves scroll-to-bottom behavior for external callers.
-    /// Remove once view layer callers are migrated.
-    @discardableResult
-    func requestPinToBottom(animated: Bool = false, userInitiated: Bool = false) -> Bool {
-        if userInitiated {
-            showScrollToLatest = false
-            let target: any Hashable = lastMessageId ?? ("scroll-bottom-anchor" as any Hashable)
-            scrollTo?(target, .bottom)
-            return true
-        }
-        if let target = lastMessageId {
-            if animated {
-                withAnimation(VAnimation.fast) {
-                    scrollTo?(target, .bottom)
-                }
-            } else {
-                scrollTo?(target, .bottom)
-            }
-        } else {
-            if animated {
-                withAnimation(VAnimation.fast) {
-                    scrollToEdge?(.bottom)
-                }
-            } else {
-                scrollToEdge?(.bottom)
-            }
-        }
-        return true
-    }
-
-
-    /// Stub that preserves scroll-to-id for external callers.
-    /// Remove once view layer callers are migrated.
-    func performScrollTo(_ id: any Hashable, anchor: UnitPoint? = nil) {
-        scrollTo?(id, anchor)
-    }
-
-    /// No-op stub. Remove once view layer callers are migrated.
-    func beginStabilization(_ reason: StabilizationReason) {}
-
-    /// No-op stub. Remove once view layer callers are migrated.
-    func endStabilization() {}
-
-    /// No-op stub. Remove once view layer callers are migrated.
-    func recordBodyEvaluation() {}
 
 }

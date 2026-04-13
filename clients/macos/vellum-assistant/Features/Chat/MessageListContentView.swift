@@ -318,15 +318,6 @@ struct MessageListContentView: View, Equatable {
 
             Color.clear.frame(height: 1)
                 .id("scroll-bottom-anchor")
-                .onAppear {
-                    // Signal that the bottom anchor has materialized —
-                    // isAtBottom is now reliable (based on actual content
-                    // height, not LazyVStack estimates).
-                    scrollState.bottomAnchorAppeared = true
-                    if !scrollState.hasBeenInteracted {
-                        scrollState.handleReachedBottom()
-                    }
-                }
         }
         .disabled(!isInteractionEnabled)
         .transaction { $0.animation = nil }
