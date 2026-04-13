@@ -479,12 +479,6 @@ export async function runDaemon(): Promise<void> {
         );
       }
 
-      try {
-        syncUpdateBulletinOnStartup();
-      } catch (err) {
-        log.warn({ err }, "Bulletin sync failed — continuing startup");
-      }
-
       // Recover orphaned work items that were left in 'running' state when the
       // daemon previously crashed or was killed mid-task.
       const orphanedRunning = listWorkItems({ status: "running" });
@@ -520,6 +514,18 @@ export async function runDaemon(): Promise<void> {
 
     log.info("Daemon startup: loading config");
     const config = loadConfig();
+
+    // Run bulletin sync AFTER the config merge + load so that getConfig()
+    // inside syncUpdateBulletinOnStartup() observes the fully merged config.
+    // Running it earlier would populate the config cache with pre-merge
+    // values, poisoning every downstream getConfig() consumer.
+    if (dbReady) {
+      try {
+        syncUpdateBulletinOnStartup();
+      } catch (err) {
+        log.warn({ err }, "Bulletin sync failed — continuing startup");
+      }
+    }
 
     // Seed module-level ingress state from the workspace config so that
     // getIngressPublicBaseUrl() returns the correct value immediately after
