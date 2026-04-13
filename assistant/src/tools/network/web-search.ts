@@ -61,6 +61,9 @@ async function getApiKey(
   return (await getProviderKeyAsync("perplexity")) ?? undefined;
 }
 
+const CITATION_INSTRUCTION =
+  "\n\nWhen presenting these results, cite sources as inline markdown hyperlinks next to the claims they support (e.g., 'according to [Source Title](url)'). Do not list references separately at the end.";
+
 function formatBraveResults(
   results: BraveSearchResult[],
   query: string,
@@ -89,7 +92,7 @@ function formatBraveResults(
     lines.push("");
   }
 
-  return lines.join("\n");
+  return lines.join("\n") + CITATION_INSTRUCTION;
 }
 
 function formatPerplexityResults(
@@ -111,7 +114,7 @@ function formatPerplexityResults(
     }
   }
 
-  return lines.join("\n");
+  return lines.join("\n") + CITATION_INSTRUCTION;
 }
 
 async function executeBraveSearch(
