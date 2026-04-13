@@ -234,18 +234,17 @@ export async function resolveConversationStreamingSttCapability(): Promise<Conve
 /**
  * Resolve a `StreamingTranscriber` for daemon-hosted streaming transcription.
  *
- * Reads `services.stt.provider` from the assistant config and constructs
- * the appropriate streaming adapter when the provider supports the
- * `daemon-streaming` boundary. Returns `null` when:
+ * Reads `services.stt.provider` from the assistant config to determine which
+ * STT provider to use, verifies it supports the `daemon-streaming` boundary,
+ * and constructs the appropriate streaming adapter. Credential lookup is
+ * centralized here (an authorized secure-keys importer) so callers don't
+ * need to import secure-keys directly.
+ *
+ * Returns `null` when:
  * - The configured provider is not in the catalog.
  * - The configured provider doesn't support the `daemon-streaming` boundary.
  * - No credentials are configured for the resolved provider.
- *
- * Currently supported streaming providers:
- * - `deepgram` — Deepgram live transcription WebSocket adapter.
- *
- * Batch transcription behavior is unaffected — this resolver is a separate
- * code path from {@link resolveBatchTranscriber}.
+ * - No streaming adapter exists for the configured provider.
  */
 export async function resolveStreamingTranscriber(): Promise<StreamingTranscriber | null> {
   const config = getConfig();
@@ -265,16 +264,21 @@ export async function resolveStreamingTranscriber(): Promise<StreamingTranscribe
   }
 
   const apiKey = await getProviderKeyAsync(credentialProviderName);
-  if (!apiKey) return null;
+  if (!apiKey) {
+    return null;
+  }
 
   return createStreamingTranscriber(apiKey, provider as SttProviderId);
 }
 
 /**
- * Factory for constructing streaming transcriber adapters.
+ * Create a `StreamingTranscriber` for the given provider.
  *
- * Each case lazy-imports the provider module to keep the module graph
- * lightweight for callers that only need the capability resolver.
+ * Uses lazy imports so the adapter modules are only loaded when needed,
+ * keeping the module graph lightweight for callers that only need batch
+ * transcription.
+ *
+ * Returns `null` for providers that do not have a streaming adapter.
  */
 async function createStreamingTranscriber(
   apiKey: string,
@@ -286,9 +290,11 @@ async function createStreamingTranscriber(
         await import("./deepgram-realtime.js");
       return new DeepgramRealtimeTranscriber(apiKey);
     }
-    // Google Gemini streaming adapter will be added in PR 4.
-    case "google-gemini":
-      return null;
+    case "google-gemini": {
+      const { GoogleGeminiStreamingTranscriber } =
+        await import("./google-gemini-stream.js");
+      return new GoogleGeminiStreamingTranscriber(apiKey);
+    }
     case "openai-whisper":
       // Whisper does not support streaming.
       return null;
