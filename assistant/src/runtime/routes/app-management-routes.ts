@@ -23,6 +23,7 @@ import { z } from "zod";
 import { packageApp } from "../../bundler/app-bundler.js";
 import { compileApp } from "../../bundler/app-compiler.js";
 import { scanBundle } from "../../bundler/bundle-scanner.js";
+import type { SignatureJson } from "../../bundler/bundle-signer.js";
 import { verifyBundleSignature } from "../../bundler/signature-verifier.js";
 import { compareSemver } from "../../daemon/handlers/shared.js";
 import { defaultGallery } from "../../gallery/default-gallery.js";
@@ -583,16 +584,15 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
               return httpError("BAD_REQUEST", "payload is not valid JSON", 400);
             }
 
-            const signatureJson: import("../../bundler/bundle-signer.js").SignatureJson =
-              {
-                algorithm: "ed25519",
-                signer: {
-                  key_id: body.keyId,
-                  display_name: "HTTP Signer",
-                },
-                content_hashes: contentHashes,
-                signature: body.signature,
-              };
+            const signatureJson: SignatureJson = {
+              algorithm: "ed25519",
+              signer: {
+                key_id: body.keyId,
+                display_name: "HTTP Signer",
+              },
+              content_hashes: contentHashes,
+              signature: body.signature,
+            };
             return Response.json({ signed: true, signatureJson });
           }
 

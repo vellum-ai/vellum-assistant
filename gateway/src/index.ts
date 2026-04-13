@@ -34,6 +34,11 @@ import {
   createTwilioRelayWebsocketHandler,
   getRelayWebsocketHandlers,
 } from "./http/routes/twilio-relay-websocket.js";
+import {
+  createTwilioMediaWebsocketHandler,
+  getMediaStreamWebsocketHandlers,
+  type MediaStreamSocketData,
+} from "./http/routes/twilio-media-websocket.js";
 import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js";
 import { createWhatsAppDeliverHandler } from "./http/routes/whatsapp-deliver.js";
 import { createEmailWebhookHandler } from "./http/routes/email-webhook.js";
@@ -44,7 +49,10 @@ import {
   createFeatureFlagsGetHandler,
   createFeatureFlagsPatchHandler,
 } from "./http/routes/feature-flags.js";
-import { createPrivacyConfigPatchHandler } from "./http/routes/privacy-config.js";
+import {
+  createPrivacyConfigGetHandler,
+  createPrivacyConfigPatchHandler,
+} from "./http/routes/privacy-config.js";
 import { createChannelVerificationSessionProxyHandler } from "./http/routes/channel-verification-session-proxy.js";
 import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-control-plane-proxy.js";
 import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-control-plane-proxy.js";
@@ -105,6 +113,8 @@ import { fetchImpl } from "./fetch.js";
 import { isNewCommand, handleNewCommand } from "./webhook-pipeline.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 import { registerEmailCallbackRoute } from "./email/register-callback.js";
+import { GatewayIpcServer } from "./ipc/server.js";
+import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
 
 const log = getLogger("main");
 
@@ -155,6 +165,14 @@ function isBrowserRelaySocketData(
     !!data &&
     typeof data === "object" &&
     (data as { wsType?: unknown }).wsType === "browser-relay"
+  );
+}
+
+function isMediaStreamSocketData(data: unknown): data is MediaStreamSocketData {
+  return (
+    !!data &&
+    typeof data === "object" &&
+    (data as { wsType?: unknown }).wsType === "twilio-media-stream"
   );
 }
 
@@ -232,8 +250,12 @@ async function main() {
   const handleTwilioRelayWs = createTwilioRelayWebsocketHandler(config, {
     configFile: configFileCache,
   });
+  const handleTwilioMediaWs = createTwilioMediaWebsocketHandler(config, {
+    configFile: configFileCache,
+  });
   const handleBrowserRelayWs = createBrowserRelayWebsocketHandler(config);
   const twilioRelayWebsocketHandlers = getRelayWebsocketHandlers();
+  const twilioMediaStreamWebsocketHandlers = getMediaStreamWebsocketHandlers();
   const browserRelayWebsocketHandlers = getBrowserRelayWebsocketHandlers();
   const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } =
     createWhatsAppWebhookHandler(config, {
@@ -296,6 +318,7 @@ async function main() {
   const handleLogExport = createLogExportHandler(config);
   const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
   const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
+  const handlePrivacyConfigGet = createPrivacyConfigGetHandler();
   const handlePrivacyConfigPatch = createPrivacyConfigPatchHandler();
   const handleTrustRulesList = createTrustRulesListHandler();
   const handleTrustRulesAdd = createTrustRulesAddHandler();
@@ -523,6 +546,12 @@ async function main() {
       method: "POST",
       auth: "edge",
       handler: (req) => contactsControlPlaneProxy.handleMergeContacts(req),
+    },
+    {
+      path: "/v1/contacts/guardian/channel",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => contactsControlPlaneProxy.handleAddGuardianChannel(req),
     },
     {
       path: /^\/v1\/contact-channels\/([^/]+)$/,
@@ -926,6 +955,20 @@ async function main() {
     // ── Privacy config (scope-protected) ──
     {
       path: "/v1/config/privacy",
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handlePrivacyConfigGet(req),
+    },
+    {
+      path: /^\/v1\/assistants\/([^/]+)\/config\/privacy\/$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handlePrivacyConfigGet(req),
+    },
+    {
+      path: "/v1/config/privacy",
       method: "PATCH",
       auth: "edge-scoped",
       scope: "settings.write",
@@ -1020,6 +1063,10 @@ async function main() {
           browserRelayWebsocketHandlers.open(ws as never);
           return;
         }
+        if (isMediaStreamSocketData(ws.data)) {
+          twilioMediaStreamWebsocketHandlers.open(ws as never);
+          return;
+        }
         twilioRelayWebsocketHandlers.open(ws as never);
       },
       message(ws, message) {
@@ -1027,11 +1074,19 @@ async function main() {
           browserRelayWebsocketHandlers.message(ws as never, message);
           return;
         }
+        if (isMediaStreamSocketData(ws.data)) {
+          twilioMediaStreamWebsocketHandlers.message(ws as never, message);
+          return;
+        }
         twilioRelayWebsocketHandlers.message(ws as never, message);
       },
       close(ws, code, reason) {
         if (isBrowserRelaySocketData(ws.data)) {
           browserRelayWebsocketHandlers.close(ws as never, code, reason);
+          return;
+        }
+        if (isMediaStreamSocketData(ws.data)) {
+          twilioMediaStreamWebsocketHandlers.close(ws as never, code, reason);
           return;
         }
         twilioRelayWebsocketHandlers.close(ws as never, code, reason);
@@ -1152,6 +1207,12 @@ async function main() {
       // a Response, so these can't go through the route table.
       if (url.pathname === "/webhooks/twilio/relay") {
         const upgradeResult = handleTwilioRelayWs(req, server);
+        if (upgradeResult !== undefined) return upgradeResult;
+        return undefined as unknown as Response;
+      }
+
+      if (url.pathname === "/webhooks/twilio/media-stream") {
+        const upgradeResult = handleTwilioMediaWs(req, server);
         if (upgradeResult !== undefined) return upgradeResult;
         return undefined as unknown as Response;
       }
@@ -1598,6 +1659,10 @@ async function main() {
 
   configFileWatcher.start();
 
+  // ── IPC server ──
+  const ipcServer = new GatewayIpcServer([...featureFlagRoutes]);
+  ipcServer.start();
+
   const featureFlagWatcher = new FeatureFlagWatcher();
   featureFlagWatcher.start();
 
@@ -1646,6 +1711,7 @@ async function main() {
     configFileWatcher.stop();
     featureFlagWatcher.stop();
     remoteFeatureFlagSync.stop();
+    ipcServer.stop();
     telegramDedupCache.stopCleanup();
     whatsappDedupCache.stopCleanup();
     emailDedupCache.stopCleanup();

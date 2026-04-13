@@ -200,10 +200,8 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "oauth/oauth-store.ts", // OAuth provider disconnect (delete stored tokens)
       "oauth/manual-token-connection.ts", // manual-token provider backfill (credential store existence check)
       "workspace/provider-commit-message-generator.ts", // commit message generation provider key lookup
-      "config/bundled-skills/transcribe/tools/transcribe-media.ts", // transcription tool API key lookup
       "config/bundled-skills/image-studio/tools/media-generate-image.ts", // image generation tool API key lookup
       "config/bundled-skills/media-processing/tools/analyze-keyframes.ts", // keyframe analysis tool API key lookup
-      "config/bundled-skills/media-processing/tools/extract-keyframes.ts", // keyframe extraction tool API key lookup
       "providers/registry.ts", // provider registry API key lookup for initialization
       "providers/provider-availability.ts", // provider availability API key check
       "media/app-icon-generator.ts", // app icon generation API key lookup
@@ -217,6 +215,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "providers/speech-to-text/resolve.ts", // STT provider API key lookup
       "daemon/lifecycle.ts", // CES client injection into secure-keys at startup
       "inbound/platform-callback-registration.ts", // managed credential lookup for platform base URL, assistant ID, and API key
+      "tts/providers/elevenlabs-provider.ts", // ElevenLabs TTS API key lookup
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));

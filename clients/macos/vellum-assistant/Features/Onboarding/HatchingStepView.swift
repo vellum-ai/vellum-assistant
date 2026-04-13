@@ -413,6 +413,7 @@ struct HatchingStepView: View {
                     configValues: configValues,
                     progress: { message in
                         self.state.hatchLogLines.append(message)
+                        self.state.hatchStepLabel = message
                     }
                 )
                 log.info("Apple container hatch succeeded")
@@ -450,6 +451,7 @@ struct HatchingStepView: View {
             configValues["services.outlook-oauth.mode"] = "managed"
             configValues["services.linear-oauth.mode"] = "managed"
             configValues["services.github-oauth.mode"] = "managed"
+            configValues["services.notion-oauth.mode"] = "managed"
         }
         return configValues
     }

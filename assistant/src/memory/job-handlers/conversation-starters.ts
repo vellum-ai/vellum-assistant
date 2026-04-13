@@ -197,7 +197,7 @@ async function generateStarters(scopeId: string): Promise<GeneratedStarter[]> {
   })}`;
 
   // Truncate identity context to prevent oversized prompts when SOUL.md /
-  // IDENTITY.md / USER.md are large.
+  // IDENTITY.md / users/<slug>.md are large.
   const rawIdentityContext = buildCoreIdentityContext({
     userPersona: resolveGuardianPersona(),
   });

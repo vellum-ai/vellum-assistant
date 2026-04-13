@@ -1,5 +1,6 @@
 import type { ApprovalRequired } from "@vellumai/ces-contracts";
 
+import type { InterfaceId } from "../channels/types.js";
 import type { CesClient } from "../credential-execution/client.js";
 import type { SecretPromptResult } from "../permissions/secret-prompter.js";
 import type {
@@ -184,6 +185,14 @@ export interface ToolContext {
   isPlatformHosted?: boolean;
   /** CES RPC client for credential execution operations. When present, the executor can bridge CES approval flows. */
   cesClient?: CesClient;
+  /**
+   * The interface ID of the connected client driving the current turn (e.g.
+   * "macos", "chrome-extension"). Browser backend policy uses this to decide
+   * transport preference — for example, macOS-originated turns prefer the
+   * user's real Chrome session via the paired extension before falling back
+   * to cdp-inspect or local Playwright.
+   */
+  transportInterface?: InterfaceId;
 }
 
 export interface DiffInfo {

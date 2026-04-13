@@ -1829,7 +1829,7 @@ describe("bundled skill: browser", () => {
     sessionState = new Map<string, string>();
   });
 
-  test("browser skill activation via loaded_skill marker registers all 14 tools in allowedToolNames", () => {
+  test("browser skill activation via loaded_skill marker registers all 16 tools in allowedToolNames", () => {
     mockCatalog = [makeSkill("browser", "/path/to/bundled-skills/browser")];
     mockManifests = { browser: makeManifest([...BROWSER_TOOL_NAMES]) };
 
@@ -1876,7 +1876,7 @@ describe("bundled skill: browser", () => {
 
     const tools = mockRegisteredTools.get("browser");
     expect(tools).toBeDefined();
-    expect(tools!.length).toBe(14);
+    expect(tools!.length).toBe(16);
 
     for (const tool of tools!) {
       expect(tool.origin).toBe("skill");
@@ -2610,9 +2610,11 @@ describe("browser skill migration harness", () => {
     expect(id1).not.toBe(id2);
   });
 
-  test("BROWSER_TOOL_NAMES contains all 14 browser tools", () => {
-    expect(BROWSER_TOOL_NAMES).toHaveLength(14);
+  test("BROWSER_TOOL_NAMES contains all 16 browser tools", () => {
+    expect(BROWSER_TOOL_NAMES).toHaveLength(16);
     expect(BROWSER_TOOL_NAMES).toContain("browser_navigate");
+    expect(BROWSER_TOOL_NAMES).toContain("browser_attach");
+    expect(BROWSER_TOOL_NAMES).toContain("browser_detach");
     expect(BROWSER_TOOL_NAMES).toContain("browser_fill_credential");
   });
 

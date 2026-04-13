@@ -13,10 +13,12 @@ metadata:
 
 Use this skill to browse the web. After loading this skill, the following browser tools become available:
 
+- `browser_attach` - Attach the Chrome debugger to the active tab
 - `browser_navigate` - Navigate to a URL
 - `browser_snapshot` - List interactive elements on the current page
 - `browser_screenshot` - Take a visual screenshot
 - `browser_close` - Close the browser page
+- `browser_detach` - Detach the Chrome debugger from the active tab
 - `browser_click` - Click an element
 - `browser_type` - Type text into an input
 - `browser_press_key` - Press a keyboard key
@@ -32,13 +34,34 @@ Use this skill to browse the web. After loading this skill, the following browse
 
 This browser runs **full Chromium with JavaScript enabled**. It can handle SPAs, React/Vue/Angular apps, dynamic content, date pickers, booking systems, reservation flows, and any JavaScript-heavy interactive site. Never tell the user you "can't handle interactive JavaScript" - you can.
 
+## Browser Mode
+
+Every browser tool accepts an optional `browser_mode` parameter that controls which backend executes the command:
+
+| Value | Backend | Description |
+|---|---|---|
+| `auto` | Automatic | Default. The assistant picks the best available backend based on context (extension > cdp-inspect > local). |
+| `extension` | Chrome extension | Routes through the user's Chrome browser via the extension debugger. |
+| `cdp-inspect` | CDP inspect | Connects to an already-running Chrome instance via the DevTools protocol. Alias: `cdp-debugger`. |
+| `local` | Playwright | Drives a dedicated Playwright-managed Chromium instance. Alias: `playwright`. |
+
+**When to use `auto`**: Prefer `auto` (or omit `browser_mode` entirely) unless you have a specific reason to pin. The automatic backend selection handles extension availability, fallback, and session reuse.
+
+**When to pin a mode**: Pin explicitly when:
+- The user requests interaction with their own browser (use `extension` or `cdp-inspect`).
+- A tool only works on a specific backend (e.g. `browser_wait_for_download` requires `local`).
+- You want to avoid fallback behavior for diagnostic clarity.
+
+**Unsupported mode errors**: Some tools restrict which modes they support. For example, `browser_wait_for_download` only supports `auto` and `local` because file downloads require the Playwright backend. Passing an unsupported mode returns a clear error with the accepted alternatives.
+
 ## Typical Workflow
 
-1. `browser_navigate` to load a page
-2. `browser_snapshot` to discover interactive elements
-3. Use `browser_click`, `browser_type`, `browser_press_key`, `browser_scroll`, `browser_select_option`, or `browser_hover` to interact
-4. `browser_extract` or `browser_screenshot` to capture results
-5. `browser_close` when done
+1. `browser_attach` to establish the debugger session (extension path; optional on other backends)
+2. `browser_navigate` to load a page
+3. `browser_snapshot` to discover interactive elements
+4. Use `browser_click`, `browser_type`, `browser_press_key`, `browser_scroll`, `browser_select_option`, or `browser_hover` to interact
+5. `browser_extract` or `browser_screenshot` to capture results
+6. `browser_detach` to end the debugger session, or `browser_close` to close the page entirely
 
 ## Interaction Strategies
 

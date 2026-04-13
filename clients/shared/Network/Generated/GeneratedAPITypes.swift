@@ -2959,6 +2959,22 @@ public struct OpenUrl: Codable, Sendable {
     }
 }
 
+public struct OpenConversation: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+    public let title: String?
+    public let anchorMessageId: String?
+    public let focus: Bool?
+
+    public init(type: String, conversationId: String, title: String? = nil, anchorMessageId: String? = nil, focus: Bool? = nil) {
+        self.type = type
+        self.conversationId = conversationId
+        self.title = title
+        self.anchorMessageId = anchorMessageId
+        self.focus = focus
+    }
+}
+
 public struct PairingApprovalRequest: Codable, Sendable {
     public let type: String
     public let pairingRequestId: String
@@ -4042,6 +4058,21 @@ public struct SkillsListResponse: Codable, Sendable {
     }
 }
 
+/// Security audit result from a partner analysis provider.
+public struct PartnerAudit: Codable, Sendable, Equatable {
+    public let risk: String
+    public let alerts: Int?
+    public let score: Double?
+    public let analyzedAt: String
+
+    public init(risk: String, alerts: Int? = nil, score: Double? = nil, analyzedAt: String) {
+        self.risk = risk
+        self.alerts = alerts
+        self.score = score
+        self.analyzedAt = analyzedAt
+    }
+}
+
 public struct SkillsListResponseSkill: Codable, Sendable {
     public let id: String
     public let name: String
@@ -4058,10 +4089,12 @@ public struct SkillsListResponseSkill: Codable, Sendable {
     public let stars: Int?
     public let reports: Int?
     public let publishedAt: String?
+    public let version: String?
     // Skillssh-only:
     public let sourceRepo: String?
+    public let audit: [String: PartnerAudit]?
 
-    public init(id: String, name: String, description: String, emoji: String? = nil, kind: String, origin: String, status: String, slug: String? = nil, installs: Int? = nil, author: String? = nil, stars: Int? = nil, reports: Int? = nil, publishedAt: String? = nil, sourceRepo: String? = nil) {
+    public init(id: String, name: String, description: String, emoji: String? = nil, kind: String, origin: String, status: String, slug: String? = nil, installs: Int? = nil, author: String? = nil, stars: Int? = nil, reports: Int? = nil, publishedAt: String? = nil, version: String? = nil, sourceRepo: String? = nil, audit: [String: PartnerAudit]? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -4075,7 +4108,9 @@ public struct SkillsListResponseSkill: Codable, Sendable {
         self.stars = stars
         self.reports = reports
         self.publishedAt = publishedAt
+        self.version = version
         self.sourceRepo = sourceRepo
+        self.audit = audit
     }
 }
 
@@ -4135,6 +4170,7 @@ public struct SkillDetailHTTPResponse: Codable, Sendable {
     public let publishedAt: String?
     // Skillssh-only:
     public let sourceRepo: String?
+    public let audit: [String: PartnerAudit]?
     // Clawhub detail enrichment fields:
     public let owner: ClawhubDetailOwner?
     public let stats: ClawhubDetailStats?
@@ -4142,7 +4178,7 @@ public struct SkillDetailHTTPResponse: Codable, Sendable {
     public let createdAt: Int?
     public let updatedAt: Int?
 
-    public init(id: String, name: String, description: String, emoji: String? = nil, kind: String, origin: String, status: String, slug: String? = nil, installs: Int? = nil, author: String? = nil, stars: Int? = nil, reports: Int? = nil, publishedAt: String? = nil, sourceRepo: String? = nil, owner: ClawhubDetailOwner? = nil, stats: ClawhubDetailStats? = nil, latestVersion: ClawhubDetailVersion? = nil, createdAt: Int? = nil, updatedAt: Int? = nil) {
+    public init(id: String, name: String, description: String, emoji: String? = nil, kind: String, origin: String, status: String, slug: String? = nil, installs: Int? = nil, author: String? = nil, stars: Int? = nil, reports: Int? = nil, publishedAt: String? = nil, sourceRepo: String? = nil, audit: [String: PartnerAudit]? = nil, owner: ClawhubDetailOwner? = nil, stats: ClawhubDetailStats? = nil, latestVersion: ClawhubDetailVersion? = nil, createdAt: Int? = nil, updatedAt: Int? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -4157,6 +4193,7 @@ public struct SkillDetailHTTPResponse: Codable, Sendable {
         self.reports = reports
         self.publishedAt = publishedAt
         self.sourceRepo = sourceRepo
+        self.audit = audit
         self.owner = owner
         self.stats = stats
         self.latestVersion = latestVersion
@@ -4864,7 +4901,34 @@ public struct UiSurfaceDismiss: Codable, Sendable {
     }
 }
 
+public struct UiSurfaceShow: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+    public let surfaceId: String
+    public let surfaceType: String
+    public let title: String?
+    public let data: [String: AnyCodable]
+    public let actions: [SurfaceAction]?
+    /// `"inline"` embeds in chat, `"panel"` shows a floating window.
+    public let display: String?
+    /// The message ID that this surface belongs to (for history loading).
+    public let messageId: String?
+    /// When `true`, clicking an action does not dismiss the surface — the client keeps the card visible and only marks the clicked `actionId` as spent so siblings remain clickable.
+    public let persistent: Bool?
 
+    public init(type: String, conversationId: String, surfaceId: String, surfaceType: String, title: String? = nil, data: [String: AnyCodable], actions: [SurfaceAction]? = nil, display: String? = nil, messageId: String? = nil, persistent: Bool? = nil) {
+        self.type = type
+        self.conversationId = conversationId
+        self.surfaceId = surfaceId
+        self.surfaceType = surfaceType
+        self.title = title
+        self.data = data
+        self.actions = actions
+        self.display = display
+        self.messageId = messageId
+        self.persistent = persistent
+    }
+}
 
 public struct UiSurfaceUndoRequest: Codable, Sendable {
     public let type: String

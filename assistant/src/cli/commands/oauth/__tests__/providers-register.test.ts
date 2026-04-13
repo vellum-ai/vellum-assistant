@@ -144,6 +144,7 @@ const sampleProviderRow = {
   tokenExchangeUrl: "https://custom-api.example.com/oauth/token",
   refreshUrl: null,
   tokenEndpointAuthMethod: "client_secret_post",
+  tokenExchangeBodyFormat: "form",
   userinfoUrl: null,
   baseUrl: null,
   defaultScopes: "[]",

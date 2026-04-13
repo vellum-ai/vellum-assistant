@@ -19,10 +19,8 @@ struct IntelligencePanel: View {
 
     @State private var selectedTab: IntelligenceTab
     @State private var cachedAssistantName: String = "Your Assistant"
-    @State private var isEmailEnabled: Bool = false
     @Binding var pendingSkillId: String?
     @State private var pendingFilePath: String?
-    private static let emailFeatureFlagKey = "email-channel"
 
     init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, onImportMemory: ((String) -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, authManager: AuthManager? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil), pendingSkillId: Binding<String?> = .constant(nil)) {
         self.onClose = onClose
@@ -71,40 +69,12 @@ struct IntelligencePanel: View {
         .task {
             let info = await IdentityInfo.loadAsync()
             cachedAssistantName = AssistantDisplayName.resolve(info?.name, fallback: "Your Assistant")
-            await loadFeatureFlags()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
-            if let key = notification.userInfo?["key"] as? String,
-               let enabled = notification.userInfo?["enabled"] as? Bool {
-                if key == Self.emailFeatureFlagKey {
-                    isEmailEnabled = enabled
-                }
-            }
         }
     }
 
     private var visibleTabs: [IntelligenceTab] {
         IntelligenceTab.allCases
     }
-
-    private func loadFeatureFlags() async {
-        let featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
-        do {
-            let flags = try await featureFlagClient.getFeatureFlags()
-            if let emailFlag = flags.first(where: { $0.key == Self.emailFeatureFlagKey }) {
-                isEmailEnabled = emailFlag.enabled
-            }
-        } catch {
-            // Fall through to local file fallback
-            let resolved = AssistantFeatureFlagResolver.resolvedFlags(
-                registry: loadFeatureFlagRegistry()
-            )
-            if let emailEnabled = resolved[Self.emailFeatureFlagKey] {
-                isEmailEnabled = emailEnabled
-            }
-        }
-    }
-
 
     // MARK: - Tab Content
 
@@ -150,7 +120,6 @@ struct IntelligencePanel: View {
                 eventStreamClient: eventStreamClient,
                 store: store,
                 conversationManager: conversationManager,
-                isEmailEnabled: isEmailEnabled,
                 showToast: showToast
             )
             .padding(.top, VSpacing.sm)

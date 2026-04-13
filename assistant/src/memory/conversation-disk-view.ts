@@ -310,6 +310,13 @@ export function syncMessageToDisk(
     if (toolResults.length > 0) record.toolResults = toolResults;
     if (attachmentFilenames.length > 0)
       record.attachments = attachmentFilenames;
+    if (message.metadata) {
+      try {
+        record.metadata = JSON.parse(message.metadata);
+      } catch {
+        // Invalid JSON — omit metadata from disk record
+      }
+    }
 
     appendFileSync(
       join(dirPath, "messages.jsonl"),

@@ -64,6 +64,14 @@ export async function backup(): Promise<void> {
   // Detect topology and route platform assistants through Django export
   const cloud =
     entry.cloud || (entry.project ? "gcp" : entry.sshUser ? "custom" : "local");
+
+  if (cloud === "apple-container") {
+    console.error(
+      `Error: '${name}' uses the Apple Containers runtime. Backup is not yet supported for this topology.`,
+    );
+    process.exit(1);
+  }
+
   if (cloud === "vellum") {
     await backupPlatform(name, outputArg, entry.runtimeUrl);
     return;

@@ -181,9 +181,19 @@ export function createEmailWebhookHandler(
 
     // Forward to runtime
     try {
+      const inReplyTo =
+        typeof payload.messageId === "string" ? payload.messageId : undefined;
+      const subject =
+        typeof payload.subject === "string" ? payload.subject : undefined;
+
       const result = await handleInbound(config, event, {
-        transportMetadata: buildEmailTransportMetadata(),
-        replyCallbackUrl: undefined, // Email replies go through the outbound send path (PR 4)
+        transportMetadata: buildEmailTransportMetadata({
+          senderAddress: event.actor.actorExternalId,
+          recipientAddress: recipientAddress,
+          subject,
+          inReplyTo,
+        }),
+        replyCallbackUrl: undefined, // Email replies use `assistant email send` tool (no /deliver/email)
         traceId,
         routingOverride: routing,
         sourceMetadata: {

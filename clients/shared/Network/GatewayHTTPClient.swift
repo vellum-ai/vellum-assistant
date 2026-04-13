@@ -578,14 +578,7 @@ public enum GatewayHTTPClient {
             if let runtimeUrl = assistant.runtimeUrl {
                 baseURL = runtimeUrl
             } else {
-                // Call the nonisolated pure function directly to avoid
-                // crossing into @MainActor isolation. The instance property
-                // `AuthService.shared.baseURL` is @MainActor-isolated and
-                // cannot be read from a nonisolated synchronous context.
-                baseURL = AuthService.resolveBaseURL(
-                    environment: ProcessInfo.processInfo.environment,
-                    userDefaults: .standard
-                )
+                baseURL = VellumEnvironment.resolvedPlatformURL
             }
             return ConnectionInfo(baseURL: baseURL, authHeader: ("X-Session-Token", token), assistantId: assistant.assistantId, isManaged: true)
         } else {
@@ -641,6 +634,15 @@ public enum GatewayHTTPClient {
     private static let queryValueAllowed: CharacterSet = {
         var cs = CharacterSet.urlQueryAllowed
         cs.remove(charactersIn: "&=+#")
+        return cs
+    }()
+
+    /// URL-path character set that preserves already-encoded percent sequences.
+    /// `.urlPathAllowed` excludes `%`, which causes pre-encoded path components
+    /// (e.g. `%2F` for skill slugs containing `/`) to be double-encoded as `%252F`.
+    private static let urlPathPreservingEncoded: CharacterSet = {
+        var cs = CharacterSet.urlPathAllowed
+        cs.insert("%")
         return cs
     }()
 
@@ -775,7 +777,7 @@ public enum GatewayHTTPClient {
             }
         }
 
-        let encodedPath = pathComponent.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? pathComponent
+        let encodedPath = pathComponent.addingPercentEncoding(withAllowedCharacters: Self.urlPathPreservingEncoded) ?? pathComponent
         let trailingSlash = encodedPath.hasSuffix("/") ? "" : "/"
         guard let url = URL(string: "\(connection.baseURL)/v1/\(encodedPath)\(trailingSlash)\(queryString)") else {
             throw ClientError.invalidURL

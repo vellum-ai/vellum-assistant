@@ -812,8 +812,11 @@ public struct UiSurfaceShowMessage: Decodable, Sendable {
     public let display: String?
     /// The message ID that this surface belongs to (for history loading).
     public let messageId: String?
+    /// When `true`, clicking an action does not dismiss the surface — the client keeps the card
+    /// visible and only marks the clicked `actionId` as spent so siblings remain clickable.
+    public let persistent: Bool?
 
-    public init(conversationId: String?, surfaceId: String, surfaceType: String, title: String?, data: AnyCodable, actions: [SurfaceActionData]?, display: String?, messageId: String?) {
+    public init(conversationId: String?, surfaceId: String, surfaceType: String, title: String?, data: AnyCodable, actions: [SurfaceActionData]?, display: String?, messageId: String?, persistent: Bool? = nil) {
         self.conversationId = conversationId
         self.surfaceId = surfaceId
         self.surfaceType = surfaceType
@@ -822,6 +825,7 @@ public struct UiSurfaceShowMessage: Decodable, Sendable {
         self.actions = actions
         self.display = display
         self.messageId = messageId
+        self.persistent = persistent
     }
 }
 
@@ -967,7 +971,7 @@ extension SkillsListResponseSkill: Identifiable {}
 extension SkillsListResponseSkill {
     /// Returns a copy with a different `status`, preserving all other fields including `id`.
     public func withStatus(_ newStatus: String) -> Self {
-        Self(id: id, name: name, description: description, emoji: emoji, kind: kind, origin: origin, status: newStatus, slug: slug, installs: installs, author: author, stars: stars, reports: reports, publishedAt: publishedAt, sourceRepo: sourceRepo)
+        Self(id: id, name: name, description: description, emoji: emoji, kind: kind, origin: origin, status: newStatus, slug: slug, installs: installs, author: author, stars: stars, reports: reports, publishedAt: publishedAt, version: version, sourceRepo: sourceRepo, audit: audit)
     }
 
     /// Whether the skill is available from the catalog but not yet installed.
@@ -987,8 +991,20 @@ extension SkillsListResponseSkill {
 }
 
 /// Response containing the list of available skills.
-/// Backed by generated `SkillsListResponse`.
-public typealias SkillsListResponseMessage = SkillsListResponse
+/// Wraps the generated `SkillsListResponse` with additional server-side filter metadata.
+public struct SkillsListResponseMessage: Codable, Sendable {
+    public let type: String
+    public let skills: [SkillsListResponseSkill]
+    public let categoryCounts: [String: Int]?
+    public let totalCount: Int?
+
+    public init(type: String, skills: [SkillsListResponseSkill], categoryCounts: [String: Int]? = nil, totalCount: Int? = nil) {
+        self.type = type
+        self.skills = skills
+        self.categoryCounts = categoryCounts
+        self.totalCount = totalCount
+    }
+}
 
 /// Response containing the full body of a specific skill.
 /// Backed by generated `SkillDetailResponse`.
@@ -1081,6 +1097,7 @@ public struct ClawhubOriginMeta: Codable, Sendable, Equatable {
     public let installs: Int
     public let reports: Int
     public let publishedAt: String?
+    public let version: String?
 }
 
 /// Origin-specific metadata for a skill sourced from Skills.sh.
@@ -1088,6 +1105,7 @@ public struct SkillsshOriginMeta: Codable, Sendable, Equatable {
     public let slug: String
     public let sourceRepo: String
     public let installs: Int
+    public let audit: [String: PartnerAudit]?
 }
 
 /// Discriminated union over the `origin` field of a skill.
@@ -1110,13 +1128,15 @@ extension SkillsListResponseSkill {
                 stars: stars ?? 0,
                 installs: installs ?? 0,
                 reports: reports ?? 0,
-                publishedAt: publishedAt
+                publishedAt: publishedAt,
+                version: version
             ))
         case "skillssh":
             return .skillssh(SkillsshOriginMeta(
                 slug: slug ?? id,
                 sourceRepo: sourceRepo ?? "",
-                installs: installs ?? 0
+                installs: installs ?? 0,
+                audit: audit
             ))
         case "vellum":
             return .vellum
@@ -1137,13 +1157,15 @@ extension SkillDetailHTTPResponse {
                 stars: stars ?? 0,
                 installs: installs ?? 0,
                 reports: reports ?? 0,
-                publishedAt: publishedAt
+                publishedAt: publishedAt,
+                version: latestVersion?.version
             ))
         case "skillssh":
             return .skillssh(SkillsshOriginMeta(
                 slug: slug ?? id,
                 sourceRepo: sourceRepo ?? "",
-                installs: installs ?? 0
+                installs: installs ?? 0,
+                audit: audit
             ))
         case "vellum":
             return .vellum
@@ -2274,6 +2296,7 @@ public enum ServerMessage: Decodable, Sendable {
     case documentListResponse(DocumentListResponseMessage)
     case assistantStatus(AssistantStatusMessage)
     case openUrl(OpenUrlMessage)
+    case openConversation(OpenConversation)
     case navigateSettings(NavigateSettings)
     case showPlatformLogin(ShowPlatformLogin)
     case platformDisconnected(PlatformDisconnected)
@@ -2599,6 +2622,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "open_url":
             let message = try OpenUrlMessage(from: decoder)
             self = .openUrl(message)
+        case "open_conversation":
+            let message = try OpenConversation(from: decoder)
+            self = .openConversation(message)
         case "navigate_settings":
             let message = try NavigateSettings(from: decoder)
             self = .navigateSettings(message)
@@ -3083,4 +3109,25 @@ extension WorkItemsListResponseItem {
     public func withPriorityTier(_ newTier: Double) -> Self {
         Self(id: id, taskId: taskId, title: title, notes: notes, status: status, priorityTier: newTier, sortIndex: sortIndex, lastRunId: lastRunId, lastRunConversationId: lastRunConversationId, lastRunStatus: lastRunStatus, sourceType: sourceType, sourceId: sourceId, createdAt: createdAt, updatedAt: updatedAt)
     }
+}
+
+// MARK: - Open Conversation Helpers
+
+extension OpenConversation {
+    /// Whether the client should switch focus to this conversation.
+    ///
+    /// The daemon emits `focus: false` for fan-out flows (e.g. surface-action
+    /// launches that spawn a background conversation) so the new conversation
+    /// appears in the sidebar without stealing focus from the origin surface.
+    /// Any other value — `true` or absent — defaults to switching focus to
+    /// preserve existing single-target behavior.
+    public var shouldSwitchFocus: Bool {
+        focus != false
+    }
+}
+
+/// Pure helper for the `.openConversation` handler's focus decision.
+/// Extracted so it can be unit-tested without spinning up AppDelegate.
+public func shouldFocusForOpenConversation(_ msg: OpenConversation) -> Bool {
+    msg.shouldSwitchFocus
 }

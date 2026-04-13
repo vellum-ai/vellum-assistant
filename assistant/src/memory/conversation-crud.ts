@@ -1062,6 +1062,27 @@ export function getLastAssistantTimestampBefore(
   return row?.createdAt ?? 0;
 }
 
+export function getLastUserTimestampBefore(
+  conversationId: string,
+  beforeTimestamp: number,
+): number {
+  const db = getDb();
+  const row = db
+    .select({ createdAt: messages.createdAt })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.role, "user"),
+        lt(messages.createdAt, beforeTimestamp),
+      ),
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(1)
+    .get();
+  return row?.createdAt ?? 0;
+}
+
 /** Fetch a single message by ID, optionally scoped to a specific conversation. */
 export function getMessageById(
   messageId: string,

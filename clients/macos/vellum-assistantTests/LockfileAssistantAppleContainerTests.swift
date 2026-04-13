@@ -122,6 +122,39 @@ final class LockfileAssistantAppleContainerTests: XCTestCase {
         XCTAssertTrue(assistants.contains(where: { ($0["assistantId"] as? String) == "ac-id" }))
     }
 
+    func testWritesMgmtSocketWhenProvided() {
+        let result = AppleContainersLauncher.writeLockfileEntry(
+            assistantId: "ac-mgmt",
+            hatchedAt: "2025-08-01T00:00:00Z",
+            signingKey: "key5",
+            mgmtSocket: "/tmp/test-mgmt.sock",
+            lockfilePath: lockfilePath
+        )
+        XCTAssertTrue(result)
+
+        let data = try! Data(contentsOf: URL(fileURLWithPath: lockfilePath))
+        let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let assistants = json["assistants"] as! [[String: Any]]
+        XCTAssertEqual(assistants.count, 1)
+        XCTAssertEqual(assistants[0]["mgmtSocket"] as? String, "/tmp/test-mgmt.sock")
+    }
+
+    func testOmitsMgmtSocketWhenNil() {
+        let result = AppleContainersLauncher.writeLockfileEntry(
+            assistantId: "ac-no-mgmt",
+            hatchedAt: "2025-08-01T00:00:00Z",
+            signingKey: "key6",
+            lockfilePath: lockfilePath
+        )
+        XCTAssertTrue(result)
+
+        let data = try! Data(contentsOf: URL(fileURLWithPath: lockfilePath))
+        let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let assistants = json["assistants"] as! [[String: Any]]
+        XCTAssertEqual(assistants.count, 1)
+        XCTAssertNil(assistants[0]["mgmtSocket"])
+    }
+
     func testPreservesNonAssistantLockfileKeys() {
         let existing: [String: Any] = [
             "version": 1,

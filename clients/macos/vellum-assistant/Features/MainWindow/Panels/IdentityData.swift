@@ -5,6 +5,7 @@ import VellumAssistantShared
 
 enum AssistantHome: Equatable {
     case local(workspacePath: String)
+    case appleContainer(instanceDir: String, mgmtSocket: String?)
     case gcp(project: String, zone: String, instance: String)
     case aws(project: String, region: String, instance: String)
     case custom(ip: String, port: String)
@@ -13,6 +14,7 @@ enum AssistantHome: Equatable {
     var displayLabel: String {
         switch self {
         case .local: return "Local"
+        case .appleContainer: return "Apple Containers"
         case .gcp: return "GCP"
         case .aws: return "AWS"
         case .custom: return "Custom"
@@ -24,6 +26,12 @@ enum AssistantHome: Equatable {
         switch self {
         case .local(let workspacePath):
             return [("Path", workspacePath)]
+        case .appleContainer(let instanceDir, let mgmtSocket):
+            var details: [(label: String, value: String)] = [("Path", instanceDir)]
+            if let mgmtSocket {
+                details.append(("Socket", mgmtSocket))
+            }
+            return details
         case .gcp(let project, let zone, let instance):
             return [("Project", project), ("Zone", zone), ("Instance", instance)]
         case .aws(let project, let region, let instance):
@@ -347,6 +355,13 @@ extension LockfileAssistant {
             return .custom(ip: "", port: "")
         case "vellum":
             return .vellum(runtimeUrl: runtimeUrl ?? "")
+        case "apple-container":
+            // instanceDir is not written under resources for apple-container
+            // entries, so derive it from the mgmtSocket parent directory.
+            let base = instanceDir
+                ?? mgmtSocket.flatMap { URL(fileURLWithPath: $0).deletingLastPathComponent().path }
+                ?? NSHomeDirectory()
+            return .appleContainer(instanceDir: base, mgmtSocket: mgmtSocket)
         default:
             let base = instanceDir ?? NSHomeDirectory()
             return .local(workspacePath: base + "/.vellum/workspace")
@@ -382,22 +397,65 @@ struct WorkspaceFileNode: Identifiable {
     let path: String
     let exists: Bool
 
-    /// Check file existence via the gateway workspace tree API.
+    /// Static nodes used as a last-resort fallback when the gateway is
+    /// unreachable. Mirrors the server's static entries in `settings-routes.ts`
+    /// (minus the guardian's dynamic `users/<slug>.md`, which we obviously
+    /// can't resolve client-side).
+    private static let fallbackNodes: [WorkspaceFileNode] = [
+        WorkspaceFileNode(label: "IDENTITY.md", path: "IDENTITY.md", exists: false),
+        WorkspaceFileNode(label: "SOUL.md", path: "SOUL.md", exists: false),
+        WorkspaceFileNode(label: "skills/", path: "skills", exists: false),
+    ]
+
+    /// Fetch the well-known workspace files from the gateway.
+    ///
+    /// Uses `GET /workspace-files`, which the daemon builds dynamically:
+    /// it includes the static identity/soul/skills entries plus the
+    /// guardian's resolved per-user persona file at `users/<slug>.md`.
+    /// The client renders whatever the server returns — the guardian slug
+    /// is decided server-side and surfaced as a single "User Profile" node.
     static func scanAsync() async -> [WorkspaceFileNode] {
-        guard let tree = await WorkspaceClient().fetchWorkspaceTree(path: "", showHidden: false) else {
-            return [
-                WorkspaceFileNode(label: "IDENTITY.md", path: "IDENTITY.md", exists: false),
-                WorkspaceFileNode(label: "SOUL.md", path: "SOUL.md", exists: false),
-                WorkspaceFileNode(label: "USER.md", path: "USER.md", exists: false),
-                WorkspaceFileNode(label: "skills/", path: "skills", exists: false),
-            ]
+        guard let response = await WorkspaceClient().fetchWorkspaceFilesList() else {
+            return fallbackNodes
         }
-        let names = Set(tree.entries.map { $0.name })
-        return [
-            WorkspaceFileNode(label: "IDENTITY.md", path: "IDENTITY.md", exists: names.contains("IDENTITY.md")),
-            WorkspaceFileNode(label: "SOUL.md", path: "SOUL.md", exists: names.contains("SOUL.md")),
-            WorkspaceFileNode(label: "USER.md", path: "USER.md", exists: names.contains("USER.md")),
-            WorkspaceFileNode(label: "skills/", path: "skills", exists: names.contains("skills")),
-        ]
+        return buildNodes(from: response.files)
+    }
+
+    /// Pure transformation from the server's `workspace-files` response to
+    /// the nodes rendered by the identity panel. Factored out for easier
+    /// reasoning and future unit testing — contains no I/O.
+    static func buildNodes(from entries: [WorkspaceFilesListResponseFile]) -> [WorkspaceFileNode] {
+        var nodes: [WorkspaceFileNode] = []
+        for entry in entries {
+            nodes.append(
+                WorkspaceFileNode(
+                    label: displayLabel(for: entry),
+                    path: entry.path,
+                    exists: entry.exists
+                )
+            )
+        }
+        return nodes
+    }
+
+    /// True when `path` points at the guardian-owned per-user persona file
+    /// (any markdown file directly under `users/`). The client does not care
+    /// which slug the guardian chose — the server decides and we render it.
+    private static func isGuardianUserPersonaPath(_ path: String) -> Bool {
+        guard path.hasPrefix("users/") else { return false }
+        let remainder = path.dropFirst("users/".count)
+        return !remainder.isEmpty
+            && !remainder.contains("/")
+            && remainder.hasSuffix(".md")
+    }
+
+    /// Maps a server entry to a user-facing label. The guardian's
+    /// `users/<slug>.md` is shown as "User Profile" so the UI doesn't surface
+    /// a slug. All other entries render their server-provided name verbatim.
+    private static func displayLabel(for entry: WorkspaceFilesListResponseFile) -> String {
+        if isGuardianUserPersonaPath(entry.path) {
+            return "User Profile"
+        }
+        return entry.name
     }
 }

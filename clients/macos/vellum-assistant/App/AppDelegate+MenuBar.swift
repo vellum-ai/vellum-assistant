@@ -91,9 +91,23 @@ final class FileMenuPatchDelegate: NSObject, NSMenuDelegate {
         currentItem.tag = Self.injectedTag
         menu.insertItem(currentItem, at: 1)
 
+        let markUnreadShortcut = UserDefaults.standard.string(forKey: "markConversationUnreadShortcut") ?? "cmd+shift+u"
+        let markUnreadItem: NSMenuItem
+        if markUnreadShortcut.isEmpty {
+            markUnreadItem = NSMenuItem(title: "Mark Conversation as Unread", action: #selector(AppDelegate.markCurrentConversationUnread), keyEquivalent: "")
+        } else {
+            let (muModifiers, muKey) = ShortcutHelper.parseShortcut(markUnreadShortcut)
+            markUnreadItem = NSMenuItem(title: "Mark Conversation as Unread", action: #selector(AppDelegate.markCurrentConversationUnread), keyEquivalent: muKey)
+            markUnreadItem.keyEquivalentModifierMask = muModifiers
+        }
+        markUnreadItem.target = appDelegate
+        markUnreadItem.tag = Self.injectedTag
+        menu.insertItem(markUnreadItem, at: 2)
+        appDelegate.markConversationUnreadMenuItem = markUnreadItem
+
         let separator = NSMenuItem.separator()
         separator.tag = Self.injectedTag
-        menu.insertItem(separator, at: 2)
+        menu.insertItem(separator, at: 3)
     }
 }
 
@@ -196,6 +210,7 @@ extension AppDelegate {
 
         updateNewChatMenuItemShortcut()
         updateCurrentConversationMenuItemShortcut()
+        updateMarkConversationUnreadMenuItemShortcut()
     }
 
     /// Updates the File > New Conversation menu item's key equivalent to match
@@ -230,6 +245,21 @@ extension AppDelegate {
         item.keyEquivalentModifierMask = modifiers
     }
 
+    /// Updates the File > Mark Conversation as Unread menu item's key equivalent
+    /// to match the current `markConversationUnreadShortcut` preference.
+    func updateMarkConversationUnreadMenuItemShortcut() {
+        guard let item = markConversationUnreadMenuItem else { return }
+        let shortcut = UserDefaults.standard.string(forKey: "markConversationUnreadShortcut") ?? "cmd+shift+u"
+        guard !shortcut.isEmpty else {
+            item.keyEquivalent = ""
+            item.keyEquivalentModifierMask = []
+            return
+        }
+        let (modifiers, key) = ShortcutHelper.parseShortcut(shortcut)
+        item.keyEquivalent = key
+        item.keyEquivalentModifierMask = modifiers
+    }
+
     // MARK: - Menu Item Validation
 
     @objc func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
@@ -237,7 +267,22 @@ extension AppDelegate {
         if action == #selector(markAllConversationsSeen) {
             return (mainWindow?.conversationManager.unseenVisibleConversationCount ?? 0) > 0
         }
+        if action == #selector(markCurrentConversationUnread) {
+            return canMarkCurrentConversationUnread()
+        }
         return true
+    }
+
+    /// Returns whether the mark-as-unread action is currently executable.
+    /// Shared by `validateMenuItem(_:)` and the keyboard-shortcut monitor so
+    /// both gates stay in sync and the shortcut falls through to the responder
+    /// chain when the action cannot run.
+    func canMarkCurrentConversationUnread() -> Bool {
+        guard let conversationManager = mainWindow?.conversationManager,
+              let activeId = conversationManager.selectionStore.activeConversationId,
+              let idx = conversationManager.listStore.conversations.firstIndex(where: { $0.id == activeId })
+        else { return false }
+        return conversationManager.listStore.canMarkConversationUnread(conversationId: activeId, at: idx)
     }
 
     /// Builds the status item tooltip, appending PTT key info when enabled.
@@ -421,6 +466,13 @@ extension AppDelegate {
             restartItem.target = self
             restartItem.image = VIcon.refreshCw.nsImage(size: 16)
             menu.addItem(restartItem)
+
+            menu.addItem(NSMenuItem.separator())
+
+            let feedbackItem = NSMenuItem(title: "Share Feedback", action: #selector(sendFeedback), keyEquivalent: "")
+            feedbackItem.target = self
+            feedbackItem.image = VIcon.messageCircle.nsImage(size: 16)
+            menu.addItem(feedbackItem)
         }
 
         if multiAssistantSwitcherEnabled, onboardingWindow == nil, let switcherVM = assistantSwitcherViewModel {
@@ -493,6 +545,12 @@ extension AppDelegate {
         markAllSeenItem.target = self
         menu.addItem(markAllSeenItem)
 
+        menu.addItem(NSMenuItem.separator())
+
+        let feedbackItem = NSMenuItem(title: "Share Feedback", action: #selector(sendFeedback), keyEquivalent: "")
+        feedbackItem.target = self
+        menu.addItem(feedbackItem)
+
         return menu
     }
 
@@ -515,6 +573,13 @@ extension AppDelegate {
             mainWindow?.windowState.selection = nil
         }
         UserDefaults.standard.set(false, forKey: "sidebarExpanded")
+    }
+
+    @objc public func markCurrentConversationUnread() {
+        guard let conversationManager = mainWindow?.conversationManager,
+              let activeId = conversationManager.selectionStore.activeConversationId
+        else { return }
+        conversationManager.markConversationUnread(conversationId: activeId)
     }
 
     @objc func activateChatSearch() {
@@ -779,7 +844,7 @@ extension AppDelegate {
         }
         let success = LockfileAssistant.ensureManagedEntry(
             assistantId: platformAssistant.id,
-            runtimeUrl: AuthService.shared.baseURL,
+            runtimeUrl: VellumEnvironment.resolvedPlatformURL,
             hatchedAt: platformAssistant.created_at ?? Date().iso8601String
         )
         guard success else {

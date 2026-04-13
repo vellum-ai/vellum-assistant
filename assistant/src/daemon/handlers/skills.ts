@@ -37,9 +37,9 @@ import {
 } from "../../runtime/routes/workspace-utils.js";
 import { getCatalog } from "../../skills/catalog-cache.js";
 import {
+  catalogSkillToSlim,
+  createVellumCatalogProvider,
   hasHiddenOrSkippedSegment,
-  readCatalogSkillFileContent,
-  readCatalogSkillFiles,
   sanitizeRelativePath,
   type SkillFileEntry,
   SKIP_DIRS,
@@ -50,6 +50,8 @@ import {
   upsertSkillsIndex,
 } from "../../skills/catalog-install.js";
 import { filterByQuery } from "../../skills/catalog-search.js";
+import type { SkillCategory } from "../../skills/category-inference.js";
+import { inferCategory } from "../../skills/category-inference.js";
 import {
   clawhubCheckUpdates,
   clawhubInspect,
@@ -58,6 +60,7 @@ import {
   clawhubSearch,
   clawhubUpdate,
 } from "../../skills/clawhub.js";
+import { createClawhubProvider } from "../../skills/clawhub-files.js";
 import {
   readInstallMeta,
   type SkillInstallMeta,
@@ -68,10 +71,14 @@ import {
   removeSkillsIndexEntry,
   validateManagedSkillId,
 } from "../../skills/managed-store.js";
+import type { SkillFileProvider } from "../../skills/skill-file-provider.js";
+import { createSkillsShProvider } from "../../skills/skillssh-files.js";
 import {
+  fetchSkillAudits,
   installExternalSkill,
   resolveSkillSource,
   searchSkillsRegistry,
+  type SkillAuditData,
 } from "../../skills/skillssh-registry.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
 import type {
@@ -79,6 +86,10 @@ import type {
   SkillFileContentResponse,
   SlimSkillResponse,
 } from "../message-types/skills.js";
+
+// Re-export for use by route layer and future consumers.
+export type { SkillCategory };
+export { inferCategory };
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,
   ensureSkillEntry,
@@ -98,6 +109,62 @@ export interface SkillOperationContext {
   setSuppressConfigReload(value: boolean): void;
   updateConfigFingerprint(): void;
   broadcast: HandlerContext["broadcast"];
+}
+
+// ─── Provider chain for uninstalled skill file preview ───────────────────────
+// Ordered by priority: vellum first (most common and cheapest to check),
+// then skills.sh, then clawhub.
+//
+// Lazy-initialized on first access so that mock modules (in tests) can
+// replace the factory functions before providers are constructed.
+
+let _fileProviders: SkillFileProvider[] | null = null;
+
+function getFileProviders(): SkillFileProvider[] {
+  if (!_fileProviders) {
+    _fileProviders = [
+      createVellumCatalogProvider(),
+      createSkillsShProvider(),
+      createClawhubProvider(),
+    ];
+  }
+  return _fileProviders;
+}
+
+/** @internal Exported for test use only — forces re-creation of providers. */
+export function _resetFileProvidersForTest(): void {
+  _fileProviders = null;
+}
+
+async function resolveSkillFiles(skillId: string): Promise<{
+  handled: boolean;
+  skill: SlimSkillResponse | null;
+  files: SkillFileEntry[] | null;
+}> {
+  for (const provider of getFileProviders()) {
+    if (!provider.canHandle(skillId)) continue;
+    // Commit to this provider — don't fall through to subsequent providers.
+    const files = await provider.listFiles(skillId);
+    if (files === null) return { handled: true, skill: null, files: null };
+    const skill = await provider.toSlimSkill(skillId);
+    if (skill === null) return { handled: true, skill: null, files: null };
+    files.sort((a, b) => a.path.localeCompare(b.path));
+    return { handled: true, skill, files };
+  }
+  return { handled: false, skill: null, files: null };
+}
+
+async function resolveSkillFileContent(
+  skillId: string,
+  sanitizedPath: string,
+): Promise<{ handled: boolean; result: SkillFileEntry | null }> {
+  for (const provider of getFileProviders()) {
+    if (!provider.canHandle(skillId)) continue;
+    // Commit to this provider — don't fall through to subsequent providers.
+    const result = await provider.readFileContent(skillId, sanitizedPath);
+    return { handled: true, result };
+  }
+  return { handled: false, result: null };
 }
 
 // ─── Frontmatter parsing ─────────────────────────────────────────────────────
@@ -326,6 +393,7 @@ function toSlimSkillResponse(
         stars: 0,
         installs: 0,
         reports: 0,
+        version: "",
       };
     }
     case "skillssh": {
@@ -399,6 +467,138 @@ export async function listSkillsWithCatalog(
   return merged;
 }
 
+// ─── Filtered skill listing ──────────────────────────────────────────────────
+
+export interface SkillListFilter {
+  origin?: string;
+  kind?: string;
+  q?: string;
+  category?: string;
+  includeCatalog?: boolean;
+}
+
+/** Human-readable labels matching Swift's `sourceLabel`. */
+export function originDisplayLabel(origin: string): string {
+  switch (origin) {
+    case "vellum":
+      return "Vellum";
+    case "clawhub":
+      return "Clawhub";
+    case "skillssh":
+      return "skills.sh";
+    case "custom":
+      return "Custom";
+    default:
+      return origin;
+  }
+}
+
+/** Check if a skill's origin matches a text query (matching Swift logic). */
+export function originMatchesQuery(origin: string, query: string): boolean {
+  const label = originDisplayLabel(origin).toLowerCase();
+  if (label.includes(query)) return true;
+  // "community" umbrella matches clawhub and skillssh
+  if (
+    (origin === "clawhub" || origin === "skillssh") &&
+    "community".includes(query)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * List skills with filtering, category counts, and sorting.
+ * Calls listSkillsWithCatalog for the full merged list, then applies filters.
+ */
+export async function listSkillsFiltered(
+  filter: SkillListFilter,
+  ctx: SkillOperationContext,
+): Promise<{
+  skills: SlimSkillResponse[];
+  categoryCounts: Record<string, number>;
+  totalCount: number;
+}> {
+  let skills =
+    filter.includeCatalog !== false
+      ? await listSkillsWithCatalog(ctx)
+      : listSkills(ctx);
+
+  // Apply origin filter
+  if (filter.origin) {
+    skills = skills.filter((s) => s.origin === filter.origin);
+  }
+
+  // Apply kind/status filter
+  if (filter.kind) {
+    switch (filter.kind) {
+      case "installed":
+        skills = skills.filter(
+          (s) => s.kind === "installed" || s.kind === "bundled",
+        );
+        break;
+      case "available":
+        skills = skills.filter((s) => s.status === "available");
+        break;
+      default:
+        skills = skills.filter((s) => s.kind === filter.kind);
+        break;
+    }
+  }
+
+  // Apply text search
+  if (filter.q) {
+    const query = filter.q.trim().toLowerCase();
+    if (query) {
+      skills = skills.filter((s) => {
+        if (s.name.toLowerCase().includes(query)) return true;
+        if (s.description.toLowerCase().includes(query)) return true;
+        if (s.id.toLowerCase().includes(query)) return true;
+        if (originMatchesQuery(s.origin, query)) return true;
+        return false;
+      });
+    }
+  }
+
+  // Compute category counts BEFORE applying the category filter
+  const categoryCounts: Record<string, number> = {};
+  for (const s of skills) {
+    const cat = inferCategory(s.name, s.description);
+    categoryCounts[cat] = (categoryCounts[cat] ?? 0) + 1;
+  }
+  const totalCount = skills.length;
+
+  // Apply category filter
+  if (filter.category) {
+    skills = skills.filter(
+      (s) => inferCategory(s.name, s.description) === filter.category,
+    );
+  }
+
+  // Sort: installed first, community origins before core within installed,
+  // then alphabetical by name (matching Swift sorting logic)
+  skills.sort((a, b) => {
+    // Installed (bundled + installed) before catalog (available)
+    const aInstalled = a.kind === "installed" || a.kind === "bundled" ? 0 : 1;
+    const bInstalled = b.kind === "installed" || b.kind === "bundled" ? 0 : 1;
+    if (aInstalled !== bInstalled) return aInstalled - bInstalled;
+
+    // Within installed, community origins (clawhub, skillssh) before core (vellum)
+    if (aInstalled === 0 && bInstalled === 0) {
+      const aCommunity =
+        a.origin === "clawhub" || a.origin === "skillssh" ? 0 : 1;
+      const bCommunity =
+        b.origin === "clawhub" || b.origin === "skillssh" ? 0 : 1;
+      if (aCommunity !== bCommunity) return aCommunity - bCommunity;
+    }
+
+    // Alphabetical by name
+    return a.name.localeCompare(b.name);
+  });
+
+  return { skills, categoryCounts, totalCount };
+}
+
 /** Look up a single skill by ID from the resolved catalog, returning its SlimSkillResponse. */
 function findSkillById(
   skillId: string,
@@ -420,6 +620,32 @@ export async function getSkill(
 ): Promise<{ skill: SkillDetailResponse } | { error: string; status: number }> {
   const found = findSkillById(skillId);
   if (!found) {
+    // Fallback: skill is not installed. Try all file providers.
+    for (const provider of getFileProviders()) {
+      if (!provider.canHandle(skillId)) continue;
+      // Commit to this provider — don't fall through to subsequent providers.
+      const slim = await provider.toSlimSkill(skillId);
+      if (slim) {
+        // Enrich uninstalled skills.sh skills with audit data (non-fatal)
+        if (slim.origin === "skillssh") {
+          try {
+            const sourceRepo = slim.sourceRepo;
+            const skillSlug = slim.slug.split("/").pop() ?? slim.slug;
+            const audits = await fetchSkillAudits(sourceRepo, [skillSlug]);
+            if (audits[skillSlug]) {
+              (slim as { audit?: SkillAuditData }).audit = audits[skillSlug];
+            }
+          } catch (err) {
+            log.warn(
+              { err, skillId },
+              "Failed to enrich uninstalled skillssh skill with audit data",
+            );
+          }
+        }
+        return { skill: slim as SkillDetailResponse };
+      }
+      return { error: `Skill "${skillId}" not found`, status: 404 };
+    }
     return { error: `Skill "${skillId}" not found`, status: 404 };
   }
 
@@ -443,6 +669,7 @@ export async function getSkill(
       installs: slim.installs,
       reports: slim.reports,
       publishedAt: slim.publishedAt,
+      version: slim.version,
     };
     try {
       const inspectResult = await clawhubInspect(slim.slug);
@@ -477,6 +704,20 @@ export async function getSkill(
       sourceRepo: slim.sourceRepo,
       installs: slim.installs,
     };
+    // Enrich with audit data (non-fatal on failure)
+    try {
+      const sourceRepo = slim.sourceRepo;
+      const skillSlug = slim.slug.split("/").pop() ?? slim.slug;
+      const audits = await fetchSkillAudits(sourceRepo, [skillSlug]);
+      if (audits[skillSlug]) {
+        (detail as { audit?: SkillAuditData }).audit = audits[skillSlug];
+      }
+    } catch (err) {
+      log.warn(
+        { err, skillId },
+        "Failed to enrich skillssh skill detail with audit data",
+      );
+    }
     return { skill: detail };
   }
 
@@ -566,35 +807,15 @@ function readDirRecursive(dir: string, rootDir: string): SkillFileEntry[] {
 }
 
 /**
- * Map a `CatalogSkill` (from the Vellum platform API) to a `SlimSkillResponse`
- * shaped for the "available catalog skill" case. Shared between
- * `listSkillsWithCatalog` (merging catalog entries into the installed list)
- * and `getSkillFiles` (catalog fallback for preview listings). Keeping the
- * mapping in one place avoids divergence between the list and detail paths.
- */
-function catalogSkillToSlim(cs: CatalogSkill): SlimSkillResponse {
-  return {
-    id: cs.id,
-    name: cs.metadata?.vellum?.["display-name"] ?? cs.name,
-    description: cs.description,
-    emoji: cs.emoji,
-    kind: "catalog",
-    origin: "vellum",
-    status: "available",
-  };
-}
-
-/**
- * Read a single file's content from an installed or catalog skill.
+ * Read a single file's content from an installed or uninstalled skill.
  *
  * Installed-skill path (eager): reads the file directly from the skill's
  * on-disk directory. Applies lexical containment, symlink rejection, and
  * realpath containment checks for defense in depth.
  *
- * Catalog fallback: when the skill id is not backed by a local directory
- * (e.g. an uninstalled Vellum catalog skill), delegates to
- * `readCatalogSkillFileContent`, which handles both the dev-mode repo
- * checkout path and the platform preview API path internally.
+ * Provider chain fallback: when the skill id is not backed by a local
+ * directory, iterates the file-provider chain (vellum catalog,
+ * skills.sh, clawhub) until one returns content.
  */
 export async function getSkillFileContent(
   skillId: string,
@@ -701,32 +922,23 @@ export async function getSkillFileContent(
     };
   }
 
-  // Catalog fallback: skill is not installed locally. Try the catalog
-  // preview helper, which handles both dev-mode repo checkouts and the
-  // platform preview API.
-  let catalog: Awaited<ReturnType<typeof getCatalog>> = [];
-  try {
-    catalog = await getCatalog();
-  } catch {
-    catalog = [];
+  // Fallback: skill is not installed. Try all file providers.
+  const { handled, result } = await resolveSkillFileContent(skillId, sanitized);
+  if (handled && result) {
+    return {
+      path: result.path,
+      name: result.name,
+      size: result.size,
+      mimeType: result.mimeType,
+      isBinary: result.isBinary,
+      content: result.content,
+    };
   }
-  const inCatalog = catalog.some((s) => s.id === skillId);
-  if (!inCatalog) {
-    return { error: "Skill not found", status: 404 };
-  }
-
-  const result = await readCatalogSkillFileContent(skillId, sanitized);
-  if (!result) {
+  if (handled) {
+    // A provider claimed this skill but the specific file wasn't found.
     return { error: "File not found", status: 404 };
   }
-  return {
-    path: result.path,
-    name: result.name,
-    size: result.size,
-    mimeType: result.mimeType,
-    isBinary: result.isBinary,
-    content: result.content,
-  };
+  return { error: "Skill not found", status: 404 };
 }
 
 export async function getSkillFiles(
@@ -758,31 +970,16 @@ export async function getSkillFiles(
     };
   }
 
-  // Fallback: skill is not installed. Try the Vellum catalog — this covers
-  // previewing files for an uninstalled catalog skill without touching the
-  // install flow.
-  let catalog: CatalogSkill[];
-  try {
-    catalog = await getCatalog();
-  } catch {
-    return { error: `Skill "${skillId}" not found`, status: 404 };
+  // Fallback: skill is not installed. Try all file providers.
+  const resolved = await resolveSkillFiles(skillId);
+  if (resolved.handled && resolved.skill && resolved.files) {
+    return { skill: resolved.skill, files: resolved.files };
   }
-  const cs = catalog.find((c) => c.id === skillId);
-  if (!cs) {
-    return { error: `Skill "${skillId}" not found`, status: 404 };
+  if (resolved.handled) {
+    // A provider claimed this skill but couldn't produce files/metadata.
+    return { error: `Skill files unavailable for "${skillId}"`, status: 404 };
   }
-
-  const files = await readCatalogSkillFiles(skillId);
-  if (files === null) {
-    return {
-      error: `Skill files unavailable for "${skillId}"`,
-      status: 404,
-    };
-  }
-
-  const skill = catalogSkillToSlim(cs);
-  files.sort((a, b) => a.path.localeCompare(b.path));
-  return { skill, files };
+  return { error: `Skill "${skillId}" not found`, status: 404 };
 }
 
 export function enableSkill(
@@ -1166,6 +1363,7 @@ export async function searchSkills(
         publishedAt: s.createdAt
           ? new Date(s.createdAt * 1000).toISOString()
           : undefined,
+        version: s.version,
       }));
     } else {
       log.warn(
@@ -1187,6 +1385,50 @@ export async function searchSkills(
         sourceRepo: r.source,
         installs: r.installs,
       }));
+
+      // Batch-fetch audit data for skills.sh results, grouped by source repo.
+      try {
+        if (skillsshResult.value.length > 0) {
+          const sourceToSlugs = new Map<string, string[]>();
+          for (const r of skillsshResult.value) {
+            const slugs = sourceToSlugs.get(r.source) ?? [];
+            slugs.push(r.skillId);
+            sourceToSlugs.set(r.source, slugs);
+          }
+
+          const auditResults = await Promise.allSettled(
+            [...sourceToSlugs.entries()].map(([source, slugs]) =>
+              fetchSkillAudits(source, slugs).then((audits) => ({
+                source,
+                audits,
+              })),
+            ),
+          );
+
+          // Build a lookup map keyed by full skill ID (e.g. "owner/repo/skill-name")
+          const auditMap = new Map<string, SkillAuditData>();
+          for (const result of auditResults) {
+            if (result.status !== "fulfilled") continue;
+            const { source, audits } = result.value;
+            for (const [skillSlug, auditData] of Object.entries(audits)) {
+              auditMap.set(`${source}/${skillSlug}`, auditData);
+            }
+          }
+
+          // Enrich each skills.sh skill with audit data
+          skillsshSkills = skillsshSkills.map((skill) => {
+            if (skill.origin !== "skillssh") return skill;
+            const audit = auditMap.get(skill.id);
+            if (!audit) return skill;
+            return { ...skill, audit };
+          });
+        }
+      } catch (err) {
+        log.warn(
+          { err },
+          "Audit fetch failed for skills.sh results, continuing without audit data",
+        );
+      }
     } else {
       log.warn(
         { err: skillsshResult.reason },

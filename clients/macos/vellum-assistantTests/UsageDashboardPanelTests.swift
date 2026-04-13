@@ -4,14 +4,14 @@ import Testing
 @testable import VellumAssistantLib
 @testable import VellumAssistantShared
 
-// MARK: - UsageDashboardPanel Rendering Logic Tests
+// MARK: - UsageTabContent Rendering Logic Tests
 
-/// These tests verify the rendering logic paths for the UsageDashboardPanel
+/// These tests verify the rendering logic paths for the UsageTabContent
 /// by exercising the UsageDashboardStore states that drive each section.
-/// The panel renders three sections: totals, daily trend, and grouped breakdown.
+/// The tab renders three sections: totals, daily trend, and grouped breakdown.
 
-@Suite("UsageDashboardPanel — Empty / Idle State")
-struct UsageDashboardPanelEmptyTests {
+@Suite("UsageTabContent — Empty / Idle State")
+struct UsageTabContentEmptyTests {
 
     @Test @MainActor
     func storeStartsInIdleState() {
@@ -63,8 +63,8 @@ struct UsageDashboardPanelEmptyTests {
     }
 }
 
-@Suite("UsageDashboardPanel — Loading State")
-struct UsageDashboardPanelLoadingTests {
+@Suite("UsageTabContent — Loading State")
+struct UsageTabContentLoadingTests {
 
     @Test @MainActor
     func failedFetchesShowErrorMessages() async {
@@ -95,8 +95,8 @@ struct UsageDashboardPanelLoadingTests {
     }
 }
 
-@Suite("UsageDashboardPanel — Populated State")
-struct UsageDashboardPanelPopulatedTests {
+@Suite("UsageTabContent — Populated State")
+struct UsageTabContentPopulatedTests {
 
     @Test @MainActor
     func populatedStoreHasCorrectTotals() async {
@@ -220,24 +220,212 @@ struct UsageDashboardPanelPopulatedTests {
     }
 }
 
+@Suite("UsageGroupBreakdownEntry — groupId decoding")
+struct UsageGroupBreakdownEntryGroupIdDecodingTests {
+
+    @Test
+    func decodesGroupIdWhenPresent() throws {
+        let json = """
+        {
+            "breakdown": [
+                {
+                    "group": "Conversation about SwiftUI",
+                    "groupId": "conv_abc",
+                    "totalInputTokens": 1000,
+                    "totalOutputTokens": 500,
+                    "totalCacheCreationTokens": 0,
+                    "totalCacheReadTokens": 0,
+                    "totalEstimatedCostUsd": 0.05,
+                    "eventCount": 3
+                }
+            ]
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(UsageBreakdownResponse.self, from: json)
+        #expect(decoded.breakdown.first?.groupId == "conv_abc")
+        #expect(decoded.breakdown.first?.group == "Conversation about SwiftUI")
+    }
+
+    @Test
+    func decodesLegacyJSONWithoutGroupId() throws {
+        let json = """
+        {
+            "breakdown": [
+                {
+                    "group": "claude-sonnet-4-20250514",
+                    "totalInputTokens": 1000,
+                    "totalOutputTokens": 500,
+                    "totalCacheCreationTokens": 0,
+                    "totalCacheReadTokens": 0,
+                    "totalEstimatedCostUsd": 0.05,
+                    "eventCount": 3
+                }
+            ]
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(UsageBreakdownResponse.self, from: json)
+        #expect(decoded.breakdown.first?.groupId == nil)
+        #expect(decoded.breakdown.first?.group == "claude-sonnet-4-20250514")
+    }
+}
+
+// MARK: - Conversation Row Interactivity
+
+/// These tests exercise `UsageTabContent.navigationTarget(for:)` — the pure
+/// helper that decides whether a breakdown row should navigate to a
+/// conversation on tap. The row's `.onTapGesture` calls `onSelectConversation`
+/// only when this helper returns a non-nil groupId, so unit-testing the
+/// helper directly is equivalent to testing the tap outcome without
+/// needing a SwiftUI view hosting harness.
+
+@Suite("UsageTabContent — Conversation row interactivity")
+struct UsageTabContentConversationRowInteractivityTests {
+
+    private static let conversationEntry = UsageGroupBreakdownEntry(
+        group: "Designing the usage dashboard",
+        groupId: "conv_abc",
+        totalInputTokens: 1_000,
+        totalOutputTokens: 500,
+        totalCacheCreationTokens: 0,
+        totalCacheReadTokens: 0,
+        totalEstimatedCostUsd: 0.05,
+        eventCount: 3
+    )
+
+    private static let otherBucketEntry = UsageGroupBreakdownEntry(
+        group: "Other",
+        groupId: nil,
+        totalInputTokens: 200,
+        totalOutputTokens: 100,
+        totalCacheCreationTokens: 0,
+        totalCacheReadTokens: 0,
+        totalEstimatedCostUsd: 0.01,
+        eventCount: 1
+    )
+
+    private static let modelEntry = UsageGroupBreakdownEntry(
+        group: "claude-sonnet-4-20250514",
+        totalInputTokens: 1_000,
+        totalOutputTokens: 500,
+        totalCacheCreationTokens: 0,
+        totalCacheReadTokens: 0,
+        totalEstimatedCostUsd: 0.05,
+        eventCount: 3
+    )
+
+    @Test @MainActor
+    func conversationRowWithGroupIdTriggersNavigationAndInvokesClosure() async {
+        let client = MockPanelClient()
+        client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [Self.conversationEntry])
+        let store = UsageDashboardStore()
+        store.updateClient(client)
+        await store.selectGroupBy(.conversation)
+
+        var captured: [String] = []
+        let tab = UsageTabContent(
+            store: store,
+            onSelectConversation: { captured.append($0) }
+        )
+
+        // The pure helper is the single source of truth for whether a tap
+        // navigates — the row's .onTapGesture fires onSelectConversation only
+        // when this returns non-nil.
+        #expect(tab.navigationTarget(for: Self.conversationEntry) == "conv_abc")
+
+        if let target = tab.navigationTarget(for: Self.conversationEntry) {
+            tab.onSelectConversation(target)
+        }
+        #expect(captured == ["conv_abc"])
+    }
+
+    @Test @MainActor
+    func otherBucketWithNilGroupIdDoesNotNavigate() async {
+        let client = MockPanelClient()
+        client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [Self.otherBucketEntry])
+        let store = UsageDashboardStore()
+        store.updateClient(client)
+        await store.selectGroupBy(.conversation)
+
+        var captured: [String] = []
+        let tab = UsageTabContent(
+            store: store,
+            onSelectConversation: { captured.append($0) }
+        )
+
+        #expect(tab.navigationTarget(for: Self.otherBucketEntry) == nil)
+
+        // A tap on an "Other" row never reaches onSelectConversation because
+        // the inert branch of breakdownRow omits .onTapGesture. Mirror that
+        // behavior here: invoke the closure only when the helper returns
+        // non-nil. captured must remain empty.
+        if let target = tab.navigationTarget(for: Self.otherBucketEntry) {
+            tab.onSelectConversation(target)
+        }
+        #expect(captured.isEmpty)
+    }
+
+    @Test @MainActor
+    func modelGroupByDoesNotNavigateEvenWithPopulatedEntry() async {
+        let client = MockPanelClient()
+        client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [Self.modelEntry])
+        let store = UsageDashboardStore()
+        store.updateClient(client)
+        // Default groupBy is .model — do not switch it.
+
+        var captured: [String] = []
+        let tab = UsageTabContent(
+            store: store,
+            onSelectConversation: { captured.append($0) }
+        )
+
+        #expect(store.selectedGroupBy == .model)
+        #expect(tab.navigationTarget(for: Self.modelEntry) == nil)
+
+        if let target = tab.navigationTarget(for: Self.modelEntry) {
+            tab.onSelectConversation(target)
+        }
+        #expect(captured.isEmpty)
+    }
+
+    @Test @MainActor
+    func conversationEntryWithGroupIdInertWhenGroupedByProvider() async {
+        // Even a conversation-shaped entry (groupId non-nil) must not
+        // navigate if the store is grouped by something other than
+        // .conversation — the helper gates on groupBy first.
+        let client = MockPanelClient()
+        let store = UsageDashboardStore()
+        store.updateClient(client)
+        await store.selectGroupBy(.provider)
+
+        var captured: [String] = []
+        let tab = UsageTabContent(
+            store: store,
+            onSelectConversation: { captured.append($0) }
+        )
+
+        #expect(tab.navigationTarget(for: Self.conversationEntry) == nil)
+        if let target = tab.navigationTarget(for: Self.conversationEntry) {
+            tab.onSelectConversation(target)
+        }
+        #expect(captured.isEmpty)
+    }
+}
+
 // MARK: - View Content Helper
 
-/// Dumps the panel's content view tree (bypassing the VSidePanel closure wrapper)
-/// so that all Text content is captured as strings in the dump output.
-/// SettingsCard stores its content as @ViewBuilder closures which dump() shows as
-/// "(Function)". We additionally evaluate each section's body to expand those
-/// closures so the actual content (stat labels, empty states, error messages,
-/// data values) appears in the output.
+/// Dumps the tab's section view trees so that all Text content is captured
+/// as strings in the dump output. SettingsCard stores its content as
+/// @ViewBuilder closures which dump() shows as "(Function)". We evaluate
+/// each section's body to expand those closures.
 @MainActor
-private func collectPanelContent(store: UsageDashboardStore) -> String {
-    let panel = UsageDashboardPanel(store: store, onClose: {})
-    let content = panel.contentView(store: store)
+private func collectTabContent(store: UsageDashboardStore) -> String {
+    let tab = UsageTabContent(store: store, onSelectConversation: { _ in })
     var output = ""
-    dump(content, to: &output)
-    // Evaluate each section's SettingsCard body to expand closure content
-    dump(panel.totalsSection(store: store).body, to: &output)
-    dump(panel.dailySection(store: store).body, to: &output)
-    dump(panel.breakdownSection(store: store).body, to: &output)
+    dump(tab.totalsSection(store: store).body, to: &output)
+    dump(tab.dailySection(store: store).body, to: &output)
+    dump(tab.breakdownSection(store: store).body, to: &output)
     return output
 }
 
@@ -245,8 +433,8 @@ private func collectPanelContent(store: UsageDashboardStore) -> String {
 private func collectBreakdownRow(entry: UsageGroupBreakdownEntry) -> String {
     let helperStore = UsageDashboardStore()
     helperStore.updateClient(MockPanelClient())
-    let panel = UsageDashboardPanel(store: helperStore, onClose: {})
-    let row = panel.breakdownRow(entry)
+    let tab = UsageTabContent(store: helperStore, onSelectConversation: { _ in })
+    let row = tab.breakdownRow(entry)
     var output = ""
     dump(row, to: &output)
     return output
@@ -254,30 +442,30 @@ private func collectBreakdownRow(entry: UsageGroupBreakdownEntry) -> String {
 
 // MARK: - View Instantiation Tests
 
-/// These tests instantiate the actual UsageDashboardPanel view with stores in
+/// These tests instantiate the actual UsageTabContent view with stores in
 /// different states and evaluate the view body to verify the view tree is
 /// well-formed and renders without crashing.
 
-@Suite("UsageDashboardPanel — View Rendering: Idle State")
-struct UsageDashboardPanelViewIdleTests {
+@Suite("UsageTabContent — View Rendering: Idle State")
+struct UsageTabContentViewIdleTests {
 
     @Test @MainActor
-    func panelCanBeInstantiatedWithIdleStore() {
+    func tabCanBeInstantiatedWithIdleStore() {
         let client = MockPanelClient()
         let store = UsageDashboardStore()
         store.updateClient(client)
-        let joined = collectPanelContent(store: store)
+        let joined = collectTabContent(store: store)
 
         // Idle state shows skeleton loading indicators for all sections
         #expect(joined.contains("VSkeletonBone"))
     }
 }
 
-@Suite("UsageDashboardPanel — View Rendering: Empty Loaded State")
-struct UsageDashboardPanelViewEmptyTests {
+@Suite("UsageTabContent — View Rendering: Empty Loaded State")
+struct UsageTabContentViewEmptyTests {
 
     @Test @MainActor
-    func panelRendersWithEmptyLoadedData() async {
+    func tabRendersWithEmptyLoadedData() async {
         let client = MockPanelClient()
         client.stubbedTotals = UsageTotalsResponse(
             totalInputTokens: 0, totalOutputTokens: 0,
@@ -292,7 +480,7 @@ struct UsageDashboardPanelViewEmptyTests {
         store.updateClient(client)
         await store.refresh()
 
-        let joined = collectPanelContent(store: store)
+        let joined = collectTabContent(store: store)
 
         // Section headers
         #expect(joined.contains("Totals"))
@@ -312,11 +500,11 @@ struct UsageDashboardPanelViewEmptyTests {
     }
 }
 
-@Suite("UsageDashboardPanel — View Rendering: Populated State")
-struct UsageDashboardPanelViewPopulatedTests {
+@Suite("UsageTabContent — View Rendering: Populated State")
+struct UsageTabContentViewPopulatedTests {
 
     @Test @MainActor
-    func panelRendersWithPopulatedData() async {
+    func tabRendersWithPopulatedData() async {
         let client = MockPanelClient()
         let breakdownEntries = [
             UsageGroupBreakdownEntry(
@@ -354,7 +542,7 @@ struct UsageDashboardPanelViewPopulatedTests {
         store.updateClient(client)
         await store.refresh()
 
-        let joined = collectPanelContent(store: store)
+        let joined = collectTabContent(store: store)
 
         // Section headers
         #expect(joined.contains("Totals"))
@@ -390,7 +578,7 @@ struct UsageDashboardPanelViewPopulatedTests {
     }
 
     @Test @MainActor
-    func panelRendersWithDifferentGroupByDimensions() async {
+    func tabRendersWithDifferentGroupByDimensions() async {
         let client = MockPanelClient()
         client.stubbedTotals = UsageTotalsResponse(
             totalInputTokens: 100, totalOutputTokens: 50,
@@ -415,18 +603,18 @@ struct UsageDashboardPanelViewPopulatedTests {
         store.updateClient(client)
         await store.selectGroupBy(.provider)
 
-        let joined = collectPanelContent(store: store)
+        let joined = collectTabContent(store: store)
 
         #expect(store.selectedGroupBy == .provider)
         #expect(joined.contains("anthropic"))
     }
 }
 
-@Suite("UsageDashboardPanel — View Rendering: Failed State")
-struct UsageDashboardPanelViewFailedTests {
+@Suite("UsageTabContent — View Rendering: Failed State")
+struct UsageTabContentViewFailedTests {
 
     @Test @MainActor
-    func panelRendersWithFailedState() async {
+    func tabRendersWithFailedState() async {
         let client = MockPanelClient()
         // All stubs nil — triggers failure states.
 
@@ -434,7 +622,7 @@ struct UsageDashboardPanelViewFailedTests {
         store.updateClient(client)
         await store.refresh()
 
-        let joined = collectPanelContent(store: store)
+        let joined = collectTabContent(store: store)
 
         // Error messages should contain "Failed to load" for each section
         #expect(joined.contains("Failed to load"))
@@ -443,26 +631,6 @@ struct UsageDashboardPanelViewFailedTests {
         #expect(joined.contains("Totals"))
         #expect(joined.contains("Daily Trend"))
         #expect(joined.contains("Breakdown"))
-    }
-}
-
-@Suite("UsageDashboardPanel — View Rendering: Close Callback")
-struct UsageDashboardPanelViewCloseTests {
-
-    @Test @MainActor
-    func onCloseCallbackIsStored() {
-        let client = MockPanelClient()
-        let store = UsageDashboardStore()
-        store.updateClient(client)
-        var closeCalled = false
-        let panel = UsageDashboardPanel(store: store, onClose: { closeCalled = true })
-
-        // Verify the view can be constructed and body evaluated
-        _ = panel.body
-
-        // Invoke the stored closure to confirm it's wired up
-        panel.onClose()
-        #expect(closeCalled)
     }
 }
 
@@ -484,7 +652,7 @@ private final class MockPanelClient: UsageClientProtocol {
         return stubbedTotals
     }
 
-    func fetchUsageDaily(from: Int, to: Int, granularity: String) async -> UsageDailyResponse? {
+    func fetchUsageDaily(from: Int, to: Int, granularity: String, tz: String) async -> UsageDailyResponse? {
         lastDailyFrom = from
         return stubbedDaily
     }

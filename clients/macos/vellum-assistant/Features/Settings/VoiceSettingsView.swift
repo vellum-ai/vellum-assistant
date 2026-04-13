@@ -2,20 +2,69 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Voice settings tab — configure push-to-talk activation key,
-/// conversation timeout, and text-to-speech.
+/// conversation timeout, text-to-speech provider, and speech-to-text provider.
 struct VoiceSettingsView: View {
     @ObservedObject var store: SettingsStore
+    var isSttServiceEnabled: Bool = false
 
     @AppStorage("activationKey") private var activationKey: String = "fn"
     @AppStorage("voiceConversationTimeoutSeconds") private var conversationTimeoutSeconds: Int = 30
+    @AppStorage("ttsProvider") private var ttsProviderRaw: String = "elevenlabs"
+    @AppStorage("sttProvider") private var sttProviderRaw: String = "openai-whisper"
 
-    @State private var elevenLabsKeyText: String = ""
-    @State private var ttsSetupExpanded: Bool = false
-    /// Whether an ElevenLabs API key is stored (fetched per-component).
-    @State private var elevenLabsHasKey = false
+    // TTS draft-based state (mirrors Inference card pattern)
+    /// Uncommitted provider selection — only persisted on Save.
+    @State private var draftTTSProvider: String = "elevenlabs"
+    /// API key input field text.
+    @State private var ttsApiKeyText: String = ""
+    /// Voice ID / reference ID input text.
+    @State private var ttsVoiceIdText: String = ""
+    /// Baseline provider for change detection.
+    @State private var initialTTSProvider: String = "elevenlabs"
+    /// Whether the current TTS provider has a stored API key.
+    @State private var ttsProviderHasKey: Bool = false
+    /// Save-in-progress indicator.
+    @State private var ttsSaving: Bool = false
+    /// Error message from key save.
+    @State private var ttsSaveError: String? = nil
+
     @State private var isRecordingCustomKey: Bool = false
     @State private var recordingMonitors: [Any] = []
     @State private var modifierHoldTimer: Timer? = nil
+
+    // STT draft-based state
+    /// Uncommitted provider selection — persisted only on Save.
+    @State private var draftSTTProvider: String = "openai-whisper"
+    /// API key input text (replaces the old Connect/Set Up flow).
+    @State private var sttApiKeyText: String = ""
+    /// Baseline provider for change detection — set on appear and after save.
+    @State private var initialSTTProvider: String = "openai-whisper"
+    /// Whether the current STT provider already has a stored API key.
+    @State private var sttProviderHasKey: Bool = false
+    /// Save-in-progress indicator.
+    @State private var sttSaving: Bool = false
+    /// Error message from key validation / save.
+    @State private var sttSaveError: String? = nil
+
+    /// The shared TTS provider registry loaded from the bundled catalog.
+    private let ttsRegistry = loadTTSProviderRegistry()
+
+    /// The shared STT provider registry loaded from the bundled catalog.
+    private let sttRegistry = loadSTTProviderRegistry()
+
+    /// The currently selected TTS provider entry from the registry, based on
+    /// the draft selection. Falls back to the first provider in the registry
+    /// if the value does not match any known entry (matching iOS behavior).
+    private var selectedTTSProvider: TTSProviderCatalogEntry? {
+        ttsRegistry.provider(withId: draftTTSProvider) ?? ttsRegistry.providers.first
+    }
+
+    /// The currently selected STT provider entry from the registry, based on
+    /// the draft selection. Falls back to the first provider in the registry
+    /// if the value does not match any known entry.
+    private var selectedSTTProvider: STTProviderCatalogEntry? {
+        sttRegistry.provider(withId: draftSTTProvider) ?? sttRegistry.providers.first
+    }
 
     private var currentActivator: PTTActivator {
         // Read activationKey to establish SwiftUI dependency tracking —
@@ -40,16 +89,37 @@ struct VoiceSettingsView: View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             pttCard
             conversationTimeoutCard
-            ttsCard
-            readAloudCard
+            ttsProviderCard
+            if isSttServiceEnabled {
+                sttProviderCard
+            }
         }
         .onDisappear {
             stopRecordingCustomKey()
         }
         .onAppear {
-            // ElevenLabs key is still saved locally (not yet synced to daemon),
-            // so use the sync check until 22a-3 migrates saveElevenLabsKey.
-            elevenLabsHasKey = APIKeyManager.getKey(for: "elevenlabs") != nil
+            // Initialize TTS draft state from persisted values
+            draftTTSProvider = ttsProviderRaw
+            initialTTSProvider = ttsProviderRaw
+            ttsProviderHasKey = ttsCredentialExists(for: ttsProviderRaw)
+
+            // Initialize STT draft state from persisted values
+            draftSTTProvider = sttProviderRaw
+            initialSTTProvider = sttProviderRaw
+            sttProviderHasKey = sttKeyExists(for: draftSTTProvider)
+        }
+        .onChange(of: draftTTSProvider) { _, _ in
+            // Clear API key and voice ID fields when provider changes
+            ttsApiKeyText = ""
+            ttsVoiceIdText = ""
+            ttsSaveError = nil
+            ttsProviderHasKey = ttsCredentialExists(for: draftTTSProvider)
+        }
+        .onChange(of: draftSTTProvider) { _, _ in
+            // Clear stale fields when STT provider changes
+            sttApiKeyText = ""
+            sttSaveError = nil
+            sttProviderHasKey = sttKeyExists(for: draftSTTProvider)
         }
         .onChange(of: conversationTimeoutSeconds) {
             VoiceModeManager.conversationTimeoutOverride = conversationTimeoutSeconds
@@ -282,94 +352,296 @@ struct VoiceSettingsView: View {
         (label: "60 seconds", value: 60),
     ]
 
-    // MARK: - Voice Conversation TTS Card
+    // MARK: - Unified TTS Provider Card
 
-    private var ttsCard: some View {
-        SettingsCard(title: "Text-to-Speech", subtitle: "ElevenLabs provides high-quality voice responses during voice conversations. An API key is required.") {
-            if elevenLabsHasKey {
-                HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
-                    VButton(label: "Disconnect", style: .danger) {
-                        store.clearElevenLabsKey()
-                        elevenLabsHasKey = false
-                        elevenLabsKeyText = ""
-                        ttsSetupExpanded = false
-                    }
-                }
-            } else if ttsSetupExpanded {
+    /// Whether the user has made changes worth saving in the TTS card.
+    private var ttsHasChanges: Bool {
+        let providerChanged = draftTTSProvider != initialTTSProvider
+        let hasNewKey = !ttsApiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasVoiceId = !ttsVoiceIdText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return providerChanged || hasNewKey || hasVoiceId
+    }
+
+    private var ttsProviderCard: some View {
+        SettingsCard(title: "Text-to-Speech", subtitle: "Choose a TTS provider for voice conversations and read-aloud. The selected provider is used globally across all speech features.") {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                // Provider dropdown — data-driven from the shared registry
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    VTextField(
-                        "ElevenLabs API Key",
-                        placeholder: "Your ElevenLabs API key",
-                        text: $elevenLabsKeyText,
-                        isSecure: true,
-                        maxWidth: 400
+                    Text("Provider")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentSecondary)
+                    VDropdown(
+                        placeholder: "Select a provider\u{2026}",
+                        selection: $draftTTSProvider,
+                        options: ttsRegistry.providers.map { entry in
+                            (label: entry.displayName, value: entry.id)
+                        }
                     )
-
-                    HStack(spacing: VSpacing.xs) {
-                        VIconView(.lock, size: 10)
-                            .foregroundStyle(VColor.contentTertiary)
-                        Text("Your API key is stored securely in the macOS Keychain.")
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.contentTertiary)
-                    }
-
-                    HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connect", style: .outlined, isDisabled: elevenLabsKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
-                            store.saveElevenLabsKey(elevenLabsKeyText)
-                            elevenLabsHasKey = true
-                            elevenLabsKeyText = ""
-                            ttsSetupExpanded = false
-                        }
-                        VButton(label: "Cancel", style: .outlined) {
-                            ttsSetupExpanded = false
-                            elevenLabsKeyText = ""
-                        }
-                    }
                 }
-            } else {
-                VButton(label: "Set Up", style: .outlined) {
-                    ttsSetupExpanded = true
-                }
+
+                // Unified API key field
+                ttsApiKeyField
+
+                // Voice ID / Reference ID field (provider-specific)
+                ttsVoiceIdField
+
+                // Save + Reset actions
+                ServiceCardActions(
+                    hasChanges: ttsHasChanges,
+                    isSaving: ttsSaving,
+                    onSave: { saveTTS() },
+                    savingLabel: "Saving...",
+                    onReset: {
+                        clearTTSCredential(for: draftTTSProvider)
+                        ttsProviderHasKey = false
+                        ttsApiKeyText = ""
+                    },
+                    showReset: ttsProviderHasKey
+                )
             }
         }
     }
 
-    // MARK: - Read Aloud Card
+    // MARK: - TTS API Key Field
 
-    private var readAloudCard: some View {
-        SettingsCard(title: "Read Aloud", subtitle: "Fish Audio powers natural-sounding read-aloud for any assistant message. Requires a Fish Audio account with an API key and a voice reference ID.") {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("1. Create a Fish Audio account at fish.audio")
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                    Text("2. Generate an API key from your Fish Audio dashboard")
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                    Text("3. Choose or create a voice and copy its reference ID")
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                    Text("4. Run the setup commands in your terminal:")
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                }
+    private var ttsApiKeyField: some View {
+        let placeholder: String = {
+            if ttsProviderHasKey {
+                return "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}"
+            }
+            return "Enter your API key"
+        }()
+        return VTextField(
+            "\(selectedTTSProvider?.displayName ?? "Provider") API Key",
+            placeholder: placeholder,
+            text: $ttsApiKeyText,
+            isSecure: true,
+            errorMessage: ttsSaveError
+        )
+        .disabled(ttsSaving)
+    }
 
-                Text("assistant credentials set --service fish-audio --field api_key YOUR_KEY\nassistant config set fishAudio.referenceId YOUR_VOICE_ID")
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(VColor.contentSecondary)
-                    .padding(VSpacing.md)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .fill(VColor.surfaceBase)
-                    )
-                    .textSelection(.enabled)
+    // MARK: - TTS Voice ID Field
 
-                VButton(label: "Visit Fish Audio", rightIcon: VIcon.arrowUpRight.rawValue, style: .outlined) {
-                    NSWorkspace.shared.open(URL(string: "https://fish.audio")!)
-                }
+    @ViewBuilder
+    private var ttsVoiceIdField: some View {
+        if draftTTSProvider == "elevenlabs" || draftTTSProvider == "fish-audio" {
+            VTextField(
+                "Voice ID",
+                placeholder: "\(selectedTTSProvider?.displayName ?? "Provider") Voice ID (optional)",
+                text: $ttsVoiceIdText
+            )
+        }
+    }
+
+    // MARK: - TTS Save / Helpers
+
+    /// Persists the TTS provider, API key, and voice ID atomically.
+    private func saveTTS() {
+        ttsSaving = true
+        ttsSaveError = nil
+
+        // Persist provider if changed
+        if draftTTSProvider != ttsProviderRaw {
+            store.setTTSProvider(draftTTSProvider)
+            ttsProviderRaw = draftTTSProvider
+        }
+
+        // Always persist voice ID for the selected provider, even when
+        // empty — sending an empty string clears a previously set voice
+        // ID and reverts to the provider's default voice.
+        let trimmedVoiceId = ttsVoiceIdText.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch draftTTSProvider {
+        case "elevenlabs":
+            store.setElevenLabsVoiceId(trimmedVoiceId)
+        case "fish-audio":
+            store.setFishAudioReferenceId(trimmedVoiceId)
+        default:
+            break
+        }
+
+        // Persist API key if entered. Clear the field and update hasKey
+        // optimistically so the UI reflects the save immediately; the
+        // async daemon sync validates the key in the background.
+        let trimmedKey = ttsApiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedKey.isEmpty {
+            ttsApiKeyText = ""
+            ttsProviderHasKey = true
+            switch draftTTSProvider {
+            case "elevenlabs":
+                store.saveElevenLabsKey(trimmedKey)
+            case "fish-audio":
+                store.saveFishAudioKey(trimmedKey)
+            default:
+                break
             }
         }
+
+        ttsSaving = false
+
+        // Update baseline for change detection
+        initialTTSProvider = draftTTSProvider
+        ttsVoiceIdText = ""
+    }
+
+    /// Checks whether a TTS credential exists for the given provider.
+    private func ttsCredentialExists(for provider: String) -> Bool {
+        switch provider {
+        case "elevenlabs":
+            return APIKeyManager.getCredential(service: "elevenlabs", field: "api_key") != nil
+        case "fish-audio":
+            return APIKeyManager.getCredential(service: "fish-audio", field: "api_key") != nil
+        default:
+            return false
+        }
+    }
+
+    /// Checks whether an API key exists for the given STT provider by
+    /// resolving the provider's `apiKeyProviderName` from the registry.
+    private func sttKeyExists(for sttProviderId: String) -> Bool {
+        let keyProvider = SettingsStore.sttApiKeyProviderName(for: sttProviderId)
+        return APIKeyManager.getKey(for: keyProvider) != nil
+    }
+
+    // MARK: - STT Key Ownership Helpers
+
+    /// Whether the STT reset button should be shown for the current provider.
+    ///
+    /// The reset button is only shown when:
+    /// 1. A key already exists for the provider, AND
+    /// 2. The provider owns its key exclusively (not shared with another
+    ///    service like Inference).
+    ///
+    /// This prevents accidental clearing of shared credentials — e.g.
+    /// resetting `openai-whisper` must not delete the `openai` key that
+    /// Inference also depends on.
+    ///
+    /// Provider-agnostic: adding a third STT provider only requires a
+    /// catalog entry, not a new conditional here.
+    private var sttResetAllowed: Bool {
+        sttProviderHasKey && SettingsStore.sttKeyIsExclusive(for: draftSTTProvider)
+    }
+
+    /// Clears the stored TTS credential for the given provider.
+    private func clearTTSCredential(for provider: String) {
+        switch provider {
+        case "elevenlabs":
+            store.clearElevenLabsKey()
+        case "fish-audio":
+            store.clearFishAudioKey()
+        default:
+            break
+        }
+    }
+
+    // MARK: - STT Provider Card
+
+    /// True when the user has made changes worth saving in the STT card.
+    private var sttHasChanges: Bool {
+        let providerChanged = draftSTTProvider != initialSTTProvider
+        let hasNewKey = !sttApiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return providerChanged || hasNewKey
+    }
+
+    private var sttProviderCard: some View {
+        SettingsCard(title: "Speech-to-Text", subtitle: "Choose an STT provider for audio transcription. The selected provider is used globally across all transcription features.") {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                // Provider dropdown — data-driven from the shared STT registry
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Text("Provider")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentSecondary)
+                    VDropdown(
+                        placeholder: "Select a provider\u{2026}",
+                        selection: $draftSTTProvider,
+                        options: sttRegistry.providers.map { entry in
+                            (label: entry.displayName, value: entry.id)
+                        }
+                    )
+                }
+
+                // API key field — label and placeholder adapt to the selected provider
+                sttApiKeyField
+
+                // Provider-specific setup hint
+                if let hint = selectedSTTProvider?.setupHint, !hint.isEmpty {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.info, size: 10)
+                            .foregroundStyle(VColor.contentTertiary)
+                        Text(hint)
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
+                }
+
+                // Save + Reset actions — reset is only shown for
+                // exclusive-key providers to avoid clearing shared
+                // credentials (e.g. `openai` used by both Inference and
+                // Whisper STT).
+                ServiceCardActions(
+                    hasChanges: sttHasChanges,
+                    isSaving: sttSaving,
+                    onSave: { saveSTT() },
+                    savingLabel: "Saving...",
+                    onReset: { resetSTTKey() },
+                    showReset: sttResetAllowed
+                )
+            }
+        }
+    }
+
+    // MARK: - STT API Key Field
+
+    private var sttApiKeyField: some View {
+        let placeholder: String = {
+            if sttProviderHasKey {
+                return "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}"
+            }
+            return "Enter your API key"
+        }()
+        return VTextField(
+            "\(selectedSTTProvider?.displayName ?? "Provider") API Key",
+            placeholder: placeholder,
+            text: $sttApiKeyText,
+            isSecure: true,
+            errorMessage: sttSaveError
+        )
+        .disabled(sttSaving)
+    }
+
+    // MARK: - STT Reset
+
+    /// Clears the STT API key for the current draft provider and resets the
+    /// associated UI state. Only called for exclusive-key providers — shared
+    /// credentials are never cleared through the STT settings card.
+    private func resetSTTKey() {
+        store.clearSTTKey(sttProviderId: draftSTTProvider)
+        sttProviderHasKey = false
+        sttApiKeyText = ""
+    }
+
+    // MARK: - STT Save
+
+    private func saveSTT() {
+        sttSaving = true
+        sttSaveError = nil
+
+        // Persist provider change if needed
+        if draftSTTProvider != sttProviderRaw {
+            store.setSTTProvider(draftSTTProvider)
+            sttProviderRaw = draftSTTProvider
+        }
+
+        // Persist API key if provided. Clear the field and update hasKey
+        // optimistically so the UI reflects the save immediately.
+        let trimmedKey = sttApiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedKey.isEmpty {
+            sttApiKeyText = ""
+            sttProviderHasKey = true
+            store.saveSTTKey(trimmedKey, sttProviderId: draftSTTProvider)
+        }
+
+        initialSTTProvider = draftSTTProvider
+        sttSaving = false
     }
 }

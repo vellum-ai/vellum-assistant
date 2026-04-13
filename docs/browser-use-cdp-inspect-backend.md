@@ -6,6 +6,16 @@ already-running Chrome instance via the DevTools JSON protocol
 that the Chrome extension transport shows, at the cost of broader
 session-level access.
 
+**This is an explicit, advanced backend.** The Chrome extension is the
+default and preferred transport for browser use. The extension maintains a
+long-lived background connection with automatic reconnect and silent token
+refresh, so users never need to fall back to `cdp-inspect` during transient
+extension interruptions. The assistant's CDP client factory enforces this:
+when the extension transport is provisioned for a conversation but
+temporarily unavailable (e.g. mid-reconnect), `cdp-inspect` is
+intentionally skipped in the desktop-auto candidate list to prevent silent
+takeover.
+
 ## Backend comparison
 
 | | **Extension** | **cdp-inspect** | **Local** |
@@ -15,13 +25,14 @@ session-level access.
 | Debugger infobar | Yes (per tab) | No | No (dedicated profile) |
 | Tab scope | Single active tab | Any open tab | Dedicated browser |
 | Auth/session access | Active tab only | All tabs, all cookies | Isolated profile |
-| Selection priority | 1st (highest) | 2nd (when enabled) | 3rd (default) |
+| Selection priority | 1st (highest) | 2nd (when explicitly enabled) | 3rd (default) |
 
 ## When to use this backend
 
 **Prefer the Chrome extension.** It provides the best security boundary
 (single-tab scope, visible debugger infobar, chrome.debugger permission
-model) and requires no special Chrome launch flags.
+model), requires no special Chrome launch flags, and handles all lifecycle
+management automatically (keepalive, reconnect, token refresh).
 
 Use `cdp-inspect` only when:
 
@@ -31,6 +42,27 @@ Use `cdp-inspect` only when:
   that `chrome.debugger.attach` displays.
 - You are running in a headless/CI environment where a user-profile
   Chrome is already running with `--remote-debugging-port`.
+- You are intentionally opting into broad session-level access for
+  advanced debugging or automation workflows.
+
+## Relationship to extension transport
+
+The CDP client factory (`cdp-client/factory.ts`) builds an ordered
+candidate list for each browser tool invocation:
+
+1. **Extension** — always first when the extension proxy is connected.
+2. **cdp-inspect** — included only when *explicitly enabled* in config,
+   OR via the macOS desktop-auto path when no extension proxy exists
+   for the conversation. When the extension proxy exists but is
+   temporarily unavailable (reconnecting), cdp-inspect is deliberately
+   **excluded** to prevent silent backend drift during transient
+   extension disconnects.
+3. **Local** (Playwright) — default fallback.
+
+This means `cdp-inspect` does not silently "take over" when the extension
+has a brief interruption. The extension's automatic recovery (keepalive +
+exponential-backoff reconnect + silent token refresh) is given time to
+restore the connection before any fallback is considered.
 
 ## Security considerations
 
@@ -154,3 +186,24 @@ cdp-inspect backend cannot reach or identify the DevTools endpoint.
 | `invalid_response` | The port responds but is not speaking the DevTools protocol. | Verify with `curl http://localhost:9222/json/version`. If the response is not valid JSON with a `Browser` field, another service is using the port. |
 | `no_targets` | Chrome is running but has no open tabs or pages. | Open at least one tab in Chrome before using browser tools. |
 | `timeout` | Chrome is slow to respond to the discovery probe. | Increase `hostBrowser.cdpInspect.probeTimeoutMs` (max 5000). |
+
+## Per-tool `browser_mode` override
+
+All CDP-backed browser tools accept an optional `browser_mode` input parameter that pins backend selection for that single invocation:
+
+```json
+{
+  "browser_mode": "cdp-inspect"
+}
+```
+
+Accepted values: `auto`, `extension`, `cdp-inspect`, `cdp-debugger` (alias for `cdp-inspect`), `local`, `playwright` (alias for `local`).
+
+When `browser_mode` is set to a specific backend, the factory disables automatic fallback. If the pinned backend fails, the tool returns a detailed error with:
+- The requested mode and a human-readable failure summary
+- An ordered list of attempted backends with exact failure reasons and discovery error codes
+- A remediation checklist tailored to the specific failure (e.g. "Ensure Chrome is running with --remote-debugging-port=9222")
+
+This is useful for debugging backend selection issues: pin the mode you expect, and the error response tells you exactly what went wrong and how to fix it.
+
+When `browser_mode` is omitted or set to `auto`, the existing priority-ordered fallback chain operates normally. Fallback transitions are logged at `warn` level with structured metadata for production observability.

@@ -154,14 +154,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "managed-google-oauth",
-      "scope": "assistant",
-      "key": "managed-google-oauth",
-      "label": "Managed Google OAuth",
-      "description": "Show the Google OAuth service card in Models & Services settings",
-      "defaultEnabled": true
-    },
-    {
       "id": "settings-embedding-provider",
       "scope": "assistant",
       "key": "settings-embedding-provider",
@@ -303,7 +295,7 @@
       "key": "tool-result-truncation",
       "label": "Post-Turn Tool Result Truncation",
       "description": "Truncate large tool results after each assistant turn, persisting full content to disk for on-demand re-reads",
-      "defaultEnabled": false
+      "defaultEnabled": true
     },
     {
       "id": "managed-gemini-embeddings-enabled",
@@ -322,11 +314,19 @@
       "defaultEnabled": false
     },
     {
-      "id": "fork-from-message",
-      "scope": "macos",
-      "key": "fork-from-message",
-      "label": "Fork from Message",
-      "description": "Show the Fork from here option in message overflow menus",
+      "id": "managed-x-oauth-integration",
+      "scope": "assistant",
+      "key": "managed-x-oauth-integration",
+      "label": "Managed X/Twitter OAuth",
+      "description": "Enable platform-managed X/Twitter OAuth integration in Models & Services settings",
+      "defaultEnabled": false
+    },
+    {
+      "id": "stt-service",
+      "scope": "assistant",
+      "key": "stt-service",
+      "label": "Voice STT Service",
+      "description": "Enable Voice settings STT service configuration UI for selecting and configuring speech-to-text providers",
       "defaultEnabled": false
     },
     {

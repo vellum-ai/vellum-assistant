@@ -21,8 +21,8 @@ import * as pendingInteractions from "../pending-interactions.js";
  * the HTTP endpoint and the WS relay path so they share the same validation
  * and resolution semantics.
  *
- * Success → the pending interaction was consumed and the conversation (or
- * CLI shim callback) was notified.
+ * Success → the pending interaction was consumed and the conversation was
+ * notified.
  *
  * Error variants mirror the HTTP status codes the `/v1/host-browser-result`
  * endpoint returns, so the caller can log/translate them consistently.
@@ -40,7 +40,7 @@ export type HostBrowserResultResolution =
  * Shared resolver used by both the HTTP route handler and the WS
  * `host_browser_result` frame handler. Looks up the pending interaction
  * by requestId, validates its kind, and forwards the response to the
- * owning conversation (or CLI shim callback).
+ * owning conversation.
  *
  * This function does NOT perform auth — callers are expected to have
  * already authenticated the caller (the HTTP route uses
@@ -89,17 +89,6 @@ export function resolveHostBrowserResultByRequestId(frame: {
 
   const normalizedContent = typeof content === "string" ? content : "";
   const normalizedIsError = typeof isError === "boolean" ? isError : false;
-
-  // CLI shim path: pending interactions registered by /v1/browser-cdp carry
-  // a directBrowserResolve callback and are not bound to a Conversation.
-  // Resolve them in place without touching the conversation object.
-  if (interaction.directBrowserResolve) {
-    interaction.directBrowserResolve({
-      content: normalizedContent,
-      isError: normalizedIsError,
-    });
-    return { ok: true };
-  }
 
   // The host_browser kind always has a conversation attached at register time
   // (HostBrowserProxy.request wires it through), so this guard exists so a

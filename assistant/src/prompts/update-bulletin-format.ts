@@ -42,18 +42,35 @@ export function appendReleaseBlock(
 }
 
 /**
- * Extracts content-level markers (non-version feature markers) from the
- * template body. These are markers like `schedule-reminder-unification`
- * that identify the _content_ rather than the release version.
+ * Filters template content to only include content blocks whose opening
+ * markers are not already present in the existing workspace content.
+ *
+ * Each content block is delimited by opening/closing marker pairs:
+ *   <!-- vellum-update-release:id --> ... <!-- /vellum-update-release:id -->
+ *
+ * If the template has no block structure (no matched open/close pairs),
+ * returns the original body unchanged for backward compatibility.
+ * Returns empty string when all blocks are already present.
  */
-export function extractContentMarkers(body: string): string[] {
-  const ids: string[] = [];
-  const regex = /<!-- vellum-update-release:(.+?) -->/g;
+export function filterNewContentBlocks(
+  body: string,
+  existing: string,
+): string {
+  const blockRegex =
+    /(<!-- vellum-update-release:(.+?) -->[\s\S]*?<!-- \/vellum-update-release:\2 -->)/g;
+  const blocks: Array<{ full: string; id: string }> = [];
   let match: RegExpExecArray | null;
-  while ((match = regex.exec(body)) !== null) {
-    ids.push(match[1]);
+  while ((match = blockRegex.exec(body)) !== null) {
+    blocks.push({ full: match[1], id: match[2] });
   }
-  return ids;
+
+  if (blocks.length === 0) return body;
+
+  const newBlocks = blocks.filter((b) => !hasReleaseBlock(existing, b.id));
+
+  if (newBlocks.length === 0) return "";
+
+  return newBlocks.map((b) => b.full).join("\n\n");
 }
 
 /** Extracts all version strings from release markers found in `content`. */

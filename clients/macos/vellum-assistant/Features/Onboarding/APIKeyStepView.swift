@@ -13,9 +13,9 @@ enum OnboardingHostingModeResolver {
             // and bare-host local as separate fallback options.
             modes.append(contentsOf: [.docker, .oldLocal])
         } else if localDockerEnabled {
-            // Keep "Local" as the default choice and expose the legacy
-            // non-Docker hatch explicitly as an escape hatch.
-            modes.append(.oldLocal)
+            // Show bare-metal local before Docker (experimental).
+            let localIndex = modes.firstIndex(of: .local)!
+            modes.insert(.oldLocal, at: localIndex)
         }
         if userHostedEnabled {
             modes.append(contentsOf: [.aws, .gcp, .customHardware])
@@ -25,14 +25,24 @@ enum OnboardingHostingModeResolver {
 
     static func displayName(
         for mode: OnboardingState.HostingMode,
+        localDockerEnabled: Bool,
         appleContainerEnabled: Bool
     ) -> String {
-        guard appleContainerEnabled else { return mode.displayName }
-        switch mode {
-        case .docker: return "Docker Local"
-        case .oldLocal: return "Host Local"
-        default: return mode.displayName
+        if appleContainerEnabled {
+            switch mode {
+            case .docker: return "Docker Local"
+            case .oldLocal: return "Host Local"
+            default: return mode.displayName
+            }
         }
+        if localDockerEnabled {
+            switch mode {
+            case .local: return "Docker (Experimental)"
+            case .oldLocal: return "Local (Bare Metal)"
+            default: return mode.displayName
+            }
+        }
+        return mode.displayName
     }
 
     static func subtitle(
@@ -44,7 +54,10 @@ enum OnboardingHostingModeResolver {
             return "Native macOS sandbox. Your machine, your data, fully isolated."
         }
         if localDockerEnabled && mode == .local {
-            return OnboardingState.HostingMode.docker.subtitle
+            return "Runs locally in a Docker container for added isolation."
+        }
+        if localDockerEnabled && mode == .oldLocal {
+            return "Runs directly on your Mac. No containers, no extra setup."
         }
         return mode.subtitle
     }
@@ -189,6 +202,7 @@ struct APIKeyStepView: View {
                 )
                 let title = OnboardingHostingModeResolver.displayName(
                     for: mode,
+                    localDockerEnabled: localDockerEnabled,
                     appleContainerEnabled: appleContainerEnabled
                 )
                 let requiresAccount = mode == .vellumCloud && !isAuthenticated
@@ -207,6 +221,7 @@ struct APIKeyStepView: View {
     private func iconForMode(_ mode: OnboardingState.HostingMode) -> VIcon {
         switch mode {
         case .vellumCloud: return .cloud
+        case .local where localDockerEnabled && !appleContainerEnabled: return .package
         case .local: return .laptop
         case .docker: return .package
         case .oldLocal: return .laptop

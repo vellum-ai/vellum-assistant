@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "providers": [
+    {
+      "id": "openai-whisper",
+      "displayName": "OpenAI Whisper",
+      "subtitle": "High-accuracy speech-to-text powered by OpenAI Whisper. Requires an OpenAI API key.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your OpenAI API key to enable Whisper transcription.",
+      "apiKeyProviderName": "openai"
+    },
+    {
+      "id": "deepgram",
+      "displayName": "Deepgram",
+      "subtitle": "Fast, real-time speech-to-text with streaming support. Requires a Deepgram API key.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your Deepgram API key to enable speech-to-text.",
+      "apiKeyProviderName": "deepgram"
+    },
+    {
+      "id": "google-gemini",
+      "displayName": "Google Gemini",
+      "subtitle": "Multimodal speech-to-text powered by Google Gemini. Requires a Gemini API key.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your Gemini API key to enable Google Gemini transcription.",
+      "apiKeyProviderName": "gemini"
+    }
+  ]
+}

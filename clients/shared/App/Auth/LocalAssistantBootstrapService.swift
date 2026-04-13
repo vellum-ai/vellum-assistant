@@ -188,7 +188,7 @@ public final class LocalAssistantBootstrapService {
         try await injectKeyIntoAssistant(key: apiKey)
         try? await injectPlatformAssistantIdIntoAssistant(id: platformAssistantId)
         do {
-            try await injectPlatformBaseUrlIntoAssistant(url: authService.baseURL)
+            try await injectPlatformBaseUrlIntoAssistant(url: VellumEnvironment.resolvedPlatformURL)
         } catch {
             log.error("Failed to inject platform base URL into assistant: \(error.localizedDescription)")
             throw LocalBootstrapError.assistantInjectionFailed

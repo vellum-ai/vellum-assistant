@@ -32,9 +32,9 @@ enum APIKeyManager {
 
     private static let storage: CredentialStorage = FileCredentialStorage()
 
-    /// Provider identifiers whose API keys are synced to the daemon as
-    /// `type: "api_key"`.
-    static let allSyncableProviders = [
+    /// Core LLM/service provider identifiers whose API keys are always
+    /// synced to the daemon as `type: "api_key"`.
+    private static let coreSyncableProviders = [
         "anthropic",
         "brave",
         "fireworks",
@@ -44,12 +44,33 @@ enum APIKeyManager {
         "perplexity",
     ]
 
+    /// Provider identifiers whose API keys are synced to the daemon as
+    /// `type: "api_key"`. Combines the core provider list with any TTS
+    /// and STT providers from the shared registries that use `api_key`
+    /// setup mode, so new registry entries are automatically included
+    /// without code changes here.
+    static let allSyncableProviders: [String] = {
+        var ids = coreSyncableProviders
+        let ttsApiKeyIds = loadTTSProviderRegistry().providers
+            .filter { $0.setupMode == .apiKey }
+            .map(\.id)
+        for id in ttsApiKeyIds where !ids.contains(id) {
+            ids.append(id)
+        }
+        let sttApiKeyNames = loadSTTProviderRegistry().providers
+            .filter { $0.setupMode == .apiKey }
+            .map(\.apiKeyProviderName)
+        for name in sttApiKeyNames where !ids.contains(name) {
+            ids.append(name)
+        }
+        return ids
+    }()
+
     /// Returns true if any known provider has a key configured.
     static func hasAnyKey() -> Bool {
         for provider in allSyncableProviders {
             if getKey(for: provider) != nil { return true }
         }
-        if getKey(for: "elevenlabs") != nil { return true }
         return false
     }
 
@@ -63,8 +84,32 @@ enum APIKeyManager {
         for provider in allSyncableProviders {
             migrateProviderFromUserDefaults(provider)
         }
-        // ElevenLabs is stored locally only (not synced to daemon)
-        migrateProviderFromUserDefaults("elevenlabs")
+        migrateElevenLabsToCredential()
+    }
+
+    /// Migrate ElevenLabs key from api_key storage to credential storage.
+    /// Handles keys stored in UserDefaults or FileCredentialStorage under the
+    /// old `vellum_provider_elevenlabs` account.
+    private static func migrateElevenLabsToCredential() {
+        let oldAccount = udPrefix + "elevenlabs"
+        let newAccount = credentialPrefix + "elevenlabs:api_key"
+
+        // First migrate from UserDefaults if present
+        if let udValue = UserDefaults.standard.string(forKey: oldAccount), !udValue.isEmpty {
+            if storage.get(account: newAccount) == nil {
+                guard storage.set(account: newAccount, value: udValue) else { return }
+            }
+            UserDefaults.standard.removeObject(forKey: oldAccount)
+            _ = storage.delete(account: oldAccount)
+            return
+        }
+
+        // Then migrate from old FileCredentialStorage format
+        if let oldValue = storage.get(account: oldAccount),
+           storage.get(account: newAccount) == nil {
+            guard storage.set(account: newAccount, value: oldValue) else { return }
+        }
+        _ = storage.delete(account: oldAccount)
     }
 
     /// Migrate a single provider's key from UserDefaults to credential storage.
@@ -184,6 +229,96 @@ enum APIKeyManager {
             return response.isSuccess
         } catch {
             apiKeyLog.error("deleteKey(\(provider, privacy: .public)) async failed: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
+    // MARK: - Credential access (service:field secrets)
+
+    private static let credentialPrefix = "vellum_credential_"
+
+    /// Sync local read for a credential (FileCredentialStorage).
+    static func getCredential(service: String, field: String) -> String? {
+        storage.get(account: credentialPrefix + service + ":" + field)
+    }
+
+    /// Sync local write for a credential (FileCredentialStorage).
+    static func setCredential(_ value: String, service: String, field: String) {
+        _ = storage.set(account: credentialPrefix + service + ":" + field, value: value)
+        notifyKeyDidChange()
+    }
+
+    /// Sync local delete for a credential (FileCredentialStorage).
+    static func deleteCredential(service: String, field: String) {
+        _ = storage.delete(account: credentialPrefix + service + ":" + field)
+        notifyKeyDidChange()
+    }
+
+    /// Calls `secrets/read` with credential type and returns existence + masked value.
+    private static func readCredentialSecret(service: String, field: String) async -> SecretReadResult {
+        do {
+            let body: [String: Any] = ["type": "credential", "name": "\(service):\(field)"]
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/secrets/read", json: body, timeout: 5
+            )
+            guard response.isSuccess,
+                  let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                  let found = json["found"] as? Bool else {
+                return SecretReadResult(found: false, masked: nil)
+            }
+            let masked = json["masked"] as? String
+            return SecretReadResult(found: found, masked: masked)
+        } catch {
+            apiKeyLog.error("readCredentialSecret(\(service, privacy: .public):\(field, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
+            return SecretReadResult(found: false, masked: nil)
+        }
+    }
+
+    /// Check whether the assistant's secret store has a credential.
+    static func hasCredential(service: String, field: String) async -> Bool {
+        await readCredentialSecret(service: service, field: field).found
+    }
+
+    /// Read a masked credential from the assistant's secret store.
+    static func maskedCredential(service: String, field: String) async -> String? {
+        let result = await readCredentialSecret(service: service, field: field)
+        guard result.found, let masked = result.masked, !masked.isEmpty else { return nil }
+        return masked
+    }
+
+    /// Write a credential to the daemon's secret store via the gateway API.
+    static func setCredential(_ value: String, service: String, field: String) async -> SetKeyResult {
+        do {
+            let body: [String: Any] = ["type": "credential", "name": "\(service):\(field)", "value": value]
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/secrets", json: body, timeout: 5
+            )
+            if response.isSuccess {
+                return SetKeyResult(success: true, error: nil, isTransient: false)
+            }
+            let isServerError = response.statusCode >= 500
+            if let parsed = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+               let errorMsg = parsed["error"] as? String {
+                return SetKeyResult(success: false, error: errorMsg, isTransient: isServerError)
+            }
+            return SetKeyResult(success: false, error: "Failed to save credential (HTTP \(response.statusCode)).", isTransient: isServerError)
+        } catch {
+            apiKeyLog.error("setCredential(\(service, privacy: .public):\(field, privacy: .public)) async failed: \(error.localizedDescription, privacy: .public)")
+            return SetKeyResult(success: false, error: "Could not reach assistant. Please check that it is running.", isTransient: true)
+        }
+    }
+
+    /// Delete a credential from the daemon's secret store via the gateway API.
+    @discardableResult
+    static func deleteCredential(service: String, field: String) async -> Bool {
+        do {
+            let body: [String: Any] = ["type": "credential", "name": "\(service):\(field)"]
+            let response = try await GatewayHTTPClient.delete(
+                path: "assistants/{assistantId}/secrets", json: body, timeout: 5
+            )
+            return response.isSuccess
+        } catch {
+            apiKeyLog.error("deleteCredential(\(service, privacy: .public):\(field, privacy: .public)) async failed: \(error.localizedDescription, privacy: .public)")
             return false
         }
     }

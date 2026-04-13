@@ -32,6 +32,25 @@ Internet
        +-- /webhooks/* --> BLOCKED (404, never forwarded to runtime)
 ```
 
+### STT Route Proxying (Assistant-Scoped Rewrite)
+
+Native clients (macOS, iOS) send speech-to-text transcription requests through the gateway to the daemon's STT service. Clients POST to the assistant-scoped path `/v1/assistants/:assistantId/stt/transcribe`, which the gateway's runtime proxy rewrites to the flat daemon path `/v1/stt/transcribe`. This follows the same assistant-scoped rewrite pattern used by other client-facing endpoints (feature flags, privacy config, etc.).
+
+The request carries base64-encoded WAV audio and a MIME type. The daemon resolves the configured STT provider via `resolveBatchTranscriber()` and returns the transcribed text. Clients use the response to implement a service-first strategy: the service transcription takes precedence when available, with Apple-native `SFSpeechRecognizer` as fallback when the service returns 503 (not configured) or fails.
+
+| Client path (gateway)               | Daemon path (after rewrite) | Method |
+| ----------------------------------- | --------------------------- | ------ |
+| `/v1/assistants/:id/stt/transcribe` | `/v1/stt/transcribe`        | POST   |
+
+**Key source files:**
+
+| File                                             | Purpose                                                                   |
+| ------------------------------------------------ | ------------------------------------------------------------------------- |
+| `gateway/src/http/routes/runtime-proxy.ts`       | Assistant-scoped path rewriting (`/v1/assistants/:id/...` → `/v1/...`)    |
+| `assistant/src/runtime/routes/stt-routes.ts`     | Daemon HTTP endpoint: validates audio, resolves transcriber, returns text |
+| `clients/shared/Network/STTClient.swift`         | Shared client: POSTs audio to the gateway, returns typed `STTResult`      |
+| `clients/shared/Utilities/AudioWavEncoder.swift` | WAV encoding utility for PCM audio buffers                                |
+
 ### Assistant Feature Flags API
 
 The gateway exposes a REST API for reading and mutating assistant feature flags. Assistant feature flags are assistant-scoped, declaration-driven booleans that can gate any assistant behavior. Skill availability is one consumer, but not a required coupling (see [`assistant/ARCHITECTURE.md`](../assistant/ARCHITECTURE.md) for resolver and skill enforcement details).
@@ -1035,19 +1054,20 @@ Malformed or unprocessable provider callback payloads are logged as dead-letter 
 
 Call behavior is controlled via the `calls` config block in the assistant configuration (`config/schema.ts`). All values have sensible defaults and are validated via Zod:
 
-| Field                               | Type     | Default                        | Description                                                                                         |
-| ----------------------------------- | -------- | ------------------------------ | --------------------------------------------------------------------------------------------------- |
-| `calls.enabled`                     | boolean  | `true`                         | Master toggle for the calls feature. When `false`, call routes return 403 and tools return errors.  |
-| `calls.provider`                    | enum     | `'twilio'`                     | Voice provider to use (currently only Twilio is supported).                                         |
-| `calls.maxDurationSeconds`          | int      | `3600`                         | Maximum allowed duration per call.                                                                  |
-| `calls.userConsultTimeoutSeconds`   | int      | `120`                          | How long to wait for a user answer before timing out a pending question.                            |
-| `calls.disclosure.enabled`          | boolean  | `true`                         | Whether the AI should disclose it is an AI at the start of the call.                                |
-| `calls.disclosure.text`             | string   | _(default disclosure prompt)_  | The disclosure instruction included in the system prompt.                                           |
-| `calls.safety.denyCategories`       | string[] | `[]`                           | Categories of calls to deny (e.g., emergency numbers are always denied regardless of this setting). |
-| `calls.model`                       | string   | _(unset — uses default model)_ | Optional override for the LLM model used in voice call conversations.                               |
-| `calls.voice.language`              | string   | `'en-US'`                      | Language code for TTS and transcription.                                                            |
-| `calls.voice.transcriptionProvider` | enum     | `'Deepgram'`                   | Speech-to-text provider (`Deepgram` or `Google`).                                                   |
-| `elevenlabs.voiceId`                | string   | `'ZF6FPAbjXT4488VcRRnw'`       | ElevenLabs voice ID used by both in-app TTS and phone calls. Defaults to Amelia.                    |
+| Field                               | Type     | Default                        | Description                                                                                                                                                   |
+| ----------------------------------- | -------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `calls.enabled`                     | boolean  | `true`                         | Master toggle for the calls feature. When `false`, call routes return 403 and tools return errors.                                                            |
+| `calls.provider`                    | enum     | `'twilio'`                     | Voice provider to use (currently only Twilio is supported).                                                                                                   |
+| `calls.maxDurationSeconds`          | int      | `3600`                         | Maximum allowed duration per call.                                                                                                                            |
+| `calls.userConsultTimeoutSeconds`   | int      | `120`                          | How long to wait for a user answer before timing out a pending question.                                                                                      |
+| `calls.disclosure.enabled`          | boolean  | `true`                         | Whether the AI should disclose it is an AI at the start of the call.                                                                                          |
+| `calls.disclosure.text`             | string   | _(default disclosure prompt)_  | The disclosure instruction included in the system prompt.                                                                                                     |
+| `calls.safety.denyCategories`       | string[] | `[]`                           | Categories of calls to deny (e.g., emergency numbers are always denied regardless of this setting).                                                           |
+| `calls.model`                       | string   | _(unset — uses default model)_ | Optional override for the LLM model used in voice call conversations.                                                                                         |
+| `calls.voice.language`              | string   | `'en-US'`                      | Language code for TTS and transcription.                                                                                                                      |
+| `calls.voice.transcriptionProvider` | enum     | `'Deepgram'`                   | Speech-to-text provider (`Deepgram` or `Google`).                                                                                                             |
+| `services.tts.provider`             | enum     | `'elevenlabs'`                 | Active TTS provider for speech synthesis (catalog-driven; see [TTS Provider Abstraction](../assistant/ARCHITECTURE.md#tts-provider-abstraction-servicestts)). |
+| `services.tts.providers.<id>.*`     | object   | _(per-provider defaults)_      | Provider-specific settings block. One block per catalog entry (e.g. `elevenlabs`, `fish-audio`).                                                              |
 
 ### Caller Identity Resolution
 
@@ -1064,10 +1084,22 @@ Both the resolved mode and source are logged at info level on success, and rejec
 
 ### Voice Quality Profile Resolution
 
-Voice and TTS settings are configurable via the `calls.voice` config block — they are not hardcoded. The function `resolveVoiceQualityProfile()` in `voice-quality.ts` reads the current config and resolves it into a `VoiceQualityProfile` containing the TTS provider, voice spec string, language, and transcription provider.
+Voice and TTS settings are configurable via the `calls.voice` and `services.tts` config blocks — they are not hardcoded. The function `resolveVoiceQualityProfile()` in `voice-quality.ts` uses the catalog-driven call strategy abstraction to determine how the active TTS provider integrates with the Twilio ConversationRelay telephony path, then resolves the result into a `VoiceQualityProfile` containing the TTS provider, voice spec string, language, and transcription provider.
 
-All calls use **ElevenLabs** as the TTS provider via Twilio ConversationRelay. The voice ID is read from the shared `elevenlabs.voiceId` config key (defaulting to Amelia — `ZF6FPAbjXT4488VcRRnw`). Optional tuning parameters (`voiceModelId`, `speed`, `stability`, `similarityBoost`) are also read from the top-level `elevenlabs` config. When `voiceModelId` is set, the emitted voice spec uses the Twilio ConversationRelay extended format: `voiceId-model-speed_stability_similarity`. When `voiceModelId` is empty (the default), only the bare `voiceId` is sent.
+The active TTS provider is determined by `services.tts.provider` (default: `"elevenlabs"`). Provider-specific settings (voice ID, model, tuning parameters) are read from `services.tts.providers.<id>`. The call mode (`native-twilio` or `synthesized-play`) is resolved from the canonical provider catalog via `resolveCallStrategy()` in `tts-call-strategy.ts` — it reads the provider's declared `callMode` rather than inferring behavior from runtime capabilities.
 
-The voice webhook in `twilio-routes.ts` calls `resolveVoiceQualityProfile()` and passes the result directly to `generateTwiML()` to produce ConversationRelay TwiML.
+For `native-twilio` providers (e.g. ElevenLabs), the voice quality profile looks up a registered `NativeTwilioVoiceSpecBuilder` to construct the provider-specific voice spec string for the ConversationRelay `voice` attribute. New native providers plug in by registering their own voice spec builder — no edits to core call routing logic required. For `synthesized-play` providers (e.g. Fish Audio), `ttsProvider` is set to `"Google"` as a placeholder in TwiML and actual audio is delivered via `play` messages — the assistant synthesises audio via the provider's HTTP API.
+
+The voice webhook in `twilio-routes.ts` calls `resolveVoiceQualityProfile()` for TTS settings and separately resolves STT configuration via `resolveTelephonySttProfile()` + `buildTwilioRelaySpeechConfig()`. Both the voice quality profile and the resulting `TwilioRelaySpeechConfig` are passed to `generateTwiML()` to produce ConversationRelay TwiML. This separation keeps TTS and STT resolution independent — the voice quality profile controls the TTS provider, voice, and language, while the speech config controls the STT provider, model, and language for transcription.
+
+For full details on the catalog-driven TTS architecture, provider catalog, call strategy abstraction, and the provider-add checklist, see the [TTS Provider Abstraction](../assistant/ARCHITECTURE.md#tts-provider-abstraction-servicestts) section in the assistant architecture docs.
+
+### Telephony STT: Current Production Path vs Prepared Dark Path
+
+**Current production path (ConversationRelay-native STT):** All production calls use the Twilio ConversationRelay element in the voice webhook TwiML. STT is handled natively by ConversationRelay using providers configured via `calls.voice.transcriptionProvider` (Deepgram or Google). The daemon never receives raw audio in this path — it receives transcribed text from the relay.
+
+**Prepared dark path (services.stt via Media Streams):** A fully wired but inactive path exists for future cutover to `services.stt`-driven telephony STT via Twilio Media Streams. The gateway has a Media Streams WebSocket proxy route (`twilio-media-websocket.ts`) that can forward raw audio frames to the assistant's media-stream server. This route is registered but not referenced by any production TwiML — no calls will reach it until the voice webhook TwiML is updated.
+
+**Activation seam:** The cutover requires a single TwiML change in the assistant's `twilio-routes.ts` — switching from `<ConversationRelay>` to `<Connect><Stream>` with the media-stream URL. The gateway's media-stream proxy route is already registered and will begin receiving traffic once TwiML points to it. See the cutover runbook in `docs/internal-reference.md` for the complete step-by-step plan.
 
 ---

@@ -5,13 +5,10 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { homedir } from "node:os";
 
-const rootDir = join(
-  process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? homedir()),
-  ".vellum",
-);
-const configPath = join(rootDir, "workspace", "config.json");
+import { getWorkspaceDir } from "../paths.js";
+
+const configPath = join(getWorkspaceDir(), "config.json");
 
 let config: Record<string, unknown> = {};
 try {

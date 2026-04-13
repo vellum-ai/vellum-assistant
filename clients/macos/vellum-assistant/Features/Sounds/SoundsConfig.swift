@@ -1,11 +1,53 @@
 import Foundation
 
-/// Per-event sound configuration. `sound` is a filename in the sounds directory
-/// (e.g., "Gentle Ding.aiff"); nil means use the default blip.
+/// Per-event sound configuration. `sounds` is a pool of filenames in the sounds
+/// directory (e.g., "Gentle Ding.aiff"); an empty pool means use the default blip.
 /// Display label is the filename minus its extension.
-struct SoundEventConfig: Codable, Equatable {
+struct SoundEventConfig: Equatable {
     var enabled: Bool
-    var sound: String?
+    var sounds: [String]
+
+    init(enabled: Bool, sounds: [String] = []) {
+        self.enabled = enabled
+        self.sounds = sounds
+    }
+}
+
+extension SoundEventConfig: Codable {
+    enum CodingKeys: String, CodingKey {
+        case enabled
+        case sounds
+        // "sound" is the pre-pool legacy JSON key; we still decode it for old config files.
+        case legacySound = "sound"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // Match the forgiving JSON loader in `SoundManager.fetchConfig()` — missing
+        // `enabled` keys default to `false` rather than failing the decode.
+        let enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+
+        let decodedSounds: [String]
+        if let pool = try container.decodeIfPresent([String].self, forKey: .sounds) {
+            decodedSounds = pool
+        } else if let legacy = try container.decodeIfPresent(String.self, forKey: .legacySound) {
+            decodedSounds = [legacy]
+        } else {
+            decodedSounds = []
+        }
+
+        // Defensively drop empty entries so a malformed pool never hits playback.
+        self.enabled = enabled
+        self.sounds = decodedSounds.filter { !$0.isEmpty }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(enabled, forKey: .enabled)
+        try container.encode(sounds, forKey: .sounds)
+        // New writes are always in the new shape — the app and config ship
+        // together, so there are no pre-PR-1 readers in the wild to cater to.
+    }
 }
 
 /// Top-level sound configuration persisted as JSON.
@@ -19,7 +61,7 @@ struct SoundsConfig: Codable, Equatable {
     static var defaultConfig: SoundsConfig {
         var events: [String: SoundEventConfig] = [:]
         for event in SoundEvent.allCases {
-            events[event.rawValue] = SoundEventConfig(enabled: false, sound: nil)
+            events[event.rawValue] = SoundEventConfig(enabled: false, sounds: [])
         }
         return SoundsConfig(
             globalEnabled: false,
@@ -28,9 +70,9 @@ struct SoundsConfig: Codable, Equatable {
         )
     }
 
-    /// Returns the configuration for a specific event, falling back to disabled with default sound
+    /// Returns the configuration for a specific event, falling back to disabled with an empty pool
     /// if the event is not present in the dictionary.
     func config(for event: SoundEvent) -> SoundEventConfig {
-        events[event.rawValue] ?? SoundEventConfig(enabled: false, sound: nil)
+        events[event.rawValue] ?? SoundEventConfig(enabled: false, sounds: [])
     }
 }

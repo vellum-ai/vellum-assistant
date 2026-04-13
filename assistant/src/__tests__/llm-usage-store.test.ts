@@ -11,6 +11,7 @@ import { getDb, initializeDb } from "../memory/db.js";
 import {
   getUsageDayBuckets,
   getUsageGroupBreakdown,
+  getUsageHourBuckets,
   getUsageTotals,
   listUsageEvents,
   queryUnreportedUsageEvents,
@@ -449,10 +450,297 @@ describe("getUsageDayBuckets", () => {
   });
 });
 
+describe("getUsageDayBuckets — timezone-aware", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM llm_usage_events`);
+  });
+
+  test("integer offset: anchors daily buckets to local midnight", () => {
+    // 2026-04-10T22:30:00Z is 15:30 PDT (UTC-7) on 2026-04-10.
+    // 2026-04-11T06:30:00Z is 23:30 PDT on 2026-04-10 (same local day).
+    insertEventAt(Date.UTC(2026, 3, 10, 22, 30), { inputTokens: 100 });
+    insertEventAt(Date.UTC(2026, 3, 11, 6, 30), { inputTokens: 200 });
+    // 2026-04-11T08:00:00Z is 01:00 PDT on 2026-04-11 (next local day).
+    insertEventAt(Date.UTC(2026, 3, 11, 8, 0), { inputTokens: 400 });
+
+    const buckets = getUsageDayBuckets(
+      { from: Date.UTC(2026, 3, 10, 0), to: Date.UTC(2026, 3, 12, 0) },
+      "America/Los_Angeles",
+    );
+
+    expect(buckets.map((b) => b.date)).toEqual(["2026-04-10", "2026-04-11"]);
+    expect(buckets[0].totalInputTokens).toBe(300);
+    expect(buckets[1].totalInputTokens).toBe(400);
+    expect(buckets[0].displayLabel).toBeDefined();
+    expect(buckets[1].displayLabel).toBeDefined();
+  });
+
+  test("fractional offset: anchors daily buckets to local midnight in IST", () => {
+    // Asia/Kolkata is UTC+5:30. Local midnight April 10 IST = 18:30 UTC April 9.
+    // Event at 18:31 UTC April 9 = 00:01 IST April 10.
+    // Event at 18:29 UTC April 9 = 23:59 IST April 9.
+    insertEventAt(Date.UTC(2026, 3, 9, 18, 31), { inputTokens: 100 });
+    insertEventAt(Date.UTC(2026, 3, 9, 18, 29), { inputTokens: 50 });
+
+    const buckets = getUsageDayBuckets(
+      { from: Date.UTC(2026, 3, 9, 0), to: Date.UTC(2026, 3, 10, 23) },
+      "Asia/Kolkata",
+    );
+
+    // The 18:31 UTC event should land on 2026-04-10 IST, the 18:29 UTC event
+    // on 2026-04-09 IST.
+    const map = Object.fromEntries(buckets.map((b) => [b.date, b]));
+    expect(map["2026-04-09"]?.totalInputTokens).toBe(50);
+    expect(map["2026-04-10"]?.totalInputTokens).toBe(100);
+  });
+
+  test("backwards compat: default tz is UTC", () => {
+    insertEventAt(Date.UTC(2025, 5, 1, 0, 0), { inputTokens: 111 });
+    insertEventAt(Date.UTC(2025, 5, 1, 23, 59), { inputTokens: 222 });
+    insertEventAt(Date.UTC(2025, 5, 2, 0, 0), { inputTokens: 333 });
+
+    const buckets = getUsageDayBuckets({
+      from: Date.UTC(2025, 5, 1, 0),
+      to: Date.UTC(2025, 5, 2, 12),
+    });
+
+    expect(buckets.map((b) => b.date)).toEqual(["2025-06-01", "2025-06-02"]);
+    expect(buckets[0].totalInputTokens).toBe(333); // 111 + 222
+    expect(buckets[1].totalInputTokens).toBe(333);
+  });
+
+  test("throws on invalid timezone identifier", () => {
+    expect(() =>
+      getUsageDayBuckets({ from: 0, to: 1000 }, "Not/A/Real/Zone"),
+    ).toThrow(/Invalid IANA timezone identifier/);
+  });
+
+  test("fillEmpty seeds zero buckets for empty days", () => {
+    insertEventAt(Date.UTC(2026, 3, 10, 12), { inputTokens: 100 });
+    insertEventAt(Date.UTC(2026, 3, 12, 12), { inputTokens: 200 });
+
+    const buckets = getUsageDayBuckets(
+      { from: Date.UTC(2026, 3, 10, 0), to: Date.UTC(2026, 3, 12, 23) },
+      "UTC",
+      { fillEmpty: true },
+    );
+
+    expect(buckets.map((b) => b.date)).toEqual([
+      "2026-04-10",
+      "2026-04-11",
+      "2026-04-12",
+    ]);
+    expect(buckets[0].totalInputTokens).toBe(100);
+    expect(buckets[1].totalInputTokens).toBe(0);
+    expect(buckets[1].eventCount).toBe(0);
+    expect(buckets[2].totalInputTokens).toBe(200);
+  });
+
+  test("DST spring forward: mid-day `from` anchors correctly to local midnight", () => {
+    // America/Los_Angeles 2026-03-08 spring-forward: 02:00 PST -> 03:00 PDT.
+    // Naive day alignment (subtract current wall-clock hours from epoch)
+    // would misplace events around the transition when `from` is mid-day on
+    // the transition day. (PR #24722 review feedback from Codex.)
+
+    // Event at 17:00 UTC = 10:00 PDT on 2026-03-08 (post-DST).
+    insertEventAt(Date.UTC(2026, 2, 8, 17), { inputTokens: 500 });
+    // Event at 23:00 UTC = 16:00 PDT on 2026-03-08 (post-DST).
+    insertEventAt(Date.UTC(2026, 2, 8, 23), { inputTokens: 700 });
+    // Event at 06:00 UTC = 22:00 PST on 2026-03-07 (pre-DST, previous local day).
+    insertEventAt(Date.UTC(2026, 2, 8, 6), { inputTokens: 300 });
+
+    // `from` is mid-day on the transition day.
+    const buckets = getUsageDayBuckets(
+      { from: Date.UTC(2026, 2, 8, 18), to: Date.UTC(2026, 2, 9, 23) },
+      "America/Los_Angeles",
+      { fillEmpty: true },
+    );
+
+    // fillEmpty should seed a 2026-03-08 bucket aligned to 08:00 UTC (local
+    // midnight PST) — not to some post-transition offset that yields a prior
+    // local day. No "2026-03-07" bucket should appear.
+    const dates = buckets.map((b) => b.date);
+    expect(dates).not.toContain("2026-03-07");
+    expect(dates).toContain("2026-03-08");
+    // The 23:00-UTC event on March 8 must land in the 2026-03-08 bucket, not
+    // drift into 2026-03-09 due to offset/midnight misalignment.
+    const map = Object.fromEntries(buckets.map((b) => [b.date, b]));
+    // Events inserted at 17:00 and 23:00 UTC on March 8 are both after `from`
+    // (18:00 UTC) only for the second one; we mainly care that the 23:00-UTC
+    // event correctly lands on March 8 local.
+    expect(map["2026-03-08"]?.totalInputTokens).toBeGreaterThanOrEqual(700);
+  });
+
+  test("DST spring forward: day-midnight alignment works across the jump", () => {
+    // Direct regression test: an event at the FIRST moment of post-DST (just
+    // after 03:00 PDT = 10:00 UTC) on 2026-03-08 should bucket to 2026-03-08,
+    // not 2026-03-07.
+    insertEventAt(Date.UTC(2026, 2, 8, 10, 1), { inputTokens: 42 });
+
+    const buckets = getUsageDayBuckets(
+      { from: Date.UTC(2026, 2, 8, 10), to: Date.UTC(2026, 2, 9, 0) },
+      "America/Los_Angeles",
+    );
+
+    const map = Object.fromEntries(buckets.map((b) => [b.date, b]));
+    expect(map["2026-03-08"]?.totalInputTokens).toBe(42);
+    expect(map["2026-03-07"]).toBeUndefined();
+  });
+
+  test("bucketId: daily bucketId equals the date string", () => {
+    insertEventAt(Date.UTC(2026, 3, 10, 12), { inputTokens: 10 });
+    const buckets = getUsageDayBuckets(
+      { from: Date.UTC(2026, 3, 10, 0), to: Date.UTC(2026, 3, 10, 23) },
+      "UTC",
+    );
+    expect(buckets[0].bucketId).toBe(buckets[0].date);
+  });
+});
+
+describe("getUsageHourBuckets — timezone-aware", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM llm_usage_events`);
+  });
+
+  test("integer offset: buckets align to local-hour boundaries in PDT", () => {
+    // 2026-04-10T22:00:00Z = 15:00 PDT = "2026-04-10 15:00" bucket
+    // 2026-04-10T22:30:00Z = 15:30 PDT = same bucket
+    // 2026-04-10T23:00:00Z = 16:00 PDT = next bucket
+    insertEventAt(Date.UTC(2026, 3, 10, 22, 0), { inputTokens: 100 });
+    insertEventAt(Date.UTC(2026, 3, 10, 22, 30), { inputTokens: 200 });
+    insertEventAt(Date.UTC(2026, 3, 10, 23, 0), { inputTokens: 300 });
+
+    const buckets = getUsageHourBuckets(
+      { from: Date.UTC(2026, 3, 10, 21), to: Date.UTC(2026, 3, 11, 0) },
+      "America/Los_Angeles",
+    );
+
+    const map = Object.fromEntries(buckets.map((b) => [b.date, b]));
+    expect(map["2026-04-10 15:00"]?.totalInputTokens).toBe(300);
+    expect(map["2026-04-10 16:00"]?.totalInputTokens).toBe(300);
+    expect(map["2026-04-10 15:00"]?.displayLabel).toBe("3pm");
+    expect(map["2026-04-10 16:00"]?.displayLabel).toBe("4pm");
+  });
+
+  test("fractional offset: events in a half-hour-offset tz bucket to correct local hour", () => {
+    // Asia/Kolkata UTC+5:30.
+    // 13:30 UTC = 19:00 IST → "19:00" bucket
+    // 13:45 UTC = 19:15 IST → "19:00" bucket (same)
+    // 14:15 UTC = 19:45 IST → "19:00" bucket (same)
+    // 14:31 UTC = 20:01 IST → "20:00" bucket
+    insertEventAt(Date.UTC(2026, 3, 10, 13, 30), { inputTokens: 10 });
+    insertEventAt(Date.UTC(2026, 3, 10, 13, 45), { inputTokens: 20 });
+    insertEventAt(Date.UTC(2026, 3, 10, 14, 15), { inputTokens: 30 });
+    insertEventAt(Date.UTC(2026, 3, 10, 14, 31), { inputTokens: 40 });
+
+    const buckets = getUsageHourBuckets(
+      { from: Date.UTC(2026, 3, 10, 12), to: Date.UTC(2026, 3, 10, 16) },
+      "Asia/Kolkata",
+    );
+
+    const map = Object.fromEntries(buckets.map((b) => [b.date, b]));
+    expect(map["2026-04-10 19:00"]?.totalInputTokens).toBe(60);
+    expect(map["2026-04-10 20:00"]?.totalInputTokens).toBe(40);
+  });
+
+  test("DST spring forward: skipped hour does not produce a bucket", () => {
+    // America/New_York 2026-03-08: 2:00 AM EST jumps to 3:00 AM EDT.
+    // Event at 06:30 UTC = 01:30 EST (before jump) → "01:00" bucket
+    // Event at 07:30 UTC = 03:30 EDT (after jump) → "03:00" bucket
+    insertEventAt(Date.UTC(2026, 2, 8, 6, 30), { inputTokens: 100 });
+    insertEventAt(Date.UTC(2026, 2, 8, 7, 30), { inputTokens: 200 });
+
+    const buckets = getUsageHourBuckets(
+      { from: Date.UTC(2026, 2, 8, 5), to: Date.UTC(2026, 2, 8, 9) },
+      "America/New_York",
+      { fillEmpty: true },
+    );
+
+    const bucketLabels = buckets.map((b) => b.date);
+    // The 02:00 local hour should not appear on spring-forward day.
+    expect(bucketLabels).not.toContain("2026-03-08 02:00");
+    // Both 01:00 and 03:00 should be present.
+    expect(bucketLabels).toContain("2026-03-08 01:00");
+    expect(bucketLabels).toContain("2026-03-08 03:00");
+
+    const map = Object.fromEntries(buckets.map((b) => [b.date, b]));
+    expect(map["2026-03-08 01:00"]?.totalInputTokens).toBe(100);
+    expect(map["2026-03-08 03:00"]?.totalInputTokens).toBe(200);
+  });
+
+  test("DST fall back: duplicate 1am local hour is preserved as two buckets", () => {
+    // America/New_York 2026-11-01: 2:00 AM EDT falls back to 1:00 AM EST.
+    // Event at 05:30 UTC = 01:30 EDT (first 1am) → EDT 01:00 bucket
+    // Event at 06:30 UTC = 01:30 EST (second 1am) → EST 01:00 bucket (distinct!)
+    insertEventAt(Date.UTC(2026, 10, 1, 5, 30), { inputTokens: 100 });
+    insertEventAt(Date.UTC(2026, 10, 1, 6, 30), { inputTokens: 200 });
+
+    const buckets = getUsageHourBuckets(
+      { from: Date.UTC(2026, 10, 1, 4), to: Date.UTC(2026, 10, 1, 8) },
+      "America/New_York",
+    );
+
+    // Both events should share the same `date` string but be in different
+    // bucket entries (disambiguated by UTC offset internally).
+    const oneAmBuckets = buckets.filter((b) => b.date === "2026-11-01 01:00");
+    expect(oneAmBuckets).toHaveLength(2);
+    const totalInputs = oneAmBuckets.reduce(
+      (sum, b) => sum + b.totalInputTokens,
+      0,
+    );
+    expect(totalInputs).toBe(300);
+    // Both should share the "1am" display label.
+    expect(oneAmBuckets[0].displayLabel).toBe("1am");
+    expect(oneAmBuckets[1].displayLabel).toBe("1am");
+    // But their bucketIds MUST be distinct so SwiftUI ForEach(id:\.bucketId)
+    // doesn't collapse them. (PR #24722 review feedback from Codex.)
+    expect(oneAmBuckets[0].bucketId).not.toBe(oneAmBuckets[1].bucketId);
+    expect(oneAmBuckets.map((b) => b.bucketId).sort()).toEqual([
+      "2026-11-01 01:00|-240",
+      "2026-11-01 01:00|-300",
+    ]);
+    // Daily/non-dup-hour bucketIds default to the date key.
+    const nonDupHour = buckets.find((b) => b.date === "2026-11-01 00:00");
+    if (nonDupHour) {
+      expect(nonDupHour.bucketId).toBe(`${nonDupHour.date}|-240`);
+    }
+  });
+
+  test("fillEmpty seeds zero buckets for empty hours in range", () => {
+    insertEventAt(Date.UTC(2026, 3, 10, 14), { inputTokens: 100 });
+
+    const buckets = getUsageHourBuckets(
+      { from: Date.UTC(2026, 3, 10, 12), to: Date.UTC(2026, 3, 10, 16) },
+      "UTC",
+      { fillEmpty: true },
+    );
+
+    // Hours 12, 13, 14, 15, 16 = 5 buckets
+    expect(buckets.length).toBeGreaterThanOrEqual(4);
+    const map = Object.fromEntries(buckets.map((b) => [b.date, b]));
+    expect(map["2026-04-10 14:00"]?.totalInputTokens).toBe(100);
+    expect(map["2026-04-10 13:00"]?.totalInputTokens).toBe(0);
+    expect(map["2026-04-10 12:00"]?.eventCount).toBe(0);
+  });
+
+  test("generates lowercase hour display labels like '3pm'", () => {
+    insertEventAt(Date.UTC(2026, 3, 10, 22, 0), { inputTokens: 100 });
+    const buckets = getUsageHourBuckets(
+      { from: Date.UTC(2026, 3, 10, 22), to: Date.UTC(2026, 3, 10, 23) },
+      "America/Los_Angeles",
+    );
+    const withEvents = buckets.find((b) => b.totalInputTokens === 100);
+    expect(withEvents?.displayLabel).toBe("3pm");
+  });
+});
+
 describe("getUsageGroupBreakdown", () => {
   beforeEach(() => {
     const db = getDb();
     db.run(`DELETE FROM llm_usage_events`);
+    db.run(`DELETE FROM conversations`);
   });
 
   test("returns empty array when no events exist", () => {
@@ -598,6 +886,81 @@ describe("getUsageGroupBreakdown", () => {
     expect(groups[0].group).toBe("title_generator");
     expect(groups[1].group).toBe("context_compactor");
     expect(groups[2].group).toBe("main_agent");
+  });
+
+  test("returns groupId matching the seeded conversation id when grouping by conversation", () => {
+    const db = getDb();
+    const conversationId = "conv-breakdown-1";
+    const now = Date.now();
+    db.run(
+      `INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('${conversationId}', 'Debug session', ${now}, ${now})`,
+    );
+
+    insertEventAt(
+      1000,
+      { conversationId, inputTokens: 100, outputTokens: 50 },
+      { estimatedCostUsd: 0.02, pricingStatus: "priced" },
+    );
+    insertEventAt(
+      2000,
+      { conversationId, inputTokens: 200, outputTokens: 75 },
+      { estimatedCostUsd: 0.03, pricingStatus: "priced" },
+    );
+
+    const groups = getUsageGroupBreakdown(
+      { from: 0, to: 5000 },
+      "conversation",
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0].group).toBe("Debug session");
+    expect(groups[0].groupId).toBe(conversationId);
+    expect(groups[0].totalInputTokens).toBe(300);
+    expect(groups[0].totalOutputTokens).toBe(125);
+    expect(groups[0].totalEstimatedCostUsd).toBeCloseTo(0.05);
+    expect(groups[0].eventCount).toBe(2);
+  });
+
+  test("returns groupId null for the Other bucket when grouping by conversation and events have no conversation id", () => {
+    insertEventAt(
+      1000,
+      { conversationId: null, inputTokens: 100 },
+      { estimatedCostUsd: 0.01, pricingStatus: "priced" },
+    );
+    insertEventAt(
+      2000,
+      { conversationId: null, inputTokens: 200 },
+      { estimatedCostUsd: 0.02, pricingStatus: "priced" },
+    );
+
+    const groups = getUsageGroupBreakdown(
+      { from: 0, to: 5000 },
+      "conversation",
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0].group).toBe("Other");
+    expect(groups[0].groupId).toBeNull();
+    expect(groups[0].totalInputTokens).toBe(300);
+    expect(groups[0].eventCount).toBe(2);
+  });
+
+  test("returns groupId null for every row when grouping by a non-conversation dimension", () => {
+    insertEventAt(
+      1000,
+      { model: "claude-sonnet-4-20250514", conversationId: "conv-a" },
+      { estimatedCostUsd: 0.03, pricingStatus: "priced" },
+    );
+    insertEventAt(
+      2000,
+      { model: "claude-sonnet-4-20250514", conversationId: "conv-b" },
+      { estimatedCostUsd: 0.02, pricingStatus: "priced" },
+    );
+    insertEventAt(3000, { model: "llama3" }, unpricedResult);
+
+    const groups = getUsageGroupBreakdown({ from: 0, to: 5000 }, "model");
+    expect(groups.length).toBeGreaterThan(0);
+    for (const row of groups) {
+      expect(row.groupId).toBeNull();
+    }
   });
 });
 

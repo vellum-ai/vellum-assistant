@@ -4,6 +4,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
+import { safeStringSlice } from "../../util/unicode.js";
 import { buildSanitizedEnv } from "../terminal/safe-env.js";
 import { wrapCommand } from "../terminal/sandbox.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
@@ -218,7 +219,7 @@ function spawnRunner(
       if (code !== 0) {
         const truncatedStderr =
           stderr.length > MAX_OUTPUT_CHARS
-            ? stderr.slice(0, MAX_OUTPUT_CHARS) + "\n[stderr truncated]"
+            ? safeStringSlice(stderr, 0, MAX_OUTPUT_CHARS) + "\n[stderr truncated]"
             : stderr;
         resolve({
           content: `Skill tool script "${executorPath}" exited with code ${code}:\n${truncatedStderr}`,
@@ -229,7 +230,7 @@ function spawnRunner(
 
       const truncatedStdout =
         stdout.length > MAX_OUTPUT_CHARS
-          ? stdout.slice(0, MAX_OUTPUT_CHARS) + "\n[stdout truncated]"
+          ? safeStringSlice(stdout, 0, MAX_OUTPUT_CHARS) + "\n[stdout truncated]"
           : stdout;
       resolve({ content: truncatedStdout, isError: false });
     });

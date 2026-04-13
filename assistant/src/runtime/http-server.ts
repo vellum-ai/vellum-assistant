@@ -21,6 +21,10 @@ import {
   startGuardianActionSweep,
   stopGuardianActionSweep,
 } from "../calls/guardian-action-sweep.js";
+import {
+  activeMediaStreamSessions,
+  MediaStreamCallSession,
+} from "../calls/media-stream-server.js";
 import type { RelayWebSocketData } from "../calls/relay-server.js";
 import {
   activeRelayConnections,
@@ -121,8 +125,8 @@ import { approvalRouteDefinitions } from "./routes/approval-routes.js";
 import { attachmentRouteDefinitions } from "./routes/attachment-routes.js";
 import { handleGetAudio } from "./routes/audio-routes.js";
 import { avatarRouteDefinitions } from "./routes/avatar-routes.js";
+import { backupRouteDefinitions } from "./routes/backup-routes.js";
 import { brainGraphRouteDefinitions } from "./routes/brain-graph-routes.js";
-import { browserCdpRouteDefinitions } from "./routes/browser-cdp-routes.js";
 import { handleBrowserExtensionPair } from "./routes/browser-extension-pair-routes.js";
 import { btwRouteDefinitions } from "./routes/btw-routes.js";
 import { callRouteDefinitions } from "./routes/call-routes.js";
@@ -199,6 +203,7 @@ import { scheduleRouteDefinitions } from "./routes/schedule-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
 import { settingsRouteDefinitions } from "./routes/settings-routes.js";
 import { skillRouteDefinitions } from "./routes/skills-routes.js";
+import { sttRouteDefinitions } from "./routes/stt-routes.js";
 import { subagentRouteDefinitions } from "./routes/subagents-routes.js";
 import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
@@ -280,6 +285,19 @@ interface BrowserRelayWebSocketData {
    * that case for backwards-compatible single-instance semantics.
    */
   clientInstanceId?: string;
+}
+
+/**
+ * WebSocket data attached to `/v1/calls/media-stream` connections.
+ * The `wsType` discriminator routes frames to the media-stream call
+ * session instead of the ConversationRelay or browser-relay handlers.
+ */
+interface MediaStreamWebSocketData {
+  wsType: "media-stream";
+  callSessionId: string;
+  /** Bound at open time so the close handler tears down the exact session
+   *  that owns *this* socket, avoiding races with reconnects. */
+  session?: MediaStreamCallSession;
 }
 
 export class RuntimeHttpServer {
@@ -372,7 +390,10 @@ export class RuntimeHttpServer {
   }
 
   async start(): Promise<void> {
-    type AllWebSocketData = RelayWebSocketData | BrowserRelayWebSocketData;
+    type AllWebSocketData =
+      | RelayWebSocketData
+      | BrowserRelayWebSocketData
+      | MediaStreamWebSocketData;
     this.server = Bun.serve<AllWebSocketData>({
       port: this.port,
       hostname: this.hostname,
@@ -397,6 +418,23 @@ export class RuntimeHttpServer {
                 lastActiveAt: now,
               });
             }
+            return;
+          }
+          if ("wsType" in data && data.wsType === "media-stream") {
+            const msData = data as MediaStreamWebSocketData;
+            log.info(
+              { callSessionId: msData.callSessionId },
+              "Media-stream WebSocket opened",
+            );
+            const session = new MediaStreamCallSession(
+              ws,
+              msData.callSessionId,
+            );
+            activeMediaStreamSessions.set(msData.callSessionId, session);
+            // Bind the session instance to the websocket so the close
+            // handler tears down *this* session, not a replacement that
+            // a reconnect may have inserted under the same callSessionId.
+            msData.session = session;
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
@@ -521,6 +559,14 @@ export class RuntimeHttpServer {
                 }
                 return;
               }
+              case "keepalive": {
+                // Extension keepalive frames refresh the connection's
+                // activity timestamp without producing log noise or
+                // altering routing semantics. Unknown extra keys on
+                // the frame are silently ignored (lenient validation).
+                getChromeExtensionRegistry().touch(data.connectionId);
+                return;
+              }
               default: {
                 log.debug(
                   { connectionId: data.connectionId, type: frame.type },
@@ -529,6 +575,11 @@ export class RuntimeHttpServer {
                 return;
               }
             }
+          }
+          if ("wsType" in data && data.wsType === "media-stream") {
+            const msData = data as MediaStreamWebSocketData;
+            msData.session?.handleMessage(raw);
+            return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
           if (callSessionId) {
@@ -545,6 +596,34 @@ export class RuntimeHttpServer {
             // undefined, or when it was superseded by a newer registration
             // for the same guardian).
             getChromeExtensionRegistry().unregister(data.connectionId);
+            return;
+          }
+          if ("wsType" in data && data.wsType === "media-stream") {
+            const msData = data as MediaStreamWebSocketData;
+            log.info(
+              {
+                callSessionId: msData.callSessionId,
+                code,
+                reason: reason?.toString(),
+              },
+              "Media-stream WebSocket closed",
+            );
+            // Use the session bound at open time so we tear down the
+            // exact session that owns *this* socket, not a replacement
+            // that a reconnect may have inserted under the same key.
+            const msSession = msData.session;
+            if (msSession) {
+              msSession.handleTransportClosed(code, reason?.toString());
+              msSession.destroy();
+              // Only delete from the map if *our* session is still the
+              // registered one — a reconnect may have already replaced it.
+              if (
+                activeMediaStreamSessions.get(msData.callSessionId) ===
+                msSession
+              ) {
+                activeMediaStreamSessions.delete(msData.callSessionId);
+              }
+            }
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
@@ -769,6 +848,15 @@ export class RuntimeHttpServer {
       req.headers.get("upgrade")?.toLowerCase() === "websocket"
     ) {
       return this.handleRelayUpgrade(req, server);
+    }
+
+    // WebSocket upgrade for Twilio Media Streams — same private-network
+    // restrictions as relay upgrades.
+    if (
+      path.startsWith("/v1/calls/media-stream") &&
+      req.headers.get("upgrade")?.toLowerCase() === "websocket"
+    ) {
+      return this.handleMediaStreamUpgrade(req, server);
     }
 
     // Twilio webhook endpoints — before auth check because Twilio
@@ -1053,6 +1141,38 @@ export class RuntimeHttpServer {
       return new Response("Missing callSessionId", { status: 400 });
     }
     const upgraded = server.upgrade(req, { data: { callSessionId } });
+    if (!upgraded) {
+      return new Response("WebSocket upgrade failed", { status: 500 });
+    }
+    // Bun's WebSocket upgrade consumes the request — no Response is sent.
+    return undefined!;
+  }
+
+  private handleMediaStreamUpgrade(
+    req: Request,
+    server: ReturnType<typeof Bun.serve>,
+  ): Response {
+    if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
+      return httpError(
+        "FORBIDDEN",
+        "Direct media-stream access disabled — only private network peers allowed",
+        403,
+      );
+    }
+
+    const wsUrl = new URL(req.url);
+    const callSessionId = wsUrl.searchParams.get("callSessionId");
+    if (!callSessionId) {
+      return new Response("Missing callSessionId", { status: 400 });
+    }
+    // Media-stream connections use a distinct wsType so the open/message/close
+    // handlers route them to MediaStreamCallSession instead of RelayConnection.
+    const upgraded = server.upgrade(req, {
+      data: {
+        wsType: "media-stream",
+        callSessionId,
+      } satisfies MediaStreamWebSocketData,
+    });
     if (!upgraded) {
       return new Response("WebSocket upgrade failed", { status: 500 });
     }
@@ -1372,6 +1492,7 @@ export class RuntimeHttpServer {
           : undefined,
       }),
       ...ttsRouteDefinitions(),
+      ...sttRouteDefinitions(),
 
       // Conversation list and seen signal — kept inline because they
       // depend on multiple cross-cutting stores that aren't grouped
@@ -1563,7 +1684,6 @@ export class RuntimeHttpServer {
       ...approvalRouteDefinitions(),
       ...hostBashRouteDefinitions(),
       ...hostBrowserRouteDefinitions(),
-      ...browserCdpRouteDefinitions(),
       ...hostCuRouteDefinitions(),
       ...hostFileRouteDefinitions(),
       ...(this.getSkillContext
@@ -1685,6 +1805,7 @@ export class RuntimeHttpServer {
       ...eventsRouteDefinitions(),
       ...traceEventRouteDefinitions(),
       ...migrationRouteDefinitions(),
+      ...backupRouteDefinitions(),
 
       // User-defined routes under /x/* — must be LAST so built-in routes
       // always take priority.

@@ -114,7 +114,7 @@ describe('decideCloudReconnectAction', () => {
       expect(action.error).toContain(
         `after ${CLOUD_REFRESH_ATTEMPT_CAP} token refresh attempts`,
       );
-      expect(action.error).toContain('sign in');
+      expect(action.error).toContain('Re-sign in');
     }
   });
 

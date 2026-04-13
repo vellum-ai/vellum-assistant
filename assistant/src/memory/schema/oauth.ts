@@ -14,6 +14,9 @@ export const oauthProviders = sqliteTable("oauth_providers", {
   tokenEndpointAuthMethod: text("token_endpoint_auth_method")
     .notNull()
     .default("client_secret_post"),
+  tokenExchangeBodyFormat: text("token_exchange_body_format")
+    .notNull()
+    .default("form"),
   userinfoUrl: text("userinfo_url"),
   baseUrl: text("base_url"),
   defaultScopes: text("default_scopes").notNull().default("[]"),

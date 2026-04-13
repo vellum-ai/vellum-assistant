@@ -42,14 +42,47 @@ export const EMAIL_CHANNEL_TRANSPORT_HINTS = [
 ] as const;
 
 export const EMAIL_CHANNEL_TRANSPORT_UX_BRIEF =
-  "Email is an asynchronous medium. Responses can be longer and more detailed than chat. Use proper formatting. The user may not see the response immediately.";
+  "Email is an asynchronous medium. Responses can be longer and more detailed than chat. Use proper formatting. The user may not see the response immediately. To reply, you should almost always use the `assistant email send` CLI command (run `assistant email send --help` for usage). Use your judgment — there may be rare cases where a different medium is more appropriate or no reply is needed.";
 
-export function buildEmailTransportMetadata(): {
+/**
+ * Context from the inbound email that the assistant needs to construct a
+ * reply via the `assistant email send` CLI command.
+ */
+export interface EmailReplyContext {
+  /** The sender's email address (who the reply should go to). */
+  senderAddress: string;
+  /** The assistant's own email address (the "from" for the reply). */
+  recipientAddress: string;
+  /** Original email subject line, if present. */
+  subject?: string;
+  /** Message-ID of the inbound email for In-Reply-To threading. */
+  inReplyTo?: string;
+}
+
+export function buildEmailTransportMetadata(replyContext?: EmailReplyContext): {
   hints: string[];
   uxBrief: string;
 } {
+  const hints: string[] = [...EMAIL_CHANNEL_TRANSPORT_HINTS];
+
+  if (replyContext) {
+    hints.push(
+      `email-sender: ${replyContext.senderAddress}`,
+      `email-recipient: ${replyContext.recipientAddress}`,
+    );
+    if (replyContext.subject) {
+      hints.push(`email-subject: ${replyContext.subject}`);
+    }
+    if (replyContext.inReplyTo) {
+      hints.push(`email-in-reply-to: ${replyContext.inReplyTo}`);
+    }
+    hints.push(
+      "email-reply-help: Run `assistant email send --help` for send usage.",
+    );
+  }
+
   return {
-    hints: [...EMAIL_CHANNEL_TRANSPORT_HINTS],
+    hints,
     uxBrief: EMAIL_CHANNEL_TRANSPORT_UX_BRIEF,
   };
 }

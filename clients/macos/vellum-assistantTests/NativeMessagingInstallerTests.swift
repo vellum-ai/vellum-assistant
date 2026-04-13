@@ -60,7 +60,7 @@ final class NativeMessagingInstallerTests: XCTestCase {
     func testInstallWritesManifestWithExpectedStructure() throws {
         try NativeMessagingInstaller.installChromeManifest(
             helperBinaryPath: helperBinaryUrl,
-            extensionId: placeholderExtensionId,
+            extensionIds: [placeholderExtensionId],
             homeDirectory: mockHome,
             fileManager: .default
         )
@@ -91,7 +91,7 @@ final class NativeMessagingInstallerTests: XCTestCase {
     func testInstallSetsManifestPermissionsTo0o644() throws {
         try NativeMessagingInstaller.installChromeManifest(
             helperBinaryPath: helperBinaryUrl,
-            extensionId: placeholderExtensionId,
+            extensionIds: [placeholderExtensionId],
             homeDirectory: mockHome,
             fileManager: .default
         )
@@ -115,7 +115,7 @@ final class NativeMessagingInstallerTests: XCTestCase {
 
         try NativeMessagingInstaller.installChromeManifest(
             helperBinaryPath: helperBinaryUrl,
-            extensionId: placeholderExtensionId,
+            extensionIds: [placeholderExtensionId],
             homeDirectory: mockHome,
             fileManager: .default
         )
@@ -138,7 +138,7 @@ final class NativeMessagingInstallerTests: XCTestCase {
         )
         try NativeMessagingInstaller.installChromeManifest(
             helperBinaryPath: staleBinary,
-            extensionId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            extensionIds: ["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],
             homeDirectory: mockHome,
             fileManager: .default
         )
@@ -146,7 +146,7 @@ final class NativeMessagingInstallerTests: XCTestCase {
         // Re-install with the canonical helper binary and placeholder id.
         try NativeMessagingInstaller.installChromeManifest(
             helperBinaryPath: helperBinaryUrl,
-            extensionId: placeholderExtensionId,
+            extensionIds: [placeholderExtensionId],
             homeDirectory: mockHome,
             fileManager: .default
         )
@@ -177,7 +177,7 @@ final class NativeMessagingInstallerTests: XCTestCase {
         XCTAssertThrowsError(
             try NativeMessagingInstaller.installChromeManifest(
                 helperBinaryPath: missingBinary,
-                extensionId: placeholderExtensionId,
+                extensionIds: [placeholderExtensionId],
                 homeDirectory: mockHome,
                 fileManager: .default
             )
@@ -200,12 +200,73 @@ final class NativeMessagingInstallerTests: XCTestCase {
         )
     }
 
+    // MARK: - Gatekeeper
+
+    func testInstallSkipsWhenGatekeeperRejectsHelper() throws {
+        try NativeMessagingInstaller.installChromeManifest(
+            helperBinaryPath: helperBinaryUrl,
+            extensionIds: [placeholderExtensionId],
+            homeDirectory: mockHome,
+            fileManager: .default,
+            gatekeeperAssessment: { _ in false }
+        )
+
+        let manifestUrl = NativeMessagingInstaller
+            .manifestDirectory(under: mockHome)
+            .appendingPathComponent("com.vellum.daemon.json")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: manifestUrl.path),
+            "manifest must not be written when Gatekeeper rejects the helper"
+        )
+    }
+
+    func testInstallPreservesExistingManifestWhenGatekeeperRejectsHelper() throws {
+        // First install a working manifest (e.g. from a prior manual
+        // setup pointing at a sh-wrapper that Gatekeeper trusts).
+        try NativeMessagingInstaller.installChromeManifest(
+            helperBinaryPath: helperBinaryUrl,
+            extensionIds: [placeholderExtensionId],
+            homeDirectory: mockHome,
+            fileManager: .default,
+            gatekeeperAssessment: { _ in true }
+        )
+
+        let manifestUrl = NativeMessagingInstaller
+            .manifestDirectory(under: mockHome)
+            .appendingPathComponent("com.vellum.daemon.json")
+        let originalData = try Data(contentsOf: manifestUrl)
+
+        // A later install whose bundled helper is Gatekeeper-rejected
+        // (e.g. a local dev build of the macOS app on top of a manual
+        // install) must not clobber the working manifest.
+        let rejectedBinary = tempDir.appendingPathComponent("rejected-binary")
+        FileManager.default.createFile(
+            atPath: rejectedBinary.path,
+            contents: Data("#!/bin/sh\nexit 0\n".utf8),
+            attributes: [.posixPermissions: NSNumber(value: 0o755)]
+        )
+        try NativeMessagingInstaller.installChromeManifest(
+            helperBinaryPath: rejectedBinary,
+            extensionIds: ["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],
+            homeDirectory: mockHome,
+            fileManager: .default,
+            gatekeeperAssessment: { _ in false }
+        )
+
+        let afterData = try Data(contentsOf: manifestUrl)
+        XCTAssertEqual(
+            originalData,
+            afterData,
+            "existing manifest must be left untouched when Gatekeeper rejects the new helper"
+        )
+    }
+
     // MARK: - uninstall
 
     func testUninstallRemovesManifest() throws {
         try NativeMessagingInstaller.installChromeManifest(
             helperBinaryPath: helperBinaryUrl,
-            extensionId: placeholderExtensionId,
+            extensionIds: [placeholderExtensionId],
             homeDirectory: mockHome,
             fileManager: .default
         )

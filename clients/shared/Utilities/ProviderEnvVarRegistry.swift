@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "ProviderEnvVarRegistry")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ProviderEnvVarRegistry")
 
 /// Top-level schema for `provider-env-vars.json`.
 ///

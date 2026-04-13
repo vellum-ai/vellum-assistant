@@ -5,6 +5,10 @@ import { getConfig } from "../config/loader.js";
 import type { Speed } from "../config/schemas/inference.js";
 import type { HeartbeatAlert } from "../daemon/message-protocol.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
+import {
+  GUARDIAN_PERSONA_TEMPLATE,
+  resolveGuardianPersona,
+} from "../prompts/persona-resolver.js";
 import { isTemplateContent } from "../prompts/system-prompt.js";
 import { readTextFileSync } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
@@ -23,19 +27,27 @@ const DEFAULT_CHECKLIST = `- Check in with yourself. Read NOW.md. Is it still ac
 const REENGAGEMENT_COOLDOWN_MS = 18 * 60 * 60 * 1000; // 18 hours
 const HEARTBEAT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
+// Stripped-comment form of the guardian persona scaffold. Computed
+// once at module load because stripping comment lines is deterministic
+// and the template itself is a compile-time constant.
+const GUARDIAN_PERSONA_SCAFFOLD_STRIPPED = stripCommentLines(
+  GUARDIAN_PERSONA_TEMPLATE,
+).trim();
+
 /** @internal Exported for testing. */
 export function isShallowProfile(): boolean {
   try {
     const identityPath = getWorkspacePromptPath("IDENTITY.md");
-    const userPath = getWorkspacePromptPath("USER.md");
     const rawIdentity = readTextFileSync(identityPath);
-    const rawUser = readTextFileSync(userPath);
     const identity = rawIdentity != null ? stripCommentLines(rawIdentity) : null;
-    const user = rawUser != null ? stripCommentLines(rawUser) : null;
-    return (
-      isTemplateContent(identity, "IDENTITY.md") &&
-      isTemplateContent(user, "USER.md")
-    );
+    // `resolveGuardianPersona` returns already-stripped, trimmed content
+    // (or null for missing/empty files).
+    const user = resolveGuardianPersona();
+    const userIsEmpty =
+      user == null ||
+      user.length === 0 ||
+      user === GUARDIAN_PERSONA_SCAFFOLD_STRIPPED;
+    return isTemplateContent(identity, "IDENTITY.md") && userIsEmpty;
   } catch {
     return false;
   }

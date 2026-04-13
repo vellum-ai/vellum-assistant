@@ -6,17 +6,17 @@
  *   - Installed skill, traversal path → 400 "Invalid path".
  *   - Installed skill, missing file → 404 "File not found".
  *   - Installed skill with missing on-disk directory → 404 "Skill directory
- *     missing" without consulting the catalog fallback.
- *   - Uninstalled catalog skill → delegates to `readCatalogSkillFileContent`
- *     and returns its payload; null result → 404.
+ *     missing" without consulting the provider chain fallback.
+ *   - Uninstalled vellum catalog skill → vellum provider returns content.
+ *   - Uninstalled skills.sh skill → skills.sh provider returns content.
+ *   - Uninstalled clawhub skill → clawhub provider returns content.
  *   - Skill not found anywhere → 404.
  *   - Hidden / SKIP_DIRS path segments → rejected with 400 before touching
- *     either the installed-skill disk read or the catalog fallback.
+ *     either the installed-skill disk read or the provider chain fallback.
  *
  * The test exercises the daemon handler directly — route wiring is a thin
- * pass-through to this function. The catalog-files module is mocked so the
- * handler's wiring is exercised in isolation; the helper's own dev-mode /
- * platform-mode behavior is covered in `catalog-files.test.ts`.
+ * pass-through to this function. The provider modules are mocked so the
+ * handler's wiring is exercised in isolation.
  */
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -25,8 +25,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SkillSummary } from "../config/skills.js";
+import type { SlimSkillResponse } from "../daemon/message-types/skills.js";
 import type { SkillFileEntry } from "../skills/catalog-files.js";
-import type { CatalogSkill } from "../skills/catalog-install.js";
+import type { SkillFileProvider } from "../skills/skill-file-provider.js";
 
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before importing the module under test
@@ -56,19 +57,39 @@ let mockResolvedSkills: Array<{
   summary: SkillSummary;
   state: "enabled" | "disabled";
 }> = [];
-let mockCatalog: CatalogSkill[] = [];
-// Ordered log of `readCatalogSkillFileContent` invocations so individual
-// tests can assert that the catalog-fallback helper was (or was not)
-// consulted. Mirrors the `catalogFilesCalls` array pattern used in
-// `skills-files-catalog-fallback.test.ts` for `readCatalogSkillFiles`.
-const catalogFileContentCalls: Array<{ skillId: string; path: string }> = [];
-// Per-test override for the catalog fallback helper. When set, the
-// `catalog-files.js` mock's `readCatalogSkillFileContent` delegates to
-// this function, letting tests return canned payloads without touching
-// disk or the network.
-let mockCatalogFileContentResponder:
-  | ((skillId: string, path: string) => Promise<SkillFileEntry | null>)
-  | null = null;
+
+// Per-provider mock state
+let mockVellumProvider: SkillFileProvider;
+let mockSkillsshProvider: SkillFileProvider;
+let mockClawhubProvider: SkillFileProvider;
+
+// Track provider calls
+const providerReadCalls: Array<{
+  provider: string;
+  skillId: string;
+  path: string;
+}> = [];
+
+function makeNoopProvider(name: string): SkillFileProvider {
+  return {
+    canHandle(): boolean {
+      return false;
+    },
+    async listFiles(): Promise<SkillFileEntry[] | null> {
+      return null;
+    },
+    async readFileContent(
+      skillId: string,
+      path: string,
+    ): Promise<SkillFileEntry | null> {
+      providerReadCalls.push({ provider: name, skillId, path });
+      return null;
+    },
+    async toSlimSkill(): Promise<SlimSkillResponse | null> {
+      return null;
+    },
+  };
+}
 
 mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => mockResolvedSkills.map((r) => r.summary),
@@ -91,22 +112,11 @@ mock.module("../config/assistant-feature-flags.js", () => ({
 }));
 
 mock.module("../skills/catalog-cache.js", () => ({
-  getCatalog: async () => mockCatalog,
+  getCatalog: async () => [],
 }));
 
-// The `catalog-files.js` mock replaces `readCatalogSkillFileContent` with
-// a spy wrapper that logs invocations and delegates to a per-test
-// responder. Other exports (`sanitizeRelativePath`,
-// `hasHiddenOrSkippedSegment`, `SKIP_DIRS`, `readCatalogSkillFiles`) are
-// re-implemented inline from the production module so the handler's
-// path-validation code still runs against equivalent logic without
-// recursing back through the mocked module.
-//
-// The spy gives the new "installed skill directory missing" regression
-// test a way to assert that the catalog fallback helper is NOT consulted
-// when `findSkillById` resolves a ghost install — mirroring the
-// `catalogFilesCalls.length === 0` assertion in
-// `skills-files-catalog-fallback.test.ts`.
+// The `catalog-files.js` mock — provides path validation functions inline
+// and delegates provider creation to mock state.
 const INLINE_SKIP_DIRS = new Set(["node_modules", "__pycache__", ".git"]);
 
 function inlineSanitizeRelativePath(rawPath: string): string | null {
@@ -119,7 +129,6 @@ function inlineSanitizeRelativePath(rawPath: string): string | null {
     candidate = candidate.slice(2);
   }
   if (candidate.length === 0) return null;
-  // posix.normalize without the node import: collapse segments manually.
   const segments: string[] = [];
   for (const seg of candidate.split("/")) {
     if (seg === "" || seg === ".") continue;
@@ -146,19 +155,47 @@ function inlineHasHiddenOrSkippedSegment(sanitized: string): boolean {
   return false;
 }
 
+// The provider factory functions are called once at module init and the
+// returned objects are captured in the `fileProviders` array. To allow
+// per-test mock reassignment, return proxy objects that delegate every
+// method call to the CURRENT value of the mutable mock variable.
 mock.module("../skills/catalog-files.js", () => ({
   SKIP_DIRS: INLINE_SKIP_DIRS,
   sanitizeRelativePath: inlineSanitizeRelativePath,
   hasHiddenOrSkippedSegment: inlineHasHiddenOrSkippedSegment,
+  catalogSkillToSlim: () => ({}),
+  createVellumCatalogProvider: () => ({
+    canHandle: (id: string) => mockVellumProvider.canHandle(id),
+    listFiles: (id: string) => mockVellumProvider.listFiles(id),
+    readFileContent: (id: string, p: string) =>
+      mockVellumProvider.readFileContent(id, p),
+    toSlimSkill: (id: string) => mockVellumProvider.toSlimSkill(id),
+  }),
   readCatalogSkillFiles: async () => null,
-  readCatalogSkillFileContent: async (skillId: string, path: string) => {
-    catalogFileContentCalls.push({ skillId, path });
-    if (mockCatalogFileContentResponder) {
-      return mockCatalogFileContentResponder(skillId, path);
-    }
-    return null;
-  },
+  readCatalogSkillFileContent: async () => null,
 }));
+
+mock.module("../skills/skillssh-files.js", () => ({
+  createSkillsShProvider: () => ({
+    canHandle: (id: string) => mockSkillsshProvider.canHandle(id),
+    listFiles: (id: string) => mockSkillsshProvider.listFiles(id),
+    readFileContent: (id: string, p: string) =>
+      mockSkillsshProvider.readFileContent(id, p),
+    toSlimSkill: (id: string) => mockSkillsshProvider.toSlimSkill(id),
+  }),
+}));
+
+mock.module("../skills/clawhub-files.js", () => ({
+  createClawhubProvider: () => ({
+    canHandle: (id: string) => mockClawhubProvider.canHandle(id),
+    listFiles: (id: string) => mockClawhubProvider.listFiles(id),
+    readFileContent: (id: string, p: string) =>
+      mockClawhubProvider.readFileContent(id, p),
+    toSlimSkill: (id: string) => mockClawhubProvider.toSlimSkill(id),
+  }),
+}));
+
+mock.module("../skills/skill-file-provider.js", () => ({}));
 
 mock.module("../skills/catalog-install.js", () => ({
   installSkillLocally: async () => {},
@@ -244,7 +281,10 @@ mock.module("../daemon/handlers/shared.js", () => ({
 // ---------------------------------------------------------------------------
 
 import type { SkillOperationContext } from "../daemon/handlers/skills.js";
-import { getSkillFileContent } from "../daemon/handlers/skills.js";
+import {
+  _resetFileProvidersForTest,
+  getSkillFileContent,
+} from "../daemon/handlers/skills.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -298,10 +338,6 @@ function installedSkill(id: string, directoryPath: string) {
   };
 }
 
-function catalogSkill(id: string): CatalogSkill {
-  return { id, name: id, description: id };
-}
-
 // ---------------------------------------------------------------------------
 // Setup / teardown
 // ---------------------------------------------------------------------------
@@ -309,10 +345,13 @@ function catalogSkill(id: string): CatalogSkill {
 beforeEach(() => {
   originalFetch = globalThis.fetch;
   mockResolvedSkills = [];
-  mockCatalog = [];
   mockPlatformBaseUrl = "https://platform.test";
-  catalogFileContentCalls.length = 0;
-  mockCatalogFileContentResponder = null;
+  providerReadCalls.length = 0;
+  mockVellumProvider = makeNoopProvider("vellum");
+  mockSkillsshProvider = makeNoopProvider("skillssh");
+  mockClawhubProvider = makeNoopProvider("clawhub");
+  // Force provider chain re-creation from the (mocked) factory functions
+  _resetFileProvidersForTest();
 });
 
 afterEach(() => {
@@ -412,31 +451,27 @@ describe("getSkillFileContent — installed skill", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Catalog fallback — helper invocation
+// Provider chain fallback — uninstalled skill content
 // ---------------------------------------------------------------------------
-//
-// The daemon handler delegates to `readCatalogSkillFileContent` for any
-// skill id that is not resolved locally but is present in the platform
-// catalog. The helper's own dev-mode / platform-mode behavior is covered
-// in detail in `catalog-files.test.ts`; these tests assert the handler
-// wiring: the helper is invoked with the sanitized path, and the
-// helper's result is returned on the response shape.
 
-describe("getSkillFileContent — uninstalled catalog skill", () => {
-  test("delegates to readCatalogSkillFileContent and returns the helper payload", async () => {
-    // Skill is NOT in the installed catalog, but IS in the platform catalog.
+describe("getSkillFileContent — uninstalled skill (provider chain)", () => {
+  test("delegates to vellum provider and returns the payload", async () => {
     mockResolvedSkills = [];
-    mockCatalog = [catalogSkill("remote-skill")];
     installFetchForbidden();
 
-    mockCatalogFileContentResponder = async (_skillId, path) => ({
-      path,
-      name: "SKILL.md",
-      size: 14,
-      mimeType: "text/markdown",
-      isBinary: false,
-      content: "# hello world\n",
-    });
+    mockVellumProvider = {
+      canHandle: () => true,
+      listFiles: async () => null,
+      readFileContent: async (_skillId, path) => ({
+        path,
+        name: "SKILL.md",
+        size: 14,
+        mimeType: "text/markdown",
+        isBinary: false,
+        content: "# hello world\n",
+      }),
+      toSlimSkill: async () => null,
+    };
 
     const result = await getSkillFileContent(
       "remote-skill",
@@ -451,33 +486,154 @@ describe("getSkillFileContent — uninstalled catalog skill", () => {
     expect(result.mimeType).toBe("text/markdown");
     expect(result.isBinary).toBe(false);
     expect(result.content).toBe("# hello world\n");
-
-    expect(catalogFileContentCalls).toEqual([
-      { skillId: "remote-skill", path: "SKILL.md" },
-    ]);
   });
 
-  test("returns 404 when readCatalogSkillFileContent resolves to null", async () => {
-    // Catalog helper returns null for a missing or unreadable file —
-    // daemon handler translates that to 404 "File not found".
+  test("returns 404 when all providers return null", async () => {
     mockResolvedSkills = [];
-    mockCatalog = [catalogSkill("remote-skill")];
     installFetchForbidden();
 
-    mockCatalogFileContentResponder = async () => null;
+    // All providers return canHandle=false (default noop)
 
     const result = await getSkillFileContent(
-      "remote-skill",
-      "missing.md",
+      "ghost-skill",
+      "SKILL.md",
+      dummyCtx,
+    );
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) return;
+    expect(result.status).toBe(404);
+    expect(result.error).toBe("Skill not found");
+  });
+
+  test("skills.sh content fallback", async () => {
+    mockResolvedSkills = [];
+    installFetchForbidden();
+
+    // Vellum doesn't handle
+    mockVellumProvider = makeNoopProvider("vellum");
+
+    // skills.sh handles and returns content
+    mockSkillsshProvider = {
+      canHandle: (id: string) => id.split("/").length >= 3,
+      listFiles: async () => null,
+      readFileContent: async (_skillId, path) => ({
+        path,
+        name: "SKILL.md",
+        size: 20,
+        mimeType: "text/markdown",
+        isBinary: false,
+        content: "# skillssh content\n",
+      }),
+      toSlimSkill: async () => null,
+    };
+
+    const result = await getSkillFileContent(
+      "owner/repo/my-skill",
+      "SKILL.md",
+      dummyCtx,
+    );
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    expect(result.content).toBe("# skillssh content\n");
+    expect(result.path).toBe("SKILL.md");
+  });
+
+  test("clawhub content fallback", async () => {
+    mockResolvedSkills = [];
+    installFetchForbidden();
+
+    // Vellum and skills.sh don't handle
+    mockVellumProvider = makeNoopProvider("vellum");
+    mockSkillsshProvider = makeNoopProvider("skillssh");
+
+    // Clawhub handles and returns content
+    mockClawhubProvider = {
+      canHandle: () => true,
+      listFiles: async () => null,
+      readFileContent: async (_skillId, path) => ({
+        path,
+        name: "SKILL.md",
+        size: 22,
+        mimeType: "text/markdown",
+        isBinary: false,
+        content: "# clawhub content yo\n",
+      }),
+      toSlimSkill: async () => null,
+    };
+
+    const result = await getSkillFileContent("cool-tool", "SKILL.md", dummyCtx);
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    expect(result.content).toBe("# clawhub content yo\n");
+    expect(result.path).toBe("SKILL.md");
+  });
+
+  test("returns 'File not found' when provider canHandle returns true but readFileContent returns null", async () => {
+    mockResolvedSkills = [];
+    installFetchForbidden();
+
+    // Vellum provider claims this skill but returns null for the specific file
+    mockVellumProvider = {
+      canHandle: () => true,
+      listFiles: async () => null,
+      readFileContent: async () => null,
+      toSlimSkill: async () => null,
+    };
+
+    const result = await getSkillFileContent(
+      "known-skill",
+      "nonexistent.txt",
       dummyCtx,
     );
     expect("error" in result).toBe(true);
     if (!("error" in result)) return;
     expect(result.status).toBe(404);
     expect(result.error).toBe("File not found");
-    expect(catalogFileContentCalls).toEqual([
-      { skillId: "remote-skill", path: "missing.md" },
-    ]);
+  });
+
+  test("stop-on-first-match: does not try clawhub when vellum canHandle returns true", async () => {
+    mockResolvedSkills = [];
+    installFetchForbidden();
+
+    const clawhubReadCalls: string[] = [];
+
+    // Vellum provider claims the skill but returns null for file content
+    mockVellumProvider = {
+      canHandle: () => true,
+      listFiles: async () => null,
+      readFileContent: async () => null,
+      toSlimSkill: async () => null,
+    };
+
+    // Clawhub would return content if asked, but should NOT be consulted
+    mockClawhubProvider = {
+      canHandle: () => true,
+      listFiles: async () => null,
+      readFileContent: async (_skillId, path) => {
+        clawhubReadCalls.push(path);
+        return {
+          path,
+          name: "SKILL.md",
+          size: 10,
+          mimeType: "text/markdown",
+          isBinary: false,
+          content: "# from clawhub\n",
+        };
+      },
+      toSlimSkill: async () => null,
+    };
+
+    const result = await getSkillFileContent(
+      "simple-slug",
+      "SKILL.md",
+      dummyCtx,
+    );
+    // Should be "File not found" (vellum handled but returned null)
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) return;
+    expect(result.error).toBe("File not found");
+    // Clawhub should NOT have been called
+    expect(clawhubReadCalls).toEqual([]);
   });
 });
 
@@ -486,9 +642,8 @@ describe("getSkillFileContent — uninstalled catalog skill", () => {
 // ---------------------------------------------------------------------------
 
 describe("getSkillFileContent — skill not found", () => {
-  test("returns 404 when the skill is neither installed nor in the catalog", async () => {
+  test("returns 404 when the skill is neither installed nor handled by any provider", async () => {
     mockResolvedSkills = [];
-    mockCatalog = [];
     installFetchForbidden();
 
     const result = await getSkillFileContent(
@@ -506,38 +661,30 @@ describe("getSkillFileContent — skill not found", () => {
 // ---------------------------------------------------------------------------
 // Installed skill with missing directory (ghost install)
 // ---------------------------------------------------------------------------
-//
-// When `findSkillById` resolves a skill as installed but the on-disk
-// directory has disappeared (corrupted install, mid-delete race,
-// external unmount), the handler must return a distinct 404 "Skill
-// directory missing" instead of falling through to the catalog path.
-// Falling through would flip the content response to a catalog payload
-// even though `listSkillsWithCatalog` still classifies the same id as
-// `kind: "installed"`, breaking the `isInstalled` contract between the
-// listing and content responses. Mirrors the same fix on
-// `getSkillFiles` verified by
-// `skills-files-catalog-fallback.test.ts`.
 
 describe("getSkillFileContent — installed skill with missing directory", () => {
-  test("returns 404 without consulting the catalog when the installed dir is gone", async () => {
+  test("returns 404 without consulting providers when the installed dir is gone", async () => {
     mockResolvedSkills = [
       installedSkill(
         "ghost-installed",
         "/tmp/definitely-does-not-exist-" + Date.now(),
       ),
     ];
-    // Even if the same id is present in the catalog, the handler must NOT
-    // fall through. Prime both the catalog and a responder that would
-    // return a successful payload to prove the short-circuit is active.
-    mockCatalog = [catalogSkill("ghost-installed")];
-    mockCatalogFileContentResponder = async () => ({
-      path: "SKILL.md",
-      name: "SKILL.md",
-      size: 10,
-      mimeType: "text/markdown",
-      isBinary: false,
-      content: "# from catalog\n",
-    });
+    // Even if a provider would return content, the handler must NOT
+    // fall through.
+    mockVellumProvider = {
+      canHandle: () => true,
+      listFiles: async () => null,
+      readFileContent: async () => ({
+        path: "SKILL.md",
+        name: "SKILL.md",
+        size: 10,
+        mimeType: "text/markdown",
+        isBinary: false,
+        content: "# from provider\n",
+      }),
+      toSlimSkill: async () => null,
+    };
     installFetchForbidden();
 
     const result = await getSkillFileContent(
@@ -551,27 +698,17 @@ describe("getSkillFileContent — installed skill with missing directory", () =>
     expect(result.status).toBe(404);
     expect(result.error).toContain("ghost-installed");
     expect(result.error).toContain("directory missing");
-    // Catalog fallback must not have been consulted.
-    expect(catalogFileContentCalls).toEqual([]);
+    // Provider chain must not have been consulted.
+    expect(providerReadCalls).toEqual([]);
   });
 });
 
 // ---------------------------------------------------------------------------
 // Hidden / SKIP_DIRS path rejection
 // ---------------------------------------------------------------------------
-//
-// The daemon handler rejects paths containing dotfile segments (`.env`,
-// `.git/`) or SKIP_DIRS segments (`node_modules`, `__pycache__`) with a
-// 400 "Invalid path" BEFORE any disk read or network round-trip, matching
-// the file-listing endpoint that hides these entries. This applies
-// regardless of whether the skill is installed locally or only available
-// via the catalog.
 
 describe("getSkillFileContent — hidden / SKIP_DIRS rejection", () => {
   test("rejects dotfile reads from an installed skill with 400 Invalid path", async () => {
-    // Set up an installed skill where a real `.env` file exists on disk.
-    // Without the hidden-segment rejection, the handler would happily
-    // read its content because sanitizeRelativePath accepts `.env`.
     const skillDir = makeTempSkillDir("leaky-skill");
     writeFile(skillDir, "SKILL.md", "# ok\n");
     writeFile(skillDir, ".env", "SECRET=abc\n");
@@ -585,37 +722,33 @@ describe("getSkillFileContent — hidden / SKIP_DIRS rejection", () => {
     expect(result.error).toBe("Invalid path");
   });
 
-  test("rejects dotfile reads for an uninstalled catalog skill before any catalog read", async () => {
-    // Same dotfile attack, but the skill id is NOT installed — only
-    // present in the Vellum catalog. The rejection must run in the daemon
-    // handler BEFORE the catalog fallback, so the catalog helper should
-    // never be consulted. We prime the responder with content that WOULD
-    // succeed to prove that even though the fallback path would return a
-    // payload, the daemon short-circuits first.
+  test("rejects dotfile reads for an uninstalled skill before any provider read", async () => {
     mockResolvedSkills = []; // not installed
-    mockCatalog = [catalogSkill("catalog-leaky")];
     installFetchForbidden();
-    mockCatalogFileContentResponder = async () => ({
-      path: ".env",
-      name: ".env",
-      size: 12,
-      mimeType: "text/plain",
-      isBinary: false,
-      content: "SECRET=xyz\n",
-    });
+    mockVellumProvider = {
+      canHandle: () => true,
+      listFiles: async () => null,
+      readFileContent: async () => ({
+        path: ".env",
+        name: ".env",
+        size: 12,
+        mimeType: "text/plain",
+        isBinary: false,
+        content: "SECRET=xyz\n",
+      }),
+      toSlimSkill: async () => null,
+    };
 
     const result = await getSkillFileContent("catalog-leaky", ".env", dummyCtx);
     expect("error" in result).toBe(true);
     if (!("error" in result)) return;
     expect(result.status).toBe(400);
     expect(result.error).toBe("Invalid path");
-    // The hidden-segment check must run before the catalog helper.
-    expect(catalogFileContentCalls).toEqual([]);
+    // The hidden-segment check must run before the provider chain.
+    expect(providerReadCalls).toEqual([]);
   });
 
   test("rejects paths whose parent directory is a dotfile segment", async () => {
-    // `.git/config` and `docs/.hidden/file.md` both contain hidden
-    // segments even though the leaf isn't a dotfile.
     const skillDir = makeTempSkillDir("my-skill");
     writeFile(skillDir, "SKILL.md", "# ok\n");
     mockResolvedSkills = [installedSkill("my-skill", skillDir)];
@@ -650,8 +783,6 @@ describe("getSkillFileContent — hidden / SKIP_DIRS rejection", () => {
   });
 
   test("regular SKILL.md still reads successfully (sanity)", async () => {
-    // Guards against collateral damage from the hidden/SKIP_DIRS filter:
-    // a normal, non-hidden path must continue to work unchanged.
     const skillDir = makeTempSkillDir("healthy-skill");
     writeFile(skillDir, "SKILL.md", "# hello\n");
     mockResolvedSkills = [installedSkill("healthy-skill", skillDir)];

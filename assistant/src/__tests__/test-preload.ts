@@ -25,6 +25,13 @@ process.env.VELLUM_WORKSPACE_DIR = testDir;
 process.env.VELLUM_PLATFORM_URL = "https://test-platform.vellum.ai";
 process.exitCode = 0;
 
+// Force-close any DB connection inherited from the parent process (e.g. when
+// the test runner is spawned by the running assistant via a pre-push hook).
+// Without this, the db singleton in db-connection.ts may still point at the
+// real ~/.vellum/workspace database, and test cleanup (DELETE FROM …) would
+// wipe production data — contacts, channels, credentials, etc.
+resetDb();
+
 // Prevent tests from routing credential writes through the real CES
 // (Credential Execution Service). Without this, setSecureKeyAsync() in
 // containerized environments writes to the live credential store.

@@ -23,8 +23,10 @@ import * as appDelete from "./bundled-skills/app-builder/tools/app-delete.js";
 import * as appGenerateIcon from "./bundled-skills/app-builder/tools/app-generate-icon.js";
 import * as appRefresh from "./bundled-skills/app-builder/tools/app-refresh.js";
 // ── browser ────────────────────────────────────────────────────────────────────
+import * as browserAttach from "./bundled-skills/browser/tools/browser-attach.js";
 import * as browserClick from "./bundled-skills/browser/tools/browser-click.js";
 import * as browserClose from "./bundled-skills/browser/tools/browser-close.js";
+import * as browserDetach from "./bundled-skills/browser/tools/browser-detach.js";
 import * as browserExtract from "./bundled-skills/browser/tools/browser-extract.js";
 import * as browserFillCredential from "./bundled-skills/browser/tools/browser-fill-credential.js";
 import * as browserHover from "./bundled-skills/browser/tools/browser-hover.js";
@@ -207,6 +209,8 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["browser:tools/browser-snapshot.ts", browserSnapshot],
   ["browser:tools/browser-screenshot.ts", browserScreenshot],
   ["browser:tools/browser-close.ts", browserClose],
+  ["browser:tools/browser-attach.ts", browserAttach],
+  ["browser:tools/browser-detach.ts", browserDetach],
   ["browser:tools/browser-click.ts", browserClick],
   ["browser:tools/browser-type.ts", browserType],
   ["browser:tools/browser-press-key.ts", browserPressKey],

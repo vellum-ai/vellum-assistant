@@ -18,11 +18,14 @@
     {
       "id": "amazon",
       "name": "amazon",
-      "description": "Shop on Amazon and Amazon Fresh using the bundled Amazon scripts",
+      "description": "Shop on Amazon and Amazon Fresh through your browser",
       "metadata": {
-        "emoji": "📦",
+        "emoji": "🛒",
         "vellum": {
-          "display-name": "Amazon"
+          "display-name": "Amazon",
+          "includes": [
+            "browser"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -47,6 +50,18 @@
         "emoji": "🔍",
         "vellum": {
           "display-name": "CLI Discovery"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "conversation-launcher",
+      "name": "conversation-launcher",
+      "description": "Render an inline card where each button creates a new focused conversation seeded with specific context, then opens it",
+      "metadata": {
+        "emoji": "🧭",
+        "vellum": {
+          "display-name": "Conversation Launcher"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -159,11 +174,14 @@
     {
       "id": "influencer",
       "name": "influencer",
-      "description": "Research influencers on Instagram, TikTok, and X/Twitter using the Chrome extension relay",
+      "description": "Research influencers on Instagram, TikTok, and X/Twitter through your browser",
       "metadata": {
         "emoji": "🔍",
         "vellum": {
-          "display-name": "Influencer Research"
+          "display-name": "Influencer Research",
+          "includes": [
+            "browser"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"

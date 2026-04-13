@@ -20,6 +20,8 @@ const SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set([
   "browser_select_option",
   "browser_hover",
   "browser_close",
+  "browser_attach",
+  "browser_detach",
   "browser_fill_credential",
   "document_create",
   "document_update",

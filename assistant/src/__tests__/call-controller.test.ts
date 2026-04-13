@@ -39,6 +39,36 @@ mock.module("../config/loader.js", () => {
     },
     memory: { enabled: false },
     notifications: { decisionModelIntent: "latency-optimized" },
+    services: {
+      tts: {
+        mode: "your-own" as const,
+        provider: "elevenlabs",
+        providers: {
+          elevenlabs: {
+            voiceId: "ZF6FPAbjXT4488VcRRnw",
+            voiceModelId: "",
+            speed: 1.0,
+            stability: 0.5,
+            similarityBoost: 0.75,
+            conversationTimeoutSeconds: 30,
+          },
+          "fish-audio": {
+            referenceId: "",
+            chunkLength: 200,
+            format: "mp3",
+            latency: "normal",
+            speed: 1.0,
+          },
+        },
+      },
+    },
+    elevenlabs: {
+      voiceId: "ZF6FPAbjXT4488VcRRnw",
+    },
+    fishAudio: {
+      referenceId: "",
+      format: "mp3",
+    },
   };
   return {
     getConfig: () => config,
@@ -53,6 +83,17 @@ mock.module("../config/loader.js", () => {
     API_KEY_PROVIDERS: [],
   };
 });
+
+// ── Credential mock (prevents real key lookups) ──────────────────────
+
+mock.module("../security/secure-keys.js", () => ({
+  getSecureKeyAsync: async () => null,
+  getSecureKey: () => null,
+}));
+
+mock.module("../security/credential-key.js", () => ({
+  credentialKey: (...args: string[]) => args.join("/"),
+}));
 
 // ── Call constants mock ──────────────────────────────────────────────
 
@@ -128,6 +169,48 @@ mock.module("../calls/voice-session-bridge.js", () => {
   };
 });
 
+// ── TTS provider registry setup ──────────────────────────────────────
+// Register test providers so call-controller can resolve the TTS provider
+// abstraction. ElevenLabs is the default native provider (no streaming),
+// while Fish Audio is a synthesized provider (streaming).
+
+import {
+  _resetTtsProviderRegistry,
+  registerTtsProvider,
+} from "../tts/provider-registry.js";
+import type { TtsProvider } from "../tts/types.js";
+
+function registerTestTtsProviders(): void {
+  _resetTtsProviderRegistry();
+
+  const elevenlabs: TtsProvider = {
+    id: "elevenlabs",
+    capabilities: { supportsStreaming: false, supportedFormats: ["mp3"] },
+    async synthesize() {
+      return { audio: Buffer.from(""), contentType: "audio/mpeg" };
+    },
+  };
+  registerTtsProvider(elevenlabs);
+
+  const fishAudio: TtsProvider = {
+    id: "fish-audio",
+    capabilities: {
+      supportsStreaming: true,
+      supportedFormats: ["mp3", "wav", "opus"],
+    },
+    async synthesize() {
+      return { audio: Buffer.from(""), contentType: "audio/mpeg" };
+    },
+    async synthesizeStream(_req, _onChunk) {
+      return { audio: Buffer.from(""), contentType: "audio/mpeg" };
+    },
+  };
+  registerTtsProvider(fishAudio);
+}
+
+// Register providers immediately so they're available for all tests
+registerTestTtsProviders();
+
 // ── Import source modules after all mocks are registered ────────────
 
 import { CallController } from "../calls/call-controller.js";
@@ -139,7 +222,8 @@ import {
   getPendingQuestion,
   updateCallSession,
 } from "../calls/call-store.js";
-import type { RelayConnection } from "../calls/relay-server.js";
+import type { CallTransport } from "../calls/call-transport.js";
+import { resolveCallTtsProvider } from "../calls/resolve-call-tts-provider.js";
 import {
   getCanonicalGuardianRequest,
   getPendingCanonicalRequestByCallSessionId,
@@ -154,18 +238,20 @@ afterAll(() => {
   resetDb();
 });
 
-// ── RelayConnection mock factory ────────────────────────────────────
+// ── CallTransport mock factory ───────────────────────────────────────
 
-interface MockRelay extends RelayConnection {
+interface MockTransport extends CallTransport {
   sentTokens: Array<{ token: string; last: boolean }>;
+  sentPlayUrls: string[];
   endCalled: boolean;
   endReason: string | undefined;
   mockConnectionState: string;
 }
 
-function createMockRelay(): MockRelay {
+function createMockTransport(): MockTransport {
   const state = {
     sentTokens: [] as Array<{ token: string; last: boolean }>,
+    sentPlayUrls: [] as string[],
     _endCalled: false,
     _endReason: undefined as string | undefined,
     _connectionState: "connected",
@@ -174,6 +260,9 @@ function createMockRelay(): MockRelay {
   return {
     get sentTokens() {
       return state.sentTokens;
+    },
+    get sentPlayUrls() {
+      return state.sentPlayUrls;
     },
     get endCalled() {
       return state._endCalled;
@@ -190,6 +279,9 @@ function createMockRelay(): MockRelay {
     sendTextToken(token: string, last: boolean) {
       state.sentTokens.push({ token, last });
     },
+    sendPlayUrl(url: string) {
+      state.sentPlayUrls.push(url);
+    },
     endSession(reason?: string) {
       state._endCalled = true;
       state._endReason = reason;
@@ -197,7 +289,7 @@ function createMockRelay(): MockRelay {
     getConnectionState() {
       return state._connectionState;
     },
-  } as unknown as MockRelay;
+  } as MockTransport;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -254,7 +346,7 @@ async function pollUntil(
 }
 
 /**
- * Create a call session and a controller wired to a mock relay.
+ * Create a call session and a controller wired to a mock transport.
  */
 function setupController(
   task?: string,
@@ -272,17 +364,12 @@ function setupController(
     task,
   });
   updateCallSession(session.id, { status: "in_progress" });
-  const relay = createMockRelay();
-  const controller = new CallController(
-    session.id,
-    relay as unknown as RelayConnection,
-    task ?? null,
-    {
-      assistantId: opts?.assistantId,
-      trustContext: opts?.trustContext,
-    },
-  );
-  return { session, relay, controller };
+  const transport = createMockTransport();
+  const controller = new CallController(session.id, transport, task ?? null, {
+    assistantId: opts?.assistantId,
+    trustContext: opts?.trustContext,
+  });
+  return { session, relay: transport, controller };
 }
 
 function getLatestAssistantText(conversationId: string): string | null {
@@ -325,14 +412,14 @@ function setupControllerWithOrigin(task?: string) {
     status: "in_progress",
     startedAt: Date.now() - 30_000,
   });
-  const relay = createMockRelay();
+  const transport = createMockTransport();
   const controller = new CallController(
     session.id,
-    relay as unknown as RelayConnection,
+    transport,
     task ?? null,
     {},
   );
-  return { session, relay, controller };
+  return { session, relay: transport, controller };
 }
 
 describe("call-controller", () => {
@@ -345,6 +432,8 @@ describe("call-controller", () => {
     // Reset consultation timeout to the default (long) value
     mockConsultationTimeoutMs = 90_000;
     mockSilenceTimeoutMs = 30_000;
+    // Reset TTS provider registry to ensure clean state
+    registerTestTtsProviders();
   });
 
   // ── handleCallerUtterance ─────────────────────────────────────────
@@ -2290,5 +2379,157 @@ describe("call-controller", () => {
     expect(text!).toContain("completed");
 
     controller.destroy();
+  });
+
+  // ── TTS provider abstraction: native-token path ─────────────────────
+
+  test("native provider (ElevenLabs): streams text tokens directly to relay", async () => {
+    // Default config uses ElevenLabs (native, no streaming) — the text
+    // tokens should flow directly through sendTextToken to the relay.
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Hello", ", how", " are you?"]),
+    );
+    const { relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+
+    // Verify text tokens were sent directly (not empty — real text content)
+    const nonEmptyTokens = relay.sentTokens.filter((t) => t.token.length > 0);
+    expect(nonEmptyTokens.length).toBeGreaterThan(0);
+    // At least one token should contain actual text content
+    const allText = nonEmptyTokens.map((t) => t.token).join("");
+    expect(allText).toContain("Hello");
+    expect(allText).toContain("how");
+    expect(allText).toContain("are you");
+
+    // The final token should signal end of turn
+    const lastToken = relay.sentTokens[relay.sentTokens.length - 1];
+    expect(lastToken.last).toBe(true);
+
+    controller.destroy();
+  });
+
+  test("native provider (ElevenLabs): strips control markers from streamed text tokens", async () => {
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn([
+        "I will check on that. ",
+        "[ASK_GUARDIAN: Is 3pm ok?]",
+      ]),
+    );
+    const { relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("Book an appointment");
+
+    const allText = relay.sentTokens.map((t) => t.token).join("");
+    expect(allText).toContain("I will check on that.");
+    expect(allText).not.toContain("[ASK_GUARDIAN:");
+
+    controller.destroy();
+  });
+
+  test("native provider (ElevenLabs): END_CALL marker handled correctly with text tokens", async () => {
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Thanks for calling! ", "[END_CALL]"]),
+    );
+    const { session, relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("Goodbye");
+
+    expect(relay.endCalled).toBe(true);
+    const updatedSession = getCallSession(session.id);
+    expect(updatedSession!.status).toBe("completed");
+
+    const allText = relay.sentTokens.map((t) => t.token).join("");
+    expect(allText).not.toContain("[END_CALL]");
+    expect(allText).toContain("Thanks for calling!");
+
+    controller.destroy();
+  });
+
+  // ── TTS provider abstraction: interruption behavior ─────────────────
+
+  test("handleInterrupt: cancels synthesis abort controller for native provider path", async () => {
+    // Using the default native provider (ElevenLabs) — no synthesis abort
+    // controller should be active, but interrupt should still work cleanly.
+    mockStartVoiceTurn.mockImplementation(
+      async (opts: {
+        signal?: AbortSignal;
+        onTextDelta: (t: string) => void;
+        onComplete: () => void;
+      }) => {
+        return new Promise((resolve) => {
+          const timeout = setTimeout(() => {
+            opts.onTextDelta("This should be interrupted");
+            opts.onComplete();
+            resolve({ turnId: "run-1", abort: () => {} });
+          }, 1000);
+
+          opts.signal?.addEventListener(
+            "abort",
+            () => {
+              clearTimeout(timeout);
+              opts.onComplete();
+              resolve({ turnId: "run-1", abort: () => {} });
+            },
+            { once: true },
+          );
+        });
+      },
+    );
+
+    const { relay, controller } = setupController();
+    const turnPromise = controller.handleCallerUtterance("Start speaking");
+    await new Promise((r) => setTimeout(r, 5));
+    controller.handleInterrupt();
+    await turnPromise;
+
+    // Should have sent an end-of-turn marker
+    const endTurnMarkers = relay.sentTokens.filter(
+      (t) => t.token === "" && t.last === true,
+    );
+    expect(endTurnMarkers.length).toBeGreaterThan(0);
+    expect(controller.getState()).toBe("idle");
+
+    controller.destroy();
+  });
+
+  // ── Shared TTS provider resolution ──────────────────────────────────
+
+  describe("resolveCallTtsProvider (shared helper)", () => {
+    test("returns native path with elevenlabs (non-streaming provider)", () => {
+      // Default config has provider: "elevenlabs" which is registered as
+      // non-streaming in registerTestTtsProviders()
+      const result = resolveCallTtsProvider();
+      expect(result.provider).not.toBeNull();
+      expect(result.provider!.id).toBe("elevenlabs");
+      expect(result.useSynthesizedPath).toBe(false);
+      expect(result.audioFormat).toBe("mp3");
+    });
+
+    test("returns fallback when provider registry is empty", () => {
+      _resetTtsProviderRegistry();
+      const result = resolveCallTtsProvider();
+      expect(result.provider).toBeNull();
+      expect(result.useSynthesizedPath).toBe(false);
+      expect(result.audioFormat).toBe("mp3");
+    });
+
+    test("call controller LLM path uses shared resolution (native provider sends text tokens)", async () => {
+      // With the default elevenlabs provider (non-streaming), the call
+      // controller should send text tokens directly to the relay (native path).
+      mockStartVoiceTurn.mockImplementation(
+        createMockVoiceTurn(["Hello", " caller"]),
+      );
+      const { relay, controller } = setupController();
+
+      await controller.handleCallerUtterance("Hi");
+
+      // Native path: text tokens should be sent, no play URLs
+      const nonEmptyTokens = relay.sentTokens.filter((t) => t.token.length > 0);
+      expect(nonEmptyTokens.length).toBeGreaterThan(0);
+      expect(relay.sentPlayUrls.length).toBe(0);
+
+      controller.destroy();
+    });
   });
 });

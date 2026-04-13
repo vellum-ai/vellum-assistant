@@ -806,6 +806,11 @@ public struct ToolCallData: Identifiable, Equatable {
     /// Lightweight sentinel tracking `result?.count` so that `==` can detect
     /// rehydration without expensive full-string comparison on multi-MB results.
     public var resultLength: Int = 0
+    /// Monotonically increasing revision counter bumped on every write to `result`.
+    /// Included in `==` so same-length in-place mutations (replay / correction /
+    /// rehydration) still trigger view re-evaluation, and used as an O(1) cache-key
+    /// component in render-time memoization of colored output.
+    public var resultRevision: Int = 0
     public var isError: Bool
     public var isComplete: Bool
     /// Raw decoded tool input dictionary, stored for lazy formatting of `inputFull`.
@@ -863,6 +868,7 @@ public struct ToolCallData: Identifiable, Equatable {
             && lhs.inputFullLength == rhs.inputFullLength
             && lhs.inputRawValueLength == rhs.inputRawValueLength
             && lhs.partialOutputRevision == rhs.partialOutputRevision
+            && lhs.resultRevision == rhs.resultRevision
             && lhs.buildingStatus == rhs.buildingStatus
             && lhs.reasonDescription == rhs.reasonDescription
             && lhs.startedAt == rhs.startedAt
@@ -1847,6 +1853,7 @@ public struct ChatMessage: Identifiable, Equatable {
             toolCalls[i].imageDataList = nil
             toolCalls[i].result = nil
             toolCalls[i].resultLength = 0
+            toolCalls[i].resultRevision &+= 1
             toolCalls[i].inputFull = ""
             toolCalls[i].inputFullLength = 0
             toolCalls[i].inputRawDict = nil

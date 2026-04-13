@@ -440,7 +440,15 @@ extension ChatBubble {
                 lazyAttachmentId: attachment.data.isEmpty && !attachment.id.isEmpty ? attachment.id : nil
             )
         }) { attachment in
-            fileAttachmentChip(attachment)
+            if attachment.isTextPreviewable {
+                InlineFilePreviewView(
+                    attachment: attachment,
+                    isUser: isUser,
+                    messageId: message.id
+                )
+            } else {
+                fileAttachmentChip(attachment)
+            }
         }
     }
 

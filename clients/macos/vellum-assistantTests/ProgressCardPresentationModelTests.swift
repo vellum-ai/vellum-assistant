@@ -556,6 +556,42 @@ struct ProgressCardPresentationModelTests {
         #expect(!model.shouldAutoExpand)
     }
 
+    @Test
+    func autoExpandWhenProcessingPhaseAndFlagEnabled() {
+        // allComplete=true + isProcessing=true resolves to .processing phase, but
+        // auto-expand should still fire because tools are all complete.
+        let tc = Self.makeToolCall(
+            index: 1, isComplete: true,
+            completedAt: Date(timeIntervalSince1970: 1001)
+        )
+        let model = ProgressCardPresentationModel.build(
+            toolCalls: [tc],
+            decidedConfirmations: [],
+            context: Self.streamingContext(isProcessing: true),
+            expandCompletedStepsFlag: true
+        )
+        #expect(model.phase == .processing)
+        #expect(model.shouldAutoExpand)
+    }
+
+    @Test
+    func autoExpandWhenToolsCompleteThinkingPhaseAndFlagEnabled() {
+        // allComplete=true + isStreaming=true + hasText=false resolves to
+        // .toolsCompleteThinking phase, but auto-expand should still fire.
+        let tc = Self.makeToolCall(
+            index: 1, isComplete: true,
+            completedAt: Date(timeIntervalSince1970: 1001)
+        )
+        let model = ProgressCardPresentationModel.build(
+            toolCalls: [tc],
+            decidedConfirmations: [],
+            context: Self.streamingContext(isStreaming: true, hasText: false),
+            expandCompletedStepsFlag: true
+        )
+        #expect(model.phase == .toolsCompleteThinking)
+        #expect(model.shouldAutoExpand)
+    }
+
     // MARK: - Equatable
 
     @Test

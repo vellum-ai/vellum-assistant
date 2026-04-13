@@ -38,6 +38,7 @@ import {
   getPendingQuestion,
   updateCallSession,
 } from "./call-store.js";
+import { activeMediaStreamSessions } from "./media-stream-server.js";
 import { activeRelayConnections } from "./relay-server.js";
 import { getTwilioConfig } from "./twilio-config.js";
 import { TwilioConversationRelayProvider } from "./twilio-provider.js";
@@ -677,6 +678,14 @@ export async function cancelCall(
     relayConnection.endSession(reason);
     relayConnection.destroy();
     activeRelayConnections.delete(callSessionId);
+  }
+
+  // End the media-stream session if active
+  const mediaStreamSession = activeMediaStreamSessions.get(callSessionId);
+  if (mediaStreamSession) {
+    mediaStreamSession.getOutput().endSession(reason);
+    mediaStreamSession.destroy();
+    activeMediaStreamSessions.delete(callSessionId);
   }
 
   // Clean up controller

@@ -15,13 +15,18 @@ extension ChatBubble {
     /// the transformation entirely at the presentation layer — no changes to
     /// the message data model or streaming pipeline.
     @ViewBuilder
-    func textBubble(for segmentText: String) -> some View {
+    func textBubble(for segmentText: String, textGroupIndex: Int? = nil) -> some View {
         if !isUser,
            containsInlineThinkingTag(segmentText),
            MacOSClientFeatureFlagManager.shared.isEnabled("show-thinking-blocks") {
             let chunks = parseInlineThinkingTags(segmentText)
+            // Use a stable key prefix that doesn't change as segmentText grows
+            // during streaming. The previous hash-based key caused thinking
+            // blocks to collapse on every text flush because hashValue changed.
+            let keyPrefix = textGroupIndex.map { "\(message.id.uuidString)-txt\($0)" }
+                ?? "\(message.id.uuidString)-txt\(segmentText.hashValue)"
             VStack(alignment: .leading, spacing: VSpacing.sm) {
-                ForEach(Array(chunks.enumerated()), id: \.offset) { _, chunk in
+                ForEach(Array(chunks.enumerated()), id: \.offset) { offset, chunk in
                     switch chunk {
                     case .text(let body):
                         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -32,6 +37,7 @@ extension ChatBubble {
                         ThinkingBlockView(
                             content: body,
                             isStreaming: message.isStreaming,
+                            expansionKey: "\(keyPrefix)-\(offset)",
                             typographyGeneration: typographyGeneration
                         )
                     }

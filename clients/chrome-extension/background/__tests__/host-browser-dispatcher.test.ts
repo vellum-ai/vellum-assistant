@@ -272,7 +272,7 @@ describe('createHostBrowserDispatcher', () => {
       );
     });
 
-    test('routes via targetId when cdpSessionId is provided', async () => {
+    test('routes via targetId when cdpSessionId is provided but does not forward it as frame.sessionId', async () => {
       harness = createHarness({
         sendResult: { id: 1, result: {} },
       });
@@ -285,7 +285,51 @@ describe('createHostBrowserDispatcher', () => {
 
       expect(harness.resolveTargetCalls).toEqual(['target-xyz']);
       expect(harness.proxy.attachCalls[0].target).toEqual({ targetId: 'target-xyz' });
-      expect(harness.proxy.sendCalls[0].frame.sessionId).toBe('target-xyz');
+      // cdpSessionId must NOT be forwarded as frame.sessionId — it is used
+      // only for target resolution. Forwarding it would cause
+      // chrome.debugger.sendCommand to look up a non-existent flat session.
+      expect(harness.proxy.sendCalls[0].frame.sessionId).toBeUndefined();
+    });
+  });
+
+  describe('handle — cdpSessionId target resolution vs flat-session separation', () => {
+    test('cdpSessionId is passed to resolveTarget but NOT forwarded as frame.sessionId', async () => {
+      harness = createHarness({
+        sendResult: { id: 1, result: {} },
+      });
+      // Override resolveTarget to record calls and return a targetId.
+      harness.resolveTargetImpl = async (_cdpSessionId) => {
+        return { targetId: 'test-target-id' };
+      };
+
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        cdpSessionId: 'test-target-id',
+      });
+
+      // resolveTarget was called with the cdpSessionId.
+      expect(harness.resolveTargetCalls).toEqual(['test-target-id']);
+
+      // The proxy.send() call's frame must NOT carry sessionId — cdpSessionId
+      // is used only for target resolution, not as a CDP flat-session qualifier.
+      expect(harness.proxy.sendCalls.length).toBe(1);
+      expect(harness.proxy.sendCalls[0].frame.sessionId).toBeUndefined();
+    });
+
+    test('when cdpSessionId is omitted, resolveTarget receives undefined and frame.sessionId is also undefined', async () => {
+      harness = createHarness({
+        sendResult: { id: 1, result: {} },
+      });
+
+      await harness.dispatcher.handle(sampleRequest);
+
+      // resolveTarget was called with undefined (active-tab fallback path).
+      expect(harness.resolveTargetCalls).toEqual([undefined]);
+
+      // frame.sessionId is also undefined — the active-tab path never sets
+      // a flat-session qualifier.
+      expect(harness.proxy.sendCalls.length).toBe(1);
+      expect(harness.proxy.sendCalls[0].frame.sessionId).toBeUndefined();
     });
   });
 
@@ -580,7 +624,6 @@ describe('createHostBrowserDispatcher', () => {
 
     test('stringifies non-Error thrown values', async () => {
       harness.resolveTargetImpl = async () => {
-        // eslint-disable-next-line no-throw-literal
         throw 'raw string rejection';
       };
 
@@ -1143,6 +1186,208 @@ describe('createHostBrowserDispatcher', () => {
     });
   });
 
+  // ── resolveHostBrowserTarget: numeric tab ID vs CDP targetId routing ──
+
+  describe('handle — resolveHostBrowserTarget numeric vs non-numeric routing', () => {
+    /**
+     * These tests wire a resolveTarget that mirrors the real
+     * resolveHostBrowserTarget logic from worker.ts: numeric strings
+     * (positive integers) route as { tabId }, non-numeric strings
+     * route as { targetId }, and undefined falls back to the active
+     * tab (simulated as tabId 42 here).
+     */
+    function createHarnessWithRealResolveTarget(
+      options: MockCdpProxyOptions = {},
+    ): DispatcherTestHarness {
+      const h = createHarness(options);
+      h.resolveTargetImpl = async (cdpSessionId) => {
+        if (cdpSessionId) {
+          if (/^\d+$/.test(cdpSessionId)) {
+            const asNumber = Number(cdpSessionId);
+            if (asNumber > 0 && Number.isSafeInteger(asNumber)) {
+              return { tabId: asNumber };
+            }
+          }
+          return { targetId: cdpSessionId };
+        }
+        // Simulate active-tab fallback.
+        return { tabId: 42 };
+      };
+      return h;
+    }
+
+    test('numeric cdpSessionId "12345" resolves to { tabId: 12345 }', async () => {
+      harness = createHarnessWithRealResolveTarget({
+        sendResult: { id: 1, result: {} },
+      });
+
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        cdpSessionId: '12345',
+      });
+
+      // resolveTarget was called with the numeric string.
+      expect(harness.resolveTargetCalls).toEqual(['12345']);
+
+      // The proxy should have attached using tabId, not targetId.
+      expect(harness.proxy.attachCalls.length).toBe(1);
+      expect(harness.proxy.attachCalls[0].target).toEqual({ tabId: 12345 });
+
+      // send also uses the tabId target.
+      expect(harness.proxy.sendCalls.length).toBe(1);
+      expect(harness.proxy.sendCalls[0].target).toEqual({ tabId: 12345 });
+
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].isError).toBe(false);
+    });
+
+    test('non-numeric cdpSessionId "ABC123DEF456" resolves to { targetId: "ABC123DEF456" }', async () => {
+      harness = createHarnessWithRealResolveTarget({
+        sendResult: { id: 1, result: {} },
+      });
+
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        cdpSessionId: 'ABC123DEF456',
+      });
+
+      expect(harness.resolveTargetCalls).toEqual(['ABC123DEF456']);
+
+      // Non-numeric strings route through the CDP targetId path.
+      expect(harness.proxy.attachCalls.length).toBe(1);
+      expect(harness.proxy.attachCalls[0].target).toEqual({
+        targetId: 'ABC123DEF456',
+      });
+
+      expect(harness.proxy.sendCalls.length).toBe(1);
+      expect(harness.proxy.sendCalls[0].target).toEqual({
+        targetId: 'ABC123DEF456',
+      });
+
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].isError).toBe(false);
+    });
+
+    test('UUID-style cdpSessionId routes as targetId', async () => {
+      harness = createHarnessWithRealResolveTarget({
+        sendResult: { id: 1, result: {} },
+      });
+
+      const uuidTarget = '550e8400-e29b-41d4-a716-446655440000';
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        cdpSessionId: uuidTarget,
+      });
+
+      expect(harness.resolveTargetCalls).toEqual([uuidTarget]);
+      expect(harness.proxy.attachCalls[0].target).toEqual({
+        targetId: uuidTarget,
+      });
+    });
+
+    test('undefined cdpSessionId falls back to active tab (tabId: 42)', async () => {
+      harness = createHarnessWithRealResolveTarget({
+        sendResult: { id: 1, result: {} },
+      });
+
+      await harness.dispatcher.handle(sampleRequest);
+
+      // sampleRequest has no cdpSessionId → undefined.
+      expect(harness.resolveTargetCalls).toEqual([undefined]);
+
+      // Falls back to the simulated active tab.
+      expect(harness.proxy.attachCalls.length).toBe(1);
+      expect(harness.proxy.attachCalls[0].target).toEqual({ tabId: 42 });
+
+      expect(harness.proxy.sendCalls.length).toBe(1);
+      expect(harness.proxy.sendCalls[0].target).toEqual({ tabId: 42 });
+
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].isError).toBe(false);
+    });
+
+    test('"0" is not a valid Chrome tab ID and routes as targetId', async () => {
+      harness = createHarnessWithRealResolveTarget({
+        sendResult: { id: 1, result: {} },
+      });
+
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        cdpSessionId: '0',
+      });
+
+      // 0 is not a positive integer, so it routes as targetId.
+      expect(harness.proxy.attachCalls[0].target).toEqual({ targetId: '0' });
+    });
+
+    test('negative number string routes as targetId', async () => {
+      harness = createHarnessWithRealResolveTarget({
+        sendResult: { id: 1, result: {} },
+      });
+
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        cdpSessionId: '-5',
+      });
+
+      expect(harness.proxy.attachCalls[0].target).toEqual({ targetId: '-5' });
+    });
+
+    test('floating point string routes as targetId', async () => {
+      harness = createHarnessWithRealResolveTarget({
+        sendResult: { id: 1, result: {} },
+      });
+
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        cdpSessionId: '12.5',
+      });
+
+      expect(harness.proxy.attachCalls[0].target).toEqual({
+        targetId: '12.5',
+      });
+    });
+
+    test('exponential notation "1e3" routes as targetId, not tabId 1000', async () => {
+      harness = createHarnessWithRealResolveTarget({
+        sendResult: { id: 1, result: {} },
+      });
+
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        cdpSessionId: '1e3',
+      });
+
+      expect(harness.proxy.attachCalls[0].target).toEqual({ targetId: '1e3' });
+    });
+
+    test('hex literal "0x10" routes as targetId, not tabId 16', async () => {
+      harness = createHarnessWithRealResolveTarget({
+        sendResult: { id: 1, result: {} },
+      });
+
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        cdpSessionId: '0x10',
+      });
+
+      expect(harness.proxy.attachCalls[0].target).toEqual({ targetId: '0x10' });
+    });
+
+    test('whitespace-padded " 42 " routes as targetId', async () => {
+      harness = createHarnessWithRealResolveTarget({
+        sendResult: { id: 1, result: {} },
+      });
+
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        cdpSessionId: ' 42 ',
+      });
+
+      expect(harness.proxy.attachCalls[0].target).toEqual({ targetId: ' 42 ' });
+    });
+  });
+
   // ── PR10: CDP event forwarding ─────────────────────────────────────
 
   describe('forwardCdpEvent — chrome.debugger.onEvent forwarding', () => {
@@ -1297,6 +1542,170 @@ describe('createHostBrowserDispatcher', () => {
         requestId: 'req-2',
       });
       expect(harness.proxy.attachCalls.length).toBe(2);
+    });
+  });
+
+  // ── Synthetic Vellum.attach ──────────────────────────────────────
+
+  describe('Vellum.attach — synthetic attach command', () => {
+    test('attaches and posts success without issuing proxy.send', async () => {
+      harness = createHarness();
+
+      const attachRequest: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'attach-1',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.attach',
+      };
+
+      await harness.dispatcher.handle(attachRequest);
+
+      // proxy.attach was called (the target is the resolved active tab).
+      expect(harness.proxy.attachCalls.length).toBe(1);
+      expect(harness.proxy.attachCalls[0].target).toEqual({ tabId: 42 });
+
+      // proxy.send was NOT called — Vellum.attach is synthetic.
+      expect(harness.proxy.sendCalls.length).toBe(0);
+
+      // A success result was posted.
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].requestId).toBe('attach-1');
+      expect(harness.results[0].isError).toBe(false);
+      const payload = JSON.parse(harness.results[0].content);
+      expect(payload.attached).toBe(true);
+      expect(payload.target).toEqual({ tabId: 42 });
+    });
+
+    test('deduplicates — second Vellum.attach skips proxy.attach', async () => {
+      harness = createHarness();
+
+      const attachRequest: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'attach-1',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.attach',
+      };
+
+      await harness.dispatcher.handle(attachRequest);
+      await harness.dispatcher.handle({ ...attachRequest, requestId: 'attach-2' });
+
+      // Only one actual proxy.attach call.
+      expect(harness.proxy.attachCalls.length).toBe(1);
+      expect(harness.results.length).toBe(2);
+      expect(harness.results[1].isError).toBe(false);
+    });
+
+    test('tolerates "already attached" error from proxy.attach', async () => {
+      harness = createHarness({
+        attachThrows: new Error(
+          'Another debugger is already attached to the tab with id: 42.',
+        ),
+      });
+
+      const attachRequest: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'attach-1',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.attach',
+      };
+
+      await harness.dispatcher.handle(attachRequest);
+
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].isError).toBe(false);
+      const payload = JSON.parse(harness.results[0].content);
+      expect(payload.attached).toBe(true);
+    });
+  });
+
+  // ── Synthetic Vellum.detach ──────────────────────────────────────
+
+  describe('Vellum.detach — synthetic detach command', () => {
+    test('detaches, evicts cache, and allows a subsequent normal request to reattach', async () => {
+      harness = createHarness({
+        sendResult: { id: 1, result: { ok: true } },
+      });
+
+      // First: attach via a normal CDP request.
+      await harness.dispatcher.handle(sampleRequest);
+      expect(harness.proxy.attachCalls.length).toBe(1);
+
+      // Second: synthetic detach.
+      const detachRequest: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'detach-1',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.detach',
+      };
+
+      await harness.dispatcher.handle(detachRequest);
+
+      // proxy.detach was called.
+      expect(harness.proxy.detachCalls.length).toBe(1);
+      expect(harness.proxy.detachCalls[0]).toEqual({ tabId: 42 });
+
+      // Detach result was posted.
+      const detachResult = harness.results.find((r) => r.requestId === 'detach-1');
+      expect(detachResult).toBeDefined();
+      expect(detachResult!.isError).toBe(false);
+      const payload = JSON.parse(detachResult!.content);
+      expect(payload.detached).toBe(true);
+
+      // Third: a subsequent normal request must re-attach because the
+      // cache was evicted by the detach.
+      await harness.dispatcher.handle({ ...sampleRequest, requestId: 'req-after-detach' });
+      expect(harness.proxy.attachCalls.length).toBe(2);
+    });
+
+    test('repeated detach is idempotent (no throw, deterministic success result)', async () => {
+      harness = createHarness({
+        sendResult: { id: 1, result: { ok: true } },
+      });
+
+      // Attach first.
+      await harness.dispatcher.handle(sampleRequest);
+      expect(harness.proxy.attachCalls.length).toBe(1);
+
+      const detachRequest: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'detach-1',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.detach',
+      };
+
+      // First detach — actually calls proxy.detach.
+      await harness.dispatcher.handle(detachRequest);
+      expect(harness.proxy.detachCalls.length).toBe(1);
+
+      // Second detach — target is no longer in the attached set, so
+      // proxy.detach is NOT called again. Returns detached: false.
+      await harness.dispatcher.handle({ ...detachRequest, requestId: 'detach-2' });
+      expect(harness.proxy.detachCalls.length).toBe(1); // unchanged
+
+      const secondResult = harness.results.find((r) => r.requestId === 'detach-2');
+      expect(secondResult).toBeDefined();
+      expect(secondResult!.isError).toBe(false);
+      const payload = JSON.parse(secondResult!.content);
+      expect(payload.detached).toBe(false);
+    });
+
+    test('detach without prior attach returns detached: false without throwing', async () => {
+      harness = createHarness();
+
+      const detachRequest: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'detach-cold',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.detach',
+      };
+
+      await harness.dispatcher.handle(detachRequest);
+
+      expect(harness.proxy.detachCalls.length).toBe(0);
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].isError).toBe(false);
+      const payload = JSON.parse(harness.results[0].content);
+      expect(payload.detached).toBe(false);
     });
   });
 });

@@ -287,7 +287,8 @@ struct TeleportSection: View {
                     }
                 } else {
                     do {
-                        try await AppDelegate.shared?.vellumCli.retire(name: oldId)
+                        let client = AssistantManagementClient.create(for: original)
+                        try await client.retire(name: oldId)
                         log.info("[teleport] Retired assistant \(oldId, privacy: .public)")
                     } catch {
                         log.error("[teleport] Failed to retire assistant \(oldId, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -379,7 +380,7 @@ struct TeleportSection: View {
         }
         let lockfileSuccess = LockfileAssistant.ensureManagedEntry(
             assistantId: platformAssistant.id,
-            runtimeUrl: AuthService.shared.baseURL,
+            runtimeUrl: VellumEnvironment.resolvedPlatformURL,
             hatchedAt: platformAssistant.created_at ?? Date().iso8601String
         )
         guard lockfileSuccess else {
@@ -518,7 +519,7 @@ struct TeleportSection: View {
         }
         let lockfileSuccess = LockfileAssistant.ensureManagedEntry(
             assistantId: platformAssistant.id,
-            runtimeUrl: AuthService.shared.baseURL,
+            runtimeUrl: VellumEnvironment.resolvedPlatformURL,
             hatchedAt: platformAssistant.created_at ?? Date().iso8601String
         )
         guard lockfileSuccess else {

@@ -1391,6 +1391,61 @@ describe("buildUnifiedTurnContextBlock", () => {
     expect(text).toContain("contact_notes: Prefers short replies");
     expect(text).toContain("contact_interaction_count: 42");
   });
+
+  test("time_since_last_message: emitted right after current_time when provided", () => {
+    const options: UnifiedTurnContextOptions = {
+      timestamp: "2026-04-02T12:00:00Z",
+      interfaceName: "macos",
+      timeSinceLastMessage: "2d ago",
+    };
+
+    const text = buildUnifiedTurnContextBlock(options);
+    const lines = text.split("\n");
+    expect(lines[0]).toBe("<turn_context>");
+    expect(lines[1]).toBe("current_time: 2026-04-02T12:00:00Z");
+    expect(lines[2]).toBe("time_since_last_message: 2d ago");
+    expect(lines[3]).toBe("interface: macos");
+    expect(lines[4]).toBe("</turn_context>");
+  });
+
+  test("time_since_last_message: omitted when null", () => {
+    const options: UnifiedTurnContextOptions = {
+      timestamp: "2026-04-02T12:00:00Z",
+      interfaceName: "macos",
+      timeSinceLastMessage: null,
+    };
+
+    const text = buildUnifiedTurnContextBlock(options);
+    expect(text).not.toContain("time_since_last_message");
+  });
+
+  test("time_since_last_message: omitted when field absent (backward-compat)", () => {
+    const options: UnifiedTurnContextOptions = {
+      timestamp: "2026-04-02T12:00:00Z",
+      interfaceName: "macos",
+    };
+
+    const text = buildUnifiedTurnContextBlock(options);
+    expect(text).not.toContain("time_since_last_message");
+  });
+
+  test("time_since_last_message: works on non-guardian path", () => {
+    const options: UnifiedTurnContextOptions = {
+      timestamp: "2026-04-02T12:00:00Z",
+      interfaceName: "telegram",
+      channelName: "telegram",
+      timeSinceLastMessage: "yesterday",
+      actorContext: {
+        sourceChannel: "telegram",
+        canonicalActorIdentity: "user-1",
+        trustClass: "trusted_contact",
+      },
+    };
+
+    const text = buildUnifiedTurnContextBlock(options);
+    expect(text).toContain("time_since_last_message: yesterday");
+    expect(text).toContain("canonical_actor_identity: user-1");
+  });
 });
 
 // ---------------------------------------------------------------------------

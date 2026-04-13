@@ -52,6 +52,7 @@ mock.module("../oauth/oauth-store.js", () => ({
           tokenExchangeUrl: "https://oauth2.googleapis.com/token",
           refreshUrl: null,
           tokenEndpointAuthMethod: "client_secret_post",
+          tokenExchangeBodyFormat: "form",
           userinfoUrl: null,
           baseUrl: null,
           defaultScopes: "[]",

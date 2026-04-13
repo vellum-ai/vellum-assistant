@@ -5,6 +5,7 @@ import SwiftUI
 import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "MessageListView")
+private let scrollDiag = Logger(subsystem: Bundle.appBundleIdentifier, category: "ScrollDiag")
 
 extension MessageListView {
 
@@ -17,12 +18,19 @@ extension MessageListView {
         // Must check BEFORE configureScrollCallbacks() which updates
         // currentConversationId.
         //
-        // Skip when currentConversationId is nil (true first mount) — reset()
-        // on freshly-initialized state is redundant and its 300ms scroll-
-        // indicator-hide task would cause a visual flicker on app launch.
+        // previousConversationId can be nil in two cases:
+        //   1. True first mount (app launch) — reset() on freshly-initialized
+        //      state is redundant but harmless (scrollToEdge on empty content
+        //      is a no-op, recovery window helps with subsequent content load).
+        //   2. Parent view recreated MessageListView during a conversation
+        //      switch (conditional rendering) — @State was re-initialized,
+        //      clearing currentConversationId. handleConversationSwitched()
+        //      MUST run to properly position the viewport.
+        // Both cases are handled correctly by running handleConversationSwitched
+        // whenever the IDs differ (including nil != UUID).
         let previousConversationId = scrollState.currentConversationId
-        let isConversationSwitch = previousConversationId != nil
-            && previousConversationId != conversationId
+        let isConversationSwitch = previousConversationId != conversationId
+        scrollDiag.debug("handleAppear: isSwitch=\(isConversationSwitch, privacy: .public) old=\(previousConversationId?.uuidString ?? "nil", privacy: .public) new=\(conversationId?.uuidString ?? "nil", privacy: .public) msgCount=\(paginatedVisibleMessages.count, privacy: .public)")
         configureScrollCallbacks()
         if isConversationSwitch {
             handleConversationSwitched()
@@ -60,6 +68,15 @@ extension MessageListView {
             flashHighlight(messageId: id)
             anchorMessageId = nil
             scrollState.anchorSetTime = nil
+            // Cancel the pending restore task. handleConversationSwitched()
+            // unconditionally calls restoreScrollToBottom() (line 335),
+            // which creates a 100ms delayed task. If the anchor was found
+            // and resolved above, the restore task would fire after the
+            // delay and yank the viewport from the anchor position back
+            // to bottom (since anchorMessageId is now nil, the restore
+            // task's `else if anchorMessageId == nil` branch executes).
+            scrollState.scrollRestoreTask?.cancel()
+            scrollState.scrollRestoreTask = nil
         } else if anchorMessageId != nil {
             // Anchor is set but the target message isn't loaded yet.
             os_signpost(.event, log: PerfSignposts.log, name: "anchorSet", "reason=onAppearPending")
@@ -114,6 +131,7 @@ extension MessageListView {
         // hasn't run yet). Animated pins targeting stale content
         // accumulate and corrupt SwiftUI's scroll position.
         guard conversationId == scrollState.currentConversationId else { return }
+        scrollDiag.debug("handleSendingChanged: isSending=\(self.isSending, privacy: .public) phase=\(self.assistantActivityPhase, privacy: .public) minHeightApplied=\(self.scrollState.isActiveTurnMinHeightApplied, privacy: .public) pushToTopDone=\(self.scrollState.hasCompletedInitialPushToTop, privacy: .public)")
         if isSending {
             // Clear stale confirmation marker: if the phase left "awaiting_confirmation"
             // while not sending, the marker is stale.
@@ -134,23 +152,20 @@ extension MessageListView {
             if isDaemonConfirmationResume && !scrollState.isFollowingBottom {
                 // Daemon resumed from confirmation while user was scrolled up.
             } else {
-                // Defer the actual bottom-pin to the next main-queue turn.
-                // Both `isSending` and `messages.count` can change in the
-                // same SwiftUI update cycle after the user sends a message;
-                // issuing immediate `ScrollPosition` writes here can trip
-                // SwiftUI's "Modifying state during view update" guard.
-                scrollState.scheduleDeferredBottomPin(
-                    animated: true,
-                    forceFollowingBottom: true,
-                    refreshRecoveryWindow: true
-                )
+                // Apply mode transition and recovery window inline so
+                // they can't be lost by generation coalescing when
+                // handleMessagesCountChanged's deferred pin supersedes
+                // this one in the same SwiftUI update cycle.
+                scrollState.transition(to: .followingBottom)
+                scrollState.bottomAnchorAppeared = false
+                scrollState.recoveryDeadline = Date().addingTimeInterval(2.0)
+                // Defer the actual scroll to the next main-queue turn.
+                // Use edge-based scroll to reach past the thinking
+                // indicator's minHeight, pushing the user message to
+                // the top immediately.
+                scrollState.scheduleDeferredEdgeScroll(animated: true)
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
-                            "target=bottom reason=sendFollowingBottom")
-
-                // Also scroll the user message to top for Claude-style behavior
-                if let userMessage = messages.last(where: { $0.role == .user }) {
-                    scrollPosition.scrollTo(id: userMessage.id, anchor: .top)
-                }
+                            "target=edgeBottom reason=sendPushToTop")
             }
         } else {
             // Capture the activity phase at the moment sending stops.
@@ -236,11 +251,16 @@ extension MessageListView {
             return
         }
         scrollState.lastHandledChatColumnWidth = trackedWidth
-        // Route through coordinator for policy decision.
+        // Route through coordinator for policy decision. Snapshot whether
+        // the coordinator opened a new resize stabilization window so we
+        // only pair an endStabilization() call when there's a window to
+        // end — otherwise we'd decrement an unrelated stabilization cycle
+        // (e.g. an active expansion window the user is still inspecting).
+        let didOpenCoordinatorStabilization = scrollCoordinator.wouldOpenResizeStabilization
         let intents = scrollCoordinator.handle(.containerWidthChanged)
         executeCoordinatorIntents(intents)
         resizeScrollTask?.cancel()
-        resizeScrollTask = Task { @MainActor [scrollState] in
+        resizeScrollTask = Task { @MainActor [scrollState, scrollCoordinator] in
             scrollState.beginStabilization(.resize)
             defer {
                 if !Task.isCancelled { resizeScrollTask = nil }
@@ -248,9 +268,15 @@ extension MessageListView {
             try? await Task.sleep(nanoseconds: 100_000_000)
             guard !Task.isCancelled else {
                 scrollState.endStabilization()
+                if didOpenCoordinatorStabilization {
+                    scrollCoordinator.endStabilization()
+                }
                 return
             }
                 scrollState.endStabilization()
+                if didOpenCoordinatorStabilization {
+                    scrollCoordinator.endStabilization()
+                }
                 if scrollState.mode.allowsAutoScroll && anchorMessageId == nil {
                     // Use mode.allowsAutoScroll (covers both .initialLoad and
                     // .followingBottom) instead of isFollowingBottom (which
@@ -306,22 +332,23 @@ extension MessageListView {
         //
         // Seed lastMessageId so executeScrollToBottom can target it.
         scrollState.lastMessageId = paginatedVisibleMessages.last?.id
-        // Declarative position reset — processed in the same layout pass as new content.
-        // Prefer the last ForEach message ID over the standalone anchor because
-        // ForEach items are always indexable by ScrollPosition even when not
-        // materialized — SwiftUI locates them in the data source. The standalone
-        // "scroll-bottom-anchor" (outside ForEach) is only locatable when materialized.
-        // https://developer.apple.com/documentation/swiftui/scrollposition
+        // Position at the content bottom for the new conversation.
+        // Use the imperative `.scrollTo(edge: .bottom)` method — Apple's
+        // recommended pattern for programmatic scrolling (see ScrollPosition
+        // docs). This is a command ("scroll to bottom now") rather than a
+        // state declaration. Edge-based because ID-based requires computing
+        // cumulative estimated heights of all preceding items, which for
+        // long conversations with variable-height messages places the
+        // viewport in blank LazyVStack space.
+        // restoreScrollToBottom() (100ms fallback) fine-tunes via the
+        // recovery loop.
+        // https://developer.apple.com/documentation/swiftui/scrollposition/scrollto(edge:)
         scrollState.scrollRestoreTask?.cancel()
         if anchorMessageId == nil {
-            if let lastId = paginatedVisibleMessages.last?.id {
-                scrollPosition = ScrollPosition(id: lastId, anchor: .bottom)
-            } else {
-                // Empty conversation — no ForEach items to target.
-                // Use edge-based position; the standalone "scroll-bottom-anchor"
-                // is outside ForEach and only locatable when materialized.
-                scrollPosition = ScrollPosition(edge: .bottom)
-            }
+            scrollDiag.debug("handleConversationSwitched: calling scrollTo(edge: .bottom), lastMsgId=\(scrollState.lastMessageId?.uuidString ?? "nil", privacy: .public) conv=\(conversationId?.uuidString ?? "nil", privacy: .public)")
+            scrollPosition.scrollTo(edge: .bottom)
+        } else {
+            scrollDiag.debug("handleConversationSwitched: SKIPPED scroll — anchorMessageId is set")
         }
         restoreScrollToBottom()
     }

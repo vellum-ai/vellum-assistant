@@ -433,24 +433,39 @@ final class ScrollCoordinatorTests: XCTestCase {
                        "Should exit stabilization after all windows complete")
     }
 
-    func testStabilizationPreservesFollowingBottom() {
-        // Use sendingChanged to enter followingBottom, then manual expansion
-        // to trigger stabilization. Resize in followingBottom mode does NOT
-        // stabilize — it re-pins directly to bottom.
+    func testExpansionFromFollowingBottomDetachesBeforeStabilizing() {
+        // Manual expansion detaches to freeBrowsing before stabilizing — so
+        // the pre-stabilization mode captured is freeBrowsing, not followingBottom.
         coordinator.handle(.sendingChanged(isSending: true))
         XCTAssertTrue(coordinator.isFollowingBottom)
 
-        // Manual expansion detaches to freeBrowsing and then stabilizes.
         coordinator.handle(.manualExpansion)
         XCTAssertTrue(coordinator.isSuppressed)
-        // After expansion, the pre-stabilization mode is freeBrowsing
-        // (expansion detaches first), not followingBottom.
         XCTAssertFalse(coordinator.isFollowingBottom,
                        "Manual expansion detaches from following-bottom before stabilizing")
 
         coordinator.endStabilization()
         XCTAssertEqual(coordinator.mode, .freeBrowsing,
                        "Should restore freeBrowsing after expansion stabilization")
+    }
+
+    func testContainerWidthChangedInStabilizingRestartsWindow() {
+        // Enter stabilizing via free-browsing + resize.
+        coordinator.handle(.manualBrowseIntent)
+        coordinator.handle(.containerWidthChanged)
+        XCTAssertTrue(coordinator.isSuppressed)
+
+        // A second resize while already stabilizing should add another window
+        // rather than silently dropping the event.
+        coordinator.handle(.containerWidthChanged)
+        XCTAssertTrue(coordinator.isSuppressed)
+
+        coordinator.endStabilization()
+        XCTAssertTrue(coordinator.isSuppressed,
+                      "Overlapping resize should keep stabilization active")
+
+        coordinator.endStabilization()
+        XCTAssertFalse(coordinator.isSuppressed)
     }
 
     func testResizeInFollowingBottomRepinsDirectly() {

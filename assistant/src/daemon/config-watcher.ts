@@ -15,6 +15,8 @@ import { join } from "node:path";
 
 import { clearFeatureFlagOverridesCache } from "../config/assistant-feature-flags.js";
 import { getConfig, invalidateConfigCache } from "../config/loader.js";
+import type { MemoryCleanupConfig } from "../config/schemas/memory-lifecycle.js";
+import { resetCleanupScheduleThrottle } from "../memory/cleanup-schedule-state.js";
 import { clearEmbeddingBackendCache } from "../memory/embedding-backend.js";
 import { clearCache as clearTrustCache } from "../permissions/trust-store.js";
 import { initializeProviders } from "../providers/registry.js";
@@ -37,6 +39,17 @@ import {
 } from "../util/platform.js";
 
 const log = getLogger("config-watcher");
+
+/**
+ * Attach a resilient error handler to an FSWatcher so that async errors
+ * (e.g. ENXIO when a Unix socket file like `gateway.sock` appears in a
+ * watched directory) are logged instead of crashing the process.
+ */
+function attachWatcherErrorHandler(watcher: FSWatcher, dir: string): void {
+  watcher.on("error", (err) => {
+    log.warn({ err, dir }, "FSWatcher error (non-fatal, continuing)");
+  });
+}
 
 export class ConfigWatcher {
   private watchers: FSWatcher[] = [];
@@ -94,6 +107,7 @@ export class ConfigWatcher {
    * Returns true if config actually changed.
    */
   async refreshConfigFromSources(): Promise<boolean> {
+    const prevCleanup = safeGetCleanupConfig();
     invalidateConfigCache();
     const config = getConfig();
     const fingerprint = this.configFingerprint(config);
@@ -102,6 +116,13 @@ export class ConfigWatcher {
     }
     clearTrustCache();
     clearEmbeddingBackendCache();
+    // If cleanup retention settings changed, reset the cleanup scheduler
+    // throttle so the next worker tick re-enqueues jobs with the new values
+    // instead of waiting out the remaining enqueueIntervalMs (default 6h).
+    const nextCleanup = config.memory?.cleanup;
+    if (cleanupSettingsChanged(prevCleanup, nextCleanup)) {
+      resetCleanupScheduleThrottle();
+    }
     const isFirstInit = this.lastFingerprint === "";
     await initializeProviders(config);
     this.lastFingerprint = fingerprint;
@@ -151,7 +172,6 @@ export class ConfigWatcher {
         onConversationEvict();
         onIdentityChanged?.();
       },
-      "USER.md": () => onConversationEvict(),
       "UPDATES.md": () => onConversationEvict(),
     };
 
@@ -170,6 +190,7 @@ export class ConfigWatcher {
             handlers[file]();
           });
         });
+        attachWatcherErrorHandler(watcher, dir);
         this.watchers.push(watcher);
         log.info({ dir }, `Watching ${label}`);
       } catch (err) {
@@ -195,6 +216,7 @@ export class ConfigWatcher {
 
     this.startFeatureFlagsWatcher(onFeatureFlagsChanged);
     this.startSignalsWatcher();
+    this.startUsersWatcher(onConversationEvict);
     this.startSkillsWatchers(onConversationEvict);
   }
 
@@ -227,12 +249,44 @@ export class ConfigWatcher {
           onSoundsConfigChanged();
         });
       });
+      attachWatcherErrorHandler(watcher, soundsDir);
       this.watchers.push(watcher);
       log.info({ dir: soundsDir }, "Watching sounds directory for changes");
     } catch (err) {
       log.warn(
         { err, dir: soundsDir },
         "Failed to watch sounds directory. Sound config changes will require a restart.",
+      );
+    }
+  }
+
+  private startUsersWatcher(onConversationEvict: () => void): void {
+    const usersDir = join(getWorkspaceDir(), "users");
+    try {
+      if (!existsSync(usersDir)) {
+        mkdirSync(usersDir, { recursive: true });
+      }
+    } catch {
+      // If we can't create it, watching will also fail — handled below.
+    }
+
+    try {
+      const watcher = watch(usersDir, (_eventType, filename) => {
+        if (!filename) return;
+        const file = String(filename);
+        if (!file.endsWith(".md")) return;
+        this.debounceTimers.schedule(`file:users/${file}`, () => {
+          log.info({ file }, "Users persona file changed, reloading");
+          onConversationEvict();
+        });
+      });
+      attachWatcherErrorHandler(watcher, usersDir);
+      this.watchers.push(watcher);
+      log.info({ dir: usersDir }, "Watching users directory for persona changes");
+    } catch (err) {
+      log.warn(
+        { err, dir: usersDir },
+        "Failed to watch users directory. Persona file changes will require a restart.",
       );
     }
   }
@@ -259,6 +313,7 @@ export class ConfigWatcher {
           onAvatarChanged();
         });
       });
+      attachWatcherErrorHandler(watcher, avatarDir);
       this.watchers.push(watcher);
       log.info({ dir: avatarDir }, "Watching avatar directory for changes");
     } catch (err) {
@@ -305,6 +360,7 @@ export class ConfigWatcher {
           500,
         );
       });
+      attachWatcherErrorHandler(watcher, protectedDir);
       this.watchers.push(watcher);
       log.info(
         { dir: protectedDir },
@@ -367,6 +423,7 @@ export class ConfigWatcher {
           }
         }
       });
+      attachWatcherErrorHandler(watcher, signalsDir);
       this.watchers.push(watcher);
       log.info({ dir: signalsDir }, "Watching signals directory");
     } catch (err) {
@@ -396,6 +453,7 @@ export class ConfigWatcher {
           scheduleSkillsReload(filename ? String(filename) : "(unknown)");
         },
       );
+      attachWatcherErrorHandler(recursiveWatcher, skillsDir);
       this.watchers.push(recursiveWatcher);
       log.info({ dir: skillsDir }, "Watching skills directory recursively");
       return;
@@ -416,6 +474,7 @@ export class ConfigWatcher {
         const watcher = watch(dirPath, (_eventType, filename) => {
           onChange(filename ? String(filename) : "(unknown)");
         });
+        attachWatcherErrorHandler(watcher, dirPath);
         this.watchers.push(watcher);
         return watcher;
       } catch (err) {
@@ -480,4 +539,38 @@ export class ConfigWatcher {
       "Watching skills directory with non-recursive fallback",
     );
   }
+}
+
+/**
+ * Snapshot the current cleanup config so we can compare it against the
+ * post-reload value. Tolerant of config-load failures — if the config can't
+ * be read (e.g. first-load), returns undefined so the comparison below
+ * treats it as "no previous value".
+ */
+function safeGetCleanupConfig(): MemoryCleanupConfig | undefined {
+  try {
+    return getConfig().memory?.cleanup;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Return true if any cleanup field the user can change via the UI differs
+ * between the previous and next config snapshots. Used to decide whether to
+ * reset the cleanup-scheduler throttle after a config reload so retention
+ * changes take effect immediately instead of waiting up to 6 hours.
+ *
+ * Exported for unit testing.
+ */
+export function cleanupSettingsChanged(
+  prev: MemoryCleanupConfig | undefined,
+  next: MemoryCleanupConfig | undefined,
+): boolean {
+  if (!prev || !next) return false;
+  return (
+    prev.llmRequestLogRetentionMs !== next.llmRequestLogRetentionMs ||
+    prev.conversationRetentionDays !== next.conversationRetentionDays ||
+    prev.enabled !== next.enabled
+  );
 }

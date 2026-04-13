@@ -17,6 +17,10 @@
             "type": "boolean",
             "description": "If true, allows navigation to localhost/private-network hosts. Disabled by default for SSRF safety."
           },
+          "browser_mode": {
+            "type": "string",
+            "description": "Override backend selection. Values: auto (default), extension, cdp-inspect (alias: cdp-debugger), local (alias: playwright). Omit or use auto to let the assistant choose."
+          },
           "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
@@ -35,6 +39,10 @@
       "input_schema": {
         "type": "object",
         "properties": {
+          "browser_mode": {
+            "type": "string",
+            "description": "Override backend selection. Values: auto (default), extension, cdp-inspect (alias: cdp-debugger), local (alias: playwright). Omit or use auto to let the assistant choose."
+          },
           "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
@@ -55,6 +63,10 @@
           "full_page": {
             "type": "boolean",
             "description": "Capture the full scrollable page instead of just the viewport."
+          },
+          "browser_mode": {
+            "type": "string",
+            "description": "Override backend selection. Values: auto (default), extension, cdp-inspect (alias: cdp-debugger), local (alias: playwright). Omit or use auto to let the assistant choose."
           },
           "activity": {
             "type": "string",
@@ -77,6 +89,10 @@
             "type": "boolean",
             "description": "If true, close all browser pages and the browser context. Default: false (close only the current conversation page)."
           },
+          "browser_mode": {
+            "type": "string",
+            "description": "Override backend selection. Values: auto (default), extension, cdp-inspect (alias: cdp-debugger), local (alias: playwright). Omit or use auto to let the assistant choose."
+          },
           "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
@@ -84,6 +100,48 @@
         }
       },
       "executor": "tools/browser-close.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "browser_attach",
+      "description": "Explicitly attach the Chrome debugger to the active browser tab. Use at the start of a browser session to establish the debugging connection before navigating or interacting. On the extension path this attaches the debugger; on other backends this is a no-op that returns success.",
+      "category": "browser",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "browser_mode": {
+            "type": "string",
+            "description": "Override backend selection. Values: auto (default), extension, cdp-inspect (alias: cdp-debugger), local (alias: playwright). Omit or use auto to let the assistant choose."
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        }
+      },
+      "executor": "tools/browser-attach.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "browser_detach",
+      "description": "Explicitly detach the Chrome debugger from the active browser tab. Use when done with browser interaction to cleanly end the debugging session. On the extension path this detaches the debugger and clears the Chrome debugging banner; on other backends this clears stale snapshot state.",
+      "category": "browser",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "browser_mode": {
+            "type": "string",
+            "description": "Override backend selection. Values: auto (default), extension, cdp-inspect (alias: cdp-debugger), local (alias: playwright). Omit or use auto to let the assistant choose."
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        }
+      },
+      "executor": "tools/browser-detach.ts",
       "execution_target": "host"
     },
     {
@@ -101,6 +159,10 @@
           "selector": {
             "type": "string",
             "description": "A CSS selector to target. Used as fallback when element_id is not available."
+          },
+          "browser_mode": {
+            "type": "string",
+            "description": "Override backend selection. Values: auto (default), extension, cdp-inspect (alias: cdp-debugger), local (alias: playwright). Omit or use auto to let the assistant choose."
           },
           "activity": {
             "type": "string",
@@ -139,6 +201,10 @@
             "type": "boolean",
             "description": "If true, press Enter after typing the text."
           },
+          "browser_mode": {
+            "type": "string",
+            "description": "Override backend selection. Values: auto (default), extension, cdp-inspect (alias: cdp-debugger), local (alias: playwright). Omit or use auto to let the assistant choose."
+          },
           "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
@@ -168,6 +234,10 @@
           "selector": {
             "type": "string",
             "description": "Optional CSS selector to target."
+          },
+          "browser_mode": {
+            "type": "string",
+            "description": "Override backend selection. Values: auto (default), extension, cdp-inspect (alias: cdp-debugger), local (alias: playwright). Omit or use auto to let the assistant choose."
           },
           "activity": {
             "type": "string",
@@ -203,6 +273,10 @@
           "selector": {
             "type": "string",
             "description": "Optional CSS selector of element to scroll within."
+          },
+          "browser_mode": {
+            "type": "string",
+            "description": "Override backend selection. Values: auto (default), extension, cdp-inspect (alias: cdp-debugger), local (alias: playwright). Omit or use auto to let the assistant choose."
           },
           "activity": {
             "type": "string",
@@ -242,6 +316,10 @@
             "type": "number",
             "description": "The zero-based index of the <option> to select."
           },
+          "browser_mode": {
+            "type": "string",
+            "description": "Override backend selection. Values: auto (default), extension, cdp-inspect (alias: cdp-debugger), local (alias: playwright). Omit or use auto to let the assistant choose."
+          },
           "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
@@ -266,6 +344,10 @@
           "selector": {
             "type": "string",
             "description": "A CSS selector to target. Used as fallback when element_id is not available."
+          },
+          "browser_mode": {
+            "type": "string",
+            "description": "Override backend selection. Values: auto (default), extension, cdp-inspect (alias: cdp-debugger), local (alias: playwright). Omit or use auto to let the assistant choose."
           },
           "activity": {
             "type": "string",
@@ -300,6 +382,10 @@
             "type": "number",
             "description": "Maximum wait time in milliseconds (default and max: 30000)."
           },
+          "browser_mode": {
+            "type": "string",
+            "description": "Override backend selection. Values: auto (default), extension, cdp-inspect (alias: cdp-debugger), local (alias: playwright). Omit or use auto to let the assistant choose."
+          },
           "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
@@ -321,6 +407,10 @@
             "type": "boolean",
             "description": "If true, include a list of links found on the page (up to 200)."
           },
+          "browser_mode": {
+            "type": "string",
+            "description": "Override backend selection. Values: auto (default), extension, cdp-inspect (alias: cdp-debugger), local (alias: playwright). Omit or use auto to let the assistant choose."
+          },
           "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
@@ -341,6 +431,10 @@
           "timeout": {
             "type": "number",
             "description": "Maximum wait time in milliseconds (default: 30000, max: 120000)."
+          },
+          "browser_mode": {
+            "type": "string",
+            "description": "Override backend selection. Only auto (default) and local (alias: playwright) are supported for this tool — file downloads require the local Playwright backend. Other modes (extension, cdp-inspect) are not supported and will be rejected."
           },
           "activity": {
             "type": "string",
@@ -378,6 +472,10 @@
           "press_enter": {
             "type": "boolean",
             "description": "Press Enter after filling"
+          },
+          "browser_mode": {
+            "type": "string",
+            "description": "Override backend selection. Values: auto (default), extension, cdp-inspect (alias: cdp-debugger), local (alias: playwright). Omit or use auto to let the assistant choose."
           },
           "activity": {
             "type": "string",

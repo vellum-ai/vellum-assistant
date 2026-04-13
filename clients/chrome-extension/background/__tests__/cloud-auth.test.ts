@@ -15,13 +15,15 @@ import {
   signInCloud,
   refreshCloudToken,
   isCloudTokenStale,
+  cloudTokenStorageKey,
   CLOUD_TOKEN_STALE_WINDOW_MS,
   CLOUD_AUTH_FAILURE_CLOSE_CODES,
   type CloudAuthConfig,
   type StoredCloudToken,
 } from '../cloud-auth.js';
 
-const STORAGE_KEY = 'vellum.cloudAuthToken';
+const ASSISTANT_A = 'assistant-alpha';
+const ASSISTANT_B = 'assistant-beta';
 
 interface FakeStorage {
   data: Record<string, unknown>;
@@ -80,6 +82,14 @@ const config: CloudAuthConfig = {
   clientId: 'test-client-id',
 };
 
+describe('cloudTokenStorageKey', () => {
+  test('builds a colon-separated key', () => {
+    expect(cloudTokenStorageKey('my-assistant')).toBe(
+      'vellum.cloudAuthToken:my-assistant',
+    );
+  });
+});
+
 describe('signInCloud', () => {
   test('happy path stores a token and returns it', async () => {
     launchWebAuthFlowImpl = async (details) => {
@@ -91,7 +101,7 @@ describe('signInCloud', () => {
     };
 
     const before = Date.now();
-    const result = await signInCloud(config);
+    const result = await signInCloud(ASSISTANT_A, config);
     const after = Date.now();
 
     expect(result.token).toBe('abc123');
@@ -99,37 +109,37 @@ describe('signInCloud', () => {
     expect(result.expiresAt).toBeGreaterThanOrEqual(before + 3600 * 1000);
     expect(result.expiresAt).toBeLessThanOrEqual(after + 3600 * 1000);
 
-    // Verify it was persisted.
-    expect(fakeStorage.data[STORAGE_KEY]).toEqual(result);
+    // Verify it was persisted under the assistant-scoped key.
+    expect(fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)]).toEqual(result);
   });
 
   test('missing token rejects with "incomplete payload"', async () => {
     launchWebAuthFlowImpl = async () =>
       'https://fakeextid.chromiumapp.org/cloud-auth#expires_in=3600&guardian_id=g-42';
 
-    await expect(signInCloud(config)).rejects.toThrow('incomplete payload');
-    expect(fakeStorage.data[STORAGE_KEY]).toBeUndefined();
+    await expect(signInCloud(ASSISTANT_A, config)).rejects.toThrow('incomplete payload');
+    expect(fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)]).toBeUndefined();
   });
 
   test('missing expires_in rejects with "incomplete payload"', async () => {
     launchWebAuthFlowImpl = async () =>
       'https://fakeextid.chromiumapp.org/cloud-auth#token=abc123&guardian_id=g-42';
 
-    await expect(signInCloud(config)).rejects.toThrow('incomplete payload');
+    await expect(signInCloud(ASSISTANT_A, config)).rejects.toThrow('incomplete payload');
   });
 
   test('missing guardian_id rejects with "incomplete payload"', async () => {
     launchWebAuthFlowImpl = async () =>
       'https://fakeextid.chromiumapp.org/cloud-auth#token=abc123&expires_in=3600';
 
-    await expect(signInCloud(config)).rejects.toThrow('incomplete payload');
+    await expect(signInCloud(ASSISTANT_A, config)).rejects.toThrow('incomplete payload');
   });
 
   test('cancelled flow rejects with "cancelled"', async () => {
     launchWebAuthFlowImpl = async () => undefined;
 
-    await expect(signInCloud(config)).rejects.toThrow('cancelled');
-    expect(fakeStorage.data[STORAGE_KEY]).toBeUndefined();
+    await expect(signInCloud(ASSISTANT_A, config)).rejects.toThrow('cancelled');
+    expect(fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)]).toBeUndefined();
   });
 
   test('trims trailing slash on gatewayBaseUrl', async () => {
@@ -138,7 +148,7 @@ describe('signInCloud', () => {
       seenUrl = details.url;
       return 'https://fakeextid.chromiumapp.org/cloud-auth#token=abc&expires_in=60&guardian_id=g1';
     };
-    await signInCloud({ gatewayBaseUrl: 'https://api.vellum.ai/', clientId: 'cid' });
+    await signInCloud(ASSISTANT_A, { gatewayBaseUrl: 'https://api.vellum.ai/', clientId: 'cid' });
     expect(seenUrl).toContain('https://api.vellum.ai/oauth/chrome-extension/start');
     expect(seenUrl).not.toContain('api.vellum.ai//oauth');
   });
@@ -146,7 +156,7 @@ describe('signInCloud', () => {
 
 describe('getStoredToken', () => {
   test('returns null when nothing is stored', async () => {
-    expect(await getStoredToken()).toBeNull();
+    expect(await getStoredToken(ASSISTANT_A)).toBeNull();
   });
 
   test('returns the stored token when valid', async () => {
@@ -155,60 +165,61 @@ describe('getStoredToken', () => {
       expiresAt: Date.now() + 60_000,
       guardianId: 'g-1',
     };
-    fakeStorage.data[STORAGE_KEY] = token;
+    fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)] = token;
 
-    expect(await getStoredToken()).toEqual(token);
+    expect(await getStoredToken(ASSISTANT_A)).toEqual(token);
   });
 
   test('returns null when the token is expired', async () => {
-    fakeStorage.data[STORAGE_KEY] = {
+    fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)] = {
       token: 'expired',
       expiresAt: Date.now() - 1_000,
       guardianId: 'g-1',
     } satisfies StoredCloudToken;
 
-    expect(await getStoredToken()).toBeNull();
+    expect(await getStoredToken(ASSISTANT_A)).toBeNull();
   });
 
   test('returns null when the stored value is malformed', async () => {
-    fakeStorage.data[STORAGE_KEY] = { token: 42, expiresAt: 'soon' };
+    fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)] = { token: 42, expiresAt: 'soon' };
 
-    expect(await getStoredToken()).toBeNull();
+    expect(await getStoredToken(ASSISTANT_A)).toBeNull();
   });
 
   test('returns null when guardianId is missing or non-string', async () => {
-    // Missing guardianId entirely — would otherwise render as "guardian:undefined" in the popup.
-    fakeStorage.data[STORAGE_KEY] = {
+    // Missing guardianId entirely.
+    fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)] = {
       token: 'valid-token',
       expiresAt: Date.now() + 60_000,
     };
-    expect(await getStoredToken()).toBeNull();
+    expect(await getStoredToken(ASSISTANT_A)).toBeNull();
 
     // Non-string guardianId (e.g. a number).
-    fakeStorage.data[STORAGE_KEY] = {
+    fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)] = {
       token: 'valid-token',
       expiresAt: Date.now() + 60_000,
       guardianId: 42,
     };
-    expect(await getStoredToken()).toBeNull();
+    expect(await getStoredToken(ASSISTANT_A)).toBeNull();
   });
 });
 
 describe('clearStoredToken', () => {
   test('removes the key from storage', async () => {
-    fakeStorage.data[STORAGE_KEY] = {
+    const key = cloudTokenStorageKey(ASSISTANT_A);
+    fakeStorage.data[key] = {
       token: 'to-clear',
       expiresAt: Date.now() + 60_000,
       guardianId: 'g-1',
     } satisfies StoredCloudToken;
 
-    await clearStoredToken();
-    expect(fakeStorage.data[STORAGE_KEY]).toBeUndefined();
+    await clearStoredToken(ASSISTANT_A);
+    expect(fakeStorage.data[key]).toBeUndefined();
   });
 
   test('is a no-op when nothing is stored', async () => {
-    await clearStoredToken();
-    expect(fakeStorage.data[STORAGE_KEY]).toBeUndefined();
+    await clearStoredToken(ASSISTANT_A);
+    expect(fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)]).toBeUndefined();
   });
 });
 
@@ -219,22 +230,22 @@ describe('getStoredTokenRaw', () => {
       expiresAt: Date.now() - 1_000,
       guardianId: 'g-1',
     };
-    fakeStorage.data[STORAGE_KEY] = expired;
+    fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)] = expired;
 
-    // getStoredToken hides expired tokens…
-    expect(await getStoredToken()).toBeNull();
-    // …but getStoredTokenRaw surfaces them so the reconnect path
+    // getStoredToken hides expired tokens.
+    expect(await getStoredToken(ASSISTANT_A)).toBeNull();
+    // getStoredTokenRaw surfaces them so the reconnect path
     // can tell "signed in but expired" apart from "never signed in".
-    expect(await getStoredTokenRaw()).toEqual(expired);
+    expect(await getStoredTokenRaw(ASSISTANT_A)).toEqual(expired);
   });
 
   test('returns null when nothing is stored', async () => {
-    expect(await getStoredTokenRaw()).toBeNull();
+    expect(await getStoredTokenRaw(ASSISTANT_A)).toBeNull();
   });
 
   test('returns null when the stored value is malformed', async () => {
-    fakeStorage.data[STORAGE_KEY] = { token: 42, expiresAt: 'soon' };
-    expect(await getStoredTokenRaw()).toBeNull();
+    fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)] = { token: 42, expiresAt: 'soon' };
+    expect(await getStoredTokenRaw(ASSISTANT_A)).toBeNull();
   });
 });
 
@@ -276,17 +287,10 @@ describe('isCloudTokenStale', () => {
 
 describe('CLOUD_AUTH_FAILURE_CLOSE_CODES', () => {
   test('covers the gateway auth-failure application codes', () => {
-    // Mirrors the codes emitted by the gateway's browser-relay
-    // handshake. Pinned here so a future refactor can't accidentally
-    // drop one without updating this invariant.
     expect(CLOUD_AUTH_FAILURE_CLOSE_CODES.has(4001)).toBe(true);
     expect(CLOUD_AUTH_FAILURE_CLOSE_CODES.has(4002)).toBe(true);
     expect(CLOUD_AUTH_FAILURE_CLOSE_CODES.has(4003)).toBe(true);
-    // 1008 ("policy violation") is included for intermediaries that
-    // rewrite application codes back to the standard range.
     expect(CLOUD_AUTH_FAILURE_CLOSE_CODES.has(1008)).toBe(true);
-    // Normal close codes are NOT in the set — they represent clean
-    // shutdowns, not auth failures.
     expect(CLOUD_AUTH_FAILURE_CLOSE_CODES.has(1000)).toBe(false);
     expect(CLOUD_AUTH_FAILURE_CLOSE_CODES.has(1006)).toBe(false);
   });
@@ -302,7 +306,7 @@ describe('refreshCloudToken', () => {
     };
 
     const before = Date.now();
-    const result = await refreshCloudToken(config);
+    const result = await refreshCloudToken(ASSISTANT_A, config);
     expect(result).not.toBeNull();
     const token = result as StoredCloudToken;
 
@@ -311,8 +315,8 @@ describe('refreshCloudToken', () => {
     expect(token.guardianId).toBe('g-99');
     expect(token.expiresAt).toBeGreaterThanOrEqual(before + 3600 * 1000);
 
-    // Token was persisted to storage so future reads see the new one.
-    expect(fakeStorage.data[STORAGE_KEY]).toEqual(token);
+    // Token was persisted to storage under the assistant-scoped key.
+    expect(fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)]).toEqual(token);
   });
 
   test('returns null when Chrome rejects for interaction required', async () => {
@@ -326,27 +330,193 @@ describe('refreshCloudToken', () => {
       expiresAt: Date.now() - 1_000,
       guardianId: 'g-1',
     };
-    fakeStorage.data[STORAGE_KEY] = stale;
+    fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)] = stale;
 
-    const result = await refreshCloudToken(config);
+    const result = await refreshCloudToken(ASSISTANT_A, config);
     expect(result).toBeNull();
-    // The stale token is left in place — the reconnect path uses this
-    // to decide whether to surface a sign-in prompt to the user.
-    expect(fakeStorage.data[STORAGE_KEY]).toEqual(stale);
+    // The stale token is left in place.
+    expect(fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)]).toEqual(stale);
   });
 
   test('returns null when launchWebAuthFlow resolves with undefined', async () => {
     launchWebAuthFlowImpl = async () => undefined;
-    expect(await refreshCloudToken(config)).toBeNull();
+    expect(await refreshCloudToken(ASSISTANT_A, config)).toBeNull();
   });
 
   test('throws when the gateway returns an incomplete payload', async () => {
-    // A malformed response from the gateway is an unexpected error and
-    // should bubble up to the service-worker logs — we only swallow
-    // the "interaction required" family of Chrome rejections.
     launchWebAuthFlowImpl = async () =>
       'https://fakeextid.chromiumapp.org/cloud-auth#guardian_id=g-42';
 
-    await expect(refreshCloudToken(config)).rejects.toThrow('incomplete payload');
+    await expect(refreshCloudToken(ASSISTANT_A, config)).rejects.toThrow('incomplete payload');
+  });
+});
+
+describe('assistant token isolation', () => {
+  test('tokens stored for different assistants do not interfere', async () => {
+    const tokenA: StoredCloudToken = {
+      token: 'cloud-alpha',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-alpha',
+    };
+    const tokenB: StoredCloudToken = {
+      token: 'cloud-beta',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-beta',
+    };
+    fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)] = tokenA;
+    fakeStorage.data[cloudTokenStorageKey(ASSISTANT_B)] = tokenB;
+
+    expect(await getStoredToken(ASSISTANT_A)).toEqual(tokenA);
+    expect(await getStoredToken(ASSISTANT_B)).toEqual(tokenB);
+  });
+
+  test('clearing one assistant token does not affect another', async () => {
+    const tokenA: StoredCloudToken = {
+      token: 'cloud-alpha',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-alpha',
+    };
+    const tokenB: StoredCloudToken = {
+      token: 'cloud-beta',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-beta',
+    };
+    fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)] = tokenA;
+    fakeStorage.data[cloudTokenStorageKey(ASSISTANT_B)] = tokenB;
+
+    await clearStoredToken(ASSISTANT_A);
+
+    expect(await getStoredToken(ASSISTANT_A)).toBeNull();
+    expect(await getStoredToken(ASSISTANT_B)).toEqual(tokenB);
+  });
+
+  test('signInCloud persists under the correct assistant-scoped key', async () => {
+    launchWebAuthFlowImpl = async () =>
+      'https://fakeextid.chromiumapp.org/cloud-auth#token=scoped-jwt&expires_in=3600&guardian_id=g-scoped';
+
+    await signInCloud(ASSISTANT_B, config);
+
+    // Only ASSISTANT_B's key should be populated.
+    expect(fakeStorage.data[cloudTokenStorageKey(ASSISTANT_B)]).not.toBeUndefined();
+    expect(fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)]).toBeUndefined();
+  });
+});
+
+describe('legacy token migration (cloud)', () => {
+  const LEGACY_KEY = 'vellum.cloudAuthToken';
+
+  test('getStoredToken migrates a valid legacy token to the scoped key', async () => {
+    const legacyToken: StoredCloudToken = {
+      token: 'legacy-jwt',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-legacy',
+    };
+    fakeStorage.data[LEGACY_KEY] = legacyToken;
+
+    const result = await getStoredToken(ASSISTANT_A);
+    expect(result).toEqual(legacyToken);
+
+    // Legacy key was removed.
+    expect(fakeStorage.data[LEGACY_KEY]).toBeUndefined();
+    // Scoped key was populated.
+    expect(fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)]).toEqual(legacyToken);
+  });
+
+  test('getStoredTokenRaw migrates a valid legacy token to the scoped key', async () => {
+    const legacyToken: StoredCloudToken = {
+      token: 'legacy-raw',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-legacy-raw',
+    };
+    fakeStorage.data[LEGACY_KEY] = legacyToken;
+
+    const result = await getStoredTokenRaw(ASSISTANT_A);
+    expect(result).toEqual(legacyToken);
+
+    // Legacy key was removed, scoped key was populated.
+    expect(fakeStorage.data[LEGACY_KEY]).toBeUndefined();
+    expect(fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)]).toEqual(legacyToken);
+  });
+
+  test('getStoredTokenRaw migrates an expired legacy token (returns it without expiry check)', async () => {
+    const expiredLegacy: StoredCloudToken = {
+      token: 'expired-legacy',
+      expiresAt: Date.now() - 1_000,
+      guardianId: 'g-expired',
+    };
+    fakeStorage.data[LEGACY_KEY] = expiredLegacy;
+
+    // getStoredTokenRaw does not filter by expiry, but validateCloudToken
+    // also does not filter by expiry — only getStoredToken does. However,
+    // the migration helper uses validateCloudToken which does NOT check
+    // expiry, so getStoredTokenRaw will surface the expired token.
+    const result = await getStoredTokenRaw(ASSISTANT_A);
+    expect(result).toEqual(expiredLegacy);
+  });
+
+  test('getStoredToken returns null for an expired legacy token', async () => {
+    const expiredLegacy: StoredCloudToken = {
+      token: 'expired-legacy',
+      expiresAt: Date.now() - 1_000,
+      guardianId: 'g-expired',
+    };
+    fakeStorage.data[LEGACY_KEY] = expiredLegacy;
+
+    // getStoredToken applies the expiry check, so expired legacy tokens
+    // are not surfaced (but they are still migrated).
+    const result = await getStoredToken(ASSISTANT_A);
+    expect(result).toBeNull();
+  });
+
+  test('migration does not clobber an existing scoped token', async () => {
+    const scopedToken: StoredCloudToken = {
+      token: 'scoped-jwt',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-scoped',
+    };
+    const legacyToken: StoredCloudToken = {
+      token: 'legacy-jwt',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-legacy',
+    };
+    fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)] = scopedToken;
+    fakeStorage.data[LEGACY_KEY] = legacyToken;
+
+    const result = await getStoredToken(ASSISTANT_A);
+    expect(result).toEqual(scopedToken);
+    // Legacy key is NOT removed because the scoped key already existed.
+    expect(fakeStorage.data[LEGACY_KEY]).toEqual(legacyToken);
+  });
+
+  test('migration is idempotent — second call is a no-op', async () => {
+    const legacyToken: StoredCloudToken = {
+      token: 'legacy-jwt',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 'g-legacy',
+    };
+    fakeStorage.data[LEGACY_KEY] = legacyToken;
+
+    // First call migrates.
+    await getStoredToken(ASSISTANT_A);
+    expect(fakeStorage.data[LEGACY_KEY]).toBeUndefined();
+
+    // Second call is a no-op — the scoped key exists and the legacy key
+    // is gone, so migration does nothing.
+    const result = await getStoredToken(ASSISTANT_A);
+    expect(result).toEqual(legacyToken);
+    expect(fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)]).toEqual(legacyToken);
+  });
+
+  test('migration ignores a malformed legacy value', async () => {
+    fakeStorage.data[LEGACY_KEY] = { token: 42, expiresAt: 'soon' };
+
+    const result = await getStoredToken(ASSISTANT_A);
+    expect(result).toBeNull();
+    // Malformed legacy key is not cleaned up — only valid tokens are migrated.
+  });
+
+  test('migration returns null when no legacy key exists', async () => {
+    const result = await getStoredToken(ASSISTANT_A);
+    expect(result).toBeNull();
   });
 });

@@ -77,10 +77,13 @@ let getOrCreateSessionPageMock: ReturnType<typeof mock>;
 let clearSnapshotBackendNodeMapMock: ReturnType<typeof mock>;
 let positionWindowSidebarMock: ReturnType<typeof mock>;
 
+const preferredBackendKinds = new Map<string, string>();
+
 mock.module("../tools/browser/browser-manager.js", () => {
   getOrCreateSessionPageMock = mock(async () => mockPage);
   clearSnapshotBackendNodeMapMock = mock(() => {});
   positionWindowSidebarMock = mock(async () => {});
+  preferredBackendKinds.clear();
   return {
     browserManager: {
       getOrCreateSessionPage: getOrCreateSessionPageMock,
@@ -88,6 +91,14 @@ mock.module("../tools/browser/browser-manager.js", () => {
       supportsRouteInterception: true,
       isInteractive: () => false,
       positionWindowSidebar: positionWindowSidebarMock,
+      getPreferredBackendKind: (conversationId: string) =>
+        preferredBackendKinds.get(conversationId) ?? null,
+      setPreferredBackendKind: (conversationId: string, kind: string) => {
+        preferredBackendKinds.set(conversationId, kind);
+      },
+      clearPreferredBackendKind: (conversationId: string) => {
+        preferredBackendKinds.delete(conversationId);
+      },
     },
   };
 });

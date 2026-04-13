@@ -35,9 +35,11 @@ let closeAllPagesMock: ReturnType<typeof mock>;
 let clearSnapshotBackendNodeMapMock: ReturnType<typeof mock>;
 let storeSnapshotBackendNodeMapMock: ReturnType<typeof mock>;
 let storedBackendNodeMaps: Map<string, Map<string, number>>;
+const preferredBackendKinds = new Map<string, string>();
 
 mock.module("../tools/browser/browser-manager.js", () => {
   storedBackendNodeMaps = new Map();
+  preferredBackendKinds.clear();
   closeSessionPageMock = mock(async () => {});
   closeAllPagesMock = mock(async () => {});
   clearSnapshotBackendNodeMapMock = mock((conversationId: string) => {
@@ -79,6 +81,14 @@ mock.module("../tools/browser/browser-manager.js", () => {
         const map = storedBackendNodeMaps.get(conversationId);
         if (!map) return null;
         return map.get(elementId) ?? null;
+      },
+      getPreferredBackendKind: (conversationId: string) =>
+        preferredBackendKinds.get(conversationId) ?? null,
+      setPreferredBackendKind: (conversationId: string, kind: string) => {
+        preferredBackendKinds.set(conversationId, kind);
+      },
+      clearPreferredBackendKind: (conversationId: string) => {
+        preferredBackendKinds.delete(conversationId);
       },
     },
   };

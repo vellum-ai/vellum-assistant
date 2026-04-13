@@ -192,6 +192,17 @@ final class ScrollCoordinator {
     /// Tracks overlapping stabilization windows.
     private var activeStabilizationCount: Int = 0
 
+    /// Timeout task for expansion stabilization — auto-ends after 200ms.
+    /// Owned by the coordinator (not the view layer) so stale tasks from
+    /// an earlier stabilization cycle can't decrement the wrong window.
+    private var expansionTimeoutTask: Task<Void, Never>?
+
+    /// Monotonically increasing counter, bumped when leaving the
+    /// `.stabilizing` mode. Expansion timeout tasks capture the current
+    /// generation before sleeping; stale tasks bail out if the generation
+    /// no longer matches. Mirrors `MessageListScrollState`.
+    private var stabilizationGeneration: UInt64 = 0
+
     /// Timestamp of the last user-initiated pin (CTA tap). Used to suppress
     /// stale momentum from the pre-CTA scroll gesture.
     private var lastUserInitiatedPinTime: Date?
@@ -383,16 +394,39 @@ final class ScrollCoordinator {
     private func handleContainerWidthChanged() -> [OutputIntent] {
         var intents: [OutputIntent] = []
 
-        if mode.allowsAutoScroll {
+        switch mode {
+        case .initialLoad, .followingBottom:
             // Re-pin to bottom after resize with a recovery window.
             intents.append(.startRecoveryWindow)
             intents.append(.scrollToBottom(animated: false))
-        } else if case .freeBrowsing = mode {
+        case .freeBrowsing:
             // Stabilize during resize to maintain reading position.
             beginStabilization(.resize)
+        case .stabilizing:
+            // Already stabilizing — restart the resize window so overlapping
+            // resize events don't get dropped. Mirrors MessageListView+Lifecycle
+            // which unconditionally calls beginStabilization(.resize).
+            beginStabilization(.resize)
+        case .programmaticScroll:
+            break
         }
 
         return intents
+    }
+
+    /// Whether `handle(.containerWidthChanged)` would open a new resize
+    /// stabilization window in the current mode. Callers use this to
+    /// decide whether to pair an `endStabilization()` call after their
+    /// view-layer resize task completes. Skipping the pairing in modes
+    /// that don't open a window avoids decrementing an unrelated
+    /// stabilization cycle (e.g. an active expansion window).
+    var wouldOpenResizeStabilization: Bool {
+        switch mode {
+        case .freeBrowsing, .stabilizing:
+            return true
+        case .initialLoad, .followingBottom, .programmaticScroll:
+            return false
+        }
     }
 
     // MARK: - User-Initiated Pin (CTA tap)
@@ -437,9 +471,13 @@ final class ScrollCoordinator {
         switch oldMode {
         case .stabilizing:
             if case .stabilizing = newMode {
-                // Staying in stabilizing — preserve window count.
+                // Staying in stabilizing — preserve window count and
+                // generation so cancelled tasks from the old reason can
+                // still balance the count.
             } else {
+                stabilizationGeneration &+= 1
                 activeStabilizationCount = 0
+                cancelStabilizationTasks()
             }
         default:
             break
@@ -462,6 +500,9 @@ final class ScrollCoordinator {
             if activeReason == reason {
                 // Same-reason re-entry — increment count but don't re-transition.
                 activeStabilizationCount += 1
+                if reason == .expansion {
+                    scheduleExpansionTimeout()
+                }
                 return
             }
         case .programmaticScroll:
@@ -470,6 +511,10 @@ final class ScrollCoordinator {
 
         activeStabilizationCount += 1
         transition(to: .stabilizing(previousMode: previousMode, reason: reason))
+
+        if reason == .expansion {
+            scheduleExpansionTimeout()
+        }
     }
 
     /// Ends one stabilization window. Only restores the previous mode
@@ -483,6 +528,30 @@ final class ScrollCoordinator {
             transition(to: .followingBottom)
         case .freeBrowsing:
             transition(to: .freeBrowsing)
+        }
+    }
+
+    private func cancelStabilizationTasks() {
+        expansionTimeoutTask?.cancel()
+        expansionTimeoutTask = nil
+    }
+
+    private func scheduleExpansionTimeout() {
+        expansionTimeoutTask?.cancel()
+        let capturedGeneration = stabilizationGeneration
+        expansionTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            guard let self else { return }
+            if Task.isCancelled {
+                // Cancelled within the same cycle (e.g. cross-reason
+                // transition): balance the count so the superseding
+                // reason's endStabilization() can reach zero. If a new
+                // cycle started (generation changed), a stale task must
+                // NOT call endStabilization — it would decrement the
+                // wrong window.
+                guard capturedGeneration == self.stabilizationGeneration else { return }
+            }
+            self.endStabilization()
         }
     }
 
@@ -505,6 +574,8 @@ final class ScrollCoordinator {
         phase = .idle
         isAtBottom = false
         activeStabilizationCount = 0
+        stabilizationGeneration &+= 1
+        cancelStabilizationTasks()
         lastUserInitiatedPinTime = nil
         pendingAnchor = nil
     }

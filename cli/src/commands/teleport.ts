@@ -1104,6 +1104,13 @@ export async function teleport(): Promise<void> {
 
   const fromCloud = resolveCloud(fromEntry);
 
+  if (fromCloud === "apple-container") {
+    console.error(
+      `Error: '${from}' uses the Apple Containers runtime. Teleport is not yet supported for this topology.`,
+    );
+    process.exit(1);
+  }
+
   // Early same-environment guard — compare source cloud against the CLI flag
   // BEFORE exporting or hatching, to avoid creating orphaned assistants.
   const normalizedSourceEnv = fromCloud === "vellum" ? "platform" : fromCloud;

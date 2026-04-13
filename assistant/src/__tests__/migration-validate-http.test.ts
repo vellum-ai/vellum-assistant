@@ -5,7 +5,7 @@
  * - Success: valid .vbundle archive returns is_valid: true with manifest
  * - Validation failures: invalid gzip, missing entries, bad manifest, checksum mismatches
  * - Request errors: empty body, invalid multipart
- * - Auth: route policy enforcement (settings.write scope required)
+ * - Auth: route policy enforcement (settings.read scope required)
  * - Integration: existing routes are unaffected by the new endpoint
  */
 import { createHash } from "node:crypto";
@@ -638,13 +638,13 @@ describe("handleMigrationValidate", () => {
 // ---------------------------------------------------------------------------
 
 describe("route policy registration", () => {
-  test("migrations/validate policy requires settings.write scope", async () => {
+  test("migrations/validate policy requires settings.read scope", async () => {
     // Import route-policy to verify the registration exists
     const { getPolicy } = await import("../runtime/auth/route-policy.js");
     const policy = getPolicy("migrations/validate");
 
     expect(policy).toBeDefined();
-    expect(policy?.requiredScopes).toContain("settings.write");
+    expect(policy?.requiredScopes).toContain("settings.read");
     expect(policy?.allowedPrincipalTypes).toContain("actor");
     expect(policy?.allowedPrincipalTypes).toContain("svc_gateway");
     expect(policy?.allowedPrincipalTypes).toContain("local");
