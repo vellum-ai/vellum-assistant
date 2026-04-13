@@ -1,4 +1,4 @@
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 
 import {
@@ -43,17 +43,20 @@ export function getLocalBackupsDir(override?: string | null): string {
  * Drive is enabled and we can safely `mkdir -p` the `VellumAssistant/backups`
  * subtree below it.
  *
- * Reads `process.env.HOME` at call time before falling back to `homedir()`.
- * `homedir()` is snapshot at process start on some platforms, so consulting
- * `$HOME` on each call keeps this function honest under tests that redirect
- * the home directory mid-process. Uses `||` (not `??`) so an empty-string
- * `HOME` — legal in some sandboxed envs — also falls back to `homedir()`
- * rather than producing a relative `Library/...` path. Asserts the result is
+ * Fallback chain: `process.env.HOME` → `userInfo().homedir` → `homedir()`.
+ * Reading `$HOME` at call time keeps the function honest under tests that
+ * redirect the home directory mid-process. Uses `||` (not `??`) so an
+ * empty-string `HOME` — legal in some sandboxed envs — advances to the next
+ * fallback. `homedir()` alone is insufficient because libuv's
+ * `uv_os_homedir` returns `$HOME` as-is when it's set (even to `""`) and
+ * only consults `getpwuid_r` when `HOME` is unset entirely. `userInfo()`
+ * calls `getpwuid_r` directly via `uv_os_get_passwd`, so it returns the
+ * passwd-table home regardless of `HOME`. Asserts the final result is
  * absolute so callers downstream (`deriveSafeAncestor`, the offsite writer)
  * never see a relative path regardless of how the home lookup resolved.
  */
 export function getICloudDriveRoot(): string {
-  const home = process.env.HOME || homedir();
+  const home = process.env.HOME || userInfo().homedir || homedir();
   const root = join(
     home,
     "Library",
@@ -63,7 +66,7 @@ export function getICloudDriveRoot(): string {
   if (!isAbsolute(root)) {
     throw new Error(
       `getICloudDriveRoot resolved to a relative path: ${root}. ` +
-        `HOME and homedir() both returned empty or relative values.`,
+        `HOME, userInfo().homedir, and homedir() all returned empty or relative values.`,
     );
   }
   return root;

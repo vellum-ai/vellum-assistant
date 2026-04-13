@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { getGatewaySecurityDir } from "../config.js";
 import { runDataMigrations } from "./data-migrations/index.js";
 
@@ -13,10 +13,19 @@ let db: Database | null = null;
  * credential-reader.ts (getRootDir is being removed). Respects
  * BASE_DATA_DIR for multi-instance local setups where the CLI sets it
  * to the instance directory.
+ *
+ * Home fallback chain: `$HOME` → `userInfo().homedir` → `homedir()`.
+ * `homedir()` alone is insufficient because libuv's `uv_os_homedir` returns
+ * `$HOME` as-is when set (even to `""`) and only consults `getpwuid_r` when
+ * `HOME` is unset entirely. `userInfo()` calls `getpwuid_r` directly, so it
+ * returns the passwd-table home regardless of `HOME`.
  */
 function getLegacyRootDir(): string {
   return join(
-    process.env.BASE_DATA_DIR?.trim() || process.env.HOME || homedir(),
+    process.env.BASE_DATA_DIR?.trim() ||
+      process.env.HOME ||
+      userInfo().homedir ||
+      homedir(),
     ".vellum",
   );
 }
