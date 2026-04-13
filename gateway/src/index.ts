@@ -1339,8 +1339,13 @@ async function main() {
   let slackSocketClient: SlackSocketModeClient | null = null;
 
   /** Fire-and-forget: notify the platform of inbound Slack activity so the
-   *  idle-sleep timer is reset for this assistant. */
+   *  idle-sleep timer is reset for this assistant.
+   *  Throttled to at most one outbound POST per 30 seconds. */
+  let lastRecordActivityTs = 0;
   function notifyRecordActivity(): void {
+    const now = Date.now();
+    if (now - lastRecordActivityTs < 30_000) return;
+    lastRecordActivityTs = now;
     Promise.all([
       credentialCache.get(credentialKey("vellum", "platform_base_url")),
       credentialCache.get(credentialKey("vellum", "assistant_api_key")),
