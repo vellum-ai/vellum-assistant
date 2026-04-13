@@ -464,7 +464,17 @@ struct UsageTabContent: View {
 
     @ViewBuilder
     private func trendBarChart(_ buckets: [UsageDayBucket], isHourly: Bool) -> some View {
-        let sorted = buckets.sorted { $0.bucketId < $1.bucketId }
+        let sorted = buckets.sorted { lhs, rhs in
+            if lhs.date != rhs.date { return lhs.date < rhs.date }
+            // Same local-time string (DST fall-back duplicates). The bucketId
+            // suffix after "|" is the UTC offset in minutes — higher offset
+            // means the bucket's UTC start is earlier, so sort higher-offset
+            // first to preserve chronological order.
+            let lOffset = offsetMinutes(from: lhs.bucketId)
+            let rOffset = offsetMinutes(from: rhs.bucketId)
+            if lOffset != rOffset { return lOffset > rOffset }
+            return lhs.bucketId < rhs.bucketId
+        }
         let maxCost = buckets.map(\.totalEstimatedCostUsd).max() ?? 1.0
         let barWidth = isHourly ? hourlyBarWidth : maxBarWidth
 
@@ -506,6 +516,16 @@ struct UsageTabContent: View {
     /// older daemons that don't include the label.
     private func formatBucketLabel(_ bucket: UsageDayBucket) -> String {
         bucket.displayLabel ?? bucket.date
+    }
+
+    /// Extracts the UTC offset (in minutes) suffix from a bucketId of the form
+    /// `"YYYY-MM-DD HH:00|offsetMinutes"`. Returns 0 when absent (daily
+    /// buckets or older daemons), which is safe because daily buckets never
+    /// have duplicate `date` strings.
+    private func offsetMinutes(from bucketId: String) -> Int {
+        guard let pipe = bucketId.lastIndex(of: "|") else { return 0 }
+        let suffix = bucketId[bucketId.index(after: pipe)...]
+        return Int(suffix) ?? 0
     }
 
     // MARK: - Breakdown Section
