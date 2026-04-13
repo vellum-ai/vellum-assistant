@@ -732,11 +732,18 @@ export class CallController {
       const abortController = new AbortController();
       this.activeSynthesisAbort = abortController;
 
+      // When format is WAV (media-stream transport), request raw PCM from
+      // the provider so the audio bytes match the store's content-type.
+      // Without this, providers like Fish Audio still return mp3 and the
+      // downstream mu-law transcoder fails on the format mismatch.
+      const outputFormat = format === "wav" ? ("pcm" as const) : undefined;
+
       if (provider.synthesizeStream) {
         await provider.synthesizeStream(
           {
             text,
             useCase: "phone-call",
+            outputFormat,
             signal: abortController.signal,
           },
           (chunk) => handle!.push(chunk),
@@ -748,6 +755,7 @@ export class CallController {
         const result = await provider.synthesize({
           text,
           useCase: "phone-call",
+          outputFormat,
           signal: abortController.signal,
         });
         handle.push(result.audio);
