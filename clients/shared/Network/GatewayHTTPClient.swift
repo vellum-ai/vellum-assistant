@@ -778,6 +778,13 @@ public enum GatewayHTTPClient {
         guard var components = URLComponents(url: httpURL, resolvingAgainstBaseURL: false) else {
             throw ClientError.invalidURL
         }
+
+        // Strip trailing slash from the path — constructURL always appends one,
+        // but WebSocket upgrade handlers match exact paths (e.g. /v1/stt/stream
+        // not /v1/stt/stream/).
+        if components.path.hasSuffix("/"), components.path != "/" {
+            components.path = String(components.path.dropLast())
+        }
         switch components.scheme {
         case "https": components.scheme = "wss"
         case "http": components.scheme = "ws"
