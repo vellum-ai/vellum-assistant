@@ -29,7 +29,6 @@ struct AssistantProgressView: View {
     /// expansion, override, and rehydration tracking survive view recycling.
     @Binding var progressUIState: ProgressCardUIState
 
-    @Environment(\.suppressAutoScroll) private var suppressAutoScroll
     @State private var isExpanded: Bool
     @State private var startDate: Date
     @State private var processingStartDate: Date?
@@ -381,7 +380,6 @@ struct AssistantProgressView: View {
                 reason: "manual_toggle:\(isExpanded ? "collapse" : "expand")",
                 toolCallCount: model.totalToolCount
             ))
-            suppressAutoScroll?()
             withAnimation(VAnimation.fast) {
                 isExpanded.toggle()
             }
@@ -645,7 +643,6 @@ private struct StepDetailRow: View {
     /// Human-friendly label for skill_execute rows (e.g. "Using my frontend design skill").
     var skillLabel: String?
     var onRehydrate: (() -> Void)?
-    @Environment(\.suppressAutoScroll) private var suppressAutoScroll
 
     private static let coloredOutputCache: NSCache<NSString, StepDetailAttributedStringCacheEntry> = {
         let cache = NSCache<NSString, StepDetailAttributedStringCacheEntry>()
@@ -720,7 +717,6 @@ private struct StepDetailRow: View {
             // Row header
             Button {
                 guard hasDetails else { return }
-                suppressAutoScroll?()
                 withAnimation(VAnimation.fast) { isDetailExpanded.toggle() }
             } label: {
                 HStack(spacing: VSpacing.sm) {

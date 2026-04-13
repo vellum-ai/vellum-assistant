@@ -17,7 +17,7 @@ extension MessageListView {
         let previousConversationId = scrollState.currentConversationId
         let isConversationSwitch = previousConversationId != nil
             && previousConversationId != conversationId
-        configureScrollCallbacks()
+        scrollState.currentConversationId = conversationId
         if isConversationSwitch {
             handleConversationSwitched()
         } else {
@@ -97,7 +97,7 @@ extension MessageListView {
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=messagesChanged")
             os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundInMessages")
             withAnimation {
-                scrollState.scrollTo?(id, .center)
+                $scrollPosition.wrappedValue = ScrollPosition(id: id, anchor: .center)
             }
             flashHighlight(messageId: id)
             anchorMessageId = nil
@@ -202,9 +202,6 @@ extension MessageListView {
         // non-nil anchor assignments; nil transitions are cleanup handled
         // by messagesChanged and conversationSwitched.
         guard let id = anchorMessageId else { return }
-        // Cancel scroll restore when a new anchor is set.
-        scrollState.scrollRestoreTask?.cancel()
-        scrollState.scrollRestoreTask = nil
         scrollState.anchorSetTime = Date()
         scrollState.anchorTimeoutTask?.cancel()
         scrollState.anchorTimeoutTask = nil
@@ -213,7 +210,7 @@ extension MessageListView {
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=anchorChanged")
             os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundOnAnchorChange")
             withAnimation {
-                scrollState.scrollTo?(id, .center)
+                $scrollPosition.wrappedValue = ScrollPosition(id: id, anchor: .center)
             }
             flashHighlight(messageId: id)
             anchorMessageId = nil
