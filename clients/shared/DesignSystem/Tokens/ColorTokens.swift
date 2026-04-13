@@ -246,6 +246,14 @@ public enum VColor {
     public static let systemMidStrong = adaptiveColor(light: FigmaRawColor.systemLightMidStrong, dark: FigmaRawColor.systemDarkMidStrong)
     public static let systemMidWeak = adaptiveColor(light: FigmaRawColor.systemLightMidWeak, dark: FigmaRawColor.systemDarkMidWeak)
 
+    // Pending / queued — warm amber for "held, waiting" affordances (queue drawer accent bar,
+    // pending badge backgrounds). Opacity is baked in so the token sits softly over surface
+    // colors without an additional modifier.
+    public static let systemPendingSoft = adaptiveColor(
+        light: Color(.sRGB, red: 0.85, green: 0.58, blue: 0.18, opacity: 0.6),
+        dark: Color(.sRGB, red: 0.98, green: 0.72, blue: 0.35, opacity: 0.55)
+    )
+
     // Diff view — adaptive background tints for unified-diff line highlighting.
     public static let diffAddedBg  = adaptiveColor(light: Color(hex: 0xEDF2EB), dark: Color(hex: 0x073D2E))
     public static let diffRemovedBg = adaptiveColor(light: Color(hex: 0xFFF3EE), dark: Color(hex: 0x4E281D))
