@@ -401,14 +401,18 @@ public enum GatewayHTTPClient {
     /// - Parameters:
     ///   - path: Path segment after `/v1/`.
     ///   - timeout: Request timeout in seconds. Defaults to 30.
+    ///   - session: The `URLSession` to use. Defaults to `.shared`. Pass a dedicated
+    ///     session when the caller needs to control the lifecycle of the underlying
+    ///     data task (e.g. to safely cancel an SSE stream without a use-after-free
+    ///     in `AsyncBytes`).
     /// - Returns: A tuple of `(URLSession.AsyncBytes, URLResponse)` for streaming consumption.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
-    public static func stream(path: String, timeout: TimeInterval = 30) async throws -> (URLSession.AsyncBytes, URLResponse) {
+    public static func stream(path: String, timeout: TimeInterval = 30, session: URLSession = .shared) async throws -> (URLSession.AsyncBytes, URLResponse) {
         let connection = try resolveConnection()
         var request = try buildRequest(path: path, params: nil, method: "GET", timeout: timeout, connection: connection)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         logOutgoing(request, quiet: false)
-        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        let (bytes, response) = try await session.bytes(for: request)
         if let http = response as? HTTPURLResponse {
             logResponse(request, http: http, quiet: false)
         }

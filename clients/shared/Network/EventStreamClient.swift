@@ -38,6 +38,12 @@ public final class EventStreamClient {
     private var shouldReconnect = true
     private var hasShownCreditsExhausted = false
 
+    /// Dedicated URLSession for the current SSE connection. Each new stream
+    /// gets its own session so that `invalidateAndCancel()` can tear down the
+    /// underlying data task without racing against the `AsyncBytes` iterator
+    /// on the cooperative thread pool (which causes EXC_BAD_ACCESS).
+    private var sseSession: URLSession?
+
     // MARK: - SSE Parse Time Tracking
 
     private var sseParseTimeAccumulator: TimeInterval = 0
@@ -98,6 +104,7 @@ public final class EventStreamClient {
     public func stopSSE() {
         sseReconnectTask?.cancel()
         sseReconnectTask = nil
+        invalidateSSESession()
         sseTask?.cancel()
         sseTask = nil
     }
@@ -253,7 +260,16 @@ public final class EventStreamClient {
     // MARK: - SSE Stream Implementation
 
     private func startSSEStream() {
+        // Invalidate the previous session *before* cancelling the task.
+        // `invalidateAndCancel()` tells URLSession to tear down the data task
+        // on its own terms, which avoids the race where `Task.cancel()`
+        // frees the internal `AsyncBytes` buffer while the cooperative-pool
+        // iterator is still reading from it (EXC_BAD_ACCESS / PAC failure).
+        invalidateSSESession()
         sseTask?.cancel()
+
+        let session = URLSession(configuration: .default)
+        sseSession = session
 
         sseTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -261,7 +277,8 @@ public final class EventStreamClient {
             do {
                 let (bytes, response) = try await GatewayHTTPClient.stream(
                     path: "assistants/{assistantId}/events",
-                    timeout: .infinity
+                    timeout: .infinity,
+                    session: session
                 )
 
                 guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
@@ -452,8 +469,15 @@ public final class EventStreamClient {
             // Persist the new token so GatewayHTTPClient picks it up
             ActorTokenManager.setToken(msg.newToken)
             onTokenRefreshed?(msg.newToken)
-            stopSSE()
-            startSSE()
+            // Defer the stop/start to the next MainActor turn so the current
+            // `bytes.lines` iteration can exit cleanly before we invalidate
+            // the session. This avoids a self-cancellation race where
+            // handleParsedMessage (called from inside the SSE loop) would
+            // tear down the very session it's reading from.
+            Task { @MainActor [weak self] in
+                self?.stopSSE()
+                self?.startSSE()
+            }
             return
         }
 
@@ -497,6 +521,15 @@ public final class EventStreamClient {
     /// Reset SSE reconnect backoff to minimum (e.g. after an update completes).
     func resetSSEReconnectDelay() {
         sseReconnectDelay = 1.0
+    }
+
+    // MARK: - URLSession Lifecycle
+
+    /// Invalidate the current SSE URLSession, cancelling its data task.
+    /// Safe to call when `sseSession` is already nil.
+    private func invalidateSSESession() {
+        sseSession?.invalidateAndCancel()
+        sseSession = nil
     }
 
     deinit {
