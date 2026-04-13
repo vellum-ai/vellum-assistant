@@ -79,7 +79,7 @@ describe("resolveTelephonySttRouting", () => {
       expect(strategy.transcriptionProvider).toBe("Deepgram");
     });
 
-    test("defaults speechModel to nova-3 when not provided", () => {
+    test("defaults speechModel to nova-3", () => {
       mockConfig = buildConfig({ provider: "deepgram" });
 
       const result = resolveTelephonySttRouting();
@@ -89,30 +89,6 @@ describe("resolveTelephonySttRouting", () => {
 
       const strategy = result.strategy as ConversationRelayNativeStrategy;
       expect(strategy.speechModel).toBe("nova-3");
-    });
-
-    test("defaults speechModel to nova-3 when explicitly undefined", () => {
-      mockConfig = buildConfig({ provider: "deepgram" });
-
-      const result = resolveTelephonySttRouting(undefined);
-
-      expect(result.status).toBe("resolved");
-      if (result.status !== "resolved") return;
-
-      const strategy = result.strategy as ConversationRelayNativeStrategy;
-      expect(strategy.speechModel).toBe("nova-3");
-    });
-
-    test("uses explicit speechModel when provided", () => {
-      mockConfig = buildConfig({ provider: "deepgram" });
-
-      const result = resolveTelephonySttRouting("nova-2-phonecall");
-
-      expect(result.status).toBe("resolved");
-      if (result.status !== "resolved") return;
-
-      const strategy = result.strategy as ConversationRelayNativeStrategy;
-      expect(strategy.speechModel).toBe("nova-2-phonecall");
     });
   });
 
@@ -135,7 +111,7 @@ describe("resolveTelephonySttRouting", () => {
       expect(strategy.transcriptionProvider).toBe("Google");
     });
 
-    test("leaves speechModel undefined when not provided", () => {
+    test("leaves speechModel undefined (uses provider default)", () => {
       mockConfig = buildConfig({ provider: "google-gemini" });
 
       const result = resolveTelephonySttRouting();
@@ -145,30 +121,6 @@ describe("resolveTelephonySttRouting", () => {
 
       const strategy = result.strategy as ConversationRelayNativeStrategy;
       expect(strategy.speechModel).toBeUndefined();
-    });
-
-    test("suppresses legacy nova-3 model for Google (Deepgram default migration)", () => {
-      mockConfig = buildConfig({ provider: "google-gemini" });
-
-      const result = resolveTelephonySttRouting("nova-3");
-
-      expect(result.status).toBe("resolved");
-      if (result.status !== "resolved") return;
-
-      const strategy = result.strategy as ConversationRelayNativeStrategy;
-      expect(strategy.speechModel).toBeUndefined();
-    });
-
-    test("uses explicit non-Deepgram speechModel when provided for Google", () => {
-      mockConfig = buildConfig({ provider: "google-gemini" });
-
-      const result = resolveTelephonySttRouting("telephony");
-
-      expect(result.status).toBe("resolved");
-      if (result.status !== "resolved") return;
-
-      const strategy = result.strategy as ConversationRelayNativeStrategy;
-      expect(strategy.speechModel).toBe("telephony");
     });
   });
 
@@ -193,7 +145,7 @@ describe("resolveTelephonySttRouting", () => {
     test("media-stream-custom strategy does not include speechModel", () => {
       mockConfig = buildConfig({ provider: "openai-whisper" });
 
-      const result = resolveTelephonySttRouting("whisper-1");
+      const result = resolveTelephonySttRouting();
 
       expect(result.status).toBe("resolved");
       if (result.status !== "resolved") return;
