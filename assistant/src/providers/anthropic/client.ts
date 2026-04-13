@@ -392,7 +392,10 @@ function repairOrphanedServerToolUse(
         repairedContent.push({
           type: "web_search_tool_result",
           tool_use_id: block.id,
-          content: [],
+          content: {
+            type: "web_search_tool_result_error",
+            error_code: "unavailable",
+          },
         } as unknown as Anthropic.ContentBlockParam);
       }
     }

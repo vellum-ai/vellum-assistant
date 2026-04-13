@@ -724,7 +724,8 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   test("orphaned server_tool_use gets synthetic web_search_tool_result injected", async () => {
     // When stream is interrupted, server_tool_use may be stored without its
     // paired web_search_tool_result. repairOrphanedServerToolUse should inject
-    // a synthetic empty-content web_search_tool_result after the orphan.
+    // a synthetic error web_search_tool_result after the orphan so the model
+    // knows the search failed (rather than silently returning zero results).
     const messages: Message[] = [
       userMsg("Search for something"),
       {
@@ -757,7 +758,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(sent[1].content[0].type).toBe("server_tool_use");
     expect(sent[1].content[1].type).toBe("web_search_tool_result");
     expect(sent[1].content[1].tool_use_id).toBe("srvtoolu_abc123");
-    expect(sent[1].content[1].content).toEqual([]);
+    expect(sent[1].content[1].content).toEqual({
+      type: "web_search_tool_result_error",
+      error_code: "unavailable",
+    });
     expect(sent[2].role).toBe("user");
     expect(sent[2].content[0].type).toBe("text");
   });
@@ -1037,7 +1041,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
         b.tool_use_id === "srvtoolu_interrupted",
     );
     expect(syntheticResults).toHaveLength(1);
-    expect(syntheticResults[0].content).toEqual([]);
+    expect(syntheticResults[0].content).toEqual({
+      type: "web_search_tool_result_error",
+      error_code: "unavailable",
+    });
   });
 
   test("paired server_tool_use is not modified by repair", async () => {
