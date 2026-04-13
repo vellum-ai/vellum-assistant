@@ -27,7 +27,6 @@
  * `docs/internal-reference.md` for the full step-by-step plan.
  */
 
-import type { CallsVoiceConfig } from "../config/schemas/calls.js";
 import {
   resolveTelephonySttCapability,
   type TelephonySttCapability,
@@ -52,9 +51,10 @@ const DEEPGRAM_DEFAULT_SPEECH_MODEL = "nova-3";
  * telephony call path. All call-related code should read STT details from
  * the returned profile rather than branching on provider inline.
  */
-export function resolveTelephonySttProfile(
-  voiceConfig: Pick<CallsVoiceConfig, "transcriptionProvider" | "speechModel">,
-): TelephonySttProfile {
+export function resolveTelephonySttProfile(voiceConfig: {
+  transcriptionProvider: string;
+  speechModel?: string | undefined;
+}): TelephonySttProfile {
   const provider = voiceConfig.transcriptionProvider;
   const rawSpeechModel = voiceConfig.speechModel;
 

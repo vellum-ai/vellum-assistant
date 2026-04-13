@@ -346,10 +346,9 @@ function buildVoiceWebhookTwiml(
   );
 
   // Resolve telephony STT strategy from services.stt.provider.
-  // Pass calls.voice.speechModel for model normalization during the
-  // transition period (Twilio-native providers need it for the TwiML
-  // speechModel attribute).
-  const routingResult = resolveTelephonySttRouting(cfg.calls.voice.speechModel);
+  // speechModel is no longer part of the voice config — the routing
+  // resolver handles model defaults internally per provider.
+  const routingResult = resolveTelephonySttRouting();
 
   if (routingResult.status === "unknown-provider") {
     log.error(
