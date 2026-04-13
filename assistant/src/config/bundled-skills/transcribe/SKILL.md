@@ -18,3 +18,7 @@ Transcribe audio and video files using the configured speech-to-text provider. S
 - Large files are automatically split into chunks for processing.
 - If no STT provider credentials are configured, the tool will return an error with setup instructions.
 - The STT provider used here (`services.stt`) is independent of the telephony transcription provider (`calls.voice.transcriptionProvider`), which is configured separately for phone call STT.
+
+## Maintenance
+
+When adding or modifying an STT provider, follow the onboarding checklist at `assistant/docs/stt-provider-onboarding.md`. That document covers the daemon catalog, config schema, adapter wiring, client catalog parity, and required tests.
