@@ -256,10 +256,8 @@ function buildSlashContext(
   };
 }
 
-// TODO(batch-drain): PR 5 will extend this helper to walk contiguous
-// same-interface passthrough messages at the head of the queue. For now
-// it pops only the head so behavior matches the pre-refactor single-message
-// drain path.
+// Pops the head of the queue as a single-message batch. The batch shape
+// keeps callers stable when this helper extends to multi-message drains.
 async function buildPassthroughBatch(
   conversation: ProcessConversationContext,
 ): Promise<QueuedMessage[]> {
