@@ -956,15 +956,14 @@ private struct StepDetailRow: View {
         result: String,
         isError: Bool
     ) -> NSString {
-        // Cheap content fingerprint: length + prefix + suffix + per-process hash.
-        // Ensures the key changes when `result` is overwritten in place with
-        // different text of the same byte count (replay / correction / rehydration
-        // paths all mutate toolCalls[...].result).
+        // O(1) content fingerprint: length + boundary samples. Catches in-place
+        // mutations (replay / correction / rehydration paths all overwrite
+        // toolCalls[...].result) without hashing the full string on every
+        // SwiftUI re-render.
         let count = result.utf8.count
         let prefix = result.prefix(16)
         let suffix = result.suffix(16)
-        let hash = result.hashValue
-        return "\(toolCallID)|\(count)|\(isError ? "err" : "ok")|\(prefix)|\(suffix)|\(hash)" as NSString
+        return "\(toolCallID)|\(count)|\(isError ? "err" : "ok")|\(prefix)|\(suffix)" as NSString
     }
 
     private func coloredOutput(_ result: String, isError: Bool) -> AttributedString {
