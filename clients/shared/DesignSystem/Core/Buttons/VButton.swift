@@ -161,7 +161,7 @@ public struct VButtonStyle: ButtonStyle {
                 isFullWidth: isFullWidth,
                 iconSize: iconSize
             ))
-            .background(shape.fill(backgroundColor(isPressed: configuration.isPressed)))
+            .background(shape.fill(backgroundColor))
             .overlay(
                 shape.strokeBorder(
                     borderColor(isPressed: configuration.isPressed),
@@ -185,7 +185,7 @@ public struct VButtonStyle: ButtonStyle {
         }
     }
 
-    private func backgroundColor(isPressed: Bool) -> Color {
+    private var backgroundColor: Color {
         switch style {
         case .primary:
             guard isEnabled else { return VColor.primaryDisabled }
@@ -231,10 +231,9 @@ public struct VButtonStyle: ButtonStyle {
         case .primary: return VColor.contentInset
         case .danger: return VColor.auxWhite
         case .contrast: return VColor.contentInset
-        case .outlined: return isHovered ? VColor.primaryActive : VColor.contentDefault
+        case .outlined: return VColor.contentDefault
         case .dangerOutline: return isHovered ? VColor.systemNegativeHover : VColor.systemNegativeStrong
         case .ghost:
-            if isHovered { return VColor.primaryActive }
             return VColor.contentDefault
         case .dangerGhost:
             if isHovered { return VColor.systemNegativeHover }
