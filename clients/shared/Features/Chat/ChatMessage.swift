@@ -1803,6 +1803,7 @@ public struct ChatMessage: Identifiable, Equatable {
             hasher.combine(tc.inputFullLength)
             hasher.combine(tc.inputRawValueLength)
             hasher.combine(tc.partialOutputRevision)
+            hasher.combine(tc.resultRevision)
             hasher.combine(tc.buildingStatus)
             hasher.combine(tc.reasonDescription)
             hasher.combine(tc.startedAt)
