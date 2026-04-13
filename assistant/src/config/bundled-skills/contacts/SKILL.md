@@ -308,7 +308,7 @@ The response contains `{ ok: true, invite: { id, token, inviteCode, guardianInst
 
 - `inviteCode` is the 6-digit code the invitee must send to redeem the invite. It is only returned at creation time.
 - `guardianInstruction` is a generated instruction telling the guardian how to share the invite.
-- `channelHandle` is the assistant's email address (e.g. `hello@domain.agentmail.to`).
+- `channelHandle` is the assistant's email address (e.g. `hello@vellum.me`).
 
 **Presenting to the guardian**: Give the guardian the invite code and the assistant's email address:
 
@@ -320,7 +320,7 @@ The response contains `{ ok: true, invite: { id, token, inviteCode, guardianInst
 >
 > This code can be used <maxUses> time(s)<and expires in X hours/days if applicable>.
 
-If the assistant's email address is not available (AgentMail not configured), tell the guardian they need to set up email integration first.
+If the assistant's email address is not available, tell the guardian they need to register one with `assistant email register <username>`.
 
 ### Create a WhatsApp invite
 

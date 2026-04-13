@@ -1,28 +1,36 @@
 /**
  * Tests for the email invite adapter.
  *
- * Verifies that the email adapter resolves the assistant's real inbox
- * address when one is configured and falls back to `undefined` (triggering
- * generic invite instructions) when no inbox exists.
+ * Verifies that the email adapter resolves the assistant's email address
+ * from workspace config and falls back to `undefined` when no address
+ * is configured.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+// ---------------------------------------------------------------------------
+// Mock the config loader
+// ---------------------------------------------------------------------------
+
+let mockConfig: Record<string, unknown> = {};
+
+mock.module("../config/loader.js", () => ({
+  loadRawConfig: () => mockConfig,
+  getNestedValue: (obj: Record<string, unknown>, path: string) => {
+    const keys = path.split(".");
+    let current: unknown = obj;
+    for (const key of keys) {
+      if (current == null || typeof current !== "object") return undefined;
+      current = (current as Record<string, unknown>)[key];
+    }
+    return current;
+  },
+  getConfig: () => ({}),
+  saveRawConfig: () => {},
+  setNestedValue: () => {},
+}));
+
 import { resolveAdapterHandle } from "../runtime/channel-invite-transport.js";
 import { emailInviteAdapter } from "../runtime/channel-invite-transports/email.js";
-
-// ---------------------------------------------------------------------------
-// Mock the EmailService singleton
-// ---------------------------------------------------------------------------
-
-let mockPrimaryAddress: string | undefined;
-
-mock.module("../email/service.js", () => ({
-  getEmailService: () => ({
-    getPrimaryInboxAddress: async () => mockPrimaryAddress,
-  }),
-  // Re-export other symbols that callers might need
-  EmailService: class {},
-}));
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -30,22 +38,29 @@ mock.module("../email/service.js", () => ({
 
 describe("emailInviteAdapter", () => {
   beforeEach(() => {
-    mockPrimaryAddress = undefined;
+    mockConfig = {};
   });
 
   afterEach(() => {
-    mockPrimaryAddress = undefined;
+    mockConfig = {};
   });
 
   test("returns configured email address via resolveChannelHandleAsync", async () => {
-    mockPrimaryAddress = "hello@mycompany.vellum.me";
+    mockConfig = { email: { address: "hello@vellum.me" } };
 
     const handle = await resolveAdapterHandle(emailInviteAdapter);
-    expect(handle).toBe("hello@mycompany.vellum.me");
+    expect(handle).toBe("hello@vellum.me");
   });
 
-  test("returns undefined when no inbox is configured", async () => {
-    mockPrimaryAddress = undefined;
+  test("returns undefined when no address is configured", async () => {
+    mockConfig = {};
+
+    const handle = await resolveAdapterHandle(emailInviteAdapter);
+    expect(handle).toBeUndefined();
+  });
+
+  test("returns undefined when email.address is empty string", async () => {
+    mockConfig = { email: { address: "" } };
 
     const handle = await resolveAdapterHandle(emailInviteAdapter);
     expect(handle).toBeUndefined();
@@ -56,22 +71,11 @@ describe("emailInviteAdapter", () => {
   });
 
   test("does not define sync resolveChannelHandle", () => {
-    // The email adapter uses the async path exclusively
     expect(emailInviteAdapter.resolveChannelHandle).toBeUndefined();
   });
 
   test("does not define buildShareLink or extractInboundToken", () => {
     expect(emailInviteAdapter.buildShareLink).toBeUndefined();
     expect(emailInviteAdapter.extractInboundToken).toBeUndefined();
-  });
-
-  test("returns config fallback address when provider has no inboxes", async () => {
-    // Simulates the config fallback: provider returns no inboxes, but
-    // email.address is set in workspace config. The service's
-    // getPrimaryInboxAddress() should return the configured address.
-    mockPrimaryAddress = "configured@example.com";
-
-    const handle = await resolveAdapterHandle(emailInviteAdapter);
-    expect(handle).toBe("configured@example.com");
   });
 });
