@@ -132,4 +132,50 @@ final class MessageTypesTests: XCTestCase {
         XCTAssertEqual(cancel.type, "host_browser_cancel")
         XCTAssertEqual(cancel.requestId, "req-abc-123")
     }
+
+    // MARK: - open_conversation
+
+    func testDecodes_openConversation_withAllFields() throws {
+        let json = Data(
+            """
+            {
+              "type": "open_conversation",
+              "conversationId": "conv-abc-123",
+              "title": "New research thread",
+              "anchorMessageId": "msg-999"
+            }
+            """.utf8
+        )
+
+        let message = try decoder.decode(ServerMessage.self, from: json)
+
+        guard case .openConversation(let request) = message else {
+            XCTFail("Expected .openConversation, got \(message)")
+            return
+        }
+
+        XCTAssertEqual(request.type, "open_conversation")
+        XCTAssertEqual(request.conversationId, "conv-abc-123")
+        XCTAssertEqual(request.title, "New research thread")
+        XCTAssertEqual(request.anchorMessageId, "msg-999")
+    }
+
+    func testDecodes_openConversation_withOnlyConversationId() throws {
+        let json = Data(
+            """
+            { "type": "open_conversation", "conversationId": "conv-min" }
+            """.utf8
+        )
+
+        let message = try decoder.decode(ServerMessage.self, from: json)
+
+        guard case .openConversation(let request) = message else {
+            XCTFail("Expected .openConversation, got \(message)")
+            return
+        }
+
+        XCTAssertEqual(request.conversationId, "conv-min")
+        XCTAssertNil(request.title)
+        XCTAssertNil(request.anchorMessageId)
+    }
 }

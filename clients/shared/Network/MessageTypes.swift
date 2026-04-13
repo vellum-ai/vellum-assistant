@@ -2292,6 +2292,7 @@ public enum ServerMessage: Decodable, Sendable {
     case documentListResponse(DocumentListResponseMessage)
     case assistantStatus(AssistantStatusMessage)
     case openUrl(OpenUrlMessage)
+    case openConversation(OpenConversation)
     case navigateSettings(NavigateSettings)
     case showPlatformLogin(ShowPlatformLogin)
     case platformDisconnected(PlatformDisconnected)
@@ -2617,6 +2618,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "open_url":
             let message = try OpenUrlMessage(from: decoder)
             self = .openUrl(message)
+        case "open_conversation":
+            let message = try OpenConversation(from: decoder)
+            self = .openConversation(message)
         case "navigate_settings":
             let message = try NavigateSettings(from: decoder)
             self = .navigateSettings(message)
