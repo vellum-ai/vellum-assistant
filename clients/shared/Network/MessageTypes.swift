@@ -1104,12 +1104,23 @@ public struct ClawhubOriginMeta: Codable, Sendable, Equatable {
         author.isEmpty ? slug : "\(author)/\(slug)"
     }
 
-    /// URL to this skill's page on clawhub.ai, or nil when author is missing.
+    /// URL to this skill's page on clawhub.ai.
+    /// Uses `author/slug` when author is known; falls back to the raw slug
+    /// when it already contains a "/" (installed skills may store `author/slug`
+    /// as the slug itself). Returns nil only when no valid path can be built.
     public var hubURL: URL? {
-        guard !author.isEmpty else { return nil }
-        let encodedAuthor = author.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? author
-        let encodedSlug = slug.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? slug
-        return URL(string: "https://clawhub.ai/\(encodedAuthor)/\(encodedSlug)")
+        let path: String
+        if !author.isEmpty {
+            path = "\(author)/\(slug)"
+        } else if slug.contains("/") {
+            path = slug
+        } else {
+            return nil
+        }
+        let encoded = path.split(separator: "/").map {
+            String($0).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0)
+        }.joined(separator: "/")
+        return URL(string: "https://clawhub.ai/\(encoded)")
     }
 }
 
