@@ -31,6 +31,7 @@ Emit exactly one `ui_show` call with a card shaped like this, then end your turn
   "surface_type": "card",
   "display": "inline",
   "persistent": true,
+  "await_action": false,
   "data": {
     "title": "<framing headline>",
     "body": "<one short sentence framing the choice>"
@@ -64,6 +65,7 @@ Emit exactly one `ui_show` call with a card shaped like this, then end your turn
 Field notes:
 
 - `persistent: true` keeps the card visible after a click so the user can fire more buttons.
+- `await_action: false` lets the turn end without reserving the interactive-surface slot — the launcher dispatches its action directly, so blocking other surfaces is unnecessary.
 - Each action's `data` must contain `_action: "launch_conversation"`, `title`, and `seedPrompt`. `anchorMessageId` is optional — include it when the spawned conversation should thread off a specific message in this one.
 - `label` is the button text (short, ≤ 4 words, ≤ 30 chars). `title` is the new conversation's sidebar name (3–5 words, specific not generic). `seedPrompt` is the first user message of the new conversation — written in first-person as if the user typed it, with enough context that the new conversation can pick up without re-asking.
 - Use `style: "primary"` for the recommended option (at most one), `style: "secondary"` for the rest.
