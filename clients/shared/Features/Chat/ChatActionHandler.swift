@@ -101,7 +101,22 @@ final class ChatActionHandler {
 
         case .userMessageEcho(let echo):
             guard belongsToConversation(echo.conversationId) else { return }
-            let userMsg = ChatMessage(role: .user, text: echo.text, status: .sent)
+
+            // Dedup: if this echo carries a messageId that matches an existing
+            // optimistic row (tagged by the HTTP 202 response), the
+            // originating client already has the row — skip the append.
+            if let echoId = echo.messageId,
+               vm.messages.contains(where: { $0.daemonMessageId == echoId }) {
+                // Originating client — optimistic row already present.
+                // Skip isSending/isThinking toggles too; they were set
+                // locally by MessageSendCoordinator before the POST fired.
+                break
+            }
+
+            // Passive client (or nil messageId for back-compat surface-action
+            // echoes): append a new user row and enter "reply incoming" state.
+            var userMsg = ChatMessage(role: .user, text: echo.text, status: .sent)
+            userMsg.daemonMessageId = echo.messageId
             vm.messages.append(userMsg)
             vm.isSending = true
             vm.isThinking = true
