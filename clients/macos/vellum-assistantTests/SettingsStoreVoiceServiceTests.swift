@@ -310,4 +310,112 @@ final class SettingsStoreVoiceServiceTests: XCTestCase {
             "Most recent STT patch should reflect the deepgram provider"
         )
     }
+
+    // MARK: - STT Key Ownership Semantics
+
+    func testSharedKeyProviderIsNotExclusive() {
+        // openai-whisper maps to the "openai" credential — shared with
+        // Inference, so it must NOT be classified as exclusive.
+        XCTAssertFalse(
+            SettingsStore.sttKeyIsExclusive(for: "openai-whisper"),
+            "openai-whisper shares the 'openai' key and must not be exclusive"
+        )
+    }
+
+    func testSharedKeyProviderIsShared() {
+        XCTAssertTrue(
+            SettingsStore.sttKeyIsShared(for: "openai-whisper"),
+            "openai-whisper shares the 'openai' key and must be classified as shared"
+        )
+    }
+
+    func testExclusiveKeyProviderIsExclusive() {
+        // deepgram maps to "deepgram" — its own credential, not shared.
+        XCTAssertTrue(
+            SettingsStore.sttKeyIsExclusive(for: "deepgram"),
+            "deepgram owns its own key and must be classified as exclusive"
+        )
+    }
+
+    func testExclusiveKeyProviderIsNotShared() {
+        XCTAssertFalse(
+            SettingsStore.sttKeyIsShared(for: "deepgram"),
+            "deepgram owns its own key and must not be classified as shared"
+        )
+    }
+
+    func testUnknownProviderDefaultsToExclusive() {
+        // Unknown providers fall back to exclusive — clearing an unknown
+        // key cannot collide with a known service.
+        XCTAssertTrue(
+            SettingsStore.sttKeyIsExclusive(for: "future-provider"),
+            "Unknown providers should default to exclusive"
+        )
+    }
+
+    func testUnknownProviderIsNotShared() {
+        XCTAssertFalse(
+            SettingsStore.sttKeyIsShared(for: "future-provider"),
+            "Unknown providers should not be classified as shared"
+        )
+    }
+
+    // MARK: - Provider Mapping Stability
+
+    /// Ensures that every provider in the STT registry has a consistent
+    /// `apiKeyProviderName` mapping. This test fails fast when a new
+    /// provider is added with an inconsistent catalog entry.
+    func testAllRegistryProvidersHaveStableKeyMapping() {
+        let registry = loadSTTProviderRegistry()
+        for provider in registry.providers {
+            let resolved = SettingsStore.sttApiKeyProviderName(for: provider.id)
+            XCTAssertEqual(
+                resolved,
+                provider.apiKeyProviderName,
+                "sttApiKeyProviderName(for: \"\(provider.id)\") returned \"\(resolved)\" "
+                + "but the catalog entry specifies \"\(provider.apiKeyProviderName)\""
+            )
+        }
+    }
+
+    /// Ensures the ownership classification for every registered provider
+    /// is consistent with the catalog's `apiKeyProviderName` field.
+    func testAllRegistryProvidersHaveConsistentOwnership() {
+        let registry = loadSTTProviderRegistry()
+        for provider in registry.providers {
+            let isExclusive = SettingsStore.sttKeyIsExclusive(for: provider.id)
+            let expectedExclusive = (provider.apiKeyProviderName == provider.id)
+            XCTAssertEqual(
+                isExclusive,
+                expectedExclusive,
+                "Ownership mismatch for \"\(provider.id)\": sttKeyIsExclusive returned "
+                + "\(isExclusive) but apiKeyProviderName=\"\(provider.apiKeyProviderName)\" "
+                + "implies exclusive=\(expectedExclusive)"
+            )
+        }
+    }
+
+    /// Verifies that shared-key providers cannot be reset through the STT
+    /// card — the `sttKeyIsExclusive` guard prevents `clearSTTKey` from
+    /// being called for providers whose key is shared with another service.
+    func testSharedKeyProviderCannotBeResetThroughSTTFlow() {
+        // Simulate what the UI does: check sttKeyIsExclusive before
+        // allowing the reset action. For openai-whisper, the guard
+        // must prevent the reset.
+        let allowReset = SettingsStore.sttKeyIsExclusive(for: "openai-whisper")
+        XCTAssertFalse(
+            allowReset,
+            "The STT reset flow must not be allowed for shared-key providers"
+        )
+    }
+
+    /// Verifies that exclusive-key providers can be reset through the STT
+    /// card without affecting other services.
+    func testExclusiveKeyProviderCanBeResetSafely() {
+        let allowReset = SettingsStore.sttKeyIsExclusive(for: "deepgram")
+        XCTAssertTrue(
+            allowReset,
+            "The STT reset flow should be allowed for exclusive-key providers"
+        )
+    }
 }
