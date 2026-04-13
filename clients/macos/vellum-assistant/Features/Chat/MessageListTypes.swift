@@ -17,6 +17,18 @@ extension EnvironmentValues {
     }
 }
 
+// MARK: - Last User Message Height Preference
+
+/// Reports the rendered height of the last user message cell so the
+/// assistant message's minHeight can be computed dynamically.
+struct LastUserMessageHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        let next = nextValue()
+        if next > 0 { value = next }
+    }
+}
+
 // MARK: - Precomputed Cache Key
 
 /// Lightweight key that captures all inputs to `precomputedState`.

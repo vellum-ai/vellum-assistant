@@ -137,11 +137,22 @@ extension MessageListView {
         if let lastId = paginatedVisibleMessages.last?.id {
             scrollState.lastMessageId = lastId
         }
-        // --- Scroll user message to top on send ---
-        if let targetId = scrollState.pendingSendScrollMessageId,
-           paginatedVisibleMessages.contains(where: { $0.id == targetId }) {
-            scrollPosition = ScrollPosition(id: targetId, anchor: .top)
+        // --- Scroll to bottom on send ---
+        // After the user message appears and the thinking indicator shows,
+        // scroll to bottom. The thinking indicator's minHeight wrapper
+        // naturally pins the user message to the top of the viewport.
+        // Deferred by one run-loop tick so SwiftUI lays out the new cell
+        // before the scroll fires — otherwise the scroll targets the old
+        // content bottom and the user message appears off-screen.
+        if scrollState.pendingSendScrollMessageId != nil,
+           paginatedVisibleMessages.contains(where: { $0.id == scrollState.pendingSendScrollMessageId }) {
+            let scrollBinding = $scrollPosition
             scrollState.pendingSendScrollMessageId = nil
+            Task { @MainActor in
+                withAnimation(VAnimation.standard) {
+                    scrollBinding.wrappedValue.scrollTo(edge: .bottom)
+                }
+            }
         }
         // --- Confirmation focus handoff ---
         #if os(macOS)

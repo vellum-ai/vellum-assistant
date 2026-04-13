@@ -172,13 +172,32 @@ struct MessageListContentView: View, Equatable {
             }
 
             let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
-            // Min height for the active assistant turn — ensures the user message
-            // can reach the top of the viewport when content is short.
-            // viewportHeight is initialized to .infinity until the scroll view lays
-            // out; guard against non-finite values so we never pass NaN/∞ into
-            // .frame(minHeight:), which trips _NSViewValidateGeometry in AppKit.
+            // Min height for the assistant message — ensures the user message
+            // stays visible at the top of the viewport after scroll-to-bottom.
+            // Estimate user message cell height: text height (via boundingRect
+            // for word-wrap accuracy) + 80pt cell overhead (bubble padding,
+            // timestamp, VStack spacing, outer margins).
+            // Capped at 200pt (user messages collapse at 150pt content).
+            let estimatedUserHeight: CGFloat = {
+                guard let lastUser = state.rows.last(where: { $0.message.role == .user }) else {
+                    return 150
+                }
+                let text = lastUser.message.text as NSString
+                let contentWidth = max(layoutMetrics.bubbleMaxWidth - 2 * VSpacing.lg, 0)
+                let font = NSFont.systemFont(ofSize: 14, weight: .regular)
+                let textRect = text.boundingRect(
+                    with: NSSize(width: contentWidth, height: .greatestFiniteMagnitude),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    attributes: [.font: font]
+                )
+                let textHeight = ceil(textRect.height)
+                // 80pt covers: bubble padding (24pt), timestamp row (~24pt),
+                // outer VStack spacing (8pt), and cell margins/gaps (~24pt).
+                return min(textHeight + 80, 200)
+            }()
+            let layoutOverhead: CGFloat = VSpacing.md * 3 + 1
             let turnMinHeight: CGFloat = scrollState.viewportHeight.isFinite
-                ? max(0, scrollState.viewportHeight - 150)
+                ? max(0, scrollState.viewportHeight - estimatedUserHeight - layoutOverhead)
                 : 0
             // Track whether the minHeight wrapper is applied so
             // executeScrollToBottom can target the content-bottom marker.
