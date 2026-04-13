@@ -179,59 +179,73 @@ struct MessageListContentView: View, Equatable {
                 ? "Waking up..."
                 : (state.effectiveStatusText ?? "Thinking")
             ForEach(state.rows) { row in
-                // Only pass activePendingRequestId to cells that could use it:
-                // confirmation bubbles need it for keyboard focus, tool-call messages
-                // need it for inline confirmation rendering in AssistantProgressView.
-                // Text-only cells get nil, so they won't fail == when the ID changes.
-                let cellActivePendingRequestId: String? =
-                    (row.message.confirmation != nil || !row.message.toolCalls.isEmpty)
-                    ? state.activePendingRequestId : nil
-                MessageCellView(
-                    message: row.message,
-                    showTimestamp: row.showTimestamp,
-                    nextDecidedConfirmation: row.decidedConfirmation,
-                    isConfirmationRenderedInline: row.isConfirmationRenderedInline,
-                    hasPrecedingAssistant: row.hasPrecedingAssistant,
-                    activePendingRequestId: cellActivePendingRequestId,
-                    subagentsByParent: state.subagentsByParent,
-                    isLatestAssistantMessage: row.isLatestAssistant,
-                    typographyGeneration: typographyGeneration,
-                    isProcessingAfterTools: state.canInlineProcessing && row.isLatestAssistant,
-                    processingStatusText: state.canInlineProcessing && row.isLatestAssistant ? state.effectiveStatusText : nil,
-                    hideInlineAvatar: row.isLatestAssistant && isUnanchoredThinking,
-                    showAnchoredThinkingIndicator: row.isAnchoredThinkingRow,
-                    anchoredThinkingLabel: row.isAnchoredThinkingRow ? thinkingLabel : "",
-                    dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
-                    activeSurfaceId: activeSurfaceId,
-                    isHighlighted: row.isHighlighted,
-                    mediaEmbedSettings: mediaEmbedSettings,
-                    onConfirmationAllow: onConfirmationAllow,
-                    onConfirmationDeny: onConfirmationDeny,
-                    onAlwaysAllow: onAlwaysAllow,
-                    onTemporaryAllow: onTemporaryAllow,
-                    onGuardianAction: onGuardianAction,
-                    onSurfaceAction: onSurfaceAction,
-                    onDismissDocumentWidget: onDismissDocumentWidget,
-                    onForkFromMessage: onForkFromMessage,
-                    showInspectButton: showInspectButton,
-                    isTTSEnabled: isTTSEnabled,
-                    onInspectMessage: onInspectMessage,
-                    onRehydrateMessage: onRehydrateMessage,
-                    onSurfaceRefetch: onSurfaceRefetch,
-                    onRetryFailedMessage: onRetryFailedMessage,
-                    onRetryConversationError: onRetryConversationError,
-                    onAbortSubagent: onAbortSubagent,
-                    onSubagentTap: onSubagentTap,
-                    subagentDetailStore: subagentDetailStore,
-                    selectedModel: selectedModel,
-                    configuredProviders: configuredProviders,
-                    providerCatalog: providerCatalog,
-                    providerCatalogHash: providerCatalogHash
-                )
-                .equatable()
-                // Latest assistant message: wrap in VStack with minHeight so user
-                // message sits at top. Persists until the user sends a new message
-                // (at which point the assistant message is no longer the last row).
+                Group {
+                    if row.isThinkingPlaceholder {
+                        VStack(alignment: .leading, spacing: VSpacing.md) {
+                            if isCompacting {
+                                compactingIndicatorRow()
+                            } else {
+                                thinkingIndicatorRow(hasUserMessage: state.hasUserMessage)
+                            }
+                            thinkingAvatarRow
+                        }
+                    } else {
+                        // Only pass activePendingRequestId to cells that could use it:
+                        // confirmation bubbles need it for keyboard focus, tool-call messages
+                        // need it for inline confirmation rendering in AssistantProgressView.
+                        // Text-only cells get nil, so they won't fail == when the ID changes.
+                        let cellActivePendingRequestId: String? =
+                            (row.message.confirmation != nil || !row.message.toolCalls.isEmpty)
+                            ? state.activePendingRequestId : nil
+                        MessageCellView(
+                            message: row.message,
+                            showTimestamp: row.showTimestamp,
+                            nextDecidedConfirmation: row.decidedConfirmation,
+                            isConfirmationRenderedInline: row.isConfirmationRenderedInline,
+                            hasPrecedingAssistant: row.hasPrecedingAssistant,
+                            activePendingRequestId: cellActivePendingRequestId,
+                            subagentsByParent: state.subagentsByParent,
+                            isLatestAssistantMessage: row.isLatestAssistant,
+                            typographyGeneration: typographyGeneration,
+                            isProcessingAfterTools: state.canInlineProcessing && row.isLatestAssistant,
+                            processingStatusText: state.canInlineProcessing && row.isLatestAssistant ? state.effectiveStatusText : nil,
+                            hideInlineAvatar: row.isLatestAssistant && isUnanchoredThinking,
+                            showAnchoredThinkingIndicator: row.isAnchoredThinkingRow,
+                            anchoredThinkingLabel: row.isAnchoredThinkingRow ? thinkingLabel : "",
+                            dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
+                            activeSurfaceId: activeSurfaceId,
+                            isHighlighted: row.isHighlighted,
+                            mediaEmbedSettings: mediaEmbedSettings,
+                            onConfirmationAllow: onConfirmationAllow,
+                            onConfirmationDeny: onConfirmationDeny,
+                            onAlwaysAllow: onAlwaysAllow,
+                            onTemporaryAllow: onTemporaryAllow,
+                            onGuardianAction: onGuardianAction,
+                            onSurfaceAction: onSurfaceAction,
+                            onDismissDocumentWidget: onDismissDocumentWidget,
+                            onForkFromMessage: onForkFromMessage,
+                            showInspectButton: showInspectButton,
+                            isTTSEnabled: isTTSEnabled,
+                            onInspectMessage: onInspectMessage,
+                            onRehydrateMessage: onRehydrateMessage,
+                            onSurfaceRefetch: onSurfaceRefetch,
+                            onRetryFailedMessage: onRetryFailedMessage,
+                            onRetryConversationError: onRetryConversationError,
+                            onAbortSubagent: onAbortSubagent,
+                            onSubagentTap: onSubagentTap,
+                            subagentDetailStore: subagentDetailStore,
+                            selectedModel: selectedModel,
+                            configuredProviders: configuredProviders,
+                            providerCatalog: providerCatalog,
+                            providerCatalogHash: providerCatalogHash
+                        )
+                        .equatable()
+                    }
+                }
+                // Latest assistant message (or thinking placeholder): wrap in
+                // VStack with minHeight so user message sits at top. The same
+                // wrapper applies to both the placeholder and the real assistant
+                // message, eliminating layout jump on transition.
                 .if(row.isLatestAssistant && row.message.id == state.rows.last?.message.id) { view in
                     VStack(spacing: 0) {
                         view
@@ -257,17 +271,7 @@ struct MessageListContentView: View, Equatable {
                     .transition(.opacity)
             }
 
-            if isUnanchoredThinking {
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    if isCompacting {
-                        compactingIndicatorRow()
-                    } else {
-                        thinkingIndicatorRow(hasUserMessage: state.hasUserMessage)
-                    }
-                    thinkingAvatarRow
-                }
-                .frame(minHeight: turnMinHeight, alignment: .top)
-            } else if state.isStreamingWithoutText && !state.canInlineProcessing {
+            if state.isStreamingWithoutText && !state.canInlineProcessing {
                 VStack(spacing: 0) {
                     HStack {
                         TypingIndicatorView()
