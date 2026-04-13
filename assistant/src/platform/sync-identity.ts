@@ -67,10 +67,16 @@ async function doSync(name: string, requestSeq: number): Promise<void> {
     if (name === lastSyncedName) return;
 
     const client = await VellumPlatformClient.create();
-    if (!client) return;
+    if (!client) {
+      clearRequestedIfLatest(requestSeq);
+      return;
+    }
 
     const assistantId = client.platformAssistantId;
-    if (!assistantId) return;
+    if (!assistantId) {
+      clearRequestedIfLatest(requestSeq);
+      return;
+    }
 
     const resp = await client.fetch(
       `/v1/assistants/${encodeURIComponent(assistantId)}/`,
@@ -90,6 +96,7 @@ async function doSync(name: string, requestSeq: number): Promise<void> {
       }
       log.info({ name, assistantId }, "Synced assistant name to platform");
     } else {
+      clearRequestedIfLatest(requestSeq);
       const text = await resp.text();
       log.warn(
         { status: resp.status, body: text, assistantId },
@@ -97,7 +104,18 @@ async function doSync(name: string, requestSeq: number): Promise<void> {
       );
     }
   } catch (err) {
+    clearRequestedIfLatest(requestSeq);
     log.warn({ err }, "Error syncing assistant name to platform");
+  }
+}
+
+/**
+ * Reset `lastRequestedName` when the latest request failed, so that the
+ * next call with the same name is allowed through instead of being deduped.
+ */
+function clearRequestedIfLatest(requestSeq: number): void {
+  if (requestSeq === seq) {
+    lastRequestedName = lastSyncedName;
   }
 }
 
