@@ -64,34 +64,41 @@ bun run build
 chmod +x dist/index.js
 ```
 
-2. Find your extension ID in `chrome://extensions`.
-3. Add that ID to `meta/browser-extension/chrome-extension-allowlist.json`.
-4. Install the Chrome native messaging manifest:
+2. Find your extension ID in `chrome://extensions` and export it. Chrome assigns this ID the first time you **Load unpacked**, so the snippet below needs it as an env var:
 
 ```bash
-mkdir -p "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
-NODE_BIN="$(command -v node)"
-if [ -z "$NODE_BIN" ]; then
-  echo "node not found on PATH"
-  exit 1
-fi
-cat > "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.vellum.daemon.sh" <<'BASH'
-#!/bin/bash
-exec "__NODE_BIN__" "/ABSOLUTE/PATH/TO/clients/chrome-extension/native-host/dist/index.js" "$@"
-BASH
-sed -i '' "s|__NODE_BIN__|$NODE_BIN|g" "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.vellum.daemon.sh"
-chmod 755 "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.vellum.daemon.sh"
+export EXTENSION_ID=<id from chrome://extensions>
+```
 
-cat > "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.vellum.daemon.json" <<'JSON'
+3. Add that ID to `meta/browser-extension/chrome-extension-allowlist.json`.
+4. Install the Chrome native messaging manifest. **Run this from the same `native-host/` directory as step 1** — the snippet reads `$(pwd)/dist/index.js`:
+
+```bash
+NATIVE_HOST_JS="$(pwd)/dist/index.js"
+NODE_BIN="$(command -v node)"
+NATIVE_HOSTS_DIR="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
+
+if [ -z "$NODE_BIN" ]; then echo "node not found on PATH" >&2; exit 1; fi
+if [ -z "$EXTENSION_ID" ]; then echo "Set EXTENSION_ID=<id from chrome://extensions> first" >&2; exit 1; fi
+
+mkdir -p "$NATIVE_HOSTS_DIR"
+
+cat > "$NATIVE_HOSTS_DIR/com.vellum.daemon.sh" <<BASH
+#!/bin/bash
+exec "$NODE_BIN" "$NATIVE_HOST_JS" "\$@"
+BASH
+chmod 755 "$NATIVE_HOSTS_DIR/com.vellum.daemon.sh"
+
+cat > "$NATIVE_HOSTS_DIR/com.vellum.daemon.json" <<JSON
 {
   "name": "com.vellum.daemon",
   "description": "Vellum assistant native messaging host",
-  "path": "/Users/<you>/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.vellum.daemon.sh",
+  "path": "$NATIVE_HOSTS_DIR/com.vellum.daemon.sh",
   "type": "stdio",
-  "allowed_origins": ["chrome-extension://YOUR_EXTENSION_ID/"]
+  "allowed_origins": ["chrome-extension://$EXTENSION_ID/"]
 }
 JSON
-chmod 644 "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.vellum.daemon.json"
+chmod 644 "$NATIVE_HOSTS_DIR/com.vellum.daemon.json"
 ```
 
 > Chrome launches native hosts with a minimal environment, so `#!/usr/bin/env node` often fails. Use a wrapper script with an absolute Node path instead.
@@ -116,6 +123,27 @@ chmod 644 "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/
 | `failed to reach assistant at http://127.0.0.1:<port>/...` | Assistant not running, wrong port, or firewall blocking. |
 | `Automatic cloud sign-in failed` | Use "Re-sign in" in the popup's Troubleshooting section, then click Connect. |
 | `Automatic local pairing failed` | Use "Re-pair" in the popup's Troubleshooting section, then click Connect. |
+
+### Non-default Chrome profile (`--user-data-dir`)
+
+If Chrome is launched with a non-default `--user-data-dir` (common for debugging profiles or Chrome-in-Chrome setups), the native messaging host manifest must also be installed under that profile, not only at the default `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/`. Chrome searches its active user-data-dir as well, and the default-path fallback is unreliable for non-default profiles.
+
+Check which profile Chrome is using:
+
+```bash
+ps aux | grep "Google Chrome" | grep -- --user-data-dir
+```
+
+If the flag is present, copy the manifest and wrapper into `<user-data-dir>/NativeMessagingHosts/`:
+
+```bash
+USER_DATA_DIR="<path from ps output>"
+mkdir -p "$USER_DATA_DIR/NativeMessagingHosts"
+cp "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.vellum.daemon."* \
+  "$USER_DATA_DIR/NativeMessagingHosts/"
+```
+
+Then fully quit and relaunch Chrome.
 
 ### Useful checks
 
