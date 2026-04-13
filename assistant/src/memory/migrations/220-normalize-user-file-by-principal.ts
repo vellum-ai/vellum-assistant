@@ -11,6 +11,31 @@ export function downNormalizeUserFileByPrincipal(_database: DrizzleDb): void {
 }
 
 /**
+ * Heuristic: does `userFile` look like an auto-incremented persona slug?
+ *
+ * `generateUserFileSlug` appends `-<N>.md` where N is any positive integer
+ * (the loop is unbounded, so a very dense principal space could reach 4+
+ * digits). Matching is anchored to the end so a slug that happens to contain
+ * digits earlier (e.g. `alex-2024.md` for display name "Alex 2024") is not
+ * affected.
+ *
+ * The final-integer suffix also matches year-like or date-like names
+ * (`-2025.md`, `-2025-04-13.md` via the trailing `-13.md`). Those must NOT
+ * be classified as auto-increments, so we exclude any filename that ends
+ * with a date-shaped tail: `-YYYY.md`, `-YYYY-MM.md`, or `-YYYY-MM-DD.md`
+ * where YYYY is a 4-digit year starting with 19, 20, or 21. A counter that
+ * happens to fall in that range (e.g. `-1999.md`) is indistinguishable from
+ * a year by filename alone, so we conservatively treat it as non-auto.
+ */
+const DATE_LIKE_SUFFIX = /-(19|20|21)\d{2}(-\d{1,2}){0,2}\.md$/;
+const INTEGER_SUFFIX = /-\d+\.md$/;
+
+export function isAutoIncrementedUserFile(userFile: string): boolean {
+  if (DATE_LIKE_SUFFIX.test(userFile)) return false;
+  return INTEGER_SUFFIX.test(userFile);
+}
+
+/**
  * Normalize `contacts.user_file` across contact rows that share the same
  * `principal_id`.
  *
@@ -26,11 +51,8 @@ export function downNormalizeUserFileByPrincipal(_database: DrizzleDb): void {
  * This migration picks one canonical `user_file` per principal and updates
  * every sibling row to match. Selection heuristic:
  *
- *   1. Prefer values that do NOT look auto-incremented. Auto-increment tails
- *      are `-<N>.md` where N is 1–3 digits (matches `generateUserFileSlug`'s
- *      counter). Matching is anchored to the end of the filename so a slug
- *      that happens to contain a numeric segment (e.g. `alex-2024.md` — a
- *      display name with a year) is NOT classified as auto-incremented.
+ *   1. Prefer values that do NOT look auto-incremented (see
+ *      `isAutoIncrementedUserFile`).
  *   2. Among those, prefer the oldest contact row (earliest `created_at`).
  *   3. Ties broken by `id` for determinism.
  *
@@ -82,20 +104,14 @@ export function migrateNormalizeUserFileByPrincipal(
           )
           .all() as Array<{ principal_id: string }>;
 
-        const selectCanonical = raw.prepare(
+        // Fetch all non-null candidates and rank in JS. The auto-increment
+        // classification is a regex that SQLite's GLOB can't express cleanly
+        // (unbounded digit count, date-pattern exclusion), and keeping the
+        // logic in one place avoids SQL/JS drift.
+        const selectCandidates = raw.prepare(
           /*sql*/ `
-          SELECT user_file FROM contacts
+          SELECT user_file, created_at, id FROM contacts
           WHERE principal_id = ? AND user_file IS NOT NULL
-          ORDER BY
-            CASE
-              WHEN user_file GLOB '*-[0-9].md'
-                OR user_file GLOB '*-[0-9][0-9].md'
-                OR user_file GLOB '*-[0-9][0-9][0-9].md'
-              THEN 1 ELSE 0
-            END,
-            created_at ASC,
-            id ASC
-          LIMIT 1
           `,
         );
 
@@ -109,15 +125,28 @@ export function migrateNormalizeUserFileByPrincipal(
         );
 
         for (const { principal_id } of principals) {
-          const canonical = selectCanonical.get(principal_id) as {
+          const candidates = selectCandidates.all(principal_id) as Array<{
             user_file: string;
-          } | null;
-          if (!canonical?.user_file) continue;
+            created_at: number;
+            id: string;
+          }>;
+          if (candidates.length === 0) continue;
+
+          candidates.sort((a, b) => {
+            const aAuto = isAutoIncrementedUserFile(a.user_file) ? 1 : 0;
+            const bAuto = isAutoIncrementedUserFile(b.user_file) ? 1 : 0;
+            if (aAuto !== bAuto) return aAuto - bAuto;
+            if (a.created_at !== b.created_at)
+              return a.created_at - b.created_at;
+            return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+          });
+
+          const canonical = candidates[0]!.user_file;
           updateSiblings.run(
-            canonical.user_file,
+            canonical,
             Date.now(),
             principal_id,
-            canonical.user_file,
+            canonical,
           );
         }
 

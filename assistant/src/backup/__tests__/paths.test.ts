@@ -275,4 +275,26 @@ describe("parseBackupTimestamp", () => {
   test("returns null for Feb 29 in a non-leap year", () => {
     expect(parseBackupTimestamp("backup-20260229-000000.vbundle")).toBeNull();
   });
+
+  test("accepts filenames with a hex collision suffix after milliseconds", () => {
+    const parsed = parseBackupTimestamp(
+      "backup-20260411-153045-123-abcdef.vbundle",
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed!.toISOString()).toBe("2026-04-11T15:30:45.123Z");
+  });
+
+  test("accepts encrypted filenames with a hex collision suffix", () => {
+    const parsed = parseBackupTimestamp(
+      "backup-20260411-153045-123-0a1b2c.vbundle.enc",
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed!.toISOString()).toBe("2026-04-11T15:30:45.123Z");
+  });
+
+  test("rejects non-hex collision suffixes", () => {
+    expect(
+      parseBackupTimestamp("backup-20260411-153045-123-XYZ123.vbundle"),
+    ).toBeNull();
+  });
 });

@@ -344,6 +344,9 @@ extension AppDelegate {
                   event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else {
                 return event
             }
+            guard self?.canMarkCurrentConversationUnread() == true else {
+                return event
+            }
             Task { @MainActor in
                 self?.markCurrentConversationUnread()
             }

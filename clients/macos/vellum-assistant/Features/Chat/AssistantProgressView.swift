@@ -665,7 +665,7 @@ private struct StepDetailRow: View {
         guard let result = toolCall.result, !result.isEmpty else { return nil }
         let key = Self.coloredOutputCacheKey(
             toolCallID: toolCall.id.uuidString,
-            resultCount: result.utf8.count,
+            result: result,
             isError: toolCall.isError
         )
         if let cached = Self.coloredOutputCache.object(forKey: key) {
@@ -953,10 +953,18 @@ private struct StepDetailRow: View {
 
     private static func coloredOutputCacheKey(
         toolCallID: String,
-        resultCount: Int,
+        result: String,
         isError: Bool
     ) -> NSString {
-        return "\(toolCallID)|\(resultCount)|\(isError ? "err" : "ok")" as NSString
+        // Cheap content fingerprint: length + prefix + suffix + per-process hash.
+        // Ensures the key changes when `result` is overwritten in place with
+        // different text of the same byte count (replay / correction / rehydration
+        // paths all mutate toolCalls[...].result).
+        let count = result.utf8.count
+        let prefix = result.prefix(16)
+        let suffix = result.suffix(16)
+        let hash = result.hashValue
+        return "\(toolCallID)|\(count)|\(isError ? "err" : "ok")|\(prefix)|\(suffix)|\(hash)" as NSString
     }
 
     private func coloredOutput(_ result: String, isError: Bool) -> AttributedString {

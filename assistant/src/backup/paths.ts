@@ -158,11 +158,13 @@ export function formatBackupFilename(
 }
 
 // Matches `backup-YYYYMMDD-HHMMSS` with an optional `-SSS` milliseconds
-// segment (legacy backups written before ms precision was added omit it),
-// followed by `.vbundle` or `.vbundle.enc`. Kept as a module-level constant so
-// repeated parsing doesn't rebuild the RegExp.
+// segment (legacy backups written before ms precision was added omit it) and
+// an optional `-<hex>` collision suffix that `writeLocalSnapshot` appends when
+// the canonical name is already taken. Followed by `.vbundle` or
+// `.vbundle.enc`. Kept as a module-level constant so repeated parsing doesn't
+// rebuild the RegExp.
 const BACKUP_FILENAME_RE =
-  /^backup-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})(?:-(\d{3}))?\.vbundle(?:\.enc)?$/;
+  /^backup-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})(?:-(\d{3})(?:-[0-9a-f]+)?)?\.vbundle(?:\.enc)?$/;
 
 /**
  * Inverse of `formatBackupFilename`. Parses a backup filename (with either
