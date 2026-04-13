@@ -15,6 +15,9 @@ public final class SkillsStore: ObservableObject {
     @Published public var loadedBodies: [String: String] = [:]
     @Published public var isLoading = false
 
+    @Published public var categoryCounts: [String: Int] = [:]
+    @Published public var totalCount: Int = 0
+
     @Published public var searchResults: [SkillInfo] = []
     @Published public var isSearching = false
 
@@ -115,15 +118,17 @@ public final class SkillsStore: ObservableObject {
 
     // MARK: - Fetch Skills
 
-    public func fetchSkills(force: Bool = false) {
+    public func fetchSkills(force: Bool = false, origin: String? = nil, kind: String? = nil, query: String? = nil, category: String? = nil) {
         guard !isLoading else { return }
         if !force && !skills.isEmpty { return }
         isLoading = true
 
         Task {
-            let response = await skillsClient.fetchSkillsList(includeCatalog: true)
+            let response = await skillsClient.fetchSkillsList(includeCatalog: true, origin: origin, kind: kind, query: query, category: category)
             if let response {
                 skills = response.skills
+                categoryCounts = response.categoryCounts ?? [:]
+                totalCount = response.totalCount ?? response.skills.count
             }
             isLoading = false
         }
