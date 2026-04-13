@@ -27,7 +27,7 @@ struct TierBadgeView: View {
             pill
             if isExpanded, let hint = tier.nextTierHint {
                 Text(hint)
-                    .font(.system(size: 12, weight: .regular))
+                    .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 4)
@@ -36,15 +36,13 @@ struct TierBadgeView: View {
                     )
             }
         }
-        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isExpanded)
+        .animation(VAnimation.panel, value: isExpanded)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("Relationship tier"))
         .accessibilityValue(Text(accessibilityValue))
         .accessibilityHint(hasHint ? Text("Reveals the hint for the next tier") : Text(""))
         .accessibilityAddTraits(hasHint ? .isButton : [])
-        .accessibilityAction(named: Text(isExpanded ? "Collapse" : "Expand")) {
-            toggle()
-        }
+        .modifier(ExpandActionModifier(isExpanded: isExpanded, enabled: hasHint, action: toggle))
     }
 
     private var accessibilityValue: String {
@@ -58,7 +56,7 @@ struct TierBadgeView: View {
         Button(action: toggle) {
             HStack(spacing: 6) {
                 Text(tier.label)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(VFont.bodySmallEmphasised)
                     .foregroundStyle(VColor.contentDefault)
                 if hasHint {
                     VIconView(.chevronDown, size: 9)
@@ -83,8 +81,25 @@ struct TierBadgeView: View {
 
     private func toggle() {
         guard hasHint else { return }
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        withAnimation(VAnimation.panel) {
             isExpanded.toggle()
+        }
+    }
+}
+
+/// Conditionally attaches an expand/collapse accessibility action only when the
+/// badge actually has a hint to disclose. Tier 4 (`.inSync`) gets no action,
+/// matching disabled-control semantics for VoiceOver users.
+private struct ExpandActionModifier: ViewModifier {
+    let isExpanded: Bool
+    let enabled: Bool
+    let action: () -> Void
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.accessibilityAction(named: Text(isExpanded ? "Collapse" : "Expand"), action)
+        } else {
+            content
         }
     }
 }
