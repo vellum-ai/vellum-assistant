@@ -20,6 +20,7 @@ import {
 import {
   addActiveRelease,
   getActiveReleases,
+  getCompletedReleases,
   isReleaseCompleted,
   markReleasesCompleted,
   setActiveReleases,
@@ -67,13 +68,15 @@ function atomicWriteFileSync(filePath: string, content: string): void {
 /**
  * Materializes the current release's update bulletin on startup.
  *
- * First checks for deletion-completion: if the workspace UPDATES.md was
- * deleted while releases were active, those releases are marked completed
- * (the assistant signals "done" by deleting the file).
+ * First checks for dismissal: if the workspace UPDATES.md was deleted or
+ * emptied after we'd previously materialized it, that's an explicit signal
+ * (from the user or the assistant) that the current release has been handled.
+ * Mark any active releases plus the current release as completed and return
+ * without recreating the file.
  *
- * Then reads the bundled UPDATES.md template, strips comment lines, and
- * appends a release block to the workspace UPDATES.md if one doesn't
- * already exist for this version. Skips completed releases entirely.
+ * Otherwise reads the bundled UPDATES.md template, strips comment lines, and
+ * appends a release block to the workspace UPDATES.md if one doesn't already
+ * exist for this version. Skips completed releases entirely.
  */
 export function syncUpdateBulletinOnStartup(): void {
   if (!getConfig().updates.enabled) return;
@@ -81,13 +84,25 @@ export function syncUpdateBulletinOnStartup(): void {
   const currentReleaseId = APP_VERSION;
   const workspacePath = getWorkspacePromptPath("UPDATES.md");
 
-  // --- Deletion completion ---
-  // If UPDATES.md was deleted and there are active releases, the assistant
-  // has signaled it is done with those updates. Mark them completed.
+  // --- Dismissal detection ---
+  // If UPDATES.md is missing or empty AND we've materialized it at least
+  // once before (i.e. there's prior release state), treat it as a dismissal:
+  // mark the active set plus the current release completed and stop. The
+  // "has ever materialized" guard preserves fresh-install semantics — on a
+  // brand-new DB we want to create the file, not treat its absence as
+  // dismissal of the current release.
   const activeReleases = getActiveReleases();
-  if (!existsSync(workspacePath) && activeReleases.length > 0) {
-    markReleasesCompleted(activeReleases);
+  const fileMissing = !existsSync(workspacePath);
+  const fileEmpty =
+    !fileMissing &&
+    readFileSync(workspacePath, "utf-8").trim().length === 0;
+  const hasEverMaterialized =
+    activeReleases.length > 0 || getCompletedReleases().length > 0;
+
+  if ((fileMissing || fileEmpty) && hasEverMaterialized) {
+    markReleasesCompleted([...activeReleases, currentReleaseId]);
     setActiveReleases([]);
+    return;
   }
 
   // --- Template materialization ---
