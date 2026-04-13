@@ -377,6 +377,12 @@ struct TeleportSection: View {
         let platformAssistant: PlatformAssistant
         switch hatchResult {
         case .reusedExisting(let assistant):
+            // Save to lockfile so the user can retire via the app’s UI
+            _ = LockfileAssistant.ensureManagedEntry(
+                assistantId: assistant.id,
+                runtimeUrl: VellumEnvironment.resolvedPlatformURL,
+                hatchedAt: assistant.created_at ?? Date().iso8601String
+            )
             throw TeleportError.existingPlatformAssistant(id: assistant.id)
         case .createdNew(let assistant):
             platformAssistant = assistant
@@ -516,6 +522,12 @@ struct TeleportSection: View {
         let platformAssistant: PlatformAssistant
         switch hatchResult {
         case .reusedExisting(let assistant):
+            // Save to lockfile so the user can retire via the app's UI
+            _ = LockfileAssistant.ensureManagedEntry(
+                assistantId: assistant.id,
+                runtimeUrl: VellumEnvironment.resolvedPlatformURL,
+                hatchedAt: assistant.created_at ?? Date().iso8601String
+            )
             throw TeleportError.existingPlatformAssistant(id: assistant.id)
         case .createdNew(let assistant):
             platformAssistant = assistant
