@@ -275,34 +275,31 @@ export async function injectCredentialsIntoAssistant(
   const inject = (name: string, value: string) =>
     injectGatewayCredential(params.gatewayUrl, name, value, params.bearerToken);
 
-  const results: boolean[] = [];
+  const promises: Promise<boolean>[] = [];
 
   if (params.assistantApiKey) {
-    results.push(
-      await inject("vellum:assistant_api_key", params.assistantApiKey),
-    );
+    promises.push(inject("vellum:assistant_api_key", params.assistantApiKey));
   }
 
-  results.push(
-    await inject("vellum:platform_assistant_id", params.platformAssistantId),
+  promises.push(
+    inject("vellum:platform_assistant_id", params.platformAssistantId),
   );
 
-  results.push(
-    await inject("vellum:platform_base_url", params.platformBaseUrl),
-  );
+  promises.push(inject("vellum:platform_base_url", params.platformBaseUrl));
 
-  results.push(
-    await inject("vellum:platform_organization_id", params.organizationId),
+  promises.push(
+    inject("vellum:platform_organization_id", params.organizationId),
   );
 
   if (params.userId) {
-    results.push(await inject("vellum:platform_user_id", params.userId));
+    promises.push(inject("vellum:platform_user_id", params.userId));
   }
 
   if (params.webhookSecret) {
-    results.push(await inject("vellum:webhook_secret", params.webhookSecret));
+    promises.push(inject("vellum:webhook_secret", params.webhookSecret));
   }
 
+  const results = await Promise.all(promises);
   return results.every(Boolean);
 }
 
