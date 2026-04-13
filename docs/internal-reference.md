@@ -30,6 +30,13 @@ Detailed reference documentation for the Vellum Assistant platform. For an overv
   - [Cutover Steps](#cutover-steps)
   - [Rollback Plan](#rollback-plan)
   - [Verification](#verification)
+- [**Conversation STT Streaming Operator Runbook**](#conversation-stt-streaming-operator-runbook)
+  - [Architecture Summary](#architecture-summary)
+  - [Debugging Stream Sessions](#debugging-stream-sessions)
+  - [Log Anchors](#log-anchors)
+  - [Expected Event Sequences](#expected-event-sequences)
+  - [Common Failure Scenarios](#common-failure-scenarios)
+  - [Rollout Validation Checklist](#rollout-validation-checklist)
 
 ## Getting Started
 
@@ -700,3 +707,220 @@ After cutover, verify:
 - [ ] No `<ConversationRelay>` elements appear in TwiML responses.
 - [ ] The media-stream WebSocket connection appears in gateway logs.
 - [ ] Existing `calls.voice.transcriptionProvider` config value is still readable (for rollback).
+
+---
+
+## Conversation STT Streaming Operator Runbook
+
+This runbook covers debugging and validating real-time STT streaming for conversation chat message capture on macOS and iOS. The streaming path uses a WebSocket session from the native client through the gateway to the daemon, where a provider-specific streaming adapter transcribes audio in real time.
+
+For full architectural details, see the "Conversation streaming boundary" section in [`assistant/ARCHITECTURE.md`](../assistant/ARCHITECTURE.md).
+
+### Architecture Summary
+
+```
+macOS/iOS Client                     Gateway                              Daemon (Runtime)
+─────────────────                    ───────                              ────────────────
+STTStreamingClient  ──WSS──>  stt-stream-websocket.ts  ──WS──>  http-server.ts /v1/stt/stream
+  (URLSessionWebSocketTask)    (edge JWT auth → service token)     (SttStreamSession)
+                                                                        │
+                                                            resolveStreamingTranscriber()
+                                                                        │
+                                                         ┌──────────────┴──────────────┐
+                                                         │                             │
+                                                  DeepgramRealtime          GoogleGeminiStreaming
+                                                  Transcriber               Transcriber
+                                                  (realtime-ws)             (incremental-batch)
+                                                         │                             │
+                                                  WSS to Deepgram           HTTP polling to
+                                                  /v1/listen                Gemini API
+```
+
+**Provider support matrix:**
+
+| Provider        | `conversationStreamingMode` | Streaming adapter | Batch fallback |
+| --------------- | --------------------------- | ----------------- | -------------- |
+| `deepgram`      | `realtime-ws`               | Yes               | Yes            |
+| `google-gemini` | `incremental-batch`         | Yes               | Yes            |
+| `openai-whisper` | `none`                     | No (batch only)   | Yes            |
+
+### Debugging Stream Sessions
+
+#### 1. Verify provider supports streaming
+
+Check the configured STT provider in the assistant's config (`services.stt.provider`). Only `deepgram` and `google-gemini` support conversation streaming. If `openai-whisper` is configured, streaming sessions will not be attempted by the client (the client checks `STTProviderRegistry.isStreamingAvailable` before opening a WebSocket).
+
+#### 2. Verify credentials are configured
+
+The daemon resolves credentials via `resolveStreamingTranscriber()` in `src/providers/speech-to-text/resolve.ts`. If the API key for the configured provider is not set, the function returns `null` and the session emits an `error` event with category `provider-error` followed by `closed`.
+
+To validate credentials without starting a session, call `resolveConversationStreamingSttCapability()` from the same module. It returns a discriminated union with `status: "supported"`, `"unsupported"`, `"unconfigured"`, or `"missing-credentials"`.
+
+#### 3. Check gateway logs for upstream connection
+
+The gateway proxy (`stt-stream-websocket.ts`) logs:
+
+- **On downstream connect:** `"Opening upstream STT stream WS to runtime"` with `provider`, `mimeType`, `sampleRate` fields (token redacted).
+- **On upstream open:** `"Upstream STT stream WS connected"` with `provider` field.
+- **On upstream close:** `"Upstream STT stream WS closed"` with `code` and `provider` fields.
+- **On upstream error:** `"Upstream STT stream WS error"` with `error` and `provider` fields.
+- **On downstream close:** `"STT stream downstream WS closed"` with `code`, `reason`, `provider` fields.
+- **Buffer overflow:** `"STT stream pending message buffer overflow"` — more than 100 messages buffered before upstream connects. Downstream is closed with code 1008.
+
+#### 4. Check daemon logs for session lifecycle
+
+The daemon session orchestrator (`stt-stream-session.ts`, logger: `stt-stream-session`) logs:
+
+- **Session started:** `"STT stream session started"` with `provider` field.
+- **Unsupported provider:** `"Streaming transcriber unavailable for provider"` — `resolveStreamingTranscriber()` returned `null`.
+- **Start failure:** `"Failed to start STT stream session"` with `provider` and `error` fields.
+- **WebSocket closed:** `"STT stream WebSocket closed"` with `provider`, `code`, `reason` fields.
+- **Idle timeout:** `"STT stream session idle timeout"` with `provider` field — no client message received within 60 seconds.
+- **Session destroyed:** `"STT stream session destroyed"` — runtime shutdown cleanup.
+
+#### 5. Check provider-specific adapter logs
+
+**Deepgram (`deepgram-realtime`, logger: `deepgram-realtime`):**
+
+- `"Opening Deepgram realtime session"` — WebSocket URL (token redacted).
+- `"Deepgram realtime session opened"` — connection established.
+- `"Stopping Deepgram realtime session"` — `CloseStream` sent.
+- `"Deepgram realtime session closed normally"` — clean close after stop.
+- `"Deepgram realtime session closed unexpectedly"` with `code`, `reason` — provider-side disconnect.
+- `"Deepgram realtime WebSocket error"` — provider WebSocket error event.
+- `"Deepgram realtime backpressure: dropping audio frame"` — outbound buffer > 1 MiB.
+- `"Deepgram realtime inactivity timeout"` — no provider message for 30 seconds.
+- `"Deepgram realtime connect timeout"` — WebSocket did not open within 10 seconds.
+- `"Deepgram realtime close grace timeout"` — provider did not close within 5 seconds after `CloseStream`.
+
+**Google Gemini (`google-gemini-stream`):** This adapter does not have its own logger category (uses default module-level logging). Key indicators are `error` events with `category: "provider-error"` in the session event stream. Poll errors during active streaming are non-fatal (logged as transient); only the final batch request on `stop()` is critical.
+
+### Log Anchors
+
+These are the key strings to search for when triaging streaming STT issues. Search daemon logs for the `stt-stream-session` and `deepgram-realtime` logger categories.
+
+| Log message                                         | Logger                | Meaning                                              |
+| --------------------------------------------------- | --------------------- | ---------------------------------------------------- |
+| `STT stream session started`                        | `stt-stream-session`  | Session initialized and `ready` event sent to client |
+| `STT stream session idle timeout`                   | `stt-stream-session`  | No client activity for 60 seconds                    |
+| `STT stream WebSocket closed`                       | `stt-stream-session`  | Client or transport closed the connection            |
+| `Streaming transcriber unavailable for provider`    | `stt-stream-session`  | Provider does not support streaming                  |
+| `Failed to start STT stream session`                | `stt-stream-session`  | Transcriber `start()` threw (auth, network, etc.)    |
+| `Opening Deepgram realtime session`                 | `deepgram-realtime`   | Deepgram WebSocket connection attempt                |
+| `Deepgram realtime session closed unexpectedly`     | `deepgram-realtime`   | Provider-side disconnect with non-normal code        |
+| `Deepgram realtime connect timeout`                 | `deepgram-realtime`   | Could not connect to Deepgram within 10 seconds      |
+| `Deepgram realtime inactivity timeout`              | `deepgram-realtime`   | No data from Deepgram for 30 seconds                 |
+| `Opening upstream STT stream WS to runtime`         | `stt-stream-ws`       | Gateway opening upstream connection to daemon        |
+| `STT stream WS: authentication failed`              | `stt-stream-ws`       | Client edge JWT validation failed                    |
+| `STT stream pending message buffer overflow`        | `stt-stream-ws`       | Gateway buffer exceeded 100 messages                 |
+
+### Expected Event Sequences
+
+**Successful session (Deepgram):**
+
+```
+Client → Gateway: WSS upgrade with ?provider=deepgram&mimeType=audio/pcm&sampleRate=16000
+Gateway → Daemon: WS upgrade to /v1/stt/stream with service token
+Daemon: resolveStreamingTranscriber() → DeepgramRealtimeTranscriber
+Daemon → Deepgram: WSS to wss://api.deepgram.com/v1/listen?model=nova-2&...
+Deepgram → Daemon: WS open
+Daemon → Client: {"type":"ready","provider":"deepgram"}
+Client → Daemon: binary audio frames (16-bit PCM)
+Deepgram → Daemon: {"type":"Results","is_final":false,...}  →  Daemon → Client: {"type":"partial","text":"hello","seq":0}
+Deepgram → Daemon: {"type":"Results","is_final":true,...}   →  Daemon → Client: {"type":"final","text":"hello world","seq":1}
+Client → Daemon: {"type":"stop"}
+Daemon → Deepgram: {"type":"CloseStream"}
+Deepgram → Daemon: WS close 1000
+Daemon → Client: {"type":"closed","seq":2}
+Daemon: WS close 1000
+```
+
+**Successful session (Google Gemini):**
+
+```
+Client → Gateway: WSS upgrade with ?provider=google-gemini&mimeType=audio/webm
+Gateway → Daemon: WS upgrade to /v1/stt/stream with service token
+Daemon: resolveStreamingTranscriber() → GoogleGeminiStreamingTranscriber
+Daemon → Client: {"type":"ready","provider":"google-gemini"}
+Client → Daemon: binary audio frames
+Daemon: (accumulates audio, polls Gemini API every ~1 second)
+Daemon → Gemini API: POST models.generateContent (full accumulated audio)
+Gemini API → Daemon: transcript text
+Daemon → Client: {"type":"partial","text":"hello world","seq":0}
+Client → Daemon: {"type":"stop"}
+Daemon → Gemini API: POST models.generateContent (final complete audio)
+Gemini API → Daemon: final transcript text
+Daemon → Client: {"type":"final","text":"hello world how are you","seq":1}
+Daemon → Client: {"type":"closed","seq":2}
+Daemon: WS close 1000
+```
+
+**Auth failure:**
+
+```
+Client → Gateway: WSS upgrade with invalid/expired edge JWT
+Gateway: "STT stream WS: authentication failed"
+Gateway → Client: HTTP 401 Unauthorized (no WebSocket upgrade)
+Client: STTStreamFailure.rejected(statusCode: 401)
+Client: Falls back to batch STT path
+```
+
+**Unsupported provider:**
+
+```
+Client: STTProviderRegistry.isStreamingAvailable → false (provider is openai-whisper)
+Client: Does not open WebSocket; uses batch STT path directly
+```
+
+**Provider disconnect mid-session (Deepgram):**
+
+```
+(session in progress, audio flowing)
+Deepgram → Daemon: WS close 1008 (auth error)
+Daemon: "Deepgram realtime session closed unexpectedly" code=1008
+Daemon → Client: {"type":"error","category":"auth","message":"Deepgram WebSocket closed (code=1008, ...)","seq":N}
+Daemon → Client: {"type":"closed","seq":N+1}
+Client: streamingFailed = true / isStreamingActive = false
+Client: Falls back to batch STT on recording stop
+```
+
+### Common Failure Scenarios
+
+| Symptom | Likely cause | Diagnosis |
+| --- | --- | --- |
+| No streaming session opened | Provider is `openai-whisper` (no streaming support) or STT not configured | Check `services.stt.provider` config; check `STTProviderRegistry.isStreamingAvailable` |
+| `ready` event never received | Gateway cannot reach daemon, or daemon failed to start transcriber | Check gateway logs for upstream connection errors; check daemon logs for `"Failed to start STT stream session"` |
+| Auth failure (HTTP 401 before upgrade) | Expired or invalid edge JWT; no `Authorization` header or `token` query param | Check gateway `stt-stream-ws` logs for `"authentication failed"` with reason |
+| Partials but no final (Deepgram) | Deepgram session closed before client sent `stop` | Check for `"Deepgram realtime session closed unexpectedly"` or `"inactivity timeout"` |
+| Slow partials (Google Gemini) | Expected: incremental-batch polls every ~1 second | This is by design; reduce poll interval only for testing via `GoogleGeminiStreamOptions.pollIntervalMs` |
+| Idle timeout after 60 seconds | Client stopped sending audio without sending `stop` event | Check client-side audio pipeline; ensure `stop` event is sent on recording end |
+| Buffer overflow (gateway) | Upstream daemon connection slow to establish; client sending audio too fast | Check gateway `"STT stream pending message buffer overflow"` log; check daemon startup time |
+| Empty final transcript | Audio too short, no speech detected, or provider returned empty | Check audio format (mimeType, sampleRate); try with known-good audio |
+
+### Rollout Validation Checklist
+
+Use this checklist when rolling out conversation STT streaming to macOS and iOS.
+
+**macOS conversation chat capture:**
+
+- [ ] Configure `services.stt.provider` to `deepgram`. Record a conversation message. Verify partial transcripts appear in real time in the chat composer. Verify the final transcript matches spoken audio.
+- [ ] Configure `services.stt.provider` to `google-gemini`. Record a conversation message. Verify partial transcripts appear (with ~1-second latency). Verify the final transcript matches spoken audio.
+- [ ] Configure `services.stt.provider` to `openai-whisper`. Record a conversation message. Verify no streaming session is opened (no WebSocket in gateway logs). Verify batch STT produces a final transcript.
+- [ ] With `deepgram` configured, simulate a network disconnect mid-recording (e.g. disable WiFi). Verify the client falls back to batch STT and produces a final transcript.
+- [ ] With `deepgram` configured, remove the Deepgram API key. Start a recording. Verify the session fails gracefully and batch STT is used.
+- [ ] Verify dictation mode (not conversation) still uses the batch STT path regardless of streaming availability.
+
+**iOS conversation chat capture:**
+
+- [ ] Configure `services.stt.provider` to `deepgram`. Record via the input bar. Verify streaming partials update the text field. Verify the final transcript is committed via `onVoiceResult`.
+- [ ] Configure `services.stt.provider` to `google-gemini`. Record via the input bar. Verify incremental partials appear. Verify the final transcript is committed.
+- [ ] Configure `services.stt.provider` to `openai-whisper`. Record via the input bar. Verify batch STT path is used (no streaming session).
+- [ ] Simulate streaming failure (e.g. bad API key). Verify `resolveTranscriptWithServiceFirst()` fires and batch STT produces a result.
+- [ ] Verify auto-stop coordination: when auto-stop fires and streaming is active, verify the streaming final takes precedence. When streaming has closed/failed before auto-stop, verify batch fallback is triggered.
+
+**Cross-platform:**
+
+- [ ] Verify no regressions in voice mode (OpenAIVoiceService) — voice mode does not use conversation streaming.
+- [ ] Verify gateway logs show `"Upstream STT stream WS connected"` for each streaming session.
+- [ ] Verify daemon logs show `"STT stream session started"` with the correct provider.
+- [ ] Verify no `<ConversationRelay>` or telephony STT paths are affected by conversation streaming changes.
