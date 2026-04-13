@@ -36,13 +36,22 @@ public final class ToolConfirmationNotificationService {
             trigger: nil
         )
 
-        do {
-            try await UNUserNotificationCenter.current().add(request)
-            log.info("Posted tool confirmation notification: requestId=\(message.requestId, privacy: .public), tool=\(message.toolName, privacy: .public)")
-        } catch {
-            log.error("Failed to post notification: \(error.localizedDescription)")
+        let posted = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            UNUserNotificationCenter.current().add(request) { error in
+                if let error {
+                    log.error("Failed to post notification: \(error.localizedDescription)")
+                }
+                DispatchQueue.main.async {
+                    continuation.resume(returning: error == nil)
+                }
+            }
+        }
+
+        guard posted else {
             return Self.inlineHandledSentinel
         }
+
+        log.info("Posted tool confirmation notification: requestId=\(message.requestId, privacy: .public), tool=\(message.toolName, privacy: .public)")
 
         // If a continuation already exists for this requestId (e.g. daemon re-sent
         // the request), resume it with "deny" to avoid a leaked continuation crash.
