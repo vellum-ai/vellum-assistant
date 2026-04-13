@@ -32,6 +32,7 @@ import { llmLogRetentionZeroToNullMigration } from "./031-llm-log-retention-zero
 import { ttsProviderUnificationMigration } from "./032-tts-provider-unification.js";
 import { sttServiceExplicitConfigMigration } from "./033-stt-service-explicit-config.js";
 import { removeCallsVoiceTranscriptionProviderMigration } from "./034-remove-calls-voice-transcription-provider.js";
+import { seedSlackChannelPersonaMigration } from "./035-seed-slack-channel-persona.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -75,4 +76,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   dropUserMdMigration,
   sttServiceExplicitConfigMigration,
   removeCallsVoiceTranscriptionProviderMigration,
+  seedSlackChannelPersonaMigration,
 ];
