@@ -190,7 +190,9 @@ struct SettingsSoundsTab: View {
                     placeholder: "All sounds added",
                     selection: .constant(""),
                     options: [(label: "All sounds added", value: "")],
-                    maxWidth: 220
+                    maxWidth: 220,
+                    menuWidth: 260,
+                    menuMaxHeight: 360
                 )
                 .disabled(true)
             } else {
@@ -204,7 +206,9 @@ struct SettingsSoundsTab: View {
                         }
                     ),
                     options: remainingOptions,
-                    maxWidth: 220
+                    maxWidth: 220,
+                    menuWidth: 260,
+                    menuMaxHeight: 360
                 )
             }
         }
