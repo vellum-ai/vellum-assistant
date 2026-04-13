@@ -189,8 +189,10 @@ struct MessageListContentView: View, Equatable {
                     attributes: [.font: font]
                 )
                 let textHeight = ceil(textRect.height)
-                let cellOverhead: CGFloat = 56 // bubble padding (24) + timestamp (24) + spacing (8)
-                return min(textHeight + cellOverhead, 200) // cap at collapse threshold
+                // Bubble padding (24) + timestamp (24) + spacing (12) + show more button (30) + gradient (10)
+                let cellOverhead: CGFloat = 100
+                // Cap at collapsed bubble height (150pt content + overhead)
+                return min(textHeight + cellOverhead, 260)
             }()
             // Precise minHeight: fill the space between user message and composer.
             // containerHeight = full chat pane (stable, from GeometryReader)
