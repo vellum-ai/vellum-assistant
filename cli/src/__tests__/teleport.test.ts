@@ -1761,6 +1761,53 @@ describe("version guard: block platform→local/docker when target is behind", (
     }
   });
 
+  test("newly hatched target is cleaned up when version check fails", async () => {
+    // No existing local target — teleport will hatch a new one, then
+    // the version guard should retire it to avoid orphans.
+    setArgv("--from", "my-platform", "--local");
+
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const newLocalEntry = makeEntry("new-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
+      return null;
+    });
+
+    // Simulate hatch creating a new local entry
+    loadAllAssistantsMock.mockImplementation(() => {
+      if (hatchLocalMock.mock.calls.length > 0) {
+        return [platformEntry, newLocalEntry];
+      }
+      return [platformEntry];
+    });
+
+    // Newly hatched local is on 0.6.0, platform is on 0.7.0
+    fetchCurrentVersionMock.mockResolvedValue("0.6.0");
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMockWithReleases(
+      "0.7.0",
+    ) as unknown as typeof globalThis.fetch;
+
+    try {
+      await expect(teleport()).rejects.toThrow("process.exit:1");
+      // Should have hatched a new local assistant
+      expect(hatchLocalMock).toHaveBeenCalled();
+      // Should retire the orphaned assistant
+      expect(retireLocalMock).toHaveBeenCalledWith("new-local", newLocalEntry);
+      expect(removeAssistantEntryMock).toHaveBeenCalledWith("new-local");
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Cleaning up newly hatched assistant"),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("does not check versions for local→platform direction", async () => {
     setArgv("--from", "my-local", "--platform");
 
