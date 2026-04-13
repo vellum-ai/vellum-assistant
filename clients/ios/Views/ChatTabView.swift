@@ -52,9 +52,7 @@ struct ChatTabView: View {
 
     @ViewBuilder
     private func exportMenu(messages: [ChatMessage], conversationTitle: String?) -> some View {
-        let hasTextMessages = messages.contains {
-            !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
+        let hasTextMessages = ChatTranscriptFormatter.hasExportableContent(messages: messages)
 
         Menu {
             Button {

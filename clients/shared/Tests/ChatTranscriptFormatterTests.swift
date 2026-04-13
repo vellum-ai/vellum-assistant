@@ -186,6 +186,29 @@ final class ChatTranscriptFormatterTests: XCTestCase {
         XCTAssertEqual(result, "")
     }
 
+    func testHasExportableContentFalseWhenOnlyQueuedUserMessages() {
+        let messages = [
+            ChatMessage(role: .user, text: "Pending one", status: .queued(position: 0)),
+            ChatMessage(role: .user, text: "Pending two", status: .queued(position: 1)),
+        ]
+
+        XCTAssertFalse(ChatTranscriptFormatter.hasExportableContent(messages: messages))
+    }
+
+    func testHasExportableContentTrueWhenSentMessagesPresent() {
+        let messages = [
+            ChatMessage(role: .user, text: "Pending", status: .queued(position: 0)),
+            ChatMessage(role: .user, text: "Hello", status: .sent),
+            ChatMessage(role: .assistant, text: "Hi"),
+        ]
+
+        XCTAssertTrue(ChatTranscriptFormatter.hasExportableContent(messages: messages))
+    }
+
+    func testHasExportableContentFalseWhenEmpty() {
+        XCTAssertFalse(ChatTranscriptFormatter.hasExportableContent(messages: []))
+    }
+
     func testConversationMarkdownKeepsAssistantMessageWithQueuedStatus() {
         // Defensive: filter is scoped to user role, so an assistant message with
         // an unusual status should still come through unchanged.

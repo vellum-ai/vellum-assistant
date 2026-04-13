@@ -57,6 +57,16 @@ public enum ChatTranscriptFormatter {
         message.text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// True when `conversationMarkdown` would produce non-empty output for `messages`.
+    /// UI should call this to gate export buttons so the predicate stays in lockstep
+    /// with the actual export filter.
+    public static func hasExportableContent(messages: [ChatMessage]) -> Bool {
+        messages.contains { message in
+            guard !isQueuedUser(message) else { return false }
+            return !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
     /// True when the message is a queued user message (not yet sent to the assistant).
     /// Mirrors the same `role == .user && case .queued = status` check used in
     /// `ChatViewModel`, `TranscriptItems`, and the queue-drawer code paths.
