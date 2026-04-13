@@ -6,6 +6,10 @@
  * that same change signal and PATCHes the platform `Assistant` record so
  * the name (and, in future, other fields) stays in sync.
  *
+ * Requests are serialized so that rapid name changes (A → B) never race:
+ * only the most recently requested name is sent, and a stale in-flight
+ * response cannot overwrite a newer value.
+ *
  * The sync is best-effort and fire-and-forget — network failures are
  * logged but never surface to callers.
  */
@@ -19,6 +23,17 @@ const log = getLogger("sync-identity");
 let lastSyncedName: string | null = null;
 
 /**
+ * Monotonically increasing sequence number.  Each call to
+ * `syncIdentityNameToPlatform` bumps this; after a PATCH completes we
+ * only update `lastSyncedName` when `seq` still matches, guaranteeing
+ * the newest name always wins.
+ */
+let seq = 0;
+
+/** Chain promise that serializes in-flight PATCH requests. */
+let pending: Promise<void> = Promise.resolve();
+
+/**
  * Push the current assistant name to the platform `Assistant` record.
  *
  * No-op when:
@@ -26,9 +41,25 @@ let lastSyncedName: string | null = null;
  * - No assistant ID is configured.
  * - The name is empty or unchanged since the last successful sync.
  */
-export async function syncIdentityNameToPlatform(name: string): Promise<void> {
+export function syncIdentityNameToPlatform(name: string): void {
+  if (!name || name === lastSyncedName) return;
+
+  const mySeq = ++seq;
+
+  pending = pending
+    .then(() => doSync(name, mySeq))
+    .catch(() => {
+      // swallowed — doSync already logs internally
+    });
+}
+
+async function doSync(name: string, requestSeq: number): Promise<void> {
   try {
-    if (!name || name === lastSyncedName) return;
+    // A newer call has already been enqueued — skip this stale request.
+    if (requestSeq !== seq) return;
+
+    // Re-check after awaiting the previous request in the chain.
+    if (name === lastSyncedName) return;
 
     const client = await VellumPlatformClient.create();
     if (!client) return;
@@ -46,7 +77,12 @@ export async function syncIdentityNameToPlatform(name: string): Promise<void> {
     );
 
     if (resp.ok) {
-      lastSyncedName = name;
+      // Only update cache if no newer request has been enqueued since we
+      // started this PATCH — prevents a slow response from overwriting a
+      // fresher value.
+      if (requestSeq === seq) {
+        lastSyncedName = name;
+      }
       log.info({ name, assistantId }, "Synced assistant name to platform");
     } else {
       const text = await resp.text();
@@ -63,4 +99,6 @@ export async function syncIdentityNameToPlatform(name: string): Promise<void> {
 /** Reset cached state (for testing). */
 export function _resetSyncState(): void {
   lastSyncedName = null;
+  seq = 0;
+  pending = Promise.resolve();
 }

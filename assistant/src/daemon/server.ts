@@ -550,7 +550,7 @@ export class DaemonServer {
 
       // Best-effort sync of the assistant name to the platform record.
       if (fields.name) {
-        void syncIdentityNameToPlatform(fields.name);
+        syncIdentityNameToPlatform(fields.name);
       }
     } catch (err) {
       log.error({ err }, "Failed to broadcast identity change");
