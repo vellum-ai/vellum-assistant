@@ -625,7 +625,7 @@ struct ChatBubble: View, Equatable {
             ? userMessageIntrinsicHeight > userMessageMaxCollapsedHeight
             : estimatedTextExceedsCollapseThreshold
         let needsCollapse = isCollapsible && !isUserMessageExpanded
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
+        VStack(alignment: .leading, spacing: 0) {
             content()
                 .onGeometryChange(for: CGFloat.self) { proxy in
                     proxy.size.height
@@ -651,13 +651,22 @@ struct ChatBubble: View, Equatable {
 
             if isCollapsible {
                 collapseToggleButton
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.bottom, VSpacing.sm)
             }
+        }
+        .if(isCollapsible) { view in
+            view
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .fill(VColor.surfaceLift)
+                )
         }
     }
 
     @ViewBuilder
     private func heuristicUserMessageCollapseWrapper<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
+        VStack(alignment: .leading, spacing: 0) {
             content()
                 .overlay(alignment: .bottom) {
                     if !isUserMessageExpanded {
@@ -674,7 +683,13 @@ struct ChatBubble: View, Equatable {
                     }
                 }
             collapseToggleButton
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.bottom, VSpacing.sm)
         }
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(VColor.surfaceLift)
+        )
     }
 
     private var collapseToggleButton: some View {
