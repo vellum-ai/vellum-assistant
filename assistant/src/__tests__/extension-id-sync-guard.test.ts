@@ -111,8 +111,18 @@ function listTextFilesRecursively(root: string): string[] {
   const out: string[] = [];
 
   function walk(dir: string): void {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch (err) {
+      // Directory may have been removed by a concurrent test; skip it.
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw err;
+    }
+    for (const entry of entries) {
       if (entry.name.startsWith(".DS_Store")) continue;
+      // Skip temp fixtures created by parallel tests (e.g. .test-starter-bundle-<pid>).
+      if (entry.name.startsWith(".test-")) continue;
       const absPath = join(dir, entry.name);
       if (entry.isDirectory()) {
         if (ignoredDirs.has(entry.name)) continue;
@@ -125,7 +135,13 @@ function listTextFilesRecursively(root: string): string[] {
       if (!allowedExtensions.has(ext)) continue;
 
       // Skip large files to keep this guard lightweight.
-      const size = statSync(absPath).size;
+      let size: number;
+      try {
+        size = statSync(absPath).size;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw err;
+      }
       if (size > 1_000_000) continue;
       out.push(absPath);
     }
@@ -161,7 +177,14 @@ describe("Chrome extension allowlist guard", () => {
       const matches: string[] = [];
       for (const absPath of allFiles) {
         const relPath = absPath.replace(`${repoRoot}/`, "");
-        const content = readFileSync(absPath, "utf8");
+        let content: string;
+        try {
+          content = readFileSync(absPath, "utf8");
+        } catch (err) {
+          // File may have been removed by a concurrent test between listing and reading.
+          if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+          throw err;
+        }
         if (content.includes(extensionId)) {
           matches.push(relPath);
         }
