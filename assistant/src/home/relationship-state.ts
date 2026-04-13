@@ -102,7 +102,7 @@ export const DEFAULT_CAPABILITIES: Omit<Capability, "tier">[] = [
     id: "email",
     name: "Email access",
     description: "Read, draft, and manage your email",
-    gate: "Connect Google or Outlook",
+    gate: "Connect Google",
     ctaLabel: "Connect Google →",
   },
   {

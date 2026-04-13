@@ -24,10 +24,14 @@ import type {
 } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
-import { derefToolResultReReads,postTurnTruncateToolResults } from "../context/post-turn-tool-result-truncation.js";
+import {
+  derefToolResultReReads,
+  postTurnTruncateToolResults,
+} from "../context/post-turn-tool-result-truncation.js";
 import { estimatePromptTokens } from "../context/token-estimator.js";
 import type { ContextWindowManager } from "../context/window-manager.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
+import { writeRelationshipState } from "../home/relationship-state-writer.js";
 import { getHookManager } from "../hooks/manager.js";
 import {
   clearSentryConversationContext,
@@ -972,8 +976,12 @@ export async function runAgentLoopImpl(
         // value from injectionOpts to avoid duplicate injection.
         runMessages = applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
-          ...(step.compactionResult?.compacted && { pkbContext: currentPkbContent }),
-          ...(step.compactionResult?.compacted && { nowScratchpad: currentNowContent }),
+          ...(step.compactionResult?.compacted && {
+            pkbContext: currentPkbContent,
+          }),
+          ...(step.compactionResult?.compacted && {
+            nowScratchpad: currentNowContent,
+          }),
           workspaceTopLevelContext: shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
             : null,
@@ -1780,9 +1788,16 @@ export async function runAgentLoopImpl(
       try {
         const conv = getConversation(ctx.conversationId);
         if (conv) {
-          const convDir = getResolvedConversationDirPath(ctx.conversationId, conv.createdAt);
-          const { messages: derefMessages, dereferencedCount } = derefToolResultReReads(restoredHistory);
-          const { messages: truncatedMessages, truncatedCount } = postTurnTruncateToolResults(derefMessages, { conversationDir: convDir });
+          const convDir = getResolvedConversationDirPath(
+            ctx.conversationId,
+            conv.createdAt,
+          );
+          const { messages: derefMessages, dereferencedCount } =
+            derefToolResultReReads(restoredHistory);
+          const { messages: truncatedMessages, truncatedCount } =
+            postTurnTruncateToolResults(derefMessages, {
+              conversationDir: convDir,
+            });
           if (truncatedCount > 0 || dereferencedCount > 0) {
             rlog.info(
               { truncatedCount, dereferencedCount },
@@ -1792,7 +1807,10 @@ export async function runAgentLoopImpl(
           restoredHistory = truncatedMessages;
         }
       } catch (err) {
-        rlog.warn({ err }, "Post-turn tool result truncation failed (non-fatal)");
+        rlog.warn(
+          { err },
+          "Post-turn tool result truncation failed (non-fatal)",
+        );
       }
     }
 
@@ -2041,6 +2059,12 @@ export async function runAgentLoopImpl(
 
       // Commit app changes (fire-and-forget — apps repo is separate from workspace)
       void commitAppTurnChanges(ctx.conversationId, ctx.turnCount);
+
+      // Recompute relationship-state.json at turn boundary (fire-and-forget).
+      // The writer swallows its own errors, but we still guard with catch()
+      // here so a regression in the writer can never bubble out of the
+      // agent loop and reject an otherwise-complete turn.
+      void writeRelationshipState().catch(() => {});
     }
 
     ctx.profiler.emitSummary(ctx.traceEmitter, reqId);
