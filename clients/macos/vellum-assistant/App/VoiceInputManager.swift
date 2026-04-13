@@ -883,19 +883,20 @@ final class VoiceInputManager {
             // Forward audio to the streaming STT client when a streaming session
             // is active. Converts float PCM → 16-bit signed integer PCM (the
             // format expected by the gateway's STT streaming endpoint).
+            // Always send mono (channel 0 only) regardless of the input device's
+            // channel count — the Deepgram adapter sends `channels=1`, so
+            // multi-channel interleaved PCM would be misinterpreted.
             if useConversationStreaming,
                let channelData = buffer.floatChannelData {
                 let frameCount = Int(buffer.frameLength)
                 let channelCount = Int(buffer.format.channelCount)
                 if frameCount > 0, channelCount > 0 {
-                    var pcmData = Data(capacity: frameCount * channelCount * 2)
+                    var pcmData = Data(capacity: frameCount * 2)
                     for frame in 0..<frameCount {
-                        for ch in 0..<channelCount {
-                            let sample = channelData[ch][frame]
-                            let clamped = max(-1.0, min(1.0, sample))
-                            let int16 = Int16(clamped * Float(Int16.max))
-                            withUnsafeBytes(of: int16.littleEndian) { pcmData.append(contentsOf: $0) }
-                        }
+                        let sample = channelData[0][frame]
+                        let clamped = max(-1.0, min(1.0, sample))
+                        let int16 = Int16(clamped * Float(Int16.max))
+                        withUnsafeBytes(of: int16.littleEndian) { pcmData.append(contentsOf: $0) }
                     }
                     let capturedGeneration = generation
                     DispatchQueue.main.async { [weak self] in
