@@ -1637,11 +1637,7 @@ describe("Permission Checker", () => {
       }
 
       // Literal guardian path is auto-allowed.
-      const literal = await check(
-        "file_edit",
-        { path: guardianPath },
-        "/tmp",
-      );
+      const literal = await check("file_edit", { path: guardianPath }, "/tmp");
       expect(literal.decision).toBe("allow");
       expect(literal.matchedRule?.id).toBe(
         "default:allow-file_edit-guardian-persona",
@@ -1649,11 +1645,7 @@ describe("Permission Checker", () => {
 
       // A sibling file that would match if `*` / `[...]` were treated as
       // wildcards must NOT match the dynamic guardian-persona rule.
-      const sibling = await check(
-        "file_edit",
-        { path: siblingPath },
-        "/tmp",
-      );
+      const sibling = await check("file_edit", { path: siblingPath }, "/tmp");
       expect(sibling.matchedRule?.id).not.toBe(
         "default:allow-file_edit-guardian-persona",
       );
@@ -4382,8 +4374,8 @@ describe("Permission Checker", () => {
   });
 
   // ── browser tool permission baselines ─────────────────────────────
-  // All 10 browser tools are core-registered and RiskLevel.Low by default.
-  // These tests lock that baseline so the migration can verify it's preserved.
+  // Representative browser tools are RiskLevel.Low and auto-allowed by
+  // default rules in strict mode.
 
   describe("browser tool permission baselines", () => {
     const browserToolNames = [
@@ -4399,6 +4391,7 @@ describe("Permission Checker", () => {
       "browser_wait_for",
       "browser_extract",
       "browser_fill_credential",
+      "browser_status",
     ] as const;
 
     // Register mock browser tools with the correct metadata so classifyRisk
@@ -4497,6 +4490,7 @@ describe("Permission Checker", () => {
         "browser_wait_for",
         "browser_extract",
         "browser_fill_credential",
+        "browser_status",
       ];
 
       for (const tool of browserTools) {

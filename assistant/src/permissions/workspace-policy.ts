@@ -67,6 +67,7 @@ const NETWORK_TOOLS = new Set([
   "browser_close",
   "browser_attach",
   "browser_detach",
+  "browser_status",
   "network_request",
 ]);
 

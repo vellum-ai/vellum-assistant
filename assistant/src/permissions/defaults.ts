@@ -304,6 +304,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     "browser_extract",
     "browser_wait_for_download",
     "browser_fill_credential",
+    "browser_status",
   ] as const;
 
   const browserToolRules: DefaultRuleTemplate[] = BROWSER_TOOLS_NO_SLASH.map(

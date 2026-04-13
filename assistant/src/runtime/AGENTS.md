@@ -96,7 +96,7 @@ On macOS-originated turns, the CDP factory (`tools/browser/cdp-client/factory.ts
 
 ### Per-tool `browser_mode` override
 
-All CDP-backed browser tools (`browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_click`, `browser_type`, `browser_hover`, `browser_scroll`, `browser_press_key`, `browser_select_option`, `browser_wait_for`, `browser_extract`, `browser_fill_credential`, `browser_attach`, `browser_detach`, `browser_close`) accept an optional `browser_mode` input parameter that overrides the automatic backend selection for that invocation.
+All CDP-backed browser tools (`browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_click`, `browser_type`, `browser_hover`, `browser_scroll`, `browser_press_key`, `browser_select_option`, `browser_wait_for`, `browser_extract`, `browser_fill_credential`, `browser_attach`, `browser_detach`, `browser_close`, `browser_status`) accept an optional `browser_mode` input parameter that overrides the automatic backend selection for that invocation.
 
 | Value            | Behavior                                                                 |
 | ---------------- | ------------------------------------------------------------------------ |

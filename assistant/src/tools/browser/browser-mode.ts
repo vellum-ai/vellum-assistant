@@ -12,6 +12,7 @@
  *   - `playwright`   -> `local`
  */
 
+import { BROWSER_MODE } from "./browser-mode-constants.js";
 import type { BrowserMode } from "./cdp-client/types.js";
 
 /** Canonical browser mode values. Re-exported from cdp-client/types. */
@@ -19,12 +20,12 @@ export type { BrowserMode } from "./cdp-client/types.js";
 
 /** All accepted values (canonical + aliases). */
 const ALIAS_MAP: Record<string, BrowserMode> = {
-  auto: "auto",
-  extension: "extension",
-  "cdp-inspect": "cdp-inspect",
-  "cdp-debugger": "cdp-inspect",
-  local: "local",
-  playwright: "local",
+  [BROWSER_MODE.AUTO]: BROWSER_MODE.AUTO,
+  [BROWSER_MODE.EXTENSION]: BROWSER_MODE.EXTENSION,
+  [BROWSER_MODE.CDP_INSPECT]: BROWSER_MODE.CDP_INSPECT,
+  "cdp-debugger": BROWSER_MODE.CDP_INSPECT,
+  [BROWSER_MODE.LOCAL]: BROWSER_MODE.LOCAL,
+  playwright: BROWSER_MODE.LOCAL,
 };
 
 /** Ordered list of accepted values for error messages. */
@@ -60,7 +61,7 @@ export function normalizeBrowserMode(
   raw: unknown,
 ): NormalizeBrowserModeResult | NormalizeBrowserModeError {
   if (raw === undefined || raw === null || raw === "") {
-    return { mode: "auto" };
+    return { mode: BROWSER_MODE.AUTO };
   }
 
   if (typeof raw !== "string") {

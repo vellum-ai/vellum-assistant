@@ -1080,7 +1080,7 @@ describe("Trust Store", () => {
 
     // ── default allow: browser tools ────────────────────────────
 
-    test("all 16 browser tools have default allow rules", () => {
+    test("all browser tools have default allow rules", () => {
       const templates = getDefaultRuleTemplates();
       const browserTools = [
         "browser_navigate",
@@ -1099,6 +1099,7 @@ describe("Trust Store", () => {
         "browser_extract",
         "browser_wait_for_download",
         "browser_fill_credential",
+        "browser_status",
       ];
 
       for (const tool of browserTools) {

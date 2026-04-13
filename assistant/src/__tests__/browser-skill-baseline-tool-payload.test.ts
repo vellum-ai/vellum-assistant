@@ -41,12 +41,12 @@ describe("browser skill cutover — startup tool payload", () => {
     }
   });
 
-  test("total tool definition count reflects removal of 16 browser tools", () => {
+  test("total tool definition count reflects removal of browser tools", () => {
     const definitions = getAllToolDefinitions();
     // Startup has ~20 definitions after moving scaffold/settings/skill-management
     // tools to bundled skills (no browser tools).
     // Allow wider drift for unrelated tool additions while still failing if
-    // browser tools are reintroduced at startup (+16 definitions).
+    // browser tools are reintroduced at startup (+many definitions).
     expect(definitions.length).toBeGreaterThanOrEqual(15);
     expect(definitions.length).toBeLessThanOrEqual(50);
   });
