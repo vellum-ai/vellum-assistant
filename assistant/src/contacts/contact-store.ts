@@ -29,16 +29,27 @@ function escapeLike(value: string): string {
 }
 
 /**
- * Generate a collision-free slugified filename for a contact's per-user persona file.
- * Produces filenames like "alice.md", "alice-2.md", "alice-3.md", etc.
+ * Pure slug transform applied to a display name. No DB lookup, no collision
+ * handling — callers that need a collision-free filename should use
+ * `generateUserFileSlug` instead. Exported so the migration classifier can
+ * recompute the expected base slug for a given display name.
  */
-export function generateUserFileSlug(displayName: string): string {
-  const slug =
+export function computeUserFileBaseSlug(displayName: string): string {
+  return (
     displayName
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "")
-      .slice(0, 100) || "user";
+      .slice(0, 100) || "user"
+  );
+}
+
+/**
+ * Generate a collision-free slugified filename for a contact's per-user persona file.
+ * Produces filenames like "alice.md", "alice-2.md", "alice-3.md", etc.
+ */
+export function generateUserFileSlug(displayName: string): string {
+  const slug = computeUserFileBaseSlug(displayName);
 
   const db = getDb();
   const rows = db

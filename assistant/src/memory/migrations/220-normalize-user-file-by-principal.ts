@@ -1,3 +1,4 @@
+import { computeUserFileBaseSlug } from "../../contacts/contact-store.js";
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 import { withCrashRecovery } from "./validate-migration-state.js";
 
@@ -31,13 +32,28 @@ export function downNormalizeUserFileByPrincipal(_database: DrizzleDb): void {
  * single-digit collision counters: `generateUserFileSlug` emits `-2.md`,
  * `-3.md`, etc. without leading zeros, so `alex-2025-2.md` is a counter on
  * base `alex-2025.md` — not a date — and must remain classified as auto.
+ *
+ * Filename-only classification is still ambiguous at the margins: a display
+ * name like "Alex 2025 4" legitimately produces `alex-2025-4.md` as a base
+ * slug, which looks identical to a year-prefixed counter. When the caller can
+ * supply the row's display name, we disambiguate by recomputing the expected
+ * base slug: if it matches the filename, the name is a base slug and we
+ * classify as non-auto. This closes the only remaining false-positive hole.
  */
 const DATE_LIKE_SUFFIX = /-(19|20|21)\d{2}((-\d{2}){1,2})?\.md$/;
 const INTEGER_SUFFIX = /-\d+\.md$/;
 
-export function isAutoIncrementedUserFile(userFile: string): boolean {
+export function isAutoIncrementedUserFile(
+  userFile: string,
+  displayName?: string,
+): boolean {
   if (DATE_LIKE_SUFFIX.test(userFile)) return false;
-  return INTEGER_SUFFIX.test(userFile);
+  if (!INTEGER_SUFFIX.test(userFile)) return false;
+  if (displayName !== undefined) {
+    const expectedBase = `${computeUserFileBaseSlug(displayName)}.md`;
+    if (expectedBase === userFile) return false;
+  }
+  return true;
 }
 
 /**
@@ -115,7 +131,7 @@ export function migrateNormalizeUserFileByPrincipal(
         // logic in one place avoids SQL/JS drift.
         const selectCandidates = raw.prepare(
           /*sql*/ `
-          SELECT user_file, created_at, id FROM contacts
+          SELECT user_file, display_name, created_at, id FROM contacts
           WHERE principal_id = ? AND user_file IS NOT NULL
           `,
         );
@@ -132,14 +148,19 @@ export function migrateNormalizeUserFileByPrincipal(
         for (const { principal_id } of principals) {
           const candidates = selectCandidates.all(principal_id) as Array<{
             user_file: string;
+            display_name: string;
             created_at: number;
             id: string;
           }>;
           if (candidates.length === 0) continue;
 
           candidates.sort((a, b) => {
-            const aAuto = isAutoIncrementedUserFile(a.user_file) ? 1 : 0;
-            const bAuto = isAutoIncrementedUserFile(b.user_file) ? 1 : 0;
+            const aAuto = isAutoIncrementedUserFile(a.user_file, a.display_name)
+              ? 1
+              : 0;
+            const bAuto = isAutoIncrementedUserFile(b.user_file, b.display_name)
+              ? 1
+              : 0;
             if (aAuto !== bAuto) return aAuto - bAuto;
             if (a.created_at !== b.created_at)
               return a.created_at - b.created_at;
