@@ -17,8 +17,7 @@
  *   and the daemon transcribes audio server-side via the provider's
  *   batch API. Used for `openai-whisper`.
  *
- * Model normalization semantics from {@link stt-profile.ts} are
- * preserved here for Twilio-native providers:
+ * Model normalization semantics for Twilio-native providers:
  * - Deepgram defaults `speechModel` to `"nova-3"` when unset.
  * - Google leaves `speechModel` undefined when unset. The legacy
  *   Deepgram default `"nova-3"` is treated as unset for Google so
@@ -114,7 +113,6 @@ const TWILIO_NATIVE_PROVIDER_MAP: ReadonlyMap<
 /**
  * Resolve the effective speech model for a Twilio-native provider.
  *
- * Preserves the normalization semantics from `stt-profile.ts`:
  * - Deepgram: falls back to `"nova-3"` when the model is unset.
  * - Google: leaves the model undefined when unset. Treats the legacy
  *   Deepgram default `"nova-3"` as unset so that workspaces that were
@@ -151,8 +149,8 @@ function resolveNativeSpeechModel(
  * or a media-stream custom strategy.
  *
  * @param speechModel - Optional raw speech model from config. When provided,
- *   model normalization is applied for Twilio-native providers. Typically
- *   sourced from `calls.voice.speechModel` during the transition period.
+ *   model normalization is applied for Twilio-native providers. Sourced
+ *   from `calls.voice.speechModel`.
  */
 export function resolveTelephonySttRouting(
   speechModel?: string | undefined,
