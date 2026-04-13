@@ -389,10 +389,22 @@ export async function runDaemon(): Promise<void> {
       // writer can actually resolve the guardian persona file and list
       // connected OAuth providers — firing this from `ensurePromptFiles()`
       // would be too early (DB isn't ready yet) and produce a degraded
-      // snapshot with zero facts and zero unlocked capabilities. The
-      // writer already swallows every error; this is fire-and-forget so
-      // it never blocks startup.
-      void backfillRelationshipStateIfMissing().catch(() => {});
+      // snapshot with zero facts and zero unlocked capabilities.
+      //
+      // Deferred via `setImmediate` so any sync filesystem/DB work the
+      // writer does (`readdirSync`, `readFileSync`, contact + provider
+      // lookups) happens on a later tick, off the startup critical path.
+      // Failures are logged — not silenced — to match the pattern used by
+      // other `void … .catch()` fire-and-forgets in this file and the
+      // assistant/CLAUDE.md rule that all errors must be observable.
+      setImmediate(() => {
+        void backfillRelationshipStateIfMissing().catch((err) =>
+          log.warn(
+            { err },
+            "Relationship state backfill failed — continuing startup",
+          ),
+        );
+      });
 
       // Backfill injection templates on Slack bot token credentials so the
       // credential proxy can inject Authorization headers. Safe on every startup.
