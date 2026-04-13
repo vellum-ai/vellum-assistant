@@ -37,6 +37,12 @@ private struct DeveloperSettingsSectionContent: View {
     // Updated via .onChange(of: clientGeneration) when rebuildClient() fires.
     @State private var usageDashboardStore: UsageDashboardStore
 
+    // Assistant picker state
+    @State private var availableAssistants: [PlatformAssistant] = []
+    @State private var selectedAssistantId: String = ""
+    @State private var isLoadingAssistants = false
+    @State private var assistantLoadError: String?
+
     init(clientProvider: ClientProvider, traceStore: TraceStore, conversationStore: IOSConversationStore) {
         self.clientProvider = clientProvider
         self.traceStore = traceStore
@@ -54,6 +60,8 @@ private struct DeveloperSettingsSectionContent: View {
 
     var body: some View {
         Form {
+            assistantSection
+
             Section("Trace Store") {
                 LabeledContent("Conversations with events", value: "\(conversationCount)")
                 LabeledContent("Total events", value: "\(totalEventCount)")
@@ -142,6 +150,99 @@ private struct DeveloperSettingsSectionContent: View {
         .onChange(of: clientProvider.clientGeneration) {
             usageDashboardStore.reset()
         }
+        .task {
+            await loadAssistants()
+        }
+    }
+
+    // MARK: - Assistant Picker
+
+    @ViewBuilder
+    private var assistantSection: some View {
+        if isLoadingAssistants {
+            Section("Assistant") {
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading assistants…")
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.contentSecondary)
+                }
+            }
+        } else if let error = assistantLoadError {
+            Section("Assistant") {
+                Text(error)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.systemNegativeStrong)
+                Button("Retry") {
+                    Task { await loadAssistants() }
+                }
+            }
+        } else if availableAssistants.count > 1 {
+            Section("Assistant") {
+                Picker("Active Assistant", selection: $selectedAssistantId) {
+                    ForEach(availableAssistants, id: \.id) { assistant in
+                        Text(assistant.name ?? assistant.id)
+                            .tag(assistant.id)
+                    }
+                }
+                .onChange(of: selectedAssistantId) { _, newId in
+                    switchAssistant(to: newId)
+                }
+
+                if let active = availableAssistants.first(where: { $0.id == selectedAssistantId }) {
+                    assistantDetailRows(active)
+                }
+            }
+        } else if let sole = availableAssistants.first {
+            Section("Assistant") {
+                LabeledContent("Name", value: sole.name ?? sole.id)
+                assistantDetailRows(sole)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func assistantDetailRows(_ assistant: PlatformAssistant) -> some View {
+        LabeledContent("ID", value: assistant.id)
+            .font(.system(.caption, design: .monospaced))
+            .textSelection(.enabled)
+        if let status = assistant.status {
+            LabeledContent("Status", value: status)
+        }
+    }
+
+    private func loadAssistants() async {
+        guard let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"),
+              !orgId.isEmpty else {
+            return
+        }
+
+        isLoadingAssistants = true
+        assistantLoadError = nil
+
+        do {
+            let assistants = try await AuthService.shared.listAssistants(organizationId: orgId)
+            availableAssistants = assistants
+            let currentId = UserDefaults.standard.string(forKey: UserDefaultsKeys.managedAssistantId) ?? ""
+            if assistants.contains(where: { $0.id == currentId }) {
+                selectedAssistantId = currentId
+            } else if let first = assistants.first {
+                selectedAssistantId = first.id
+            }
+        } catch {
+            assistantLoadError = error.localizedDescription
+        }
+
+        isLoadingAssistants = false
+    }
+
+    private func switchAssistant(to assistantId: String) {
+        let currentId = UserDefaults.standard.string(forKey: UserDefaultsKeys.managedAssistantId) ?? ""
+        guard assistantId != currentId, !assistantId.isEmpty else { return }
+
+        UserDefaults.standard.set(assistantId, forKey: UserDefaultsKeys.managedAssistantId)
+        clientProvider.rebuildClient()
     }
 }
 #endif
