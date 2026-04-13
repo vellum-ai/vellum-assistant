@@ -13,6 +13,10 @@ import VellumAssistantShared
 /// model that downstream views can consume without re-deriving layout.
 enum TranscriptProjector {
 
+    /// Stable UUID for the thinking placeholder row so ForEach maintains
+    /// view identity across re-projections. Must not collide with real message IDs.
+    private static let thinkingPlaceholderId = UUID(uuidString: "00000000-0000-0000-0000-FFFFFFFFFFFF")!
+
     // MARK: - Projection
 
     /// Project the current chat state into a fully resolved render model.
@@ -168,6 +172,7 @@ enum TranscriptProjector {
         // hold the real assistant message. Eliminates layout jump on transition.
         if shouldShowThinkingIndicator {
             let placeholderMessage = ChatMessage(
+                id: Self.thinkingPlaceholderId,
                 role: .assistant,
                 text: ""
             )
