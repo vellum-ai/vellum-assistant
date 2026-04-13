@@ -161,8 +161,9 @@ final class SkillsManager {
                         if let actualId = result.skillId {
                             self.installingSkillId = actualId
                         }
-                        if self.skillsStore.skills
-                            .first(where: { $0.id == (result.skillId ?? result.slug) })?.kind != "catalog" {
+                        let lookupId = result.skillId ?? result.slug
+                        if let skill = self.skillsStore.skills.first(where: { $0.id == lookupId }),
+                           skill.kind != "catalog" {
                             // Success confirmed: the refreshed skills list has
                             // flipped the kind away from "catalog", so the
                             // detail view will render the installed UI on the
@@ -364,14 +365,16 @@ final class SkillsManager {
 
         // Defensive watchdog: a wedged `fetchSkills(force:)` response
         // after install would otherwise leave the spinner stuck forever.
-        // Clear `installingSkillId` after 15 seconds if the confirmation
-        // path has not already cleared it.
+        // Clear `installingSkillId` after 120 seconds (matching the HTTP
+        // timeout) if the confirmation path has not already cleared it.
+        // Uses `!= nil` instead of `== slug` because the install result
+        // may update the tracking ID to a resolved value.
         installWatchdogTask?.cancel()
         installWatchdogTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 15_000_000_000)
+            try? await Task.sleep(nanoseconds: 120_000_000_000)
             guard !Task.isCancelled else { return }
             guard let self else { return }
-            if self.installingSkillId == slug {
+            if self.installingSkillId != nil {
                 self.installingSkillId = nil
             }
         }
