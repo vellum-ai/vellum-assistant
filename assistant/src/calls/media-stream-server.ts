@@ -12,10 +12,10 @@
  * 3. Creates and registers a {@link CallController} to process
  *    transcripts through the conversation pipeline.
  *
- * The server is registered on `/v1/calls/media-stream` but is **not**
- * reachable from production TwiML — the Twilio voice webhook and
- * relay setup router continue to use ConversationRelay exclusively.
- * This module exists as a dark path for integration testing only.
+ * The server is registered on `/v1/calls/media-stream` and provides
+ * full bidirectional call support: inbound audio is transcribed via
+ * STT and outbound assistant speech is synthesized via TTS and
+ * streamed as media frames back to Twilio.
  *
  * Lifecycle:
  * - WebSocket `open` -> extract callSessionId from upgrade params,
@@ -26,7 +26,8 @@
  *   turn detection and transcription.
  * - STT `onTranscriptFinal` -> routed to controller's
  *   `handleCallerUtterance()`.
- * - STT `onSpeechStart` -> (future) barge-in detection.
+ * - STT `onSpeechStart` -> barge-in: clears outbound audio queue
+ *   and interrupts the in-flight LLM turn via the controller.
  * - Media stream `stop` event / WebSocket close -> finalize call.
  */
 
@@ -328,10 +329,11 @@ export class MediaStreamCallSession {
   // ── STT callbacks ─────────────────────────────────────────────────
 
   private handleSpeechStart(): void {
-    // Future: barge-in detection — clear queued outbound audio when
-    // the caller starts speaking.
+    // Barge-in: clear queued outbound audio and abort the in-flight LLM
+    // turn when the caller starts speaking over the assistant.
     if (this.output && this.controller) {
       this.output.clearAudio();
+      this.controller.handleInterrupt();
     }
   }
 
