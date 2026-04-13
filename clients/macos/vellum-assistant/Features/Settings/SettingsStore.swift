@@ -697,18 +697,14 @@ public final class SettingsStore: ObservableObject {
         // app startup. The daemon only broadcasts config_changed on file
         // mutations, so without this the store would stay at init
         // defaults until the user edits config.json.
-        Task { @MainActor [weak self] in
-            await self?.loadConfigFromDaemon()
-        }
+        refreshDaemonConfig()
 
         // Refresh config on daemon (re)connect so config-dependent state
         // recovers after the daemon restarts or after a network blip.
         NotificationCenter.default.publisher(for: .daemonDidReconnect)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    await self?.loadConfigFromDaemon()
-                }
+                self?.refreshDaemonConfig()
             }
             .store(in: &cancellables)
 
@@ -718,9 +714,7 @@ public final class SettingsStore: ObservableObject {
             .sink { [weak self] _ in
                 guard let self else { return }
                 self.refreshModelInfo()
-                Task { @MainActor [weak self] in
-                    await self?.loadConfigFromDaemon()
-                }
+                self.refreshDaemonConfig()
             }
             .store(in: &cancellables)
 
@@ -3509,11 +3503,26 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    /// In-flight config refresh task. Cancelled when a new refresh is
+    /// requested so that a slow stale response can't clobber a newer
+    /// applied state when startup, reconnect, and configChanged triggers
+    /// fire in quick succession.
+    private var configRefreshTask: Task<Void, Never>?
+
+    /// Cancels any in-flight config refresh and spawns a fresh one.
+    private func refreshDaemonConfig() {
+        configRefreshTask?.cancel()
+        configRefreshTask = Task { @MainActor [weak self] in
+            await self?.loadConfigFromDaemon()
+        }
+    }
+
     /// Fetches the full workspace config from the daemon and applies all
     /// config-dependent properties. Called after init once the daemon is
     /// reachable.
     func loadConfigFromDaemon() async {
         guard let config = await settingsClient.fetchConfig() else { return }
+        guard !Task.isCancelled else { return }
         applyDaemonConfig(config)
     }
 
