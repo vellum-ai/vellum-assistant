@@ -106,7 +106,8 @@ class AssistantManagementClient {
 
         do {
             try await AuthService.shared.retireSelfHostedLocalAssistant(
-                platformAssistantId: platformAssistantId
+                platformAssistantId: platformAssistantId,
+                organizationId: orgId
             )
             log.info("Platform deregistration succeeded for '\(runtimeAssistantId, privacy: .public)'")
         } catch {

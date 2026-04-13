@@ -693,7 +693,8 @@ public final class AuthService {
     /// Calls `DELETE /v1/assistants/{platformAssistantId}/retire/` to remove the
     /// platform-side registration created by `ensureSelfHostedLocalRegistration`.
     public func retireSelfHostedLocalAssistant(
-        platformAssistantId: String
+        platformAssistantId: String,
+        organizationId: String
     ) async throws {
         let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/assistants/\(platformAssistantId)/retire/"
         guard let url = URL(string: urlString) else {
@@ -702,7 +703,9 @@ public final class AuthService {
 
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "DELETE"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
         urlRequest.timeoutInterval = 15
 
         if let token = await SessionTokenManager.getTokenAsync() {
