@@ -35,6 +35,16 @@ export interface CallTransport {
    * to suppress silence nudges during guardian wait states.
    */
   getConnectionState(): string;
+
+  /**
+   * When true, the transport requires WAV (PCM) audio for playback.
+   *
+   * The media-stream transport sets this because its mu-law transcoder
+   * can only decode WAV (raw PCM) — compressed formats (mp3, opus)
+   * produce garbled audio. The call controller uses this to request
+   * WAV from TTS providers and the audio store.
+   */
+  readonly requiresWavAudio?: boolean;
 }
 
 // ── ConversationRelay adapter ────────────────────────────────────────

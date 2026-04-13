@@ -541,8 +541,14 @@ export class CallController {
     // providers buffer text, synthesize via provider API, and stream
     // audio chunks to Twilio via play-URL. Native-twilio providers
     // stream text tokens to the relay for Twilio's built-in TTS.
+    //
+    // When the transport requires WAV (media-stream), request WAV so
+    // the audio store entry and any downstream fetch/transcode receives
+    // PCM that audioBufferToFrames can convert to mu-law.
     const { provider, useSynthesizedPath, audioFormat } =
-      resolveCallTtsProvider();
+      resolveCallTtsProvider({
+        preferWav: this.transport.requiresWavAudio,
+      });
 
     // Buffer incoming tokens so we can strip control markers ([ASK_GUARDIAN:...], [END_CALL])
     // before they reach TTS. We hold text whenever an unmatched '[' appears, since it
@@ -717,7 +723,19 @@ export class CallController {
   ): Promise<void> {
     let handle: ReturnType<typeof createStreamingEntry> | null = null;
     try {
-      handle = createStreamingEntry(format);
+      // When format is WAV (media-stream transport), request raw PCM from
+      // the provider so the audio bytes match the store's content-type.
+      // Without this, providers like Fish Audio still return mp3 and the
+      // downstream mu-law transcoder fails on the format mismatch.
+      const outputFormat = format === "wav" ? ("pcm" as const) : undefined;
+
+      // Use "pcm" as the store format when requesting PCM output so the
+      // audio store entry's content-type (audio/pcm) matches the raw PCM
+      // bytes providers return. Without this, the store says "audio/wav"
+      // but the bytes have no RIFF header, causing audioBufferToFrames to
+      // fall through to the wrong decode path.
+      const storeFormat = outputFormat ? "pcm" : format;
+      handle = createStreamingEntry(storeFormat);
       const config = loadConfig();
       const baseUrl = getPublicBaseUrl(config);
       const url = `${baseUrl}/v1/audio/${handle.audioId}`;
@@ -731,6 +749,7 @@ export class CallController {
           {
             text,
             useCase: "phone-call",
+            outputFormat,
             signal: abortController.signal,
           },
           (chunk) => handle!.push(chunk),
@@ -742,6 +761,7 @@ export class CallController {
         const result = await provider.synthesize({
           text,
           useCase: "phone-call",
+          outputFormat,
           signal: abortController.signal,
         });
         handle.push(result.audio);

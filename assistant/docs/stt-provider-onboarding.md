@@ -106,11 +106,14 @@ cd assistant && bun test src/__tests__/stt-catalog-parity.test.ts
 
 If any assertion fails, the error message identifies which side is out of sync and what to fix.
 
-## 8. Verify terminology separation
+## 8. Verify unified STT architecture
 
-Before submitting the PR, grep for any accidental coupling between the two STT configuration surfaces:
+`services.stt.provider` is the single source of truth for all STT routing, including telephony. There is no separate telephony STT config path.
 
-- **`services.stt`** — controls daemon batch and client service-first STT provider selection. Configured under the Speech-to-Text section in Settings.
-- **`calls.voice.transcriptionProvider`** — controls telephony-native STT (Twilio ConversationRelay). Configured separately under the Calls/Voice section.
+Before submitting the PR, verify that:
 
-These are independent config paths with different provider sets and runtime boundaries. A new `services.stt` provider should never modify `calls.voice` config or vice versa. For example, `google-gemini` is registered only under `services.stt` and has no effect on `calls.voice.transcriptionProvider`. The prepared dark path for telephony cutover (see ARCHITECTURE.md) is the designated seam for future unification — do not wire a new provider into both paths simultaneously.
+1. **No stale config references** — grep for any references to a separate telephony transcription config. The telephony routing module (`src/calls/telephony-stt-routing.ts`) reads `services.stt.provider` and maps it to the appropriate Twilio strategy (either `conversation-relay-native` for providers Twilio supports natively, or `media-stream-custom` for server-side transcription).
+
+2. **Provider catalog `telephonyMode`** — the new provider's catalog entry (step 1) declares how it participates in telephony: `"realtime-ws"`, `"batch-only"`, or `"none"`. This value drives the strategy selection in `telephony-stt-routing.ts`.
+
+3. **No duplicate wiring** — a provider should appear only once in `services.stt`. The telephony routing layer consumes the same provider ID; there is no second registration step for telephony.

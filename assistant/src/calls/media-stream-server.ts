@@ -12,10 +12,10 @@
  * 3. Creates and registers a {@link CallController} to process
  *    transcripts through the conversation pipeline.
  *
- * The server is registered on `/v1/calls/media-stream` but is **not**
- * reachable from production TwiML — the Twilio voice webhook and
- * relay setup router continue to use ConversationRelay exclusively.
- * This module exists as a dark path for integration testing only.
+ * The server is registered on `/v1/calls/media-stream` and provides
+ * full bidirectional call support: inbound audio is transcribed via
+ * STT and outbound assistant speech is synthesized via TTS and
+ * streamed as media frames back to Twilio.
  *
  * Lifecycle:
  * - WebSocket `open` -> extract callSessionId from upgrade params,
@@ -26,17 +26,19 @@
  *   turn detection and transcription.
  * - STT `onTranscriptFinal` -> routed to controller's
  *   `handleCallerUtterance()`.
- * - STT `onSpeechStart` -> (future) barge-in detection.
+ * - STT `onSpeechStart` -> barge-in: clears outbound audio queue
+ *   and interrupts the in-flight LLM turn via the controller.
  * - Media stream `stop` event / WebSocket close -> finalize call.
  */
 
 import type { ServerWebSocket } from "bun";
 
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { toTrustContext } from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
 import { CallController } from "./call-controller.js";
 import { addPointerMessage, formatDuration } from "./call-pointer-messages.js";
+import { speakSystemPrompt } from "./call-speech-output.js";
 import {
   fireCallTranscriptNotifier,
   registerCallController,
@@ -56,6 +58,7 @@ import {
   type MediaStreamSttSessionCallbacks,
   type MediaStreamSttSessionConfig,
 } from "./media-stream-stt-session.js";
+import { routeSetup } from "./relay-setup-router.js";
 
 const log = getLogger("media-stream-server");
 
@@ -296,42 +299,174 @@ export class MediaStreamCallSession {
       transport: "media-stream",
     });
 
-    // Create the call controller bound to the media-stream output.
-    this.controller = new CallController(
-      this.callSessionId,
-      this.output,
-      session?.task ?? null,
-      {
-        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-      },
-    );
-    registerCallController(this.callSessionId, this.controller);
+    // ── Setup-policy routing ────────────────────────────────────────
+    // Run the same routeSetup() that the ConversationRelay path uses
+    // to enforce ACL/deny/escalate, verification, and invite flows.
+    // The media-stream transport does not support interactive sub-flows
+    // (DTMF entry, name capture, guardian wait), so non-normal outcomes
+    // are rejected gracefully with a TTS message and session teardown.
+    const from = session?.fromNumber ?? "";
+    const to = session?.toNumber ?? "";
+
+    const { outcome, resolved } = routeSetup({
+      callSessionId: this.callSessionId,
+      session: session ?? null,
+      from,
+      to,
+      customParameters: event.start.customParameters,
+    });
 
     log.info(
       {
         callSessionId: this.callSessionId,
         streamSid: this.streamSid,
         callSid: this.callSid,
+        setupAction: outcome.action,
       },
-      "Media stream session started — controller registered",
+      "Media stream session started",
     );
 
-    // Fire the initial greeting.
-    this.controller.startInitialGreeting().catch((err) => {
-      log.error(
+    switch (outcome.action) {
+      case "normal_call": {
+        // Create the call controller only for normal calls. Deny and
+        // unsupported-flow paths speak a message via the output adapter
+        // directly and don't need a controller. Creating it eagerly
+        // would start duration/silence timers that leak when the
+        // session is torn down before destroy() runs.
+        const initialTrustContext = toTrustContext(
+          resolved.actorTrust,
+          resolved.otherPartyNumber,
+        );
+        this.controller = new CallController(
+          this.callSessionId,
+          this.output,
+          session?.task ?? null,
+          {
+            assistantId: resolved.assistantId,
+            trustContext: initialTrustContext,
+          },
+        );
+        registerCallController(this.callSessionId, this.controller);
+
+        // Fire the initial greeting.
+        this.controller.startInitialGreeting().catch((err) => {
+          log.error(
+            { err, callSessionId: this.callSessionId },
+            "Failed to start initial greeting on media-stream session",
+          );
+        });
+        return;
+      }
+
+      case "deny":
+        // Deny — speak the denial message and tear down.
+        log.warn(
+          {
+            callSessionId: this.callSessionId,
+            reason: outcome.logReason,
+          },
+          "Media-stream setup denied by ACL policy",
+        );
+        recordCallEvent(this.callSessionId, "inbound_acl_denied", {
+          from,
+          trustClass: resolved.actorTrust.trustClass,
+        });
+        updateCallSession(this.callSessionId, {
+          status: "failed",
+          endedAt: Date.now(),
+          lastError: outcome.logReason,
+        });
+        // Run finalization now because handleTransportClosed will see
+        // terminal status and exit early when the WebSocket closes.
+        this.runFinalizationAndGrantCleanup(session);
+        void speakSystemPrompt(this.output, outcome.message).finally(() => {
+          setTimeout(() => this.output.endSession(outcome.logReason), 3000);
+        });
+        return;
+
+      default:
+        // All interactive sub-flows (verification, invite_redemption,
+        // name_capture, callee_verification, outbound_verification) are
+        // not supported on the media-stream transport. Speak a generic
+        // apology and end the session rather than silently bypassing
+        // policy enforcement.
+        log.warn(
+          {
+            callSessionId: this.callSessionId,
+            action: outcome.action,
+          },
+          "Media-stream transport does not support interactive setup flow — ending session",
+        );
+        recordCallEvent(this.callSessionId, "call_failed", {
+          reason: `Setup flow '${outcome.action}' not supported on media-stream transport`,
+          transport: "media-stream",
+        });
+        updateCallSession(this.callSessionId, {
+          status: "failed",
+          endedAt: Date.now(),
+          lastError: `Setup flow '${outcome.action}' not supported on media-stream transport`,
+        });
+        // Run finalization now because handleTransportClosed will see
+        // terminal status and exit early when the WebSocket closes.
+        this.runFinalizationAndGrantCleanup(session);
+        void speakSystemPrompt(
+          this.output,
+          "Sorry, this call requires additional verification that isn't available right now. Please try calling back. Goodbye.",
+        ).finally(() => {
+          setTimeout(
+            () =>
+              this.output.endSession(
+                `Unsupported setup flow: ${outcome.action}`,
+              ),
+            3000,
+          );
+        });
+        return;
+    }
+  }
+
+  // ── Finalization helper for early-teardown paths ─────────────────
+
+  /**
+   * Run scoped-grant revocation and call finalization inline. Used by
+   * the deny and unsupported-flow branches which set terminal status
+   * before `endSession()`. When the WebSocket subsequently closes,
+   * {@link handleTransportClosed} sees the terminal status and exits
+   * early — so we must perform cleanup here to avoid leaking grants
+   * and skipping `finalizeCall()` side-effects.
+   */
+  private runFinalizationAndGrantCleanup(
+    session: ReturnType<typeof getCallSession>,
+  ): void {
+    try {
+      revokeScopedApprovalGrantsForContext({
+        callSessionId: this.callSessionId,
+      });
+      if (session?.conversationId) {
+        revokeScopedApprovalGrantsForContext({
+          conversationId: session.conversationId,
+        });
+      }
+    } catch (err) {
+      log.warn(
         { err, callSessionId: this.callSessionId },
-        "Failed to start initial greeting on media-stream session",
+        "Failed to revoke scoped grants on early teardown path",
       );
-    });
+    }
+
+    if (session?.conversationId) {
+      finalizeCall(this.callSessionId, session.conversationId);
+    }
   }
 
   // ── STT callbacks ─────────────────────────────────────────────────
 
   private handleSpeechStart(): void {
-    // Future: barge-in detection — clear queued outbound audio when
-    // the caller starts speaking.
+    // Barge-in: clear queued outbound audio and abort the in-flight LLM
+    // turn when the caller starts speaking over the assistant.
     if (this.output && this.controller) {
       this.output.clearAudio();
+      this.controller.handleInterrupt();
     }
   }
 

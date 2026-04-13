@@ -70,6 +70,20 @@ export interface TtsSynthesisRequest {
 
   /** Optional abort signal for cancelling in-flight synthesis. */
   signal?: AbortSignal;
+
+  /**
+   * Optional hint requesting a specific output encoding from the provider.
+   *
+   * - `"pcm"` — Request raw PCM output (e.g. 16-bit signed LE). The
+   *   media-stream transport sets this because its mu-law transcoder
+   *   can handle raw PCM but not compressed formats like mp3/opus.
+   *
+   * Providers that support the requested format should honour the hint;
+   * providers that don't may ignore it and return their default format.
+   * The caller must always check `result.contentType` to determine the
+   * actual format of the returned audio.
+   */
+  outputFormat?: "pcm";
 }
 
 /** Output of a completed TTS synthesis call. */

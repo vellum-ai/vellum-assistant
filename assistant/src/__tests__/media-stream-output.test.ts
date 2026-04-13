@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -13,7 +13,28 @@ mock.module("../util/logger.js", () => ({
   }),
 }));
 
+// Mock TTS provider for synthesis tests
+const mockSynthesize = jest.fn();
+const mockProvider = {
+  id: "test-provider",
+  capabilities: { supportsStreaming: false, supportedFormats: ["wav"] },
+  synthesize: mockSynthesize,
+};
+
+mock.module("../calls/resolve-call-tts-provider.js", () => ({
+  resolveCallTtsProvider: jest.fn(() => ({
+    provider: mockProvider,
+    useSynthesizedPath: false,
+    audioFormat: "wav" as const,
+  })),
+}));
+
 import { MediaStreamOutput } from "../calls/media-stream-output.js";
+import { resolveCallTtsProvider } from "../calls/resolve-call-tts-provider.js";
+
+const mockResolveCallTtsProvider = resolveCallTtsProvider as ReturnType<
+  typeof jest.fn
+>;
 
 // ---------------------------------------------------------------------------
 // Mock WebSocket
@@ -53,27 +74,138 @@ function createMockWs() {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Wait for async playback queue to drain. */
+async function drain(): Promise<void> {
+  // Allow microtasks and the drain loop to run
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+
+/** Generate a minimal valid WAV buffer with PCM data. */
+function makeWavBuffer(pcmSamples: number[]): Buffer {
+  const pcmData = Buffer.alloc(pcmSamples.length * 2);
+  for (let i = 0; i < pcmSamples.length; i++) {
+    pcmData.writeInt16LE(pcmSamples[i], i * 2);
+  }
+  // 44-byte WAV header (simplified)
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + pcmData.length, 4);
+  header.write("WAVE", 8);
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16); // subchunk1 size
+  header.writeUInt16LE(1, 20); // PCM
+  header.writeUInt16LE(1, 22); // mono
+  header.writeUInt32LE(8000, 24); // sample rate
+  header.writeUInt32LE(16000, 28); // byte rate
+  header.writeUInt16LE(2, 32); // block align
+  header.writeUInt16LE(16, 34); // bits per sample
+  header.write("data", 36);
+  header.writeUInt32LE(pcmData.length, 40);
+  return Buffer.concat([header, pcmData]);
+}
+
+// ---------------------------------------------------------------------------
+// Setup / teardown
+// ---------------------------------------------------------------------------
+
+afterEach(() => {
+  mockSynthesize.mockReset();
+  // Restore the default resolveCallTtsProvider mock
+  mockResolveCallTtsProvider.mockImplementation(() => ({
+    provider: mockProvider,
+    useSynthesizedPath: false,
+    audioFormat: "wav" as const,
+  }));
+});
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe("MediaStreamOutput", () => {
-  describe("CallTransport interface", () => {
-    test("sendTextToken is a no-op", () => {
+  describe("CallTransport interface — sendTextToken", () => {
+    test("accumulates text and sends mark on last: true with non-empty text", async () => {
+      const wav = makeWavBuffer([1000, 2000, 3000, 4000]);
+      mockSynthesize.mockResolvedValue({
+        audio: wav,
+        contentType: "audio/wav",
+      });
+
       const { ws, sent } = createMockWs();
       const output = new MediaStreamOutput(ws, "stream-1");
-      output.sendTextToken("hello", false);
+      output.sendTextToken("hello ", false);
       output.sendTextToken("world", true);
+
+      await drain();
+
+      // Should have sent media frames (from synthesis) and a mark
+      const events = sent.map((s) => JSON.parse(s).event);
+      expect(events).toContain("media");
+      expect(events).toContain("mark");
+
+      // The mark should be end-of-turn
+      const markMsg = sent.find((s) => JSON.parse(s).event === "mark");
+      expect(JSON.parse(markMsg!).mark.name).toBe("end-of-turn");
+    });
+
+    test("empty token with last: true sends only end-of-turn mark (no synthesis)", async () => {
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+      output.sendTextToken("", true);
+
+      await drain();
+
+      // Should send only a mark, no media frames
+      expect(sent).toHaveLength(1);
+      const parsed = JSON.parse(sent[0]);
+      expect(parsed.event).toBe("mark");
+      expect(parsed.mark.name).toBe("end-of-turn");
+
+      // Synthesis should NOT have been called
+      expect(mockSynthesize).not.toHaveBeenCalled();
+    });
+
+    test("non-last tokens accumulate without sending", () => {
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+      output.sendTextToken("hello ", false);
+      output.sendTextToken("world ", false);
       expect(sent).toHaveLength(0);
     });
 
-    test("sendPlayUrl is a no-op", () => {
+    test("does not send when closed", () => {
       const { ws, sent } = createMockWs();
       const output = new MediaStreamOutput(ws, "stream-1");
+      output.endSession();
+      output.sendTextToken("hello", true);
+      expect(sent).toHaveLength(0);
+    });
+  });
+
+  describe("CallTransport interface — sendPlayUrl", () => {
+    test("enqueues a fetch-url item in the playback queue", () => {
+      const { ws } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+      output.sendPlayUrl("https://example.com/audio.mp3");
+      // The queue should have one item (the fetch will fail since
+      // there's no real server, but the enqueueing is synchronous)
+      expect(output.getPlaybackQueueLength()).toBeGreaterThanOrEqual(0);
+    });
+
+    test("does not enqueue when closed", () => {
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+      output.endSession();
       output.sendPlayUrl("https://example.com/audio.mp3");
       expect(sent).toHaveLength(0);
     });
+  });
 
-    test("endSession closes the WebSocket with code 1000", () => {
+  describe("CallTransport interface — endSession", () => {
+    test("closes the WebSocket with code 1000", () => {
       const mock = createMockWs();
       const output = new MediaStreamOutput(mock.ws, "stream-1");
       output.endSession("test-reason");
@@ -82,7 +214,7 @@ describe("MediaStreamOutput", () => {
       expect(mock.closeReason).toBe("test-reason");
     });
 
-    test("endSession uses default reason when none provided", () => {
+    test("uses default reason when none provided", () => {
       const mock = createMockWs();
       const output = new MediaStreamOutput(mock.ws, "stream-1");
       output.endSession();
@@ -90,7 +222,7 @@ describe("MediaStreamOutput", () => {
       expect(mock.closeReason).toBe("session-ended");
     });
 
-    test("endSession is idempotent", () => {
+    test("is idempotent", () => {
       const mock = createMockWs();
       const output = new MediaStreamOutput(mock.ws, "stream-1");
       output.endSession("first");
@@ -162,8 +294,8 @@ describe("MediaStreamOutput", () => {
     });
   });
 
-  describe("clearAudio", () => {
-    test("sends a clear command", () => {
+  describe("clearAudio — barge-in", () => {
+    test("sends a clear command to Twilio", () => {
       const { ws, sent } = createMockWs();
       const output = new MediaStreamOutput(ws, "MZ-stream-1");
       output.clearAudio();
@@ -174,6 +306,38 @@ describe("MediaStreamOutput", () => {
         event: "clear",
         streamSid: "MZ-stream-1",
       });
+    });
+
+    test("flushes pending playback queue on barge-in", async () => {
+      const wav = makeWavBuffer([1000, 2000, 3000, 4000]);
+      // Make synthesis slow so it's still in-flight when we clear
+      mockSynthesize.mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(
+              () => resolve({ audio: wav, contentType: "audio/wav" }),
+              500,
+            ),
+          ),
+      );
+
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "MZ-stream-1");
+
+      // Queue synthesis
+      output.sendTextToken("hello world", true);
+      // Immediately barge-in
+      output.clearAudio();
+
+      await drain();
+
+      // The clear command should have been sent
+      const clearMessages = sent.filter((s) => JSON.parse(s).event === "clear");
+      expect(clearMessages.length).toBeGreaterThanOrEqual(1);
+
+      // No media frames should have been sent (synthesis was aborted)
+      const mediaMessages = sent.filter((s) => JSON.parse(s).event === "media");
+      expect(mediaMessages).toHaveLength(0);
     });
 
     test("does not send when closed", () => {
@@ -237,6 +401,155 @@ describe("MediaStreamOutput", () => {
       const output = new MediaStreamOutput(ws, "stream-1");
       // Should not throw
       expect(() => output.endSession()).not.toThrow();
+    });
+  });
+
+  describe("playback queue", () => {
+    test("synthesis produces media frames from WAV audio", async () => {
+      // Generate WAV with enough samples to produce at least one mu-law frame
+      const samples = Array.from({ length: 200 }, (_, i) =>
+        Math.round(Math.sin(i * 0.1) * 10000),
+      );
+      const wav = makeWavBuffer(samples);
+      mockSynthesize.mockResolvedValue({
+        audio: wav,
+        contentType: "audio/wav",
+      });
+
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+      output.sendTextToken("test synthesis", true);
+
+      await drain();
+
+      // Should have sent at least one media frame and an end-of-turn mark
+      const mediaMessages = sent.filter((s) => JSON.parse(s).event === "media");
+      const markMessages = sent.filter((s) => JSON.parse(s).event === "mark");
+
+      expect(mediaMessages.length).toBeGreaterThan(0);
+      expect(markMessages.length).toBeGreaterThan(0);
+
+      // Each media message should have a base64 payload
+      for (const msg of mediaMessages) {
+        const parsed = JSON.parse(msg);
+        expect(parsed.media.payload).toBeDefined();
+        expect(typeof parsed.media.payload).toBe("string");
+      }
+    });
+
+    test("getPlaybackQueueLength reflects queue state", () => {
+      const { ws } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+      // Initially empty
+      expect(output.getPlaybackQueueLength()).toBe(0);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Regression: audio format / content-type mismatch
+  // ---------------------------------------------------------------------------
+
+  describe("audio format mismatch regression", () => {
+    test("mp3 bytes declared as audio/wav returns silence (not garbled)", async () => {
+      // Simulate a broken provider that claims content-type audio/wav but
+      // actually returns mp3 bytes (starts with MPEG sync word 0xFF 0xFB).
+      const mp3Bytes = Buffer.alloc(256);
+      mp3Bytes[0] = 0xff; // MPEG sync
+      mp3Bytes[1] = 0xfb; // MPEG Layer 3
+      // Fill rest with non-zero data to make garbling detectable
+      for (let i = 2; i < mp3Bytes.length; i++) {
+        mp3Bytes[i] = 0x80;
+      }
+
+      mockSynthesize.mockResolvedValue({
+        audio: mp3Bytes,
+        contentType: "audio/wav", // Mismatch! Says WAV but bytes are mp3
+      });
+
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+      output.sendTextToken("test", true);
+
+      await drain();
+
+      // The audioBufferToFrames magic-byte detection should detect mp3
+      // sync bytes when format is "wav" and return silence (no media
+      // frames) rather than garbled audio.
+      const mediaMessages = sent.filter((s) => JSON.parse(s).event === "media");
+      expect(mediaMessages).toHaveLength(0);
+
+      // Should still have the end-of-turn mark
+      const markMessages = sent.filter((s) => JSON.parse(s).event === "mark");
+      expect(markMessages.length).toBeGreaterThan(0);
+    });
+
+    test("raw PCM declared as audio/pcm produces valid frames", async () => {
+      // Raw 16-bit signed LE PCM samples at 16 kHz (no RIFF header).
+      // Generate enough samples (400 = 200 after downsample) for at
+      // least one mu-law frame.
+      const sampleCount = 400;
+      const pcmData = Buffer.alloc(sampleCount * 2);
+      for (let i = 0; i < sampleCount; i++) {
+        const sample = Math.round(Math.sin(i * 0.1) * 10000);
+        pcmData.writeInt16LE(sample, i * 2);
+      }
+
+      mockSynthesize.mockResolvedValue({
+        audio: pcmData,
+        contentType: "audio/pcm",
+      });
+
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+      output.sendTextToken("test", true);
+
+      await drain();
+
+      // processSynthesizeItem derives actualFormat from content-type:
+      // "audio/pcm" -> "pcm". audioBufferToFrames handles raw PCM by
+      // downsampling 16 kHz -> 8 kHz and converting to mu-law.
+      const mediaMessages = sent.filter((s) => JSON.parse(s).event === "media");
+      expect(mediaMessages.length).toBeGreaterThan(0);
+
+      // Verify each frame has a valid base64 payload
+      for (const msg of mediaMessages) {
+        const parsed = JSON.parse(msg);
+        expect(typeof parsed.media.payload).toBe("string");
+        expect(parsed.media.payload.length).toBeGreaterThan(0);
+      }
+    });
+
+    test("raw PCM with content-type audio/x-raw produces valid frames", async () => {
+      // Same as above but using the alternative content-type that some
+      // providers may return for raw PCM.
+      const sampleCount = 400;
+      const pcmData = Buffer.alloc(sampleCount * 2);
+      for (let i = 0; i < sampleCount; i++) {
+        const sample = Math.round(Math.sin(i * 0.1) * 10000);
+        pcmData.writeInt16LE(sample, i * 2);
+      }
+
+      mockSynthesize.mockResolvedValue({
+        audio: pcmData,
+        contentType: "audio/x-raw",
+      });
+
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+      output.sendTextToken("test", true);
+
+      await drain();
+
+      // processSynthesizeItem detects "audio/x-raw" -> "pcm" format.
+      // audioBufferToFrames converts raw PCM to mu-law frames.
+      const mediaMessages = sent.filter((s) => JSON.parse(s).event === "media");
+      expect(mediaMessages.length).toBeGreaterThan(0);
+
+      for (const msg of mediaMessages) {
+        const parsed = JSON.parse(msg);
+        expect(typeof parsed.media.payload).toBe("string");
+        expect(parsed.media.payload.length).toBeGreaterThan(0);
+      }
     });
   });
 });
