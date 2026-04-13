@@ -19,6 +19,7 @@ struct OnboardingFlowView: View {
     @State private var managedBootstrapError: String?
     @State private var didCallComplete = false
     @State private var completionDelayTask: Task<Void, Never>?
+    @State private var isShowingPreChat = false
 
     private static let appIcon: NSImage? = {
         guard let path = ResourceBundle.bundle.path(forResource: "vellum-app-icon", ofType: "png") else { return nil }
@@ -27,6 +28,10 @@ struct OnboardingFlowView: View {
 
     private var managedSignInEnabled: Bool {
         MacOSClientFeatureFlagManager.shared.isEnabled("managed-sign-in")
+    }
+
+    private var preChatOnboardingEnabled: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled("onboarding-pre-chat")
     }
 
     private var maxOnboardingStep: Int {
@@ -38,7 +43,31 @@ struct OnboardingFlowView: View {
         ZStack {
             VColor.surfaceOverlay.ignoresSafeArea()
 
-            if state.isHatching {
+            if isShowingPreChat {
+                PreChatOnboardingFlow(initialAssistantName: state.assistantName) { context in
+                    state.preChatContext = context
+                    // Update assistant name if user changed it during pre-chat
+                    if let newName = context?.assistantName, !newName.isEmpty, newName != state.assistantName {
+                        state.assistantName = newName
+                    }
+                    isShowingPreChat = false
+                    onComplete()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(
+                    RadialGradient(
+                        colors: [
+                            VColor.surfaceBase,
+                            VColor.surfaceOverlay
+                        ],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: 500
+                    )
+                    .ignoresSafeArea()
+                )
+                .transition(.opacity)
+            } else if state.isHatching {
                 HatchingStepView(state: state)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(
@@ -218,6 +247,7 @@ struct OnboardingFlowView: View {
                 state.hatchStepLabel = nil
                 state.hatchTotalSteps = 1
                 state.hatchCurrentStep = 0
+                isShowingPreChat = false
                 isBootstrappingManaged = false
                 managedBootstrapError = nil
                 withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
@@ -264,7 +294,13 @@ struct OnboardingFlowView: View {
                     try? await Task.sleep(nanoseconds: 1_000_000_000)
                     guard !Task.isCancelled else { return }
                     guard state.hatchCompleted else { return }
-                    onComplete()
+                    if preChatOnboardingEnabled {
+                        withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
+                            isShowingPreChat = true
+                        }
+                    } else {
+                        onComplete()
+                    }
                 }
             }
         }

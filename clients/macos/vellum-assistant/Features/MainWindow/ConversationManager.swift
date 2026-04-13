@@ -60,6 +60,13 @@ final class ConversationManager: ConversationRestorerDelegate {
     private let conversationAnalysisClient: ConversationAnalysisClientProtocol
     private let conversationRestorer: ConversationRestorer
 
+    // MARK: - Pre-Chat Onboarding
+
+    /// Pre-chat onboarding context from the onboarding flow. Set by AppDelegate
+    /// on first launch; consumed by the first draft ChatViewModel so the first
+    /// message POST includes it for assistant personalization.
+    var preChatContext: PreChatOnboardingContext?
+
     // MARK: - Notification Catch-Up
 
     /// Daemon conversation IDs that need a notification catch-up (history fetch)
@@ -169,7 +176,8 @@ final class ConversationManager: ConversationRestorerDelegate {
         conversationDetailClient: any ConversationDetailClientProtocol = ConversationDetailClient(),
         conversationHostAccessClient: any ConversationHostAccessClientProtocol = ConversationHostAccessClient(),
         conversationAnalysisClient: ConversationAnalysisClientProtocol = ConversationAnalysisClient(),
-        isFirstLaunch: Bool = false
+        isFirstLaunch: Bool = false,
+        preChatContext: PreChatOnboardingContext? = nil
     ) {
         Self.migrateStorageKeysIfNeeded()
         self.connectionManager = connectionManager
@@ -181,6 +189,10 @@ final class ConversationManager: ConversationRestorerDelegate {
         self.conversationAnalysisClient = conversationAnalysisClient
         self.conversationRestorer = ConversationRestorer(connectionManager: connectionManager, eventStreamClient: eventStreamClient)
         self.selectionStore = ConversationSelectionStore(listStore: listStore)
+
+        // Set pre-chat context before enterDraftMode() so the first draft VM
+        // picks it up when it checks preChatContext.
+        self.preChatContext = preChatContext
 
         // On first launch (post-onboarding), skip conversation restoration — there are
         // no meaningful prior conversations. Allow activeConversationId writes immediately so
@@ -489,6 +501,13 @@ final class ConversationManager: ConversationRestorerDelegate {
         }
         let viewModel = makeViewModel()
         viewModel.isHistoryLoaded = true
+        // Forward pending pre-chat onboarding context to the draft VM so
+        // the first message POST includes it. Consume from the manager so
+        // only the first draft conversation gets the context.
+        if let context = preChatContext {
+            viewModel.pendingOnboardingContext = context
+            preChatContext = nil
+        }
         viewModel.onUserMessageSent = { [weak self] in
             self?.promoteDraft(fromUserSend: true)
         }
