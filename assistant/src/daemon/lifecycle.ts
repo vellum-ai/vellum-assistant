@@ -36,13 +36,13 @@ import {
 } from "../credential-execution/startup-timeout.js";
 import { FilingService } from "../filing/filing-service.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
+import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { getHookManager } from "../hooks/manager.js";
 import { installTemplates } from "../hooks/templates.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
 import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
-import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import {
   deleteMessageById,
   getConversationType,
