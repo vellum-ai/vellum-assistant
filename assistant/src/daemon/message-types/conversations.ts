@@ -482,6 +482,8 @@ export interface OpenConversation {
   title?: string;
   /** Optional message ID to scroll to after focus. */
   anchorMessageId?: string;
+  /** When `false`, the client should register the conversation in its sidebar (so it's visible and navigable) but must NOT switch focus to it. Omitting the field defaults to `true` for backward compatibility with existing single-target 'jump to conversation' callers. */
+  focus?: boolean;
 }
 
 // --- Domain-level union aliases (consumed by the barrel file) ---
