@@ -177,9 +177,8 @@ export async function login(): Promise<void> {
         ? findAssistantByName(activeName)
         : loadLatestAssistant();
 
-      // Only register self-hosted assistants (local or docker).
-      // Managed ("vellum") and other remote assistants are handled by the platform.
-      if (entry && (entry.cloud === "local" || entry.cloud === "docker")) {
+      // Skip managed ("vellum") assistants — they are handled by the platform.
+      if (entry && entry.cloud !== "vellum") {
         const orgId = await fetchOrganizationId(token);
         const clientInstallationId = computeDeviceId();
         const registration = await ensureSelfHostedLocalRegistration(
