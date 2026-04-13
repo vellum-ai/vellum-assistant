@@ -36,18 +36,8 @@ public final class ToolConfirmationNotificationService {
             trigger: nil
         )
 
-        let posted = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-            UNUserNotificationCenter.current().add(request) { error in
-                if let error {
-                    log.error("Failed to post notification: \(error.localizedDescription)")
-                }
-                DispatchQueue.main.async {
-                    continuation.resume(returning: error == nil)
-                }
-            }
-        }
-
-        guard posted else {
+        if let error = await UNUserNotificationCenter.current().safeAdd(request) {
+            log.error("Failed to post notification: \(error.localizedDescription)")
             return Self.inlineHandledSentinel
         }
 
