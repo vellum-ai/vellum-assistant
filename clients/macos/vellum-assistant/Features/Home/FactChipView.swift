@@ -44,11 +44,11 @@ struct FactChipView: View {
         .padding(EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10))
         .frame(maxWidth: maxWidth, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: VRadius.lg, style: .continuous)
                 .fill(backgroundTint)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: VRadius.lg, style: .continuous)
                 .strokeBorder(borderColor, style: borderStrokeStyle)
         )
         .accessibilityElement(children: .combine)
@@ -101,6 +101,11 @@ struct FactChipView: View {
         case .strong:    confidenceLabel = "strong"
         case .uncertain: confidenceLabel = "uncertain"
         }
-        return "\(categoryLabel) fact, \(confidenceLabel) confidence: \(fact.text)"
+        let sourceLabel: String
+        switch fact.source {
+        case .onboarding: sourceLabel = "you told me"
+        case .inferred:   sourceLabel = "I figured this out"
+        }
+        return "\(categoryLabel) fact, \(confidenceLabel) confidence, \(sourceLabel): \(fact.text)"
     }
 }
