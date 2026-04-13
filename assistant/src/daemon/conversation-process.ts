@@ -97,6 +97,12 @@ export interface ProcessConversationContext {
   currentRequestId?: string;
   readonly queue: MessageQueue;
   readonly traceEmitter: TraceEmitter;
+  /**
+   * Set of requestIds created by surface-action responses. Used to
+   * distinguish surface-action turns from regular user turns (e.g. for
+   * stale-surface auto-dismiss guards and batched-drain exclusion).
+   */
+  readonly surfaceActionRequestIds: Set<string>;
   currentActiveSurfaceId?: string;
   currentPage?: string;
   /** Cumulative token usage stats for the conversation. */
@@ -290,6 +296,16 @@ async function buildPassthroughBatch(
     // skill preactivation isn't leaked into batched tail messages.
     return [];
   }
+  // Surface-action messages rely on per-message `activeSurfaceId` and
+  // `surfaceActionRequestIds` semantics that last-wins batching would
+  // corrupt (e.g. erasing the head's surface context when the last tail is
+  // a regular text message). Keep them on the single-message path.
+  if (
+    head.activeSurfaceId !== undefined ||
+    conversation.surfaceActionRequestIds.has(head.requestId)
+  ) {
+    return [];
+  }
 
   let i = 1;
   for (;;) {
@@ -314,6 +330,14 @@ async function buildPassthroughBatch(
       "direct_setup"
     )
       break;
+    // Stop at the first surface-action tail; it will drain via the single-
+    // message path so its per-message surface context is preserved.
+    if (
+      candidate.activeSurfaceId !== undefined ||
+      conversation.surfaceActionRequestIds.has(candidate.requestId)
+    ) {
+      break;
+    }
     i++;
   }
 
@@ -942,9 +966,27 @@ async function drainBatch(
   conversation.currentTurnChannelCapabilities =
     conversation.channelCapabilities;
 
-  // Per-message dequeue events and persistence loop.
-  let lastUserMessageId = "";
-  let lastResolvedContent = "";
+  // Single activity-state transition for the batched turn. Per-message
+  // emissions would publish N "thinking" phase transitions to every
+  // connected SSE client (via activityVersion increments), whipsawing the
+  // client-side thinking indicator. The single-message path emits exactly
+  // one such event per turn; match it here.
+  conversation.emitActivityState(
+    "thinking",
+    "message_dequeued",
+    "assistant_turn",
+    head.requestId,
+  );
+
+  // Per-message dequeue events and persistence loop. Track the last
+  // SUCCESSFUL persist separately from the batch tail — a failed tail
+  // must not corrupt the requestId/surface context that `runAgentLoop`
+  // will tag `message_complete` / `generation_cancelled` with.
+  let lastSuccessfulRequestId: string | undefined;
+  let lastSuccessfulActiveSurfaceId: string | undefined;
+  let lastSuccessfulCurrentPage: string | undefined;
+  let lastSuccessfulContent: string | undefined;
+  let lastUserMessageId: string | undefined;
   for (let i = 0; i < batch.length; i++) {
     const qm = batch[i];
     qm.onEvent({
@@ -961,21 +1003,54 @@ async function drainBatch(
         attributes: { reason, batchIndex: i, batchSize: batch.length },
       },
     );
-    conversation.emitActivityState(
-      "thinking",
-      "message_dequeued",
-      "assistant_turn",
-      qm.requestId,
-    );
 
     const qmSlash = await resolveSlash(
       qm.content,
       buildSlashContext(conversation),
     );
     if (qmSlash.kind !== "passthrough") {
-      throw new Error(
-        "batch contained non-passthrough message — buildPassthroughBatch invariant violated",
+      // Defensive recovery. `buildPassthroughBatch` should make this
+      // unreachable, but a synchronous throw here would strand
+      // `conversation.processing = true` (head already persisted) with no
+      // `runAgentLoop` ever called to clear it. Log, emit an error to
+      // the affected client, and either recover-and-drain (head case) or
+      // skip the tail (tail case) so the rest of the batch still runs.
+      const invariantMessage =
+        "Internal error: batch drain invariant violated (non-passthrough message in batch)";
+      log.error(
+        {
+          conversationId: conversation.conversationId,
+          requestId: qm.requestId,
+          batchIndex: i,
+          batchSize: batch.length,
+          slashKind: qmSlash.kind,
+        },
+        "drainBatch invariant violated — non-passthrough message found in batch",
       );
+      conversation.traceEmitter.emit(
+        "request_error",
+        invariantMessage,
+        {
+          requestId: qm.requestId,
+          status: "error",
+          attributes: { reason: "batch_invariant_violation" },
+        },
+      );
+      qm.onEvent({ type: "error", message: invariantMessage });
+      if (i === 0) {
+        // Head case — no in-flight turn yet. Clear processing state that
+        // the head's `persistUserMessage` would have set (but didn't,
+        // because we threw before calling it) and recover via drainQueue.
+        conversation.processing = false;
+        conversation.abortController = null;
+        conversation.currentRequestId = undefined;
+        conversation.preactivatedSkillIds = undefined;
+        await drainQueue(conversation);
+        return;
+      }
+      // Tail case — processing is live, just skip this message. Loop
+      // continues to drain any remaining tails.
+      continue;
     }
     const qmContent = qmSlash.content;
 
@@ -1040,11 +1115,18 @@ async function drainBatch(
       // Tail persist failed — we cannot abandon the batch without stranding
       // the head's in-flight turn. Processing state is already set; skip
       // this message and continue accumulating siblings. The emitted error
-      // event lets the tail client see the failure.
+      // event lets the tail client see the failure. Crucially we do NOT
+      // update lastSuccessful* here, so runAgentLoop tags completion with
+      // the most recent successfully-persisted message's requestId.
       continue;
     }
 
-    lastResolvedContent = qmContent;
+    // Persist succeeded. Update last-successful markers so a later tail
+    // failure won't overwrite them.
+    lastSuccessfulRequestId = qm.requestId;
+    lastSuccessfulActiveSurfaceId = qm.activeSurfaceId;
+    lastSuccessfulCurrentPage = qm.currentPage;
+    lastSuccessfulContent = qmContent;
 
     // Fire-and-forget: detect notification preferences in each batched user
     // message and persist any that are found, mirroring drainSingleMessage.
@@ -1075,15 +1157,46 @@ async function drainBatch(
           );
         });
     }
+
+    // If the user hit abort mid-batch, stop persisting remaining tails.
+    // runAgentLoop's existing abort handling will emit generation_cancelled
+    // and clear processing state for whatever did persist.
+    if (conversation.abortController?.signal.aborted) {
+      log.info(
+        {
+          conversationId: conversation.conversationId,
+          requestId: qm.requestId,
+          batchIndex: i,
+          batchSize: batch.length,
+        },
+        "drainBatch: abort signaled mid-batch; stopping tail persist",
+      );
+      break;
+    }
   }
 
-  const last = batch[batch.length - 1];
-  // Last-wins: tag `message_complete` / surface-action IDs with the most
-  // recent user's requestId so client-side correlation surfaces the message
-  // the user is actively waiting on.
-  conversation.currentRequestId = last.requestId;
-  conversation.currentActiveSurfaceId = last.activeSurfaceId;
-  conversation.currentPage = last.currentPage;
+  if (lastUserMessageId === undefined || lastSuccessfulContent === undefined) {
+    // Nothing persisted — either the head's invariant-violation recovery
+    // already drained and returned, or every message failed. Head failure
+    // has its own recovery path above; if we get here it's because a
+    // defensive code path left us with nothing to run. Log and bail.
+    log.error(
+      {
+        conversationId: conversation.conversationId,
+        batchSize: batch.length,
+      },
+      "drainBatch: no messages persisted successfully; skipping runAgentLoop",
+    );
+    conversation.preactivatedSkillIds = undefined;
+    return;
+  }
+
+  // Tag turn-completion state with the last SUCCESSFUL persist so client-
+  // side correlation (message_complete / generation_cancelled /
+  // generation_handoff) surfaces a requestId that actually has a DB row.
+  conversation.currentRequestId = lastSuccessfulRequestId;
+  conversation.currentActiveSurfaceId = lastSuccessfulActiveSurfaceId;
+  conversation.currentPage = lastSuccessfulCurrentPage;
 
   const fanOutOnEvent = (msg: ServerMessage) => {
     for (const qm of batch) qm.onEvent(msg);
@@ -1094,14 +1207,19 @@ async function drainBatch(
     isUserMessage?: boolean;
     titleText?: string;
   } = { isUserMessage: true };
-  if (last.isInteractive !== undefined)
-    drainLoopOptions.isInteractive = last.isInteractive;
+  // Source interactive flag from the last successfully-persisted sibling so
+  // a trailing failed tail doesn't flip the agent loop's interactivity.
+  const lastSuccessfulBatchEntry = batch.find(
+    (qm) => qm.requestId === lastSuccessfulRequestId,
+  );
+  if (lastSuccessfulBatchEntry?.isInteractive !== undefined)
+    drainLoopOptions.isInteractive = lastSuccessfulBatchEntry.isInteractive;
 
   // Fire-and-forget: runAgentLoop's finally block recursively calls drainQueue
   // when this run completes. Mirrors drainSingleMessage.
   conversation
     .runAgentLoop(
-      lastResolvedContent,
+      lastSuccessfulContent,
       lastUserMessageId,
       fanOutOnEvent,
       drainLoopOptions,
@@ -1112,7 +1230,7 @@ async function drainBatch(
         {
           err,
           conversationId: conversation.conversationId,
-          requestId: last.requestId,
+          requestId: lastSuccessfulRequestId,
           batchSize: batch.length,
         },
         "Error processing batched queued messages",

@@ -112,6 +112,13 @@ const capturedAddMessages: Array<{
   metadata?: Record<string, unknown>;
 }> = [];
 
+/**
+ * Content substrings that should cause `addMessage` to throw — used to
+ * simulate a mid-batch persist failure (e.g. a DB error on a specific
+ * tail message while its siblings succeed).
+ */
+const addMessageShouldThrowForContent = new Set<string>();
+
 mock.module("../prompts/system-prompt.js", () => ({
   buildSystemPrompt: () => "system prompt",
 }));
@@ -173,6 +180,14 @@ mock.module("../memory/conversation-crud.js", () => ({
     content: string,
     metadata?: Record<string, unknown>,
   ) => {
+    // Simulate a persist failure for tests that need to exercise the
+    // tail-persist-failed path in drainBatch. Triggered by matching any
+    // registered substring against the serialized content payload.
+    for (const needle of addMessageShouldThrowForContent) {
+      if (content.includes(needle)) {
+        throw new Error(`Simulated addMessage failure for content: ${needle}`);
+      }
+    }
     const id = `msg-${Date.now()}-${capturedAddMessages.length}`;
     capturedAddMessages.push({ id, role, content, metadata });
     return { id };
@@ -473,6 +488,7 @@ beforeEach(() => {
   turnCommitCalls.length = 0;
   turnCommitHangForever = false;
   linkAttachmentShouldThrow = false;
+  addMessageShouldThrowForContent.clear();
 });
 
 afterAll(() => {
@@ -1140,6 +1156,273 @@ describe("Batched drain", () => {
     resolveRun(3);
     await new Promise((r) => setTimeout(r, 10));
   });
+});
+
+// ---------------------------------------------------------------------------
+// Batched drain — correctness fixes (surface exclusion, abort, last-successful
+// tracking, single activity-state emission)
+// ---------------------------------------------------------------------------
+
+describe("Batched drain correctness fixes", () => {
+  beforeEach(() => {
+    pendingRuns = [];
+    capturedAddMessages.length = 0;
+  });
+
+  test("surface-action messages are not batched with regular passthroughs", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const eventsSurface: ServerMessage[] = [];
+    const eventsRegular: ServerMessage[] = [];
+
+    // Start in-flight message
+    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    await waitForPendingRun(1);
+
+    // Enqueue a surface-action message (activeSurfaceId set + tracked in
+    // surfaceActionRequestIds) followed by a regular passthrough from the
+    // same interface. The batch builder must reject the surface-action head
+    // so each drains as its own run.
+    conversation.surfaceActionRequestIds.add("req-surface");
+    conversation.enqueueMessage(
+      "surface action response",
+      [],
+      (e) => eventsSurface.push(e),
+      "req-surface",
+      "surface-1", // activeSurfaceId
+    );
+    conversation.enqueueMessage(
+      "regular follow-up",
+      [],
+      (e) => eventsRegular.push(e),
+      "req-regular",
+    );
+    expect(conversation.getQueueDepth()).toBe(2);
+
+    // Complete run 0 → drain must NOT batch the surface-action with the
+    // regular passthrough. Expect the surface-action to drain as a single
+    // run first.
+    resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // The second run is the surface-action single-message run.
+    const surfaceUserRowsAfterRun2 = capturedAddMessages.filter(
+      (m) => m.role === "user" && m.content.includes("surface action response"),
+    );
+    expect(surfaceUserRowsAfterRun2).toHaveLength(1);
+    expect(eventsSurface.filter((e) => e.type === "message_dequeued")).toHaveLength(
+      1,
+    );
+
+    // Complete the surface-action run; drain pulls the regular passthrough
+    // as its own separate run.
+    resolveRun(1);
+    await waitForPendingRun(3);
+    expect(pendingRuns.length).toBe(3);
+    expect(eventsRegular.filter((e) => e.type === "message_dequeued")).toHaveLength(
+      1,
+    );
+
+    // Total runs = 3: msg-1, surface-action, regular — NOT 2 (would mean
+    // they were batched).
+    resolveRun(2);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("abort mid-batch stops tail persists", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: ServerMessage[] = [];
+    const events2: ServerMessage[] = [];
+    const events3: ServerMessage[] = [];
+    const events4: ServerMessage[] = [];
+
+    // Start in-flight message
+    const p1 = conversation.processMessage(
+      "msg-1",
+      [],
+      (e) => events1.push(e),
+      "req-1",
+    );
+    await waitForPendingRun(1);
+
+    // Enqueue three sibling passthroughs (msg-2 = head, msg-3 = mid,
+    // msg-4 = tail). We trigger abort from msg-3's dequeue callback —
+    // by the time that fires, msg-2 has already been persisted (which
+    // REPLACED the abortController, since persistUserMessage creates a
+    // fresh one). Calling abort() now aborts that fresh controller, and
+    // the drainBatch loop's abort check after msg-3's persist will break,
+    // so msg-4 never persists.
+    conversation.enqueueMessage("msg-2", [], (e) => events2.push(e), "req-2");
+
+    // Install a one-shot abort trigger on msg-3's dequeue event. We do
+    // this before enqueueing so the wrapped callback is what drainBatch
+    // invokes.
+    let aborted = false;
+    const onMsg3Event = (e: ServerMessage) => {
+      events3.push(e);
+      if (!aborted && e.type === "message_dequeued") {
+        aborted = true;
+        conversation.abort();
+      }
+    };
+    conversation.enqueueMessage("msg-3", [], onMsg3Event, "req-3");
+    conversation.enqueueMessage("msg-4", [], (e) => events4.push(e), "req-4");
+    expect(conversation.getQueueDepth()).toBe(3);
+
+    const persistedUserRowCountBefore = capturedAddMessages.filter(
+      (m) => m.role === "user",
+    ).length;
+
+    // Complete run 0 → drain pulls the sibling batch.
+    resolveRun(0);
+    await p1;
+
+    // Give the drain loop a chance to iterate. Abort happens on msg-3's
+    // dequeue (between msg-2's persist and msg-3's persist), so msg-3 may
+    // still persist before the abort check at the end of its iteration.
+    // Either way, msg-4 must NOT persist.
+    await new Promise((r) => setTimeout(r, 30));
+
+    const userRowsAfter = capturedAddMessages
+      .slice(persistedUserRowCountBefore)
+      .filter((m) => m.role === "user");
+    const contents = userRowsAfter.map((r) => r.content).join("||");
+    expect(contents).toContain("msg-2");
+    expect(contents).not.toContain("msg-4");
+    expect(
+      events4.filter((e) => e.type === "message_dequeued"),
+    ).toHaveLength(0);
+  });
+
+  test("failed tail persist uses last-successful requestId", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: ServerMessage[] = [];
+    const events2: ServerMessage[] = [];
+    const events3: ServerMessage[] = [];
+    const events4: ServerMessage[] = [];
+
+    // Start in-flight message
+    const p1 = conversation.processMessage(
+      "msg-1",
+      [],
+      (e) => events1.push(e),
+      "req-1",
+    );
+    await waitForPendingRun(1);
+
+    // Enqueue three siblings. Configure addMessage to throw for the second
+    // tail (msg-mid) but succeed for msg-head and msg-tail. This simulates
+    // a middle tail persist failure — currentRequestId should end up as
+    // msg-tail's requestId (the LAST successful persist), not msg-mid's.
+    addMessageShouldThrowForContent.add("msg-mid-unique-marker");
+
+    conversation.enqueueMessage(
+      "msg-head",
+      [],
+      (e) => events2.push(e),
+      "req-head",
+    );
+    conversation.enqueueMessage(
+      "msg-mid-unique-marker",
+      [],
+      (e) => events3.push(e),
+      "req-mid",
+    );
+    conversation.enqueueMessage(
+      "msg-tail",
+      [],
+      (e) => events4.push(e),
+      "req-tail",
+    );
+    expect(conversation.getQueueDepth()).toBe(3);
+
+    // Complete run 0 → batched drain.
+    resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // mid should have emitted an error event via persist failure.
+    const errMid = events3.find((e) => e.type === "error");
+    expect(errMid).toBeDefined();
+
+    // The agent loop should have been invoked with the tail's userMessageId
+    // (last SUCCESSFUL persist), not the mid's. We check via currentRequestId
+    // on the conversation which drainBatch assigns after the loop.
+    expect(
+      (conversation as unknown as { currentRequestId?: string }).currentRequestId,
+    ).toBe("req-tail");
+
+    // Cleanup: resolve the batched run.
+    resolveRun(1);
+    await new Promise((r) => setTimeout(r, 20));
+  });
+
+  test("drainBatch emits exactly one activity-state event for the whole batch", async () => {
+    const activityStates: ServerMessage[] = [];
+    const conversation = makeConversation((msg) => {
+      if ("type" in msg && msg.type === "assistant_activity_state") {
+        activityStates.push(msg);
+      }
+    });
+    await conversation.loadFromDb();
+
+    // Start in-flight message
+    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    await waitForPendingRun(1);
+
+    // Snapshot the count before drain so we only compare batch-emitted
+    // transitions (msg-1's processMessage already fired one).
+    const baseline = activityStates.length;
+
+    // Enqueue three sibling passthroughs.
+    conversation.enqueueMessage("msg-2", [], () => {}, "req-2");
+    conversation.enqueueMessage("msg-3", [], () => {}, "req-3");
+    conversation.enqueueMessage("msg-4", [], () => {}, "req-4");
+
+    // Complete run 0 → drain pulls the batched siblings as ONE run.
+    resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // Filter for "message_dequeued" reasons emitted by the batched drain.
+    const batchEmissions = activityStates
+      .slice(baseline)
+      .filter(
+        (m) =>
+          "type" in m &&
+          m.type === "assistant_activity_state" &&
+          (m as { reason?: string }).reason === "message_dequeued",
+      );
+    expect(batchEmissions).toHaveLength(1);
+    expect(batchEmissions[0]).toMatchObject({
+      type: "assistant_activity_state",
+      reason: "message_dequeued",
+      requestId: "req-2", // head's requestId, per the fix
+    });
+
+    resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  // Defensive recovery path: buildPassthroughBatch is designed to make
+  // the invariant throw unreachable in practice. Left as a todo so the
+  // harness contract is documented without wedging mainline CI. Covering
+  // this would require either (a) reflecting into drainBatch to short-
+  // circuit resolveSlash for a specific batch entry, or (b) exposing a
+  // seam on SlashContext — both are more invasive than the safety-net
+  // value justifies.
+  test.todo(
+    "invariant violation in persist loop triggers error event + recovery, not stranded state",
+    async () => {
+      // no-op: see comment above.
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------
