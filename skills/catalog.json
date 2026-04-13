@@ -3,24 +3,11 @@
   "version": 1,
   "skills": [
     {
-      "id": "agentmail",
-      "name": "agentmail",
-      "description": "Run email operations through a provider-agnostic CLI wrapper",
-      "metadata": {
-        "emoji": "📬",
-        "vellum": {
-          "display-name": "Email CLI Ops",
-          "feature-flag": "email-channel"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
       "id": "amazon",
       "name": "amazon",
       "description": "Shop on Amazon and Amazon Fresh through your browser",
       "metadata": {
-        "emoji": "🛒",
+        "emoji": "\ud83d\uded2",
         "vellum": {
           "display-name": "Amazon",
           "includes": [
@@ -35,7 +22,7 @@
       "name": "api-mapping",
       "description": "Record and analyze API surfaces of web services",
       "metadata": {
-        "emoji": "🗺️",
+        "emoji": "\ud83d\uddfa\ufe0f",
         "vellum": {
           "display-name": "API Mapping"
         }
@@ -47,7 +34,7 @@
       "name": "cli-discover",
       "description": "Discover which CLI tools are installed, their versions, and authentication status",
       "metadata": {
-        "emoji": "🔍",
+        "emoji": "\ud83d\udd0d",
         "vellum": {
           "display-name": "CLI Discovery"
         }
@@ -59,7 +46,7 @@
       "name": "conversation-launcher",
       "description": "Render an inline card where each button creates a new focused conversation seeded with specific context, then opens it",
       "metadata": {
-        "emoji": "🧭",
+        "emoji": "\ud83e\udded",
         "vellum": {
           "display-name": "Conversation Launcher"
         }
@@ -71,7 +58,7 @@
       "name": "deploy-fullstack-vercel",
       "description": "Build and deploy a full-stack app (React frontend + Python/FastAPI backend) to Vercel as a serverless demo with seeded data",
       "metadata": {
-        "emoji": "🚀",
+        "emoji": "\ud83d\ude80",
         "vellum": {
           "display-name": "Deploy Fullstack to Vercel"
         }
@@ -83,7 +70,7 @@
       "name": "document-writer",
       "description": "Create and edit long-form documents like blog posts, articles, essays, and reports using the built-in rich text editor",
       "metadata": {
-        "emoji": "📝",
+        "emoji": "\ud83d\udcdd",
         "vellum": {
           "display-name": "Document Writer",
           "includes": [
@@ -98,7 +85,7 @@
       "name": "doordash",
       "description": "Order food, groceries, and convenience items from DoorDash using the built-in CLI integration",
       "metadata": {
-        "emoji": "🍕",
+        "emoji": "\ud83c\udf55",
         "vellum": {
           "display-name": "DoorDash"
         }
@@ -110,7 +97,7 @@
       "name": "elevenlabs-voice",
       "description": "Select and tune an ElevenLabs TTS voice - curated voice list, custom/cloned voices via API key, and tuning parameters",
       "metadata": {
-        "emoji": "🗣️",
+        "emoji": "\ud83d\udde3\ufe0f",
         "vellum": {
           "display-name": "ElevenLabs Voice"
         }
@@ -122,7 +109,7 @@
       "name": "email-setup",
       "description": "Create the assistant's own email address via the Vellum hosted API (one-time setup)",
       "metadata": {
-        "emoji": "📧",
+        "emoji": "\ud83d\udce7",
         "vellum": {
           "display-name": "Email Setup",
           "feature-flag": "email-channel"
@@ -135,7 +122,7 @@
       "name": "fish-audio",
       "description": "Generate expressive audio clips using Fish Audio S2 TTS with bracket emotion tags. Record voice memos, narration, audio messages, or any spoken content.",
       "metadata": {
-        "emoji": "🎙️",
+        "emoji": "\ud83c\udf99\ufe0f",
         "vellum": {
           "display-name": "Fish Audio TTS"
         }
@@ -147,7 +134,7 @@
       "name": "frontend-design",
       "description": "Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, artifacts, posters, or applications (examples include websites, landing pages, dashboards, React components, HTML/CSS layouts, or when styling/beautifying any web UI). Generates creative, polished code and UI design that avoids generic AI aesthetics.",
       "metadata": {
-        "emoji": "🎨"
+        "emoji": "\ud83c\udfa8"
       },
       "compatibility": "Designed for Vellum personal assistants"
     },
@@ -156,7 +143,7 @@
       "name": "guardian-verify-setup",
       "description": "Set up channel verification for phone, Telegram, or Slack channels via outbound verification flow",
       "metadata": {
-        "emoji": "🔐",
+        "emoji": "\ud83d\udd10",
         "vellum": {
           "display-name": "Guardian Verify Setup",
           "activation-hints": [
@@ -176,7 +163,7 @@
       "name": "influencer",
       "description": "Research influencers on Instagram, TikTok, and X/Twitter through your browser",
       "metadata": {
-        "emoji": "🔍",
+        "emoji": "\ud83d\udd0d",
         "vellum": {
           "display-name": "Influencer Research",
           "includes": [
@@ -191,7 +178,7 @@
       "name": "macos-automation",
       "description": "Automate native macOS apps and system interactions via osascript (AppleScript)",
       "metadata": {
-        "emoji": "🍎",
+        "emoji": "\ud83c\udf4e",
         "vellum": {
           "display-name": "macOS Automation",
           "activation-hints": [
@@ -209,7 +196,7 @@
       "name": "mcp-setup",
       "description": "Add, authenticate, list, and remove MCP (Model Context Protocol) servers",
       "metadata": {
-        "emoji": "🔌",
+        "emoji": "\ud83d\udd0c",
         "vellum": {
           "display-name": "MCP Setup"
         }
@@ -221,7 +208,7 @@
       "name": "notion",
       "description": "Read and write Notion pages and databases using the Notion API",
       "metadata": {
-        "emoji": "📝",
+        "emoji": "\ud83d\udcdd",
         "vellum": {
           "display-name": "Notion"
         }
@@ -233,7 +220,7 @@
       "name": "oura",
       "description": "Pull sleep, activity, readiness, heart rate, and other health data from a connected Oura Ring via the Oura Cloud API V2",
       "metadata": {
-        "emoji": "💍",
+        "emoji": "\ud83d\udc8d",
         "vellum": {
           "display-name": "Oura Ring",
           "includes": [
@@ -246,9 +233,9 @@
     {
       "id": "oura-setup",
       "name": "oura-setup",
-      "description": "Connect an Oura Ring via OAuth2 — app registration, token exchange, and credential storage",
+      "description": "Connect an Oura Ring via OAuth2 \u2014 app registration, token exchange, and credential storage",
       "metadata": {
-        "emoji": "💍",
+        "emoji": "\ud83d\udc8d",
         "vellum": {
           "display-name": "Oura Ring Setup"
         }
@@ -260,7 +247,7 @@
       "name": "public-ingress",
       "description": "Set up and manage ngrok-based public ingress for local assistants; do not use this in managed mode when platform callback routing is available",
       "metadata": {
-        "emoji": "🌍",
+        "emoji": "\ud83c\udf0d",
         "vellum": {
           "display-name": "Public Ingress",
           "activation-hints": [
@@ -279,7 +266,7 @@
       "name": "restaurant-reservation",
       "description": "Book reservations on OpenTable or Resy with explicit confirmations",
       "metadata": {
-        "emoji": "🍽️",
+        "emoji": "\ud83c\udf7d\ufe0f",
         "vellum": {
           "display-name": "Restaurant Reservation Booking",
           "includes": [
@@ -294,7 +281,7 @@
       "name": "screen-recording",
       "description": "Record the user's screen as a video file",
       "metadata": {
-        "emoji": "🎬",
+        "emoji": "\ud83c\udfac",
         "vellum": {
           "display-name": "Screen Recording"
         }
@@ -306,7 +293,7 @@
       "name": "self-upgrade",
       "description": "Upgrade vellum to the latest version, restart the assistant, and restart the gateway",
       "metadata": {
-        "emoji": "⬆️",
+        "emoji": "\u2b06\ufe0f",
         "vellum": {
           "display-name": "Self Upgrade"
         }
@@ -318,7 +305,7 @@
       "name": "slack-app-setup",
       "description": "Connect a Slack app to the Vellum Assistant via Socket Mode with guided app creation and identity verification",
       "metadata": {
-        "emoji": "💬",
+        "emoji": "\ud83d\udcac",
         "vellum": {
           "display-name": "Slack App Setup",
           "includes": [
@@ -333,7 +320,7 @@
       "name": "start-the-day",
       "description": "Get a personalized daily briefing with weather, news, and actionable insights",
       "metadata": {
-        "emoji": "🌅",
+        "emoji": "\ud83c\udf05",
         "vellum": {
           "display-name": "Start the Day"
         }
@@ -345,7 +332,7 @@
       "name": "telegram-setup",
       "description": "Connect a Telegram bot to the Vellum Assistant gateway with automated webhook registration and credential storage",
       "metadata": {
-        "emoji": "🤖",
+        "emoji": "\ud83e\udd16",
         "vellum": {
           "display-name": "Telegram Setup",
           "includes": [
@@ -367,7 +354,7 @@
       "name": "time-based-actions",
       "description": "Unified routing guide for reminders, schedules, notifications, and tasks - prevents common misrouting",
       "metadata": {
-        "emoji": "⏰",
+        "emoji": "\u23f0",
         "vellum": {
           "display-name": "Time-Based Actions"
         }
@@ -379,7 +366,7 @@
       "name": "twilio-setup",
       "description": "Configure Twilio credentials and phone numbers for voice calls",
       "metadata": {
-        "emoji": "📱",
+        "emoji": "\ud83d\udcf1",
         "vellum": {
           "display-name": "Twilio Setup",
           "includes": [
@@ -394,7 +381,7 @@
       "name": "typescript-eval",
       "description": "Test TypeScript code snippets before persisting as skills",
       "metadata": {
-        "emoji": "🧪",
+        "emoji": "\ud83e\uddea",
         "vellum": {
           "display-name": "TypeScript Evaluation"
         }
@@ -406,7 +393,7 @@
       "name": "vellum-avatar",
       "description": "Customize the assistant's avatar - build a native character, upload an image, or generate one with AI",
       "metadata": {
-        "emoji": "🎨",
+        "emoji": "\ud83c\udfa8",
         "vellum": {
           "display-name": "Avatar"
         }
@@ -418,7 +405,7 @@
       "name": "vellum-oauth-integrations",
       "description": "Act on behalf of your user in any third-party software that supports OAuth 2.0",
       "metadata": {
-        "emoji": "🔌",
+        "emoji": "\ud83d\udd0c",
         "vellum": {
           "display-name": "Vellum OAuth Integrations"
         }
@@ -430,7 +417,7 @@
       "name": "vellum-self-knowledge",
       "description": "Answer questions about Vellum, the assistant's architecture, and its current configuration including which model and provider are active",
       "metadata": {
-        "emoji": "🪞",
+        "emoji": "\ud83e\ude9e",
         "vellum": {
           "display-name": "Vellum Self-Knowledge",
           "activation-hints": [
@@ -450,7 +437,7 @@
       "name": "vercel-token-setup",
       "description": "Set up a Vercel API token for publishing apps using browser automation",
       "metadata": {
-        "emoji": "▲",
+        "emoji": "\u25b2",
         "vellum": {
           "display-name": "Vercel Token Setup",
           "includes": [
@@ -465,7 +452,7 @@
       "name": "voice-setup",
       "description": "Complete voice configuration in chat - PTT key, microphone permissions, ElevenLabs TTS, and troubleshooting",
       "metadata": {
-        "emoji": "🎙️",
+        "emoji": "\ud83c\udf99\ufe0f",
         "vellum": {
           "display-name": "Voice Setup",
           "includes": [
@@ -487,9 +474,9 @@
       "name": "watch-together",
       "description": "Watch TV shows and movies with the user in real time by processing screen captures into frames and audio analysis.",
       "metadata": {
-        "emoji": "📺",
+        "emoji": "\ud83d\udcfa",
         "vellum": {
-          "emoji": "📺"
+          "emoji": "\ud83d\udcfa"
         }
       }
     },
@@ -498,7 +485,7 @@
       "name": "weather",
       "description": "Get current weather conditions and forecasts for any location",
       "metadata": {
-        "emoji": "🌤️"
+        "emoji": "\ud83c\udf24\ufe0f"
       }
     }
   ]

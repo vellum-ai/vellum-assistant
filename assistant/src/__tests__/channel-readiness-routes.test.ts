@@ -14,7 +14,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 let mockRawConfig: Record<string, unknown> | undefined;
 let mockSecureKeys: Record<string, string>;
 let mockHasTwilioCredentials: boolean;
-let mockPrimaryInboxAddress: string | undefined;
 
 mock.module("../calls/twilio-rest.js", () => ({
   hasTwilioCredentials: () => mockHasTwilioCredentials,
@@ -24,7 +23,7 @@ mock.module("../calls/twilio-rest.js", () => ({
 mock.module("../config/env.js", () => ({}));
 
 mock.module("../config/loader.js", () => ({
-  loadRawConfig: () => mockRawConfig,
+  loadRawConfig: () => mockRawConfig ?? {},
   loadConfig: () => {
     const raw = mockRawConfig ?? {};
     const wa = (raw.whatsapp ?? {}) as Record<string, unknown>;
@@ -43,17 +42,20 @@ mock.module("../config/loader.js", () => ({
       whatsapp: { phoneNumber: (wa.phoneNumber as string) ?? "" },
     };
   },
+  getNestedValue: (obj: Record<string, unknown>, path: string) => {
+    const keys = path.split(".");
+    let current: unknown = obj;
+    for (const key of keys) {
+      if (current == null || typeof current !== "object") return undefined;
+      current = (current as Record<string, unknown>)[key];
+    }
+    return current;
+  },
   invalidateConfigCache: () => {},
 }));
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (key: string) => mockSecureKeys[key] ?? null,
-}));
-
-mock.module("../email/service.js", () => ({
-  getEmailService: () => ({
-    getPrimaryInboxAddress: async () => mockPrimaryInboxAddress,
-  }),
 }));
 
 mock.module("../email/feature-gate.js", () => ({
@@ -76,7 +78,6 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
     mockRawConfig = undefined;
     mockSecureKeys = {};
     mockHasTwilioCredentials = false;
-    mockPrimaryInboxAddress = undefined;
   });
 
   // -------------------------------------------------------------------------
@@ -138,8 +139,8 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
     test("ready when all prerequisites are met (including inbox)", async () => {
       mockRawConfig = {
         ingress: { publicBaseUrl: "https://example.com", enabled: true },
+        email: { address: "hello@vellum.me" },
       };
-      mockPrimaryInboxAddress = "hello@vellum.me";
       const service = createReadinessService();
       const [snapshot] = await service.getReadiness("email", true);
 
@@ -151,7 +152,6 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
       mockRawConfig = {
         ingress: { publicBaseUrl: "https://example.com", enabled: true },
       };
-      mockPrimaryInboxAddress = undefined;
       const service = createReadinessService();
       const [snapshot] = await service.getReadiness("email", true);
 
