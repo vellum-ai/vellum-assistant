@@ -31,6 +31,10 @@ import {
   type MediaStreamCustomStrategy,
   resolveTelephonySttRouting,
 } from "../calls/telephony-stt-routing.js";
+import {
+  getProviderEntry,
+  listProviderEntries,
+} from "../providers/speech-to-text/provider-catalog.js";
 import type { SttProviderId } from "../stt/types.js";
 
 // ---------------------------------------------------------------------------
@@ -52,7 +56,7 @@ function buildConfig(overrides: {
 }
 
 // ---------------------------------------------------------------------------
-// Tests — Provider-to-strategy mapping
+// Tests — Provider-to-strategy mapping (catalog-driven)
 // ---------------------------------------------------------------------------
 
 describe("resolveTelephonySttRouting", () => {
@@ -61,7 +65,7 @@ describe("resolveTelephonySttRouting", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Deepgram → conversation-relay-native
+  // Deepgram → conversation-relay-native (from catalog)
   // -----------------------------------------------------------------------
 
   describe("deepgram", () => {
@@ -90,10 +94,25 @@ describe("resolveTelephonySttRouting", () => {
       const strategy = result.strategy as ConversationRelayNativeStrategy;
       expect(strategy.speechModel).toBe("nova-3");
     });
+
+    test("speechModel matches catalog telephonyRouting.twilioNativeMapping.defaultSpeechModel", () => {
+      mockConfig = buildConfig({ provider: "deepgram" });
+      const entry = getProviderEntry("deepgram");
+
+      const result = resolveTelephonySttRouting();
+
+      expect(result.status).toBe("resolved");
+      if (result.status !== "resolved") return;
+
+      const strategy = result.strategy as ConversationRelayNativeStrategy;
+      expect(strategy.speechModel).toBe(
+        entry?.telephonyRouting.twilioNativeMapping?.defaultSpeechModel,
+      );
+    });
   });
 
   // -----------------------------------------------------------------------
-  // Google Gemini → conversation-relay-native
+  // Google Gemini → conversation-relay-native (from catalog)
   // -----------------------------------------------------------------------
 
   describe("google-gemini", () => {
@@ -122,10 +141,25 @@ describe("resolveTelephonySttRouting", () => {
       const strategy = result.strategy as ConversationRelayNativeStrategy;
       expect(strategy.speechModel).toBeUndefined();
     });
+
+    test("speechModel matches catalog telephonyRouting.twilioNativeMapping.defaultSpeechModel", () => {
+      mockConfig = buildConfig({ provider: "google-gemini" });
+      const entry = getProviderEntry("google-gemini");
+
+      const result = resolveTelephonySttRouting();
+
+      expect(result.status).toBe("resolved");
+      if (result.status !== "resolved") return;
+
+      const strategy = result.strategy as ConversationRelayNativeStrategy;
+      expect(strategy.speechModel).toBe(
+        entry?.telephonyRouting.twilioNativeMapping?.defaultSpeechModel,
+      );
+    });
   });
 
   // -----------------------------------------------------------------------
-  // OpenAI Whisper → media-stream-custom
+  // OpenAI Whisper → media-stream-custom (from catalog)
   // -----------------------------------------------------------------------
 
   describe("openai-whisper", () => {
@@ -229,6 +263,67 @@ describe("resolveTelephonySttRouting", () => {
 
         expect(result.strategy.providerId).toBe(provider);
       }
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Catalog-driven mapping verification
+  // -----------------------------------------------------------------------
+
+  describe("catalog-driven mapping", () => {
+    test("every catalog entry with conversation-relay-native routing resolves to that strategy", () => {
+      const nativeEntries = listProviderEntries().filter(
+        (e) => e.telephonyRouting.strategyKind === "conversation-relay-native",
+      );
+      expect(nativeEntries.length).toBeGreaterThan(0);
+
+      for (const entry of nativeEntries) {
+        mockConfig = buildConfig({ provider: entry.id });
+
+        const result = resolveTelephonySttRouting();
+        expect(result.status).toBe("resolved");
+        if (result.status !== "resolved") return;
+
+        expect(result.strategy.strategy).toBe("conversation-relay-native");
+        const strategy = result.strategy as ConversationRelayNativeStrategy;
+        expect(strategy.transcriptionProvider).toBe(
+          entry.telephonyRouting.twilioNativeMapping!.provider,
+        );
+        expect(strategy.speechModel).toBe(
+          entry.telephonyRouting.twilioNativeMapping!.defaultSpeechModel,
+        );
+      }
+    });
+
+    test("every catalog entry with media-stream-custom routing resolves to that strategy", () => {
+      const customEntries = listProviderEntries().filter(
+        (e) => e.telephonyRouting.strategyKind === "media-stream-custom",
+      );
+      expect(customEntries.length).toBeGreaterThan(0);
+
+      for (const entry of customEntries) {
+        mockConfig = buildConfig({ provider: entry.id });
+
+        const result = resolveTelephonySttRouting();
+        expect(result.status).toBe("resolved");
+        if (result.status !== "resolved") return;
+
+        expect(result.strategy.strategy).toBe("media-stream-custom");
+        expect(result.strategy.providerId).toBe(entry.id);
+      }
+    });
+
+    test("routing module contains no hardcoded provider-to-Twilio map", async () => {
+      // Read the source file and verify the hardcoded map was removed.
+      // This is a structural assertion: the catalog is the sole source of truth.
+      const sourceFile = Bun.file(
+        new URL("../calls/telephony-stt-routing.ts", import.meta.url).pathname,
+      );
+      const source = await sourceFile.text();
+
+      expect(source).not.toContain("TWILIO_NATIVE_PROVIDER_MAP");
+      expect(source).not.toContain("new Map<SttProviderId");
+      expect(source).not.toContain("DEEPGRAM_DEFAULT_SPEECH_MODEL");
     });
   });
 });

@@ -17,13 +17,16 @@
  *   and the daemon transcribes audio server-side via the provider's
  *   batch API. Used for `openai-whisper`.
  *
- * Model normalization semantics for Twilio-native providers:
- * - Deepgram defaults `speechModel` to `"nova-3"`.
- * - Google leaves `speechModel` undefined (uses provider default).
+ * Strategy selection and model normalization are driven entirely by
+ * the provider catalog's `telephonyRouting` metadata — this module
+ * contains no hardcoded provider-to-Twilio maps.
  */
 
 import { getConfig } from "../config/loader.js";
-import { getProviderEntry } from "../providers/speech-to-text/provider-catalog.js";
+import {
+  getProviderEntry,
+  type TwilioNativeProvider,
+} from "../providers/speech-to-text/provider-catalog.js";
 import type { SttProviderId } from "../stt/types.js";
 
 // ---------------------------------------------------------------------------
@@ -33,10 +36,10 @@ import type { SttProviderId } from "../stt/types.js";
 /**
  * Twilio-native ConversationRelay transcription provider name.
  *
- * These are the values Twilio accepts in the `transcriptionProvider`
- * TwiML attribute on `<ConversationRelay>`.
+ * Re-exported from the provider catalog for downstream consumers that
+ * reference the strategy types without importing the catalog directly.
  */
-export type TwilioNativeTranscriptionProvider = "Deepgram" | "Google";
+export type TwilioNativeTranscriptionProvider = TwilioNativeProvider;
 
 /**
  * The configured STT provider maps to a Twilio-native
@@ -81,47 +84,6 @@ export type TelephonySttRoutingResult =
   | { status: "unknown-provider"; providerId: string; reason: string };
 
 // ---------------------------------------------------------------------------
-// Model normalization constants
-// ---------------------------------------------------------------------------
-
-const DEEPGRAM_DEFAULT_SPEECH_MODEL = "nova-3";
-
-// ---------------------------------------------------------------------------
-// Provider-to-strategy mapping
-// ---------------------------------------------------------------------------
-
-/**
- * Map from `services.stt.provider` ID to the corresponding Twilio-native
- * transcription provider name. Providers absent from this map use the
- * media-stream custom path.
- */
-const TWILIO_NATIVE_PROVIDER_MAP: ReadonlyMap<
-  SttProviderId,
-  TwilioNativeTranscriptionProvider
-> = new Map<SttProviderId, TwilioNativeTranscriptionProvider>([
-  ["deepgram", "Deepgram"],
-  ["google-gemini", "Google"],
-]);
-
-// ---------------------------------------------------------------------------
-// Model normalization
-// ---------------------------------------------------------------------------
-
-/**
- * Resolve the effective speech model for a Twilio-native provider.
- *
- * - Deepgram: defaults to `"nova-3"`.
- * - Google: leaves the model undefined (uses provider default).
- */
-function resolveNativeSpeechModel(
-  twilioProvider: TwilioNativeTranscriptionProvider,
-): string | undefined {
-  return twilioProvider === "Google"
-    ? undefined
-    : DEEPGRAM_DEFAULT_SPEECH_MODEL;
-}
-
-// ---------------------------------------------------------------------------
 // Public resolver
 // ---------------------------------------------------------------------------
 
@@ -129,8 +91,8 @@ function resolveNativeSpeechModel(
  * Resolve the telephony STT routing strategy from `services.stt.provider`.
  *
  * Reads the active provider from config, checks the provider catalog for
- * validity, then maps to either a Twilio-native ConversationRelay strategy
- * or a media-stream custom strategy.
+ * validity, then derives the telephony strategy from the catalog entry's
+ * `telephonyRouting` metadata.
  */
 export function resolveTelephonySttRouting(): TelephonySttRoutingResult {
   const config = getConfig();
@@ -146,22 +108,33 @@ export function resolveTelephonySttRouting(): TelephonySttRoutingResult {
     };
   }
 
-  // Check if this provider maps to a Twilio-native transcription path.
-  const twilioProvider = TWILIO_NATIVE_PROVIDER_MAP.get(entry.id);
+  const { telephonyRouting } = entry;
 
-  if (twilioProvider) {
+  // Derive strategy from catalog routing metadata.
+  if (telephonyRouting.strategyKind === "conversation-relay-native") {
+    const mapping = telephonyRouting.twilioNativeMapping;
+
+    // Defensive: conversation-relay-native entries must have a mapping.
+    if (!mapping) {
+      return {
+        status: "unknown-provider",
+        providerId: entry.id,
+        reason: `Provider "${entry.id}" declares conversation-relay-native strategy but has no twilioNativeMapping`,
+      };
+    }
+
     return {
       status: "resolved",
       strategy: {
         strategy: "conversation-relay-native",
         providerId: entry.id,
-        transcriptionProvider: twilioProvider,
-        speechModel: resolveNativeSpeechModel(twilioProvider),
+        transcriptionProvider: mapping.provider,
+        speechModel: mapping.defaultSpeechModel,
       },
     };
   }
 
-  // Provider is recognized but not Twilio-native — use media-stream path.
+  // media-stream-custom path.
   return {
     status: "resolved",
     strategy: {

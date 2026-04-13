@@ -114,6 +114,6 @@ Before submitting the PR, verify that:
 
 1. **No stale config references** — grep for any references to a separate telephony transcription config. The telephony routing module (`src/calls/telephony-stt-routing.ts`) reads `services.stt.provider` and maps it to the appropriate Twilio strategy (either `conversation-relay-native` for providers Twilio supports natively, or `media-stream-custom` for server-side transcription).
 
-2. **Provider catalog `telephonyMode`** — the new provider's catalog entry (step 1) declares how it participates in telephony: `"realtime-ws"`, `"batch-only"`, or `"none"`. This value drives the strategy selection in `telephony-stt-routing.ts`.
+2. **Provider catalog `telephonyRouting` metadata** — the new provider's catalog entry (step 1) includes a `telephonyRouting` object that is the single source of truth for strategy selection in `telephony-stt-routing.ts`. This object declares the `strategyKind` (`"conversation-relay-native"` or `"media-stream-custom"`) and, for native providers, provides a `twilioNativeMapping` with the Twilio `provider` name and `defaultSpeechModel`. The routing module contains no hardcoded provider-to-Twilio maps — it reads these values directly from the catalog.
 
 3. **No duplicate wiring** — a provider should appear only once in `services.stt`. The telephony routing layer consumes the same provider ID; there is no second registration step for telephony.
