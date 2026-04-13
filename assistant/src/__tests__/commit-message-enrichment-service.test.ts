@@ -64,31 +64,48 @@ describe("CommitEnrichmentService", () => {
     };
   }
 
-  async function createCommit(): Promise<string> {
-    const filename = `file-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`;
-    writeFileSync(join(testDir, filename), "content");
-    // Use execFileSync directly for test setup commits to avoid async
-    // timing issues that can leave stale index.lock files on loaded CI runners.
+  function clearIndexLock(): void {
     const lockPath = join(testDir, ".git", "index.lock");
     try {
       unlinkSync(lockPath);
     } catch {
       /* no lock to clean */
     }
-    execFileSync("git", ["add", "-A"], { cwd: testDir });
-    execFileSync(
-      "git",
-      [
-        "-c",
-        "core.hooksPath=/dev/null",
-        "commit",
-        "--no-verify",
-        "-m",
-        "test commit",
-        "--allow-empty",
-      ],
-      { cwd: testDir },
-    );
+  }
+
+  function gitWithRetry(args: string[], retries = 3): void {
+    for (let attempt = 0; attempt < retries; attempt++) {
+      try {
+        clearIndexLock();
+        execFileSync("git", args, { cwd: testDir });
+        return;
+      } catch (err) {
+        if (attempt < retries - 1 && String(err).includes("index.lock")) {
+          // Brief pause to let the previous git process fully release the lock
+          execFileSync("sleep", ["0.05"]);
+          continue;
+        }
+        throw err;
+      }
+    }
+  }
+
+  async function createCommit(): Promise<string> {
+    const filename = `file-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`;
+    writeFileSync(join(testDir, filename), "content");
+    // Use execFileSync directly for test setup commits to avoid async
+    // timing issues that can leave stale index.lock files on loaded CI runners.
+    // Retry with index.lock cleanup between git add and git commit.
+    gitWithRetry(["add", "-A"]);
+    gitWithRetry([
+      "-c",
+      "core.hooksPath=/dev/null",
+      "commit",
+      "--no-verify",
+      "-m",
+      "test commit",
+      "--allow-empty",
+    ]);
     return execFileSync("git", ["rev-parse", "HEAD"], {
       cwd: testDir,
       encoding: "utf-8",

@@ -9,7 +9,12 @@
  * preventing cross-turn attribution of file changes.
  */
 
+import { existsSync, readFileSync } from "node:fs";
+
+import { parseIdentityFields } from "../daemon/handlers/identity.js";
+import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
 import { getLogger } from "../util/logger.js";
+import { getWorkspacePromptPath } from "../util/platform.js";
 import { getEnrichmentService } from "./commit-message-enrichment-service.js";
 import {
   type CommitContext,
@@ -165,6 +170,32 @@ export async function commitTurnChanges(
         },
         "Turn-boundary commit created",
       );
+
+      // If IDENTITY.md changed, trigger a best-effort sync of the
+      // assistant name to the platform record.  This acts as a fallback
+      // for environments where fs.watch / inotify is unreliable (e.g.
+      // container runtimes using gVisor or Docker-in-Docker).
+      if (
+        uniqueFiles.some(
+          (f) => f === "IDENTITY.md" || f.endsWith("/IDENTITY.md"),
+        )
+      ) {
+        try {
+          const identityPath = getWorkspacePromptPath("IDENTITY.md");
+          if (existsSync(identityPath)) {
+            const content = readFileSync(identityPath, "utf-8");
+            const fields = parseIdentityFields(content);
+            if (fields.name) {
+              syncIdentityNameToPlatform(fields.name);
+            }
+          }
+        } catch (syncErr) {
+          log.debug(
+            { syncErr },
+            "Identity sync after turn-commit failed (non-fatal)",
+          );
+        }
+      }
 
       // Fire-and-forget enrichment — never blocks turn completion
       try {
