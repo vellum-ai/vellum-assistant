@@ -3,9 +3,11 @@ import os
 import SwiftUI
 import VellumAssistantShared
 
-// MARK: - Legacy enums (referenced by external files, removed in later PRs)
+// MARK: - Legacy enums (still referenced by view layer callers)
 
-/// Stub enum kept for pattern matching in external callers. Removed in PR 2.
+/// Legacy enum retained because MessageListView+ScrollHandling pattern-matches
+/// on `.freeBrowsing`, `.programmaticScroll`, `.stabilizing` in restoreScrollToBottom().
+/// Remove once those callers are migrated.
 enum ScrollMode: Equatable, CustomStringConvertible {
     case initialLoad
     case followingBottom
@@ -23,10 +25,10 @@ enum ScrollMode: Equatable, CustomStringConvertible {
         }
     }
 
-    /// Stub — always returns true. Cleaned up in PR 2.
+    /// Stub — always returns true. Remove with enum.
     var allowsAutoScroll: Bool { true }
 
-    /// Stub — always returns false. Cleaned up in PR 2.
+    /// Stub — always returns false. Remove with enum.
     var showsScrollToLatest: Bool { false }
 }
 
@@ -74,10 +76,10 @@ private let scrollLog = Logger(subsystem: Bundle.appBundleIdentifier, category: 
 /// visibility, pagination sentinel, and deep-link anchor state. No mode
 /// transitions, stabilization, or recovery logic.
 ///
-/// The legacy `ScrollMode` enum and mode-transition methods are kept as no-op
-/// stubs so external callers (MessageListView, MessageListContentView,
-/// scroll handling, lifecycle handlers) continue to compile. These stubs are
-/// removed in PRs 2-6.
+/// Legacy `ScrollMode` enum, mode-transition methods, and scroll closures are
+/// retained as stubs because the view layer (MessageListView+ScrollHandling,
+/// MessageListView+Lifecycle, MessageListContentView) still references them.
+/// Remove once those callers are migrated to the flat coordinator API.
 @Observable @MainActor
 final class MessageListScrollState {
 
@@ -223,9 +225,6 @@ final class MessageListScrollState {
         isAtBottom = false
         bottomAnchorAppeared = false
         isPaginationInFlight = false
-        recoveryDeadline = nil
-        lastRecoveryAttempt = .distantPast
-        lastUserInitiatedPinTime = nil
         lastHandledChatColumnWidth = 0
         scrollRestoreTask?.cancel()
         scrollRestoreTask = nil
@@ -259,9 +258,6 @@ final class MessageListScrollState {
         isAtBottom = false
         bottomAnchorAppeared = false
         isPaginationInFlight = false
-        recoveryDeadline = nil
-        lastRecoveryAttempt = .distantPast
-        lastUserInitiatedPinTime = nil
         lastMessageId = nil
         scrollContentHeight = 0
         scrollContainerHeight = 0
@@ -271,23 +267,23 @@ final class MessageListScrollState {
         lastPaginationCompletedAt = .distantPast
     }
 
-    // MARK: - Stubs (referenced by other files, cleaned up in later PRs)
+    // MARK: - Legacy stubs (still referenced by view layer)
     //
     // These properties and methods are referenced by MessageListView,
     // MessageListContentView, MessageListView+ScrollHandling,
-    // MessageListView+Lifecycle, MessageListView+DerivedState, and
-    // MessageListHelperViews. They will be removed in PRs 2-6.
+    // MessageListView+Lifecycle, and MessageListView+DerivedState.
+    // Remove once those callers are migrated to the flat coordinator API.
 
     // --- Mode (stub, no real transitions) ---
 
     @ObservationIgnored var mode: ScrollMode = .initialLoad
 
-    /// No-op stub. Cleaned up in PR 2.
+    /// No-op stub. Remove once view layer callers are migrated.
     func transition(to newMode: ScrollMode) {
         mode = newMode
     }
 
-    // --- Scroll closures (set by MessageListView+ScrollHandling, removed in PR 2) ---
+    // --- Scroll closures (set by MessageListView+ScrollHandling) ---
 
     @ObservationIgnored var scrollTo: ((_ id: any Hashable, _ anchor: UnitPoint?) -> Void)?
     @ObservationIgnored var scrollToEdge: ((_ edge: Edge) -> Void)?
@@ -298,9 +294,6 @@ final class MessageListScrollState {
     @ObservationIgnored var scrollPhase: ScrollPhase = .idle
     @ObservationIgnored var isAtBottom: Bool = false
     @ObservationIgnored var bottomAnchorAppeared: Bool = false
-    @ObservationIgnored var recoveryDeadline: Date?
-    @ObservationIgnored var lastRecoveryAttempt: Date = .distantPast
-    @ObservationIgnored var lastUserInitiatedPinTime: Date?
     @ObservationIgnored var lastHandledChatColumnWidth: CGFloat = 0
 
     // --- Pagination stubs ---
@@ -320,38 +313,22 @@ final class MessageListScrollState {
 
     // --- Convenience stubs ---
 
-    /// No-op stub. Cleaned up in PR 2.
+    /// No-op stub. Remove once view layer callers are migrated.
     var hasBeenInteracted: Bool { true }
 
-    /// No-op stub. Cleaned up in PR 2.
+    /// No-op stub. Remove once view layer callers are migrated.
     var isFollowingBottom: Bool { false }
 
-    /// No-op stub. Cleaned up in PR 2.
+    /// No-op stub. Remove once view layer callers are migrated.
     var isSuppressed: Bool { false }
 
     // --- Method stubs ---
 
-    /// No-op stub. Cleaned up in PR 2.
+    /// No-op stub. Remove once view layer callers are migrated.
     func handleReachedBottom() {}
 
-    /// No-op stub. Cleaned up in PR 2.
-    func handleManualExpansionInteraction() {}
-
-    /// No-op stub. Cleaned up in PR 2.
-    func handleUserScrollUp() {}
-
-    /// Stub — delegates to updateScrollToLatest(). Cleaned up in PR 2.
-    func scheduleUISync() {
-        updateScrollToLatest()
-    }
-
-    /// Stub — delegates to updateScrollToLatest(). Cleaned up in PR 2.
-    func syncUIImmediately() {
-        updateScrollToLatest()
-    }
-
     /// Stub that preserves scroll-to-bottom behavior for external callers.
-    /// Cleaned up in PR 2.
+    /// Remove once view layer callers are migrated.
     @discardableResult
     func requestPinToBottom(animated: Bool = false, userInitiated: Bool = false) -> Bool {
         if userInitiated {
@@ -380,46 +357,20 @@ final class MessageListScrollState {
         return true
     }
 
-    /// Stub that preserves deferred bottom-pin for external callers.
-    /// Cleaned up in PR 2.
-    func scheduleDeferredBottomPin(
-        animated: Bool = false,
-        userInitiated: Bool = false,
-        forceFollowingBottom: Bool = false,
-        refreshRecoveryWindow: Bool = false
-    ) {
-        DispatchQueue.main.async { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                _ = self.requestPinToBottom(animated: animated, userInitiated: userInitiated)
-            }
-        }
-    }
-
-    /// No-op stub. Cleaned up in PR 2.
-    func cancelDeferredBottomPin() {}
 
     /// Stub that preserves scroll-to-id for external callers.
-    /// Cleaned up in PR 2.
+    /// Remove once view layer callers are migrated.
     func performScrollTo(_ id: any Hashable, anchor: UnitPoint? = nil) {
         scrollTo?(id, anchor)
     }
 
-    /// No-op stub. Cleaned up in PR 2.
+    /// No-op stub. Remove once view layer callers are migrated.
     func beginStabilization(_ reason: StabilizationReason) {}
 
-    /// No-op stub. Cleaned up in PR 2.
+    /// No-op stub. Remove once view layer callers are migrated.
     func endStabilization() {}
 
-    /// No-op stub. Cleaned up in PR 4.
+    /// No-op stub. Remove once view layer callers are migrated.
     func recordBodyEvaluation() {}
 
-    /// No-op stub. Cleaned up in PR 6.
-    @ObservationIgnored var isThrottled: Bool {
-        get { false }
-        set {}
-    }
-
-    /// Stub counter for test compatibility. Cleaned up in PR 6.
-    @ObservationIgnored private(set) var uiVersion: UInt64 = 0
 }
