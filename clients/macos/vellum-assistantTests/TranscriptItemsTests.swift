@@ -133,16 +133,15 @@ final class TranscriptItemsTests: XCTestCase {
         XCTAssertEqual(TranscriptItems.displayId(for: assistantSent.id, in: messages), assistantSent.id)
     }
 
-    func test_displayId_queuedMessage_returnsMarkerAnchorId() {
+    func test_displayId_queuedMessage_returnsQueueMarkerId() {
         let userSent = userMessage(text: "hello", status: .sent)
         let queued1 = userMessage(text: "q1", status: .queued(position: 1))
         let queued2 = userMessage(text: "q2", status: .queued(position: 2))
         let messages = [userSent, queued1, queued2]
 
-        // Both queued messages resolve to the first queued message's id,
-        // which is the marker's anchor id.
-        XCTAssertEqual(TranscriptItems.displayId(for: queued1.id, in: messages), queued1.id)
-        XCTAssertEqual(TranscriptItems.displayId(for: queued2.id, in: messages), queued1.id)
+        XCTAssertEqual(TranscriptItems.displayId(for: queued1.id, in: messages), TranscriptItems.queueMarkerId)
+        XCTAssertEqual(TranscriptItems.displayId(for: queued2.id, in: messages), TranscriptItems.queueMarkerId)
+        XCTAssertNotEqual(TranscriptItems.displayId(for: queued1.id, in: messages), queued1.id)
     }
 
     func test_displayId_missingMessageId_returnsNil() {

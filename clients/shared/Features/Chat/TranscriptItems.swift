@@ -109,12 +109,6 @@ public enum TranscriptItems {
             return false
         }()
         guard isQueuedUser else { return messageId }
-        // The marker's anchor ID is the first queued user message's ID.
-        for message in messages {
-            if message.role == .user, case .queued = message.status {
-                return message.id
-            }
-        }
-        return messageId
+        return queueMarkerId
     }
 }
