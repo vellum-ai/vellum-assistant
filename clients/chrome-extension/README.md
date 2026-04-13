@@ -146,7 +146,7 @@ chmod 644 "$NATIVE_HOSTS_DIR/com.vellum.daemon.json"
 |---|---|
 | `Access to the specified native messaging host is forbidden` | Manifest missing/invalid, or extension ID not in the allowlist. Add it to `~/.vellum/chrome-extension-allowlist.local.json` (see Native Messaging Host Setup, step 3). |
 | `Native host has exited` | Chrome couldn't launch Node. Use a wrapper script with an absolute Node path in the manifest. |
-| `assistant pair request failed with HTTP 401` | Extension ID not in allowlist. Add it to `~/.vellum/chrome-extension-allowlist.local.json` and restart the assistant (the allowlist is cached at daemon startup). |
+| `assistant pair request failed with HTTP 401` | Extension ID not in allowlist. Add it to `~/.vellum/chrome-extension-allowlist.local.json` and restart the assistant (the allowlist is cached at assistant startup). |
 | `failed to reach assistant at http://127.0.0.1:<port>/...` | Assistant not running, wrong port, or firewall blocking. |
 | `Automatic cloud sign-in failed` | Use "Re-sign in" in the popup's Troubleshooting section, then click Connect. |
 | `Automatic local pairing failed` | Use "Re-pair" in the popup's Troubleshooting section, then click Connect. |

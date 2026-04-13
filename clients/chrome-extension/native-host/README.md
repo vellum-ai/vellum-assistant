@@ -293,8 +293,8 @@ even when repo-relative paths are unavailable.
 
 The helper re-reads all sources on every `connectNative()` spawn, so
 edits to the local override file take effect the next time Chrome launches
-the helper — no Chrome restart needed. The assistant daemon caches the
-merged allowlist at startup; restart the daemon after editing the local
+the helper — no Chrome restart needed. The assistant caches the
+merged allowlist at startup; restart the assistant after editing the local
 override.
 
 ## Testing
