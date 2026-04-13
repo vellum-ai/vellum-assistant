@@ -175,10 +175,31 @@ struct MessageListContentView: View, Equatable {
             }
 
             let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
-            // Use the stable container height (full chat pane from GeometryReader)
-            // instead of scroll viewport height which fluctuates with composer resizing.
+            // Estimate user message cell height for precise minHeight offset.
+            let estimatedUserHeight: CGFloat = {
+                guard let lastUser = state.rows.last(where: { $0.message.role == .user }) else {
+                    return 80
+                }
+                let text = lastUser.message.text as NSString
+                let contentWidth = max(layoutMetrics.bubbleMaxWidth - 2 * VSpacing.lg, 0)
+                let font = NSFont.systemFont(ofSize: 14, weight: .regular)
+                let textRect = text.boundingRect(
+                    with: NSSize(width: contentWidth, height: .greatestFiniteMagnitude),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    attributes: [.font: font]
+                )
+                let textHeight = ceil(textRect.height)
+                let cellOverhead: CGFloat = 56 // bubble padding (24) + timestamp (24) + spacing (8)
+                return min(textHeight + cellOverhead, 200) // cap at collapse threshold
+            }()
+            // Precise minHeight: fill the space between user message and composer.
+            // containerHeight = full chat pane (stable, from GeometryReader)
+            // composerHeight = 80pt static (empty after send — when minHeight matters)
+            // layoutPadding = LazyVStack top/bottom padding + inter-item spacing + anchor
+            let composerHeight: CGFloat = 80
+            let layoutPadding: CGFloat = VSpacing.md * 3 + 1
             let turnMinHeight: CGFloat = containerHeight > 0
-                ? max(0, containerHeight - 300)
+                ? max(0, containerHeight - composerHeight - estimatedUserHeight - layoutPadding)
                 : 0
             let isUnanchoredThinking = state.shouldShowThinkingIndicator && !state.rows.contains(where: \.isAnchoredThinkingRow)
             let thinkingLabel = !hasEverSentMessage && state.hasUserMessage
