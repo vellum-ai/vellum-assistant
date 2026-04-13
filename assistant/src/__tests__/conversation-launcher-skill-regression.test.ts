@@ -10,13 +10,14 @@ describe("conversation-launcher skill regression", () => {
   test("describes the direct surface-action contract the daemon dispatches on", () => {
     // The skill must render one `ui_show` card whose actions carry the wire
     // contract that `handleSurfaceAction`'s `launch_conversation` branch reads.
-    // These five tokens are the minimum the model needs to produce a valid card.
+    // These tokens are the minimum the model needs to produce a valid card.
     const requiredTokens = [
       "ui_show",
       "persistent: true",
       '_action: "launch_conversation"',
       "title",
       "seedPrompt",
+      '"await_action": false',
     ];
     for (const token of requiredTokens) {
       expect(skillContent).toContain(token);
