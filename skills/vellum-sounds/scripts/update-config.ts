@@ -5,6 +5,11 @@
  * Safely reads and writes $VELLUM_WORKSPACE_DIR/data/sounds/config.json,
  * the configuration file consumed by the macOS app's SoundManager. Validates
  * inputs, creates the file with defaults if missing, and writes atomically.
+ *
+ * Each event holds a **pool** of sound filenames (`sounds: string[]`). The
+ * macOS app picks one at random on playback. An empty pool means "use the
+ * default macOS blip." This script also reads legacy single-sound entries
+ * (`{"sound": "foo.wav"}`) and normalizes them to the new pool shape on write.
  */
 
 import {
@@ -37,7 +42,7 @@ type EventKey = (typeof EVENT_KEYS)[number];
 
 interface SoundEventConfig {
   enabled: boolean;
-  sound: string | null;
+  sounds: string[];
 }
 
 interface SoundsConfig {
@@ -49,7 +54,7 @@ interface SoundsConfig {
 function defaultConfig(): SoundsConfig {
   const events: Record<string, SoundEventConfig> = {};
   for (const key of EVENT_KEYS) {
-    events[key] = { enabled: false, sound: null };
+    events[key] = { enabled: false, sounds: [] };
   }
   return { globalEnabled: false, volume: 0.7, events };
 }
@@ -60,20 +65,39 @@ function printUsage(): void {
 Edit data/sounds/config.json in the current workspace. Creates the file with
 defaults if it doesn't exist. Writes atomically.
 
+Each event holds a pool of sound filenames; the macOS app picks one at random
+on playback. An empty pool falls back to the default macOS blip.
+
 Options:
   --global-enabled <true|false>   Master on/off for all sounds.
   --volume <float>                 Master volume, 0.0–1.0 (clamped).
   --event <key>                    One of: ${EVENT_KEYS.join(", ")}
   --enabled <true|false>           Per-event on/off (requires --event).
-  --sound <filename|null>          Sound file in data/sounds/ to play for this
-                                   event, or "null" for the default blip
-                                   (requires --event).
+
+  Pool mutation flags (all require --event; at most one per invocation,
+  except --add-sound which may be repeated):
+  --sound <filename|null>          Single-sound convenience: replaces the
+                                   whole pool with one entry, or clears it
+                                   when given "null".
+  --sounds <csv>                   Replaces the pool with the comma-separated
+                                   list (e.g. "a.wav,b.wav,c.wav"). Use
+                                   --clear-sounds to empty.
+  --add-sound <filename>           Appends to the pool. No-op (warning) if
+                                   already present. May be repeated.
+  --remove-sound <filename>        Removes an entry. No-op (warning) if not
+                                   present.
+  --clear-sounds                   Sets the pool to [].
+
   --help, -h                       Show this help.
 
 Examples:
   bun run scripts/update-config.ts --global-enabled true
   bun run scripts/update-config.ts --volume 0.5
   bun run scripts/update-config.ts --event message_sent --enabled true --sound "gentle-ding.aiff"
+  bun run scripts/update-config.ts --event character_poke --sounds "poke1.wav,poke2.wav,poke3.wav"
+  bun run scripts/update-config.ts --event character_poke --add-sound "poke4.wav"
+  bun run scripts/update-config.ts --event character_poke --remove-sound "poke2.wav"
+  bun run scripts/update-config.ts --event character_poke --clear-sounds
   bun run scripts/update-config.ts --event task_complete --sound null
 `);
 }
@@ -83,12 +107,24 @@ function fail(message: string): never {
   process.exit(1);
 }
 
+/**
+ * Tagged union describing which pool-mutation operation the user requested.
+ * Exactly one variant is allowed per invocation (except `add`, which accepts
+ * multiple filenames via repeated `--add-sound` flags).
+ */
+type PoolOp =
+  | { kind: "sound"; value: string | null }
+  | { kind: "sounds"; values: string[] }
+  | { kind: "add"; values: string[] }
+  | { kind: "remove"; value: string }
+  | { kind: "clear" };
+
 interface ParsedArgs {
   globalEnabled?: boolean;
   volume?: number;
   event?: EventKey;
   enabled?: boolean;
-  sound?: string | null;
+  poolOp?: PoolOp;
   help: boolean;
 }
 
@@ -97,6 +133,35 @@ function parseBool(raw: string, flag: string): boolean {
   if (lower === "true") return true;
   if (lower === "false") return false;
   fail(`${flag} must be "true" or "false" (got "${raw}")`);
+}
+
+function parseCsv(raw: string, flag: string): string[] {
+  if (raw === "") {
+    fail(`${flag} must not be empty (use --clear-sounds to empty the pool)`);
+  }
+  const parts = raw
+    .split(",")
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+  if (parts.length === 0) {
+    fail(`${flag} must contain at least one non-empty filename`);
+  }
+  return parts;
+}
+
+function setPoolOp(out: ParsedArgs, op: PoolOp, flag: string): void {
+  // Multiple --add-sound flags merge; any other combination is an error.
+  if (out.poolOp) {
+    if (out.poolOp.kind === "add" && op.kind === "add") {
+      out.poolOp.values.push(...op.values);
+      return;
+    }
+    fail(
+      `${flag} is mutually exclusive with --sound, --sounds, --remove-sound, ` +
+        `and --clear-sounds. Only --add-sound may be repeated.`,
+    );
+  }
+  out.poolOp = op;
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -139,9 +204,29 @@ function parseArgs(argv: string[]): ParsedArgs {
         break;
       case "--sound": {
         const raw = next();
-        out.sound = raw === "null" ? null : raw;
+        setPoolOp(out, { kind: "sound", value: raw === "null" ? null : raw }, arg);
         break;
       }
+      case "--sounds": {
+        const raw = next();
+        setPoolOp(out, { kind: "sounds", values: parseCsv(raw, arg) }, arg);
+        break;
+      }
+      case "--add-sound": {
+        const raw = next();
+        if (raw === "") fail(`${arg} must not be empty`);
+        setPoolOp(out, { kind: "add", values: [raw] }, arg);
+        break;
+      }
+      case "--remove-sound": {
+        const raw = next();
+        if (raw === "") fail(`${arg} must not be empty`);
+        setPoolOp(out, { kind: "remove", value: raw }, arg);
+        break;
+      }
+      case "--clear-sounds":
+        setPoolOp(out, { kind: "clear" }, arg);
+        break;
       default:
         fail(`Unknown flag: ${arg}`);
     }
@@ -186,10 +271,24 @@ function readConfig(path: string): SoundsConfig {
       for (const key of EVENT_KEYS) {
         const entry = (p.events as Record<string, unknown>)[key];
         if (entry && typeof entry === "object") {
-          const e = entry as Partial<SoundEventConfig>;
+          const e = entry as {
+            enabled?: unknown;
+            sounds?: unknown;
+            sound?: unknown;
+          };
           if (typeof e.enabled === "boolean") base.events[key].enabled = e.enabled;
-          if (e.sound === null || typeof e.sound === "string") {
-            base.events[key].sound = e.sound;
+          // Match the Swift decoder (SoundsConfig.swift): prefer the new
+          // `sounds` array; fall back to the legacy single `sound` string;
+          // otherwise leave the pool empty. Filter out non-string / empty
+          // entries defensively so a malformed pool never hits playback.
+          if (Array.isArray(e.sounds)) {
+            base.events[key].sounds = e.sounds.filter(
+              (s): s is string => typeof s === "string" && s.length > 0,
+            );
+          } else if (typeof e.sound === "string" && e.sound.length > 0) {
+            base.events[key].sounds = [e.sound];
+          } else {
+            base.events[key].sounds = [];
           }
         }
       }
@@ -223,16 +322,16 @@ function writeConfigAtomic(path: string, config: SoundsConfig): void {
 
 function validateSoundFilename(soundsDir: string, filename: string): void {
   if (filename.includes("/") || filename.includes("\\")) {
-    fail(`--sound filename must not contain path separators (got "${filename}")`);
+    fail(`sound filename must not contain path separators (got "${filename}")`);
   }
   if (filename.startsWith(".")) {
-    fail(`--sound filename must not start with "." (got "${filename}")`);
+    fail(`sound filename must not start with "." (got "${filename}")`);
   }
   const dotIdx = filename.lastIndexOf(".");
   const ext = dotIdx >= 0 ? filename.slice(dotIdx + 1).toLowerCase() : "";
   if (!(SUPPORTED_EXTENSIONS as readonly string[]).includes(ext)) {
     fail(
-      `--sound must have a supported extension (${SUPPORTED_EXTENSIONS.join(", ")}); got ".${ext}"`,
+      `sound filename must have a supported extension (${SUPPORTED_EXTENSIONS.join(", ")}); got ".${ext}"`,
     );
   }
   const full = join(soundsDir, filename);
@@ -243,6 +342,60 @@ function validateSoundFilename(soundsDir: string, filename: string): void {
   }
 }
 
+function applyPoolOp(
+  soundsDir: string,
+  eventConfig: SoundEventConfig,
+  op: PoolOp,
+): void {
+  switch (op.kind) {
+    case "sound": {
+      // Single-sound convenience: replace the whole pool.
+      if (op.value === null) {
+        eventConfig.sounds = [];
+      } else {
+        validateSoundFilename(soundsDir, op.value);
+        eventConfig.sounds = [op.value];
+      }
+      return;
+    }
+    case "sounds": {
+      for (const name of op.values) {
+        validateSoundFilename(soundsDir, name);
+      }
+      eventConfig.sounds = [...op.values];
+      return;
+    }
+    case "add": {
+      for (const name of op.values) {
+        validateSoundFilename(soundsDir, name);
+        if (eventConfig.sounds.includes(name)) {
+          process.stderr.write(
+            `Warning: "${name}" is already in the pool; skipping.\n`,
+          );
+          continue;
+        }
+        eventConfig.sounds.push(name);
+      }
+      return;
+    }
+    case "remove": {
+      const idx = eventConfig.sounds.indexOf(op.value);
+      if (idx < 0) {
+        process.stderr.write(
+          `Warning: "${op.value}" is not in the pool; nothing to remove.\n`,
+        );
+        return;
+      }
+      eventConfig.sounds.splice(idx, 1);
+      return;
+    }
+    case "clear": {
+      eventConfig.sounds = [];
+      return;
+    }
+  }
+}
+
 function main(): void {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
@@ -250,9 +403,11 @@ function main(): void {
     return;
   }
 
-  const hasEventFlag = args.enabled !== undefined || args.sound !== undefined;
+  const hasEventFlag = args.enabled !== undefined || args.poolOp !== undefined;
   if (hasEventFlag && !args.event) {
-    fail("--enabled and --sound require --event");
+    fail(
+      "--enabled, --sound, --sounds, --add-sound, --remove-sound, and --clear-sounds require --event",
+    );
   }
   if (
     args.globalEnabled === undefined &&
@@ -280,14 +435,7 @@ function main(): void {
   if (args.event) {
     const eventConfig = config.events[args.event];
     if (args.enabled !== undefined) eventConfig.enabled = args.enabled;
-    if (args.sound !== undefined) {
-      if (args.sound === null) {
-        eventConfig.sound = null;
-      } else {
-        validateSoundFilename(soundsDir, args.sound);
-        eventConfig.sound = args.sound;
-      }
-    }
+    if (args.poolOp) applyPoolOp(soundsDir, eventConfig, args.poolOp);
     changed[`events.${args.event}`] = eventConfig;
   }
 
