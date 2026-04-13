@@ -148,7 +148,10 @@ export function stripOrphanedSurrogatesDeep<T>(input: T): DeepSanitizeResult<T> 
       for (let i = 0; i < value.length; i++) {
         const result = walk(value[i]);
         if (result.changed && next === null) {
-          next = Array.prototype.slice.call(value, 0, i) as unknown[];
+          next = [];
+          for (let j = 0; j < i; j++) {
+            next.push(value[j]);
+          }
         }
         if (next !== null) {
           next.push(result.value);

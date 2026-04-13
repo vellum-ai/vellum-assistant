@@ -244,6 +244,29 @@ describe("stripOrphanedSurrogatesDeep", () => {
     expect(result.value[1]).toBe(`bad${REPLACEMENT}`);
   });
 
+  test("array subclass with hostile Symbol.species still clones safely", () => {
+    // Regression: Array.prototype.slice consults ArraySpeciesCreate, so an
+    // Array subclass with a custom Symbol.species could produce a non-Array
+    // clone whose push() doesn't exist — crashing the sanitizer. The fix
+    // must build a plain Array literal instead.
+    class HostileContainer {
+      items: unknown[] = [];
+      // Intentionally no `push` method — mimics the shape ArraySpeciesCreate
+      // would produce for a subclass that returns a non-Array constructor.
+    }
+    class WeirdArray extends Array {
+      static get [Symbol.species](): ArrayConstructor {
+        return HostileContainer as unknown as ArrayConstructor;
+      }
+    }
+    const input = new WeirdArray();
+    input.push("clean", `bad${HIGH}`);
+    const result = stripOrphanedSurrogatesDeep(input);
+    expect(result.changed).toBe(true);
+    expect(Array.isArray(result.value)).toBe(true);
+    expect(result.value).toEqual(["clean", `bad${REPLACEMENT}`]);
+  });
+
   test("rewritten output can be JSON-stringified end-to-end", () => {
     // This is the exact shape of the bug: a payload with an orphaned high
     // surrogate buried in a tool_result content string. After sanitization,
