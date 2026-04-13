@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import type { OnboardingContext } from "../types/onboarding-context.js";
+
 const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 import { mock } from "bun:test";
@@ -123,7 +125,7 @@ describe("pre-chat onboarding contract", () => {
     });
 
     test("onboarding field allows omitting optional userName and assistantName", () => {
-      const context = {
+      const context: OnboardingContext = {
         tools: ["figma"],
         tasks: ["design"],
         tone: "casual",
