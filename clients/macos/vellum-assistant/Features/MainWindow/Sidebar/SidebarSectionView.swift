@@ -299,6 +299,17 @@ struct SidebarSectionView: View {
                 }
             }
         }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Toggle \(subGroup.label)")
+        .accessibilityAction(.default) {
+            withAnimation(VAnimation.fast) {
+                if isSubGroupExpanded {
+                    expandedScheduleGroups?.wrappedValue.remove(subGroup.key)
+                } else {
+                    expandedScheduleGroups?.wrappedValue.insert(subGroup.key)
+                }
+            }
+        }
         .pointerCursor()
         .animation(VAnimation.fast, value: showEllipsis)
         // Ellipsis button overlay — rendered after .onTapGesture so it sits
