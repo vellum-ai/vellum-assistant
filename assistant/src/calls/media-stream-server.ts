@@ -372,6 +372,9 @@ export class MediaStreamCallSession {
           endedAt: Date.now(),
           lastError: outcome.logReason,
         });
+        // Run finalization now because handleTransportClosed will see
+        // terminal status and exit early when the WebSocket closes.
+        this.runFinalizationAndGrantCleanup(session);
         void speakSystemPrompt(this.output, outcome.message).then(() => {
           setTimeout(() => this.output.endSession(outcome.logReason), 3000);
         });
@@ -399,6 +402,9 @@ export class MediaStreamCallSession {
           endedAt: Date.now(),
           lastError: `Setup flow '${outcome.action}' not supported on media-stream transport`,
         });
+        // Run finalization now because handleTransportClosed will see
+        // terminal status and exit early when the WebSocket closes.
+        this.runFinalizationAndGrantCleanup(session);
         void speakSystemPrompt(
           this.output,
           "Sorry, this call requires additional verification that isn't available right now. Please try calling back. Goodbye.",
@@ -412,6 +418,40 @@ export class MediaStreamCallSession {
           );
         });
         return;
+    }
+  }
+
+  // ── Finalization helper for early-teardown paths ─────────────────
+
+  /**
+   * Run scoped-grant revocation and call finalization inline. Used by
+   * the deny and unsupported-flow branches which set terminal status
+   * before `endSession()`. When the WebSocket subsequently closes,
+   * {@link handleTransportClosed} sees the terminal status and exits
+   * early — so we must perform cleanup here to avoid leaking grants
+   * and skipping `finalizeCall()` side-effects.
+   */
+  private runFinalizationAndGrantCleanup(
+    session: ReturnType<typeof getCallSession>,
+  ): void {
+    try {
+      revokeScopedApprovalGrantsForContext({
+        callSessionId: this.callSessionId,
+      });
+      if (session?.conversationId) {
+        revokeScopedApprovalGrantsForContext({
+          conversationId: session.conversationId,
+        });
+      }
+    } catch (err) {
+      log.warn(
+        { err, callSessionId: this.callSessionId },
+        "Failed to revoke scoped grants on early teardown path",
+      );
+    }
+
+    if (session?.conversationId) {
+      finalizeCall(this.callSessionId, session.conversationId);
     }
   }
 

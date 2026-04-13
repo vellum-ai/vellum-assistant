@@ -421,15 +421,18 @@ export class MediaStreamOutput implements CallTransport {
 
       if (version !== this.playbackVersion || this.isClosed()) return;
 
-      // Transcode the synthesized audio to mu-law frames.
-      // TTS providers typically return mp3/wav/opus. For now we handle
-      // the common case where the provider returns raw PCM or we decode
-      // the audio using the content type. Since most providers return
-      // compressed formats, we use a best-effort PCM interpretation.
-      // In production, the synthesized-play path in call-controller uses
-      // the audio-store + play-URL mechanism; this direct-synthesis path
-      // is for the media-stream transport where we need raw frames.
-      const frames = this.audioBufferToFrames(result.audio, audioFormat);
+      // Derive the format from the provider's actual content type rather
+      // than the declared audioFormat. The declared format may not match
+      // reality (e.g. preferWav requests WAV but the provider returns mp3).
+      // audioBufferToFrames also sniffs magic bytes as a safety net.
+      const actualFormat: "mp3" | "wav" | "opus" =
+        result.contentType.includes("wav") ||
+        result.contentType.includes("x-wav")
+          ? "wav"
+          : result.contentType.includes("opus")
+            ? "opus"
+            : audioFormat; // fall back to declared format for unknown types
+      const frames = this.audioBufferToFrames(result.audio, actualFormat);
       if (version !== this.playbackVersion || this.isClosed()) return;
 
       this.sendFrames(frames);
@@ -512,22 +515,38 @@ export class MediaStreamOutput implements CallTransport {
    * Convert an audio buffer (from TTS synthesis or URL fetch) into
    * base64-encoded mu-law frames.
    *
-   * For WAV files, we extract the raw PCM data and convert to mu-law.
-   * For other formats (mp3, opus), we send the raw bytes through
-   * {@link chunkMulawToBase64Frames} as a best-effort path. This works
-   * correctly when the TTS provider outputs mu-law or PCM directly
-   * (regardless of the nominal format label), but will produce garbled
-   * audio for genuinely compressed formats (mp3, opus) since we lack a
-   * native decoder. The primary production egress path routes TTS
-   * through the call-controller's audio store mechanism, which handles
-   * transcoding properly; this direct conversion is a fallback for the
-   * media-stream transport's simpler egress model.
+   * Rather than trusting the declared `format` parameter (which may not
+   * match the actual bytes — e.g. when a provider is asked for WAV but
+   * returns mp3), this method **sniffs the magic bytes** to detect the
+   * real format:
+   *
+   * - **WAV** (`RIFF` header, bytes `0x52 0x49 0x46 0x46`): extracts
+   *   raw PCM data from the WAV container and converts to mu-law.
+   * - **Everything else**: passed through as raw bytes via
+   *   {@link chunkMulawToBase64Frames}. This works when the TTS provider
+   *   outputs mu-law or PCM directly, but will produce garbled audio for
+   *   genuinely compressed formats (mp3, opus) since we lack a native
+   *   decoder.
+   *
+   * The primary production egress path routes TTS through the
+   * call-controller's audio store mechanism, which handles transcoding
+   * properly; this direct conversion is a fallback for the media-stream
+   * transport's simpler egress model.
    */
   private audioBufferToFrames(
     audio: Buffer,
-    format: "mp3" | "wav" | "opus",
+    _format: "mp3" | "wav" | "opus",
   ): string[] {
-    if (format === "wav") {
+    // Sniff the actual bytes rather than trusting the declared format.
+    // WAV files always start with the ASCII magic "RIFF" (0x52494646).
+    const isWav =
+      audio.length >= 44 &&
+      audio[0] === 0x52 && // R
+      audio[1] === 0x49 && // I
+      audio[2] === 0x46 && // F
+      audio[3] === 0x46; // F
+
+    if (isWav) {
       // Extract raw PCM from WAV container. Standard WAV has a 44-byte
       // header; the rest is PCM data (assuming 16-bit signed LE, 8 kHz).
       const pcmData = audio.subarray(44);
@@ -536,20 +555,30 @@ export class MediaStreamOutput implements CallTransport {
       return chunkMulawToBase64Frames(mulawBuffer);
     }
 
-    // For mp3/opus: the audio bytes are in a compressed format that
-    // requires a codec to decode. Rather than adding a heavy native
-    // dependency, we encode the raw bytes as-is into base64 frames.
-    // This works when the TTS provider is configured to output mulaw/pcm
-    // directly, and serves as a best-effort path otherwise.
-    //
-    // The primary production egress path for synthesized TTS on
-    // media-stream calls routes through the call-controller's
-    // synthesizeAndStreamAudio method, which uses the audio store.
-    // This fallback handles edge cases like system prompts.
-    log.debug(
-      { format, streamSid: this.streamSid, audioBytes: audio.length },
-      "Encoding audio buffer as raw frames (format may require transcoding)",
-    );
+    // Not a WAV file — the bytes are likely a compressed format (mp3, opus)
+    // or raw mu-law/PCM. Log a warning when the declared format claimed WAV
+    // but the bytes say otherwise, since this mismatch would have previously
+    // caused garbled audio.
+    if (_format === "wav") {
+      log.warn(
+        {
+          streamSid: this.streamSid,
+          declaredFormat: _format,
+          audioBytes: audio.length,
+          headerHex: audio.subarray(0, 4).toString("hex"),
+        },
+        "Declared format is WAV but bytes lack RIFF header — falling back to raw passthrough",
+      );
+    } else {
+      log.debug(
+        {
+          format: _format,
+          streamSid: this.streamSid,
+          audioBytes: audio.length,
+        },
+        "Encoding audio buffer as raw frames (format may require transcoding)",
+      );
+    }
     return chunkMulawToBase64Frames(audio);
   }
 }
