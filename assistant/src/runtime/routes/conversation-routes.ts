@@ -1618,6 +1618,12 @@ export async function handleSendMessage(
         // fast path) so the HTTP response reaches the client before SSE
         // events arrive.
         setTimeout(() => {
+          onEvent({
+            type: "user_message_echo",
+            text: rawContent,
+            conversationId,
+            messageId: persisted.id,
+          });
           onEvent({ type: "assistant_text_delta", text: cannedGreeting });
           onEvent({ type: "message_complete", conversationId });
           conversation.processing = false;
@@ -1911,6 +1917,12 @@ export async function handleSendMessage(
       const conversationId = mapping.conversationId;
       const message = slashResult.message;
       setTimeout(() => {
+        onEvent({
+          type: "user_message_echo",
+          text: rawContent,
+          conversationId,
+          messageId: persisted.id,
+        });
         if (modelInfoEvent) {
           onEvent(modelInfoEvent);
         }
@@ -1961,6 +1973,12 @@ export async function handleSendMessage(
     // HTTP timeout on large contexts, causing a false "Failed to send".
     (async () => {
       try {
+        onEvent({
+          type: "user_message_echo",
+          text: rawContent,
+          conversationId,
+          messageId: persisted.id,
+        });
         conversation.emitActivityState(
           "thinking",
           "context_compacting",
@@ -2010,9 +2028,9 @@ export async function handleSendMessage(
 
   const resolvedContent = slashResult.content;
 
+  const requestId = crypto.randomUUID();
   let messageId: string;
   try {
-    const requestId = crypto.randomUUID();
     messageId = await conversation.persistUserMessage(
       resolvedContent,
       attachments,
@@ -2022,6 +2040,14 @@ export async function handleSendMessage(
   } catch (err) {
     throw err;
   }
+
+  onEvent({
+    type: "user_message_echo",
+    text: resolvedContent,
+    conversationId: mapping.conversationId,
+    messageId,
+    requestId,
+  });
 
   // Fire-and-forget the agent loop; events flow to the hub via onEvent.
   conversation
