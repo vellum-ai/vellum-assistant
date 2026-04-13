@@ -44,7 +44,7 @@
     {
       "id": "conversation-launcher",
       "name": "conversation-launcher",
-      "description": "Render an inline card where each button creates a new focused conversation seeded with specific context, then opens it",
+      "description": "Offer the user several spin-off conversations as clickable buttons on a single persistent card. Each click spawns a fresh seeded conversation in the sidebar; the user keeps their place in the current conversation. Use when you want to branch into N focused threads (research directions, draft choices, pending replies, triage of N items) without losing the current context. Not for single-destination pivots — just reply inline.",
       "metadata": {
         "emoji": "🧭",
         "vellum": {
@@ -107,7 +107,7 @@
     {
       "id": "email-setup",
       "name": "email-setup",
-      "description": "Create the assistant's own email address via the Vellum hosted API (one-time setup)",
+      "description": "Register the assistant's own @vellum.me email address (one-time setup)",
       "metadata": {
         "emoji": "📧",
         "vellum": {
@@ -428,6 +428,18 @@
           "avoid-when": [
             "When the user wants to change configuration (use in-chat config instead)"
           ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "vellum-sounds",
+      "name": "vellum-sounds",
+      "description": "Customize the macOS app's sound effects — add sound files to the workspace, enable sounds globally, set volume, and assign sounds to 9 app events (message sent, task complete, notifications, etc.)",
+      "metadata": {
+        "emoji": "🔊",
+        "vellum": {
+          "display-name": "Sounds"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
