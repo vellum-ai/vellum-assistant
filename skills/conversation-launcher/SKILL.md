@@ -51,8 +51,7 @@ For each option you plan to surface, prepare:
 3. **Create the new conversation.** Generate a fresh idempotency key (any unique string, e.g. a UUID or timestamp-based slug) and call:
 
     ```bash
-    curl -sf -X POST "http://127.0.0.1:${ASSISTANT_HTTP_PORT}/v1/conversations" \
-      -H "Authorization: Bearer ${ASSISTANT_JWT}" \
+    curl -sf -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/conversations" \
       -H "Content-Type: application/json" \
       -d "{\"conversationKey\":\"launcher-$(date +%s)-$RANDOM\"}"
     ```
@@ -62,8 +61,7 @@ For each option you plan to surface, prepare:
 4. **Seed the new conversation.** Post the seed prompt to it:
 
     ```bash
-    curl -sf -X POST "http://127.0.0.1:${ASSISTANT_HTTP_PORT}/v1/messages" \
-      -H "Authorization: Bearer ${ASSISTANT_JWT}" \
+    curl -sf -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/messages" \
       -H "Content-Type: application/json" \
       -d "{\"conversationKey\":\"${NEW_CONV_ID}\",\"content\":\"${SEED_PROMPT}\"}"
     ```
