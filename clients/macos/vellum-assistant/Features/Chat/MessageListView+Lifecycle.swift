@@ -33,11 +33,12 @@ extension MessageListView {
             scrollState.lastActivityPhaseWhenIdle = assistantActivityPhase
         }
         // Handle pending anchor if already set.
-        if let id = anchorMessageId, messages.contains(where: { $0.id == id }) {
+        if let id = anchorMessageId,
+           let displayId = TranscriptItems.displayId(for: id, in: messages) {
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=onAppear")
             os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundOnAppear")
-            $scrollPosition.wrappedValue.scrollTo(id: id, anchor: .center)
-            flashHighlight(messageId: id)
+            $scrollPosition.wrappedValue.scrollTo(id: displayId, anchor: .center)
+            flashHighlight(messageId: displayId)
             anchorMessageId = nil
             scrollState.anchorSetTime = nil
         } else if anchorMessageId != nil {
@@ -93,13 +94,14 @@ extension MessageListView {
         // Guard against stale fires during a conversation switch.
         guard conversationId == scrollState.currentConversationId else { return }
         // --- Anchor message resolution ---
-        if let id = anchorMessageId, messages.contains(where: { $0.id == id }) {
+        if let id = anchorMessageId,
+           let displayId = TranscriptItems.displayId(for: id, in: messages) {
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=messagesChanged")
             os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundInMessages")
             withAnimation {
-                $scrollPosition.wrappedValue = ScrollPosition(id: id, anchor: .center)
+                $scrollPosition.wrappedValue = ScrollPosition(id: displayId, anchor: .center)
             }
-            flashHighlight(messageId: id)
+            flashHighlight(messageId: displayId)
             anchorMessageId = nil
             scrollState.anchorSetTime = nil
             scrollState.anchorTimeoutTask?.cancel()
@@ -206,13 +208,13 @@ extension MessageListView {
         scrollState.anchorTimeoutTask?.cancel()
         scrollState.anchorTimeoutTask = nil
         os_signpost(.event, log: PerfSignposts.log, name: "anchorSet", "reason=anchorMessageIdChanged")
-        if messages.contains(where: { $0.id == id }) {
+        if let displayId = TranscriptItems.displayId(for: id, in: messages) {
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=anchorChanged")
             os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundOnAnchorChange")
             withAnimation {
-                $scrollPosition.wrappedValue = ScrollPosition(id: id, anchor: .center)
+                $scrollPosition.wrappedValue = ScrollPosition(id: displayId, anchor: .center)
             }
-            flashHighlight(messageId: id)
+            flashHighlight(messageId: displayId)
             anchorMessageId = nil
             scrollState.anchorSetTime = nil
         } else {

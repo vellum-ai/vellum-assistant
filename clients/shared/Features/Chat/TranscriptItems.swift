@@ -78,4 +78,33 @@ public enum TranscriptItems {
         }
         return result
     }
+
+    /// Resolves a raw message ID to the ID of the transcript item that
+    /// actually renders it. Queued user messages are collapsed into the
+    /// `queuedMarker`, so scrolling or flashing their original IDs is a
+    /// no-op — callers that target IDs from the full `messages` array
+    /// must route through this helper before handing the ID to
+    /// `scrollTo(id:)` or the highlight binding.
+    ///
+    /// - Returns: The `queuedMarker` anchor ID when `messageId` belongs to
+    ///   a collapsed queued user message; `messageId` otherwise. Returns
+    ///   `nil` if the ID isn't present in `messages`.
+    public static func displayId(for messageId: UUID, in messages: [ChatMessage]) -> UUID? {
+        guard let target = messages.first(where: { $0.id == messageId }) else {
+            return nil
+        }
+        let isQueuedUser: Bool = {
+            guard target.role == .user else { return false }
+            if case .queued = target.status { return true }
+            return false
+        }()
+        guard isQueuedUser else { return messageId }
+        // The marker's anchor ID is the first queued user message's ID.
+        for message in messages {
+            if message.role == .user, case .queued = message.status {
+                return message.id
+            }
+        }
+        return messageId
+    }
 }

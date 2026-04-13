@@ -267,13 +267,30 @@ struct MessageListContentView: View, Equatable {
 
             let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
             // Estimate user message cell height for precise minHeight offset.
+            // Queued user messages are collapsed into QueuedMessagesMarker and
+            // don't render as full bubbles, so they must be excluded — using a
+            // queued follow-up's height would over-estimate and under-size the
+            // turn minHeight, breaking the "sent message pinned at top"
+            // invariant during an active turn.
             let estimatedUserHeight: CGFloat = {
-                guard let lastUser = state.rows.last(where: { $0.message.role == .user }) else {
-                    return 80
+                let hasQueuedMessages = state.rows.contains(where: { row in
+                    guard row.message.role == .user else { return false }
+                    if case .queued = row.message.status { return true }
+                    return false
+                })
+                // ~40pt: QueuedMessagesMarker = single-line labelDefault text
+                // with VSpacing.sm top+bottom padding.
+                let markerHeight: CGFloat = hasQueuedMessages ? 40 : 0
+                guard let lastUser = state.rows.last(where: { row in
+                    guard row.message.role == .user else { return false }
+                    if case .queued = row.message.status { return false }
+                    return true
+                }) else {
+                    return 80 + markerHeight
                 }
                 // Messages with attachments are always collapsed — use max height
                 if !lastUser.message.attachments.isEmpty {
-                    return 260
+                    return 260 + markerHeight
                 }
                 let text = lastUser.message.text as NSString
                 let contentWidth = max(layoutMetrics.bubbleMaxWidth - 2 * VSpacing.lg, 0)
@@ -287,7 +304,7 @@ struct MessageListContentView: View, Equatable {
                 // Bubble padding (24) + timestamp (24) + spacing (12) + show more button (30) + gradient (10)
                 let cellOverhead: CGFloat = 100
                 // Cap at collapsed bubble height (150pt content + overhead)
-                return min(textHeight + cellOverhead, 260)
+                return min(textHeight + cellOverhead, 260) + markerHeight
             }()
             // Precise minHeight: fill the space between user message and composer.
             // containerHeight = full chat pane (stable, from GeometryReader)
