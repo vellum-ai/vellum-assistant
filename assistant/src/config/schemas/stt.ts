@@ -7,46 +7,13 @@ import { z } from "zod";
 export const VALID_STT_PROVIDERS = ["openai-whisper", "deepgram"] as const;
 
 /**
- * Per-provider config schemas nested under `services.stt.providers.<id>`.
- *
- * Each provider's schema is the full provider-specific config (tuning
- * params, etc.). New providers add sibling schemas without restructuring.
- *
- * The provider config is an empty object. Per-provider tuning params
- * (e.g., model, language) can be added here once the provider adapter
- * consumes them at runtime.
- */
-export const SttOpenAiWhisperProviderConfigSchema = z
-  .object({})
-  .describe("OpenAI Whisper provider configuration under services.stt");
-
-export type SttOpenAiWhisperProviderConfig = z.infer<
-  typeof SttOpenAiWhisperProviderConfigSchema
->;
-
-/**
- * Deepgram provider configuration under `services.stt.providers.deepgram`.
- *
- * Provider-specific tuning params (model, language, smart formatting)
- * can be added here as the adapter evolves. For now the schema is empty
- * so that adding the provider to config.json is friction-free.
- */
-export const SttDeepgramProviderConfigSchema = z
-  .object({})
-  .describe("Deepgram provider configuration under services.stt");
-
-export type SttDeepgramProviderConfig = z.infer<
-  typeof SttDeepgramProviderConfigSchema
->;
-
-/**
  * Sparse provider config map under `services.stt.providers`.
  *
  * This is a forward-compatible record that accepts any provider ID as key
- * with an object value. Existing known providers (`openai-whisper`,
- * `deepgram`) are validated at schema level; unknown future provider
- * entries are accepted and passed through so adding a new provider ID
- * no longer requires a migration to seed `services.stt.providers.<id>`.
+ * with an object value. All provider entries — known (`openai-whisper`,
+ * `deepgram`) and unknown — are accepted with generic object validation.
+ * Adding a new provider ID does not require a migration to seed
+ * `services.stt.providers.<id>`.
  *
  * The map only holds entries the user has explicitly configured — it is
  * NOT required to enumerate every known provider.

@@ -20,7 +20,7 @@ import type { WorkspaceMigration } from "./types.js";
  *
  * It does NOT seed per-provider entries (`openai-whisper`, `deepgram`, etc.)
  * — the providers map is sparse and only holds entries the user explicitly
- * configures. Adding a new provider ID no longer requires a migration.
+ * configures. Adding a new provider ID does not require a migration.
  *
  * It never clobbers user-defined STT values — only fills in what is missing.
  *
