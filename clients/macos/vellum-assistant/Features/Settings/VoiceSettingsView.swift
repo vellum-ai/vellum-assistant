@@ -629,6 +629,13 @@ struct VoiceSettingsView: View {
         sttSaving = true
         sttSaveError = nil
 
+        // Normalize the empty sentinel to the resolved provider so we never
+        // persist an empty string as the STT provider identifier.
+        if draftSTTProvider.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let resolved = selectedSTTProvider?.id {
+            draftSTTProvider = resolved
+        }
+
         // Persist provider change if needed
         if draftSTTProvider != sttProviderRaw {
             store.setSTTProvider(draftSTTProvider)
