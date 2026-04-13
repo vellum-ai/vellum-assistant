@@ -7700,6 +7700,11 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                  conversationId:
+                    type: string
+                    description:
+                      Id of a newly launched conversation when the action dispatched one (e.g. launch_conversation). Omitted
+                      otherwise.
                 required:
                   - ok
                 additionalProperties: false
