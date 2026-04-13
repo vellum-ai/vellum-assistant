@@ -379,7 +379,7 @@ export class MediaStreamCallSession {
         // Run finalization now because handleTransportClosed will see
         // terminal status and exit early when the WebSocket closes.
         this.runFinalizationAndGrantCleanup(session);
-        void speakSystemPrompt(this.output, outcome.message).then(() => {
+        void speakSystemPrompt(this.output, outcome.message).finally(() => {
           setTimeout(() => this.output.endSession(outcome.logReason), 3000);
         });
         return;
@@ -412,7 +412,7 @@ export class MediaStreamCallSession {
         void speakSystemPrompt(
           this.output,
           "Sorry, this call requires additional verification that isn't available right now. Please try calling back. Goodbye.",
-        ).then(() => {
+        ).finally(() => {
           setTimeout(
             () =>
               this.output.endSession(
