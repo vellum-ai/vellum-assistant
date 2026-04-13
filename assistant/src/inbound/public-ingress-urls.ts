@@ -129,7 +129,7 @@ export function getTwilioRelayUrl(config: IngressConfig): string {
 export function getTwilioMediaStreamUrl(config: IngressConfig): string {
   const base = getPublicBaseUrl(config);
   const wsBase = base.replace(/^http(s?)/, "ws$1");
-  return `${wsBase}/ws/twilio/media-stream`;
+  return `${wsBase}/webhooks/twilio/media-stream`;
 }
 
 /**

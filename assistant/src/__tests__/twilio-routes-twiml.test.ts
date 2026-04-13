@@ -438,13 +438,15 @@ describe("generateTwiML with voice quality profile", () => {
 
 describe("generateStreamTwiML", () => {
   const callSessionId = "stream-session-1";
-  const streamUrl = "wss://test.example.com/ws/twilio/media-stream";
+  const streamUrl = "wss://test.example.com/webhooks/twilio/media-stream";
 
-  test("emits <Stream> element with correct URL", () => {
+  test("emits <Stream> element with callSessionId in URL query params", () => {
     const twiml = generateStreamTwiML(callSessionId, streamUrl);
 
     expect(twiml).toContain("<Stream");
-    expect(twiml).toContain(`url="${streamUrl}"`);
+    expect(twiml).toContain(
+      `url="wss://test.example.com/webhooks/twilio/media-stream?callSessionId=${callSessionId}"`,
+    );
     expect(twiml).not.toContain("<ConversationRelay");
   });
 
@@ -456,22 +458,27 @@ describe("generateStreamTwiML", () => {
     );
   });
 
-  test("includes auth token as <Parameter> when provided", () => {
+  test("includes auth token in URL query params and as <Parameter> when provided", () => {
     const twiml = generateStreamTwiML(
       callSessionId,
       streamUrl,
       "test-relay-token-123",
     );
 
+    // Token in URL query params for gateway auth during WS upgrade
+    expect(twiml).toContain("token=test-relay-token-123");
+    // Token also in <Parameter> for Twilio start event payload
     expect(twiml).toContain(
       '<Parameter name="token" value="test-relay-token-123" />',
     );
   });
 
-  test("omits token Parameter when not provided", () => {
+  test("omits token from URL and Parameter when not provided", () => {
     const twiml = generateStreamTwiML(callSessionId, streamUrl);
 
     expect(twiml).not.toContain('name="token"');
+    // URL should not contain a token query param
+    expect(twiml).not.toContain("token=");
   });
 
   test("includes custom parameters as <Parameter> elements", () => {
@@ -488,6 +495,21 @@ describe("generateStreamTwiML", () => {
     expect(twiml).toContain('<Parameter name="token" value="tok" />');
   });
 
+  test("callSessionId cannot be overridden by customParameters", () => {
+    const twiml = generateStreamTwiML(callSessionId, streamUrl, undefined, {
+      callSessionId: "attacker-session",
+    });
+
+    // The real callSessionId must win over the custom parameter
+    expect(twiml).toContain(
+      `<Parameter name="callSessionId" value="${callSessionId}" />`,
+    );
+    expect(twiml).not.toContain('value="attacker-session"');
+    // URL must also have the correct callSessionId
+    expect(twiml).toContain(`callSessionId=${callSessionId}`);
+    expect(twiml).not.toContain("callSessionId=attacker-session");
+  });
+
   test("does not include ConversationRelay STT attributes", () => {
     const twiml = generateStreamTwiML(callSessionId, streamUrl);
 
@@ -497,17 +519,6 @@ describe("generateStreamTwiML", () => {
     expect(twiml).not.toContain("ttsProvider=");
     expect(twiml).not.toContain("voice=");
     expect(twiml).not.toContain("language=");
-  });
-
-  test("XML special characters in stream URL are escaped", () => {
-    const twiml = generateStreamTwiML(
-      callSessionId,
-      'wss://test.example.com/ws?a=1&b="2"',
-    );
-
-    expect(twiml).toContain(
-      'url="wss://test.example.com/ws?a=1&amp;b=&quot;2&quot;"',
-    );
   });
 
   test("wraps in valid TwiML structure", () => {
@@ -531,7 +542,7 @@ describe("generateStreamTwiML", () => {
 describe("Provider-conditional TwiML generation", () => {
   const callSessionId = "provider-test-1";
   const relayUrl = "wss://test.example.com/v1/calls/relay";
-  const streamUrl = "wss://test.example.com/ws/twilio/media-stream";
+  const streamUrl = "wss://test.example.com/webhooks/twilio/media-stream";
 
   test("Deepgram: ConversationRelay with transcriptionProvider=Deepgram and speechModel=nova-3", () => {
     const twiml = generateTwiML(

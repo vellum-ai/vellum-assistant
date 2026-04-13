@@ -274,7 +274,7 @@ mock.module("../inbound/public-ingress-urls.js", () => ({
   getTwilioMediaStreamUrl: (ingressConfig: unknown) => {
     const base = resolveIngressBaseUrlFromConfig(ingressConfig);
     const wsBase = base.replace(/^http(s?)/, "ws$1");
-    return `${wsBase}/ws/twilio/media-stream`;
+    return `${wsBase}/webhooks/twilio/media-stream`;
   },
   getTwilioVoiceWebhookUrl: (ingressConfig: unknown) =>
     `${resolveIngressBaseUrlFromConfig(ingressConfig)}/webhooks/twilio/voice`,
@@ -1107,7 +1107,7 @@ describe("twilio webhook routes", () => {
       expect(twiml).not.toContain("transcriptionProvider=");
       expect(twiml).toContain("callSessionId");
       expect(twiml).toContain(
-        "wss://ingress.example.com/ws/twilio/media-stream",
+        "wss://ingress.example.com/webhooks/twilio/media-stream",
       );
     });
 

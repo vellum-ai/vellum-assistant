@@ -132,9 +132,11 @@ ${greetingAttr}
  * (e.g. OpenAI Whisper). Twilio opens a WebSocket to `streamUrl` and sends
  * raw audio frames; the daemon transcribes server-side.
  *
- * Custom parameters (callSessionId, auth token, verificationSessionId) are
- * propagated as `<Parameter>` children so Twilio includes them in the
- * `start` event's `customParameters` object.
+ * `callSessionId` and `token` are encoded as query parameters on the
+ * WebSocket URL so the gateway can validate and route the upgrade request
+ * before any Twilio `start` frame arrives. They are also propagated as
+ * `<Parameter>` children so Twilio includes them in the `start` event's
+ * `customParameters` object for downstream observability.
  */
 export function generateStreamTwiML(
   callSessionId: string,
@@ -142,10 +144,22 @@ export function generateStreamTwiML(
   relayToken?: string,
   customParameters?: Record<string, string>,
 ): string {
-  // Always include callSessionId so the gateway can correlate the stream.
+  // Build the WebSocket URL with callSessionId and token as query params.
+  // The gateway validates these during the upgrade handshake before any
+  // Twilio frames are available.
+  const urlObj = new URL(streamUrl);
+  urlObj.searchParams.set("callSessionId", callSessionId);
+  if (relayToken) {
+    urlObj.searchParams.set("token", relayToken);
+  }
+  const fullStreamUrl = urlObj.toString();
+
+  // Build <Parameter> elements for the Twilio start event payload.
+  // Spread customParameters first so callSessionId and token cannot be
+  // overridden by caller-supplied values.
   const allParams: Record<string, string> = {
-    callSessionId,
     ...customParameters,
+    callSessionId,
   };
 
   if (relayToken) {
@@ -160,7 +174,7 @@ export function generateStreamTwiML(
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="${escapeXml(streamUrl)}">${parameterElements}
+    <Stream url="${escapeXml(fullStreamUrl)}">${parameterElements}
     </Stream>
   </Connect>
 </Response>`;
