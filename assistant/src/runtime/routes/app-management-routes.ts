@@ -40,11 +40,11 @@ import {
   getApp,
   getAppDirPath,
   getAppPreview,
-  inlineDistAssets,
   isMultifileApp,
   listApps,
   queryAppRecords,
   resolveAppDir,
+  resolveEffectiveAppHtml,
   updateApp,
   updateAppRecord,
 } from "../../memory/app-store.js";
@@ -738,8 +738,6 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
             return httpError("NOT_FOUND", `App not found: ${appId}`, 404);
           }
 
-          let html = app.htmlDefinition;
-
           if (isMultifileApp(app)) {
             const appDir = getAppDirPath(appId);
             const distIndex = join(appDir, "dist", "index.html");
@@ -752,12 +750,8 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
                 );
               }
             }
-            if (existsSync(distIndex)) {
-              html = inlineDistAssets(appDir, readFileSync(distIndex, "utf-8"));
-            } else {
-              html = `<p>App compilation failed. Edit a source file to trigger a rebuild.</p>`;
-            }
           }
+          const html = resolveEffectiveAppHtml(app);
 
           const { dirName } = resolveAppDir(app.id);
           return Response.json({
