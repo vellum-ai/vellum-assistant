@@ -98,6 +98,11 @@ export const uiShowTool: Tool = {
             description:
               "Whether to block until the user interacts with an action. Defaults to true when actions are provided.",
           },
+          persistent: {
+            type: "boolean",
+            description:
+              "When true, clicking an action does not dismiss the surface — the card stays visible and only the clicked action is marked as spent. Use for launcher or menu-style cards where the user may click multiple buttons. Defaults to false.",
+          },
         },
         required: ["surface_type", "data"],
       },

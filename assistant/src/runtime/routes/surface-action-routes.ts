@@ -143,11 +143,44 @@ export async function handleSurfaceAction(
   }
 
   try {
-    await conversation.handleSurfaceAction(surfaceId, actionId, data);
+    // Most action paths return `void` (regular button/selection forwards);
+    // the `launch_conversation` dispatch branch returns a structured result
+    // so we can surface validation errors (e.g. missing title / seedPrompt)
+    // as 4xx responses instead of silently reporting success.
+    const raw = await conversation.handleSurfaceAction(
+      surfaceId,
+      actionId,
+      data,
+    );
+    const result =
+      raw && typeof raw === "object" && "accepted" in raw
+        ? (raw as
+            | { accepted: true; conversationId?: string }
+            | { accepted: false; error: string })
+        : undefined;
+    if (result && result.accepted === false) {
+      log.warn(
+        {
+          conversationId: conversationId ?? undefined,
+          surfaceId,
+          actionId,
+          error: result.error,
+        },
+        "Surface action rejected",
+      );
+      return httpError("BAD_REQUEST", result.error, 400);
+    }
     log.info(
       { conversationId: conversationId ?? undefined, surfaceId, actionId },
       "Surface action handled via HTTP",
     );
+    if (
+      result &&
+      result.accepted === true &&
+      typeof result.conversationId === "string"
+    ) {
+      return Response.json({ ok: true, conversationId: result.conversationId });
+    }
     return Response.json({ ok: true });
   } catch (err) {
     log.error(
@@ -239,6 +272,12 @@ export function surfaceActionRouteDefinitions(deps: {
       }),
       responseBody: z.object({
         ok: z.boolean(),
+        conversationId: z
+          .string()
+          .describe(
+            "Id of a newly launched conversation when the action dispatched one (e.g. launch_conversation). Omitted otherwise.",
+          )
+          .optional(),
       }),
       handler: async ({ req, authContext }) => {
         if (!deps.findConversation) {

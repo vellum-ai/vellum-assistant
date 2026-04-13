@@ -237,6 +237,7 @@ export interface AgentLoopConversationContext {
     data: SurfaceData;
     actions?: Array<{ id: string; label: string; style?: string }>;
     display?: string;
+    persistent?: boolean;
   }>;
 
   workingDir: string;

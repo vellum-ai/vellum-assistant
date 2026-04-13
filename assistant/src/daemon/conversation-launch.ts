@@ -19,10 +19,13 @@ import { getOrCreateConversation as getOrCreateConversationKey } from "../memory
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
 import type { TrustContext } from "./conversation-runtime-assembly.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
 import type { ServerMessage } from "./message-protocol.js";
+
+const log = getLogger("conversation-launch");
 
 // ── Dependency registry ─────────────────────────────────────────────
 
@@ -79,6 +82,14 @@ export interface LaunchConversationParams {
   seedPrompt: string;
   anchorMessageId?: string;
   originTrustContext?: TrustContext;
+  /**
+   * Passed through to the `open_conversation` event. Defaults to omitted
+   * (i.e. client-side default of `true`) so direct callers keep their
+   * existing "jump to the new conversation" behavior. Set to `false` for
+   * fan-out launchers that register the conversation in the sidebar but
+   * must not steal focus from the origin.
+   */
+  focus?: boolean;
 }
 
 /**
@@ -90,8 +101,16 @@ export interface LaunchConversationParams {
  * spawning context. When absent, the conversation runs without an inherited
  * trust context.
  *
+ * The seed turn (`persistAndProcessMessage`) runs **fire-and-forget** so this
+ * helper returns as soon as the conversation is created, titled, and the
+ * `open_conversation` event has been published. Callers driving a fan-out
+ * UX (multiple launches from a single click) rely on this: blocking on the
+ * full LLM turn would hold the HTTP request open for tens of seconds.
+ * Errors from the seed turn are logged but not surfaced — the new
+ * conversation still exists in the sidebar so the user can retry from there.
+ *
  * Throws if the helper's daemon-side dependencies have not been registered
- * or if any step of the pipeline fails.
+ * or if conversation creation / titling itself fails.
  */
 export async function launchConversation(
   params: LaunchConversationParams,
@@ -127,30 +146,11 @@ export async function launchConversation(
     updateConversationTitle(conversationId, params.title, 0);
   }
 
-  // Seed the conversation by running the seed prompt through the same
-  // pipeline POST /v1/messages uses. Publishing to the hub lets any
-  // connected client stream the turn live.
-  const hubSender = (msg: ServerMessage) => {
-    const msgConversationId =
-      "conversationId" in msg &&
-      typeof (msg as { conversationId?: unknown }).conversationId === "string"
-        ? (msg as { conversationId: string }).conversationId
-        : undefined;
-    deps.publishAssistantEvent(msg, msgConversationId ?? conversationId);
-  };
-
-  await deps.persistAndProcessMessage(
-    conversationId,
-    params.seedPrompt,
-    undefined,
-    { onEvent: hubSender },
-    "vellum",
-    "cli",
-  );
-
-  // Tell connected clients to focus the new conversation. The client stubs
-  // a sidebar entry from the optional title if the conversation isn't
-  // already in its list.
+  // Tell connected clients about the new conversation BEFORE kicking off the
+  // seed turn so the sidebar entry appears instantly. We are the sole
+  // emitter of `open_conversation` for this launch path — `handleSurfaceAction`
+  // no longer publishes a second event. Pass through the caller-specified
+  // `focus` so fan-out launchers can avoid stealing focus from the origin.
   await assistantEventHub.publish(
     buildAssistantEvent(
       deps.getAssistantId() ?? DAEMON_INTERNAL_ASSISTANT_ID,
@@ -161,10 +161,40 @@ export async function launchConversation(
         ...(params.anchorMessageId
           ? { anchorMessageId: params.anchorMessageId }
           : {}),
+        ...(params.focus !== undefined ? { focus: params.focus } : {}),
       },
       conversationId,
     ),
   );
+
+  // Seed the conversation by running the seed prompt through the same
+  // pipeline POST /v1/messages uses. Publishing to the hub lets any
+  // connected client stream the turn live. Fire-and-forget so callers
+  // aren't blocked on the full LLM turn — errors are logged but swallowed.
+  const hubSender = (msg: ServerMessage) => {
+    const msgConversationId =
+      "conversationId" in msg &&
+      typeof (msg as { conversationId?: unknown }).conversationId === "string"
+        ? (msg as { conversationId: string }).conversationId
+        : undefined;
+    deps.publishAssistantEvent(msg, msgConversationId ?? conversationId);
+  };
+
+  deps
+    .persistAndProcessMessage(
+      conversationId,
+      params.seedPrompt,
+      undefined,
+      { onEvent: hubSender },
+      "vellum",
+      "cli",
+    )
+    .catch((err) => {
+      log.error(
+        { err, conversationId },
+        "Seed turn failed for launched conversation (non-fatal)",
+      );
+    });
 
   return { conversationId };
 }

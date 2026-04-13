@@ -1,59 +1,38 @@
 /**
  * Unit tests for the `_action: "launch_conversation"` dispatch branch in
- * `handleSurfaceAction`.
+ * `handleSurfaceAction` AND the `launchConversation` helper it calls into.
  *
- * `launchConversation` is mocked at the module level so we can assert what
- * parameters the dispatch branch passes in (including `originTrustContext`
- * inherited from the origin conversation) without standing up a real DB.
- * Mocks use dynamic imports after `mock.module` calls so the modules under
- * test see the stubs.
+ * The real `launchConversation` is exercised end-to-end: its DB-hitting
+ * dependencies (`conversation-key-store`, `conversation-crud`) and its
+ * registered daemon deps are stubbed so the helper runs without a DB.
+ * This lets the tests assert the full invariant set in one place:
+ *
+ *   - `handleSurfaceAction` does NOT publish `open_conversation` itself —
+ *     `launchConversation` is the sole emitter of that event.
+ *   - Exactly one `open_conversation` is published per launch, carrying
+ *     the caller-supplied `focus` value (false for fan-out launchers).
+ *   - The handler returns promptly — the seed turn
+ *     (`persistAndProcessMessage`) is fire-and-forget.
+ *   - `originTrustContext` is forwarded to the spawned conversation.
+ *
+ * The historical double-emit bug — both sites publishing, with the
+ * helper's default-true `focus` arriving first and stealing focus away
+ * from the origin — is the regression covered here.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Module-level mocks ─────────────────────────────────────────────
-//
-// `launchConversation` is the only DB-hitting call path inside the new
-// dispatch branch. Stub it so the test exercises dispatch logic in
-// isolation: it records every call and returns a predictable id.
 
-const launchCalls: Array<{
-  title: string;
-  seedPrompt: string;
-  anchorMessageId?: string;
-  originTrustContext?: unknown;
-}> = [];
-let nextLaunchResult: { conversationId: string } = {
-  conversationId: "conv-new",
-};
-
-mock.module("../conversation-launch.js", () => ({
-  launchConversation: async (params: {
-    title: string;
-    seedPrompt: string;
-    anchorMessageId?: string;
-    originTrustContext?: unknown;
-  }) => {
-    launchCalls.push({
-      title: params.title,
-      seedPrompt: params.seedPrompt,
-      ...(params.anchorMessageId !== undefined
-        ? { anchorMessageId: params.anchorMessageId }
-        : {}),
-      ...(params.originTrustContext !== undefined
-        ? { originTrustContext: params.originTrustContext }
-        : {}),
-    });
-    return nextLaunchResult;
-  },
-  // Preserve the shape of the real module so unrelated imports still resolve.
-  registerLaunchConversationDeps: () => {},
-}));
-
-// Capture hub publish calls so the test can assert that
-// `open_conversation` with `focus: false` is emitted for the new id.
+// Hub publish capture — used by the single-emit assertions. We spread
+// the real module into each override so unrelated exports (e.g.
+// `formatSseFrame` on assistant-event) stay accessible to other
+// importers loaded indirectly through `conversation-surfaces.ts`.
 const publishCalls: Array<unknown> = [];
+const realHub = await import("../../runtime/assistant-event-hub.js");
+const realEvent = await import("../../runtime/assistant-event.js");
 mock.module("../../runtime/assistant-event-hub.js", () => ({
+  ...realHub,
   assistantEventHub: {
     publish: async (event: unknown) => {
       publishCalls.push(event);
@@ -61,8 +40,9 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
   },
 }));
 mock.module("../../runtime/assistant-event.js", () => ({
-  // Pass-through so `focus` / `conversationId` can be asserted directly on
-  // the captured event's `message` payload.
+  ...realEvent,
+  // Pass-through so `focus` / `conversationId` can be asserted directly
+  // on the captured event's `message` payload.
   buildAssistantEvent: (
     assistantId: string,
     message: unknown,
@@ -70,10 +50,38 @@ mock.module("../../runtime/assistant-event.js", () => ({
   ) => ({ assistantId, message, conversationId }),
 }));
 
+// Stub DB helpers so the real `launchConversation` can run without a DB.
+// We spread the real module and override only the specific functions the
+// helper uses — other importers (e.g. conversation-surfaces itself)
+// continue to see `getMessages`, `updateMessageContent`, etc.
+let nextKeyStoreResult: { conversationId: string } = {
+  conversationId: "conv-new",
+};
+const updateTitleCalls: Array<{ conversationId: string; title: string }> = [];
+const realKeyStore = await import("../../memory/conversation-key-store.js");
+const realCrud = await import("../../memory/conversation-crud.js");
+mock.module("../../memory/conversation-key-store.js", () => ({
+  ...realKeyStore,
+  getOrCreateConversation: (_key: string) => nextKeyStoreResult,
+}));
+mock.module("../../memory/conversation-crud.js", () => ({
+  ...realCrud,
+  updateConversationTitle: (
+    conversationId: string,
+    title: string,
+    _priority: number,
+  ) => {
+    updateTitleCalls.push({ conversationId, title });
+  },
+}));
+
 // Dynamic imports after mock.module calls so the stubs take effect
 // before the modules under test are loaded.
 const { createSurfaceMutex, handleSurfaceAction } = await import(
   "../conversation-surfaces.js"
+);
+const { registerLaunchConversationDeps } = await import(
+  "../conversation-launch.js"
 );
 type SurfaceConversationContext =
   import("../conversation-surfaces.js").SurfaceConversationContext;
@@ -82,7 +90,63 @@ type ServerMessage = import("../message-protocol.js").ServerMessage;
 type SurfaceData = import("../message-protocol.js").SurfaceData;
 type SurfaceType = import("../message-protocol.js").SurfaceType;
 
-// ── Test harness ───────────────────────────────────────────────────
+// ── launchConversation deps harness ────────────────────────────────
+
+interface DepsHarness {
+  getOrCreateCalls: Array<string>;
+  processCalls: Array<{ conversationId: string; content: string }>;
+  lastTrustContext(): unknown | null;
+  resolveProcess: () => void;
+  rejectProcess: (err: Error) => void;
+  /** Resolves once `persistAndProcessMessage` has actually been invoked. */
+  processStarted: Promise<void>;
+}
+
+function setupLaunchDeps(): DepsHarness {
+  const getOrCreateCalls: Array<string> = [];
+  const processCalls: Array<{ conversationId: string; content: string }> = [];
+  let trustContextOnConversation: unknown | null = null;
+  let resolveProcess = () => {};
+  let rejectProcess: (err: Error) => void = () => {};
+  let markProcessStarted = () => {};
+  const processStarted = new Promise<void>((resolve) => {
+    markProcessStarted = resolve;
+  });
+
+  const fakeConversation = {
+    setTrustContext: (c: unknown) => {
+      trustContextOnConversation = c;
+    },
+  };
+
+  registerLaunchConversationDeps({
+    getOrCreateConversation: async (id: string) => {
+      getOrCreateCalls.push(id);
+      return fakeConversation as never;
+    },
+    persistAndProcessMessage: (conversationId: string, content: string) => {
+      processCalls.push({ conversationId, content });
+      markProcessStarted();
+      return new Promise((resolve, reject) => {
+        resolveProcess = () => resolve({ messageId: "msg-1" });
+        rejectProcess = (err) => reject(err);
+      });
+    },
+    publishAssistantEvent: () => {},
+    getAssistantId: () => "assistant-test-id",
+  });
+
+  return {
+    getOrCreateCalls,
+    processCalls,
+    lastTrustContext: () => trustContextOnConversation,
+    resolveProcess: () => resolveProcess(),
+    rejectProcess: (err: Error) => rejectProcess(err),
+    processStarted,
+  };
+}
+
+// ── Surface-context harness ────────────────────────────────────────
 
 interface HarnessContext extends SurfaceConversationContext {
   sent: ServerMessage[];
@@ -150,15 +214,52 @@ function registerCardSurface(
   });
 }
 
+// Helper: filter captured publish calls down to `open_conversation`
+// events. Typed so assertions can reach the inner `message` payload.
+function openConversationEvents(): Array<{
+  assistantId: string;
+  conversationId?: string;
+  message: {
+    type: "open_conversation";
+    conversationId: string;
+    title?: string;
+    anchorMessageId?: string;
+    focus?: boolean;
+  };
+}> {
+  return publishCalls
+    .filter((e): e is { message: { type: "open_conversation" } } => {
+      const ev = e as { message?: { type?: string } };
+      return ev.message?.type === "open_conversation";
+    })
+    .map(
+      (e) =>
+        e as unknown as {
+          assistantId: string;
+          conversationId?: string;
+          message: {
+            type: "open_conversation";
+            conversationId: string;
+            title?: string;
+            anchorMessageId?: string;
+            focus?: boolean;
+          };
+        },
+    );
+}
+
+// ── Tests ──────────────────────────────────────────────────────────
+
 describe("handleSurfaceAction — launch_conversation dispatch", () => {
   beforeEach(() => {
     publishCalls.length = 0;
-    launchCalls.length = 0;
-    nextLaunchResult = { conversationId: "conv-new" };
+    updateTitleCalls.length = 0;
+    nextKeyStoreResult = { conversationId: "conv-new" };
   });
 
   test("launches new conversation with inherited trust context and no chat message", async () => {
-    nextLaunchResult = { conversationId: "conv-launched-1" };
+    nextKeyStoreResult = { conversationId: "conv-launched-1" };
+    const harness = setupLaunchDeps();
     const originTrustContext: TrustContext = {
       sourceChannel: "vellum",
       trustClass: "guardian",
@@ -180,31 +281,27 @@ describe("handleSurfaceAction — launch_conversation dispatch", () => {
       conversationId: "conv-launched-1",
     });
 
-    // 2. `launchConversation` was invoked exactly once with the origin's
-    //    trust context so the spawned conversation inherits the
-    //    guardian scope.
-    expect(launchCalls).toHaveLength(1);
-    expect(launchCalls[0].title).toBe("New Thread");
-    expect(launchCalls[0].seedPrompt).toBe("S");
-    expect(launchCalls[0].originTrustContext).toEqual(originTrustContext);
+    // 2. Exactly ONE `open_conversation` event was published for the new
+    //    id, with focus: false. This is the regression barrier for the
+    //    historical double-emit bug — `handleSurfaceAction` no longer
+    //    publishes its own event on top of the helper's.
+    const openEvents = openConversationEvents();
+    expect(openEvents).toHaveLength(1);
+    expect(openEvents[0].message.conversationId).toBe("conv-launched-1");
+    expect(openEvents[0].message.focus).toBe(false);
+    expect(openEvents[0].message.title).toBe("New Thread");
 
-    // 3. `open_conversation` with focus: false was published for the new id.
-    const openEvents = publishCalls.filter((e) => {
-      const ev = e as { message?: { type?: string } };
-      return ev.message?.type === "open_conversation";
-    });
-    const focusFalseEvent = openEvents.find((e) => {
-      const ev = e as {
-        message: { focus?: boolean; conversationId?: string };
-      };
-      return (
-        ev.message.focus === false &&
-        ev.message.conversationId === "conv-launched-1"
-      );
-    });
-    expect(focusFalseEvent).toBeDefined();
+    // 3. The spawned conversation inherited the origin's trust context.
+    expect(harness.lastTrustContext()).toEqual(originTrustContext);
 
-    // 4. No chat message side effect on the origin conversation — neither
+    // 4. Seed turn was kicked off fire-and-forget — resolve it to clean
+    //    up the pending promise the harness stubbed.
+    await harness.processStarted;
+    expect(harness.processCalls).toHaveLength(1);
+    expect(harness.processCalls[0].content).toBe("S");
+    harness.resolveProcess();
+
+    // 5. No chat message side effect on the origin conversation — neither
     //    the LLM pipeline nor the `[User action on app: ...]` text echo.
     expect(ctx.enqueueCalls).toHaveLength(0);
     expect(ctx.processCalls).toHaveLength(0);
@@ -250,14 +347,15 @@ describe("handleSurfaceAction — launch_conversation dispatch", () => {
       error: "missing_title_or_seedPrompt",
     });
 
-    // No launch-side effects in any of the failed validations.
-    expect(launchCalls).toHaveLength(0);
+    // No launch-side effects in any of the failed validations — no events,
+    // no queued origin-conversation messages.
     expect(publishCalls).toHaveLength(0);
     expect(ctx.enqueueCalls).toHaveLength(0);
   });
 
   test("omits originTrustContext when origin conversation has none", async () => {
-    nextLaunchResult = { conversationId: "conv-launched-3" };
+    nextKeyStoreResult = { conversationId: "conv-launched-3" };
+    const harness = setupLaunchDeps();
     // No `trustContext` on the origin context — simulating the
     // no-inherited-guardian path.
     const ctx = makeContext();
@@ -274,9 +372,74 @@ describe("handleSurfaceAction — launch_conversation dispatch", () => {
       conversationId: "conv-launched-3",
     });
 
-    // With no origin trust context, the dispatch branch must NOT pass
-    // one to `launchConversation`.
-    expect(launchCalls).toHaveLength(1);
-    expect("originTrustContext" in launchCalls[0]).toBe(false);
+    // Trust context was never applied to the spawned conversation.
+    expect(harness.lastTrustContext()).toBeNull();
+
+    // Still exactly one open_conversation event with focus: false.
+    const openEvents = openConversationEvents();
+    expect(openEvents).toHaveLength(1);
+    expect(openEvents[0].message.focus).toBe(false);
+
+    await harness.processStarted;
+    harness.resolveProcess();
+  });
+
+  test("handler returns before the seed turn resolves (fire-and-forget)", async () => {
+    nextKeyStoreResult = { conversationId: "conv-nonblocking" };
+    const harness = setupLaunchDeps();
+    const ctx = makeContext();
+    registerCardSurface(ctx, "surface-4");
+
+    // The harness's `persistAndProcessMessage` returns a pending Promise
+    // that only resolves when we call `resolveProcess()`. If the helper
+    // (or handler) awaited it, `await handleSurfaceAction(...)` below
+    // would hang. The fact that it resolves while the seed turn is still
+    // pending proves the fire-and-forget behavior that the HTTP route
+    // relies on for the fan-out multi-launch UX.
+    const result = await handleSurfaceAction(ctx, "surface-4", "launch", {
+      _action: "launch_conversation",
+      title: "T",
+      seedPrompt: "S",
+    });
+
+    expect(result).toEqual({
+      accepted: true,
+      conversationId: "conv-nonblocking",
+    });
+
+    // Seed turn is in-flight but not yet resolved. Prove the helper
+    // actually invoked it (so we know fire-and-forget is wired), then
+    // resolve it to clean up.
+    await harness.processStarted;
+    expect(harness.processCalls).toHaveLength(1);
+    harness.resolveProcess();
+  });
+
+  test("seed turn rejection is swallowed by the helper's .catch()", async () => {
+    nextKeyStoreResult = { conversationId: "conv-seed-fails" };
+    const harness = setupLaunchDeps();
+    const ctx = makeContext();
+    registerCardSurface(ctx, "surface-5");
+
+    const result = await handleSurfaceAction(ctx, "surface-5", "launch", {
+      _action: "launch_conversation",
+      title: "T",
+      seedPrompt: "boom",
+    });
+
+    expect(result).toEqual({
+      accepted: true,
+      conversationId: "conv-seed-fails",
+    });
+
+    // Reject the pending seed turn — the helper's `.catch()` handler
+    // must swallow it. If it didn't, Bun would surface the unhandled
+    // rejection at test-end and this test would fail.
+    await harness.processStarted;
+    harness.rejectProcess(new Error("seed-turn-failed"));
+    // Give the microtask queue a tick so the `.catch()` runs before
+    // the test completes.
+    await Promise.resolve();
+    await Promise.resolve();
   });
 });

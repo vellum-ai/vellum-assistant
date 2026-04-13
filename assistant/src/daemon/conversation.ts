@@ -270,6 +270,7 @@ export class Conversation {
     data: SurfaceData;
     actions?: Array<{ id: string; label: string; style?: string }>;
     display?: string;
+    persistent?: boolean;
   }> = [];
   /** @internal */ workspaceTopLevelContext: string | null = null;
   /** @internal */ workspaceTopLevelDirty = true;

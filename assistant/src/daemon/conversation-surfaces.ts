@@ -13,9 +13,6 @@ import {
   getMessages,
   updateMessageContent,
 } from "../memory/conversation-crud.js";
-import { buildAssistantEvent } from "../runtime/assistant-event.js";
-import { assistantEventHub } from "../runtime/assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
@@ -287,6 +284,7 @@ export interface SurfaceConversationContext {
       data?: Record<string, unknown>;
     }>;
     display?: string;
+    persistent?: boolean;
   }>;
   /** Optional proxy for delegating computer-use actions to a connected desktop client. */
   hostCuProxy?: import("./host-cu-proxy.js").HostCuProxy;
@@ -720,27 +718,25 @@ export async function handleSurfaceAction(
       }
       // `ctx` is the origin Conversation — inherit its trust context so the
       // spawned conversation keeps guardian / trust-class state.
+      //
+      // `launchConversation` is the sole emitter of `open_conversation` for
+      // this path. We pass `focus: false` so the client registers a sidebar
+      // entry for the spawned conversation without switching focus away from
+      // the origin — critical for fan-out UX where one click launches
+      // multiple conversations.
+      //
+      // The helper also kicks off the seed turn fire-and-forget, so this
+      // `await` resolves as soon as the conversation is created + titled +
+      // published to the event hub. The HTTP POST /v1/surface-actions
+      // response no longer blocks on the full LLM turn.
       const originTrustContext = ctx.trustContext;
       const { conversationId } = await launchConversation({
         title,
         seedPrompt,
+        focus: false,
         ...(anchorMessageId ? { anchorMessageId } : {}),
         ...(originTrustContext ? { originTrustContext } : {}),
       });
-      const assistantId = ctx.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
-      await assistantEventHub.publish(
-        buildAssistantEvent(
-          assistantId,
-          {
-            type: "open_conversation",
-            conversationId,
-            title,
-            ...(anchorMessageId ? { anchorMessageId } : {}),
-            focus: false,
-          },
-          conversationId,
-        ),
-      );
       log.info(
         { originConversationId: ctx.conversationId, conversationId, surfaceId },
         "launch_conversation dispatched inline from surface action",
@@ -1442,6 +1438,11 @@ export async function surfaceProxyResolver(
     }
 
     const display = (input.display as string) === "panel" ? "panel" : "inline";
+    // `persistent: true` keeps the card visible through action clicks (only
+    // marks the clicked action as spent). Forward the flag so
+    // `SurfaceManager.showSurface` on the client sees it — without this the
+    // field is dropped and every card dismisses on first click.
+    const persistent = input.persistent === true ? true : undefined;
 
     const mappedActions = actions?.map((a) => ({
       id: a.id,
@@ -1470,6 +1471,7 @@ export async function surfaceProxyResolver(
         dataKeys: Object.keys(data),
         actionCount: mappedActions?.length ?? 0,
         display,
+        persistent: persistent ?? false,
         conversationId: ctx.conversationId,
       },
       "Sending ui_surface_show to client",
@@ -1484,6 +1486,7 @@ export async function surfaceProxyResolver(
       data,
       actions: mappedActions,
       display,
+      ...(persistent ? { persistent: true } : {}),
     } as unknown as UiSurfaceShow);
 
     // Track surface for persistence with the message
@@ -1494,6 +1497,7 @@ export async function surfaceProxyResolver(
       data,
       actions: mappedActions,
       display,
+      ...(persistent ? { persistent: true } : {}),
     });
 
     if (awaitAction) {
