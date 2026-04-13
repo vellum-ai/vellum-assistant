@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import ScreenCaptureKit
+import VellumAssistantShared
 import VideoToolbox
 import os
 
@@ -114,7 +115,9 @@ final class WriterContext: @unchecked Sendable {
 
     private static func openDebugLog() -> FileHandle? {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = appSupport.appendingPathComponent("vellum-assistant/recordings", isDirectory: true)
+        let dir = appSupport
+            .appendingPathComponent(VellumEnvironment.current.appSupportDirectoryName, isDirectory: true)
+            .appendingPathComponent("recordings", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let logURL = dir.appendingPathComponent("writer-debug.log")
         // Truncate on each new recording session so the file stays small
@@ -437,7 +440,9 @@ final class ScreenRecorder: NSObject {
 
     private static var recordingsDirectory: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport.appendingPathComponent("vellum-assistant/recordings", isDirectory: true)
+        return appSupport
+            .appendingPathComponent(VellumEnvironment.current.appSupportDirectoryName, isDirectory: true)
+            .appendingPathComponent("recordings", isDirectory: true)
     }
 
     private static func ensureRecordingsDirectory() throws {
