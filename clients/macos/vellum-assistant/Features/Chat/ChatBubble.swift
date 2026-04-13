@@ -591,6 +591,22 @@ struct ChatBubble: View, Equatable {
         return preview == trimmedText ? preview : "\(preview)\n\n..."
     }
 
+    /// Estimates whether the user message text will exceed the collapse
+    /// threshold when rendered. Used on the first frame before
+    /// `onGeometryChange` has fired to avoid a full-height flash.
+    private var estimatedTextExceedsCollapseThreshold: Bool {
+        guard isUser, !message.isStreaming else { return false }
+        let text = message.text as NSString
+        let contentWidth = max(bubbleMaxWidth - 2 * VSpacing.lg, 0)
+        let font = NSFont.systemFont(ofSize: 14, weight: .regular)
+        let textRect = text.boundingRect(
+            with: NSSize(width: contentWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font]
+        )
+        return ceil(textRect.height) > userMessageMaxCollapsedHeight
+    }
+
     // MARK: - User Message Collapse / Expand
     //
     // .frame(maxHeight:) creates _FlexFrameLayout which recursively measures
@@ -605,9 +621,11 @@ struct ChatBubble: View, Equatable {
 
     @ViewBuilder
     private func userMessageHeightWrapper<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        let isCollapsible = userMessageIntrinsicHeight > userMessageMaxCollapsedHeight
+        let isCollapsible = userMessageIntrinsicHeight > 0
+            ? userMessageIntrinsicHeight > userMessageMaxCollapsedHeight
+            : estimatedTextExceedsCollapseThreshold
         let needsCollapse = isCollapsible && !isUserMessageExpanded
-        VStack(alignment: .trailing, spacing: VSpacing.xs) {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
             content()
                 .onGeometryChange(for: CGFloat.self) { proxy in
                     proxy.size.height
@@ -616,6 +634,20 @@ struct ChatBubble: View, Equatable {
                 }
                 .frame(height: needsCollapse ? userMessageMaxCollapsedHeight : nil, alignment: .top)
                 .clipped()
+                .overlay(alignment: .bottom) {
+                    if needsCollapse {
+                        LinearGradient(
+                            colors: [
+                                VColor.surfaceLift.opacity(0),
+                                VColor.surfaceLift
+                            ],
+                            startPoint: .init(x: 0.5, y: 0),
+                            endPoint: .init(x: 0.5, y: 1)
+                        )
+                        .frame(height: 40)
+                        .allowsHitTesting(false)
+                    }
+                }
 
             if isCollapsible {
                 collapseToggleButton
@@ -625,23 +657,40 @@ struct ChatBubble: View, Equatable {
 
     @ViewBuilder
     private func heuristicUserMessageCollapseWrapper<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .trailing, spacing: VSpacing.xs) {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
             content()
+                .overlay(alignment: .bottom) {
+                    if !isUserMessageExpanded {
+                        LinearGradient(
+                            colors: [
+                                VColor.surfaceLift.opacity(0),
+                                VColor.surfaceLift
+                            ],
+                            startPoint: .init(x: 0.5, y: 0),
+                            endPoint: .init(x: 0.5, y: 1)
+                        )
+                        .frame(height: 40)
+                        .allowsHitTesting(false)
+                    }
+                }
             collapseToggleButton
         }
     }
 
     private var collapseToggleButton: some View {
-        Button(action: {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isUserMessageExpanded.toggle()
+        HStack {
+            VButton(
+                label: isUserMessageExpanded ? "Show less" : "Show more",
+                style: .ghost,
+                size: .compact,
+                tintColor: VColor.contentTertiary
+            ) {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isUserMessageExpanded.toggle()
+                }
             }
-        }) {
-            Text(isUserMessageExpanded ? "Show less" : "Show more")
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.primaryBase)
+            Spacer()
         }
-        .buttonStyle(.plain)
     }
 
     @ViewBuilder
