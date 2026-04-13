@@ -45,6 +45,7 @@ struct MessageListContentView: View, Equatable {
             && lhs.configuredProviders == rhs.configuredProviders
             && lhs.subagentDetailStore === rhs.subagentDetailStore
             && lhs.assistantStatusText == rhs.assistantStatusText
+            && lhs.containerHeight == rhs.containerHeight
     }
 
     // MARK: - Data properties (compared in ==)
@@ -68,6 +69,9 @@ struct MessageListContentView: View, Equatable {
     let configuredProviders: Set<String>
     let subagentDetailStore: SubagentDetailStore
     let assistantStatusText: String?
+    /// Stable height of the full chat pane. Used for minHeight instead of
+    /// scroll viewport height which fluctuates with composer resizing.
+    let containerHeight: CGFloat
 
     // MARK: - @Observable references (not compared in ==; reads occur in closures or child views)
 
@@ -171,8 +175,10 @@ struct MessageListContentView: View, Equatable {
             }
 
             let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
-            let turnMinHeight: CGFloat = scrollState.viewportHeight.isFinite
-                ? max(0, scrollState.viewportHeight - 150)
+            // Use the stable container height (full chat pane from GeometryReader)
+            // instead of scroll viewport height which fluctuates with composer resizing.
+            let turnMinHeight: CGFloat = containerHeight > 0
+                ? max(0, containerHeight - 300)
                 : 0
             let isUnanchoredThinking = state.shouldShowThinkingIndicator && !state.rows.contains(where: \.isAnchoredThinkingRow)
             let thinkingLabel = !hasEverSentMessage && state.hasUserMessage

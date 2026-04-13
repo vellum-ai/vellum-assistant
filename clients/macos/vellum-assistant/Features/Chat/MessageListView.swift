@@ -77,6 +77,9 @@ struct MessageListView: View {
     /// Measured width of the full chat pane. `layoutMetrics` derives the
     /// centered transcript column width from this value.
     var containerWidth: CGFloat = 0
+    /// Stable height of the full chat pane (from GeometryReader). Unlike
+    /// scroll viewport height, this doesn't fluctuate when the composer resizes.
+    var containerHeight: CGFloat = 0
     var layoutMetrics: MessageListLayoutMetrics {
         MessageListLayoutMetrics(containerWidth: containerWidth)
     }

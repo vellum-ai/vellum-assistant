@@ -170,6 +170,7 @@ extension MessageListView {
             configuredProviders: configuredProviders,
             subagentDetailStore: subagentDetailStore,
             assistantStatusText: assistantStatusText,
+            containerHeight: containerHeight,
             scrollState: scrollState,
             onConfirmationAllow: onConfirmationAllow,
             onConfirmationDeny: onConfirmationDeny,
