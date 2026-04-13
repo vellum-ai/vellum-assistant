@@ -49,6 +49,12 @@ final class SkillsManager {
     var installingSkillId: String?
     var isSearching = false
 
+    /// The actual installed skill ID returned by the daemon, which may
+    /// differ from `installingSkillId` (e.g. skills.sh resolves
+    /// "owner/repo/skill" to just "skill"). Used only for list-confirmation
+    /// checks — `installingSkillId` stays as the original slug for UI binding.
+    @ObservationIgnored private var resolvedInstallSkillId: String?
+
     /// Safety timeout that defensively clears `installingSkillId` if a
     /// wedged `fetchSkills(force:)` response never lands. Without it, the
     /// install spinner can be stuck indefinitely when the confirmation
@@ -155,12 +161,11 @@ final class SkillsManager {
                     } else {
                         // The daemon may return a different skill ID than the
                         // slug we sent (e.g. skills.sh resolves
-                        // "owner/repo/skill" to just "skill"). Update the
-                        // tracking ID so the list-refresh check below can
-                        // match the installed entry.
-                        if let actualId = result.skillId {
-                            self.installingSkillId = actualId
-                        }
+                        // "owner/repo/skill" to just "skill"). Store it
+                        // separately so the list-confirmation check can match
+                        // the installed entry without breaking UI spinner
+                        // bindings that compare against the original slug.
+                        self.resolvedInstallSkillId = result.skillId
                         let lookupId = result.skillId ?? result.slug
                         if let skill = self.skillsStore.skills.first(where: { $0.id == lookupId }),
                            skill.kind != "catalog" {
@@ -169,6 +174,7 @@ final class SkillsManager {
                             // detail view will render the installed UI on the
                             // next body pass without flicker.
                             self.installingSkillId = nil
+                            self.resolvedInstallSkillId = nil
                             self.installWatchdogTask?.cancel()
                             self.installWatchdogTask = nil
                         }
@@ -178,25 +184,20 @@ final class SkillsManager {
                     // clears the spinner defensively if the refresh wedges.
                 }
 
-                // Independent skills-list-driven clear: `SkillsStore.installSkill`
-                // expires `installResult` after 3 seconds, so on a slow-network
-                // install where `fetchSkills(force:)` lands after the expiry
-                // the branch above will not fire — `installResult` is already
-                // nil by the time the refreshed list arrives. Clear the
-                // spinner here based solely on the skills list: if the
-                // currently-installing id is now a non-catalog entry, the
-                // install has confirmed and the spinner must come down.
-                // `installingSkillId` is only set by `installSkill(slug:)`
-                // for a catalog skill, so any transition away from "catalog"
-                // for that id is a legitimate success signal. Idempotent
-                // with the branch above: the `if let` guard short-circuits
-                // when the first branch has already cleared the id.
-                if let installingId = self.installingSkillId,
-                   self.skillsStore.skills
-                    .first(where: { $0.id == installingId })?.kind != "catalog" {
-                    self.installingSkillId = nil
-                    self.installWatchdogTask?.cancel()
-                    self.installWatchdogTask = nil
+                // Independent skills-list-driven clear: check both the
+                // original slug and the resolved ID (which may differ for
+                // community skills). Requires the skill to actually exist
+                // in the list with a non-catalog kind to avoid premature
+                // clearing when the refresh hasn't landed yet.
+                if let installingId = self.installingSkillId {
+                    let lookupId = self.resolvedInstallSkillId ?? installingId
+                    if let skill = self.skillsStore.skills.first(where: { $0.id == lookupId }),
+                       skill.kind != "catalog" {
+                        self.installingSkillId = nil
+                        self.resolvedInstallSkillId = nil
+                        self.installWatchdogTask?.cancel()
+                        self.installWatchdogTask = nil
+                    }
                 }
                 self.recomputeFilteredData()
             }
@@ -361,14 +362,13 @@ final class SkillsManager {
 
     func installSkill(slug: String) {
         installingSkillId = slug
+        resolvedInstallSkillId = nil
         skillsStore.installSkill(slug: slug)
 
         // Defensive watchdog: a wedged `fetchSkills(force:)` response
         // after install would otherwise leave the spinner stuck forever.
         // Clear `installingSkillId` after 120 seconds (matching the HTTP
         // timeout) if the confirmation path has not already cleared it.
-        // Uses `!= nil` instead of `== slug` because the install result
-        // may update the tracking ID to a resolved value.
         installWatchdogTask?.cancel()
         installWatchdogTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 120_000_000_000)
@@ -376,6 +376,7 @@ final class SkillsManager {
             guard let self else { return }
             if self.installingSkillId != nil {
                 self.installingSkillId = nil
+                self.resolvedInstallSkillId = nil
             }
         }
     }
