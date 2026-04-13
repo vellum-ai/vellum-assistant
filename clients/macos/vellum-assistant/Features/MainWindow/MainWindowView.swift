@@ -81,6 +81,10 @@ struct MainWindowView: View {
     @State var assistantLoadingTimedOut = false
     /// Whether the main window is in native macOS fullscreen (traffic lights hidden).
     @State var isInFullscreen: Bool = false
+    /// Long-lived store for the Home page. Created once per MainWindowView so the
+    /// Home tab inside the Intelligence panel reuses a single subscription to the
+    /// event stream and keeps its cached relationship state across panel toggles.
+    @State var homeStore: HomeStore
     init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, assistantFeatureFlagStore: AssistantFeatureFlagStore, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
         self.conversationManager = conversationManager
         self.appListManager = appListManager
@@ -104,6 +108,14 @@ struct MainWindowView: View {
         // Show skeleton loading only for normal launches (not post-onboarding where
         // ComingAliveOverlay handles the transition).
         self._showDaemonLoading = State(initialValue: onSendWakeUp == nil)
+        // Build the Home page store eagerly so the Intelligence panel's Home
+        // sub-tab has a stable subscription when the user opens it. The store
+        // is behind the `home-tab` feature flag — when the flag is off it's
+        // still constructed but never rendered.
+        self._homeStore = State(initialValue: HomeStore(
+            client: DefaultHomeStateClient(),
+            messageStream: eventStreamClient.subscribe()
+        ))
     }
 
     // MARK: - Layout Constants

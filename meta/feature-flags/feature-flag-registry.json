@@ -336,6 +336,14 @@
       "label": "Pre-Chat Onboarding Flow",
       "description": "Gates the 3-screen pre-chat onboarding flow (tools, tasks/tone, name exchange) shown before the first conversation",
       "defaultEnabled": false
+    },
+    {
+      "id": "home-tab",
+      "scope": "macos",
+      "key": "home-tab",
+      "label": "Home Tab",
+      "description": "Replace the knowledge graph top-level tab with a new Home page showing relationship progression, facts, and capability tiers",
+      "defaultEnabled": false
     }
   ]
 }
