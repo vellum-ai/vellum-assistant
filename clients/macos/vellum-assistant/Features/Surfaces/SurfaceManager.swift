@@ -163,8 +163,12 @@ final class SurfaceManager {
                 )
             },
             onDismiss: { [weak self] in
-                guard let self, !self.respondedSurfaces.contains(surface.id) else {
-                    self?.dismissSurfaceById(surface.id)
+                guard let self else { return }
+                // Persistent surfaces never emit the synthetic "dismiss" — a co-fired
+                // onAction+onDismiss (e.g. cancel-style buttons) would otherwise race.
+                guard !self.persistentSurfaces.contains(surface.id),
+                      !self.respondedSurfaces.contains(surface.id) else {
+                    self.dismissSurfaceById(surface.id)
                     return
                 }
                 self.respondedSurfaces.insert(surface.id)
