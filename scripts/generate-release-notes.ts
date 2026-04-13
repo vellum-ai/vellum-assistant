@@ -131,6 +131,7 @@ Rules:
 - The output should ONLY be the Highlights section — no other sections
 - Do not add any text outside of the Highlights section
 - Do not wrap the output in a code fence
+- Exclude all feature-flagged features from the release notes
 
 Here are the commits:
 
