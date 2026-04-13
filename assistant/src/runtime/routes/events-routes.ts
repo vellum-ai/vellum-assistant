@@ -80,6 +80,13 @@ export function handleSubscribeAssistantEvents(
   }
   const encoder = new TextEncoder();
 
+  // -- Replay buffered events for Last-Event-ID reconnects --------------------
+  const lastEventId = req.headers.get("Last-Event-ID");
+  let replayEvents: ReturnType<AssistantEventHub["getEventsSince"]> = [];
+  if (lastEventId && filter.conversationId) {
+    replayEvents = hub.getEventsSince(filter.conversationId, lastEventId);
+  }
+
   // -- Eager subscribe --------------------------------------------------------
   // Subscribe before creating the ReadableStream so the callback and onEvict
   // closures are in place before events can arrive.  `controllerRef` is set
@@ -160,6 +167,12 @@ export function handleSubscribeAssistantEvents(
         // arrives, causing clients (e.g. Python `requests`) to hang until the
         // periodic heartbeat fires or an event is published.
         controller.enqueue(encoder.encode(formatSseHeartbeat()));
+
+        // Replay buffered events that arrived between the client's last
+        // checkpoint and now, before live events start flowing.
+        for (const evt of replayEvents) {
+          controller.enqueue(encoder.encode(formatSseFrame(evt)));
+        }
 
         // Send a keep-alive comment on each interval to prevent proxies and
         // load-balancers from treating idle connections as timed out.

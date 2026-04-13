@@ -301,3 +301,96 @@ describe("AssistantEventHub — re-entrancy / snapshot isolation", () => {
     expect(received).toHaveLength(1);
   });
 });
+
+// ── Ring buffer ──────────────────────────────────────────────────────────────
+
+describe("AssistantEventHub — ring buffer", () => {
+  test("publish appends events to the per-conversation buffer", async () => {
+    const hub = new AssistantEventHub();
+    const evt = makeEvent({ id: "evt_buf_1", conversationId: "conv_A" });
+    await hub.publish(evt);
+
+    const replayed = hub.getEventsSince("conv_A", "nonexistent");
+    // "nonexistent" id not in buffer → empty
+    expect(replayed).toHaveLength(0);
+
+    // But using a real checkpoint should work.
+    const evt2 = makeEvent({ id: "evt_buf_2", conversationId: "conv_A" });
+    await hub.publish(evt2);
+    const after1 = hub.getEventsSince("conv_A", "evt_buf_1");
+    expect(after1).toHaveLength(1);
+    expect(after1[0].id).toBe("evt_buf_2");
+  });
+
+  test("buffer trims to capacity", async () => {
+    const hub = new AssistantEventHub({ eventBufferCapacity: 3 });
+    for (let i = 1; i <= 5; i++) {
+      await hub.publish(
+        makeEvent({ id: `evt_${i}`, conversationId: "conv_trim" }),
+      );
+    }
+
+    // Buffer should only contain last 3 events (3, 4, 5).
+    // Asking for events since evt_2 should fail (evt_2 was evicted).
+    const sinceEvicted = hub.getEventsSince("conv_trim", "evt_2");
+    expect(sinceEvicted).toHaveLength(0);
+
+    // Asking for events since evt_3 should return 4 and 5.
+    const since3 = hub.getEventsSince("conv_trim", "evt_3");
+    expect(since3).toHaveLength(2);
+    expect(since3[0].id).toBe("evt_4");
+    expect(since3[1].id).toBe("evt_5");
+  });
+
+  test("getEventsSince returns events in publish order", async () => {
+    const hub = new AssistantEventHub();
+    await hub.publish(makeEvent({ id: "a", conversationId: "conv_order" }));
+    await hub.publish(makeEvent({ id: "b", conversationId: "conv_order" }));
+    await hub.publish(makeEvent({ id: "c", conversationId: "conv_order" }));
+
+    const after_a = hub.getEventsSince("conv_order", "a");
+    expect(after_a.map((e) => e.id)).toEqual(["b", "c"]);
+  });
+
+  test("getEventsSince with null lastEventId returns empty", async () => {
+    const hub = new AssistantEventHub();
+    await hub.publish(makeEvent({ id: "x", conversationId: "conv_null" }));
+
+    expect(hub.getEventsSince("conv_null", null)).toHaveLength(0);
+  });
+
+  test("system events with no conversationId are not buffered", async () => {
+    const hub = new AssistantEventHub();
+    await hub.publish(makeEvent({ id: "sys_1", conversationId: undefined }));
+
+    expect(hub.bufferedConversationCount()).toBe(0);
+  });
+
+  test("onConversationDeleted removes the buffer", async () => {
+    const hub = new AssistantEventHub();
+    await hub.publish(makeEvent({ id: "del_1", conversationId: "conv_del" }));
+    expect(hub.bufferedConversationCount()).toBe(1);
+
+    hub.onConversationDeleted("conv_del");
+    expect(hub.bufferedConversationCount()).toBe(0);
+    expect(hub.getEventsSince("conv_del", "del_1")).toHaveLength(0);
+  });
+
+  test("conversation buffer LRU evicts oldest when cap reached", async () => {
+    const hub = new AssistantEventHub({ maxBufferedConversations: 2 });
+
+    await hub.publish(makeEvent({ id: "e1", conversationId: "conv_1" }));
+    await hub.publish(makeEvent({ id: "e2", conversationId: "conv_2" }));
+    expect(hub.bufferedConversationCount()).toBe(2);
+
+    // Publishing to a third conversation should evict conv_1.
+    await hub.publish(makeEvent({ id: "e3", conversationId: "conv_3" }));
+    expect(hub.bufferedConversationCount()).toBe(2);
+
+    // conv_1 was evicted.
+    expect(hub.getEventsSince("conv_1", "e1")).toHaveLength(0);
+    // conv_2 and conv_3 remain.
+    expect(hub.getEventsSince("conv_2", "e2")).toHaveLength(0); // no events after e2
+    expect(hub.getEventsSince("conv_3", "e3")).toHaveLength(0); // no events after e3
+  });
+});
