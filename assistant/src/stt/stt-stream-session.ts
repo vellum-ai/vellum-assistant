@@ -142,6 +142,25 @@ export class SttStreamSession {
 
     try {
       const transcriber = await resolveTranscriber();
+
+      // Guard: session may have been closed while resolveTranscriber() was
+      // in flight (e.g. client disconnect). Abort startup to avoid leaking
+      // a provider stream with no live socket.
+      // Note: Use isClosed to defeat TypeScript control-flow narrowing —
+      // the compiler narrows `this.state` to "initializing" after the
+      // guard at the top of start(), but handleClose() can mutate it
+      // concurrently during the await.
+      if (this.isClosed) {
+        if (transcriber) {
+          try {
+            transcriber.stop();
+          } catch {
+            // Best effort cleanup of the just-resolved transcriber.
+          }
+        }
+        return;
+      }
+
       if (!transcriber) {
         log.info(
           { provider: this.provider },
@@ -163,6 +182,18 @@ export class SttStreamSession {
       await transcriber.start((event: SttStreamServerEvent) => {
         this.handleTranscriberEvent(event);
       });
+
+      // Guard: session may have been closed while transcriber.start() was
+      // in flight. If so, stop the transcriber and bail out.
+      if (this.isClosed) {
+        try {
+          transcriber.stop();
+        } catch {
+          // Best effort cleanup.
+        }
+        this.transcriber = null;
+        return;
+      }
 
       this.state = "active";
       this.resetIdleTimer();
@@ -394,6 +425,9 @@ export class SttStreamSession {
       });
       this.sendEvent({ type: "closed" });
       this.teardown();
+      // Close the WebSocket transport so the connection does not linger
+      // indefinitely (runtime sockets use idleTimeout: 0).
+      this.closeSocket(1000, "idle timeout");
     }, this.idleTimeoutMs);
   }
 
