@@ -37,6 +37,14 @@ export function getLocalBackupsDir(override?: string | null): string {
   return override ?? join(getBackupRootDir(), "local");
 }
 
+function safeUserInfoHomedir(): string {
+  try {
+    return userInfo().homedir;
+  } catch {
+    return "";
+  }
+}
+
 /**
  * Returns the iCloud Drive root on macOS. This is the "safe ancestor" we use
  * for bootstrapping the default offsite path: if this directory exists iCloud
@@ -51,12 +59,16 @@ export function getLocalBackupsDir(override?: string | null): string {
  * `uv_os_homedir` returns `$HOME` as-is when it's set (even to `""`) and
  * only consults `getpwuid_r` when `HOME` is unset entirely. `userInfo()`
  * calls `getpwuid_r` directly via `uv_os_get_passwd`, so it returns the
- * passwd-table home regardless of `HOME`. Asserts the final result is
- * absolute so callers downstream (`deriveSafeAncestor`, the offsite writer)
- * never see a relative path regardless of how the home lookup resolved.
+ * passwd-table home regardless of `HOME`. The `userInfo()` call is guarded
+ * via `safeUserInfoHomedir()` because it throws `SystemError` when the
+ * current UID has no passwd entry (rare on macOS but possible in
+ * sandboxed/containerized envs); catching keeps the `homedir()` fallback
+ * reachable. Asserts the final result is absolute so callers downstream
+ * (`deriveSafeAncestor`, the offsite writer) never see a relative path
+ * regardless of how the home lookup resolved.
  */
 export function getICloudDriveRoot(): string {
-  const home = process.env.HOME || userInfo().homedir || homedir();
+  const home = process.env.HOME || safeUserInfoHomedir() || homedir();
   const root = join(
     home,
     "Library",
