@@ -33,8 +33,11 @@ import { createPreference } from "../notifications/preferences-store.js";
 import type { Message } from "../providers/types.js";
 import { routeGuardianReply } from "../runtime/guardian-reply-router.js";
 import { getLogger } from "../util/logger.js";
-import type { MessageQueue } from "./conversation-queue-manager.js";
-import type { QueueDrainReason } from "./conversation-queue-manager.js";
+import type {
+  MessageQueue,
+  QueuedMessage,
+  QueueDrainReason,
+} from "./conversation-queue-manager.js";
 import type {
   ChannelCapabilities,
   TrustContext,
@@ -271,7 +274,14 @@ export async function drainQueue(
 ): Promise<void> {
   const next = conversation.queue.shift();
   if (!next) return;
+  return drainSingleMessage(conversation, next, reason);
+}
 
+async function drainSingleMessage(
+  conversation: ProcessConversationContext,
+  next: QueuedMessage,
+  reason: QueueDrainReason,
+): Promise<void> {
   // Reset per-turn preactivation so a prior iteration (e.g. an unknown-slash
   // from a desktop source that skips runAgentLoop) can't leak CU preactivation
   // into the next queued message.
