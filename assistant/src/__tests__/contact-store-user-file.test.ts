@@ -451,6 +451,39 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
     for (const row of rows) expect(row.user_file).toBe("alex-2025.md");
   });
 
+  test("treats year-prefixed single-digit tail as base slug when display name generates it", () => {
+    // Ambiguous filename: `alex-2025-4.md` could be either a collision counter
+    // on base `alex-2025.md` OR the direct base slug from display name
+    // "Alex 2025 4". The classifier must cross-reference the row's display
+    // name — if `generateUserFileSlug`'s pure slug transform maps the name to
+    // the filename, treat it as a base slug, not an auto-incremented counter.
+    const now = Date.now();
+    insertContact({
+      id: "c1",
+      displayName: "Alex 2025 4",
+      role: "guardian",
+      principalId: "principal-yb",
+      userFile: "alex-2025-4.md",
+      createdAt: now,
+    });
+    insertContact({
+      id: "c2",
+      displayName: "Alex",
+      role: "guardian",
+      principalId: "principal-yb",
+      userFile: "alex-2.md",
+      createdAt: now - 1000,
+    });
+
+    migrateNormalizeUserFileByPrincipal(getDb());
+
+    const rows = fetchUserFilesByPrincipal("principal-yb");
+    // `alex-2025-4.md` is a legitimate base slug (disambiguated by display
+    // name), while `alex-2.md` is auto-incremented. The base slug must win
+    // as canonical, otherwise canonical would point at a collision counter.
+    for (const row of rows) expect(row.user_file).toBe("alex-2025-4.md");
+  });
+
   test("is idempotent", () => {
     const now = Date.now();
     insertContact({
