@@ -14,6 +14,7 @@ import {
   fetchCurrentUser,
   fetchOrganizationId,
   getPlatformUrl,
+  injectCredentialsIntoAssistant,
   readPlatformToken,
   savePlatformToken,
 } from "../lib/platform-client";
@@ -191,6 +192,26 @@ export async function login(): Promise<void> {
         console.log(
           `Registered assistant: ${registration.assistant.name} (${registration.assistant.id})`,
         );
+
+        // Inject credentials into the running assistant via the gateway,
+        // mirroring the desktop app's LocalAssistantBootstrapService flow.
+        const allInjected = await injectCredentialsIntoAssistant({
+          gatewayUrl: entry.runtimeUrl,
+          bearerToken: entry.bearerToken,
+          assistantApiKey: registration.assistant_api_key,
+          platformAssistantId: registration.assistant.id,
+          platformBaseUrl: getPlatformUrl(),
+          organizationId: orgId,
+          userId: user.id,
+          webhookSecret: registration.webhook_secret,
+        });
+        if (allInjected) {
+          console.log("Injected platform credentials into assistant.");
+        } else {
+          console.warn(
+            "Some credentials could not be injected into the assistant.",
+          );
+        }
       }
     } catch {
       // Non-fatal — login succeeded even if registration fails
