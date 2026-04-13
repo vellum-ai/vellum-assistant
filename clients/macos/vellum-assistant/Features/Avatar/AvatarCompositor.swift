@@ -20,6 +20,13 @@ enum AvatarCompositor {
         size: CGFloat = 512
     ) -> NSImage {
         let bodyNSColor = overrideBodyColor ?? color.nsColor
+
+        if overrideBodyColor != nil, overrideBodyColorKey == nil {
+            assertionFailure(
+                "overrideBodyColor requires a matching overrideBodyColorKey for a stable cache key"
+            )
+        }
+
         let colorKey: String
         if let overrideKey = overrideBodyColorKey {
             // Dynamic design-system colors resolve to different concrete values
