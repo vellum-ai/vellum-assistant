@@ -86,6 +86,8 @@ function browserLogin(platformUrl: string): Promise<string> {
         reject(new Error(error));
       } else if (token) {
         resolve(token);
+      } else {
+        reject(new Error("Unknown error during login."));
       }
     }
 
