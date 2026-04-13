@@ -148,6 +148,20 @@ struct ChatContentView: View {
                 genericErrorBanner(errorText)
             }
 
+            // Queue drawer — lists user messages still waiting to be sent.
+            // Collapses when the queue is empty.
+            if !viewModel.queuedMessages.isEmpty {
+                QueuedMessagesDrawer_iOS(
+                    viewModel: viewModel,
+                    composerText: $viewModel.inputText,
+                    composerAttachments: $viewModel.pendingAttachments
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .animation(
+                    .spring(duration: 0.28, bounce: 0.15),
+                    value: viewModel.queuedMessages.count
+                )
+            }
 
             // Input bar
             InputBarView(
