@@ -52,6 +52,7 @@ struct SidebarSectionView: View {
     /// (mirrors showAll at the section level but per sub-group key).
     @State private var showAllInSubGroup: Set<String> = []
     @State private var hoveredSubGroupKey: String?
+    @State private var menuOpenSubGroupKey: String?
 
     enum CountMode {
         case items
@@ -238,47 +239,45 @@ struct SidebarSectionView: View {
     private func scheduleSubGroupDisclosure(_ subGroup: ScheduleSubGroup) -> some View {
         let isSubGroupExpanded = expandedScheduleGroups?.wrappedValue.contains(subGroup.key) ?? false
         let hasUnread = subGroup.conversations.contains(where: \.hasUnseenLatestAssistantMessage)
+        let isSubGroupHovered = hoveredSubGroupKey == subGroup.key
+        let isSubGroupMenuOpen = menuOpenSubGroupKey == subGroup.key
+        let showEllipsis = isSubGroupHovered || isSubGroupMenuOpen
 
         // Disclosure header — layout matches SidebarConversationItem's skeleton
         // so the chevron aligns with the pin icon and the badge aligns with the ellipsis.
-        Button {
-            withAnimation(VAnimation.fast) {
-                if isSubGroupExpanded {
-                    expandedScheduleGroups?.wrappedValue.remove(subGroup.key)
-                } else {
-                    expandedScheduleGroups?.wrappedValue.insert(subGroup.key)
-                }
-            }
-        } label: {
-            HStack(spacing: VSpacing.xs) {
-                // Leading 20x20 slot — chevron centered, matching pin icon position
-                VIconView(.chevronRight, size: 10)
-                    .foregroundStyle(VColor.contentTertiary)
-                    .rotationEffect(.degrees(isSubGroupExpanded ? 90 : 0))
-                    .animation(VAnimation.fast, value: isSubGroupExpanded)
-                    .frame(width: 20, height: 20)
+        // Uses .onTapGesture instead of Button so overlay VButtons sit above the
+        // tap gesture in the hit-test chain and absorb taps without triggering the
+        // toggle (same pattern as SidebarSectionHeader and SidebarConversationItem).
+        HStack(spacing: VSpacing.xs) {
+            // Leading 20x20 slot — chevron centered, matching pin icon position
+            VIconView(.chevronRight, size: 10)
+                .foregroundStyle(VColor.contentTertiary)
+                .rotationEffect(.degrees(isSubGroupExpanded ? 90 : 0))
+                .animation(VAnimation.fast, value: isSubGroupExpanded)
+                .frame(width: 20, height: 20)
 
-                VMarqueeText(
-                    text: subGroup.label,
-                    font: VFont.bodySmallDefault,
-                    measuringFont: VFont.nsBodySmallDefault,
-                    foregroundStyle: VColor.contentTertiary,
-                    isHovered: hoveredSubGroupKey == subGroup.key
-                )
-                Spacer()
-                if hasUnread {
-                    VBadge(style: .dot, color: VColor.systemMidStrong)
-                        .transition(.opacity)
-                }
+            VMarqueeText(
+                text: subGroup.label,
+                font: VFont.bodySmallDefault,
+                measuringFont: VFont.nsBodySmallDefault,
+                foregroundStyle: VColor.contentTertiary,
+                isHovered: isSubGroupHovered
+            )
+            Spacer()
+            if hasUnread && !showEllipsis {
+                VBadge(style: .dot, color: VColor.systemMidStrong)
+                    .transition(.opacity)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, VSpacing.xs)
-            .padding(.trailing, SidebarLayoutMetrics.trailingIconPadding)
-            .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
-            .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
-            .contentShape(Rectangle())
-            // Count badge — trailing overlay matching ellipsis button position
-            .overlay(alignment: .trailing) {
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, VSpacing.xs)
+        .padding(.trailing, SidebarLayoutMetrics.trailingIconPadding)
+        .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
+        .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
+        .contentShape(Rectangle())
+        // Count badge — hidden on hover when the ellipsis button takes over
+        .overlay(alignment: .trailing) {
+            if !showEllipsis {
                 Text("\(subGroup.conversations.count)")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(VColor.contentTertiary)
@@ -291,8 +290,56 @@ struct SidebarSectionView: View {
                     .padding(.trailing, VSpacing.xs)
             }
         }
-        .buttonStyle(.plain)
+        .onTapGesture {
+            withAnimation(VAnimation.fast) {
+                if isSubGroupExpanded {
+                    expandedScheduleGroups?.wrappedValue.remove(subGroup.key)
+                } else {
+                    expandedScheduleGroups?.wrappedValue.insert(subGroup.key)
+                }
+            }
+        }
         .pointerCursor()
+        .animation(VAnimation.fast, value: showEllipsis)
+        // Ellipsis button overlay — rendered after .onTapGesture so it sits
+        // above it in the hit-test chain and absorbs taps without triggering
+        // the disclosure toggle (same pattern as SidebarConversationItem).
+        .overlay(alignment: .trailing) {
+            if showEllipsis {
+                VButton(
+                    label: "More options for \(subGroup.label)",
+                    iconOnly: VIcon.ellipsis.rawValue,
+                    style: .ghost,
+                    iconSize: 20,
+                    tooltip: "More options",
+                    iconColor: VColor.contentSecondary
+                ) {
+                    guard menuOpenSubGroupKey != subGroup.id else { return }
+                    menuOpenSubGroupKey = subGroup.id
+                    let appearance = NSApp.keyWindow?.effectiveAppearance
+                    VMenuPanel.show(
+                        at: NSEvent.mouseLocation,
+                        sourceAppearance: appearance
+                    ) {
+                        VMenu(width: 200) {
+                            let unread = subGroup.conversations.filter(\.hasUnseenLatestAssistantMessage)
+                            VMenuItem(icon: VIcon.circleCheck.rawValue, label: "Mark All as Read") {
+                                onMarkAllReadInSubGroup?(subGroup.label, subGroup.conversations.map(\.id))
+                            }
+                            .disabled(unread.isEmpty)
+                            let archivable = subGroup.conversations.filter { !$0.isChannelConversation }
+                            VMenuItem(icon: VIcon.archive.rawValue, label: "Archive All\u{2026}") {
+                                onArchiveAllInSubGroup?(subGroup.label, archivable.map(\.id))
+                            }
+                            .disabled(archivable.isEmpty)
+                        }
+                    } onDismiss: {
+                        menuOpenSubGroupKey = nil
+                    }
+                }
+                .padding(.trailing, VSpacing.xs)
+            }
+        }
         .onHover { hovering in
             if hovering {
                 hoveredSubGroupKey = subGroup.key
