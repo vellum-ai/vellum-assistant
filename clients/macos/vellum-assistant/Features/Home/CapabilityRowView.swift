@@ -97,11 +97,11 @@ struct CapabilityRowView: View {
         }
         .padding(VSpacing.md)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: VRadius.window, style: .continuous)
                 .fill(VColor.systemPositiveWeak)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: VRadius.window, style: .continuous)
                 .stroke(VColor.systemPositiveStrong.opacity(0.25), lineWidth: 1)
         )
     }
@@ -176,68 +176,3 @@ private struct PulsingDotIcon: View {
     }
 }
 
-// MARK: - Preview
-
-#Preview("CapabilityRowView — Light") {
-    CapabilityRowPreviewStack()
-        .padding(VSpacing.lg)
-        .frame(width: 360)
-        .background(VColor.surfaceBase)
-        .preferredColorScheme(.light)
-}
-
-#Preview("CapabilityRowView — Dark") {
-    CapabilityRowPreviewStack()
-        .padding(VSpacing.lg)
-        .frame(width: 360)
-        .background(VColor.surfaceBase)
-        .preferredColorScheme(.dark)
-}
-
-private struct CapabilityRowPreviewStack: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            CapabilityRowView(
-                capability: Capability(
-                    id: "voice-onboarding",
-                    name: "Knows your voice",
-                    description: "I write the way you write.",
-                    tier: .unlocked,
-                    gate: "Complete onboarding",
-                    unlockHint: nil,
-                    ctaLabel: nil
-                ),
-                onPrimaryCTA: { _ in },
-                onShortcutCTA: { _ in }
-            )
-
-            CapabilityRowView(
-                capability: Capability(
-                    id: "google-connect",
-                    name: "Read your calendar",
-                    description: "Check what's on your plate before suggesting times.",
-                    tier: .nextUp,
-                    gate: "Connect Google",
-                    unlockHint: nil,
-                    ctaLabel: "Connect Google →"
-                ),
-                onPrimaryCTA: { _ in },
-                onShortcutCTA: { _ in }
-            )
-
-            CapabilityRowView(
-                capability: Capability(
-                    id: "draft-emails",
-                    name: "Draft emails for you",
-                    description: "Reply in your tone, with the context I've built up.",
-                    tier: .earned,
-                    gate: "10+ conversations and a connected inbox",
-                    unlockHint: "I need to see how you actually write — that takes a few real conversations.",
-                    ctaLabel: nil
-                ),
-                onPrimaryCTA: { _ in },
-                onShortcutCTA: { _ in }
-            )
-        }
-    }
-}
