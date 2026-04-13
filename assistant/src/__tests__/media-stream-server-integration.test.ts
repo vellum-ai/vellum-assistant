@@ -127,6 +127,17 @@ mock.module("../runtime/assistant-scope.js", () => ({
   DAEMON_INTERNAL_ASSISTANT_ID: "self",
 }));
 
+// Mock the TTS provider resolution so that the dynamic import inside
+// MediaStreamOutput.processSynthesizeItem() doesn't pull in the real
+// config/provider chain (which would hang or error in a test environment).
+mock.module("../calls/resolve-call-tts-provider.js", () => ({
+  resolveCallTtsProvider: jest.fn(() => ({
+    provider: null,
+    useSynthesizedPath: false,
+    audioFormat: "mp3" as const,
+  })),
+}));
+
 // ---------------------------------------------------------------------------
 // Now import the module under test.
 // ---------------------------------------------------------------------------
@@ -506,6 +517,13 @@ describe("MediaStreamCallSession", () => {
 });
 
 describe("media-stream output egress", () => {
+  // These tests exercise the async playback queue which relies on real
+  // timers (setTimeout / Bun.sleep). Override the global fake-timers
+  // from the outer beforeEach for this block.
+  beforeEach(() => {
+    jest.useRealTimers();
+  });
+
   test("sendTextToken with text produces outbound media frames", async () => {
     const mockWs = createMockWs();
     mockSessions.set("call-out-1", {
@@ -525,7 +543,7 @@ describe("media-stream output egress", () => {
     output.sendTextToken("Hello caller", true);
 
     // Allow the async playback queue to drain
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await Bun.sleep(50);
 
     // The output should have sent at least an end-of-turn mark.
     // Media frames depend on TTS provider availability (mocked away in
@@ -556,7 +574,7 @@ describe("media-stream output egress", () => {
     const output = session.getOutput();
     output.sendTextToken("", true);
 
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await Bun.sleep(50);
 
     // Should send a mark but no media frames
     const mediaMessages = mockWs.sent.filter(
@@ -617,7 +635,7 @@ describe("media-stream output egress", () => {
     // Immediately barge-in
     output.clearAudio();
 
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await Bun.sleep(50);
 
     // Should have sent a clear command
     const clearMessages = mockWs.sent.filter(
