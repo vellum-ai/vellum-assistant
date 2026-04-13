@@ -1,6 +1,7 @@
 import {
   getMessageById,
   getMessagesPaginated,
+  type MessageRow,
 } from "../../memory/conversation-crud.js";
 import {
   listConversations,
@@ -59,17 +60,160 @@ export interface ConversationHistoryResult {
   nextBeforeTimestamp?: number;
 }
 
+// ---------------------------------------------------------------------------
+// Tool-result merging (mirrors conversation-routes.ts logic)
+// ---------------------------------------------------------------------------
+
+function isToolResultType(type: string): boolean {
+  return type === "tool_result" || type === "web_search_tool_result";
+}
+
+function isSystemNoticeText(block: Record<string, unknown>): boolean {
+  if (block.type !== "text") return false;
+  const text = typeof block.text === "string" ? block.text : "";
+  return (
+    text.startsWith("<system_notice>") && text.endsWith("</system_notice>")
+  );
+}
+
+/**
+ * Merge tool_result blocks from user messages into the preceding assistant
+ * message's content array so that renderHistoryContent can pair tool_use
+ * and tool_result blocks via its pendingToolUses map.
+ *
+ * User messages consisting entirely of tool_result blocks (and optional
+ * system_notice text) are removed. Mixed messages keep only the
+ * non-tool-result blocks.
+ */
+function mergeToolResultsIntoAssistantMessages(
+  messages: MessageRow[],
+): MessageRow[] {
+  let lastAssistantIdx = -1;
+  const parsedAssistantContent = new Map<number, unknown[]>();
+  const result: MessageRow[] = [];
+
+  for (const msg of messages) {
+    if (msg.role === "assistant") {
+      lastAssistantIdx = result.length;
+      result.push(msg);
+      continue;
+    }
+
+    if (msg.role !== "user") {
+      result.push(msg);
+      continue;
+    }
+
+    let blocks: unknown[];
+    try {
+      const parsed = JSON.parse(msg.content);
+      if (!Array.isArray(parsed)) {
+        result.push(msg);
+        continue;
+      }
+      blocks = parsed;
+    } catch {
+      result.push(msg);
+      continue;
+    }
+
+    const toolResultBlocks: unknown[] = [];
+    const otherBlocks: unknown[] = [];
+    for (const block of blocks) {
+      if (
+        typeof block === "object" &&
+        block !== null &&
+        typeof (block as Record<string, unknown>).type === "string"
+      ) {
+        const rec = block as Record<string, unknown>;
+        if (isToolResultType(rec.type as string)) {
+          toolResultBlocks.push(block);
+        } else {
+          otherBlocks.push(block);
+        }
+      } else {
+        otherBlocks.push(block);
+      }
+    }
+
+    if (toolResultBlocks.length === 0) {
+      result.push(msg);
+      continue;
+    }
+
+    if (lastAssistantIdx >= 0) {
+      const assistant = result[lastAssistantIdx];
+      let assistantContent = parsedAssistantContent.get(lastAssistantIdx);
+      if (!assistantContent) {
+        try {
+          const parsed = JSON.parse(assistant.content);
+          assistantContent = Array.isArray(parsed) ? parsed : [parsed];
+        } catch {
+          assistantContent = [];
+        }
+        parsedAssistantContent.set(lastAssistantIdx, assistantContent);
+      }
+      assistantContent.push(...toolResultBlocks);
+    } else {
+      // No preceding assistant message (pagination boundary) — keep the
+      // original message as-is to avoid data loss. Strip system notices.
+      const filteredBlocks = blocks.filter(
+        (b) =>
+          !(
+            typeof b === "object" &&
+            b !== null &&
+            isSystemNoticeText(b as Record<string, unknown>)
+          ),
+      );
+      result.push({
+        ...msg,
+        content:
+          filteredBlocks.length === blocks.length
+            ? msg.content
+            : JSON.stringify(filteredBlocks),
+      });
+      continue;
+    }
+
+    // If the user message had only tool_result (+ system_notice) blocks,
+    // suppress it. Otherwise keep the non-tool-result content.
+    const realUserContent = otherBlocks.filter(
+      (b) =>
+        !(
+          typeof b === "object" &&
+          b !== null &&
+          isSystemNoticeText(b as Record<string, unknown>)
+        ),
+    );
+    if (realUserContent.length > 0) {
+      result.push({ ...msg, content: JSON.stringify(otherBlocks) });
+    }
+  }
+
+  // Write back modified assistant message content.
+  for (const [idx, content] of parsedAssistantContent) {
+    result[idx] = { ...result[idx], content: JSON.stringify(content) };
+  }
+
+  return result;
+}
+
 /** Return paginated messages for a conversation, oldest-first. */
 export function listConversationMessages(
   conversationId: string,
   limit: number,
   beforeTimestamp?: number,
 ): ConversationHistoryResult {
-  const { messages: rows, hasMore } = getMessagesPaginated(
+  const { messages: rawRows, hasMore } = getMessagesPaginated(
     conversationId,
     limit,
     beforeTimestamp,
   );
+
+  // Merge tool_result blocks from user rows into the preceding assistant
+  // message before rendering, so renderHistoryContent can pair tool_use
+  // and tool_result blocks correctly.
+  const rows = mergeToolResultsIntoAssistantMessages(rawRows);
 
   const messages: ConversationHistoryMessage[] = rows.map((row) => {
     const role: "user" | "assistant" =

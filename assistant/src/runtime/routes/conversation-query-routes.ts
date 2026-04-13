@@ -437,9 +437,21 @@ export function conversationQueryRouteDefinitions(
           return httpError("BAD_REQUEST", "id is required", 400);
         }
         const limitRaw = url.searchParams.get("limit");
-        const limit = limitRaw ? Math.min(parseInt(limitRaw, 10), 500) : 100;
+        if (limitRaw !== null && isNaN(Number(limitRaw))) {
+          return httpError("BAD_REQUEST", "limit must be a valid number", 400);
+        }
         const beforeRaw = url.searchParams.get("beforeTimestamp");
-        const beforeTimestamp = beforeRaw ? parseInt(beforeRaw, 10) : undefined;
+        if (beforeRaw !== null && isNaN(Number(beforeRaw))) {
+          return httpError(
+            "BAD_REQUEST",
+            "beforeTimestamp must be a valid number",
+            400,
+          );
+        }
+        const limit = limitRaw
+          ? Math.min(Math.max(Math.floor(Number(limitRaw)), 1), 500)
+          : 100;
+        const beforeTimestamp = beforeRaw ? Number(beforeRaw) : undefined;
         const result = listConversationMessages(
           conversationId,
           limit,
