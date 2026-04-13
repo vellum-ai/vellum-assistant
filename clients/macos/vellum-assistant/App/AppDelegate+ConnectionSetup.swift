@@ -225,7 +225,7 @@ extension AppDelegate {
                        !conversationManager.conversations.contains(where: { $0.conversationId == msg.conversationId }) {
                         conversationManager.createNotificationConversation(
                             conversationId: msg.conversationId,
-                            title: msg.title ?? "",
+                            title: msg.title ?? "Untitled",
                             sourceEventName: "open_conversation",
                             groupId: nil,
                             source: "open_conversation"
