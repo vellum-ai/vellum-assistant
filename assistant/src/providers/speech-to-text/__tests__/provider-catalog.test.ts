@@ -94,11 +94,48 @@ describe("STT provider catalog", () => {
     expect(supportsBoundary("google-gemini", "daemon-batch")).toBe(true);
   });
 
+  test("supportsBoundary returns true for daemon-streaming on streaming-capable providers", () => {
+    expect(supportsBoundary("deepgram", "daemon-streaming")).toBe(true);
+    expect(supportsBoundary("google-gemini", "daemon-streaming")).toBe(true);
+  });
+
+  test("supportsBoundary returns false for daemon-streaming on non-streaming providers", () => {
+    expect(supportsBoundary("openai-whisper", "daemon-streaming")).toBe(false);
+  });
+
   test("supportsBoundary returns false for unknown provider IDs", () => {
     // Cast to bypass type checking for the test
     expect(supportsBoundary("nonexistent" as never, "daemon-batch")).toBe(
       false,
     );
+  });
+
+  // -----------------------------------------------------------------------
+  // Conversation streaming mode
+  // -----------------------------------------------------------------------
+
+  test("conversationStreamingMode is set for all providers", () => {
+    for (const entry of listProviderEntries()) {
+      expect(entry.conversationStreamingMode).toBeDefined();
+      expect(["realtime-ws", "incremental-batch", "none"]).toContain(
+        entry.conversationStreamingMode,
+      );
+    }
+  });
+
+  test("deepgram has realtime-ws conversation streaming mode", () => {
+    const entry = getProviderEntry("deepgram");
+    expect(entry?.conversationStreamingMode).toBe("realtime-ws");
+  });
+
+  test("google-gemini has incremental-batch conversation streaming mode", () => {
+    const entry = getProviderEntry("google-gemini");
+    expect(entry?.conversationStreamingMode).toBe("incremental-batch");
+  });
+
+  test("openai-whisper has no conversation streaming support", () => {
+    const entry = getProviderEntry("openai-whisper");
+    expect(entry?.conversationStreamingMode).toBe("none");
   });
 
   // -----------------------------------------------------------------------
