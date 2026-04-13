@@ -31,8 +31,8 @@ describe("conversation-launcher skill regression", () => {
       "curl",
       "signals/",
       "jq ",
-      // Signal-file prefix assembled from parts so the literal does not appear
-      // in repo code grep results.
+      // Assembled from parts so this literal does not appear in repo grep
+      // results — the forbidden-tokens check would otherwise match this file.
       ["launch", "conversation."].join("-"),
       "VELLUM_WORKSPACE_DIR",
       "INTERNAL_GATEWAY_BASE_URL",
