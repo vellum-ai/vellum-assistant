@@ -32,7 +32,8 @@ public struct VSkillTypePill: View {
         var foregroundColor: Color {
             switch self {
             case .vellum: return VColor.primaryBase
-            case .clawhub, .skillssh: return VColor.funTeal
+            case .clawhub: return VColor.funTeal
+            case .skillssh: return VColor.funCoral
             case .custom: return VColor.funPurple
             case .other(_, _, let fg, _): return fg
             }
@@ -41,7 +42,8 @@ public struct VSkillTypePill: View {
         var backgroundColor: Color {
             switch self {
             case .vellum: return VColor.primaryBase.opacity(0.12)
-            case .clawhub, .skillssh: return VColor.funTeal.opacity(0.12)
+            case .clawhub: return VColor.funTeal.opacity(0.12)
+            case .skillssh: return VColor.funCoral.opacity(0.12)
             case .custom: return VColor.funPurple.opacity(0.12)
             case .other(_, _, _, let bg): return bg
             }
