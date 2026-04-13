@@ -174,6 +174,50 @@ describe("resolveBatchTranscriber", () => {
     expect(transcriber!.providerId).toBe("deepgram");
     expect(transcriber!.boundaryId).toBe("daemon-batch");
   });
+
+  // -------------------------------------------------------------------------
+  // Google Gemini provider resolution
+  // -------------------------------------------------------------------------
+
+  test("returns a BatchTranscriber when google-gemini is configured and credentials are available", async () => {
+    mockProviderKeys["gemini"] = "gemini-test-key";
+    mockConfig = buildConfig({ provider: "google-gemini" });
+
+    const transcriber = await resolveBatchTranscriber();
+
+    expect(transcriber).not.toBeNull();
+    expect(transcriber!.providerId).toBe("google-gemini");
+    expect(transcriber!.boundaryId).toBe("daemon-batch");
+  });
+
+  test("returns null when google-gemini is configured but no credentials exist", async () => {
+    mockProviderKeys = {}; // no keys
+    mockConfig = buildConfig({ provider: "google-gemini" });
+
+    const transcriber = await resolveBatchTranscriber();
+
+    expect(transcriber).toBeNull();
+  });
+
+  test("google-gemini uses 'gemini' credential key, not 'openai' or 'deepgram'", async () => {
+    // Only openai key is set — google-gemini should NOT resolve
+    mockProviderKeys["openai"] = "sk-test-key";
+    mockConfig = buildConfig({ provider: "google-gemini" });
+
+    const transcriber = await resolveBatchTranscriber();
+
+    expect(transcriber).toBeNull();
+  });
+
+  test("resolved google-gemini transcriber has stable provider identity", async () => {
+    mockProviderKeys["gemini"] = "gemini-identity-test";
+    mockConfig = buildConfig({ provider: "google-gemini" });
+
+    const transcriber = await resolveBatchTranscriber();
+
+    expect(transcriber!.providerId).toBe("google-gemini");
+    expect(transcriber!.boundaryId).toBe("daemon-batch");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -246,5 +290,35 @@ describe("resolveTelephonySttCapability", () => {
     const result = await resolveTelephonySttCapability();
 
     expect(result.status).toBe("unconfigured");
+  });
+
+  // -------------------------------------------------------------------------
+  // Google Gemini telephony capability
+  // -------------------------------------------------------------------------
+
+  test("returns 'supported' for google-gemini with batch-only telephonyMode", async () => {
+    mockProviderKeys["gemini"] = "gemini-telephony-test";
+    mockConfig = buildConfig({ provider: "google-gemini" });
+
+    const result = await resolveTelephonySttCapability();
+
+    expect(result.status).toBe("supported");
+    if (result.status === "supported") {
+      expect(result.providerId).toBe("google-gemini");
+      expect(result.telephonyMode).toBe("batch-only");
+    }
+  });
+
+  test("returns 'missing-credentials' for google-gemini without a gemini key", async () => {
+    mockProviderKeys = {};
+    mockConfig = buildConfig({ provider: "google-gemini" });
+
+    const result = await resolveTelephonySttCapability();
+
+    expect(result.status).toBe("missing-credentials");
+    if (result.status === "missing-credentials") {
+      expect(result.providerId).toBe("google-gemini");
+      expect(result.credentialProvider).toBe("gemini");
+    }
   });
 });

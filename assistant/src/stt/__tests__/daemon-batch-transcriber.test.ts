@@ -32,6 +32,19 @@ mock.module("../../providers/speech-to-text/deepgram.js", () => ({
   },
 }));
 
+let mockGeminiTranscribeResult: { text: string } = { text: "" };
+let mockGeminiTranscribeError: Error | null = null;
+
+mock.module("../../providers/speech-to-text/google-gemini.js", () => ({
+  GoogleGeminiProvider: class MockGoogleGeminiProvider {
+    constructor(_apiKey: string) {}
+    async transcribe(_audio: Buffer, _mimeType: string, _signal?: AbortSignal) {
+      if (mockGeminiTranscribeError) throw mockGeminiTranscribeError;
+      return mockGeminiTranscribeResult;
+    }
+  },
+}));
+
 // Dynamic import so mocks are active when the module loads.
 const { createDaemonBatchTranscriber, normalizeSttError } =
   await import("../daemon-batch-transcriber.js");
@@ -46,6 +59,8 @@ describe("createDaemonBatchTranscriber", () => {
     mockWhisperTranscribeError = null;
     mockDeepgramTranscribeResult = { text: "" };
     mockDeepgramTranscribeError = null;
+    mockGeminiTranscribeResult = { text: "" };
+    mockGeminiTranscribeError = null;
   });
 
   // -------------------------------------------------------------------------
@@ -214,6 +229,81 @@ describe("createDaemonBatchTranscriber", () => {
   test("returns null for deepgram when no API key is provided", () => {
     expect(createDaemonBatchTranscriber(null, "deepgram")).toBeNull();
     expect(createDaemonBatchTranscriber(undefined, "deepgram")).toBeNull();
+  });
+
+  // -------------------------------------------------------------------------
+  // Provider identity — Google Gemini
+  // -------------------------------------------------------------------------
+
+  test("reports providerId as google-gemini when created with google-gemini", () => {
+    const transcriber = createDaemonBatchTranscriber(
+      "gemini-test-key",
+      "google-gemini",
+    );
+    expect(transcriber).not.toBeNull();
+    expect(transcriber!.providerId).toBe("google-gemini");
+  });
+
+  test("reports boundaryId as daemon-batch for google-gemini", () => {
+    const transcriber = createDaemonBatchTranscriber(
+      "gemini-test-key",
+      "google-gemini",
+    );
+    expect(transcriber!.boundaryId).toBe("daemon-batch");
+  });
+
+  // -------------------------------------------------------------------------
+  // Successful transcription — Google Gemini
+  // -------------------------------------------------------------------------
+
+  test("delegates transcription to the Google Gemini provider", async () => {
+    mockGeminiTranscribeResult = { text: "Hello from Gemini" };
+
+    const transcriber = createDaemonBatchTranscriber(
+      "gemini-test-key",
+      "google-gemini",
+    );
+    const result = await transcriber!.transcribe({
+      audio: Buffer.from("fake-audio"),
+      mimeType: "audio/ogg",
+    });
+
+    expect(result).toEqual({ text: "Hello from Gemini" });
+  });
+
+  // -------------------------------------------------------------------------
+  // Error propagation — Google Gemini
+  // -------------------------------------------------------------------------
+
+  test("propagates Google Gemini errors unchanged", async () => {
+    const original = new Error(
+      "Google Gemini API error (401): Invalid credentials",
+    );
+    mockGeminiTranscribeError = original;
+
+    const transcriber = createDaemonBatchTranscriber(
+      "gemini-test-key",
+      "google-gemini",
+    );
+
+    try {
+      await transcriber!.transcribe({
+        audio: Buffer.from("audio"),
+        mimeType: "audio/wav",
+      });
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBe(original);
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Null on missing key — Google Gemini
+  // -------------------------------------------------------------------------
+
+  test("returns null for google-gemini when no API key is provided", () => {
+    expect(createDaemonBatchTranscriber(null, "google-gemini")).toBeNull();
+    expect(createDaemonBatchTranscriber(undefined, "google-gemini")).toBeNull();
   });
 });
 
