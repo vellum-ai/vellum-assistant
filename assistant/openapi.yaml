@@ -7352,6 +7352,8 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                  skillId:
+                    type: string
                 required:
                   - ok
                 additionalProperties: false
