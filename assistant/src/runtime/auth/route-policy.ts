@@ -181,6 +181,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Settings / integrations / identity
   { endpoint: "identity", scopes: ["settings.read"] },
   { endpoint: "identity/intro", scopes: ["settings.read"] },
+  { endpoint: "home/state", scopes: ["settings.read"] },
   { endpoint: "brain-graph", scopes: ["settings.read"] },
   { endpoint: "brain-graph-ui", scopes: ["settings.read"] },
   { endpoint: "contacts", scopes: ["settings.read"] },

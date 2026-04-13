@@ -164,6 +164,7 @@ import { guardianActionRouteDefinitions } from "./routes/guardian-action-routes.
 import { handleGuardianBootstrap } from "./routes/guardian-bootstrap-routes.js";
 import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
 import { heartbeatRouteDefinitions } from "./routes/heartbeat-routes.js";
+import { homeStateRouteDefinitions } from "./routes/home-state-routes.js";
 import { hostBashRouteDefinitions } from "./routes/host-bash-routes.js";
 import {
   hostBrowserRouteDefinitions,
@@ -1459,6 +1460,7 @@ export class RuntimeHttpServer {
       ...heartbeatRouteDefinitions({
         getHeartbeatService: this.getHeartbeatService,
       }),
+      ...homeStateRouteDefinitions(),
       ...notificationRouteDefinitions(),
       ...diagnosticsRouteDefinitions(),
       ...logExportRouteDefinitions(),

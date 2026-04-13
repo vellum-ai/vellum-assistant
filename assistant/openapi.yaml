@@ -4081,6 +4081,124 @@ paths:
           schema:
             type: integer
           description: Max runs to return (default 20)
+  /v1/home/state:
+    get:
+      operationId: home_state_get
+      summary: Get relationship state
+      description:
+        Return the current `RelationshipState` snapshot. Reads the persisted `relationship-state.json` when
+        present; falls back to an on-demand compute so fresh installs never see a 404.
+      tags:
+        - home
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: number
+                    const: 1
+                  assistantId:
+                    type: string
+                  tier:
+                    anyOf:
+                      - type: number
+                        const: 1
+                      - type: number
+                        const: 2
+                      - type: number
+                        const: 3
+                      - type: number
+                        const: 4
+                  progressPercent:
+                    type: number
+                  facts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        category:
+                          type: string
+                          enum:
+                            - voice
+                            - world
+                            - priorities
+                        text:
+                          type: string
+                        confidence:
+                          type: string
+                          enum:
+                            - strong
+                            - uncertain
+                        source:
+                          type: string
+                          enum:
+                            - onboarding
+                            - inferred
+                      required:
+                        - id
+                        - category
+                        - text
+                        - confidence
+                        - source
+                      additionalProperties: false
+                  capabilities:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        description:
+                          type: string
+                        tier:
+                          type: string
+                          enum:
+                            - unlocked
+                            - next-up
+                            - earned
+                        gate:
+                          type: string
+                        unlockHint:
+                          type: string
+                        ctaLabel:
+                          type: string
+                      required:
+                        - id
+                        - name
+                        - description
+                        - tier
+                        - gate
+                      additionalProperties: false
+                  conversationCount:
+                    type: number
+                  hatchedDate:
+                    type: string
+                  assistantName:
+                    type: string
+                  userName:
+                    type: string
+                  updatedAt:
+                    type: string
+                required:
+                  - version
+                  - assistantId
+                  - tier
+                  - progressPercent
+                  - facts
+                  - capabilities
+                  - conversationCount
+                  - hatchedDate
+                  - assistantName
+                  - updatedAt
+                additionalProperties: false
   /v1/host-bash-result:
     post:
       operationId: hostbashresult_post
