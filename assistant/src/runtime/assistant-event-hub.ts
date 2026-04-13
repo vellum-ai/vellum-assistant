@@ -262,7 +262,7 @@ export class AssistantEventHub {
 
     let buffer = this.conversationBuffers.get(convId);
     if (!buffer) {
-      // Evict oldest conversation buffer if at capacity (Maps iterate in insertion order).
+      // Evict least-recently-used conversation buffer if at capacity.
       if (this.conversationBuffers.size >= this.maxBufferedConversations) {
         const oldestKey = this.conversationBuffers.keys().next().value;
         if (oldestKey !== undefined) {
@@ -270,8 +270,13 @@ export class AssistantEventHub {
         }
       }
       buffer = [];
-      this.conversationBuffers.set(convId, buffer);
+    } else {
+      // Re-insert to move this conversation to the end of Map iteration
+      // order, ensuring LRU eviction targets the least-recently-active
+      // conversation rather than the first-inserted one.
+      this.conversationBuffers.delete(convId);
     }
+    this.conversationBuffers.set(convId, buffer);
 
     buffer.push(event);
 

@@ -31,9 +31,19 @@ async function drainSseFrames(
 
   const deadline = Date.now() + timeoutMs;
   while (frames.length < maxFrames && Date.now() < deadline) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    const chunk = decoder.decode(value, { stream: true });
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    // Race against a timeout so we don't block indefinitely waiting for
+    // the next chunk (the heartbeat interval is typically much longer
+    // than the test timeout).
+    const result = await Promise.race([
+      reader.read(),
+      new Promise<{ value: undefined; done: true }>((resolve) =>
+        setTimeout(() => resolve({ value: undefined, done: true }), remaining),
+      ),
+    ]);
+    if (result.done) break;
+    const chunk = decoder.decode(result.value, { stream: true });
     // Split on double newlines (SSE frame delimiter).
     const parts = chunk.split("\n\n").filter((p) => p.trim().length > 0);
     frames.push(...parts);
