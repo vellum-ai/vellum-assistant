@@ -1000,6 +1000,87 @@ describe("Batched drain", () => {
     await new Promise((r) => setTimeout(r, 10));
   });
 
+  test("unknown-slash in middle splits the queue at the unknown-slash boundary", async () => {
+    // Covers the `kind: "unknown"` short-circuit branch in drainSingleMessage
+    // specifically. The sibling /compact-in-middle test covers the `kind:
+    // "compact"` short-circuit (via a different code path), so this test
+    // exists to guarantee the batch builder also stops at unknown-kind
+    // boundaries and that the unknown-slash drain path does NOT invoke a new
+    // runAgentLoop run.
+    //
+    // We use `/status`, which the real `resolveSlash` returns as
+    // `{ kind: "unknown", message: <status report> }` when a SlashContext is
+    // present (always true for queued drains via buildSlashContext).
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const eventsPlainA: ServerMessage[] = [];
+    const eventsSlash: ServerMessage[] = [];
+    const eventsPlainB: ServerMessage[] = [];
+
+    // Start in-flight message
+    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    await waitForPendingRun(1);
+
+    // Enqueue ["plain-a", "/status", "plain-b"]. /status resolves to a non-
+    // passthrough slash (kind: "unknown"), so the batch builder stops at
+    // "plain-a" (length-1 batch → drainSingleMessage), then /status takes the
+    // unknown-slash short-circuit path (no new runAgentLoop invocation — it
+    // emits assistant_text_delta + message_complete inline), then "plain-b"
+    // drains as its own run.
+    conversation.enqueueMessage(
+      "plain-a",
+      [],
+      (e) => eventsPlainA.push(e),
+      "req-plain-a",
+    );
+    conversation.enqueueMessage(
+      "/status",
+      [],
+      (e) => eventsSlash.push(e),
+      "req-slash",
+    );
+    conversation.enqueueMessage(
+      "plain-b",
+      [],
+      (e) => eventsPlainB.push(e),
+      "req-plain-b",
+    );
+    expect(conversation.getQueueDepth()).toBe(3);
+
+    // Resolve msg-1 → drain pulls "plain-a" as its own run (batch stops at
+    // the /status boundary).
+    resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    expect(pendingRuns.length).toBe(2);
+    expect(eventsPlainA.some((e) => e.type === "message_dequeued")).toBe(true);
+    // /status and "plain-b" are still queued.
+    expect(conversation.getQueueDepth()).toBe(2);
+
+    // Resolve "plain-a" → drain pops /status via the builder-rejected path,
+    // runs its unknown-slash short-circuit (no new runAgentLoop, emits
+    // assistant_text_delta + message_complete inline), then drains "plain-b"
+    // as its own run.
+    resolveRun(1);
+    await waitForPendingRun(3);
+
+    // /status should have emitted its own assistant_text_delta + message_complete
+    // via the unknown-slash short-circuit path (not via a runAgentLoop run).
+    expect(eventsSlash.some((e) => e.type === "assistant_text_delta")).toBe(
+      true,
+    );
+    expect(eventsSlash.some((e) => e.type === "message_complete")).toBe(true);
+    expect(eventsPlainB.some((e) => e.type === "message_dequeued")).toBe(true);
+    // Only three runs total: msg-1, "plain-a", "plain-b". /status short-circuits
+    // without a runAgentLoop invocation.
+    expect(pendingRuns.length).toBe(3);
+
+    resolveRun(2);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
   test("attachments are preserved across a batched drain", async () => {
     capturedAddMessages.length = 0;
     const conversation = makeConversation();
@@ -1099,16 +1180,32 @@ describe("Batched drain", () => {
     );
     expect(accepted1.queued).toBe(true);
     expect(accepted2.queued).toBe(true);
-    // A third would push the queue over budget → rejected.
+    // A third would push the queue over budget → rejected. Capture its
+    // onEvent callback so we can verify the queue_full error event reaches
+    // the rejected caller (not just the synchronous return value).
+    const rejectedEvents: ServerMessage[] = [];
     const rejected = conversation.enqueueMessage(
       "z".repeat(500),
       [],
-      () => {},
+      (e) => rejectedEvents.push(e),
       "req-over",
     );
     expect(rejected.queued).toBe(false);
     expect(rejected.rejected).toBe(true);
     expect(conversation.getQueueDepth()).toBe(2);
+
+    // The rejected caller must have received a `queue_full` error event on
+    // its own onEvent callback — event emission is part of the public
+    // contract, not just the return value.
+    const queueFullErr = rejectedEvents.find(
+      (e) => e.type === "error" && e.category === "queue_full",
+    );
+    expect(queueFullErr).toBeDefined();
+    if (queueFullErr && queueFullErr.type === "error") {
+      expect(queueFullErr.category).toBe("queue_full");
+      expect(typeof queueFullErr.message).toBe("string");
+      expect(queueFullErr.message.length).toBeGreaterThan(0);
+    }
 
     // Complete in-flight → drain pulls both queued passthroughs as ONE batched run.
     resolveRun(0);
