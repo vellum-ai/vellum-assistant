@@ -22,6 +22,7 @@ describe("STT provider catalog", () => {
     const ids = listProviderIds();
     expect(ids).toContain("openai-whisper");
     expect(ids).toContain("deepgram");
+    expect(ids).toContain("google-gemini");
   });
 
   test("listProviderIds returns IDs in deterministic insertion order", () => {
@@ -48,9 +49,10 @@ describe("STT provider catalog", () => {
 
   test("listCredentialProviderNames includes expected providers", () => {
     const names = listCredentialProviderNames();
-    // openai-whisper maps to "openai", deepgram maps to "deepgram"
+    // openai-whisper maps to "openai", deepgram maps to "deepgram", google-gemini maps to "gemini"
     expect(names).toContain("openai");
     expect(names).toContain("deepgram");
+    expect(names).toContain("gemini");
   });
 
   test("listCredentialProviderNames returns names in deterministic order", () => {
@@ -89,6 +91,7 @@ describe("STT provider catalog", () => {
   test("supportsBoundary returns true for supported boundaries", () => {
     expect(supportsBoundary("openai-whisper", "daemon-batch")).toBe(true);
     expect(supportsBoundary("deepgram", "daemon-batch")).toBe(true);
+    expect(supportsBoundary("google-gemini", "daemon-batch")).toBe(true);
   });
 
   test("supportsBoundary returns false for unknown provider IDs", () => {
@@ -105,6 +108,7 @@ describe("STT provider catalog", () => {
   test("getCredentialProvider returns correct mapping", () => {
     expect(getCredentialProvider("openai-whisper")).toBe("openai");
     expect(getCredentialProvider("deepgram")).toBe("deepgram");
+    expect(getCredentialProvider("google-gemini")).toBe("gemini");
   });
 
   test("getCredentialProvider returns undefined for unknown ID", () => {

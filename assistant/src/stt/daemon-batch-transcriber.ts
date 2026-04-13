@@ -9,6 +9,7 @@
  * Supported daemon-batch providers:
  * - OpenAI Whisper (`openai-whisper`)
  * - Deepgram (`deepgram`)
+ * - Google Gemini (`google-gemini`)
  */
 
 import type {
@@ -88,6 +89,38 @@ class DeepgramBatchTranscriber implements BatchTranscriber {
 }
 
 // ---------------------------------------------------------------------------
+// Google Gemini adapter — implements BatchTranscriber on top of the Google
+// Gemini multimodal provider.
+// ---------------------------------------------------------------------------
+
+/**
+ * Wraps `GoogleGeminiProvider` behind the `BatchTranscriber` contract.
+ *
+ * Same error-propagation semantics as WhisperBatchTranscriber: raw provider
+ * errors pass through unchanged.
+ */
+class GoogleGeminiBatchTranscriber implements BatchTranscriber {
+  readonly providerId = "google-gemini" as const;
+  readonly boundaryId = "daemon-batch" as const;
+
+  private readonly apiKey: string;
+
+  constructor(apiKey: string) {
+    this.apiKey = apiKey;
+  }
+
+  async transcribe(
+    request: SttTranscribeRequest,
+  ): Promise<SttTranscribeResult> {
+    const { GoogleGeminiProvider } =
+      await import("../providers/speech-to-text/google-gemini.js");
+    const provider = new GoogleGeminiProvider(this.apiKey);
+
+    return provider.transcribe(request.audio, request.mimeType, request.signal);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Error normalization
 // ---------------------------------------------------------------------------
 
@@ -150,6 +183,8 @@ export function createDaemonBatchTranscriber(
       return new WhisperBatchTranscriber(apiKey);
     case "deepgram":
       return new DeepgramBatchTranscriber(apiKey);
+    case "google-gemini":
+      return new GoogleGeminiBatchTranscriber(apiKey);
     default: {
       // Exhaustive check — compile error if a new SttProviderId is added
       // without a corresponding case here.

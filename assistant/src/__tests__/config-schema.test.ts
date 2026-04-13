@@ -1251,6 +1251,23 @@ describe("AssistantConfigSchema", () => {
     expect(result.services.stt.mode).toBe("your-own");
   });
 
+  test("accepts google-gemini as services.stt.provider", () => {
+    const result = AssistantConfigSchema.parse({
+      services: { stt: { provider: "google-gemini" } },
+    });
+    expect(result.services.stt.provider).toBe("google-gemini");
+    expect(result.services.stt.mode).toBe("your-own");
+  });
+
+  test("applies services.stt structural defaults when google-gemini provider is explicit", () => {
+    const result = AssistantConfigSchema.parse({
+      services: { stt: { provider: "google-gemini" } },
+    });
+    expect(result.services.stt.mode).toBe("your-own");
+    expect(result.services.stt.provider).toBe("google-gemini");
+    expect(result.services.stt.providers).toEqual({});
+  });
+
   test("accepts valid services.stt.providers.deepgram overrides", () => {
     const result = AssistantConfigSchema.parse({
       services: {
