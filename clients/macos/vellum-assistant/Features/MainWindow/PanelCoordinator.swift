@@ -131,11 +131,16 @@ extension MainWindowView {
                         windowState.selection = nil
                     }
                 },
+                onStartConversation: { startNewConversation() },
+                onCapabilityCTA: nil,
+                onCapabilityShortcutCTA: nil,
                 connectionManager: connectionManager,
                 eventStreamClient: eventStreamClient,
                 store: settingsStore,
                 conversationManager: conversationManager,
                 authManager: authManager,
+                homeStore: homeStore,
+                assistantFeatureFlagStore: assistantFeatureFlagStore,
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) },
                 initialTab: windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil,
                 pendingMemoryId: $windowState.pendingMemoryId,
@@ -591,11 +596,19 @@ extension MainWindowView {
                         windowState.selection = .conversation(id)
                     }
                 },
+                onStartConversation: {
+                    startNewConversation()
+                    windowState.dismissOverlay()
+                },
+                onCapabilityCTA: nil,
+                onCapabilityShortcutCTA: nil,
                 connectionManager: connectionManager,
                 eventStreamClient: eventStreamClient,
                 store: settingsStore,
                 conversationManager: conversationManager,
                 authManager: authManager,
+                homeStore: homeStore,
+                assistantFeatureFlagStore: assistantFeatureFlagStore,
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) },
                 initialTab: windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil,
                 pendingMemoryId: $windowState.pendingMemoryId,
