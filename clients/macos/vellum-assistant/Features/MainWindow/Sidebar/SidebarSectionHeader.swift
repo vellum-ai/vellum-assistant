@@ -105,6 +105,9 @@ struct SidebarSectionHeader: View {
         .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
         .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
         .contentShape(Rectangle())
+        .animation(VAnimation.fast, value: isHeaderHovered)
+        .animation(VAnimation.fast, value: isMenuOpen)
+        .onTapGesture { withAnimation(VAnimation.fast) { onToggleExpand() } }
         .overlay(alignment: .trailing) {
             if hasTrailingIcon && hasAnyAction {
                 VButton(
@@ -163,9 +166,6 @@ struct SidebarSectionHeader: View {
                     .padding(.trailing, VSpacing.xs)
             }
         }
-        .animation(VAnimation.fast, value: isHeaderHovered)
-        .animation(VAnimation.fast, value: isMenuOpen)
-        .onTapGesture { withAnimation(VAnimation.fast) { onToggleExpand() } }
         .pointerCursor(onHover: { hovering in
             isHeaderHovered = hovering
         })
