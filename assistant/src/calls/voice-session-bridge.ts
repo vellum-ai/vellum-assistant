@@ -21,6 +21,7 @@ import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
+import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import {
   CALL_OPENING_MARKER,
@@ -539,7 +540,13 @@ export async function startVoiceTurn(
 
   const abortFn = () => {
     if (conversation.currentRequestId === requestId) {
-      conversation.abort();
+      conversation.abort(
+        createAbortReason(
+          "voice_session_aborted",
+          "voice-session-bridge.abortFn",
+          conversation.conversationId,
+        ),
+      );
     }
   };
 

@@ -69,6 +69,7 @@ import * as approvalOverrides from "../runtime/conversation-approval-overrides.j
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
+import type { AbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import { runAgentLoopImpl } from "./conversation-agent-loop.js";
@@ -702,8 +703,8 @@ export class Conversation {
     return this.stale;
   }
 
-  abort(): void {
-    abortConversation(this);
+  abort(reason?: AbortReason): void {
+    abortConversation(this, reason);
   }
 
   dispose(): void {

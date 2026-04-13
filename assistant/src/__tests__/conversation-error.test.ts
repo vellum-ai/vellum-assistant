@@ -6,6 +6,10 @@ import {
   classifyConversationError,
   isUserCancellation,
 } from "../daemon/conversation-error.js";
+import {
+  type AbortReasonKind,
+  createAbortReason,
+} from "../util/abort-reasons.js";
 import { ProviderError, ProviderNotConfiguredError } from "../util/errors.js";
 
 describe("isUserCancellation", () => {
@@ -561,6 +565,72 @@ describe("classifyConversationError", () => {
 
       const aborted: ErrorContext = { phase: "agent_loop", aborted: true };
       expect(isUserCancellation(err, aborted)).toBe(true);
+    });
+  });
+
+  describe("wrapped ProviderError carrying tagged abort reason", () => {
+    const abortedCtx: ErrorContext = { phase: "agent_loop", aborted: true };
+    const taggedKinds: AbortReasonKind[] = [
+      "user_cancel",
+      "preempted_by_new_message",
+      "conversation_disposed",
+      "subagent_aborted",
+      "signal_cancel",
+      "voice_session_aborted",
+      "work_item_aborted",
+    ];
+
+    for (const kind of taggedKinds) {
+      it(`treats ProviderError with abortReason kind="${kind}" as user cancellation`, () => {
+        const wrapped = new ProviderError(
+          "Anthropic API error (undefined): Request was aborted.",
+          "anthropic",
+          undefined,
+          { abortReason: createAbortReason(kind, `test:${kind}`) },
+        );
+        expect(isUserCancellation(wrapped, abortedCtx)).toBe(true);
+      });
+    }
+
+    it("does NOT treat tagged ProviderError as cancellation when ctx.aborted is false", () => {
+      const wrapped = new ProviderError(
+        "Anthropic API error (undefined): Request was aborted.",
+        "anthropic",
+        undefined,
+        { abortReason: createAbortReason("user_cancel", "test") },
+      );
+      const notAborted: ErrorContext = { phase: "agent_loop", aborted: false };
+      expect(isUserCancellation(wrapped, notAborted)).toBe(false);
+    });
+
+    it("does NOT treat ProviderError without abortReason as cancellation", () => {
+      const wrapped = new ProviderError(
+        "Anthropic API error (undefined): Request was aborted.",
+        "anthropic",
+        undefined,
+      );
+      expect(isUserCancellation(wrapped, abortedCtx)).toBe(false);
+    });
+
+    it("does NOT treat ProviderError with foreign reason as cancellation", () => {
+      const wrapped = new ProviderError(
+        "Anthropic API error (undefined): Request was aborted.",
+        "anthropic",
+        undefined,
+        { abortReason: { kind: "user_cancel", source: "spoofed" } },
+      );
+      expect(isUserCancellation(wrapped, abortedCtx)).toBe(false);
+    });
+
+    it("falls through to CONVERSATION_ABORTED when wrapped ProviderError has no tagged reason", () => {
+      const wrapped = new ProviderError(
+        "Anthropic API error (undefined): Request was aborted.",
+        "anthropic",
+        undefined,
+      );
+      const result = classifyConversationError(wrapped, abortedCtx);
+      expect(result.code).toBe("CONVERSATION_ABORTED");
+      expect(result.errorCategory).toBe("session_aborted");
     });
   });
 });

@@ -19,6 +19,7 @@ import type { ServerMessage } from "../daemon/message-protocol.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { getProvider } from "../providers/registry.js";
+import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import {
@@ -509,7 +510,13 @@ export class SubagentManager {
       return false;
     }
 
-    managed.conversation?.abort();
+    managed.conversation?.abort(
+      createAbortReason(
+        "subagent_aborted",
+        "SubagentManager.abort",
+        managed.conversation.conversationId,
+      ),
+    );
     managed.state.completedAt = Date.now();
     if (parentSendToClient) {
       // Route the status update through the stored parent sender so the
@@ -704,7 +711,13 @@ export class SubagentManager {
 
     if (managed.conversation) {
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
-        managed.conversation.abort();
+        managed.conversation.abort(
+          createAbortReason(
+            "subagent_aborted",
+            "SubagentManager.dispose",
+            managed.conversation.conversationId,
+          ),
+        );
       }
       managed.conversation.dispose();
       managed.conversation = null;

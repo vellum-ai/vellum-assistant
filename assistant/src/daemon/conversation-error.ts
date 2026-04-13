@@ -1,4 +1,5 @@
 import { getProviderRoutingSource } from "../providers/registry.js";
+import { isAbortReason } from "../util/abort-reasons.js";
 import { ProviderError, ProviderNotConfiguredError } from "../util/errors.js";
 import type {
   ConversationErrorCode,
@@ -110,11 +111,21 @@ export interface ErrorContext {
  * Returns true if the error looks like a user-initiated cancellation
  * (AbortError or explicit cancel). These should use `generation_cancelled`
  * instead of `conversation_error`.
+ *
+ * Provider SDKs wrap the underlying AbortError in their own error class
+ * (e.g. `ProviderError("Anthropic API error (undefined): Request was aborted.")`),
+ * which erases the `AbortError` name. To compensate, the daemon tags every
+ * `controller.abort(reason)` call with an `AbortReason` object — when the
+ * wrapped `ProviderError` carries that tagged reason, we treat it as a user
+ * cancellation regardless of error class.
  */
 export function isUserCancellation(error: unknown, ctx: ErrorContext): boolean {
   if (!ctx.aborted) return false;
   if (error instanceof DOMException && error.name === "AbortError") return true;
   if (error instanceof Error && error.name === "AbortError") return true;
+  if (error instanceof ProviderError && isAbortReason(error.abortReason)) {
+    return true;
+  }
   return false;
 }
 
