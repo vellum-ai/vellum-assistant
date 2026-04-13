@@ -88,9 +88,10 @@ function writeFile(relPath: string, content: string): void {
 }
 
 function seedConversations(count: number): void {
-  // Drives the mocked DB-authoritative `countConversations` helper
-  // rather than writing files — after the Gap A fix the writer no
-  // longer touches the filesystem for conversation counts.
+  // Drives the mocked DB-authoritative `countConversations` helper.
+  // The writer reads conversation counts from the DB rather than the
+  // filesystem, so tests push counts in here rather than seeding a
+  // conversations directory.
   fakeConversationCount = count;
 }
 
@@ -195,6 +196,24 @@ describe("relationship-state-writer", () => {
       }
     });
 
+    test("userName prefers 'Preferred name/reference' over 'Preferred pronouns'", async () => {
+      // A user who reorders the default guardian template bullets
+      // must never see their pronouns surface as their display name
+      // on the Home page. `parseUserName` only accepts labels whose
+      // lowercased form starts with `preferred name` (plus the
+      // stricter `name` / `user` / `user name` forms).
+      writeFile(
+        "USER.md",
+        [
+          "- Preferred pronouns: she/her",
+          "- Preferred name/reference: Casey",
+        ].join("\n"),
+      );
+
+      const state = (await computeRelationshipState()) as RelationshipStateLike;
+      expect(state.userName).toBe("Casey");
+    });
+
     test("falls back to legacy workspace USER.md when persona resolver yields nothing", async () => {
       // In the test environment there is no guardian contact in the DB, so
       // `resolveGuardianPersonaPath()` either returns null or throws — the
@@ -216,11 +235,9 @@ describe("relationship-state-writer", () => {
     });
 
     test("ignores stray filesystem files (e.g. .DS_Store) in conversations dir", async () => {
-      // Regression guard for Gap A: pre-fix, `countConversations` did
-      // `readdirSync(dir).length`, which included `.DS_Store` and
-      // double-counted legacy/canonical directory pairs during
-      // workspace migration 009. After the fix, the count comes from
-      // the DB, so filesystem noise is invisible by construction.
+      // The DB-authoritative `countConversations` is immune to stray
+      // filesystem entries (.DS_Store, migration artifacts, duplicate
+      // legacy/canonical directory forms) — only DB rows count.
       const dir = join(workspaceDir, "conversations");
       mkdirSync(dir, { recursive: true });
       writeFileSync(join(dir, ".DS_Store"), "junk", "utf-8");
@@ -375,11 +392,10 @@ describe("relationship-state-writer", () => {
 
   describe("hatchedDate stability", () => {
     test("is stable across multiple writes when IDENTITY.md has no explicit hatched bullet", async () => {
-      // Regression guard: `parseIdentity` used to default `hatchedDate`
-      // to `new Date().toISOString()` on every call, so because the
-      // writer runs on every turn boundary the persisted "relationship
-      // start" timestamp drifted forward on every write. It must now
-      // come from IDENTITY.md file birthtime, which is stable.
+      // `hatchedDate` must be stable across writes: when there is no
+      // explicit `Hatched:` bullet, `parseIdentity` derives it from
+      // IDENTITY.md file birthtime, which is monotonic across the
+      // per-turn writer invocations.
       writeFile(
         "IDENTITY.md",
         "- **Name:** Sage\n- **Role:** Assistant\n- **Personality:** Curious\n",
@@ -408,10 +424,9 @@ describe("relationship-state-writer", () => {
     });
 
     test("sidecar fallback: first call with no IDENTITY.md writes and returns a real timestamp", async () => {
-      // Regression guard for Gap E: pre-fix, this path returned the
-      // Unix epoch (`new Date(0)`), which surfaces in the UI as
-      // "1/1/1970". Post-fix, we persist a real `now` timestamp to
-      // `data/hatched.json` and return it.
+      // When no IDENTITY.md exists, the writer persists a real `now`
+      // timestamp to `data/hatched.json` on first use and returns it.
+      // The wire contract never carries a zero/epoch sentinel.
       const state = (await computeRelationshipState()) as RelationshipStateLike;
       const parsed = Date.parse(state.hatchedDate);
       expect(parsed).toBeGreaterThan(0);
@@ -502,11 +517,10 @@ describe("relationship-state-writer", () => {
 
   describe("writeRelationshipState concurrency coalescing (Gap C)", () => {
     test("5 concurrent writes produce a valid on-disk snapshot and are coalesced", async () => {
-      // Regression guard for Gap C: pre-fix, overlapping writes
-      // raced on `writeFileSync` so the persisted file could reflect
-      // an older compute than the latest caller. Post-fix, the
-      // writer serializes and coalesces so at most two writes run
-      // for N overlapping callers (the in-flight + one tail).
+      // The writer serializes and coalesces overlapping calls: at most
+      // two compute+write cycles run for N concurrent callers (the
+      // in-flight write plus one coalesced tail), and the final
+      // on-disk snapshot reflects the latest completed compute.
       writeFile("USER.md", "- Preferred name: Concurrent");
       seedConversations(1);
 
