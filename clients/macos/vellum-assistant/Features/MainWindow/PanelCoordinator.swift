@@ -132,8 +132,24 @@ extension MainWindowView {
                     }
                 },
                 onStartConversation: { startNewConversation() },
-                onCapabilityCTA: nil,
-                onCapabilityShortcutCTA: nil,
+                onCapabilityCTA: { capability in
+                    let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .primary)
+                    conversationManager.openConversation(message: seed, forceNew: true)
+                    if let id = conversationManager.activeConversationId {
+                        windowState.selection = .conversation(id)
+                    } else {
+                        windowState.selection = nil
+                    }
+                },
+                onCapabilityShortcutCTA: { capability in
+                    let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .shortcut)
+                    conversationManager.openConversation(message: seed, forceNew: true)
+                    if let id = conversationManager.activeConversationId {
+                        windowState.selection = .conversation(id)
+                    } else {
+                        windowState.selection = nil
+                    }
+                },
                 connectionManager: connectionManager,
                 eventStreamClient: eventStreamClient,
                 store: settingsStore,
@@ -600,8 +616,22 @@ extension MainWindowView {
                     startNewConversation()
                     windowState.dismissOverlay()
                 },
-                onCapabilityCTA: nil,
-                onCapabilityShortcutCTA: nil,
+                onCapabilityCTA: { capability in
+                    let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .primary)
+                    conversationManager.openConversation(message: seed, forceNew: true)
+                    windowState.dismissOverlay()
+                    if let id = conversationManager.activeConversationId {
+                        windowState.selection = .conversation(id)
+                    }
+                },
+                onCapabilityShortcutCTA: { capability in
+                    let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .shortcut)
+                    conversationManager.openConversation(message: seed, forceNew: true)
+                    windowState.dismissOverlay()
+                    if let id = conversationManager.activeConversationId {
+                        windowState.selection = .conversation(id)
+                    }
+                },
                 connectionManager: connectionManager,
                 eventStreamClient: eventStreamClient,
                 store: settingsStore,
