@@ -70,6 +70,21 @@ public enum VellumEnvironment: String {
         }
     }
 
+    /// The directory name used under `~/Library/Application Support/` for
+    /// this environment.
+    ///
+    /// Production uses `vellum-assistant`; other environments append a
+    /// suffix (e.g. `vellum-assistant-dev`) so that multiple builds can
+    /// coexist without sharing data files.
+    public var appSupportDirectoryName: String {
+        switch self {
+        case .production:
+            return "vellum-assistant"
+        default:
+            return "vellum-assistant-\(rawValue)"
+        }
+    }
+
     /// The canonical Vellum platform API base URL for this environment.
     public var platformURL: String {
         switch self {

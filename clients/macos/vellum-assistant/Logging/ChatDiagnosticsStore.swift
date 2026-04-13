@@ -415,7 +415,7 @@ final class ChatDiagnosticsStore {
         ).first ?? FileManager.default.temporaryDirectory
 
         let logsDir = appSupport
-            .appendingPathComponent("vellum-assistant", isDirectory: true)
+            .appendingPathComponent(VellumEnvironment.current.appSupportDirectoryName, isDirectory: true)
             .appendingPathComponent("logs", isDirectory: true)
         self.logsDirectory = logsDir
 

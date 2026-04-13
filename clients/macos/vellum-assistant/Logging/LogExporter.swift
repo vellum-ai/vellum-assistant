@@ -286,7 +286,7 @@ enum LogExporter {
         if shouldCollectLogs {
             // 1-2. Client artifacts — session logs, debug-state, hang-context, hang-sample files
             if let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-                let appSupportDir = appSupport.appendingPathComponent("vellum-assistant", isDirectory: true)
+                let appSupportDir = appSupport.appendingPathComponent(VellumEnvironment.current.appSupportDirectoryName, isDirectory: true)
                 collectClientArtifacts(from: appSupportDir, into: tempDir, cutoffDate: cutoffDate, fileManager: fileManager)
             }
 
