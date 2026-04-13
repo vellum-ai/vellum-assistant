@@ -300,6 +300,21 @@ interface MediaStreamWebSocketData {
   session?: MediaStreamCallSession;
 }
 
+/**
+ * WebSocket data attached to `/v1/stt/stream` connections.
+ * The `wsType` discriminator routes frames to the STT streaming
+ * session stub instead of the other WebSocket handlers.
+ *
+ * This is a minimal deploy-safe stub — provider adapters will be
+ * wired in by a later PR.
+ */
+interface SttStreamWebSocketData {
+  wsType: "stt-stream";
+  provider: string;
+  mimeType: string;
+  sampleRate?: number;
+}
+
 export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
   private port: number;
@@ -393,7 +408,8 @@ export class RuntimeHttpServer {
     type AllWebSocketData =
       | RelayWebSocketData
       | BrowserRelayWebSocketData
-      | MediaStreamWebSocketData;
+      | MediaStreamWebSocketData
+      | SttStreamWebSocketData;
     this.server = Bun.serve<AllWebSocketData>({
       port: this.port,
       hostname: this.hostname,
@@ -435,6 +451,16 @@ export class RuntimeHttpServer {
             // handler tears down *this* session, not a replacement that
             // a reconnect may have inserted under the same callSessionId.
             msData.session = session;
+            return;
+          }
+          if ("wsType" in data && data.wsType === "stt-stream") {
+            const sttData = data as SttStreamWebSocketData;
+            log.info(
+              { provider: sttData.provider, mimeType: sttData.mimeType },
+              "STT stream WebSocket opened (stub)",
+            );
+            // Minimal stub — accept connect cleanly. Provider adapters
+            // will be wired in by a later PR.
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
@@ -581,6 +607,10 @@ export class RuntimeHttpServer {
             msData.session?.handleMessage(raw);
             return;
           }
+          if ("wsType" in data && data.wsType === "stt-stream") {
+            // Stub: drop inbound audio frames until provider adapters land.
+            return;
+          }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
           if (callSessionId) {
             const connection = activeRelayConnections.get(callSessionId);
@@ -624,6 +654,14 @@ export class RuntimeHttpServer {
                 activeMediaStreamSessions.delete(msData.callSessionId);
               }
             }
+            return;
+          }
+          if ("wsType" in data && data.wsType === "stt-stream") {
+            const sttData = data as SttStreamWebSocketData;
+            log.info(
+              { provider: sttData.provider, code, reason: reason?.toString() },
+              "STT stream WebSocket closed (stub)",
+            );
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
@@ -857,6 +895,15 @@ export class RuntimeHttpServer {
       req.headers.get("upgrade")?.toLowerCase() === "websocket"
     ) {
       return this.handleMediaStreamUpgrade(req, server);
+    }
+
+    // WebSocket upgrade for STT streaming — private-network restrictions
+    // and explicit gateway-service token verification before upgrade.
+    if (
+      path === "/v1/stt/stream" &&
+      req.headers.get("upgrade")?.toLowerCase() === "websocket"
+    ) {
+      return this.handleSttStreamUpgrade(req, server);
     }
 
     // Twilio webhook endpoints — before auth check because Twilio
@@ -1172,6 +1219,73 @@ export class RuntimeHttpServer {
         wsType: "media-stream",
         callSessionId,
       } satisfies MediaStreamWebSocketData,
+    });
+    if (!upgraded) {
+      return new Response("WebSocket upgrade failed", { status: 500 });
+    }
+    // Bun's WebSocket upgrade consumes the request — no Response is sent.
+    return undefined!;
+  }
+
+  /**
+   * Handle WebSocket upgrade for `/v1/stt/stream`.
+   *
+   * Private-network restrictions apply (same as relay/media-stream) so the
+   * runtime remains unreachable from the public internet. The gateway
+   * authenticates the downstream client and proxies the upgrade with a
+   * short-lived gateway service token.
+   */
+  private handleSttStreamUpgrade(
+    req: Request,
+    server: ReturnType<typeof Bun.serve>,
+  ): Response {
+    if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
+      return httpError(
+        "FORBIDDEN",
+        "Direct STT stream access disabled — only private network peers allowed",
+        403,
+      );
+    }
+
+    // Verify the gateway service token before accepting the upgrade.
+    if (!isHttpAuthDisabled()) {
+      const wsUrl = new URL(req.url);
+      const token = wsUrl.searchParams.get("token");
+      if (!token) {
+        return httpError("UNAUTHORIZED", "Unauthorized", 401);
+      }
+      const jwtResult = verifyToken(token, "vellum-daemon");
+      if (!jwtResult.ok) {
+        return httpError("UNAUTHORIZED", "Unauthorized", 401);
+      }
+      // Accept gateway service tokens (svc:gateway:*) — these are the
+      // only tokens the gateway mints for upstream connections.
+      const subResult = parseSub(jwtResult.claims.sub);
+      if (!subResult.ok || subResult.principalType !== "svc_gateway") {
+        return httpError("UNAUTHORIZED", "Unauthorized", 401);
+      }
+    }
+
+    const wsUrl = new URL(req.url);
+    const provider = wsUrl.searchParams.get("provider");
+    const mimeType = wsUrl.searchParams.get("mimeType");
+    if (!provider || !mimeType) {
+      return new Response(
+        "Missing required query parameters: provider, mimeType",
+        { status: 400 },
+      );
+    }
+
+    const sampleRateRaw = wsUrl.searchParams.get("sampleRate");
+    const sampleRate = sampleRateRaw ? parseInt(sampleRateRaw, 10) : undefined;
+
+    const upgraded = server.upgrade(req, {
+      data: {
+        wsType: "stt-stream",
+        provider,
+        mimeType,
+        sampleRate,
+      } satisfies SttStreamWebSocketData,
     });
     if (!upgraded) {
       return new Response("WebSocket upgrade failed", { status: 500 });
