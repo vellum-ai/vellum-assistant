@@ -297,6 +297,8 @@ References:
 
 ### Architecture: Flat Scroll Coordinator
 
+> **Canonical reference:** See [`clients/macos/SCROLL_STRATEGY.md`](macos/SCROLL_STRATEGY.md) for the full scroll behavior specification, design decisions, and restoration guide. If scroll behavior breaks, use that document as the source of truth.
+
 The scroll system has no mode-based state machine. `MessageListScrollState` (`Features/Chat/MessageListScrollState.swift`) is a lightweight `@Observable @MainActor` class owned by `MessageListView` via `@State`. It tracks CTA visibility and distance-from-bottom — not scroll modes.
 
 **Threads open at top.** `.defaultScrollAnchor(.top, for: .initialOffset)` on the ScrollView positions new and switched conversations at the top. No explicit scroll-to-bottom on conversation switch — SwiftUI handles it via `.id(conversationId)` recreation.
