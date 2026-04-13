@@ -702,13 +702,6 @@ final class VoiceInputManager {
             && speechRecognizer != nil
             && speechStatus == .authorized
 
-        // Proactively request speech recognition permission in the background
-        // when STT is configured but speech auth is undecided. If granted,
-        // the next recording will have native partials + fallback.
-        if sttConfigured && !useNativeRecognizer && speechStatus == .notDetermined {
-            speechRecognizerAdapter.requestAuthorization { _ in }
-        }
-
         // Don't start if a previous recognition task is still processing
         if recognitionTask != nil {
             log.warning("Previous recognition task still active (state=\(String(describing: self.recognitionTask?.state))), skipping")
@@ -1015,7 +1008,7 @@ final class VoiceInputManager {
                             self.onTranscription?(resolvedText)
                         } else {
                             VoiceFeedback.playDeactivationChime()
-                            self.overlayWindow.show(state: .error("Transcription failed. Enable Speech Recognition in System Settings for a reliable fallback."))
+                            self.showSpeechRecognitionFallbackPrompt()
                         }
                     }
                 } else {
@@ -1054,12 +1047,13 @@ final class VoiceInputManager {
                 // When both STT service and native recognizer produced nothing,
                 // show an error overlay instead of sending empty text to the daemon.
                 if resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    log.warning("STT-only dictation produced no transcription — showing error overlay")
+                    log.warning("STT-only dictation produced no transcription — prompting for speech recognition")
                     await MainActor.run { [weak self] in
                         guard let self else { return }
                         self.awaitingDaemonResponse = false
-                        self.overlayWindow.show(state: .error("Transcription failed. Enable Speech Recognition in System Settings for a reliable fallback."))
+                        self.overlayWindow.dismiss()
                         VoiceFeedback.playDeactivationChime()
+                        self.showSpeechRecognitionFallbackPrompt()
                     }
                     return
                 }
@@ -1164,6 +1158,24 @@ final class VoiceInputManager {
             bitsPerSample: 16
         )
         return AudioWavEncoder.encode(pcmData: pcmData, format: wavFormat)
+    }
+
+    /// Show the speech recognition permission prompt after an STT transcription failure.
+    /// When speech recognition is `.notDetermined`, this primes the user with a first-use
+    /// overlay before requesting authorization. When denied, it directs them to System Settings.
+    private func showSpeechRecognitionFallbackPrompt() {
+        let speechStatus = speechRecognizerAdapter.authorizationStatus()
+        if speechStatus == .notDetermined {
+            // Show the first-use primer so the user understands why we're asking,
+            // then request authorization. If granted, the next recording attempt
+            // will have native partials + fallback.
+            permissionOverlay.show(kind: .firstUse, onDismiss: {}, onContinue: { [weak self] in
+                self?.speechRecognizerAdapter.requestAuthorization { _ in }
+            })
+        } else {
+            // Speech recognition was previously denied — direct to System Settings.
+            permissionOverlay.show(kind: .denied(.speechRecognition), onDismiss: {}, onContinue: {})
+        }
     }
 
     /// Handle the dictation response — insert cleaned text or route action mode to a task.
@@ -1292,9 +1304,9 @@ final class VoiceInputManager {
                         VoiceFeedback.playDeactivationChime()
                         self.onTranscription?(resolvedText)
                     } else {
-                        log.warning("STT-only conversation transcription empty — showing error overlay")
+                        log.warning("STT-only conversation transcription empty — prompting for speech recognition")
                         VoiceFeedback.playDeactivationChime()
-                        self.overlayWindow.show(state: .error("Transcription failed. Enable Speech Recognition in System Settings for a reliable fallback."))
+                        self.showSpeechRecognitionFallbackPrompt()
                     }
                 }
                 return
