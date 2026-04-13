@@ -347,6 +347,7 @@ struct ChatView: View {
     @ViewBuilder
     private func activeConversationContent(containerWidth: CGFloat, containerHeight: CGFloat = 0) -> some View {
         let layoutMetrics = MessageListLayoutMetrics(containerWidth: containerWidth)
+        let queuedMessages = viewModel.queuedMessages
         VStack(spacing: 0) {
             MessageListView(
                 // -- TranscriptProjector inputs --
@@ -436,14 +437,13 @@ struct ChatView: View {
                 .padding(.bottom, -VSpacing.sm)
             }
 
-            if !viewModel.queuedMessages.isEmpty {
+            if !queuedMessages.isEmpty {
                 QueuedMessagesDrawer(
                     viewModel: viewModel,
                     composerText: $viewModel.inputText,
                     composerAttachments: $viewModel.pendingAttachments
                 )
                 .transition(.move(edge: .bottom).combined(with: .opacity))
-                .animation(.spring(duration: 0.28, bounce: 0.15), value: viewModel.queuedMessages.count)
             }
 
             if isReadonly {
@@ -500,6 +500,7 @@ struct ChatView: View {
                 }
             }
         }
+        .animation(.spring(duration: 0.28, bounce: 0.15), value: queuedMessages.isEmpty)
     }
 
     private func toggleConversationHostAccess() {
