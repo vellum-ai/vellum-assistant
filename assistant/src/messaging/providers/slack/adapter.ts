@@ -165,7 +165,7 @@ export const slackProvider: MessagingProvider = {
   id: "slack",
   displayName: "Slack",
   credentialService: "slack",
-  capabilities: new Set(["reactions", "threads", "leave_channel"]),
+  capabilities: new Set(["reactions", "threads", "join_channel", "leave_channel"]),
 
   async isConnected(): Promise<boolean> {
     // Socket Mode: check for bot token directly in credential store.

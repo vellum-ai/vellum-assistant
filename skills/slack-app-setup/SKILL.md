@@ -45,7 +45,7 @@ Run this `bash` command, setting `BOT_NAME` and `BOT_DESC` to the user's chosen 
 
 ```
 bash {
-  command: "BOT_NAME='<user_name>' BOT_DESC='<user_description>' bun -e \"const name = process.env.BOT_NAME; const desc = process.env.BOT_DESC; const manifest = { display_information: { name, description: desc, background_color: '#1a1a2e' }, features: { app_home: { home_tab_enabled: false, messages_tab_enabled: true, messages_tab_read_only_enabled: false }, bot_user: { display_name: name, always_online: true } }, oauth_config: { scopes: { bot: ['app_mentions:read','assistant:write','channels:history','channels:read','chat:write','files:read','files:write','groups:history','groups:read','im:history','im:read','im:write','mpim:history','mpim:read','reactions:read','reactions:write','users:read'] } }, settings: { event_subscriptions: { bot_events: ['app_mention','message.channels','message.groups','message.im','message.mpim','reaction_added'] }, interactivity: { is_enabled: true }, org_deploy_enabled: false, socket_mode_enabled: true, token_rotation_enabled: false } }; const url = 'https://api.slack.com/apps?new_app=1&manifest_json=' + encodeURIComponent(JSON.stringify(manifest)); console.log(url);\""
+  command: "BOT_NAME='<user_name>' BOT_DESC='<user_description>' bun -e \"const name = process.env.BOT_NAME; const desc = process.env.BOT_DESC; const manifest = { display_information: { name, description: desc, background_color: '#1a1a2e' }, features: { app_home: { home_tab_enabled: false, messages_tab_enabled: true, messages_tab_read_only_enabled: false }, bot_user: { display_name: name, always_online: true } }, oauth_config: { scopes: { bot: ['app_mentions:read','assistant:write','channels:history','channels:join','channels:read','chat:write','files:read','files:write','groups:history','groups:read','im:history','im:read','im:write','mpim:history','mpim:read','reactions:read','reactions:write','users:read'] } }, settings: { event_subscriptions: { bot_events: ['app_mention','message.channels','message.groups','message.im','message.mpim','reaction_added'] }, interactivity: { is_enabled: true }, org_deploy_enabled: false, socket_mode_enabled: true, token_rotation_enabled: false } }; const url = 'https://api.slack.com/apps?new_app=1&manifest_json=' + encodeURIComponent(JSON.stringify(manifest)); console.log(url);\""
   activity: "to generate the Slack app manifest link"
 }
 ```
@@ -132,7 +132,7 @@ If identity was verified:
 ✅ Connection tested
 
 Connected: @{botUsername} in {workspace}
-Channels: Invite the bot to any channel with `/invite @{botUsername}`. DMs work immediately.
+Channels: @mention the bot in any channel to add it, or use `/invite @{botUsername}`. DMs work immediately.
 Identity: verified"
 
 If identity was skipped:
@@ -144,14 +144,14 @@ If identity was skipped:
 ⬜ Connection tested — you can complete this anytime by saying 'verify me on slack'
 
 Connected: @{botUsername} in {workspace}
-Channels: Invite the bot to any channel with `/invite @{botUsername}`. DMs work immediately.
+Channels: @mention the bot in any channel to add it, or use `/invite @{botUsername}`. DMs work immediately.
 Identity: skipped"
 
 ## Troubleshooting
 
 ### Bot not responding in channels
 
-The bot must be invited to each channel where you want it to listen. Use `/invite @{botUsername}` in the channel.
+The bot must be added to each channel where you want it to listen. @mention the bot in the channel — Slack will prompt "Add Them" — or use `/invite @{botUsername}`.
 
 ### Socket Mode disconnects
 

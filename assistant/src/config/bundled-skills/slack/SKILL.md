@@ -50,6 +50,7 @@ Refer to https://api.slack.com/methods for available endpoints. The bot token sc
 ### Reacting & managing
 
 - `reactions.add` — add an emoji reaction
+- `conversations.join` — join a public channel
 - `conversations.leave` — leave a channel
 - `search.messages` — search across the workspace
 
