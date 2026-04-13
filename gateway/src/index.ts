@@ -1338,6 +1338,39 @@ async function main() {
   // ── Slack Socket Mode lifecycle ──
   let slackSocketClient: SlackSocketModeClient | null = null;
 
+  /** Fire-and-forget: notify the platform of inbound Slack activity so the
+   *  idle-sleep timer is reset for this assistant. */
+  function notifyRecordActivity(): void {
+    Promise.all([
+      credentialCache.get(credentialKey("vellum", "platform_base_url")),
+      credentialCache.get(credentialKey("vellum", "assistant_api_key")),
+      credentialCache.get(credentialKey("vellum", "platform_assistant_id")),
+    ])
+      .then(([platformBaseUrl, assistantApiKey, assistantId]) => {
+        if (!platformBaseUrl || !assistantApiKey || !assistantId) return;
+        const baseUrl = platformBaseUrl.trim().replace(/\/+$/, "");
+        const id = assistantId.trim();
+        fetchImpl(`${baseUrl}/v1/assistants/${id}/record-activity/`, {
+          method: "POST",
+          headers: {
+            Authorization: `Api-Key ${assistantApiKey.trim()}`,
+          },
+          signal: AbortSignal.timeout(10_000),
+        }).catch((err) => {
+          log.debug(
+            { err },
+            "Failed to notify platform of Slack activity for idle sleep",
+          );
+        });
+      })
+      .catch((err) => {
+        log.debug(
+          { err },
+          "Failed to read credentials for idle sleep notification",
+        );
+      });
+  }
+
   async function startSlackSocket(): Promise<void> {
     if (slackSocketClient) {
       slackSocketClient.stop();
@@ -1355,6 +1388,10 @@ async function main() {
     slackSocketClient = createSlackSocketModeClient(
       { appToken, botToken, gatewayConfig: config },
       (normalized) => {
+        // Notify the platform of inbound activity so the idle-sleep timer
+        // is reset for this assistant (fire-and-forget).
+        notifyRecordActivity();
+
         const { threadTs, channel } = normalized;
         const params = new URLSearchParams({ channel });
         if (threadTs) params.set("threadTs", threadTs);
