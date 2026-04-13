@@ -668,6 +668,10 @@ struct ChatBubble: View, Equatable {
     private func heuristicUserMessageCollapseWrapper<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             content()
+                // Clip to same height as the measurement-based collapse path
+                // so both produce a consistent collapsed height.
+                .frame(height: isUserMessageExpanded ? nil : userMessageMaxCollapsedHeight, alignment: .top)
+                .clipped()
                 .overlay(alignment: .bottom) {
                     if !isUserMessageExpanded {
                         LinearGradient(

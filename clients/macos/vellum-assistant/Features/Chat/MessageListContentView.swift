@@ -180,6 +180,10 @@ struct MessageListContentView: View, Equatable {
                 guard let lastUser = state.rows.last(where: { $0.message.role == .user }) else {
                     return 80
                 }
+                // Messages with attachments are always collapsed — use max height
+                if !lastUser.message.attachments.isEmpty {
+                    return 260
+                }
                 let text = lastUser.message.text as NSString
                 let contentWidth = max(layoutMetrics.bubbleMaxWidth - 2 * VSpacing.lg, 0)
                 let font = NSFont.systemFont(ofSize: 14, weight: .regular)
