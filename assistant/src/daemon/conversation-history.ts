@@ -566,8 +566,20 @@ export async function regenerate(
   conversation.abortController = new AbortController();
   conversation.currentRequestId = requestId ?? uuid();
 
-  await conversation.runAgentLoop(content, existingUserMessageId, onEvent, {
-    skipPreMessageRollback: true,
-    isUserMessage: true,
-  });
+  // Fire-and-forget: matches the /v1/messages pattern so the HTTP handler
+  // returns 202 immediately rather than blocking on the full agent turn.
+  // Otherwise the client's 15s POST timeout fires on any non-trivial
+  // regenerate and surfaces a misleading "Failed to regenerate message"
+  // banner even though the response streams in normally via SSE.
+  void conversation
+    .runAgentLoop(content, existingUserMessageId, onEvent, {
+      skipPreMessageRollback: true,
+      isUserMessage: true,
+    })
+    .catch((err) => {
+      log.error(
+        { err, conversationId: conversation.conversationId },
+        "runAgentLoop after regenerate failed",
+      );
+    });
 }
