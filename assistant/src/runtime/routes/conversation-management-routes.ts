@@ -14,6 +14,7 @@
  * POST   /v1/conversations/:id/undo       — undo last message
  * POST   /v1/conversations/:id/regenerate — regenerate last assistant response
  * POST   /v1/conversations/reorder        — reorder / pin conversations
+ * POST   /v1/conversations/:id/open      — navigate client to a conversation
  */
 
 import { z } from "zod";
@@ -637,6 +638,56 @@ export function conversationManagementRouteDefinitions(
             groupId: u.groupId,
           })),
         );
+        return Response.json({ ok: true });
+      },
+    },
+    {
+      endpoint: "conversations/:id/open",
+      method: "POST",
+      policyKey: "conversations/open",
+      summary: "Navigate client to a conversation",
+      description:
+        "Publish an open_conversation event so connected clients navigate to the specified conversation.",
+      tags: ["conversations"],
+      requestBody: z.object({
+        title: z
+          .string()
+          .optional()
+          .describe(
+            "Optional title for stubbing a sidebar entry if the client hasn't loaded this conversation yet",
+          ),
+        focus: z
+          .boolean()
+          .optional()
+          .describe(
+            "When false, register the conversation in the sidebar without switching focus. Defaults to true.",
+          ),
+      }),
+      responseBody: z.object({ ok: z.boolean() }),
+      handler: async ({ req, params }) => {
+        const conversationId = params.id;
+        if (!conversationId) {
+          return httpError("BAD_REQUEST", "Missing conversation id", 400);
+        }
+
+        const body = (await req.json().catch(() => ({}))) as {
+          title?: string;
+          focus?: boolean;
+        };
+
+        await assistantEventHub.publish(
+          buildAssistantEvent(
+            DAEMON_INTERNAL_ASSISTANT_ID,
+            {
+              type: "open_conversation",
+              conversationId,
+              ...(body.title ? { title: body.title } : {}),
+              ...(body.focus !== undefined ? { focus: body.focus } : {}),
+            },
+            conversationId,
+          ),
+        );
+
         return Response.json({ ok: true });
       },
     },
