@@ -55,7 +55,7 @@ The request carries base64-encoded WAV audio and a MIME type. The daemon resolve
 
 Native clients (macOS, iOS) open WebSocket connections through the gateway to the daemon's real-time STT streaming endpoint for conversation chat message capture. The gateway authenticates the downstream client using an edge JWT (actor principal required), then opens an upstream WebSocket connection to the daemon's `/v1/stt/stream` endpoint with a short-lived gateway service token. This keeps the daemon's WebSocket endpoint unreachable from the public internet while allowing authenticated clients to stream audio for real-time transcription.
 
-**Client path:** `wss://<gateway>/v1/assistants/:assistantId/stt/stream?provider=<id>&mimeType=<mime>[&sampleRate=<hz>]`
+**Client path:** `wss://<gateway>/v1/stt/stream?provider=<id>&mimeType=<mime>[&sampleRate=<hz>]`
 
 **Query parameters:**
 
