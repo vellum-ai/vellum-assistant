@@ -121,6 +121,18 @@ export function getTwilioRelayUrl(config: IngressConfig): string {
 }
 
 /**
+ * Build the Twilio media-stream WebSocket URL.
+ * Used for the `<Stream>` TwiML path when the STT provider requires
+ * custom server-side transcription (e.g. OpenAI Whisper).
+ * Converts http:// → ws:// and https:// → wss://.
+ */
+export function getTwilioMediaStreamUrl(config: IngressConfig): string {
+  const base = getPublicBaseUrl(config);
+  const wsBase = base.replace(/^http(s?)/, "ws$1");
+  return `${wsBase}/ws/twilio/media-stream`;
+}
+
+/**
  * Build the OAuth callback URL.
  */
 export function getOAuthCallbackUrl(config: IngressConfig): string {
