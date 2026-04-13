@@ -844,9 +844,25 @@ describe("gateway-only ingress enforcement", () => {
       expect(res.status).not.toBe(401);
     });
 
-    test("returns 400 when provider is missing", async () => {
+    test("succeeds when provider is omitted (config-authoritative)", async () => {
       const res = await fetch(
         `http://127.0.0.1:${port}/v1/stt/stream?token=${GATEWAY_JWT}&mimeType=audio/webm`,
+        {
+          headers: {
+            Upgrade: "websocket",
+            Connection: "Upgrade",
+            "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+            "Sec-WebSocket-Version": "13",
+          },
+        },
+      );
+      // Should NOT be 400 — provider is optional.
+      expect(res.status).not.toBe(400);
+    });
+
+    test("returns 400 when mimeType is missing", async () => {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/v1/stt/stream?token=${GATEWAY_JWT}&provider=deepgram`,
         {
           headers: {
             Upgrade: "websocket",
@@ -859,9 +875,9 @@ describe("gateway-only ingress enforcement", () => {
       expect(res.status).toBe(400);
     });
 
-    test("returns 400 when mimeType is missing", async () => {
+    test("returns 400 when both provider and mimeType are missing", async () => {
       const res = await fetch(
-        `http://127.0.0.1:${port}/v1/stt/stream?token=${GATEWAY_JWT}&provider=deepgram`,
+        `http://127.0.0.1:${port}/v1/stt/stream?token=${GATEWAY_JWT}`,
         {
           headers: {
             Upgrade: "websocket",

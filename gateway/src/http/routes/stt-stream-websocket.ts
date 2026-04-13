@@ -14,8 +14,15 @@ const MAX_PENDING_MESSAGES = 100;
 export type SttStreamSocketData = {
   wsType: "stt-stream";
   config: GatewayConfig;
-  /** Provider identifier for the STT streaming session (e.g. "deepgram", "google-gemini"). */
-  provider: string;
+  /**
+   * Optional provider identifier for the STT streaming session (e.g.
+   * "deepgram", "google-gemini"). The runtime is config-authoritative —
+   * it always resolves the streaming transcriber from `services.stt.provider`
+   * regardless of this value. When supplied, it is forwarded as compatibility
+   * metadata and the runtime logs a mismatch warning if it disagrees with
+   * the configured provider.
+   */
+  provider?: string;
   /** MIME type of the audio being streamed (e.g. "audio/webm;codecs=opus"). */
   mimeType: string;
   /** Sample rate in Hz, when applicable. */
@@ -53,16 +60,13 @@ export function createSttStreamWebsocketHandler(config: GatewayConfig) {
     if (!config.runtimeProxyRequireAuth) {
       // When runtime proxy auth is globally disabled (dev bypass), we
       // still allow the upgrade but skip token validation.
-      const provider = url.searchParams.get("provider");
+      const provider = url.searchParams.get("provider") ?? undefined;
       const mimeType = url.searchParams.get("mimeType");
 
-      if (!provider || !mimeType) {
-        return new Response(
-          "Missing required query parameters: provider, mimeType",
-          {
-            status: 400,
-          },
-        );
+      if (!mimeType) {
+        return new Response("Missing required query parameter: mimeType", {
+          status: 400,
+        });
       }
 
       const sampleRateRaw = url.searchParams.get("sampleRate");
@@ -126,17 +130,16 @@ export function createSttStreamWebsocketHandler(config: GatewayConfig) {
       return new Response("Unauthorized", { status: 401 });
     }
 
-    // ── Required query parameters ──
-    const provider = url.searchParams.get("provider");
+    // ── Query parameters ──
+    // mimeType is required; provider is optional compatibility metadata
+    // (the runtime resolves the transcriber from config, not from the query).
+    const provider = url.searchParams.get("provider") ?? undefined;
     const mimeType = url.searchParams.get("mimeType");
 
-    if (!provider || !mimeType) {
-      return new Response(
-        "Missing required query parameters: provider, mimeType",
-        {
-          status: 400,
-        },
-      );
+    if (!mimeType) {
+      return new Response("Missing required query parameter: mimeType", {
+        status: 400,
+      });
     }
 
     const sampleRateRaw = url.searchParams.get("sampleRate");
@@ -177,15 +180,19 @@ export function getSttStreamWebsocketHandlers() {
       const upstreamToken = mintServiceToken();
       const query = new URLSearchParams({
         token: upstreamToken,
-        provider,
         mimeType,
       });
+      if (provider) {
+        query.set("provider", provider);
+      }
       if (sampleRate !== undefined) {
         query.set("sampleRate", String(sampleRate));
       }
       const upstreamUrl = `${runtimeBase}/v1/stt/stream?${query.toString()}`;
       const logSafeUpstreamUrl =
-        `${runtimeBase}/v1/stt/stream?token=<redacted>&provider=${provider}&mimeType=${encodeURIComponent(mimeType)}` +
+        `${runtimeBase}/v1/stt/stream?token=<redacted>` +
+        (provider ? `&provider=${provider}` : "") +
+        `&mimeType=${encodeURIComponent(mimeType)}` +
         (sampleRate !== undefined ? `&sampleRate=${sampleRate}` : "");
 
       log.info(
