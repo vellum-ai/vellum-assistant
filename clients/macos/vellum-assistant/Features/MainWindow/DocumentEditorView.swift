@@ -407,6 +407,22 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
       // Initial word count
       updateWordCount();
 
+      // Sync dark mode class when system appearance changes (fixes race
+      // condition where WKWebView appearance may not be resolved at init)
+      const darkMQ = window.matchMedia('(prefers-color-scheme: dark)');
+      function syncDarkClass(e) {
+        const editorEl = document.querySelector('.toastui-editor-defaultUI');
+        if (!editorEl) return;
+        if (e.matches) {
+          editorEl.classList.add('toastui-editor-dark');
+        } else {
+          editorEl.classList.remove('toastui-editor-dark');
+        }
+      }
+      // Apply immediately in case JS ran before appearance was resolved
+      syncDarkClass(darkMQ);
+      darkMQ.addEventListener('change', syncDarkClass);
+
       // Focus editor
       setTimeout(() => window.editor.focus(), 100);
     } catch (e) {
