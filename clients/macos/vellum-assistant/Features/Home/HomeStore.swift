@@ -79,6 +79,14 @@ public final class HomeStore {
         }
     }
 
+    /// Producer-side flip for the unseen-changes badge. Invoked by the SSE
+    /// handler when an update arrives while the Home tab is not visible.
+    /// Kept at `internal` so the `HomeStore+SSE` extension can drive it
+    /// without exposing it to the rest of the app.
+    func flagUnseenChanges() {
+        hasUnseenChanges = true
+    }
+
     /// Clears the unseen-changes badge. Called by the Home tab host when the
     /// user navigates to the Home tab. PR 16 will drive the producer side;
     /// the clearer is exposed here so the acceptance-criteria surface is
