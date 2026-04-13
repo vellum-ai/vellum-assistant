@@ -3,13 +3,16 @@ import { spawn } from "child_process";
 import { randomBytes } from "crypto";
 
 import {
-  saveAssistantEntry,
-  setActiveAssistant,
+  findAssistantByName,
+  getActiveAssistant,
+  loadLatestAssistant,
 } from "../lib/assistant-config";
+import { computeDeviceId } from "../lib/guardian-token";
 import {
   clearPlatformToken,
-  fetchActiveAssistant,
+  ensureSelfHostedLocalRegistration,
   fetchCurrentUser,
+  fetchOrganizationId,
   getPlatformUrl,
   readPlatformToken,
   savePlatformToken,
@@ -166,23 +169,30 @@ export async function login(): Promise<void> {
     savePlatformToken(token);
     console.log(`✅ Logged in as ${user.email}`);
 
-    // Register the user's active platform assistant in the lockfile
+    // Register the local assistant with the platform (non-fatal).
+    // Mirrors the desktop app's LocalAssistantBootstrapService flow.
     try {
-      const assistant = await fetchActiveAssistant(token);
-      if (assistant) {
-        const platformUrl = getPlatformUrl();
-        saveAssistantEntry({
-          assistantId: assistant.id,
-          runtimeUrl: platformUrl,
-          cloud: "vellum",
-          species: "vellum",
-          hatchedAt: new Date().toISOString(),
-        });
-        setActiveAssistant(assistant.id);
-        console.log(`Active assistant: ${assistant.name} (${assistant.id})`);
+      const activeName = getActiveAssistant();
+      const entry = activeName
+        ? findAssistantByName(activeName)
+        : loadLatestAssistant();
+
+      if (entry) {
+        const orgId = await fetchOrganizationId(token);
+        const clientInstallationId = computeDeviceId();
+        const registration = await ensureSelfHostedLocalRegistration(
+          token,
+          orgId,
+          clientInstallationId,
+          entry.assistantId,
+          "cli",
+        );
+        console.log(
+          `Registered assistant: ${registration.assistant.name} (${registration.assistant.id})`,
+        );
       }
     } catch {
-      // Non-fatal — login succeeded even if assistant registration fails
+      // Non-fatal — login succeeded even if registration fails
     }
   } catch (error) {
     console.error(
