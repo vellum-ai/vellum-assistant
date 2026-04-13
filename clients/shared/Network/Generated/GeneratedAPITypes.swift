@@ -2959,6 +2959,20 @@ public struct OpenUrl: Codable, Sendable {
     }
 }
 
+public struct OpenConversation: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+    public let title: String?
+    public let anchorMessageId: String?
+
+    public init(type: String, conversationId: String, title: String? = nil, anchorMessageId: String? = nil) {
+        self.type = type
+        self.conversationId = conversationId
+        self.title = title
+        self.anchorMessageId = anchorMessageId
+    }
+}
+
 public struct PairingApprovalRequest: Codable, Sendable {
     public let type: String
     public let pairingRequestId: String
