@@ -127,6 +127,45 @@ mock.module("../runtime/assistant-scope.js", () => ({
   DAEMON_INTERNAL_ASSISTANT_ID: "self",
 }));
 
+// Mock the relay setup router so handleStart() doesn't query the database.
+// Returns a normal_call outcome with minimal resolved context.
+mock.module("../calls/relay-setup-router.js", () => ({
+  routeSetup: jest.fn(() => ({
+    outcome: { action: "normal_call" as const, isInbound: true },
+    resolved: {
+      assistantId: "self",
+      isInbound: true,
+      otherPartyNumber: "+15551234567",
+      actorTrust: {
+        trustClass: "guardian" as const,
+        memberRecord: null,
+      },
+    },
+  })),
+}));
+
+// Mock the actor trust resolver (used by handleStart to derive trust context)
+mock.module("../runtime/actor-trust-resolver.js", () => ({
+  toTrustContext: jest.fn(() => ({
+    sourceChannel: "phone",
+    trustClass: "guardian",
+  })),
+  resolveActorTrust: jest.fn(() => ({
+    trustClass: "guardian",
+    memberRecord: null,
+  })),
+}));
+
+// Mock the call speech output (speakSystemPrompt used in deny/unsupported paths)
+mock.module("../calls/call-speech-output.js", () => ({
+  speakSystemPrompt: jest.fn(async () => {}),
+}));
+
+// Mock scoped approval grants (used in handleTransportClosed and early teardown)
+mock.module("../memory/scoped-approval-grants.js", () => ({
+  revokeScopedApprovalGrantsForContext: jest.fn(),
+}));
+
 // Mock the TTS provider resolution so that the dynamic import inside
 // MediaStreamOutput.processSynthesizeItem() doesn't pull in the real
 // config/provider chain (which would hang or error in a test environment).

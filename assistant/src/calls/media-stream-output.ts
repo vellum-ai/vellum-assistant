@@ -412,10 +412,15 @@ export class MediaStreamOutput implements CallTransport {
 
       if (version !== this.playbackVersion || this.isClosed()) return;
 
-      // Synthesize the text
+      // Synthesize the text. Request PCM output so the media-stream
+      // transport receives raw samples it can transcode to mu-law.
+      // Providers that support it (e.g. ElevenLabs pcm_16000) will
+      // return raw PCM; others fall back to their default format and
+      // the content-type sniffing below handles the mismatch.
       const result = await provider.synthesize({
         text,
         useCase: "phone-call",
+        outputFormat: "pcm",
         signal: abortController.signal,
       });
 
@@ -425,13 +430,19 @@ export class MediaStreamOutput implements CallTransport {
       // than the declared audioFormat. The declared format may not match
       // reality (e.g. preferWav requests WAV but the provider returns mp3).
       // audioBufferToFrames also sniffs magic bytes as a safety net.
-      const actualFormat: "mp3" | "wav" | "opus" =
+      const actualFormat: "mp3" | "wav" | "opus" | "pcm" =
         result.contentType.includes("wav") ||
         result.contentType.includes("x-wav")
           ? "wav"
           : result.contentType.includes("opus")
             ? "opus"
-            : audioFormat; // fall back to declared format for unknown types
+            : result.contentType.includes("mpeg") ||
+                result.contentType.includes("mp3")
+              ? "mp3"
+              : result.contentType.includes("pcm") ||
+                  result.contentType.includes("x-raw")
+                ? "pcm"
+                : audioFormat; // fall back to declared format for unknown types
       const frames = this.audioBufferToFrames(result.audio, actualFormat);
       if (version !== this.playbackVersion || this.isClosed()) return;
 
@@ -482,11 +493,13 @@ export class MediaStreamOutput implements CallTransport {
       if (version !== this.playbackVersion || this.isClosed()) return;
 
       const contentType = response.headers.get("content-type") ?? "audio/mpeg";
-      const format = contentType.includes("wav")
+      const format: "mp3" | "wav" | "opus" | "pcm" = contentType.includes("wav")
         ? "wav"
         : contentType.includes("opus")
           ? "opus"
-          : "mp3";
+          : contentType.includes("pcm") || contentType.includes("x-raw")
+            ? "pcm"
+            : "mp3";
 
       const frames = this.audioBufferToFrames(buffer, format);
       if (version !== this.playbackVersion || this.isClosed()) return;
@@ -522,20 +535,16 @@ export class MediaStreamOutput implements CallTransport {
    *
    * - **WAV** (`RIFF` header, bytes `0x52 0x49 0x46 0x46`): extracts
    *   raw PCM data from the WAV container and converts to mu-law.
-   * - **Everything else**: passed through as raw bytes via
-   *   {@link chunkMulawToBase64Frames}. This works when the TTS provider
-   *   outputs mu-law or PCM directly, but will produce garbled audio for
-   *   genuinely compressed formats (mp3, opus) since we lack a native
-   *   decoder.
-   *
-   * The primary production egress path routes TTS through the
-   * call-controller's audio store mechanism, which handles transcoding
-   * properly; this direct conversion is a fallback for the media-stream
-   * transport's simpler egress model.
+   * - **PCM** (raw 16-bit signed LE at a known sample rate): converts
+   *   directly to mu-law, downsampling from 16 kHz to 8 kHz if needed.
+   * - **Compressed formats** (mp3, opus): cannot be decoded in this
+   *   path — returns empty frames (silence) with a warning. Compressed
+   *   formats require the audio-store playback path (`sendPlayUrl`)
+   *   for correct transcoding. Silence is preferable to garbled audio.
    */
   private audioBufferToFrames(
     audio: Buffer,
-    _format: "mp3" | "wav" | "opus",
+    format: "mp3" | "wav" | "opus" | "pcm",
   ): string[] {
     // Sniff the actual bytes rather than trusting the declared format.
     // WAV files always start with the ASCII magic "RIFF" (0x52494646).
@@ -555,30 +564,55 @@ export class MediaStreamOutput implements CallTransport {
       return chunkMulawToBase64Frames(mulawBuffer);
     }
 
-    // Not a WAV file — the bytes are likely a compressed format (mp3, opus)
-    // or raw mu-law/PCM. Log a warning when the declared format claimed WAV
-    // but the bytes say otherwise, since this mismatch would have previously
-    // caused garbled audio.
-    if (_format === "wav") {
+    // Raw PCM (e.g. from ElevenLabs pcm_16000): convert directly to mu-law.
+    // ElevenLabs pcm_16000 produces 16-bit signed LE at 16 kHz. Twilio
+    // needs 8 kHz mu-law, so we downsample by taking every other sample.
+    if (format === "pcm") {
+      if (audio.length < 2) return [];
+      // Downsample 16 kHz -> 8 kHz by taking every other sample.
+      // Each sample is 2 bytes (16-bit LE), so we step by 4 bytes.
+      const sampleCount = Math.floor(audio.length / 2);
+      const downsampledCount = Math.floor(sampleCount / 2);
+      const downsampled = Buffer.alloc(downsampledCount * 2);
+      for (let i = 0; i < downsampledCount; i++) {
+        // Copy every other 16-bit sample
+        downsampled[i * 2] = audio[i * 4];
+        downsampled[i * 2 + 1] = audio[i * 4 + 1];
+      }
+      const mulawBuffer = pcm16ToMulaw(downsampled);
+      return chunkMulawToBase64Frames(mulawBuffer);
+    }
+
+    // Compressed formats (mp3, opus) cannot be decoded in this direct
+    // synthesis path. Rather than passing compressed bytes through as
+    // raw mu-law frames (which produces garbled audio), return empty
+    // frames (silence). The caller should use the audio-store playback
+    // path (sendPlayUrl) which handles transcoding correctly.
+    if (format === "mp3" || format === "opus") {
       log.warn(
         {
           streamSid: this.streamSid,
-          declaredFormat: _format,
-          audioBytes: audio.length,
-          headerHex: audio.subarray(0, 4).toString("hex"),
-        },
-        "Declared format is WAV but bytes lack RIFF header — falling back to raw passthrough",
-      );
-    } else {
-      log.debug(
-        {
-          format: _format,
-          streamSid: this.streamSid,
+          format,
           audioBytes: audio.length,
         },
-        "Encoding audio buffer as raw frames (format may require transcoding)",
+        "Compressed audio format cannot be transcoded to mu-law in the direct synthesis path — " +
+          "returning silence. Use the audio-store playback path (sendPlayUrl) for correct transcoding.",
       );
+      return [];
     }
+
+    // Unknown format — log a warning and attempt raw passthrough. This
+    // is a last-resort fallback; callers should ensure they request a
+    // format that this transport can handle (WAV or raw PCM).
+    log.warn(
+      {
+        streamSid: this.streamSid,
+        declaredFormat: format,
+        audioBytes: audio.length,
+        headerHex: audio.subarray(0, 4).toString("hex"),
+      },
+      "Unrecognized audio format — attempting raw passthrough (may produce garbled audio)",
+    );
     return chunkMulawToBase64Frames(audio);
   }
 }
