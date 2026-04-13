@@ -208,6 +208,24 @@ extension AppDelegate {
                             NSWorkspace.shared.open(url)
                         }
                     }
+                case .openConversation(let msg):
+                    guard !self.isBootstrapping else { break }
+                    self.ensureMainWindowExists()
+                    // If the conversation isn't in the sidebar yet (e.g. just created by a
+                    // skill via POST /v1/conversations), stub a sidebar entry using the
+                    // optional title so openConversation's trySelect retries find it.
+                    if let title = msg.title,
+                       let conversationManager = self.mainWindow?.conversationManager,
+                       !conversationManager.conversations.contains(where: { $0.conversationId == msg.conversationId }) {
+                        conversationManager.createNotificationConversation(
+                            conversationId: msg.conversationId,
+                            title: title,
+                            sourceEventName: "open_conversation",
+                            groupId: nil,
+                            source: nil
+                        )
+                    }
+                    self.openConversation(conversationId: msg.conversationId, anchorMessageId: msg.anchorMessageId)
                 case .navigateSettings(let msg):
                     self.showSettingsTab(msg.tab)
                 case .showPlatformLogin:
