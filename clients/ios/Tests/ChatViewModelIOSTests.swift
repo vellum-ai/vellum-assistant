@@ -556,6 +556,66 @@ final class ChatViewModelIOSTests: XCTestCase {
                      "Tail should be nil when no queued user messages exist")
     }
 
+    func test_tailQueuedMessageId_prefersNewestOnPositionTie() {
+        let first = ChatMessage(role: .user, text: "first", status: .queued(position: 0))
+        let second = ChatMessage(role: .user, text: "second", status: .queued(position: 0))
+        let third = ChatMessage(role: .user, text: "third", status: .queued(position: 0))
+        viewModel.messages = [first, second, third]
+
+        XCTAssertEqual(viewModel.tailQueuedMessageId, third.id,
+                       "On a position-0 tie, tail should be the most recently added message")
+    }
+
+    func test_editQueuedTail_operatesOnNewestWhenPositionsTie() async {
+        let mockQueueClient = MockConversationQueueClient()
+        mockQueueClient.deleteResult = true
+
+        let connection = GatewayConnectionManager()
+        connection.isConnected = true
+        let vm = ChatViewModel(
+            connectionManager: connection,
+            eventStreamClient: connection.eventStreamClient,
+            conversationQueueClient: mockQueueClient
+        )
+        vm.conversationId = "sess-tie-ios"
+
+        let oldest = ChatMessage(role: .user, text: "oldest", status: .queued(position: 0))
+        let middle = ChatMessage(role: .user, text: "middle", status: .queued(position: 0))
+        let newest = ChatMessage(role: .user, text: "newest", status: .queued(position: 0))
+        vm.messages = [oldest, middle, newest]
+        vm.requestIdToMessageId = [
+            "req-oldest": oldest.id,
+            "req-middle": middle.id,
+            "req-newest": newest.id
+        ]
+        vm.pendingQueuedCount = 3
+
+        var composerText = ""
+        var composerAttachments: [ChatAttachment] = []
+        let textBinding = Binding<String>(
+            get: { composerText },
+            set: { composerText = $0 }
+        )
+        let attachmentsBinding = Binding<[ChatAttachment]>(
+            get: { composerAttachments },
+            set: { composerAttachments = $0 }
+        )
+
+        vm.editQueuedTail(into: textBinding, attachments: attachmentsBinding)
+
+        XCTAssertEqual(composerText, "newest",
+                       "Composer should receive the newest queued message's text, not the oldest")
+
+        let deadline = ContinuousClock.now + .seconds(2)
+        while mockQueueClient.calls.isEmpty && ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(mockQueueClient.calls.count, 1)
+        XCTAssertEqual(mockQueueClient.calls.first?.requestId, "req-newest",
+                       "delete_queued_message should target the newest queued message on ties")
+    }
+
     func test_editQueuedTail_copiesContentAndDeletesOriginal() async {
         let mockQueueClient = MockConversationQueueClient()
         mockQueueClient.deleteResult = true
