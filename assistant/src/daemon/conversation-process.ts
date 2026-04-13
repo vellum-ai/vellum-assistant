@@ -1010,10 +1010,10 @@ async function drainBatch(
     );
     if (qmSlash.kind !== "passthrough") {
       // Defensive recovery. `buildPassthroughBatch` should make this
-      // unreachable, but a synchronous throw here would strand
-      // `conversation.processing = true` (head already persisted) with no
-      // `runAgentLoop` ever called to clear it. Log, emit an error to
-      // the affected client, and either recover-and-drain (head case) or
+      // unreachable, but if it ever fires we must avoid stranding
+      // per-turn state and dropping the batch tails that have already
+      // been shifted out of the queue. Log, emit an error to the
+      // affected client, and either recover-and-drain (head case) or
       // skip the tail (tail case) so the rest of the batch still runs.
       const invariantMessage =
         "Internal error: batch drain invariant violated (non-passthrough message in batch)";
@@ -1038,14 +1038,24 @@ async function drainBatch(
       );
       qm.onEvent({ type: "error", message: invariantMessage });
       if (i === 0) {
-        // Head case — no in-flight turn yet. Clear processing state that
-        // the head's `persistUserMessage` would have set (but didn't,
-        // because we threw before calling it) and recover via drainQueue.
+        // Head invariant fired — no in-flight turn yet (the check runs
+        // before persistUserMessage, so the head was never persisted).
+        // Clear per-turn state and recursively drain the remaining tails,
+        // which were already shifted out of the queue by
+        // buildPassthroughBatch and would otherwise be stranded. Mirrors
+        // the head persist-failure recovery below.
         conversation.processing = false;
         conversation.abortController = null;
         conversation.currentRequestId = undefined;
         conversation.preactivatedSkillIds = undefined;
-        await drainQueue(conversation);
+        const remaining = batch.slice(1);
+        if (remaining.length >= 2) {
+          await drainBatch(conversation, remaining, reason);
+        } else if (remaining.length === 1) {
+          await drainSingleMessage(conversation, remaining[0], reason);
+        } else {
+          await drainQueue(conversation);
+        }
         return;
       }
       // Tail case — processing is live, just skip this message. Loop

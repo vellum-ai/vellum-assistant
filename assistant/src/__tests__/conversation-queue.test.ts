@@ -1508,12 +1508,14 @@ describe("Batched drain correctness fixes", () => {
   });
 
   // Defensive recovery path: buildPassthroughBatch is designed to make
-  // the invariant throw unreachable in practice. Left as a todo so the
-  // harness contract is documented without wedging mainline CI. Covering
-  // this would require either (a) reflecting into drainBatch to short-
-  // circuit resolveSlash for a specific batch entry, or (b) exposing a
-  // seam on SlashContext — both are more invasive than the safety-net
-  // value justifies.
+  // the invariant throw unreachable in practice, so neither the head
+  // branch (re-dispatch batch.slice(1) to drainBatch/drainSingleMessage/
+  // drainQueue) nor the tail branch (skip + continue) can fire in normal
+  // operation. Left as a todo so the harness contract is documented
+  // without wedging mainline CI. Covering this would require either
+  // (a) reflecting into drainBatch to short-circuit resolveSlash for a
+  // specific batch entry, or (b) exposing a seam on SlashContext — both
+  // are more invasive than the safety-net value justifies.
   test.todo(
     "invariant violation in persist loop triggers error event + recovery, not stranded state",
     async () => {
