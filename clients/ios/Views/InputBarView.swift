@@ -825,6 +825,15 @@ struct InputBarView: View {
                 isVoiceOrbExpanded = false
                 return
             }
+            // During auto-stop the user may have typed in the text field while waiting
+            // for the streaming final. Only apply the streaming result when the text has
+            // not been edited since auto-stop began (same guard as the batch path).
+            if isAutoStopPending && text != textAtAutoStop {
+                log.info("User edited text during auto-stop — discarding streaming final")
+                stopRecording()
+                isVoiceOrbExpanded = false
+                return
+            }
             text = finalText
             textBeforeStreamingPartials = finalText
             voiceResultCommitted = true
