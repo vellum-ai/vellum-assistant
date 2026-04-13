@@ -105,6 +105,7 @@ import {
   createSurfaceMutex,
   handleSurfaceAction as handleSurfaceActionImpl,
   handleSurfaceUndo as handleSurfaceUndoImpl,
+  type SurfaceActionResult,
 } from "./conversation-surfaces.js";
 import type { ToolSetupContext } from "./conversation-tool-setup.js";
 import {
@@ -1347,8 +1348,8 @@ export class Conversation {
     surfaceId: string,
     actionId: string,
     data?: Record<string, unknown>,
-  ): void {
-    handleSurfaceActionImpl(this, surfaceId, actionId, data);
+  ): Promise<SurfaceActionResult> {
+    return handleSurfaceActionImpl(this, surfaceId, actionId, data);
   }
 
   handleSurfaceUndo(surfaceId: string): void {

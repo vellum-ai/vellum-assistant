@@ -193,7 +193,7 @@ export interface RuntimeHttpServerOptions {
           surfaceId: string,
           actionId: string,
           data?: Record<string, unknown>,
-        ): void;
+        ): void | Promise<unknown>;
         surfaceState: Map<
           string,
           { surfaceType: SurfaceType; data: SurfaceData; title?: string }
@@ -215,7 +215,7 @@ export interface RuntimeHttpServerOptions {
           surfaceId: string,
           actionId: string,
           data?: Record<string, unknown>,
-        ): void;
+        ): void | Promise<unknown>;
         surfaceState: Map<
           string,
           { surfaceType: SurfaceType; data: SurfaceData; title?: string }

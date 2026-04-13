@@ -13,10 +13,15 @@ import {
   getMessages,
   updateMessageContent,
 } from "../memory/conversation-crud.js";
+import { buildAssistantEvent } from "../runtime/assistant-event.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
 import { buildConversationErrorMessage } from "./conversation-error.js";
+import { launchConversation } from "./conversation-launch.js";
+import type { TrustContext } from "./conversation-runtime-assembly.js";
 import type {
   CardSurfaceData,
   DynamicPageSurfaceData,
@@ -234,6 +239,10 @@ function normalizeTaskProgressCardPatch(
  */
 export interface SurfaceConversationContext {
   readonly conversationId: string;
+  /** Assistant id (if known) — used when publishing launch-triggered events. */
+  readonly assistantId?: string;
+  /** Inherited to spawned conversations in the `launch_conversation` action path. */
+  readonly trustContext?: TrustContext;
   readonly channelCapabilities?: {
     channel: string;
     supportsDynamicUi: boolean;
@@ -645,12 +654,17 @@ export function buildDeselectionDescription(
   return "";
 }
 
-export function handleSurfaceAction(
+export type SurfaceActionResult =
+  | { accepted: true; conversationId: string }
+  | { accepted: false; error: string }
+  | void;
+
+export async function handleSurfaceAction(
   ctx: SurfaceConversationContext,
   surfaceId: string,
   actionId: string,
   data?: Record<string, unknown>,
-): void {
+): Promise<SurfaceActionResult> {
   const pending = ctx.pendingSurfaceActions.get(surfaceId);
 
   // When surfaces are restored from history (e.g. onboarding cards), there is
@@ -682,6 +696,56 @@ export function handleSurfaceAction(
         "Silent state accumulated (history-restored)",
       );
       return;
+    }
+
+    // `launch_conversation` actions spawn a fresh conversation inline instead
+    // of round-tripping through the LLM with a `[User action on app: ...]`
+    // chat message. The origin conversation's trust context is inherited so
+    // guardian-gated tools stay available in the spawned conversation.
+    if (
+      data &&
+      typeof data === "object" &&
+      (data as Record<string, unknown>)._action === "launch_conversation"
+    ) {
+      const payload = data as Record<string, unknown>;
+      const title = typeof payload.title === "string" ? payload.title : "";
+      const seedPrompt =
+        typeof payload.seedPrompt === "string" ? payload.seedPrompt : "";
+      const anchorMessageId =
+        typeof payload.anchorMessageId === "string"
+          ? payload.anchorMessageId
+          : undefined;
+      if (!title || !seedPrompt) {
+        return { accepted: false, error: "missing_title_or_seedPrompt" };
+      }
+      // `ctx` is the origin Conversation — inherit its trust context so the
+      // spawned conversation keeps guardian / trust-class state.
+      const originTrustContext = ctx.trustContext;
+      const { conversationId } = await launchConversation({
+        title,
+        seedPrompt,
+        ...(anchorMessageId ? { anchorMessageId } : {}),
+        ...(originTrustContext ? { originTrustContext } : {}),
+      });
+      const assistantId = ctx.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
+      await assistantEventHub.publish(
+        buildAssistantEvent(
+          assistantId,
+          {
+            type: "open_conversation",
+            conversationId,
+            title,
+            ...(anchorMessageId ? { anchorMessageId } : {}),
+            focus: false,
+          },
+          conversationId,
+        ),
+      );
+      log.info(
+        { originConversationId: ctx.conversationId, conversationId, surfaceId },
+        "launch_conversation dispatched inline from surface action",
+      );
+      return { accepted: true, conversationId };
     }
 
     // Determine message content from the action.

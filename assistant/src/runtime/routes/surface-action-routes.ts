@@ -27,7 +27,7 @@ interface SurfaceActionTarget {
     surfaceId: string,
     actionId: string,
     data?: Record<string, unknown>,
-  ): void;
+  ): void | Promise<unknown>;
   handleSurfaceUndo?(surfaceId: string): void;
   setTrustContext?(ctx: {
     trustClass: "guardian" | "trusted_contact" | "unknown";
@@ -143,7 +143,7 @@ export async function handleSurfaceAction(
   }
 
   try {
-    conversation.handleSurfaceAction(surfaceId, actionId, data);
+    await conversation.handleSurfaceAction(surfaceId, actionId, data);
     log.info(
       { conversationId: conversationId ?? undefined, surfaceId, actionId },
       "Surface action handled via HTTP",
