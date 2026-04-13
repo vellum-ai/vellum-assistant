@@ -568,6 +568,7 @@ struct ComposerView: View, Equatable {
                         iconSize: composerActionButtonSize,
                         action: { onVoiceModeToggle?() }
                     )
+                    .vTooltip("Live voice conversation")
                 }
 
                 VButton(
@@ -577,6 +578,7 @@ struct ComposerView: View, Equatable {
                     iconSize: composerActionButtonSize,
                     action: { (onDictateToggle ?? onMicrophoneToggle)() }
                 )
+                .vTooltip(isRecording ? "Stop recording" : micTooltipText)
 
                 if !isRecording {
                     VButton(
@@ -589,6 +591,7 @@ struct ComposerView: View, Equatable {
                         composerFocus = true
                         performSendAction()
                     }
+                    .vTooltip(canSend ? "Send" : "Type a message to send")
                 }
             }
         }
