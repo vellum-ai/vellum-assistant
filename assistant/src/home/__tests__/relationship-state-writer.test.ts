@@ -215,17 +215,17 @@ describe("relationship-state-writer", () => {
       expect(calendar?.tier).toBe("unlocked");
     });
 
-    test("outlook connection unlocks both email and calendar", async () => {
-      // `outlook` is the real provider key used by seed-providers.ts for
-      // the Microsoft integration (carries Calendars.* scopes). Regression
-      // guard: an active Outlook connection must flip calendar to unlocked
-      // the same way it flips email.
+    test("outlook connection does not unlock any capability", async () => {
+      // `outlook` exists as scaffolding in seed-providers.ts but there is no
+      // real Microsoft integration the assistant can use. The Home page must
+      // not advertise email or calendar as unlocked just because an outlook
+      // OAuth row exists.
       fakeConnections.push({ provider: "outlook", status: "active" });
       const state = (await computeRelationshipState()) as RelationshipStateLike;
       const email = state.capabilities.find((c) => c.id === "email");
       const calendar = state.capabilities.find((c) => c.id === "calendar");
-      expect(email?.tier).toBe("unlocked");
-      expect(calendar?.tier).toBe("unlocked");
+      expect(email?.tier).toBe("next-up");
+      expect(calendar?.tier).toBe("next-up");
     });
 
     test("revoked connections do not count as unlocked", async () => {

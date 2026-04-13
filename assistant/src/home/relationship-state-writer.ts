@@ -356,23 +356,18 @@ function resolveCapabilityTiers(opts: {
   return DEFAULT_CAPABILITIES.map((cap) => {
     switch (cap.id) {
       case "email": {
+        // Only Gmail is a real email integration today. Outlook appears in
+        // seed-providers.ts as scaffolding but we don't actually ship a
+        // Microsoft integration, so we do not advertise email unlock for it.
         const unlocked =
-          connectedProviders.has("google") ||
-          connectedProviders.has("gmail") ||
-          connectedProviders.has("microsoft") ||
-          connectedProviders.has("outlook");
+          connectedProviders.has("google") || connectedProviders.has("gmail");
         return { ...cap, tier: unlocked ? "unlocked" : "next-up" };
       }
       case "calendar": {
-        // `outlook` is the real provider key used by seed-providers.ts for
-        // the Microsoft integration (which carries `Calendars.Read` /
-        // `Calendars.ReadWrite` scopes), so an active Outlook connection
-        // must flip `calendar` to `unlocked` the same way it flips `email`.
+        // Only Google Calendar is a real calendar integration today.
         const unlocked =
           connectedProviders.has("google") ||
-          connectedProviders.has("google-calendar") ||
-          connectedProviders.has("microsoft") ||
-          connectedProviders.has("outlook");
+          connectedProviders.has("google-calendar");
         return { ...cap, tier: unlocked ? "unlocked" : "next-up" };
       }
       case "slack": {
