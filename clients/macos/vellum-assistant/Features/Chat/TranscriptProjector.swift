@@ -148,7 +148,7 @@ enum TranscriptProjector {
 
         // --- Build row models ---
 
-        let rows: [TranscriptRowModel] = visibleMessages.enumerated().map { index, message in
+        var rows: [TranscriptRowModel] = visibleMessages.enumerated().map { index, message in
             TranscriptRowModel(
                 message: message,
                 showTimestamp: timestampSet.contains(message.id),
@@ -160,6 +160,30 @@ enum TranscriptProjector {
                 isConfirmationRenderedInline: isConfirmationRenderedInlineByIndex.contains(index),
                 isAnchoredThinkingRow: index == anchoredThinkingIndex
             )
+        }
+
+        // When thinking indicator should show but no assistant message exists yet,
+        // append a synthetic placeholder row so the thinking indicator renders
+        // inside the ForEach's minHeight wrapper — same container that will later
+        // hold the real assistant message. Eliminates layout jump on transition.
+        if shouldShowThinkingIndicator {
+            let placeholderMessage = ChatMessage(
+                role: .assistant,
+                text: ""
+            )
+            let placeholder = TranscriptRowModel(
+                message: placeholderMessage,
+                showTimestamp: false,
+                hasPrecedingAssistant: false,
+                isLatestAssistant: true,
+                isHighlighted: false,
+                index: rows.count,
+                decidedConfirmation: nil,
+                isConfirmationRenderedInline: false,
+                isAnchoredThinkingRow: false,
+                isThinkingPlaceholder: true
+            )
+            rows.append(placeholder)
         }
 
         return TranscriptRenderModel(

@@ -102,4 +102,10 @@ struct TranscriptRowModel: Equatable, Identifiable {
     /// When true, the anchored thinking indicator should attach to
     /// this row (post-confirmation thinking state).
     let isAnchoredThinkingRow: Bool
+
+    /// When true, this row is a synthetic placeholder for the thinking
+    /// indicator — no real message content. The thinking indicator renders
+    /// inside the ForEach so it shares the same minHeight wrapper that
+    /// will later hold the real assistant message.
+    var isThinkingPlaceholder: Bool = false
 }
