@@ -13,7 +13,7 @@
 
 import { randomBytes } from "node:crypto";
 import { copyFile, mkdir, rename, stat, unlink } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { pruneDir, type SnapshotEntry } from "./list-snapshots.js";
 import { formatBackupFilename } from "./paths.js";
@@ -83,7 +83,7 @@ export async function writeLocalSnapshot(
 
   const baseFilename = formatBackupFilename(now, { encrypted: false });
   const destPath = await resolveUniqueDestPath(localDir, baseFilename);
-  const filename = destPath.slice(localDir.length + 1);
+  const filename = basename(destPath);
 
   try {
     await rename(tempVBundlePath, destPath);
