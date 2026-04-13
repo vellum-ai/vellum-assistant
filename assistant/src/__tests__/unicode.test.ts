@@ -195,6 +195,55 @@ describe("stripOrphanedSurrogatesDeep", () => {
     expect(result.fixedStringCount).toBe(2);
   });
 
+  test("preserves reference identity of every clean container in a nested tree", () => {
+    // The happy path must not allocate shadow arrays/objects — this runs on
+    // every outbound Anthropic request, so GC churn adds up. Verify that the
+    // top-level object AND every nested container is returned by reference.
+    const innerArr = ["a", "b", EMOJI];
+    const innerObj = { x: 1, y: "ok", z: innerArr };
+    const input = {
+      a: "hello",
+      b: innerObj,
+      c: [innerObj, "clean", EMOJI],
+    };
+    const result = stripOrphanedSurrogatesDeep(input);
+    expect(result.changed).toBe(false);
+    expect(result.value).toBe(input);
+    expect(result.value.b).toBe(innerObj);
+    expect(result.value.b.z).toBe(innerArr);
+    expect(result.value.c).toBe(input.c);
+    expect(result.value.c[0]).toBe(innerObj);
+  });
+
+  test("clean siblings alongside a dirty child reuse original references where possible", () => {
+    // When one branch changes, only the containers on the path from root to
+    // the change should be reallocated — untouched sibling subtrees must keep
+    // their original reference.
+    const cleanBranch = { deep: { list: ["a", "b"] } };
+    const input = {
+      clean: cleanBranch,
+      dirty: { value: `bad${HIGH}` },
+    };
+    const result = stripOrphanedSurrogatesDeep(input);
+    expect(result.changed).toBe(true);
+    expect(result.value).not.toBe(input);
+    expect(result.value.clean).toBe(cleanBranch);
+    expect(result.value.clean.deep).toBe(cleanBranch.deep);
+    expect(result.value.clean.deep.list).toBe(cleanBranch.deep.list);
+    expect(result.value.dirty).not.toBe(input.dirty);
+    expect(result.value.dirty.value).toBe(`bad${REPLACEMENT}`);
+  });
+
+  test("array with a dirty tail preserves clean leading element references", () => {
+    const cleanItem = { k: "v" };
+    const input = [cleanItem, `bad${HIGH}`];
+    const result = stripOrphanedSurrogatesDeep(input);
+    expect(result.changed).toBe(true);
+    expect(result.value).not.toBe(input);
+    expect(result.value[0]).toBe(cleanItem);
+    expect(result.value[1]).toBe(`bad${REPLACEMENT}`);
+  });
+
   test("rewritten output can be JSON-stringified end-to-end", () => {
     // This is the exact shape of the bug: a payload with an orphaned high
     // surrogate buried in a tool_result content string. After sanitization,

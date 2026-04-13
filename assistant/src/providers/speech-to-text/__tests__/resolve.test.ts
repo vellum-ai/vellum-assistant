@@ -41,7 +41,10 @@ mock.module("../../../security/credential-key.js", () => ({
 // Subject import (after mocks)
 // ---------------------------------------------------------------------------
 
-import { resolveBatchTranscriber } from "../resolve.js";
+import {
+  resolveBatchTranscriber,
+  resolveTelephonySttCapability,
+} from "../resolve.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -65,7 +68,7 @@ function buildConfig(overrides: {
 }
 
 // ---------------------------------------------------------------------------
-// Tests
+// Tests — resolveBatchTranscriber
 // ---------------------------------------------------------------------------
 
 describe("resolveBatchTranscriber", () => {
@@ -170,5 +173,78 @@ describe("resolveBatchTranscriber", () => {
 
     expect(transcriber!.providerId).toBe("deepgram");
     expect(transcriber!.boundaryId).toBe("daemon-batch");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — resolveTelephonySttCapability
+// ---------------------------------------------------------------------------
+
+describe("resolveTelephonySttCapability", () => {
+  beforeEach(() => {
+    mockConfig = buildConfig({});
+    mockProviderKeys = {};
+  });
+
+  test("returns 'supported' when provider is telephony-eligible and credentials exist", async () => {
+    mockProviderKeys["openai"] = "sk-telephony-test";
+    mockConfig = buildConfig({ provider: "openai-whisper" });
+
+    const result = await resolveTelephonySttCapability();
+
+    expect(result.status).toBe("supported");
+    if (result.status === "supported") {
+      expect(result.providerId).toBe("openai-whisper");
+      // openai-whisper is batch-only, so telephonyMode should reflect that
+      expect(result.telephonyMode).toBe("batch-only");
+    }
+  });
+
+  test("returns 'unconfigured' when provider is not in the catalog", async () => {
+    mockProviderKeys["unknown-provider"] = "key-doesnt-matter";
+    mockConfig = buildConfig({ provider: "unknown-provider" as string });
+
+    const result = await resolveTelephonySttCapability();
+
+    expect(result.status).toBe("unconfigured");
+    if (result.status === "unconfigured") {
+      expect(result.reason).toContain("unknown-provider");
+      expect(result.reason).toContain("not in the provider catalog");
+    }
+  });
+
+  test("returns 'missing-credentials' when provider is eligible but has no API key", async () => {
+    mockProviderKeys = {}; // no keys
+    mockConfig = buildConfig({ provider: "openai-whisper" });
+
+    const result = await resolveTelephonySttCapability();
+
+    expect(result.status).toBe("missing-credentials");
+    if (result.status === "missing-credentials") {
+      expect(result.providerId).toBe("openai-whisper");
+      expect(result.credentialProvider).toBe("openai");
+      expect(result.reason).toContain("openai");
+    }
+  });
+
+  test("uses config-driven provider, not a hardcoded default", async () => {
+    // Use a provider that IS in the catalog to verify config is read
+    mockProviderKeys["openai"] = "sk-config-test";
+    mockConfig = buildConfig({ provider: "openai-whisper" });
+
+    const result = await resolveTelephonySttCapability();
+
+    expect(result.status).toBe("supported");
+    if (result.status === "supported") {
+      expect(result.providerId).toBe("openai-whisper");
+    }
+  });
+
+  test("returns 'unconfigured' for empty-string provider", async () => {
+    mockConfig = buildConfig({ provider: "" as string });
+
+    const result = await resolveTelephonySttCapability();
+
+    expect(result.status).toBe("unconfigured");
   });
 });

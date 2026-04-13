@@ -663,7 +663,11 @@ private struct StepDetailRow: View {
     /// Render-time memoization that stays off SwiftUI-owned state.
     private var cachedColoredResult: AttributedString? {
         guard let result = toolCall.result, !result.isEmpty else { return nil }
-        let key = Self.coloredOutputCacheKey(for: result, isError: toolCall.isError)
+        let key = Self.coloredOutputCacheKey(
+            toolCallID: toolCall.id.uuidString,
+            result: result,
+            isError: toolCall.isError
+        )
         if let cached = Self.coloredOutputCache.object(forKey: key) {
             return cached.value
         }
@@ -947,12 +951,20 @@ private struct StepDetailRow: View {
 
     // MARK: - Helpers
 
-    private static func coloredOutputCacheKey(for result: String, isError: Bool) -> NSString {
-        var hasher = Hasher()
-        hasher.combine(result)
-        hasher.combine(result.utf8.count)
-        hasher.combine(isError)
-        return "output:\(result.utf8.count):\(hasher.finalize())" as NSString
+    private static func coloredOutputCacheKey(
+        toolCallID: String,
+        result: String,
+        isError: Bool
+    ) -> NSString {
+        // Cheap content fingerprint: length + prefix + suffix + per-process hash.
+        // Ensures the key changes when `result` is overwritten in place with
+        // different text of the same byte count (replay / correction / rehydration
+        // paths all mutate toolCalls[...].result).
+        let count = result.utf8.count
+        let prefix = result.prefix(16)
+        let suffix = result.suffix(16)
+        let hash = result.hashValue
+        return "\(toolCallID)|\(count)|\(isError ? "err" : "ok")|\(prefix)|\(suffix)|\(hash)" as NSString
     }
 
     private func coloredOutput(_ result: String, isError: Bool) -> AttributedString {

@@ -998,6 +998,11 @@ export class DaemonServer {
       if (!conversation.isProcessing()) {
         this.applyTransportMetadata(conversation, options);
       }
+      // Note: trustContext reapplication for reused conversations is handled
+      // in prepareConversationForMessage AFTER the isProcessing() idle check.
+      // Applying it here would race concurrent requests — a busy-rejected
+      // caller could still overwrite the in-flight turn's guardian scope,
+      // changing authorization mid-turn.
       this.evictor.touch(conversationId);
     }
     return conversation;

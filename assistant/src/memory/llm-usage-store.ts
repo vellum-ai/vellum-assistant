@@ -158,8 +158,17 @@ export type UsageGranularity = "daily" | "hourly";
 /** A single time bucket with its aggregate totals. */
 export interface UsageDayBucket {
   /**
+   * Stable unique identifier for the bucket. Safe for use as a SwiftUI/React
+   * list key. Distinct even for DST fall-back duplicate hours (which share the
+   * same `date` string). Daily buckets use `date` directly; hourly buckets use
+   * "YYYY-MM-DD HH:00|<offsetMinutes>" to disambiguate repeated local hours.
+   */
+  bucketId: string;
+  /**
    * Local-time bucket key in the requested tz:
    * "YYYY-MM-DD" (daily) or "YYYY-MM-DD HH:00" (hourly).
+   * NOT unique: on DST fall-back days, two 01:00 hourly buckets share this key.
+   * Use `bucketId` as a list identifier and `date` for display/sort only.
    */
   date: string;
   /**

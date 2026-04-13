@@ -1,7 +1,7 @@
 /**
  * Tests for the `workspace-files` list/read endpoints in settings-routes.
  *
- * Focus: the list now includes the guardian's per-user persona file
+ * Focus: the list includes the guardian's per-user persona file
  * (`users/<slug>.md`) whenever a guardian exists, and the read endpoint
  * accepts paths under `users/`.
  */
@@ -102,14 +102,14 @@ describe("GET /workspace-files", () => {
     };
     const paths = body.files.map((f) => f.path);
 
-    // USER.md has been removed — the guardian per-user persona is the sole
-    // user-profile entry.
+    // The guardian per-user persona is the sole user-profile entry; USER.md
+    // is not included.
     expect(paths).not.toContain("USER.md");
     // Guardian per-user persona is appended.
     expect(paths).toContain("users/alice.md");
 
-    // The guardian entry reports `exists: true` because PR 2 seeds the
-    // template scaffold when the binding is created.
+    // The guardian entry reports `exists: true` because the template scaffold
+    // is seeded when the binding is created.
     const guardianEntry = body.files.find((f) => f.path === "users/alice.md");
     expect(guardianEntry).toBeDefined();
     expect(guardianEntry!.exists).toBe(true);
@@ -163,8 +163,9 @@ describe("GET /workspace-files/read", () => {
     });
 
     const personaPath = join(testWorkspaceDir, "users", "alice.md");
-    // PR 2 seeds the template scaffold; overwrite with something recognizable
-    // so the test asserts on exact content rather than scaffold boilerplate.
+    // The template scaffold is seeded when the binding is created; overwrite
+    // with something recognizable so the test asserts on exact content rather
+    // than scaffold boilerplate.
     expect(existsSync(personaPath)).toBe(true);
     writeFileSync(
       personaPath,

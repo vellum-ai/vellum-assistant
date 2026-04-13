@@ -1552,10 +1552,9 @@ describe("Permission Checker", () => {
     });
 
     // ── guardian persona file (users/<slug>.md) ──────────────────
-    // The drop-user-md migration replaces the legacy workspace USER.md
-    // with a per-user persona file at `users/<guardian-slug>.md`. The
-    // dynamic guardian-persona default rules are now the sole auto-allow
-    // entry for the per-user profile file.
+    // The per-user persona file lives at `users/<guardian-slug>.md`.
+    // Dynamic guardian-persona default rules auto-allow reads and
+    // edits of this file.
 
     test("file_edit of guardian users/<slug>.md is auto-allowed", async () => {
       const guardianPath = join(checkerTestDir, "users", "alice.md");
@@ -1614,6 +1613,50 @@ describe("Permission Checker", () => {
         t.id.endsWith("-guardian-persona"),
       );
       expect(guardianRules).toHaveLength(0);
+    });
+
+    test("glob metacharacters in guardian path are escaped and match only the literal file", async () => {
+      // A legacy/imported contact whose userFile contains glob metacharacters
+      // must not broaden the auto-allow rule into a wildcard match.
+      const weirdDir = join(checkerTestDir, "users");
+      const guardianPath = join(weirdDir, "weird[slug]*.md");
+      const siblingPath = join(weirdDir, "weirdX.md");
+      mockGuardianPersonaPath = guardianPath;
+
+      const templates = getDefaultRuleTemplates();
+      const guardianRules = templates.filter((t) =>
+        t.id.endsWith("-guardian-persona"),
+      );
+      expect(guardianRules).toHaveLength(3);
+      for (const rule of guardianRules) {
+        // Pattern must contain escaped metacharacters, not bare wildcards.
+        expect(rule.pattern).not.toBe(`${rule.tool}:${guardianPath}`);
+        expect(rule.pattern).toContain("\\[");
+        expect(rule.pattern).toContain("\\]");
+        expect(rule.pattern).toContain("\\*");
+      }
+
+      // Literal guardian path is auto-allowed.
+      const literal = await check(
+        "file_edit",
+        { path: guardianPath },
+        "/tmp",
+      );
+      expect(literal.decision).toBe("allow");
+      expect(literal.matchedRule?.id).toBe(
+        "default:allow-file_edit-guardian-persona",
+      );
+
+      // A sibling file that would match if `*` / `[...]` were treated as
+      // wildcards must NOT match the dynamic guardian-persona rule.
+      const sibling = await check(
+        "file_edit",
+        { path: siblingPath },
+        "/tmp",
+      );
+      expect(sibling.matchedRule?.id).not.toBe(
+        "default:allow-file_edit-guardian-persona",
+      );
     });
   });
 

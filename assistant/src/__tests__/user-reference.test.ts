@@ -1,20 +1,22 @@
 /**
  * Tests for user-reference resolvers. After the drop-user-md migration,
  * `readPreferredNameFromUserMd` and `resolveUserPronouns` source their
- * content from `resolveGuardianPersona()` instead of the legacy
- * workspace-root `USER.md`. We mock the persona-resolver module directly
- * so tests can drive the input content without touching disk.
+ * content from the guardian's per-user persona file via
+ * `resolveGuardianPersonaStrict()` (no `default.md` fallback). We mock
+ * the persona-resolver module directly so tests can drive the input
+ * content without touching disk.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Mutable state the tests control — represents the value returned by
-// `resolveGuardianPersona()` (comment-stripped string, or null when no
-// guardian / empty file).
+// `resolveGuardianPersonaStrict()` (comment-stripped string, or null
+// when no guardian / empty / missing guardian-specific file).
 let mockGuardianPersona: string | null = null;
 
 mock.module("../prompts/persona-resolver.js", () => ({
   resolveGuardianPersona: () => mockGuardianPersona,
+  resolveGuardianPersonaStrict: () => mockGuardianPersona,
 }));
 
 // Import after mocks are in place so the module under test binds to

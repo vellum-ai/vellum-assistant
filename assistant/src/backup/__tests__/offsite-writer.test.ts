@@ -6,6 +6,7 @@
 
 import { randomBytes } from "node:crypto";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -108,11 +109,11 @@ describe("writeOffsiteSnapshotToOne", () => {
     expect(result.error).toBeUndefined();
     expect(result.skipped).toBeUndefined();
     expect(result.entry).not.toBeNull();
-    expect(result.entry!.filename).toBe("backup-20260411-153045.vbundle.enc");
+    expect(result.entry!.filename).toBe("backup-20260411-153045-000.vbundle.enc");
     expect(result.entry!.encrypted).toBe(true);
     expect(result.entry!.createdAt).toBe(NOW);
     expect(result.entry!.path).toBe(
-      join(destination.path, "backup-20260411-153045.vbundle.enc"),
+      join(destination.path, "backup-20260411-153045-000.vbundle.enc"),
     );
     expect(existsSync(result.entry!.path)).toBe(true);
 
@@ -145,7 +146,7 @@ describe("writeOffsiteSnapshotToOne", () => {
     expect(result.error).toBeUndefined();
     expect(result.skipped).toBeUndefined();
     expect(result.entry).not.toBeNull();
-    expect(result.entry!.filename).toBe("backup-20260411-153045.vbundle");
+    expect(result.entry!.filename).toBe("backup-20260411-153045-000.vbundle");
     expect(result.entry!.encrypted).toBe(false);
     expect(result.entry!.sizeBytes).toBe(plaintext.length);
 
@@ -155,6 +156,129 @@ describe("writeOffsiteSnapshotToOne", () => {
 
     // No stray .tmp sibling left behind.
     expect(existsSync(`${result.entry!.path}.tmp`)).toBe(false);
+  });
+
+  test("bootstraps intermediate directories under the iCloud Drive safe ancestor on first run", async () => {
+    // Redirect HOME so `getICloudDriveRoot()` resolves inside our temp ROOT.
+    // This is the key regression: on first install only the iCloud Drive root
+    // exists; `VellumAssistant/backups/` needs to be created by the writer.
+    const ORIGINAL_HOME = process.env.HOME;
+    process.env.HOME = ROOT;
+    try {
+      const iCloudRoot = join(
+        ROOT,
+        "Library",
+        "Mobile Documents",
+        "com~apple~CloudDocs",
+      );
+      mkdirSync(iCloudRoot, { recursive: true });
+      // Destination is two levels below the safe ancestor — neither of the
+      // intermediate dirs exists yet.
+      const destinationPath = join(iCloudRoot, "VellumAssistant", "backups");
+      expect(existsSync(destinationPath)).toBe(false);
+
+      const plaintext = randomBytes(512);
+      const localSnapshotPath = seedLocalSnapshot(plaintext);
+      const destination: BackupDestination = {
+        path: destinationPath,
+        encrypt: true,
+      };
+      const key = randomBytes(32);
+
+      const result = await writeOffsiteSnapshotToOne(
+        localSnapshotPath,
+        destination,
+        key,
+        NOW,
+      );
+
+      expect(result.skipped).toBeUndefined();
+      expect(result.error).toBeUndefined();
+      expect(result.entry).not.toBeNull();
+      expect(existsSync(destinationPath)).toBe(true);
+      expect(existsSync(result.entry!.path)).toBe(true);
+    } finally {
+      if (ORIGINAL_HOME === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = ORIGINAL_HOME;
+      }
+    }
+  });
+
+  test("iCloud default path is still skipped when the iCloud Drive root is missing", async () => {
+    // Same shape as the previous test, but we do NOT create the iCloud Drive
+    // root — simulates iCloud Drive disabled. The destination must stay
+    // skipped rather than bootstrapping the tree under an arbitrary location.
+    const ORIGINAL_HOME = process.env.HOME;
+    process.env.HOME = ROOT;
+    try {
+      const iCloudRoot = join(
+        ROOT,
+        "Library",
+        "Mobile Documents",
+        "com~apple~CloudDocs",
+      );
+      expect(existsSync(iCloudRoot)).toBe(false);
+
+      const destinationPath = join(iCloudRoot, "VellumAssistant", "backups");
+      const localSnapshotPath = seedLocalSnapshot("payload");
+      const destination: BackupDestination = {
+        path: destinationPath,
+        encrypt: true,
+      };
+
+      const result = await writeOffsiteSnapshotToOne(
+        localSnapshotPath,
+        destination,
+        randomBytes(32),
+        NOW,
+      );
+
+      expect(result.skipped).toBe("parent-missing");
+      expect(result.entry).toBeNull();
+      expect(result.error).toBeUndefined();
+      expect(existsSync(destinationPath)).toBe(false);
+      // Critical: no intermediate directories were materialized.
+      expect(existsSync(join(iCloudRoot, "VellumAssistant"))).toBe(false);
+    } finally {
+      if (ORIGINAL_HOME === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = ORIGINAL_HOME;
+      }
+    }
+  });
+
+  test("permissions error on mkdir is surfaced as result.error rather than thrown", async () => {
+    // Root directory exists but is not writable, so `mkdir -p destination` fails
+    // with EACCES. The writer must catch it and surface via `error` to keep
+    // a broken destination from poisoning the others.
+    const readOnlyParent = subPath("read-only");
+    mkdirSync(readOnlyParent, { recursive: true });
+    chmodSync(readOnlyParent, 0o500); // r-x only: stat works, mkdir fails
+    try {
+      const destination: BackupDestination = {
+        path: join(readOnlyParent, "backups"),
+        encrypt: false,
+      };
+      const localSnapshotPath = seedLocalSnapshot("payload");
+
+      const result = await writeOffsiteSnapshotToOne(
+        localSnapshotPath,
+        destination,
+        null,
+        NOW,
+      );
+
+      expect(result.entry).toBeNull();
+      expect(result.skipped).toBeUndefined();
+      expect(result.error).toBeDefined();
+      expect(result.error).toMatch(/EACCES|permission/i);
+    } finally {
+      // Restore writable perms so the afterEach rmSync can clean up.
+      chmodSync(readOnlyParent, 0o700);
+    }
   });
 
   test("encrypt=true with key=null returns an error (caught internally, not thrown)", async () => {
@@ -226,7 +350,7 @@ describe("writeOffsiteSnapshotToAll", () => {
     // Encrypted destination
     expect(results[0].destination).toEqual(destinations[0]);
     expect(results[0].entry).not.toBeNull();
-    expect(results[0].entry!.filename).toBe("backup-20260411-153045.vbundle.enc");
+    expect(results[0].entry!.filename).toBe("backup-20260411-153045-000.vbundle.enc");
     expect(results[0].entry!.encrypted).toBe(true);
     expect(results[0].skipped).toBeUndefined();
     expect(results[0].error).toBeUndefined();
@@ -234,7 +358,7 @@ describe("writeOffsiteSnapshotToAll", () => {
     // Plaintext destination
     expect(results[1].destination).toEqual(destinations[1]);
     expect(results[1].entry).not.toBeNull();
-    expect(results[1].entry!.filename).toBe("backup-20260411-153045.vbundle");
+    expect(results[1].entry!.filename).toBe("backup-20260411-153045-000.vbundle");
     expect(results[1].entry!.encrypted).toBe(false);
     expect(results[1].skipped).toBeUndefined();
     expect(results[1].error).toBeUndefined();

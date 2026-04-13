@@ -1313,7 +1313,22 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       ? Promise.resolve(assistantId)
       : loadSelectedAssistantId()
     )
-      .then((resolvedId) => bootstrapLocalToken(resolvedId))
+      .then(async (resolvedId) => {
+        const stored = await bootstrapLocalToken(resolvedId);
+
+        // If the relay is intended to be connected, rotate the live socket
+        // so the fresh paired token is applied immediately. Without this,
+        // a stale open socket (bound under a previous guardian/token) can
+        // remain in memory and keep failing host_browser routing until the
+        // user manually toggles Connection off/on.
+        if (shouldConnect || relayConnection) {
+          setConnectionHealth('reconnecting');
+          disconnect();
+          await connect({ interactive: false });
+        }
+
+        return stored;
+      })
       .then((stored: StoredLocalToken) => sendResponseFn({ ok: true, token: stored }))
       .catch((err) => sendResponseFn({ ok: false, error: err instanceof Error ? err.message : String(err) }));
     return true; // async

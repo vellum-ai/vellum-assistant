@@ -105,7 +105,17 @@ export function createGuardianBinding(params: {
   // `users/` directory watcher would fire on every new contact and
   // evict live conversations.
   if (contact.userFile) {
-    ensureGuardianPersonaFile(contact.userFile);
+    // Tolerate filesystem failures (read-only or full workspace) so a
+    // disk error doesn't leave the DB commit orphaned. The persona file
+    // can be reseeded later; failing the binding here would be worse.
+    try {
+      ensureGuardianPersonaFile(contact.userFile);
+    } catch (err) {
+      log.warn(
+        { err, userFile: contact.userFile },
+        "failed to seed guardian persona file; continuing",
+      );
+    }
     // Invalidate the trust rule cache so the dynamic guardian-persona
     // auto-allow rules from `permissions/defaults.ts` are backfilled on
     // the next `getRules()` call. Without this, guardians created at

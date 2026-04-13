@@ -7,13 +7,22 @@
 import {
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
+import * as fsPromises from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { basename, join } from "node:path";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  spyOn,
+  test,
+} from "bun:test";
 
 import { ensureBackupKey, readBackupKey } from "../backup-key.js";
 
@@ -75,10 +84,48 @@ describe("backup-key", () => {
       );
     });
 
-    test("does not leave a .tmp file behind after a successful write", async () => {
+    test("does not leave any .tmp file behind after a successful write", async () => {
       await ensureBackupKey(keyPath);
-      const tmpPath = `${keyPath}.tmp.${process.pid}`;
-      expect(() => statSync(tmpPath)).toThrow();
+      const parent = join(root, "backup");
+      const base = basename(keyPath);
+      const entries = readdirSync(parent);
+      const tmpEntries = entries.filter((e) => e.startsWith(`${base}.tmp.`));
+      expect(tmpEntries).toEqual([]);
+    });
+
+    test("two concurrent callers converge on the same persisted bytes", async () => {
+      // Race two ensureBackupKey calls. Exactly one caller's bytes win
+      // the rename; the other caller must re-read the file and return
+      // those same bytes rather than the key it generated locally.
+      const [a, b] = await Promise.all([
+        ensureBackupKey(keyPath),
+        ensureBackupKey(keyPath),
+      ]);
+      expect(Buffer.compare(a, b)).toBe(0);
+      const onDisk = statSync(keyPath);
+      expect(onDisk.size).toBe(32);
+    });
+
+    test("propagates non-ENOENT stat errors instead of treating them as missing", async () => {
+      // Simulate flaky storage (EIO / ESTALE). If pathExists swallowed
+      // these, the key file would appear "missing" and be silently
+      // regenerated, rotating away bytes used to encrypt existing data.
+      const statSpy = spyOn(fsPromises, "stat").mockImplementation(
+        async () => {
+          const err = new Error("simulated EIO") as NodeJS.ErrnoException;
+          err.code = "EIO";
+          throw err;
+        },
+      );
+      try {
+        await expect(ensureBackupKey(keyPath)).rejects.toThrow(
+          /simulated EIO/,
+        );
+        // And the key file must NOT have been created as a side effect.
+        expect(() => statSync(keyPath)).toThrow();
+      } finally {
+        statSpy.mockRestore();
+      }
     });
   });
 

@@ -1052,4 +1052,92 @@ describe("ContextWindowManager", () => {
       normalResult.compactedMessages,
     );
   });
+
+  test("subtracts summaryOffset only when summary at index 0 was injected from parent", async () => {
+    const provider = createProvider(() => ({
+      content: [{ type: "text", text: "## Goals\n- new child summary" }],
+      model: "mock-model",
+      usage: { inputTokens: 75, outputTokens: 20 },
+      stopReason: "end_turn",
+    }));
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({
+        maxInputTokens: 320,
+        targetBudgetRatio: 0.58,
+      }),
+    });
+    const long = "k".repeat(220);
+    // Parent-injected summary at index 0, plus 2 injected non-persisted
+    // messages, plus 3 child-persisted messages. nonPersistedPrefixCount
+    // includes the summary (set by injectInheritedContext).
+    const history: Message[] = [
+      createContextSummaryMessage("parent summary"),
+      message("user", `injected-u ${long}`),
+      message("assistant", `injected-a ${long}`),
+      message("user", `persisted-u1 ${long}`),
+      message("assistant", `persisted-a1 ${long}`),
+      message("user", `persisted-u2 ${long}`),
+    ];
+    manager.nonPersistedPrefixCount = 3;
+    manager.summaryIsInjected = true;
+
+    const result = await manager.maybeCompact(history, undefined, {
+      force: true,
+    });
+    expect(result.compacted).toBe(true);
+    // 4 messages compacted (2 injected + 2 child-persisted), but only the
+    // 2 child-persisted ones count as DB-persisted.
+    expect(result.compactedMessages).toBe(4);
+    expect(result.compactedPersistedMessages).toBe(2);
+    // Flag clears and prefix drains (both injected messages + summary slot).
+    expect(manager.summaryIsInjected).toBe(false);
+    expect(manager.nonPersistedPrefixCount).toBe(0);
+  });
+
+  test("does not subtract summaryOffset when summary at index 0 is child-owned from prior compaction", async () => {
+    const provider = createProvider(() => ({
+      content: [{ type: "text", text: "## Goals\n- next child summary" }],
+      model: "mock-model",
+      usage: { inputTokens: 75, outputTokens: 20 },
+      stopReason: "end_turn",
+    }));
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({
+        maxInputTokens: 320,
+        targetBudgetRatio: 0.58,
+      }),
+    });
+    const long = "k".repeat(220);
+    // Post-first-compaction state: child-owned summary at index 0, 2
+    // still-injected messages that survived the first compaction's keep
+    // region, 3 child-persisted messages. nonPersistedPrefixCount reflects
+    // only the 2 remaining injected messages — the summary slot was already
+    // consumed when the flag-gated decrement ran on the prior compaction.
+    const history: Message[] = [
+      createContextSummaryMessage("prior child summary"),
+      message("user", `injected-u ${long}`),
+      message("assistant", `injected-a ${long}`),
+      message("user", `persisted-u1 ${long}`),
+      message("assistant", `persisted-a1 ${long}`),
+      message("user", `persisted-u2 ${long}`),
+    ];
+    manager.nonPersistedPrefixCount = 2;
+    manager.summaryIsInjected = false;
+
+    const result = await manager.maybeCompact(history, undefined, {
+      force: true,
+    });
+    expect(result.compacted).toBe(true);
+    expect(result.compactedMessages).toBe(4);
+    // Regression guard: without the flag gate, the subtraction from the
+    // #24353 fix would double-apply here (nonPersistedPrefixCount - 1),
+    // undercounting injectedInCompactable and inflating
+    // compactedPersistedMessages by 1 (to 3).
+    expect(result.compactedPersistedMessages).toBe(2);
+    expect(manager.nonPersistedPrefixCount).toBe(0);
+  });
 });

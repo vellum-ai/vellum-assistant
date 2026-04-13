@@ -650,6 +650,36 @@ final class MessageListScrollStateTests: XCTestCase {
                      "Pending anchor should be cleared after resolution")
     }
 
+    /// Verifies that the container-width resize path keeps both state
+    /// machines in lockstep: both exit stabilization together once the
+    /// view-layer resize task calls `endStabilization()` on each.
+    func testCoordinatorAndScrollStateExitStabilizationTogetherOnResize() {
+        let coordinator = ScrollCoordinator()
+
+        // Enter free-browsing on both (what a user scrolled-up during
+        // streaming looks like).
+        _ = coordinator.handle(.manualBrowseIntent)
+        state.transition(to: .freeBrowsing)
+
+        // Width change: coordinator enters .stabilizing(.resize).
+        _ = coordinator.handle(.containerWidthChanged)
+        XCTAssertTrue(coordinator.isSuppressed,
+                      "Coordinator should enter stabilization on width change in free-browsing")
+
+        // View layer independently begins stabilization on scrollState.
+        state.beginStabilization(.resize)
+        XCTAssertTrue(state.isSuppressed)
+
+        // End both (what the view's resize task does after the 100ms sleep).
+        state.endStabilization()
+        coordinator.endStabilization()
+
+        XCTAssertFalse(coordinator.isSuppressed,
+                       "Coordinator must exit stabilization when the view-layer ends it")
+        XCTAssertFalse(state.isSuppressed)
+        XCTAssertEqual(coordinator.mode, .freeBrowsing)
+    }
+
     /// Verifies that the coordinator and scrollState both reset on
     /// conversation switch.
     func testCoordinatorResetOnConversationSwitch() {

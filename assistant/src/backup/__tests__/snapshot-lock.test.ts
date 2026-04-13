@@ -143,30 +143,35 @@ describe("acquireSnapshotLock — stale locks", () => {
     expect(existsSync(LOCK)).toBe(false);
   });
 
-  test("unparseable lock file: acquire takes it over", async () => {
-    // A lock file that contains garbage (no digits) has no recoverable
-    // holder PID — treat it as stale and take over.
+  test("unparseable lock file: acquire refuses takeover and surfaces conflict", async () => {
+    // A lock file with no parseable PID is indistinguishable from an
+    // in-progress partial write by a live holder (both read back as
+    // `null`). We conservatively refuse takeover in both cases — we
+    // only ever take over a lock whose holder PID is readable AND
+    // confirmed not running. Garbage files require manual cleanup; the
+    // alternative (silently unlinking) is what introduced the TOCTOU
+    // race flagged on PR #24896.
     writeFileSync(LOCK, "not a pid at all\n", { mode: 0o600 });
 
-    const release = await acquireSnapshotLock(LOCK);
-    try {
-      expect(existsSync(LOCK)).toBe(true);
-    } finally {
-      await release();
-    }
-    expect(existsSync(LOCK)).toBe(false);
+    await expect(acquireSnapshotLock(LOCK)).rejects.toThrow(
+      /^snapshot in progress/,
+    );
+    expect(existsSync(LOCK)).toBe(true);
   });
 
-  test("empty lock file: acquire takes it over", async () => {
+  test("empty lock file: acquire refuses takeover and preserves the file", async () => {
+    // An empty lock file is ambiguous: it could be debris from a dead
+    // writer, or it could belong to a *live* holder that just won
+    // `O_EXCL` but has not yet flushed its PID. Taking it over would
+    // allow a second process to acquire and run concurrently — the
+    // exact TOCTOU race this module exists to prevent. The correct
+    // behavior is to surface a conflict and leave the file alone.
     writeFileSync(LOCK, "", { mode: 0o600 });
 
-    const release = await acquireSnapshotLock(LOCK);
-    try {
-      expect(existsSync(LOCK)).toBe(true);
-    } finally {
-      await release();
-    }
-    expect(existsSync(LOCK)).toBe(false);
+    await expect(acquireSnapshotLock(LOCK)).rejects.toThrow(
+      /^snapshot in progress/,
+    );
+    expect(existsSync(LOCK)).toBe(true);
   });
 });
 
@@ -295,25 +300,34 @@ describe("acquireSnapshotLock — TOCTOU mutual exclusion", () => {
     }
   });
 
-  test("zero-length lock file from partial write is handled without corruption", async () => {
-    // Simulates the "partial write" window: another process has created
-    // the lock via O_EXCL but has not yet written the payload. The inspector
-    // sees an empty file. After retrying, the file is still empty (the
-    // hypothetical writer crashed between open and write). We treat it as
-    // stale and take it over via rename-aside.
+  test("zero-length lock file from partial write is NOT taken over", async () => {
+    // Regression test for the TOCTOU race flagged on PR #24896.
+    //
+    // Window: process A has just succeeded at `openSync(O_EXCL)` but has
+    // not yet flushed `<pid> <timestamp>` to the file. Process B opens
+    // the file and sees zero bytes. If B takes over, it unlinks / renames
+    // A's lock and acquires its own — now both A and B believe they own
+    // the lock and both snapshots run concurrently (WAL corruption, path
+    // clobber, racing retention pruner).
+    //
+    // The fix bounds how many times we re-read an empty file and refuses
+    // takeover if it is still empty after the retry budget is exhausted.
+    // We simulate the live-holder case here by leaving the file empty
+    // throughout the acquire attempt — acquire must throw "snapshot in
+    // progress" and must NOT touch the existing file.
     writeFileSync(LOCK, "", { mode: 0o600 });
     expect(statSync(LOCK).size).toBe(0);
+    const inodeBefore = statSync(LOCK).ino;
 
-    const release = await acquireSnapshotLock(LOCK);
-    try {
-      expect(existsSync(LOCK)).toBe(true);
-      // Must contain our PID after takeover, not be empty.
-      const { readFileSync } = await import("node:fs");
-      const contents = readFileSync(LOCK, "utf-8");
-      expect(contents).toMatch(new RegExp(`^${process.pid} `));
-    } finally {
-      await release();
-    }
+    await expect(acquireSnapshotLock(LOCK)).rejects.toThrow(
+      /^snapshot in progress/,
+    );
+
+    // The original empty file must still exist and must not have been
+    // replaced — if the inode changed, something unlinked/recreated it.
+    expect(existsSync(LOCK)).toBe(true);
+    expect(statSync(LOCK).ino).toBe(inodeBefore);
+    expect(statSync(LOCK).size).toBe(0);
   });
 
   test("rename-aside sideband file is cleaned up after takeover", async () => {

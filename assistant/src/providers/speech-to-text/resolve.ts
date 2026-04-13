@@ -2,56 +2,133 @@ import { getConfig } from "../../config/loader.js";
 import { getProviderKeyAsync } from "../../security/secure-keys.js";
 import { createDaemonBatchTranscriber } from "../../stt/daemon-batch-transcriber.js";
 import type { BatchTranscriber, SttProviderId } from "../../stt/types.js";
+import {
+  getCredentialProvider,
+  getProviderEntry,
+  supportsBoundary,
+} from "./provider-catalog.js";
 
 // ---------------------------------------------------------------------------
-// Provider-to-credential mapping
-// ---------------------------------------------------------------------------
-
-/**
- * Map an STT provider identifier to the credential provider name used by
- * `getProviderKeyAsync`. New STT providers that share credentials with an
- * existing credential provider add an entry here.
- *
- * Typed as `Record<SttProviderId, string>` to ensure compile-time
- * completeness: adding a new variant to `SttProviderId` without a
- * corresponding entry here is a type error.
- */
-const STT_PROVIDER_CREDENTIAL_MAP: Record<SttProviderId, string> = {
-  "openai-whisper": "openai",
-  deepgram: "deepgram",
-};
-
-// ---------------------------------------------------------------------------
-// Public API
+// Batch transcriber resolver (existing public API — unchanged contract)
 // ---------------------------------------------------------------------------
 
 /**
  * Resolve a `BatchTranscriber` for daemon-hosted batch transcription.
  *
  * Reads `services.stt.provider` from the assistant config to determine which
- * STT provider to use, then looks up the corresponding credential. Credential
- * lookup is centralized here (an authorized secure-keys importer) so callers
- * don't need to import secure-keys directly.
+ * STT provider to use, then looks up the corresponding credential via the
+ * provider catalog. Credential lookup is centralized here (an authorized
+ * secure-keys importer) so callers don't need to import secure-keys directly.
  *
  * Returns `null` when:
- * - The configured provider is not supported by the daemon-batch boundary.
+ * - The configured provider is not in the catalog.
+ * - The configured provider doesn't support the `daemon-batch` boundary.
  * - No credentials are configured for the resolved provider.
  */
 export async function resolveBatchTranscriber(): Promise<BatchTranscriber | null> {
   const config = getConfig();
   const provider = config.services.stt.provider;
 
-  // Resolve the credential provider name for the configured STT provider.
-  // Cast to `string` for the lookup so that unknown providers (which can
-  // arrive at runtime despite the schema validation) produce `undefined`
-  // instead of a type error. This keeps the runtime guard meaningful.
-  const credentialProvider = STT_PROVIDER_CREDENTIAL_MAP[
-    provider as SttProviderId
-  ] as string | undefined;
-  if (!credentialProvider) {
+  // Look up credential provider via the catalog.
+  const credentialProviderName = getCredentialProvider(
+    provider as SttProviderId,
+  );
+  if (!credentialProviderName) {
     return null;
   }
 
-  const apiKey = await getProviderKeyAsync(credentialProvider);
+  // Verify the provider supports the daemon-batch boundary.
+  if (!supportsBoundary(provider as SttProviderId, "daemon-batch")) {
+    return null;
+  }
+
+  const apiKey = await getProviderKeyAsync(credentialProviderName);
   return createDaemonBatchTranscriber(apiKey, provider as SttProviderId);
+}
+
+// ---------------------------------------------------------------------------
+// Telephony capability resolver
+// ---------------------------------------------------------------------------
+
+/**
+ * Result of resolving whether the configured `services.stt` provider is
+ * eligible for telephony call ingestion.
+ */
+export type TelephonySttCapability =
+  | {
+      /** The configured provider supports telephony. */
+      status: "supported";
+      providerId: SttProviderId;
+      /** How the provider participates in real-time call ingestion. */
+      telephonyMode: "realtime-ws" | "batch-only";
+    }
+  | {
+      /** The configured provider does not support telephony. */
+      status: "unsupported";
+      providerId: SttProviderId;
+      reason: string;
+    }
+  | {
+      /** The configured provider is unknown or not in the catalog. */
+      status: "unconfigured";
+      reason: string;
+    }
+  | {
+      /** The provider is eligible but missing credentials. */
+      status: "missing-credentials";
+      providerId: SttProviderId;
+      credentialProvider: string;
+      reason: string;
+    };
+
+/**
+ * Validate whether the configured `services.stt` provider is eligible for
+ * future real-time telephony call ingestion.
+ *
+ * This resolver does **not** create a live transcriber — it only validates
+ * that the configuration, catalog entry, and credentials are all in order.
+ * The actual wiring is deferred to a future media-stream call adapter PR.
+ *
+ * Callers can branch on the discriminated `status` field:
+ * - `"supported"` — the provider is telephony-eligible and credentials exist.
+ * - `"unsupported"` — the provider exists but has `telephonyMode: "none"`.
+ * - `"unconfigured"` — the provider is unknown or missing from the catalog.
+ * - `"missing-credentials"` — the provider is eligible but has no API key.
+ */
+export async function resolveTelephonySttCapability(): Promise<TelephonySttCapability> {
+  const config = getConfig();
+  const provider = config.services.stt.provider;
+
+  const entry = getProviderEntry(provider as SttProviderId);
+  if (!entry) {
+    return {
+      status: "unconfigured",
+      reason: `STT provider "${provider}" is not in the provider catalog`,
+    };
+  }
+
+  if (entry.telephonyMode === "none") {
+    return {
+      status: "unsupported",
+      providerId: entry.id,
+      reason: `STT provider "${entry.id}" does not support telephony`,
+    };
+  }
+
+  // Provider is telephony-eligible — verify credentials exist.
+  const apiKey = await getProviderKeyAsync(entry.credentialProvider);
+  if (!apiKey) {
+    return {
+      status: "missing-credentials",
+      providerId: entry.id,
+      credentialProvider: entry.credentialProvider,
+      reason: `No API key configured for credential provider "${entry.credentialProvider}"`,
+    };
+  }
+
+  return {
+    status: "supported",
+    providerId: entry.id,
+    telephonyMode: entry.telephonyMode,
+  };
 }

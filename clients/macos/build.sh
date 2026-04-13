@@ -327,8 +327,15 @@ build_binaries() {
     command -v bun &>/dev/null || { echo "ERROR: bun is required but not found"; exit 1; }
 
     # Pre-install dependencies once per source directory so parallel builds
-    # don't race on the same node_modules.
+    # don't race on the same node_modules. Shared packages under packages/ must
+    # be installed first: assistant/ et al. reference them via file: and import
+    # their TypeScript source directly, so the packages need their own
+    # node_modules for transitive deps (e.g. zod) to resolve during tsc/bun build.
     echo "Installing dependencies..."
+    for pkg_dir in "$SCRIPT_DIR"/../../packages/*/; do
+        [ -f "${pkg_dir}package.json" ] || continue
+        (cd "$pkg_dir" && bun install --frozen-lockfile 2>/dev/null || bun install)
+    done
     (cd "$ASSISTANT_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
     (cd "$CLI_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
     (cd "$GATEWAY_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)

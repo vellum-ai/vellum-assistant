@@ -144,14 +144,19 @@ export function stripOrphanedSurrogatesDeep<T>(input: T): DeepSanitizeResult<T> 
     }
 
     if (Array.isArray(value)) {
-      let arrChanged = false;
-      const next: unknown[] = new Array(value.length);
+      let next: unknown[] | null = null;
       for (let i = 0; i < value.length; i++) {
         const result = walk(value[i]);
-        next[i] = result.value;
-        if (result.changed) arrChanged = true;
+        if (result.changed && next === null) {
+          next = Array.prototype.slice.call(value, 0, i) as unknown[];
+        }
+        if (next !== null) {
+          next.push(result.value);
+        }
       }
-      return arrChanged ? { value: next, changed: true } : { value, changed: false };
+      return next !== null
+        ? { value: next, changed: true }
+        : { value, changed: false };
     }
 
     if (value != null && typeof value === "object") {
@@ -159,14 +164,26 @@ export function stripOrphanedSurrogatesDeep<T>(input: T): DeepSanitizeResult<T> 
       if (proto !== Object.prototype && proto !== null) {
         return { value, changed: false };
       }
-      let objChanged = false;
-      const next: Record<string, unknown> = {};
-      for (const key of Object.keys(value as Record<string, unknown>)) {
-        const result = walk((value as Record<string, unknown>)[key]);
-        next[key] = result.value;
-        if (result.changed) objChanged = true;
+      const source = value as Record<string, unknown>;
+      const keys = Object.keys(source);
+      let next: Record<string, unknown> | null = null;
+      for (let i = 0; i < keys.length; i++) {
+        const key = keys[i]!;
+        const result = walk(source[key]);
+        if (result.changed && next === null) {
+          next = {};
+          for (let j = 0; j < i; j++) {
+            const priorKey = keys[j]!;
+            next[priorKey] = source[priorKey];
+          }
+        }
+        if (next !== null) {
+          next[key] = result.value;
+        }
       }
-      return objChanged ? { value: next, changed: true } : { value, changed: false };
+      return next !== null
+        ? { value: next, changed: true }
+        : { value, changed: false };
     }
 
     return { value, changed: false };

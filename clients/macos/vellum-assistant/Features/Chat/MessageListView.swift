@@ -164,6 +164,8 @@ struct MessageListView: View {
             .environment(\.filePreviewExpansionStore, filePreviewExpansionStore)
             .environment(\.suppressAutoScroll, { [self] in
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=manualExpansionDetach")
+                // Coordinator owns the 200ms expansion timeout internally
+                // (generation-tracked, cancellable) — no view-layer Task needed.
                 let intents = scrollCoordinator.handle(.manualExpansion)
                 executeCoordinatorIntents(intents)
                 // Keep scrollState in sync as runtime executor.

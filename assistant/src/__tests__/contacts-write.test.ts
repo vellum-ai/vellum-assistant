@@ -121,21 +121,19 @@ describe("createGuardianBinding seeds users/<slug>.md", () => {
   });
 });
 
-// These two tests lock in invariants from the drop-user-md plan fix PR
-// #24878. They guard against two specific regressions that have already
-// happened once:
+// Invariants:
 //
-//  1. Seeding `users/<slug>.md` from `upsertContactChannel` fires the
-//     users/ directory watcher on every inbound message from a new
-//     contact and evicts live conversations. Seeding must be restricted
-//     to the guardian-creation path.
+//  1. `upsertContactChannel` must not seed `users/<slug>.md`. Seeding
+//     there fires the users/ directory watcher on every inbound message
+//     from a new contact and evicts live conversations. Seeding is
+//     restricted to the guardian-creation path.
 //
-//  2. Without `clearTrustCache()` in `createGuardianBinding`, the
+//  2. `createGuardianBinding` must invalidate the trust cache so the
 //     dynamic `default:allow-file_*-guardian-persona` rules from
-//     `permissions/defaults.ts` are never backfilled for guardians
-//     created at runtime, so the model prompts on its first
+//     `permissions/defaults.ts` are backfilled for guardians created
+//     at runtime. Otherwise the model prompts on its first
 //     `file_edit users/<slug>.md`.
-describe("drop-user-md regression guards (PR #24878)", () => {
+describe("guardian persona seeding and trust-cache invariants", () => {
   beforeEach(() => {
     resetContactTables();
     clearAllRules();
@@ -145,9 +143,8 @@ describe("drop-user-md regression guards (PR #24878)", () => {
   test("upsertContactChannel does NOT seed users/<slug>.md for non-guardian contacts", () => {
     // upsertContact assigns a userFile slug to every contact (including
     // non-guardians) via generateUserFileSlug when no principalId/sibling
-    // match is found. If upsertContactChannel ever re-adds the
-    // `ensureGuardianPersonaFile(contact.userFile)` call that PR #24878
-    // removed, this test will start seeing the file on disk and fail.
+    // match is found. If upsertContactChannel grows a persona-seeding
+    // call, this test will start seeing the file on disk and fail.
     const result = upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "Bob",

@@ -97,7 +97,7 @@ struct UsageDashboardView: View {
                     Text("No data for selected range")
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(daily.buckets, id: \.date) { bucket in
+                    ForEach(daily.buckets, id: \.bucketId) { bucket in
                         HStack {
                             Text(bucket.displayLabel ?? bucket.date)
                                 .font(.footnote.monospaced())

@@ -297,6 +297,128 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
     expect(rows[0]?.user_file).toBe("alone.md");
   });
 
+  test("does not classify dated-slug filenames as auto-incremented", () => {
+    // A display name containing a 4-digit year (e.g. "Alex 2024") produces
+    // `alex-2024.md`. The auto-increment suffix only ever appends 1–3 digits
+    // (starting at 2), so `alex-2024.md` must be treated as a normal filename
+    // and not deprioritized in favor of an older sibling.
+    const now = Date.now();
+    insertContact({
+      id: "c1",
+      displayName: "Alex 2024",
+      role: "guardian",
+      principalId: "principal-dated",
+      userFile: "alex-2024.md",
+      createdAt: now,
+    });
+    insertContact({
+      id: "c2",
+      displayName: "Alex",
+      role: "guardian",
+      principalId: "principal-dated",
+      userFile: "alex.md",
+      createdAt: now - 1000,
+    });
+
+    migrateNormalizeUserFileByPrincipal(getDb());
+
+    const rows = fetchUserFilesByPrincipal("principal-dated");
+    // Neither candidate looks auto-incremented, so tiebreaker is oldest
+    // created_at — c2 (`alex.md`) wins. Crucially, `alex-2024.md` was NOT
+    // classified as auto-incremented and penalized.
+    expect(rows.map((r) => r.user_file).sort()).toEqual(["alex.md", "alex.md"]);
+  });
+
+  test("excludes year-like 4-digit tails from the auto-increment class", () => {
+    // `-2.md` is auto-increment; `-1999.md` (year) is not.
+    const now = Date.now();
+    insertContact({
+      id: "c1",
+      displayName: "Bob 1999",
+      role: "guardian",
+      principalId: "principal-mixed",
+      userFile: "bob-1999.md",
+      createdAt: now - 2000,
+    });
+    insertContact({
+      id: "c2",
+      displayName: "Bob",
+      role: "guardian",
+      principalId: "principal-mixed",
+      userFile: "bob-2.md",
+      createdAt: now - 1000,
+    });
+
+    migrateNormalizeUserFileByPrincipal(getDb());
+
+    const rows = fetchUserFilesByPrincipal("principal-mixed");
+    // `bob-1999.md` is non-auto-incremented, `bob-2.md` is auto-incremented;
+    // the former wins regardless of age.
+    for (const row of rows) expect(row.user_file).toBe("bob-1999.md");
+  });
+
+  test("classifies 4+ digit counter tails as auto-incremented", () => {
+    // `generateUserFileSlug` has an unbounded `for (let i = 2; ; i++)` loop,
+    // so a dense slug space can produce 4+ digit counters like `-1000.md`.
+    // Those must still be recognized as auto-increments so siblings are
+    // normalized to the clean base, not to the counter value.
+    const now = Date.now();
+    insertContact({
+      id: "c1",
+      displayName: "Carol",
+      role: "guardian",
+      principalId: "principal-big",
+      userFile: "carol-1000.md",
+      createdAt: now - 2000,
+    });
+    insertContact({
+      id: "c2",
+      displayName: "Carol",
+      role: "guardian",
+      principalId: "principal-big",
+      userFile: "carol.md",
+      createdAt: now,
+    });
+
+    migrateNormalizeUserFileByPrincipal(getDb());
+
+    const rows = fetchUserFilesByPrincipal("principal-big");
+    // Despite `carol-1000.md` being older, it's auto-incremented, so
+    // `carol.md` wins as canonical.
+    for (const row of rows) expect(row.user_file).toBe("carol.md");
+  });
+
+  test("excludes full date-shaped tails from the auto-increment class", () => {
+    // `alex-2025-04-13.md` ends with `-13.md` (which otherwise looks like a
+    // small counter), but the preceding `-2025-04` marks the whole tail as a
+    // date. Must NOT be classified as auto-incremented.
+    const now = Date.now();
+    insertContact({
+      id: "c1",
+      displayName: "Alex 2025 04 13",
+      role: "guardian",
+      principalId: "principal-datefull",
+      userFile: "alex-2025-04-13.md",
+      createdAt: now - 2000,
+    });
+    insertContact({
+      id: "c2",
+      displayName: "Alex",
+      role: "guardian",
+      principalId: "principal-datefull",
+      userFile: "alex-2.md",
+      createdAt: now - 1000,
+    });
+
+    migrateNormalizeUserFileByPrincipal(getDb());
+
+    const rows = fetchUserFilesByPrincipal("principal-datefull");
+    // `alex-2.md` is auto-incremented; `alex-2025-04-13.md` is a date-shaped
+    // slug and wins as canonical.
+    for (const row of rows)
+      expect(row.user_file).toBe("alex-2025-04-13.md");
+  });
+
   test("is idempotent", () => {
     const now = Date.now();
     insertContact({

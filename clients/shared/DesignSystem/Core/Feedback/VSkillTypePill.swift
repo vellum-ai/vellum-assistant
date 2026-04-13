@@ -22,7 +22,8 @@ public struct VSkillTypePill: View {
         var vIcon: VIcon {
             switch self {
             case .vellum: return .package
-            case .clawhub, .skillssh: return .globe
+            case .clawhub: return .globe
+            case .skillssh: return .terminal
             case .custom: return .user
             case .other(_, let icon, _, _): return .resolve(icon)
             }

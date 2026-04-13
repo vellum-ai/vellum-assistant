@@ -1029,6 +1029,46 @@ describe("twilio webhook routes", () => {
     });
   });
 
+  // ── ConversationRelay STT integration guardrails ────────────────────
+  // These tests assert at the handler level that the voice webhook TwiML
+  // always uses ConversationRelay with STT attributes from
+  // calls.voice.transcriptionProvider — the current production path.
+
+  describe("ConversationRelay STT integration guardrails", () => {
+    test("outbound voice webhook TwiML uses ConversationRelay with transcriptionProvider from config", async () => {
+      const session = createTestSession("conv-stt-guard-1", "CA_stt_guard_1");
+      const req = makeVoiceRequest(session.id, { CallSid: "CA_stt_guard_1" });
+
+      const res = await handleVoiceWebhook(req);
+      expect(res.status).toBe(200);
+
+      const twiml = await res.text();
+      // Must use ConversationRelay (not <Stream> / media-stream)
+      expect(twiml).toContain("<ConversationRelay");
+      expect(twiml).not.toContain("<Stream");
+      // STT attributes must come from calls.voice config (Deepgram default)
+      expect(twiml).toContain('transcriptionProvider="Deepgram"');
+      // services.stt provider must NOT appear in TwiML
+      expect(twiml).not.toContain("openai-whisper");
+    });
+
+    test("inbound voice webhook TwiML uses ConversationRelay with transcriptionProvider from config", async () => {
+      const req = makeInboundVoiceRequest({
+        CallSid: "CA_stt_guard_inbound_1",
+        From: "+14155551234",
+        To: "+15550001111",
+      });
+
+      const res = await handleVoiceWebhook(req);
+      expect(res.status).toBe(200);
+
+      const twiml = await res.text();
+      expect(twiml).toContain("<ConversationRelay");
+      expect(twiml).toContain('transcriptionProvider="Deepgram"');
+      expect(twiml).not.toContain("<Stream");
+    });
+  });
+
   describe("Twilio control-plane credential and number operations", () => {
     test("setting credentials stores them and returns success", async () => {
       mockRawConfigStore = {};

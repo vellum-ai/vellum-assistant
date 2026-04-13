@@ -24,9 +24,7 @@ import {
   createWriteStream,
 } from "node:fs";
 import { open, rename, stat, unlink } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { Readable } from "node:stream";
+import { Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
 // ---------------------------------------------------------------------------
@@ -191,26 +189,75 @@ export async function decryptFile(
 // ---------------------------------------------------------------------------
 
 /**
- * Verify that `path` is a valid AES-256-GCM encrypted bundle for `key` by
- * running a full decrypt into a throwaway temp file. Returns `true` if the
- * decrypt succeeds (auth tag matches, IV readable, etc.), `false` otherwise.
+ * Verify that `path` is a valid AES-256-GCM encrypted bundle for `key`.
  *
- * Always cleans up the temp file, even on failure.
+ * Streams the ciphertext through the decipher into a null sink and relies on
+ * `decipher.final()` to either succeed (tag matches) or throw (tamper / wrong
+ * key). No scratch file is written, so a full or read-only tmpdir cannot
+ * cause a healthy backup to be reported as invalid.
+ *
+ * Returns `true` if the bundle authenticates, `false` on a cryptographic
+ * failure (bad auth tag, wrong key, truncated/short input). Filesystem errors
+ * on the *source* file (ENOENT, EACCES, EIO, …) are rethrown so callers can
+ * distinguish tamper from transient I/O.
  */
 export async function verifyEncryptedFile(
   path: string,
   key: Buffer,
 ): Promise<boolean> {
-  const scratch = join(
-    tmpdir(),
-    `vellum-backup-verify-${process.pid}-${randomBytes(6).toString("hex")}`,
-  );
-  try {
-    await decryptFile(path, scratch, key);
-    return true;
-  } catch {
+  assertKey(key);
+
+  const info = await stat(path);
+  const totalSize = info.size;
+  const minSize = ENCRYPTED_HEADER_SIZE + GCM_TAG_SIZE;
+  if (totalSize < minSize) {
+    // Too short to contain an IV + tag — not a valid bundle.
     return false;
-  } finally {
-    await safeUnlink(scratch);
   }
+
+  const iv = Buffer.alloc(ENCRYPTED_HEADER_SIZE);
+  const tag = Buffer.alloc(GCM_TAG_SIZE);
+  const fh = await open(path, "r");
+  try {
+    await fh.read(iv, 0, ENCRYPTED_HEADER_SIZE, 0);
+    await fh.read(tag, 0, GCM_TAG_SIZE, totalSize - GCM_TAG_SIZE);
+  } finally {
+    await fh.close();
+  }
+
+  const decipher = createDecipheriv(ALGORITHM, key, iv);
+  decipher.setAuthTag(tag);
+
+  const ciphertextStart = ENCRYPTED_HEADER_SIZE;
+  const ciphertextEnd = totalSize - GCM_TAG_SIZE - 1;
+  const hasCiphertext = ciphertextEnd >= ciphertextStart;
+  const ciphertextStream = hasCiphertext
+    ? createReadStream(path, { start: ciphertextStart, end: ciphertextEnd })
+    : Readable.from([]);
+
+  // Discard-only sink — verification never touches scratch disk.
+  const nullSink = new Writable({
+    write(_chunk, _encoding, cb) {
+      cb();
+    },
+  });
+
+  try {
+    await pipeline(ciphertextStream, decipher, nullSink);
+    return true;
+  } catch (err) {
+    if (isFilesystemError(err)) {
+      throw err;
+    }
+    return false;
+  }
+}
+
+// Node errno exceptions surface as uppercase `E`-prefixed codes (ENOENT,
+// EACCES, ENOSPC, EIO, EROFS, …). Crypto errors use `ERR_*` codes or no code
+// at all, so the regex rules them out.
+function isFilesystemError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const code = (err as { code?: unknown }).code;
+  return typeof code === "string" && /^E[A-Z]+$/.test(code);
 }

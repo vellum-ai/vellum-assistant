@@ -35,10 +35,16 @@ public struct UsageTotalsResponse: Decodable, Equatable, Sendable {
 }
 
 /// A single day bucket from `GET /v1/usage/daily`.
-public struct UsageDayBucket: Decodable, Equatable, Sendable {
+public struct UsageDayBucket: Decodable, Equatable, Sendable, Identifiable {
+    /// Stable unique identifier for use as a SwiftUI list key. Distinct across
+    /// DST fall-back duplicate hours (which share the same `date` string).
+    /// Older daemons don't send this field, so we fall back to `date` on decode
+    /// — acceptable for daily buckets but hourly charts require a newer daemon
+    /// to render correctly on fall-back days.
+    public let bucketId: String
     /// Local-time bucket key in the requested tz: "YYYY-MM-DD" (daily) or
-    /// "YYYY-MM-DD HH:00" (hourly). Clients should treat this as an opaque
-    /// identifier and prefer `displayLabel` for rendering.
+    /// "YYYY-MM-DD HH:00" (hourly). Not guaranteed unique — use `bucketId` for
+    /// list identity and `displayLabel` for rendering.
     public let date: String
     /// Pre-formatted human-readable label from the daemon, formatted in the
     /// requested timezone. Absent for responses from older daemons.
@@ -48,7 +54,10 @@ public struct UsageDayBucket: Decodable, Equatable, Sendable {
     public let totalEstimatedCostUsd: Double
     public let eventCount: Int
 
+    public var id: String { bucketId }
+
     public init(
+        bucketId: String? = nil,
         date: String,
         displayLabel: String? = nil,
         totalInputTokens: Int,
@@ -56,6 +65,7 @@ public struct UsageDayBucket: Decodable, Equatable, Sendable {
         totalEstimatedCostUsd: Double,
         eventCount: Int
     ) {
+        self.bucketId = bucketId ?? date
         self.date = date
         self.displayLabel = displayLabel
         self.totalInputTokens = totalInputTokens
@@ -65,6 +75,7 @@ public struct UsageDayBucket: Decodable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
+        case bucketId
         case date
         case displayLabel
         case totalInputTokens
@@ -76,6 +87,7 @@ public struct UsageDayBucket: Decodable, Equatable, Sendable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         date = try container.decode(String.self, forKey: .date)
+        bucketId = try container.decodeIfPresent(String.self, forKey: .bucketId) ?? date
         displayLabel = try container.decodeIfPresent(String.self, forKey: .displayLabel)
         totalInputTokens = try container.decode(Int.self, forKey: .totalInputTokens)
         totalOutputTokens = try container.decode(Int.self, forKey: .totalOutputTokens)

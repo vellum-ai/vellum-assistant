@@ -249,6 +249,8 @@ export interface AgentLoopConversationContext {
   currentTurnChannelCapabilities?: ChannelCapabilities;
   commandIntent?: { type: string; payload?: string; languageCode?: string };
   trustContext?: TrustContext;
+  /** Task-run scope for the current turn. Cleared at turn end so queued/drained turns don't inherit it. */
+  taskRunId?: string;
   assistantId?: string;
   voiceCallControlPrompt?: string;
   transportHints?: string[];
@@ -2053,6 +2055,10 @@ export async function runAgentLoopImpl(
     // Channel command intents (e.g. Telegram /start) are single-turn metadata.
     // Clear at turn end so they never leak into subsequent unrelated messages.
     ctx.commandIntent = undefined;
+    // taskRunId scopes ephemeral task-run permissions to a single turn. Clear
+    // before drainQueue so queued/drained turns on a reused conversation can't
+    // inherit stale in-task-run scope from the turn that just finished.
+    ctx.taskRunId = undefined;
 
     // Consolidation deferred to compaction: keeping assistant + tool_result
     // messages unconsolidated preserves the exact message structure sent to

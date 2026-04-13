@@ -251,11 +251,16 @@ extension MessageListView {
             return
         }
         scrollState.lastHandledChatColumnWidth = trackedWidth
-        // Route through coordinator for policy decision.
+        // Route through coordinator for policy decision. Snapshot whether
+        // the coordinator opened a new resize stabilization window so we
+        // only pair an endStabilization() call when there's a window to
+        // end — otherwise we'd decrement an unrelated stabilization cycle
+        // (e.g. an active expansion window the user is still inspecting).
+        let didOpenCoordinatorStabilization = scrollCoordinator.wouldOpenResizeStabilization
         let intents = scrollCoordinator.handle(.containerWidthChanged)
         executeCoordinatorIntents(intents)
         resizeScrollTask?.cancel()
-        resizeScrollTask = Task { @MainActor [scrollState] in
+        resizeScrollTask = Task { @MainActor [scrollState, scrollCoordinator] in
             scrollState.beginStabilization(.resize)
             defer {
                 if !Task.isCancelled { resizeScrollTask = nil }
@@ -263,9 +268,15 @@ extension MessageListView {
             try? await Task.sleep(nanoseconds: 100_000_000)
             guard !Task.isCancelled else {
                 scrollState.endStabilization()
+                if didOpenCoordinatorStabilization {
+                    scrollCoordinator.endStabilization()
+                }
                 return
             }
                 scrollState.endStabilization()
+                if didOpenCoordinatorStabilization {
+                    scrollCoordinator.endStabilization()
+                }
                 if scrollState.mode.allowsAutoScroll && anchorMessageId == nil {
                     // Use mode.allowsAutoScroll (covers both .initialLoad and
                     // .followingBottom) instead of isFollowingBottom (which

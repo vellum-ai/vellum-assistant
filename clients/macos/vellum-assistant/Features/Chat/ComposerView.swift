@@ -305,7 +305,11 @@ struct ComposerView: View, Equatable {
                     return false
                 },
                 onEscape: {
-                    if composerController.showSlashMenu { composerController.handleSlashNavigation(.dismiss); return true }
+                    if composerController.showSlashMenu {
+                        composerController.handleSlashNavigation(.dismiss)
+                        inputText = ""
+                        return true
+                    }
                     if composerController.showEmojiMenu { composerController.handleEmojiNavigation(.dismiss); return true }
                     return false
                 },

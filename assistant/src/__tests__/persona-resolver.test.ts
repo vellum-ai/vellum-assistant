@@ -63,7 +63,9 @@ mock.module("../contacts/contact-store.js", () => ({
 import {
   ensureGuardianPersonaFile,
   isGuardianPersonaCustomized,
+  resolveGuardianPersona,
   resolveGuardianPersonaPath,
+  resolveGuardianPersonaStrict,
 } from "../prompts/persona-resolver.js";
 
 // ── Temp workspace scaffold ───────────────────────────────────────
@@ -145,6 +147,56 @@ describe("ensureGuardianPersonaFile", () => {
 
     const content = readFileSync(filePath, "utf-8");
     expect(content).toBe(existingContent);
+  });
+});
+
+// ── resolveGuardianPersonaStrict ───────────────────────────────────
+
+describe("resolveGuardianPersonaStrict", () => {
+  test("returns null when no guardian contact exists", () => {
+    mockVellumGuardian = null;
+    mockAnyGuardian = null;
+
+    expect(resolveGuardianPersonaStrict()).toBeNull();
+  });
+
+  test("returns null when the guardian's own file is missing, even if default.md exists", () => {
+    mockVellumGuardian = {
+      contact: { userFile: "sidd.md" },
+      channel: {},
+    };
+
+    // default.md is populated but sidd.md is not on disk.
+    const usersDir = join(mockWorkspaceDir, "users");
+    mkdirSync(usersDir, { recursive: true });
+    writeFileSync(
+      join(usersDir, "default.md"),
+      "- Preferred name/reference: DefaultName\n",
+      "utf-8",
+    );
+
+    // Strict variant must not leak default.md content.
+    expect(resolveGuardianPersonaStrict()).toBeNull();
+    // Sanity: the non-strict variant DOES fall back to default.md, which
+    // is the documented divergence these tests pin down.
+    expect(resolveGuardianPersona()).toContain("DefaultName");
+  });
+
+  test("returns guardian file content when present", () => {
+    mockVellumGuardian = {
+      contact: { userFile: "sidd.md" },
+      channel: {},
+    };
+
+    const usersDir = join(mockWorkspaceDir, "users");
+    mkdirSync(usersDir, { recursive: true });
+    writeFileSync(
+      join(usersDir, "sidd.md"),
+      "- Preferred name/reference: Sidd\n",
+      "utf-8",
+    );
+
+    expect(resolveGuardianPersonaStrict()).toContain("Sidd");
   });
 });
 

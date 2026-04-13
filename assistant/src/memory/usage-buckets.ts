@@ -184,25 +184,27 @@ function alignToLocalHourStart(epochMillis: number, tz: string): number {
 /**
  * Find the UTC instant corresponding to local midnight of the day containing
  * `epochMillis` in `tz`.
+ *
+ * DST-aware: the UTC offset at local midnight can differ from the offset at
+ * `epochMillis` when a DST transition falls earlier in the same local day.
+ * Naively subtracting the current wall-clock hours/minutes/seconds would land
+ * on a UTC instant that formats as the wrong local date (e.g. 23:00 of the
+ * previous day after spring-forward). We instead derive midnight by locating
+ * the UTC instant whose local formatting is Y-M-D 00:00 in `tz`.
  */
 function alignToLocalDayStart(epochMillis: number, tz: string): number {
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
-  const parts = formatter.formatToParts(new Date(epochMillis));
-  let hour = 0;
-  let minute = 0;
-  let second = 0;
-  for (const part of parts) {
-    if (part.type === "hour") hour = Number(part.value) % 24;
-    if (part.type === "minute") minute = Number(part.value);
-    if (part.type === "second") second = Number(part.value);
+  const parts = getLocalParts(epochMillis, tz);
+  // UTC midnight of the same Y-M-D is a close-but-incorrect guess. Its offset
+  // approximates the offset at local midnight — one iteration of correction
+  // handles the common case where a DST transition sits between the two.
+  const utcMidnightGuess = Date.UTC(parts.year, parts.month - 1, parts.day);
+  const offset1 = getLocalParts(utcMidnightGuess, tz).offsetMinutes;
+  let candidate = utcMidnightGuess - offset1 * 60_000;
+  const offset2 = getLocalParts(candidate, tz).offsetMinutes;
+  if (offset2 !== offset1) {
+    candidate = utcMidnightGuess - offset2 * 60_000;
   }
-  return epochMillis - (hour * 3600 + minute * 60 + second) * 1000;
+  return candidate;
 }
 
 /** Format a short human-readable hour label in `tz`, e.g. "3pm". */
@@ -227,6 +229,7 @@ function formatDayLabel(epochMillis: number, tz: string): string {
 }
 
 interface MutableBucket {
+  bucketId: string;
   date: string;
   displayLabel: string;
   totalInputTokens: number;
@@ -238,11 +241,13 @@ interface MutableBucket {
 }
 
 function emptyBucket(
+  bucketId: string,
   date: string,
   displayLabel: string,
   sortKey: number,
 ): MutableBucket {
   return {
+    bucketId,
     date,
     displayLabel,
     totalInputTokens: 0,
@@ -266,7 +271,8 @@ function addEventToBucket(
 function finalize(buckets: Map<string, MutableBucket>): UsageDayBucket[] {
   return Array.from(buckets.values())
     .sort((a, b) => a.sortKey - b.sortKey)
-    .map(({ date, displayLabel, ...rest }) => ({
+    .map(({ bucketId, date, displayLabel, ...rest }) => ({
+      bucketId,
       date,
       displayLabel,
       totalInputTokens: rest.totalInputTokens,
@@ -313,7 +319,7 @@ export function bucketEventsByHour(
       if (!buckets.has(key)) {
         buckets.set(
           key,
-          emptyBucket(hourKey(parts), formatHourLabel(cursor, tz), cursor),
+          emptyBucket(key, hourKey(parts), formatHourLabel(cursor, tz), cursor),
         );
       }
       cursor = addOneHourUtc(cursor);
@@ -327,6 +333,7 @@ export function bucketEventsByHour(
     if (!bucket) {
       const hourStart = alignToLocalHourStart(row.created_at, tz);
       bucket = emptyBucket(
+        key,
         hourKey(parts),
         formatHourLabel(hourStart, tz),
         hourStart,
@@ -362,7 +369,10 @@ export function bucketEventsByDay(
       const parts = getLocalParts(cursor, tz);
       const key = dayKey(parts);
       if (!buckets.has(key)) {
-        buckets.set(key, emptyBucket(key, formatDayLabel(cursor, tz), cursor));
+        buckets.set(
+          key,
+          emptyBucket(key, key, formatDayLabel(cursor, tz), cursor),
+        );
       }
       // Advance by 24 UTC hours, then realign to local midnight. Handles
       // DST transitions where a "day" is 23 or 25 hours long in local time.
@@ -376,7 +386,7 @@ export function bucketEventsByDay(
     let bucket = buckets.get(key);
     if (!bucket) {
       const dayStart = alignToLocalDayStart(row.created_at, tz);
-      bucket = emptyBucket(key, formatDayLabel(dayStart, tz), dayStart);
+      bucket = emptyBucket(key, key, formatDayLabel(dayStart, tz), dayStart);
       buckets.set(key, bucket);
     }
     addEventToBucket(bucket, row);
