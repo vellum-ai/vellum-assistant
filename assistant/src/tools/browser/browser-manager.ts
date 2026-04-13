@@ -4,6 +4,7 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import { getLogger } from "../../util/logger.js";
 import { getDataDir } from "../../util/platform.js";
 import { authSessionCache } from "./auth-cache.js";
+import type { CdpClientKind } from "./cdp-client/types.js";
 import type { ExtractedCredential } from "./network-recording-types.js";
 import { importPlaywright } from "./runtime-check.js";
 
@@ -210,6 +211,16 @@ class BrowserManager {
    * resulting backendNodeId.
    */
   private snapshotBackendNodeMaps = new Map<string, Map<string, number>>();
+  /**
+   * The CDP backend kind that a conversation resolved to on an earlier
+   * tool call. When a subsequent browser_* call arrives with
+   * `browser_mode: "auto"`, the factory is pinned to this kind so
+   * navigate and screenshot cannot land on different Chromes within
+   * the same conversation. Explicit non-auto modes overwrite the entry.
+   * Cleared when the conversation's page is closed or all pages are
+   * closed.
+   */
+  private preferredBackendKinds = new Map<string, CdpClientKind>();
   private browserCdpSession: CDPSession | null = null;
   private browserWindowId: number | null = null;
   private interactiveModeSessions = new Set<string>();
@@ -444,6 +455,7 @@ class BrowserManager {
     this.pages.delete(conversationId);
     this.rawPages.delete(conversationId);
     this.snapshotBackendNodeMaps.delete(conversationId);
+    this.preferredBackendKinds.delete(conversationId);
     this.downloads.delete(conversationId);
     // Reject any pending download waiters
     const pending = this.pendingDownloads.get(conversationId);
@@ -477,6 +489,7 @@ class BrowserManager {
     this.pages.clear();
     this.rawPages.clear();
     this.snapshotBackendNodeMaps.clear();
+    this.preferredBackendKinds.clear();
     this.downloads.clear();
     for (const pending of this.pendingDownloads.values()) {
       for (const waiter of pending) waiter.reject(new Error("Browser closed"));
@@ -530,6 +543,38 @@ class BrowserManager {
       }
       this.cdpSessions.delete(conversationId);
     }
+  }
+
+  /**
+   * Look up the backend kind this conversation has been using. Returns
+   * `null` before the first successful CDP send or after an explicit
+   * teardown. Callers should pass the result to the factory as a
+   * pinned mode so `auto`-mode calls stay consistent across tool
+   * invocations.
+   */
+  getPreferredBackendKind(conversationId: string): CdpClientKind | null {
+    return this.preferredBackendKinds.get(conversationId) ?? null;
+  }
+
+  /**
+   * Record the backend kind that a tool call resolved to. Overwrites
+   * any prior value so an explicit `browser_mode` override on one call
+   * becomes the default for subsequent `auto`-mode calls.
+   */
+  setPreferredBackendKind(
+    conversationId: string,
+    kind: CdpClientKind,
+  ): void {
+    this.preferredBackendKinds.set(conversationId, kind);
+  }
+
+  /**
+   * Drop the remembered backend kind for a conversation. Called on
+   * explicit teardown (browser_close, closeAllPages) so the next call
+   * re-runs the auto priority list.
+   */
+  clearPreferredBackendKind(conversationId: string): void {
+    this.preferredBackendKinds.delete(conversationId);
   }
 
   /**

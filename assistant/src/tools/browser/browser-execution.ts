@@ -283,6 +283,18 @@ function collectRemediationHints(
  *   - normalizes aliases (`cdp-debugger` -> `cdp-inspect`, etc.)
  *   - passes the mode preference to the factory
  *   - surfaces a remediation-rich error on pinned-mode failures
+ *
+ * Per-conversation stickiness: when the incoming `browser_mode` is
+ * `"auto"` and the conversation has already resolved to a backend
+ * kind on a prior call, the factory is pinned to that kind instead
+ * of re-running the auto priority list. This prevents
+ * `browser_navigate` (e.g. pinned to `local`) and `browser_screenshot`
+ * (default auto) in the same conversation from landing on different
+ * Chrome instances. Explicit non-auto modes override and update the
+ * memo; teardown via browser_close / browser_detach clears it.
+ *
+ * The returned client is wrapped so its first successful `send()`
+ * writes the resolved kind back to the conversation memo.
  */
 export function acquireCdpClientWithMode(
   input: Record<string, unknown>,
@@ -302,8 +314,17 @@ export function acquireCdpClientWithMode(
   }
   const browserMode = modeResult.mode;
 
+  const rememberedKind = browserManager.getPreferredBackendKind(
+    context.conversationId,
+  );
+  const effectiveMode: BrowserMode =
+    browserMode === "auto" && rememberedKind !== null
+      ? rememberedKind
+      : browserMode;
+
   try {
-    const cdp = getCdpClient(context, { mode: browserMode });
+    const raw = getCdpClient(context, { mode: effectiveMode });
+    const cdp = wrapWithKindMemo(raw, context.conversationId);
     return { cdp, browserMode };
   } catch (err) {
     if (err instanceof CdpError && browserMode !== "auto") {
@@ -316,6 +337,40 @@ export function acquireCdpClientWithMode(
     }
     throw err;
   }
+}
+
+/**
+ * Wrap a {@link ScopedCdpClient} so the first successful `send()`
+ * records the resolved backend kind in the conversation's
+ * `preferredBackendKinds` memo. Subsequent sends are no-ops for the
+ * memo; dispose() delegates to the underlying client.
+ */
+function wrapWithKindMemo(
+  inner: ReturnType<typeof getCdpClient>,
+  conversationId: string,
+): ReturnType<typeof getCdpClient> {
+  let recorded = false;
+  return {
+    get kind() {
+      return inner.kind;
+    },
+    conversationId: inner.conversationId,
+    async send<T = unknown>(
+      method: string,
+      params?: Record<string, unknown>,
+      signal?: AbortSignal,
+    ): Promise<T> {
+      const result = await inner.send<T>(method, params, signal);
+      if (!recorded) {
+        browserManager.setPreferredBackendKind(conversationId, inner.kind);
+        recorded = true;
+      }
+      return result;
+    },
+    dispose(): void {
+      inner.dispose();
+    },
+  };
 }
 
 // ── CDP error diagnostics helper ─────────────────────────────────────
@@ -1009,6 +1064,9 @@ export async function executeBrowserDetach(
 
     // Clear stale snapshot element-id mappings regardless of backend.
     browserManager.clearSnapshotBackendNodeMap(context.conversationId);
+    // Drop the sticky backend kind so the next browser_* call re-runs
+    // the auto priority list from a clean slate.
+    browserManager.clearPreferredBackendKind(context.conversationId);
 
     return {
       content: "Browser debugger detached and snapshot state cleared.",
@@ -1073,6 +1131,7 @@ export async function executeBrowserClose(
       // Tolerate detach failures (already detached, tab closed, etc.)
     }
     browserManager.clearSnapshotBackendNodeMap(context.conversationId);
+    browserManager.clearPreferredBackendKind(context.conversationId);
     return {
       content:
         "Browser session cleared. (Your Chrome tab was not closed — close it yourself if desired.)",
