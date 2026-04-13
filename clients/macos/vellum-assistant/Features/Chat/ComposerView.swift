@@ -509,53 +509,55 @@ struct ComposerView: View, Equatable {
                     .vTooltip("Live voice conversation")
                 }
 
-                // Dictate button
-                VButton(
-                    label: "Dictate",
-                    iconOnly: VIcon.mic.rawValue,
-                    style: .ghost,
-                    iconSize: composerActionButtonSize,
-                    action: { (onDictateToggle ?? onMicrophoneToggle)() }
-                )
-
-                .vTooltip(micTooltipText)
-
-                // Send button (always visible, disabled when empty)
-                VButton(
-                    label: "Send message",
-                    iconOnly: VIcon.arrowUp.rawValue,
-                    style: .primary,
-                    isDisabled: !canSend,
-                    iconSize: composerActionButtonSize
-                ) {
-                    composerFocus = true
-                    performSendAction()
-                }
-                .vTooltip("Type a message to send")
-            } else if !hasPendingConfirmation {
-                // Mic button (visible with or without text)
+                // Dictate / stop button
                 VButton(
                     label: isRecording ? "Stop recording" : "Dictate",
-                    iconOnly: VIcon.mic.rawValue,
+                    iconOnly: isRecording ? VIcon.circleStop.rawValue : VIcon.mic.rawValue,
                     style: .ghost,
                     iconSize: composerActionButtonSize,
                     action: { (onDictateToggle ?? onMicrophoneToggle)() }
                 )
+                .vTooltip(isRecording ? "Stop recording" : micTooltipText)
 
-                .vTooltip(micTooltipText)
-
-                // Send button
-                VButton(
-                    label: "Send message",
-                    iconOnly: VIcon.arrowUp.rawValue,
-                    style: .primary,
-                    isDisabled: !canSend,
-                    iconSize: composerActionButtonSize
-                ) {
-                    composerFocus = true
-                    performSendAction()
+                if !isRecording {
+                    // Send button (hidden during recording)
+                    VButton(
+                        label: "Send message",
+                        iconOnly: VIcon.arrowUp.rawValue,
+                        style: .primary,
+                        isDisabled: !canSend,
+                        iconSize: composerActionButtonSize
+                    ) {
+                        composerFocus = true
+                        performSendAction()
+                    }
+                    .vTooltip("Type a message to send")
                 }
-                .vTooltip(canSend ? "Send" : "Type a message to send")
+            } else if !hasPendingConfirmation {
+                // Mic / stop button
+                VButton(
+                    label: isRecording ? "Stop recording" : "Dictate",
+                    iconOnly: isRecording ? VIcon.circleStop.rawValue : VIcon.mic.rawValue,
+                    style: .ghost,
+                    iconSize: composerActionButtonSize,
+                    action: { (onDictateToggle ?? onMicrophoneToggle)() }
+                )
+                .vTooltip(isRecording ? "Stop recording" : micTooltipText)
+
+                if !isRecording {
+                    // Send button (hidden during recording)
+                    VButton(
+                        label: "Send message",
+                        iconOnly: VIcon.arrowUp.rawValue,
+                        style: .primary,
+                        isDisabled: !canSend,
+                        iconSize: composerActionButtonSize
+                    ) {
+                        composerFocus = true
+                        performSendAction()
+                    }
+                    .vTooltip(canSend ? "Send" : "Type a message to send")
+                }
             } else {
                 // Pending confirmation — show same buttons as empty-input state
                 if onVoiceModeToggle != nil {
@@ -570,22 +572,23 @@ struct ComposerView: View, Equatable {
 
                 VButton(
                     label: isRecording ? "Stop recording" : "Dictate",
-                    iconOnly: VIcon.mic.rawValue,
+                    iconOnly: isRecording ? VIcon.circleStop.rawValue : VIcon.mic.rawValue,
                     style: .ghost,
                     iconSize: composerActionButtonSize,
                     action: { (onDictateToggle ?? onMicrophoneToggle)() }
                 )
 
-
-                VButton(
-                    label: "Send message",
-                    iconOnly: VIcon.arrowUp.rawValue,
-                    style: .primary,
-                    isDisabled: !canSend,
-                    iconSize: composerActionButtonSize
-                ) {
-                    composerFocus = true
-                    performSendAction()
+                if !isRecording {
+                    VButton(
+                        label: "Send message",
+                        iconOnly: VIcon.arrowUp.rawValue,
+                        style: .primary,
+                        isDisabled: !canSend,
+                        iconSize: composerActionButtonSize
+                    ) {
+                        composerFocus = true
+                        performSendAction()
+                    }
                 }
             }
         }
