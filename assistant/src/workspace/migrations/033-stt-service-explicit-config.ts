@@ -15,7 +15,7 @@ import type { WorkspaceMigration } from "./types.js";
  * partial, backfilling only structural fields:
  *
  *   - `services.stt.mode`      -> `"your-own"`
- *   - `services.stt.provider`  -> `"openai-whisper"`
+ *   - `services.stt.provider`  -> `"deepgram"`
  *   - `services.stt.providers` -> `{}` (empty object — sparse map)
  *
  * It does NOT seed per-provider entries (`openai-whisper`, `deepgram`, etc.)
@@ -58,7 +58,7 @@ export const sttServiceExplicitConfigMigration: WorkspaceMigration = {
 
     // Backfill provider
     if (!("provider" in stt)) {
-      stt.provider = "openai-whisper";
+      stt.provider = "deepgram";
       changed = true;
     }
 
