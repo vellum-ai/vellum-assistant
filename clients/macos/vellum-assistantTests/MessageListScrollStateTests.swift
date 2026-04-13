@@ -103,6 +103,83 @@ final class MessageListScrollStateTests: XCTestCase {
                        "Should toggle off when scrolled back to bottom")
     }
 
+    // MARK: - updateScrollToLatest: Hysteresis Band
+
+    func testUpdateScrollToLatestStaysVisibleInsideHysteresisBand() {
+        // Show the CTA first.
+        state.scrollContentHeight = 5000
+        state.scrollContainerHeight = 800
+        state.lastContentOffsetY = 2000  // distanceFromBottom = 2200
+        state.updateScrollToLatest()
+        XCTAssertTrue(state.showScrollToLatest)
+
+        // Drop distance into the 200..400 band — should stay visible.
+        state.scrollContentHeight = 1100
+        state.scrollContainerHeight = 800
+        state.lastContentOffsetY = 0  // distanceFromBottom = 300
+        state.updateScrollToLatest()
+        XCTAssertTrue(state.showScrollToLatest,
+                      "Once visible, CTA should stay visible inside the 200..400 hysteresis band")
+    }
+
+    func testUpdateScrollToLatestHidesBelowLowThreshold() {
+        state.scrollContentHeight = 5000
+        state.scrollContainerHeight = 800
+        state.lastContentOffsetY = 2000  // distanceFromBottom = 2200
+        state.updateScrollToLatest()
+        XCTAssertTrue(state.showScrollToLatest)
+
+        // Drop below the 200pt hide threshold — should hide.
+        state.scrollContentHeight = 999
+        state.scrollContainerHeight = 800
+        state.lastContentOffsetY = 0  // distanceFromBottom = 199
+        state.updateScrollToLatest()
+        XCTAssertFalse(state.showScrollToLatest,
+                       "Should hide once distanceFromBottom drops below 200")
+    }
+
+    func testUpdateScrollToLatestHiddenStaysHiddenInsideHysteresisBand() {
+        // Start hidden.
+        XCTAssertFalse(state.showScrollToLatest)
+
+        // Put distance inside the 200..400 band — should remain hidden
+        // because the show threshold (>400) was never crossed.
+        state.scrollContentHeight = 1199
+        state.scrollContainerHeight = 800
+        state.lastContentOffsetY = 0  // distanceFromBottom = 399
+        state.updateScrollToLatest()
+        XCTAssertFalse(state.showScrollToLatest,
+                       "Hidden CTA should not appear until distanceFromBottom exceeds 400")
+
+        state.scrollContentHeight = 1000  // distanceFromBottom = 200
+        state.updateScrollToLatest()
+        XCTAssertFalse(state.showScrollToLatest,
+                       "Hidden CTA should not appear at the low threshold either")
+    }
+
+    func testUpdateScrollToLatestHysteresisDoesNotFlickerAroundShowThreshold() {
+        // Reproduce the scenario the fix targets: geometry noise that
+        // oscillates across the 400pt show threshold should not toggle
+        // visibility repeatedly once the CTA is hidden — the low threshold
+        // must be crossed first for it to appear.
+        state.scrollContentHeight = 1201
+        state.scrollContainerHeight = 800
+        state.lastContentOffsetY = 0  // distanceFromBottom = 401
+        state.updateScrollToLatest()
+        XCTAssertTrue(state.showScrollToLatest, "Crosses show threshold → visible")
+
+        // Bounce to 399 (noise): must stay visible (inside the band).
+        state.scrollContentHeight = 1199  // distanceFromBottom = 399
+        state.updateScrollToLatest()
+        XCTAssertTrue(state.showScrollToLatest,
+                      "Noise in the hysteresis band must not toggle visibility")
+
+        // Bounce back to 410: still visible, no flicker.
+        state.scrollContentHeight = 1210  // distanceFromBottom = 410
+        state.updateScrollToLatest()
+        XCTAssertTrue(state.showScrollToLatest)
+    }
+
     // MARK: - reset(for:)
 
     func testResetClearsAllState() {

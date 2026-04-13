@@ -87,8 +87,21 @@ final class MessageListScrollState {
 
     // MARK: - Scroll-to-latest
 
+    // Hysteresis band: show at >400pt, hide only below 200pt. Prevents the CTA
+    // from flickering when scroll-geometry jitter (avatar breathing animation,
+    // layer measurement noise, periodic activity indicators) oscillates near a
+    // single boundary.
+    static let showScrollToLatestThreshold: CGFloat = 400
+    static let hideScrollToLatestThreshold: CGFloat = 200
+
     func updateScrollToLatest() {
-        let shouldShow = distanceFromBottom > 400
+        let distance = distanceFromBottom
+        let shouldShow: Bool
+        if showScrollToLatest {
+            shouldShow = distance >= Self.hideScrollToLatestThreshold
+        } else {
+            shouldShow = distance > Self.showScrollToLatestThreshold
+        }
         if showScrollToLatest != shouldShow {
             showScrollToLatest = shouldShow
         }
