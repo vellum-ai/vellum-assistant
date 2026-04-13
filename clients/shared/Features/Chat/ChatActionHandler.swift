@@ -382,6 +382,9 @@ final class ChatActionHandler {
         if complete.messageId == nil && (vm.currentAssistantMessageId != nil || vm.isThinking) {
             return
         }
+        // Capture before dispatchPendingSendDirect clears the flag so we can
+        // tell a real turn end from a cancel-acknowledgement completion.
+        let wasCancelAck = vm.pendingSendDirectText != nil
         // Flush any buffered streaming text before finalizing the message.
         vm.flushStreamingBuffer()
         vm.flushPartialOutputBuffer()
@@ -562,6 +565,12 @@ final class ChatActionHandler {
             } else {
                 callback("Response complete")
             }
+        }
+        // Signal turn completion to observers (e.g. the `task_complete` sound).
+        // Cancel-acknowledgements are user-initiated aborts, not real turn ends,
+        // so they stay silent.
+        if !wasCancelAck {
+            vm.messageManager.turnCompletionTick &+= 1
         }
     }
 

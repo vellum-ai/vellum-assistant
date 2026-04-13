@@ -51,6 +51,12 @@ final class ConversationActivityStore {
     /// only fire on discrete transitions, not on every streaming delta.
     @ObservationIgnored private var previousInteractionStates: [UUID: ConversationInteractionState] = [:]
 
+    /// Last observed `turnCompletionTick` per conversation. The `task_complete`
+    /// sound fires on increments, which correspond to the daemon's
+    /// `message_complete` event — not to derived idle-state transitions that
+    /// also fire between tool calls within a single turn.
+    @ObservationIgnored private var previousTurnCompletionTicks: [UUID: UInt64] = [:]
+
     /// Whether the initial interaction state has been observed for each
     /// conversation. Prevents sounds from firing on initial subscription
     /// (e.g., a conversation that loads in an error state).
@@ -116,6 +122,7 @@ final class ConversationActivityStore {
         interactionGenerations[conversationId] = generation
         hasInitialInteractionState[conversationId] = false
         previousInteractionStates.removeValue(forKey: conversationId)
+        previousTurnCompletionTicks.removeValue(forKey: conversationId)
         observeInteractionStateLoop(
             conversationId: conversationId,
             messageManager: messageManager,
@@ -198,6 +205,7 @@ final class ConversationActivityStore {
         busyConversationIds.remove(conversationId)
         conversationInteractionStates.removeValue(forKey: conversationId)
         previousInteractionStates.removeValue(forKey: conversationId)
+        previousTurnCompletionTicks.removeValue(forKey: conversationId)
         hasInitialInteractionState.removeValue(forKey: conversationId)
         latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
     }
@@ -247,10 +255,12 @@ final class ConversationActivityStore {
         guard interactionGenerations[conversationId] == generation else { return }
 
         var state = ConversationInteractionState.idle
+        var turnCompletionTick: UInt64 = 0
         withObservationTracking {
             let hasError = errorManager.errorText != nil || errorManager.conversationError != nil
             let hasPendingConfirmation = messageManager.hasPendingConfirmation
             let isBusy = messageManager.isSending || messageManager.isThinking || messageManager.pendingQueuedCount > 0
+            turnCompletionTick = messageManager.turnCompletionTick
 
             if hasError {
                 state = .error
@@ -272,31 +282,41 @@ final class ConversationActivityStore {
         }
 
         let previous = previousInteractionStates[conversationId]
+        let previousTick = previousTurnCompletionTicks[conversationId]
         let isInitial = hasInitialInteractionState[conversationId] != true
         hasInitialInteractionState[conversationId] = true
+        previousTurnCompletionTicks[conversationId] = turnCompletionTick
 
-        // Only update stored state if it actually changed (equivalent to .removeDuplicates()).
-        guard state != previous || isInitial else { return }
-        previousInteractionStates[conversationId] = state
-
-        if state == .idle {
-            conversationInteractionStates.removeValue(forKey: conversationId)
-        } else {
-            conversationInteractionStates[conversationId] = state
+        let stateChanged = state != previous || isInitial
+        if stateChanged {
+            previousInteractionStates[conversationId] = state
+            if state == .idle {
+                conversationInteractionStates.removeValue(forKey: conversationId)
+            } else {
+                conversationInteractionStates[conversationId] = state
+            }
         }
 
-        // Play sounds on discrete state transitions. Skip the initial observation
-        // to avoid sounds firing when a conversation loads in an error state.
+        // Skip the initial observation to avoid sounds firing when a
+        // conversation loads in an error state or carries a stale tick.
         guard !isInitial else { return }
-        switch state {
-        case .idle where previous == .processing:
+
+        // `task_complete` is driven by the daemon's `message_complete` signal
+        // (surfaced as `turnCompletionTick`) rather than by the derived
+        // processing → idle transition — that transition also fires between
+        // tool calls within a single turn, which produced duplicate sounds.
+        if let previousTick, turnCompletionTick > previousTick {
             SoundManager.shared.play(.taskComplete)
-        case .waitingForInput:
-            SoundManager.shared.play(.needsInput)
-        case .error:
-            SoundManager.shared.play(.taskFailed)
-        default:
-            break
+        }
+        if stateChanged {
+            switch state {
+            case .waitingForInput:
+                SoundManager.shared.play(.needsInput)
+            case .error:
+                SoundManager.shared.play(.taskFailed)
+            default:
+                break
+            }
         }
     }
 

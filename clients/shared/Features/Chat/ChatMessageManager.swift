@@ -209,6 +209,12 @@ public final class ChatMessageManager {
     public var contextWindowTokens: Int? = nil
     public var contextWindowMaxTokens: Int? = nil
     public var pendingQueuedCount: Int = 0
+    /// Monotonic counter incremented once per successful main-turn completion
+    /// (daemon `message_complete` event that isn't an auxiliary or cancel-ack).
+    /// Observers watch this to fire end-of-turn side effects (e.g. the
+    /// `task_complete` sound) without re-deriving state from transient flags
+    /// that also flip between tool calls.
+    public var turnCompletionTick: UInt64 = 0
     public var suggestion: String?
     public var isRecording: Bool = false
     public var recordingAmplitude: Float = 0
