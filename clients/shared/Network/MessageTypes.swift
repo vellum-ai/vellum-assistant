@@ -1107,7 +1107,9 @@ public struct ClawhubOriginMeta: Codable, Sendable, Equatable {
     /// URL to this skill's page on clawhub.ai, or nil when author is missing.
     public var hubURL: URL? {
         guard !author.isEmpty else { return nil }
-        return URL(string: "https://clawhub.ai/\(author)/\(slug)")
+        let encodedAuthor = author.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? author
+        let encodedSlug = slug.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? slug
+        return URL(string: "https://clawhub.ai/\(encodedAuthor)/\(encodedSlug)")
     }
 }
 
@@ -1122,7 +1124,12 @@ public struct SkillsshOriginMeta: Codable, Sendable, Equatable {
     public var hubURL: URL? {
         guard !sourceRepo.isEmpty else { return nil }
         let skillName = slug.split(separator: "/").last.map(String.init) ?? slug
-        return URL(string: "https://skills.sh/\(sourceRepo)/\(skillName)")
+        // Encode each path segment separately to preserve the separator slash in sourceRepo.
+        let encodedPath = sourceRepo.split(separator: "/").map {
+            String($0).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0)
+        }.joined(separator: "/")
+        let encodedSkillName = skillName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? skillName
+        return URL(string: "https://skills.sh/\(encodedPath)/\(encodedSkillName)")
     }
 }
 

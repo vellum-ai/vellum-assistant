@@ -183,10 +183,7 @@ struct SkillDetailView: View {
                 .font(VFont.labelDefault)
                 .foregroundStyle(VColor.contentTertiary)
             Spacer()
-            Link(destination: destination) {
-                Text(text)
-                    .font(VFont.bodyMediumLighter)
-            }
+            VLink(text, destination: destination, font: VFont.bodyMediumLighter)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(label): \(text)")

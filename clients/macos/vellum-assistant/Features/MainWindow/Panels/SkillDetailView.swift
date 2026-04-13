@@ -181,14 +181,15 @@ struct SkillDetailView: View {
             HStack(spacing: VSpacing.lg) {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.gitBranch, size: 12)
+                        .foregroundStyle(VColor.contentTertiary)
                     if let url = meta.hubURL {
                         VLink(meta.sourceLabel, destination: url)
                     } else {
                         Text(meta.sourceLabel)
                             .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
                 }
-                .foregroundStyle(VColor.contentTertiary)
                 if meta.installs > 0 {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.arrowDownToLine, size: 12)
@@ -203,14 +204,15 @@ struct SkillDetailView: View {
                 if !meta.sourceRepo.isEmpty {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.gitBranch, size: 12)
+                            .foregroundStyle(VColor.contentTertiary)
                         if let url = meta.hubURL {
                             VLink(meta.sourceRepo, destination: url)
                         } else {
                             Text(meta.sourceRepo)
                                 .font(VFont.labelDefault)
+                                .foregroundStyle(VColor.contentTertiary)
                         }
                     }
-                    .foregroundStyle(VColor.contentTertiary)
                 }
                 if meta.installs > 0 {
                     HStack(spacing: VSpacing.xs) {
