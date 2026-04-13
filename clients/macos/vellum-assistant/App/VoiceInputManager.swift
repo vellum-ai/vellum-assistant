@@ -335,6 +335,13 @@ final class VoiceInputManager {
 
     /// Clean up the streaming STT session. Safe to call even when no streaming
     /// session is active. Signals graceful stop before forcible close.
+    ///
+    /// The `stop()` and `close()` calls are fire-and-forget — the streaming
+    /// session state is reset synchronously below regardless of whether the
+    /// server has acknowledged the stop. Any in-flight finals from the server
+    /// are discarded. This is safe because callers of `tearDownStreamingSession`
+    /// have already committed to a resolution path (e.g. batch STT or the
+    /// streaming finals that were received before teardown).
     private func tearDownStreamingSession() {
         if let client = streamingClient {
             Task {
@@ -1476,12 +1483,26 @@ final class VoiceInputManager {
         if currentMode == .conversation && recognitionTask == nil && STTProviderRegistry.isServiceConfigured {
             // Signal end-of-recording to the streaming client so it can flush
             // any remaining finals before we check the results.
+            //
+            // Design note: `client.stop()` is fire-and-forget — the server
+            // may not have flushed its final transcript by the time we check
+            // `streamingReceivedFinal` below. This is intentional. If streaming
+            // has already delivered a `.final` event during the recording
+            // session, we use it immediately. If it hasn't (e.g. the stop
+            // signal hasn't round-tripped yet), we fall through to the batch
+            // STT resolution path below, which re-encodes the full audio and
+            // sends it to the STT service. The batch path is the reliable
+            // safety net — it always has the complete audio and doesn't depend
+            // on WebSocket timing. This avoids adding latency by awaiting the
+            // stop signal while still preferring streaming when it's ready.
             if let client = streamingClient, streamingSessionActive {
                 Task { await client.stop() }
             }
 
             // When the streaming session succeeded and delivered finals, use
-            // them directly without batch resolution.
+            // them directly without batch resolution. If streaming hasn't
+            // delivered finals yet (race with the fire-and-forget stop above),
+            // this check falls through to batch STT — see design note above.
             if streamingReceivedFinal && !streamingFailed {
                 let finalText = streamingFinalText.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !finalText.isEmpty {
