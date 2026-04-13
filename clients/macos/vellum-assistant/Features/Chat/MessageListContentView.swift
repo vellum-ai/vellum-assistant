@@ -183,7 +183,7 @@ struct MessageListContentView: View, Equatable {
             // Track whether the minHeight wrapper is applied so
             // executeScrollToBottom can target the content-bottom marker.
             let minHeightApplied: Bool = {
-                guard state.isActiveTurn, let lastRow = state.rows.last else { return false }
+                guard let lastRow = state.rows.last else { return false }
                 return lastRow.isLatestAssistant
             }()
             let _ = {
@@ -251,10 +251,10 @@ struct MessageListContentView: View, Equatable {
                     providerCatalogHash: providerCatalogHash
                 )
                 .equatable()
-                // Active assistant turn: wrap in VStack with minHeight so user
-                // message sits at top. Only applies while the assistant has an
-                // active turn (sending, thinking, streaming, tool running).
-                .if(state.isActiveTurn && row.isLatestAssistant && row.message.id == state.rows.last?.message.id) { view in
+                // Latest assistant message: wrap in VStack with minHeight so user
+                // message sits at top. Persists until the user sends a new message
+                // (at which point the assistant message is no longer the last row).
+                .if(row.isLatestAssistant && row.message.id == state.rows.last?.message.id) { view in
                     VStack(spacing: 0) {
                         view
                         Color.clear.frame(height: 1)
