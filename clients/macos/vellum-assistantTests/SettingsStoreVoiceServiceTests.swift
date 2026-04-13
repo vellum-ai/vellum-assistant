@@ -311,6 +311,103 @@ final class SettingsStoreVoiceServiceTests: XCTestCase {
         )
     }
 
+    // MARK: - setSTTProvider with Google Gemini
+
+    func testSetSTTProviderGoogleGeminiEmitsExpectedPatch() {
+        store.setSTTProvider("google-gemini")
+
+        waitForPatchCount(1)
+
+        let patch = lastSTTPatch()
+        XCTAssertNotNil(patch, "expected a services.stt patch payload for google-gemini")
+        XCTAssertEqual(patch?["provider"] as? String, "google-gemini")
+    }
+
+    func testSetSTTProviderGoogleGeminiDoesNotEmitTTSPatch() {
+        store.setSTTProvider("google-gemini")
+
+        waitForPatchCount(1)
+
+        let ttsPatch = lastTTSPatch()
+        XCTAssertNil(ttsPatch, "setSTTProvider(google-gemini) must not emit a TTS patch")
+    }
+
+    func testApplyDaemonConfigSyncsGoogleGeminiSTTProvider() {
+        UserDefaults.standard.removeObject(forKey: "sttProvider")
+
+        let config: [String: Any] = [
+            "services": [
+                "stt": [
+                    "provider": "google-gemini"
+                ]
+            ]
+        ]
+
+        mockSettingsClient.fetchConfigResponse = config
+        let expectation = XCTestExpectation(description: "config loaded")
+        Task {
+            await store.loadConfigFromDaemon()
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 2.0)
+
+        XCTAssertEqual(
+            UserDefaults.standard.string(forKey: "sttProvider"),
+            "google-gemini"
+        )
+    }
+
+    func testApplyDaemonConfigSyncsGoogleGeminiWithExistingDeepgramSTT() {
+        // Start with deepgram persisted, then receive google-gemini from the daemon
+        UserDefaults.standard.set("deepgram", forKey: "sttProvider")
+
+        let config: [String: Any] = [
+            "services": [
+                "stt": [
+                    "provider": "google-gemini"
+                ]
+            ]
+        ]
+
+        mockSettingsClient.fetchConfigResponse = config
+        let expectation = XCTestExpectation(description: "config loaded")
+        Task {
+            await store.loadConfigFromDaemon()
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 2.0)
+
+        XCTAssertEqual(
+            UserDefaults.standard.string(forKey: "sttProvider"),
+            "google-gemini",
+            "Daemon config should overwrite the persisted STT provider"
+        )
+    }
+
+    func testSequentialSTTProviderPatchesIncludingGoogleGemini() {
+        // Patch deepgram then google-gemini — both should produce distinct payloads
+        store.setSTTProvider("deepgram")
+        waitForPatchCount(1)
+
+        store.setSTTProvider("google-gemini")
+        waitForPatchCount(2)
+
+        let patch = lastSTTPatch()
+        XCTAssertEqual(
+            patch?["provider"] as? String,
+            "google-gemini",
+            "Most recent STT patch should reflect the google-gemini provider"
+        )
+    }
+
+    // MARK: - sttApiKeyProviderName mapping (Google Gemini)
+
+    func testSTTApiKeyProviderNameResolvesGoogleGeminiToGemini() {
+        // google-gemini shares the "gemini" API key
+        let keyName = SettingsStore.sttApiKeyProviderName(for: "google-gemini")
+        XCTAssertEqual(keyName, "gemini")
+    }
+
     // MARK: - STT Key Ownership Semantics
 
     func testSharedKeyProviderIsNotExclusive() {
@@ -341,6 +438,35 @@ final class SettingsStoreVoiceServiceTests: XCTestCase {
         XCTAssertFalse(
             SettingsStore.sttKeyIsShared(for: "deepgram"),
             "deepgram owns its own key and must not be classified as shared"
+        )
+    }
+
+    func testGoogleGeminiKeyIsShared() {
+        // google-gemini maps to "gemini" — the credential is shared with
+        // other Gemini services, so sttKeyIsShared must be true.
+        XCTAssertTrue(
+            SettingsStore.sttKeyIsShared(for: "google-gemini"),
+            "google-gemini shares the 'gemini' key and must be classified as shared"
+        )
+    }
+
+    func testGoogleGeminiKeyIsNotExclusive() {
+        // google-gemini maps to "gemini" (not "google-gemini"), so the key
+        // is shared — sttKeyIsExclusive must be false.
+        XCTAssertFalse(
+            SettingsStore.sttKeyIsExclusive(for: "google-gemini"),
+            "google-gemini shares the 'gemini' key and must not be exclusive"
+        )
+    }
+
+    func testGoogleGeminiSharedKeyCannotBeResetThroughSTTFlow() {
+        // The UI checks sttKeyIsExclusive before allowing the reset action.
+        // For google-gemini the guard must prevent the reset because
+        // clearing the "gemini" key would break other Gemini services.
+        let allowReset = SettingsStore.sttKeyIsExclusive(for: "google-gemini")
+        XCTAssertFalse(
+            allowReset,
+            "The STT reset flow must not be allowed for google-gemini (shared key)"
         )
     }
 

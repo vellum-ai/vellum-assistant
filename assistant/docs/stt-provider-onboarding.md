@@ -8,8 +8,8 @@ Step-by-step guide for adding a new speech-to-text provider to the assistant. Fo
 
 Add a new entry to the `CATALOG` map with:
 
-- `id` — a unique `SttProviderId` string (e.g. `"google-cloud"`).
-- `credentialProvider` — the credential-store key name used by `getProviderKeyAsync` to retrieve the API key. If the provider shares an API key with another service (e.g. `openai-whisper` shares the `"openai"` key), reuse that name; otherwise use the provider's own name.
+- `id` — a unique `SttProviderId` string (e.g. `"google-gemini"`).
+- `credentialProvider` — the credential-store key name used by `getProviderKeyAsync` to retrieve the API key. If the provider shares an API key with another service (e.g. `openai-whisper` shares the `"openai"` key, or `google-gemini` shares the `"gemini"` key), reuse that name; otherwise use the provider's own name (e.g. `"deepgram"` maps to `"deepgram"`).
 - `supportedBoundaries` — the set of `SttBoundaryId` values the provider supports (currently only `"daemon-batch"` exists).
 - `telephonyMode` — how the provider participates in real-time telephony STT: `"realtime-ws"`, `"batch-only"`, or `"none"`.
 
@@ -33,11 +33,11 @@ The `services.stt.providers` map uses a sparse `z.record(z.string(), ...)` schem
 
 **File:** `src/stt/daemon-batch-transcriber.ts`
 
-1. Create a new `BatchTranscriber` implementation class (e.g. `GoogleCloudBatchTranscriber`) alongside `WhisperBatchTranscriber` and `DeepgramBatchTranscriber`.
+1. Create a new `BatchTranscriber` implementation class (e.g. `GoogleGeminiBatchTranscriber`) alongside `WhisperBatchTranscriber` and `DeepgramBatchTranscriber`.
 2. Implement the `transcribe(request)` method using a lazy-imported provider module (follow the pattern in the existing adapters).
 3. Add a `case` branch in `createDaemonBatchTranscriber()` for the new `SttProviderId`. The exhaustive `never` check at the bottom of the switch ensures a compile error if this step is skipped.
 
-If the provider needs a new REST client module, add it under `src/providers/speech-to-text/` following the pattern of `openai-whisper.ts` and `deepgram.ts`.
+If the provider needs a new REST client module, add it under `src/providers/speech-to-text/` following the pattern of `openai-whisper.ts`, `deepgram.ts`, and `google-gemini.ts`.
 
 ## 5. Credential plumbing
 
@@ -61,6 +61,16 @@ Add a new entry to the `providers` array with the following fields:
 | `setupMode`          | `"api-key"` (inline key field) or `"cli"` (instructions-only).           |
 | `setupHint`          | Brief guidance shown during setup.                                       |
 | `apiKeyProviderName` | Must match the `credentialProvider` value from the daemon catalog entry. |
+
+**Naming/mapping examples:**
+
+| Provider ID      | `credentialProvider` / `apiKeyProviderName` | Key ownership |
+| ---------------- | ------------------------------------------- | ------------- |
+| `openai-whisper` | `openai`                                    | shared        |
+| `deepgram`       | `deepgram`                                  | exclusive     |
+| `google-gemini`  | `gemini`                                    | shared        |
+
+When the provider ID differs from the credential provider name (e.g. `google-gemini` maps to `gemini`), the key is **shared** with other services that use the same credential. The `sttKeyIsExclusive` / `sttKeyIsShared` helpers in the macOS settings layer derive this automatically from the catalog.
 
 Insertion order in the JSON array must match the daemon catalog insertion order.
 
@@ -101,4 +111,4 @@ Before submitting the PR, grep for any accidental coupling between the two STT c
 - **`services.stt`** — controls daemon batch and client service-first STT provider selection. Configured under the Speech-to-Text section in Settings.
 - **`calls.voice.transcriptionProvider`** — controls telephony-native STT (Twilio ConversationRelay). Configured separately under the Calls/Voice section.
 
-These are independent config paths with different provider sets and runtime boundaries. A new `services.stt` provider should never modify `calls.voice` config or vice versa. The prepared dark path for telephony cutover (see ARCHITECTURE.md) is the designated seam for future unification — do not wire a new provider into both paths simultaneously.
+These are independent config paths with different provider sets and runtime boundaries. A new `services.stt` provider should never modify `calls.voice` config or vice versa. For example, `google-gemini` is registered only under `services.stt` and has no effect on `calls.voice.transcriptionProvider`. The prepared dark path for telephony cutover (see ARCHITECTURE.md) is the designated seam for future unification — do not wire a new provider into both paths simultaneously.
