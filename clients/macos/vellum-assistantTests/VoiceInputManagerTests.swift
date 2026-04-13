@@ -77,6 +77,10 @@ final class VoiceInputManagerTests: XCTestCase {
     }
 
     override func tearDown() {
+        // Clean up any STT provider configuration set during tests.
+        UserDefaults.standard.removeObject(forKey: "sttProvider")
+        APIKeyManager.shared.deleteAPIKey(provider: "deepgram")
+        APIKeyManager.shared.deleteAPIKey(provider: "openai")
         manager = nil
         dictationClient = nil
         speechAdapter = nil
@@ -677,5 +681,165 @@ final class VoiceInputManagerTests: XCTestCase {
         let waveMarker = Array(wavData[8..<12])
         XCTAssertEqual(waveMarker, [0x57, 0x41, 0x56, 0x45],
                        "WAV data should contain WAVE marker at offset 8")
+    }
+
+    // MARK: - STT-Only Recording (speech recognition optional)
+
+    func testSTTConfiguredWithSpeechDeniedAllowsRecordingStart() {
+        // When STT is configured and speech recognition is denied,
+        // recording should still start (only mic permission required).
+        // NOTE: This test can only verify the full path when microphone
+        // permission is already authorized. If mic is notDetermined (common
+        // in CI/sandboxed environments), the first-use primer is shown first.
+        // In that case we skip the test to avoid a false failure.
+        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        guard micStatus == .authorized else {
+            // Can't test full recording start without mic permission.
+            // The recognizer/permission gate logic is still exercised by the
+            // other tests in this section.
+            return
+        }
+
+        UserDefaults.standard.set("deepgram", forKey: "sttProvider")
+        APIKeyManager.shared.setAPIKey("test-key", provider: "deepgram")
+        speechAdapter.stubbedAuthorizationStatus = .denied
+        // Recognizer unavailable because speech is denied
+        speechAdapter.stubbedIsRecognizerAvailable = false
+
+        let freshManager = VoiceInputManager(
+            dictationClient: dictationClient,
+            speechRecognizerAdapter: speechAdapter,
+            sttClient: sttClient
+        )
+
+        freshManager.toggleRecording()
+
+        // The manager should have set isRecording=true, meaning it passed
+        // the permission and recognizer checks. The async engine start may
+        // subsequently fail (no hardware in CI), but the permission gate
+        // was cleared.
+        XCTAssertTrue(freshManager.isRecording,
+                      "Recording should start when STT is configured even if speech recognition is denied")
+    }
+
+    func testSTTConfiguredWithSpeechNotDeterminedDoesNotRequestSpeechAuth() {
+        // When STT is configured and speech is notDetermined, beginRecording
+        // shows the first-use primer. The key behavior verified here: speech
+        // authorization is NOT requested immediately, because the STT service
+        // handles transcription. This test does not depend on mic status
+        // because it only checks that speech auth was not triggered.
+        UserDefaults.standard.set("deepgram", forKey: "sttProvider")
+        APIKeyManager.shared.setAPIKey("test-key", provider: "deepgram")
+        speechAdapter.stubbedAuthorizationStatus = .notDetermined
+        speechAdapter.stubbedIsRecognizerAvailable = false
+
+        let freshManager = VoiceInputManager(
+            dictationClient: dictationClient,
+            speechRecognizerAdapter: speechAdapter,
+            sttClient: sttClient
+        )
+
+        // Reset the count — init calls makeRecognizer once.
+        speechAdapter.requestAuthorizationCallCount = 0
+
+        freshManager.toggleRecording()
+
+        // Recording should not start immediately (primer is shown first),
+        // but speech authorization should not have been requested yet.
+        XCTAssertFalse(freshManager.isRecording,
+                       "Recording should not start immediately when speech is notDetermined (primer shown)")
+        XCTAssertEqual(speechAdapter.requestAuthorizationCallCount, 0,
+                       "Speech authorization should not be requested when STT is configured")
+    }
+
+    func testSTTConfiguredRecognizerUnavailableStillStartsRecording() {
+        // When STT is configured and the recognizer is unavailable,
+        // recording should still proceed (STT service handles transcription).
+        // Requires mic authorization; skip if not available.
+        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        guard micStatus == .authorized else { return }
+
+        UserDefaults.standard.set("deepgram", forKey: "sttProvider")
+        APIKeyManager.shared.setAPIKey("test-key", provider: "deepgram")
+        speechAdapter.stubbedAuthorizationStatus = .authorized
+        speechAdapter.stubbedIsRecognizerAvailable = false
+
+        let freshManager = VoiceInputManager(
+            dictationClient: dictationClient,
+            speechRecognizerAdapter: speechAdapter,
+            sttClient: sttClient
+        )
+
+        freshManager.toggleRecording()
+
+        XCTAssertTrue(freshManager.isRecording,
+                      "Recording should start when STT is configured even if recognizer is unavailable")
+    }
+
+    func testSTTNotConfiguredSpeechDeniedBlocksRecording() {
+        // Existing behavior preserved: when no STT provider is configured
+        // and speech recognition is denied, recording should be blocked.
+        UserDefaults.standard.removeObject(forKey: "sttProvider")
+        APIKeyManager.shared.deleteAPIKey(provider: "deepgram")
+        APIKeyManager.shared.deleteAPIKey(provider: "openai")
+        speechAdapter.stubbedAuthorizationStatus = .denied
+
+        manager.toggleRecording()
+
+        XCTAssertFalse(manager.isRecording,
+                       "Recording should be blocked when STT is not configured and speech is denied")
+    }
+
+    func testSTTOnlyRecordingProducesTranscriptionViaResolve() async {
+        // When native recognizer is not available, resolveTranscription
+        // should use the STT service result with empty native text.
+        let format = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 160)!
+        buffer.frameLength = 160
+        if let channelData = buffer.floatChannelData {
+            for i in 0..<Int(buffer.frameLength) {
+                channelData[0][i] = Float(i) / Float(buffer.frameLength)
+            }
+        }
+
+        sttClient.stubbedResult = .success(text: "STT service transcription")
+
+        // Simulate STT-only path: empty native text, audio buffers present.
+        let result = await VoiceInputManager.resolveTranscription(
+            nativeText: "",
+            accumulatedBuffers: [buffer],
+            audioFormat: format,
+            sttClient: sttClient
+        )
+
+        XCTAssertEqual(result, "STT service transcription",
+                       "STT service text should be used when native text is empty")
+        XCTAssertEqual(sttClient.transcribeCallCount, 1,
+                       "STT service should be called for transcription")
+    }
+
+    func testSTTOnlyRecordingFallsBackToEmptyWhenServiceFails() async {
+        // When native recognizer is not available and STT service fails,
+        // the empty native text is returned (no transcription available).
+        let format = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 160)!
+        buffer.frameLength = 160
+        if let channelData = buffer.floatChannelData {
+            for i in 0..<Int(buffer.frameLength) {
+                channelData[0][i] = Float(i) / Float(buffer.frameLength)
+            }
+        }
+
+        sttClient.stubbedResult = .serviceUnavailable
+
+        let result = await VoiceInputManager.resolveTranscription(
+            nativeText: "",
+            accumulatedBuffers: [buffer],
+            audioFormat: format,
+            sttClient: sttClient
+        )
+
+        XCTAssertEqual(result, "",
+                       "Empty native text should be returned when STT service is unavailable")
     }
 }

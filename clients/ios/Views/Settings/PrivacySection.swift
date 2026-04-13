@@ -17,7 +17,7 @@ struct PrivacySection: View {
         Form {
             Section {
                 permissionRow(name: "Microphone", status: micStatus)
-                permissionRow(name: "Speech Recognition", status: speechStatus)
+                speechRecognitionRow
                 permissionRow(name: "Camera", status: cameraStatus)
                 permissionRow(name: "Notifications", status: notificationStatus)
             } header: {
@@ -31,6 +31,62 @@ struct PrivacySection: View {
         .onAppear { refreshAll() }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active { refreshAll() }
+        }
+    }
+
+    // MARK: - Speech Recognition Row
+
+    /// Speech recognition row with conditional optional state when an LLM-based
+    /// STT provider is configured. When STT is available, a denied permission is
+    /// shown as a neutral "Not enabled (optional)" badge instead of the red
+    /// "Denied" badge.
+    @ViewBuilder
+    private var speechRecognitionRow: some View {
+        let sttConfigured = STTProviderRegistry.isServiceConfigured
+        if sttConfigured && speechStatus == .denied {
+            // Show neutral state — speech recognition is optional when STT is available
+            Button {
+                openSettings()
+            } label: {
+                HStack {
+                    Text("Speech Recognition")
+                        .foregroundStyle(VColor.contentDefault)
+                    Spacer()
+                    Text("Not enabled (optional)")
+                        .font(.caption2)
+                        .fontWeight(.medium)
+                        .foregroundStyle(VColor.contentTertiary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(VColor.contentTertiary.opacity(0.15))
+                        .clipShape(Capsule())
+                }
+            }
+            .accessibilityLabel("Speech Recognition, not enabled, optional")
+            .accessibilityHint("Opens iOS Settings to grant access")
+        } else if sttConfigured && speechStatus == .notDetermined {
+            // Show neutral "not set" state with optional hint
+            Button {
+                openSettings()
+            } label: {
+                HStack {
+                    Text("Speech Recognition")
+                        .foregroundStyle(VColor.contentDefault)
+                    Spacer()
+                    Text("Not Set (optional)")
+                        .font(.caption2)
+                        .fontWeight(.medium)
+                        .foregroundStyle(VColor.systemMidStrong)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(VColor.systemMidStrong.opacity(0.15))
+                        .clipShape(Capsule())
+                }
+            }
+            .accessibilityLabel("Speech Recognition, not set, optional")
+            .accessibilityHint("Opens iOS Settings to grant access")
+        } else {
+            permissionRow(name: "Speech Recognition", status: speechStatus)
         }
     }
 

@@ -38,6 +38,7 @@ final class PermissionPromptOverlay {
         switch kind {
         case .firstUse:
             contentView = AnyView(FirstUsePromptView(
+                sttConfigured: STTProviderRegistry.isServiceConfigured,
                 onDismiss: { [weak self] in
                     self?.dismiss()
                     onDismiss()
@@ -121,8 +122,19 @@ final class PermissionPromptOverlay {
 // MARK: - First-Use Primer
 
 private struct FirstUsePromptView: View {
+    let sttConfigured: Bool
     let onDismiss: () -> Void
     let onContinue: () -> Void
+
+    private var title: String {
+        sttConfigured ? "Enable Microphone Access" : "Enable Speech Recognition"
+    }
+
+    private var subtitle: String {
+        sttConfigured
+            ? "Required for voice dictation and conversation."
+            : "So your words come out the way you meant them."
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -130,11 +142,11 @@ private struct FirstUsePromptView: View {
                 VIconView(.mic, size: 20)
                     .foregroundStyle(VColor.primaryBase)
 
-                Text("Enable Speech Recognition")
+                Text(title)
                     .font(VFont.titleSmall)
                     .foregroundStyle(VColor.contentDefault)
 
-                Text("So your words come out the way you meant them.")
+                Text(subtitle)
                     .font(VFont.bodyMediumLighter)
                     .foregroundStyle(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
@@ -182,7 +194,7 @@ private struct DeniedPromptView: View {
 
     private var subtitle: String {
         switch deniedPermission {
-        case .microphone: "Dictation requires microphone access. Grant access in System Settings."
+        case .microphone: "Voice features require microphone access. Grant access in System Settings."
         case .speechRecognition: "Dictation requires speech recognition access. Grant access in System Settings."
         case .both: "Dictation requires microphone and speech recognition access. Grant access in System Settings."
         }

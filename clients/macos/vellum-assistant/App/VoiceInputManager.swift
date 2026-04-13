@@ -668,6 +668,8 @@ final class VoiceInputManager {
     private func beginRecording() {
         log.info("beginRecording() called — origin=\(String(describing: self.activeOrigin)) mode=\(String(describing: self.currentMode)) isRecording=\(self.isRecording)")
 
+        let sttConfigured = STTProviderRegistry.isServiceConfigured
+
         // Check recognizer availability through the adapter so tests can
         // control the result without depending on a real SFSpeechRecognizer.
         // When unavailable, attempt recreation before giving up.
@@ -682,11 +684,23 @@ final class VoiceInputManager {
             log.warning("Speech recognizer unavailable (nil=\(self.speechRecognizer == nil), adapterAvailable=\(self.speechRecognizerAdapter.isRecognizerAvailable), cachedAvailable=\(String(describing: self.speechRecognizer?.isAvailable))) — recreating")
             speechRecognizer = speechRecognizerAdapter.makeRecognizer(locale: Locale(identifier: "en-US"))
         }
-        guard speechRecognizerAdapter.isRecognizerAvailable else {
-            log.error("Speech recognizer not available after recreation attempt")
-            currentDictationContext = nil
-            return
+
+        // When STT is configured, the native recognizer is optional — if it's
+        // available we get partials, but recording proceeds without it. When STT
+        // is NOT configured, the native recognizer is required.
+        if !sttConfigured {
+            guard speechRecognizerAdapter.isRecognizerAvailable else {
+                log.error("Speech recognizer not available after recreation attempt")
+                currentDictationContext = nil
+                return
+            }
         }
+
+        // Determine whether we can use the native recognizer for partials.
+        let speechStatus = speechRecognizerAdapter.authorizationStatus()
+        let useNativeRecognizer: Bool = speechRecognizerAdapter.isRecognizerAvailable
+            && speechRecognizer != nil
+            && speechStatus == .authorized
 
         // Don't start if a previous recognition task is still processing
         if recognitionTask != nil {
@@ -699,11 +713,18 @@ final class VoiceInputManager {
         // Show an informative overlay for first-use or denied states instead of
         // silently opening System Settings.
         let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-        let speechStatus = speechRecognizerAdapter.authorizationStatus()
-        log.info("Permissions — mic=\(String(describing: micStatus)) speech=\(String(describing: speechStatus))")
+        log.info("Permissions — mic=\(String(describing: micStatus)) speech=\(String(describing: speechStatus)) sttConfigured=\(sttConfigured)")
 
-        if micStatus == .notDetermined || speechStatus == .notDetermined {
-            // Show a primer explaining why we need mic access, then request.
+        // Determine which permissions still need first-use prompts.
+        let micNotDetermined = micStatus == .notDetermined
+        let speechNotDetermined = speechStatus == .notDetermined
+
+        // Show the first-use primer when:
+        // - mic is not yet determined (always need mic), OR
+        // - speech is not yet determined AND STT is NOT configured (speech required).
+        // When STT is configured, speech notDetermined is fine — skip the primer
+        // and proceed directly to recording with STT-only mode.
+        if micNotDetermined || (!sttConfigured && speechNotDetermined) {
             log.info("Showing permission primer (mic=\(String(describing: micStatus)) speech=\(String(describing: speechStatus)))")
             currentDictationContext = nil
             permissionOverlay.show(kind: .firstUse, onDismiss: {}, onContinue: { [weak self] in
@@ -715,9 +736,11 @@ final class VoiceInputManager {
         }
         let micDenied = micStatus == .denied || micStatus == .restricted
         let speechDenied = speechStatus == .denied || speechStatus == .restricted
-        if micDenied || speechDenied {
+        // Microphone is always required. Speech recognition is only required
+        // when no STT service is configured.
+        if micDenied || (!sttConfigured && speechDenied) {
             let deniedPermission: PermissionPromptOverlay.DeniedPermission
-            if micDenied && speechDenied {
+            if micDenied && speechDenied && !sttConfigured {
                 deniedPermission = .both
             } else if micDenied {
                 deniedPermission = .microphone
@@ -745,12 +768,19 @@ final class VoiceInputManager {
                 overlayWindow.show(state: .recording)
             }
         }
-        log.info("Voice recording started")
+        log.info("Voice recording started (useNativeRecognizer=\(useNativeRecognizer))")
         VoiceFeedback.playActivationChime()
 
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        recognitionRequest = request
+        // Only create the recognition request when we have a working native recognizer.
+        let request: SFSpeechAudioBufferRecognitionRequest?
+        if useNativeRecognizer {
+            let req = SFSpeechAudioBufferRecognitionRequest()
+            req.shouldReportPartialResults = true
+            recognitionRequest = req
+            request = req
+        } else {
+            request = nil
+        }
 
         let ampState = amplitudeState
         ampState.reset()
@@ -767,7 +797,8 @@ final class VoiceInputManager {
                     }
                 }
             }
-            request.append(buffer)
+            // Feed the native recognizer only when a recognition request exists.
+            request?.append(buffer)
             // Capture a copy of the PCM buffer for STT service transcription.
             // AVAudioPCMBuffer is reused by the audio engine across callbacks,
             // so we must copy the data before the engine overwrites it.
@@ -845,23 +876,14 @@ final class VoiceInputManager {
             }
             self.hasInstalledTap = true
 
-            // Ensure the concrete recognizer is still available. It may have
-            // been set to nil if the adapter recreated it between start and
-            // engine ready. In production the adapter ensures makeRecognizer
-            // returns a valid instance when isRecognizerAvailable is true.
-            guard let recognizer = self.speechRecognizer else {
-                log.error("Speech recognizer became nil after engine started — aborting")
-                self.isRecording = false
-                self.onRecordingStateChanged?(false)
-                self.currentDictationContext = nil
-                self.recognitionRequest = nil
-                self.overlayWindow.dismiss()
-                self.engineController.stopAndRemoveTap()
-                self.hasInstalledTap = false
+            // When native recognizer is not available/authorized, recording
+            // still proceeds — STT service handles transcription on stop.
+            guard useNativeRecognizer, let recognizer = self.speechRecognizer, let req = request else {
+                log.info("Recording without native recognizer — STT service will handle transcription on stop")
                 return
             }
 
-            self.recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            self.recognitionTask = recognizer.recognitionTask(with: req) { [weak self] result, error in
                 Task { @MainActor in
                     guard let self = self else { return }
                     // Ignore late callbacks delivered after recording was stopped
@@ -905,8 +927,12 @@ final class VoiceInputManager {
 
 
 
-    /// Request both microphone and speech recognition permissions sequentially,
-    /// then start recording if both are granted.
+    /// Request microphone (and optionally speech recognition) permissions,
+    /// then start recording if granted.
+    ///
+    /// When an STT service is configured, only microphone permission is
+    /// required. Speech recognition permission is skipped because the STT
+    /// service handles transcription.
     private func requestPermissionsAndRecord() async {
         let micGranted = await AVCaptureDevice.requestAccess(for: .audio)
         guard micGranted else {
@@ -915,15 +941,20 @@ final class VoiceInputManager {
             return
         }
 
-        let speechGranted = await withCheckedContinuation { continuation in
-            speechRecognizerAdapter.requestAuthorization { status in
-                continuation.resume(returning: status == .authorized)
+        // When STT is configured, skip speech recognition permission request —
+        // the STT service provides transcription. The native recognizer is a
+        // nice-to-have for partials but not required.
+        if !STTProviderRegistry.isServiceConfigured {
+            let speechGranted = await withCheckedContinuation { continuation in
+                speechRecognizerAdapter.requestAuthorization { status in
+                    continuation.resume(returning: status == .authorized)
+                }
             }
-        }
-        guard speechGranted else {
-            log.warning("Speech recognition access denied by user")
-            permissionOverlay.show(kind: .denied(.speechRecognition), onDismiss: {}, onContinue: {})
-            return
+            guard speechGranted else {
+                log.warning("Speech recognition access denied by user")
+                permissionOverlay.show(kind: .denied(.speechRecognition), onDismiss: {}, onContinue: {})
+                return
+            }
         }
 
         log.info("Permissions granted — starting recording")
@@ -957,9 +988,32 @@ final class VoiceInputManager {
             onTranscription?(text)
         case .dictation:
             guard let context = currentDictationContext else {
-                // No context captured (e.g. continuous recording path) — fall back to conversation
-                VoiceFeedback.playDeactivationChime()
-                onTranscription?(text)
+                // No context captured (e.g. continuous recording path or quick key release
+                // before context capture completes). If we have accumulated audio, resolve
+                // via the STT service so the user's speech isn't silently lost.
+                let accumulatedBuffers = audioAccumulator.drain()
+                let audioFormat = capturedAudioFormat
+                if !accumulatedBuffers.isEmpty, audioFormat != nil {
+                    let sttClient = self.sttClient
+                    Task { [weak self] in
+                        let resolvedText = await Self.resolveTranscription(
+                            nativeText: text,
+                            accumulatedBuffers: accumulatedBuffers,
+                            audioFormat: audioFormat,
+                            sttClient: sttClient
+                        )
+                        guard let self else { return }
+                        VoiceFeedback.playDeactivationChime()
+                        if !resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            self.onTranscription?(resolvedText)
+                        }
+                    }
+                } else {
+                    VoiceFeedback.playDeactivationChime()
+                    if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        onTranscription?(text)
+                    }
+                }
                 return
             }
 
@@ -1108,6 +1162,10 @@ final class VoiceInputManager {
     /// so the recognizer delivers a final transcription via the callback.
     /// Does NOT cancel the recognition task or set isRecording=false — the callback
     /// handles cleanup after receiving the isFinal result.
+    ///
+    /// When recording without a native recognizer (STT-only mode), there is no
+    /// `isFinal` callback to wait for. Instead, the accumulated audio is drained,
+    /// encoded to WAV, and sent directly to the STT service.
     private func stopRecordingForDictation() {
         guard isRecording else { return }
         log.info("Stopping dictation recording — waiting for final transcription")
@@ -1119,10 +1177,32 @@ final class VoiceInputManager {
         }
         hasInstalledTap = false
 
-        // If the recognition task hasn't been started yet (async engine start
-        // still in progress), there's no callback to deliver isFinal.
-        // Clean up directly instead of waiting for a callback that won't come.
+        // When there's no recognition task, either:
+        // (a) the async engine start is still in progress, or
+        // (b) we're recording in STT-only mode (no native recognizer).
+        // In both cases, no isFinal callback will come — handle directly.
         guard recognitionTask != nil else {
+            // Check if we have accumulated audio and an STT service to handle it.
+            // Don't drain yet — handleFinalTranscription drains the accumulator
+            // itself so the audio buffers flow through to resolveTranscription.
+            let hasAudio = capturedAudioFormat != nil
+            let sttConfigured = STTProviderRegistry.isServiceConfigured
+
+            if hasAudio && sttConfigured {
+                log.info("STT-only mode — routing through handleFinalTranscription for STT service resolution")
+                // Route through handleFinalTranscription with empty native text.
+                // resolveTranscription (called inside) will drain the accumulator,
+                // encode to WAV, and send to the STT service.
+                recognitionRequest = nil
+
+                handleFinalTranscription("")
+                // handleFinalTranscription sets awaitingDaemonResponse = true (in dictation
+                // mode with context), so stopRecording() will keep the overlay visible.
+                // This mirrors what the native recognizer's isFinal callback does.
+                stopRecording()
+                return
+            }
+
             log.info("Recognition task not yet started — cleaning up directly")
             recognitionRequest = nil
             isRecording = false
@@ -1156,6 +1236,45 @@ final class VoiceInputManager {
         let elapsed = CFAbsoluteTimeGetCurrent() - recordingStartTime
         if elapsed < 1.0 {
             log.warning("Micro-recording detected: recording stopped after only \(String(format: "%.2f", elapsed))s — likely a failure, not user action")
+        }
+
+        // In conversation mode with STT-only recording (no recognition task),
+        // drain audio and send to the STT service for transcription.
+        if currentMode == .conversation && recognitionTask == nil && STTProviderRegistry.isServiceConfigured {
+            let accumulatedBuffers = audioAccumulator.drain()
+            let audioFormat = capturedAudioFormat
+            if !accumulatedBuffers.isEmpty, let format = audioFormat {
+                log.info("STT-only conversation mode — resolving transcription via STT service (\(accumulatedBuffers.count) buffers)")
+                let sttClient = self.sttClient
+                isRecording = false
+                onRecordingStateChanged?(false)
+                activeOrigin = .hotkey
+                amplitudeState.reset()
+                Self.amplitudeSubject.send(0)
+                onAmplitudeChanged?(0)
+                capturedAudioFormat = nil
+                overlayWindow.dismiss()
+                tearDownAudioState()
+
+                Task { [weak self] in
+                    let resolvedText = await Self.resolveTranscription(
+                        nativeText: "",
+                        accumulatedBuffers: accumulatedBuffers,
+                        audioFormat: format,
+                        sttClient: sttClient
+                    )
+                    guard let self else { return }
+                    let trimmed = resolvedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty {
+                        VoiceFeedback.playDeactivationChime()
+                        self.onTranscription?(resolvedText)
+                    } else {
+                        log.warning("STT-only conversation transcription empty — discarding")
+                        VoiceFeedback.playDeactivationChime()
+                    }
+                }
+                return
+            }
         }
 
         isRecording = false
