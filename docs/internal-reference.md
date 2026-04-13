@@ -24,12 +24,10 @@ Detailed reference documentation for the Vellum Assistant platform. For an overv
 - [**Development Workflow**](#development-workflow)
   - [Claude Code Workflow](#claude-code-workflow)
   - [Release Management](#release-management)
-- [**Telephony STT Cutover Runbook**](#telephony-stt-cutover-runbook)
-  - [Background](#background)
-  - [Prerequisites](#prerequisites-1)
-  - [Cutover Steps](#cutover-steps)
-  - [Rollback Plan](#rollback-plan)
-  - [Verification](#verification)
+- [**Telephony STT Architecture**](#telephony-stt-architecture)
+  - [Overview](#overview)
+  - [Provider-Conditional Routing](#provider-conditional-routing)
+  - [Troubleshooting Matrix](#troubleshooting-matrix)
 
 ## Getting Started
 
@@ -628,75 +626,42 @@ New users download the latest DMG from the [releases page](https://github.com/ve
 
 ---
 
-## Telephony STT Cutover Runbook
+## Telephony STT Architecture
 
-This runbook documents the exact steps to migrate telephony STT from ConversationRelay-native transcription (`calls.voice.transcriptionProvider`) to `services.stt`-driven transcription via Twilio Media Streams. All preparation work is complete (PRs 1-6 of the `twilio-services-stt-provider-unification` plan). This section exists so the cutover can be executed in a single focused follow-up PR.
+Telephony speech-to-text is driven by the unified `services.stt.provider` configuration. The voice webhook generates provider-conditional TwiML at call setup time, selecting between two Twilio integration paths based on the active STT provider's capabilities.
 
-### Background
+### Overview
 
-**Current production path:** Voice calls use the Twilio ConversationRelay element in TwiML. STT is handled natively by ConversationRelay using Deepgram or Google, configured via `calls.voice.transcriptionProvider`. The daemon receives transcribed text from the relay — it never sees raw audio.
+The telephony STT routing resolver (`assistant/src/calls/telephony-stt-routing.ts`) reads `services.stt.provider` from config and maps it to a discriminated strategy:
 
-**Prepared dark path:** A complete alternative path exists using Twilio Media Streams. Raw audio flows from Twilio through the gateway's media-stream WebSocket proxy to the assistant's media-stream server, which uses `services.stt` for transcription. All modules are wired, tested, and registered — but no production TwiML points to them.
+- **`conversation-relay-native`** — Providers natively supported by Twilio ConversationRelay (Deepgram, Google). TwiML emits `<Connect><ConversationRelay>` with `transcriptionProvider` and `speechModel` attributes. Twilio handles audio ingestion and transcription; the daemon receives transcribed text.
 
-### Prerequisites
+- **`media-stream-custom`** — Providers not natively supported by Twilio (OpenAI Whisper). TwiML emits `<Connect><Stream>` pointing to the daemon's media-stream server. Raw audio flows from Twilio through the gateway's WebSocket proxy to the daemon, which transcribes server-side via the provider's batch API.
 
-Before executing the cutover, verify all prerequisites pass:
+Both paths share the same `CallController`, `voice-session-bridge`, and `RunOrchestrator` pipeline downstream of transcription. The only difference is where audio-to-text conversion happens (Twilio-side vs daemon-side).
 
-1. **`services.stt` provider must be telephony-eligible.** Run `evaluateServicesSttReadiness()` from `assistant/src/calls/stt-profile.ts` — it must return `status: "ready"`. This validates that the configured provider is in the catalog with a compatible `telephonyMode` and has valid credentials.
+### Provider-Conditional Routing
 
-2. **Provider catalog must include a `realtime-ws` telephony provider.** The current catalog only has `openai-whisper` with `telephonyMode: "batch-only"`. A realtime-capable provider entry must be added to `assistant/src/providers/speech-to-text/provider-catalog.ts` before cutover.
+| `services.stt.provider` | Strategy                    | TwiML Element                  | Audio Path                                         |
+| ------------------------ | --------------------------- | ------------------------------ | -------------------------------------------------- |
+| `deepgram`               | `conversation-relay-native` | `<Connect><ConversationRelay>` | Twilio transcribes natively; daemon receives text   |
+| `google-gemini`          | `conversation-relay-native` | `<Connect><ConversationRelay>` | Twilio transcribes natively; daemon receives text   |
+| `openai-whisper`         | `media-stream-custom`       | `<Connect><Stream>`            | Raw audio to daemon; server-side batch transcription |
 
-3. **Gateway media-stream proxy route must be deployed.** The route in `gateway/src/http/routes/twilio-media-websocket.ts` must be live on the gateway that serves the public ingress URL.
+Model normalization for Twilio-native providers:
+- Deepgram defaults `speechModel` to `"nova-3"` when unset.
+- Google leaves `speechModel` undefined when unset. The legacy Deepgram default `"nova-3"` is treated as unset for Google so workspaces that switched providers do not send a Deepgram model name to Google's API.
 
-4. **ConversationRelay STT guardrail tests must be updated.** The tests in `__tests__/twilio-routes-twiml.test.ts` and `__tests__/twilio-routes.test.ts` that assert `<ConversationRelay>` and `transcriptionProvider="Deepgram"` must be updated in the cutover PR to assert the new `<Stream>` element and media-stream URL instead.
+Workspace migration `034-remove-calls-voice-transcription-provider` preserves existing Google STT preferences from the former `calls.voice.transcriptionProvider` key into `services.stt.provider`.
 
-### Cutover Steps
+### Troubleshooting Matrix
 
-Execute these changes in a single PR:
-
-1. **Switch TwiML element in `twilio-routes.ts`:**
-   - Replace the `<ConversationRelay>` element in `generateTwiML()` with a `<Connect><Stream>` element.
-   - Point the Stream URL to the media-stream server endpoint (`/v1/calls/media-stream`) instead of the relay server (`/v1/calls/relay`).
-   - Remove ConversationRelay-specific attributes (`transcriptionProvider`, `speechModel`, `interruptSensitivity`, `hints`, `ttsProvider`, `voice`, `welcomeGreeting`) and replace with Stream-appropriate attributes.
-
-2. **Update `buildVoiceWebhookTwiml()` in `twilio-routes.ts`:**
-   - Replace the call to `resolveTelephonySttProfile(cfg.calls.voice)` with a call to `resolveTelephonySttCapability()` or equivalent resolver that reads from `services.stt`.
-   - Remove the `buildTwilioRelaySpeechConfig()` call (no longer needed — STT config is resolved server-side in the media-stream STT session).
-
-3. **Migrate config keys:**
-   - Add a workspace migration that copies `calls.voice.transcriptionProvider` and `calls.voice.speechModel` values to the equivalent `services.stt` settings (if not already configured).
-   - Mark `calls.voice.transcriptionProvider` and `calls.voice.speechModel` as deprecated in the config schema (keep them readable for rollback).
-
-4. **Update guardrail tests:**
-   - Update `__tests__/twilio-routes-twiml.test.ts` ConversationRelay guardrails to assert `<Stream>` instead.
-   - Update `__tests__/twilio-routes.test.ts` integration guardrails to verify TwiML uses media-stream URL.
-
-5. **Remove legacy code (deferred):**
-   - `calls.voice.transcriptionProvider` and `calls.voice.speechModel` config keys can be removed in a follow-up cleanup PR after the cutover is stable.
-   - `twilio-relay-speech-config.ts` and the ConversationRelay-specific code path in `stt-profile.ts` can be removed once rollback is no longer needed.
-
-### Rollback Plan
-
-If the cutover introduces regressions, revert to the ConversationRelay path:
-
-1. **Revert the TwiML change:** Restore `<ConversationRelay>` element in `generateTwiML()` with the original attributes. The ConversationRelay relay server (`relay-server.ts`) is still registered and will resume handling calls.
-
-2. **Revert the STT resolution:** Restore the `resolveTelephonySttProfile(cfg.calls.voice)` call in `buildVoiceWebhookTwiml()`.
-
-3. **Config keys are preserved:** Since `calls.voice.transcriptionProvider` and `calls.voice.speechModel` are deprecated but not removed, they still contain valid values for the rollback path.
-
-4. **No data migration needed for rollback:** The workspace migration (step 3 in cutover) copies values forward — it does not delete the originals. Both config paths remain readable.
-
-The rollback is a single-commit revert of the cutover PR. No user data is lost and no config migration is needed.
-
-### Verification
-
-After cutover, verify:
-
-- [ ] Outbound calls connect and produce audible speech.
-- [ ] Inbound calls are answered with transcription working.
-- [ ] STT provider shown in call logs matches the `services.stt` provider.
-- [ ] `evaluateServicesSttReadiness()` returns `status: "ready"`.
-- [ ] No `<ConversationRelay>` elements appear in TwiML responses.
-- [ ] The media-stream WebSocket connection appears in gateway logs.
-- [ ] Existing `calls.voice.transcriptionProvider` config value is still readable (for rollback).
+| Symptom | Likely Provider | Check | Expected Log |
+| ------- | --------------- | ----- | ------------ |
+| Call connects but no transcription | Deepgram / Google | Verify Deepgram or Google API key is configured in credential store | `[twilio-routes] telephony STT strategy resolved: conversation-relay-native` |
+| Call connects, TTS works, but STT silent | OpenAI Whisper | Verify OpenAI API key is configured; check media-stream server is reachable via gateway | `[twilio-routes] telephony STT strategy resolved: media-stream-custom` |
+| TwiML error / call drops immediately | Any | Check `services.stt.provider` is a recognized catalog entry | `[twilio-routes] unknown STT provider — cannot resolve telephony routing` |
+| Deepgram transcription uses wrong model | Deepgram | The routing resolver defaults Deepgram to `nova-3`; custom model overrides are set via `services.stt.providers.deepgram` config | `speechModel="nova-3"` in TwiML output |
+| Google transcription sends Deepgram model | Google | Model normalization should suppress `nova-3` for Google; verify migration 034 ran | `speechModel` attribute absent from TwiML |
+| Media-stream WebSocket fails to connect | OpenAI Whisper | Verify gateway `/webhooks/twilio/media-stream` route is deployed and reachable | `[gateway] media-stream WebSocket proxy connected` |
+| Audio heard but transcription garbled | OpenAI Whisper | Check audio transcode pipeline (`media-stream-audio-transcode.ts`); verify sample rate matches provider expectations | `[media-stream-stt-session] transcription result` |
