@@ -21,6 +21,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -93,7 +94,7 @@ export async function computeRelationshipState(): Promise<RelationshipState> {
   // Every step is guarded because the writer must never throw.
   const userMd = resolveGuardianUserContent();
   const soulMd = safeRead(getWorkspacePromptPath("SOUL.md"));
-  const identityMd = safeRead(getWorkspacePromptPath("IDENTITY.md"));
+  const identityPath = getWorkspacePromptPath("IDENTITY.md");
 
   const facts = extractFacts({
     userContent: userMd,
@@ -101,7 +102,7 @@ export async function computeRelationshipState(): Promise<RelationshipState> {
   });
   const conversationCount = countConversations();
   const capabilities = resolveCapabilityTiers({ conversationCount });
-  const { assistantName, hatchedDate } = parseIdentity(identityMd);
+  const { assistantName, hatchedDate } = parseIdentity(identityPath);
   const userName = parseUserName(userMd);
 
   const tier = computeTier({ facts, capabilities, conversationCount });
@@ -425,40 +426,69 @@ function countConversations(): number {
 }
 
 /**
- * Pull `assistantName` and `hatchedDate` out of IDENTITY.md. IDENTITY.md
- * is a freeform markdown file, so we scan bullet lines for the first
- * recognizable `name` / `hatched` label. Returns safe defaults when
- * neither is found.
+ * Pull `assistantName` and `hatchedDate` from IDENTITY.md.
+ *
+ * IDENTITY.md is a freeform markdown file, so for the name we scan
+ * bullet lines for the first recognizable `name` label. For the
+ * hatched date we prefer any explicit `hatched:` / `birth:` bullet,
+ * then fall back to the file's `stat.birthtime` (matching the
+ * pattern already established by `identity-routes.ts`), and finally
+ * to `stat.mtime` if birthtime is unavailable. We never fall back to
+ * `new Date()` — `writeRelationshipState()` is called on every turn
+ * boundary, so a `Date.now()` fallback would cause `hatchedDate` to
+ * drift forward on every write, turning a stable "relationship
+ * start" timestamp into a constantly-updating "last touched"
+ * timestamp. When nothing is readable we emit the Unix epoch as an
+ * unmistakable sentinel instead of silently drifting.
  */
-function parseIdentity(content: string): {
+function parseIdentity(identityPath: string): {
   assistantName: string;
   hatchedDate: string;
 } {
-  let assistantName = DEFAULT_ASSISTANT_NAME;
-  let hatchedDate = new Date().toISOString();
+  const content = safeRead(identityPath);
 
-  if (!content) return { assistantName, hatchedDate };
+  let assistantName = DEFAULT_ASSISTANT_NAME;
+  let explicitHatched: string | undefined;
 
   for (const line of iterateBulletLines(content)) {
     const parsed = parseBulletLabelValue(line);
-    if (!parsed) continue;
+    if (!parsed || !parsed.value) continue;
     const lower = parsed.label.toLowerCase();
-    if (!parsed.value) continue;
     if (lower.startsWith("name") && assistantName === DEFAULT_ASSISTANT_NAME) {
       assistantName = parsed.value;
     }
     if (
-      (lower.startsWith("hatched") || lower.startsWith("birth")) &&
-      parsed.value
+      !explicitHatched &&
+      (lower.startsWith("hatched") || lower.startsWith("birth"))
     ) {
       const parsedDate = new Date(parsed.value);
       if (!isNaN(parsedDate.getTime())) {
-        hatchedDate = parsedDate.toISOString();
+        explicitHatched = parsedDate.toISOString();
       }
     }
   }
 
-  return { assistantName, hatchedDate };
+  if (explicitHatched) {
+    return { assistantName, hatchedDate: explicitHatched };
+  }
+
+  // Stable fallback: use the IDENTITY.md file birth time so the
+  // relationship start date is monotonic across turns. Matches the
+  // approach used by `identity-routes.ts` for the Settings UI.
+  try {
+    const stats = statSync(identityPath);
+    const candidate =
+      stats.birthtime.getTime() > 0 ? stats.birthtime : stats.mtime;
+    if (candidate.getTime() > 0) {
+      return { assistantName, hatchedDate: candidate.toISOString() };
+    }
+  } catch {
+    // File missing or unreadable — fall through to the sentinel.
+  }
+
+  // Last-ditch sentinel: unmistakably ancient so any UI showing it
+  // makes the "we couldn't resolve your hatched date" state obvious.
+  return { assistantName, hatchedDate: new Date(0).toISOString() };
 }
 
 /**

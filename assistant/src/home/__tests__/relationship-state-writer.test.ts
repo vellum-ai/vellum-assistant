@@ -279,4 +279,38 @@ describe("relationship-state-writer", () => {
       await expect(writeRelationshipState()).resolves.toBeUndefined();
     });
   });
+
+  describe("hatchedDate stability", () => {
+    test("is stable across multiple writes when IDENTITY.md has no explicit hatched bullet", async () => {
+      // Regression guard: `parseIdentity` used to default `hatchedDate`
+      // to `new Date().toISOString()` on every call, so because the
+      // writer runs on every turn boundary the persisted "relationship
+      // start" timestamp drifted forward on every write. It must now
+      // come from IDENTITY.md file birthtime, which is stable.
+      writeFile(
+        "IDENTITY.md",
+        "- **Name:** Sage\n- **Role:** Assistant\n- **Personality:** Curious\n",
+      );
+
+      const first = (await computeRelationshipState()) as RelationshipStateLike;
+      // Wait long enough that any `Date.now()`-based regression would
+      // produce a visibly different value on the second call.
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      const second = (await computeRelationshipState()) as RelationshipStateLike;
+
+      expect(second.hatchedDate).toBe(first.hatchedDate);
+      // Also sanity: it must be a real, recent date (not the epoch
+      // sentinel we emit when stat fails).
+      expect(Date.parse(first.hatchedDate)).toBeGreaterThan(0);
+    });
+
+    test("honors an explicit Hatched bullet in IDENTITY.md over file birthtime", async () => {
+      writeFile(
+        "IDENTITY.md",
+        "- **Name:** Sage\n- **Hatched:** 2025-01-15T00:00:00.000Z\n",
+      );
+      const state = (await computeRelationshipState()) as RelationshipStateLike;
+      expect(state.hatchedDate).toBe("2025-01-15T00:00:00.000Z");
+    });
+  });
 });
