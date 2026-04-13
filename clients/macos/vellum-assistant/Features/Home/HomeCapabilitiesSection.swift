@@ -47,26 +47,31 @@ struct HomeCapabilitiesSection: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            HStack(alignment: .firstTextBaseline, spacing: VSpacing.sm) {
-                Text("What I Can Do")
-                    .font(VFont.titleSmall)
-                    .foregroundStyle(VColor.contentEmphasized)
+        if capabilities.isEmpty {
+            EmptyView()
+        } else {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                HStack(alignment: .firstTextBaseline, spacing: VSpacing.sm) {
+                    Text("What I Can Do")
+                        .font(VFont.titleSmall)
+                        .foregroundStyle(VColor.contentEmphasized)
+                        .accessibilityAddTraits(.isHeader)
 
-                Spacer(minLength: 0)
+                    Spacer(minLength: 0)
 
-                Text("\(unlockedCount)/\(capabilities.count) unlocked")
-                    .font(VFont.bodySmallDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-            }
+                    Text("\(unlockedCount)/\(capabilities.count) unlocked")
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentSecondary)
+                }
 
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                ForEach(orderedCapabilities) { capability in
-                    CapabilityRowView(
-                        capability: capability,
-                        onPrimaryCTA: onPrimaryCTA,
-                        onShortcutCTA: onShortcutCTA
-                    )
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    ForEach(orderedCapabilities) { capability in
+                        CapabilityRowView(
+                            capability: capability,
+                            onPrimaryCTA: onPrimaryCTA,
+                            onShortcutCTA: onShortcutCTA
+                        )
+                    }
                 }
             }
         }
