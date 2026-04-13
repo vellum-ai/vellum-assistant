@@ -26,7 +26,7 @@ struct HomeIdentityPanel: View {
     }
 
     private var tagline: String {
-        "Your \(tier.label.lowercased())"
+        tier.descriptionText
     }
 
     private var avatarInitial: String {
@@ -89,6 +89,9 @@ struct HomeIdentityPanel: View {
                 avatarPlaceholder
             }
             .frame(width: 140, height: 140)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text("Relationship progress"))
+            .accessibilityValue(Text("\(state.progressPercent) percent"))
             Spacer(minLength: 0)
         }
     }
