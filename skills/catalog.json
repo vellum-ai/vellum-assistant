@@ -55,6 +55,17 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "conversation-launcher",
+      "name": "conversation-launcher",
+      "description": "Render an inline card where each button creates a new focused conversation seeded with specific context, then opens it",
+      "metadata": {
+        "vellum": {
+          "display-name": "Conversation Launcher"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "deploy-fullstack-vercel",
       "name": "deploy-fullstack-vercel",
       "description": "Build and deploy a full-stack app (React frontend + Python/FastAPI backend) to Vercel as a serverless demo with seeded data",
