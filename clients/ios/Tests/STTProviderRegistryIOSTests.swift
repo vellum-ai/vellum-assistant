@@ -98,12 +98,14 @@ final class STTProviderRegistryIOSTests: XCTestCase {
             "google-gemini": "gemini",
         ]
         for provider in registry.providers {
-            if let expected = expectedMappings[provider.id] {
-                XCTAssertEqual(
-                    provider.apiKeyProviderName, expected,
-                    "Provider '\(provider.id)' should map to '\(expected)' credential provider"
-                )
+            guard let expected = expectedMappings[provider.id] else {
+                XCTFail("Provider '\(provider.id)' has no expected mapping — add it to expectedMappings")
+                continue
             }
+            XCTAssertEqual(
+                provider.apiKeyProviderName, expected,
+                "Provider '\(provider.id)' should map to '\(expected)' credential provider"
+            )
         }
     }
 
