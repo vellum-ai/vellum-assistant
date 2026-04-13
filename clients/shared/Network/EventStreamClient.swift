@@ -76,6 +76,10 @@ public final class EventStreamClient {
     /// Called when a token_rotated event is received.
     var onTokenRefreshed: ((String) -> Void)?
 
+    /// Called when the daemon confirms a user message was persisted (HTTP 202 with messageId).
+    /// The chat layer uses this to tag the optimistic row with the daemon-assigned ID.
+    var onUserMessagePersisted: ((_ conversationId: String, _ content: String, _ messageId: String) -> Void)?
+
     // MARK: - Init
 
     public init() {}
@@ -193,7 +197,10 @@ public final class EventStreamClient {
             )
 
             switch sendResult {
-            case .success(let serverConvId):
+            case .success(let serverConvId, let messageId):
+                if let messageId {
+                    self.onUserMessagePersisted?(conversationId, content ?? "", messageId)
+                }
                 if let serverConvId, serverConvId != conversationId {
                     self.serverToLocalConversationMap[serverConvId] = conversationId
                     self.locallyOwnedConversationIds.insert(serverConvId)

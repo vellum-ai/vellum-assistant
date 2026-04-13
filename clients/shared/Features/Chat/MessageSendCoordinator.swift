@@ -102,6 +102,25 @@ final class MessageSendCoordinator {
         self.btwState = btwState
         self.settingsClient = settingsClient
         self.conversationListClient = conversationListClient
+
+        delegate.eventStreamClient.onUserMessagePersisted = { [weak self] conversationId, content, messageId in
+            guard let self else { return }
+            self.tagOptimisticRow(conversationId: conversationId, content: content, messageId: messageId)
+        }
+    }
+
+    /// Tags the most-recent optimistic user row matching `content` with the
+    /// daemon-assigned `messageId` so that a subsequent `user_message_echo`
+    /// SSE event can be deduped (PR 4) instead of double-rendering.
+    private func tagOptimisticRow(conversationId: String, content: String, messageId: String) {
+        guard let delegate, delegate.conversationId == conversationId else { return }
+        if let idx = messageManager.messages.indices.reversed().first(where: {
+            messageManager.messages[$0].role == .user
+                && messageManager.messages[$0].text == content
+                && messageManager.messages[$0].daemonMessageId == nil
+        }) {
+            messageManager.messages[idx].daemonMessageId = messageId
+        }
     }
 
     // MARK: - Platform helper

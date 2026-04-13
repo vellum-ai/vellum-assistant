@@ -13,7 +13,7 @@ public enum AttachmentUploadResult: Sendable {
 /// Result of sending a message.
 public enum MessageSendResult: Sendable {
     /// Message accepted by the server.
-    case success(serverConversationId: String?)
+    case success(serverConversationId: String?, messageId: String?)
     /// Authentication failed terminally (already emitted upstream).
     case authRequired
     /// Message blocked by secret-ingress check.
@@ -156,7 +156,8 @@ public struct MessageClient: MessageClientProtocol {
                 log.info("Message sent successfully")
                 let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any]
                 let serverConvId = json?["conversationId"] as? String
-                return .success(serverConversationId: serverConvId)
+                let messageId = json?["messageId"] as? String
+                return .success(serverConversationId: serverConvId, messageId: messageId)
             } else if response.statusCode == 401 {
                 return .authRequired
             } else if response.statusCode == 422 {
