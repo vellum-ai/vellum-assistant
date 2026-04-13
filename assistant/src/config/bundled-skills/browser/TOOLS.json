@@ -486,6 +486,31 @@
       },
       "executor": "tools/browser-fill-credential.ts",
       "execution_target": "host"
+    },
+    {
+      "name": "browser_status",
+      "description": "Check browser backend readiness and remediation guidance. Reports per-mode availability, verification method, setup steps, and trade-offs for extension, cdp-inspect, and local Playwright modes.",
+      "category": "browser",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "browser_mode": {
+            "type": "string",
+            "description": "Optional scope override for this status check. Use auto (default) to check all modes, or set extension/cdp-inspect/local to check only one mode. Aliases: cdp-debugger -> cdp-inspect, playwright -> local."
+          },
+          "check_local_launch": {
+            "type": "boolean",
+            "description": "If true, run an active local Playwright launch probe. Default false (preflight-only) to avoid creating a new local browser page during diagnostics."
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        }
+      },
+      "executor": "tools/browser-status.ts",
+      "execution_target": "host"
     }
   ]
 }

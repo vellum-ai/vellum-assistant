@@ -36,6 +36,7 @@ import * as browserScreenshot from "./bundled-skills/browser/tools/browser-scree
 import * as browserScroll from "./bundled-skills/browser/tools/browser-scroll.js";
 import * as browserSelectOption from "./bundled-skills/browser/tools/browser-select-option.js";
 import * as browserSnapshot from "./bundled-skills/browser/tools/browser-snapshot.js";
+import * as browserStatus from "./bundled-skills/browser/tools/browser-status.js";
 import * as browserType from "./bundled-skills/browser/tools/browser-type.js";
 import * as browserWaitFor from "./bundled-skills/browser/tools/browser-wait-for.js";
 import * as browserWaitForDownload from "./bundled-skills/browser/tools/browser-wait-for-download.js";
@@ -221,6 +222,7 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["browser:tools/browser-extract.ts", browserExtract],
   ["browser:tools/browser-wait-for-download.ts", browserWaitForDownload],
   ["browser:tools/browser-fill-credential.ts", browserFillCredential],
+  ["browser:tools/browser-status.ts", browserStatus],
 
   // chatgpt-import
   ["chatgpt-import:tools/chatgpt-import.ts", chatgptImport],
