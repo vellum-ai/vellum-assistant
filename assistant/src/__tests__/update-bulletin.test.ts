@@ -31,6 +31,13 @@ mock.module("../memory/checkpoints.js", () => ({
   ),
 }));
 
+// --- Mutable config stub for updates.enabled tests ---
+const updatesConfig = { enabled: true };
+
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({ updates: updatesConfig }),
+}));
+
 // --- Temp directory for template files ---
 // Avoids mutating the real source-controlled UPDATES.md template, preventing
 // race conditions with parallel test execution and working tree corruption
@@ -60,6 +67,7 @@ const COMMENT_ONLY_TEMPLATE =
 describe("syncUpdateBulletinOnStartup", () => {
   beforeEach(() => {
     store.clear();
+    updatesConfig.enabled = true;
     // Remove any leftover workspace UPDATES.md from a previous test
     if (existsSync(workspacePath)) {
       rmSync(workspacePath);
@@ -90,6 +98,18 @@ describe("syncUpdateBulletinOnStartup", () => {
     const content = readFileSync(workspacePath, "utf-8");
     expect(content).toContain("<!-- vellum-update-release:1.0.0 -->");
     expect(content).toContain("What's New");
+  });
+
+  it("skips materialization entirely when updates.enabled is false", () => {
+    updatesConfig.enabled = false;
+    expect(existsSync(workspacePath)).toBe(false);
+
+    syncUpdateBulletinOnStartup();
+
+    expect(existsSync(workspacePath)).toBe(false);
+    // No checkpoint writes should have happened either.
+    expect(store.get("updates:active_releases")).toBeUndefined();
+    expect(store.get("updates:completed_releases")).toBeUndefined();
   });
 
   it("appends release block when workspace file exists without current marker", () => {

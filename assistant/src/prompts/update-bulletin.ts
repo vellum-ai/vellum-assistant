@@ -8,6 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 
+import { getConfig } from "../config/loader.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { APP_VERSION } from "../version.js";
@@ -75,6 +76,8 @@ function atomicWriteFileSync(filePath: string, content: string): void {
  * already exist for this version. Skips completed releases entirely.
  */
 export function syncUpdateBulletinOnStartup(): void {
+  if (!getConfig().updates.enabled) return;
+
   const currentReleaseId = APP_VERSION;
   const workspacePath = getWorkspacePromptPath("UPDATES.md");
 

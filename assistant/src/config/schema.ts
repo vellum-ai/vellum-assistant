@@ -216,6 +216,8 @@ export {
   TtsServiceSchema,
   VALID_TTS_PROVIDERS as VALID_TTS_SERVICE_PROVIDERS,
 } from "./schemas/tts.js";
+export type { UpdatesConfig } from "./schemas/updates.js";
+export { UpdatesConfigSchema } from "./schemas/updates.js";
 export type { WorkspaceGitConfig } from "./schemas/workspace-git.js";
 export { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 
@@ -263,6 +265,7 @@ import {
   RateLimitConfigSchema,
   TimeoutConfigSchema,
 } from "./schemas/timeouts.js";
+import { UpdatesConfigSchema } from "./schemas/updates.js";
 import { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 
 export const AssistantConfigSchema = z
@@ -305,6 +308,7 @@ export const AssistantConfigSchema = z
       ),
     filing: FilingConfigSchema.default(FilingConfigSchema.parse({})),
     heartbeat: HeartbeatConfigSchema.default(HeartbeatConfigSchema.parse({})),
+    updates: UpdatesConfigSchema.default(UpdatesConfigSchema.parse({})),
     hostBrowser: HostBrowserConfigSchema.default(
       HostBrowserConfigSchema.parse({}),
     ),
