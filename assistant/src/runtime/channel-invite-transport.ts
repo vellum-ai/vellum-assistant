@@ -58,7 +58,7 @@ export interface ChannelInviteAdapter {
 
   /**
    * Resolve the channel-specific handle to reach the assistant (e.g.
-   * "@botName", "+15551234567", "hello@domain.agentmail.to").
+   * "@botName", "+15551234567", "hello@vellum.me").
    * Returns `undefined` when the handle cannot be resolved (e.g.
    * credentials not yet configured).
    */

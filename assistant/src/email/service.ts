@@ -24,11 +24,6 @@ import {
   setOutboundPaused,
 } from "./guardrails.js";
 import type { EmailProvider } from "./provider.js";
-import {
-  createProvider,
-  getActiveProviderName,
-  type SupportedProvider,
-} from "./providers/index.js";
 import type {
   CreateDraftInput,
   DnsRecord,
@@ -67,7 +62,10 @@ export class EmailService {
   /** Get or lazily create the provider. */
   private async provider(): Promise<EmailProvider> {
     if (!this.providerInstance) {
-      this.providerInstance = await createProvider();
+      throw new ConfigError(
+        "Local email providers have been removed. Email is now handled through the platform. " +
+          "Use `assistant email register` to set up an email address.",
+      );
     }
     return this.providerInstance;
   }
@@ -84,12 +82,12 @@ export class EmailService {
   // =========================================================================
 
   getProviderName(): string {
-    return getActiveProviderName();
+    return "platform";
   }
 
-  setProvider(name: SupportedProvider): void {
+  setProvider(_name: string): void {
     const raw = loadRawConfig();
-    setNestedValue(raw, "integrations.email.provider", name);
+    setNestedValue(raw, "integrations.email.provider", _name);
     saveRawConfig(raw);
     this.resetProvider();
   }
