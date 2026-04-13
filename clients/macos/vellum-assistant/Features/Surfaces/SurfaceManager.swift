@@ -406,10 +406,17 @@ final class SurfaceManager {
     /// Dismiss only floating panel surfaces, leaving workspace-routed surfaces untouched.
     /// Used by the global Escape handler to avoid destroying workspace apps when the user
     /// presses Escape in another application.
+    ///
+    /// Routes each dismissal through `handleSurfaceDismiss` so the daemon receives a synthetic
+    /// `"dismiss"` action (matching the close-button path) and can clean up its pending-surface
+    /// state. Without this, Escape would leave the daemon with a stale pending entry.
     func dismissFloatingOnly() {
-        let floatingIds = Array(panels.keys).filter { !workspaceRoutedSurfaces.contains($0) }
+        let floatingIds = activeSurfaces.keys.filter { !workspaceRoutedSurfaces.contains($0) }
         for id in floatingIds {
-            dismissSurfaceById(id)
+            handleSurfaceDismiss(
+                conversationId: activeSurfaces[id]?.conversationId,
+                surfaceId: id
+            )
         }
     }
 

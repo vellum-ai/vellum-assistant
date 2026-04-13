@@ -207,6 +207,70 @@ final class SurfaceManagerTests: XCTestCase {
         XCTAssertEqual(dispatched.first?.actionId, "btn-1")
     }
 
+    // MARK: - Escape-dismiss path
+
+    func testDismissFloatingOnly_persistentSurface_sendsSyntheticDismiss() {
+        // Regression: the global Escape handler routes through dismissFloatingOnly(), which
+        // previously called dismissSurfaceById directly and skipped handleSurfaceDismiss.
+        // That left the daemon with a stale pending-surface entry. Escape must now emit the
+        // same synthetic "dismiss" the close-button path does.
+        let surface = makeCardSurface(id: "surf-esc-persistent")
+        surfaceManager.registerForTesting(surface: surface, persistent: true)
+
+        surfaceManager.dismissFloatingOnly()
+
+        XCTAssertEqual(dispatched.count, 1,
+                       "Escape on a persistent surface with no prior action must emit dismiss")
+        XCTAssertEqual(dispatched.first?.actionId, "dismiss")
+        XCTAssertNil(surfaceManager.activeSurfaces[surface.id],
+                     "Surface should be torn down after Escape")
+    }
+
+    func testDismissFloatingOnly_persistentSurfaceAfterAction_suppressed() {
+        let surface = makeCardSurface(id: "surf-esc-persistent-race")
+        surfaceManager.registerForTesting(surface: surface, persistent: true)
+
+        surfaceManager.handleSurfaceAction(
+            conversationId: surface.conversationId,
+            surfaceId: surface.id,
+            actionId: "btn-1",
+            data: nil
+        )
+        surfaceManager.dismissFloatingOnly()
+
+        XCTAssertEqual(dispatched.count, 1,
+                       "Escape after an action on a persistent surface must not double-emit")
+        XCTAssertEqual(dispatched.first?.actionId, "btn-1")
+    }
+
+    func testDismissFloatingOnly_nonPersistentSurface_sendsSyntheticDismiss() {
+        let surface = makeCardSurface(id: "surf-esc-single-shot")
+        surfaceManager.registerForTesting(surface: surface, persistent: false)
+
+        surfaceManager.dismissFloatingOnly()
+
+        XCTAssertEqual(dispatched.count, 1,
+                       "Escape on a non-persistent surface with no prior action must emit dismiss")
+        XCTAssertEqual(dispatched.first?.actionId, "dismiss")
+    }
+
+    func testDismissFloatingOnly_nonPersistentSurfaceAfterAction_suppressed() {
+        let surface = makeCardSurface(id: "surf-esc-single-shot-race")
+        surfaceManager.registerForTesting(surface: surface, persistent: false)
+
+        surfaceManager.handleSurfaceAction(
+            conversationId: surface.conversationId,
+            surfaceId: surface.id,
+            actionId: "btn-1",
+            data: nil
+        )
+        surfaceManager.dismissFloatingOnly()
+
+        XCTAssertEqual(dispatched.count, 1,
+                       "Escape after an action on a non-persistent surface must not double-emit")
+        XCTAssertEqual(dispatched.first?.actionId, "btn-1")
+    }
+
     // MARK: - Non-persistent regression
 
     func testNonPersistentSurface_unchanged() {
