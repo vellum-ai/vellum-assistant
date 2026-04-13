@@ -1068,7 +1068,9 @@ export async function installSkill(
     contactId?: string;
   },
   ctx: SkillOperationContext,
-): Promise<{ success: true } | { success: false; error: string }> {
+): Promise<
+  { success: true; skillId: string } | { success: false; error: string }
+> {
   try {
     // Bundled skills are already available — no install needed
     const catalog = loadSkillCatalog();
@@ -1113,7 +1115,7 @@ export async function installSkill(
       }
       seedSkillGraphNodes();
       void seedUninstalledCatalogSkillMemories().catch(() => {});
-      return { success: true };
+      return { success: true, skillId: spec.slug };
     }
 
     // Check the Vellum catalog (first-party skills hosted on the platform).
@@ -1134,7 +1136,7 @@ export async function installSkill(
 
           const skillDir = join(getWorkspaceSkillsDir(), spec.slug);
           postInstallSkill(spec.slug, skillDir, ctx);
-          return { success: true };
+          return { success: true, skillId: spec.slug };
         }
       } catch (err) {
         // If catalog lookup/install fails, fall through to community registries
@@ -1162,7 +1164,7 @@ export async function installSkill(
 
       const skillDir = join(getWorkspaceSkillsDir(), resolved.skillSlug);
       postInstallSkill(resolved.skillSlug, skillDir, ctx);
-      return { success: true };
+      return { success: true, skillId: resolved.skillSlug };
     }
 
     // Install from clawhub (community)
@@ -1190,7 +1192,7 @@ export async function installSkill(
     upsertSkillsIndex(skillId);
 
     postInstallSkill(skillId, skillDir, ctx);
-    return { success: true };
+    return { success: true, skillId };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Failed to install skill");

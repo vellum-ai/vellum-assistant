@@ -1081,9 +1081,13 @@ public typealias SkillStateChangedMessage = SkillStateChanged
 public struct SkillOperationResult: Sendable {
     public let success: Bool
     public let error: String?
-    public init(success: Bool, error: String? = nil) {
+    /// The actual installed skill ID, which may differ from the slug sent in
+    /// the request (e.g. skills.sh resolves "owner/repo/skill" to just "skill").
+    public let skillId: String?
+    public init(success: Bool, error: String? = nil, skillId: String? = nil) {
         self.success = success
         self.error = error
+        self.skillId = skillId
     }
 }
 

@@ -51,11 +51,15 @@ public final class SkillsStore: ObservableObject {
 
     public struct InstallResult: Sendable {
         public let slug: String
+        /// The actual installed skill ID returned by the daemon, which may
+        /// differ from `slug` (e.g. skills.sh resolves "owner/repo/skill" to "skill").
+        public let skillId: String?
         public let success: Bool
         public let error: String?
 
-        public init(slug: String, success: Bool, error: String?) {
+        public init(slug: String, skillId: String? = nil, success: Bool, error: String?) {
             self.slug = slug
+            self.skillId = skillId
             self.success = success
             self.error = error
         }
@@ -211,7 +215,7 @@ public final class SkillsStore: ObservableObject {
             let response = await skillsClient.installSkill(slug: slug, version: nil)
             let result: InstallResult
             if let response, response.success {
-                result = InstallResult(slug: slug, success: true, error: nil)
+                result = InstallResult(slug: slug, skillId: response.skillId, success: true, error: nil)
             } else {
                 result = InstallResult(slug: slug, success: false, error: response?.error ?? "Failed to connect")
             }
