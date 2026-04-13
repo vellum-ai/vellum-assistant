@@ -35,6 +35,15 @@ struct SidebarSectionHeader: View {
     var sidebar: SidebarInteractionState?
 
     @State private var isHeaderHovered: Bool = false
+    @State private var isMenuOpen: Bool = false
+
+    /// Whether the trailing ellipsis button should be visible (hovered or menu open).
+    private var hasTrailingIcon: Bool { isHeaderHovered || isMenuOpen }
+
+    /// Whether any context menu action is available (mirrors ConditionalGroupContextMenu logic).
+    private var hasAnyAction: Bool {
+        onRename != nil || onDelete != nil || onMarkAllRead != nil || onArchiveAll != nil
+    }
 
     private var isGroupPinned: Bool {
         group.id == ConversationGroup.pinned.id
@@ -70,7 +79,7 @@ struct SidebarSectionHeader: View {
                 .foregroundStyle(VColor.contentSecondary)
 
             Spacer()
-            if !isExpanded {
+            if !isExpanded && !hasTrailingIcon {
                 switch aggregateState {
                 case .error:
                     VIconView(.circleAlert, size: 10)
@@ -97,7 +106,51 @@ struct SidebarSectionHeader: View {
         .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
         .contentShape(Rectangle())
         .overlay(alignment: .trailing) {
-            if conversationCount > 0 {
+            if hasTrailingIcon && hasAnyAction {
+                VButton(
+                    label: "More options for \(group.name)",
+                    iconOnly: VIcon.ellipsis.rawValue,
+                    style: .ghost,
+                    iconSize: 20,
+                    tooltip: "More options",
+                    iconColor: VColor.contentSecondary
+                ) {
+                    guard !isMenuOpen else { return }
+                    isMenuOpen = true
+                    let appearance = NSApp.keyWindow?.effectiveAppearance
+                    VMenuPanel.show(
+                        at: NSEvent.mouseLocation,
+                        sourceAppearance: appearance
+                    ) {
+                        VMenu(width: 200) {
+                            if let onMarkAllRead {
+                                VMenuItem(icon: VIcon.circleCheck.rawValue, label: "Mark All as Read") {
+                                    onMarkAllRead()
+                                }
+                                .disabled(!hasUnreadConversations)
+                            }
+                            if let onArchiveAll {
+                                VMenuItem(icon: VIcon.archive.rawValue, label: "Archive All\u{2026}") {
+                                    onArchiveAll()
+                                }
+                                .disabled(conversationCount == 0)
+                            }
+                            if (onMarkAllRead != nil || onArchiveAll != nil) && (onRename != nil || onDelete != nil) {
+                                VMenuDivider()
+                            }
+                            if let onRename {
+                                VMenuItem(icon: VIcon.pencil.rawValue, label: "Rename") { onRename(group.name) }
+                            }
+                            if let onDelete {
+                                VMenuItem(icon: VIcon.trash.rawValue, label: conversationCount > 0 ? "Delete group\u{2026}" : "Delete group") { onDelete() }
+                            }
+                        }
+                    } onDismiss: {
+                        isMenuOpen = false
+                    }
+                }
+                .padding(.trailing, VSpacing.xs)
+            } else if conversationCount > 0 {
                 Text("\(conversationCount)")
                     .font(VFont.labelSmall)
                     .foregroundStyle(VColor.contentTertiary)
@@ -110,6 +163,8 @@ struct SidebarSectionHeader: View {
                     .padding(.trailing, VSpacing.xs)
             }
         }
+        .animation(VAnimation.fast, value: isHeaderHovered)
+        .animation(VAnimation.fast, value: isMenuOpen)
         .onTapGesture { withAnimation(VAnimation.fast) { onToggleExpand() } }
         .pointerCursor(onHover: { hovering in
             isHeaderHovered = hovering
