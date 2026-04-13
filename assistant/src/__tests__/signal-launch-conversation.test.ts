@@ -1,10 +1,12 @@
 /**
- * Unit tests for the launch-conversation signal handler.
+ * Unit tests for the launch-conversation signal handler and the
+ * launchConversation daemon helper.
  *
  * Covers the parse/validate/dispatch/write-result contract of
- * {@link handleLaunchConversationSignal} in isolation. The daemon-side
- * callback (which creates + seeds + focuses the conversation) is exercised
- * through a mock registered via {@link registerLaunchConversationCallback}.
+ * {@link handleLaunchConversationSignal} in isolation (the daemon-side
+ * callback is exercised through a mock registered via
+ * {@link registerLaunchConversationCallback}) plus a direct unit test of
+ * {@link launchConversation}'s `originTrustContext` inheritance behavior.
  */
 import {
   existsSync,
@@ -14,13 +16,30 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import {
-  handleLaunchConversationSignal,
-  registerLaunchConversationCallback,
-} from "../signals/launch-conversation.js";
-import { getSignalsDir } from "../util/platform.js";
+// Stub out DB-hitting helpers used by the launchConversation implementation
+// so the direct unit test below does not need a real database. These mocks
+// apply only within this test file.
+mock.module("../memory/conversation-key-store.js", () => ({
+  getOrCreateConversation: (_key: string) => ({
+    conversationId: "conv-mocked-id",
+  }),
+}));
+mock.module("../memory/conversation-crud.js", () => ({
+  updateConversationTitle: () => {},
+}));
+
+// Dynamic imports after mock.module calls so the stubs above take effect
+// before the modules under test are loaded.
+const { launchConversation, registerLaunchConversationDeps } = await import(
+  "../daemon/conversation-launch.js"
+);
+const { handleLaunchConversationSignal, registerLaunchConversationCallback } =
+  await import("../signals/launch-conversation.js");
+const { getSignalsDir } = await import("../util/platform.js");
+type TrustContext =
+  import("../daemon/conversation-runtime-assembly.js").TrustContext;
 
 function signalPath(filename: string): string {
   return join(getSignalsDir(), filename);
@@ -287,5 +306,61 @@ describe("handleLaunchConversationSignal", () => {
     });
 
     cleanupSignalFiles(filename);
+  });
+});
+
+describe("launchConversation", () => {
+  test("launchConversation applies originTrustContext when provided", async () => {
+    const setTrustContextSpy = mock((_ctx: TrustContext | null) => {});
+    // Minimal Conversation-like stub — launchConversation only calls
+    // setTrustContext on the returned object, so we only implement that.
+    const fakeConversation = {
+      setTrustContext: setTrustContextSpy,
+    };
+
+    const persistAndProcessMessageSpy = mock(async () => ({
+      messageId: "msg-mocked",
+    }));
+
+    registerLaunchConversationDeps({
+      // Cast through unknown because we only exercise the methods
+      // launchConversation actually invokes on the Conversation instance.
+      getOrCreateConversation: async () =>
+        fakeConversation as unknown as Awaited<
+          ReturnType<
+            Parameters<typeof registerLaunchConversationDeps>[0]["getOrCreateConversation"]
+          >
+        >,
+      persistAndProcessMessage: persistAndProcessMessageSpy,
+      publishAssistantEvent: () => {},
+      getAssistantId: () => "test-assistant-id",
+    });
+
+    const originTrustContext: TrustContext = {
+      sourceChannel: "telegram",
+      trustClass: "guardian",
+      guardianChatId: "chat-guardian",
+      guardianExternalUserId: "ext-user-guardian",
+      guardianPrincipalId: "principal-guardian",
+      requesterIdentifier: "@guardian",
+      requesterDisplayName: "Guardian",
+    };
+
+    const result = await launchConversation({
+      title: "Inherited",
+      seedPrompt: "Continue the task",
+      anchorMessageId: "msg-anchor-99",
+      originTrustContext,
+    });
+
+    expect(result).toEqual({ conversationId: "conv-mocked-id" });
+    expect(setTrustContextSpy).toHaveBeenCalledTimes(1);
+    expect(setTrustContextSpy).toHaveBeenCalledWith(originTrustContext);
+    // The trust context must be applied before the seed message is persisted
+    // so the first agent turn runs under the inherited guardian scope.
+    expect(persistAndProcessMessageSpy).toHaveBeenCalledTimes(1);
+    expect(
+      setTrustContextSpy.mock.invocationCallOrder[0],
+    ).toBeLessThan(persistAndProcessMessageSpy.mock.invocationCallOrder[0]);
   });
 });
