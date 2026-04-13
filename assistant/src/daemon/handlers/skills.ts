@@ -50,6 +50,8 @@ import {
   upsertSkillsIndex,
 } from "../../skills/catalog-install.js";
 import { filterByQuery } from "../../skills/catalog-search.js";
+import type { SkillCategory } from "../../skills/category-inference.js";
+import { inferCategory } from "../../skills/category-inference.js";
 import {
   clawhubCheckUpdates,
   clawhubInspect,
@@ -84,6 +86,10 @@ import type {
   SkillFileContentResponse,
   SlimSkillResponse,
 } from "../message-types/skills.js";
+
+// Re-export for use by route layer and future consumers.
+export type { SkillCategory };
+export { inferCategory };
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,
   ensureSkillEntry,
