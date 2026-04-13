@@ -139,4 +139,50 @@ final class SoundsConfigTests: XCTestCase {
         XCTAssertTrue(config.enabled)
         XCTAssertEqual(config.sounds, ["x.wav"])
     }
+
+    // MARK: - pickSoundFilename
+
+    @MainActor
+    func test_pickSoundFilename_emptyPool_returnsNil() {
+        let result = SoundManager.shared.pickSoundFilename(from: [])
+        XCTAssertNil(result)
+    }
+
+    @MainActor
+    func test_pickSoundFilename_singleEntry_returnsThatEntry() {
+        let result = SoundManager.shared.pickSoundFilename(from: ["solo.wav"])
+        XCTAssertEqual(result, "solo.wav")
+    }
+
+    @MainActor
+    func test_pickSoundFilename_filtersInvalidEntry() {
+        // "bad.xyz" fails the extension check; "good.wav" is the only valid entry,
+        // so the random pick is deterministic.
+        let result = SoundManager.shared.pickSoundFilename(from: ["bad.xyz", "good.wav"])
+        XCTAssertEqual(result, "good.wav")
+    }
+
+    @MainActor
+    func test_pickSoundFilename_allInvalid_returnsNil() {
+        let result = SoundManager.shared.pickSoundFilename(from: ["a.xyz", "b.exe"])
+        XCTAssertNil(result)
+    }
+
+    @MainActor
+    func test_pickSoundFilename_multiValidPool_returnsEntryFromPool() {
+        let pool = ["a.wav", "b.wav"]
+        var seen: Set<String> = []
+        for _ in 0..<20 {
+            guard let picked = SoundManager.shared.pickSoundFilename(from: pool) else {
+                XCTFail("pickSoundFilename returned nil for a valid pool")
+                return
+            }
+            XCTAssertTrue(pool.contains(picked), "Picked '\(picked)' is not in the input pool")
+            seen.insert(picked)
+        }
+        // With a uniform random pick across two entries, the probability of
+        // seeing only one entry after 20 tries is 2 * (1/2)^20 ≈ 2^-19, which
+        // is small enough that a failure indicates a real bug rather than flake.
+        XCTAssertEqual(seen, Set(pool), "Expected both entries to be selected at least once across 20 picks")
+    }
 }
