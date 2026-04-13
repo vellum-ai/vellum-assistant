@@ -44,6 +44,7 @@ import {
   releaseCallbackClaim,
   updateCallSession,
 } from "./call-store.js";
+import { routeSetup } from "./relay-setup-router.js";
 import { resolveCallHints } from "./stt-hints.js";
 import { resolveTelephonySttRouting } from "./telephony-stt-routing.js";
 import type { CallStatus } from "./types.js";
@@ -401,7 +402,46 @@ function buildVoiceWebhookTwiml(
     );
   }
 
-  // media-stream-custom path
+  // media-stream-custom path — preflight check to reject interactive setup
+  // flows that the media-stream transport cannot support. The media-stream
+  // server has a defensive fallback for these cases, but catching them here
+  // avoids bootstrapping a WebSocket session that will immediately fail.
+  const session = getCallSession(callSessionId);
+  const from = sessionContext?.fromNumber ?? "";
+  const to = sessionContext?.toNumber ?? "";
+
+  const { outcome } = routeSetup({
+    callSessionId,
+    session: session ?? null,
+    from,
+    to,
+  });
+
+  // The media-stream transport supports normal_call and deny (which speaks
+  // a message and tears down). All other outcomes require interactive
+  // sub-flows (DTMF entry, name capture, guardian wait) that media-stream
+  // cannot perform. Reject these deterministically before stream bootstrap.
+  if (outcome.action !== "normal_call" && outcome.action !== "deny") {
+    log.warn(
+      {
+        callSessionId,
+        setupAction: outcome.action,
+        strategy: "media-stream-custom",
+      },
+      "Media-stream preflight rejected unsupported interactive setup flow — falling back to ConversationRelay with Deepgram",
+    );
+    // Fall back to ConversationRelay so the interactive flow can proceed
+    // through the relay server which supports it natively.
+    return buildConversationRelayResponse(
+      callSessionId,
+      cfg,
+      profile,
+      sessionContext,
+      verificationSessionId,
+      { transcriptionProvider: "Deepgram", speechModel: "nova-3" },
+    );
+  }
+
   return buildMediaStreamResponse(callSessionId, cfg, verificationSessionId);
 }
 
