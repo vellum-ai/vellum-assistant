@@ -36,6 +36,7 @@ import {
 } from "../credential-execution/startup-timeout.js";
 import { FilingService } from "../filing/filing-service.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
+import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { getHookManager } from "../hooks/manager.js";
 import { installTemplates } from "../hooks/templates.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
@@ -381,6 +382,29 @@ export async function runDaemon(): Promise<void> {
           "Manual-token connection backfill failed — continuing startup",
         );
       }
+
+      // One-time backfill of `relationship-state.json` for existing or
+      // upgraded users so they don't land on an empty Home page after the
+      // Phase 3 ship. Runs after DB init + workspace migrations so the
+      // writer can actually resolve the guardian persona file and list
+      // connected OAuth providers — firing this from `ensurePromptFiles()`
+      // would be too early (DB isn't ready yet) and produce a degraded
+      // snapshot with zero facts and zero unlocked capabilities.
+      //
+      // Deferred via `setImmediate` so any sync filesystem/DB work the
+      // writer does (`readdirSync`, `readFileSync`, contact + provider
+      // lookups) happens on a later tick, off the startup critical path.
+      // Failures are logged — not silenced — to match the pattern used by
+      // other `void … .catch()` fire-and-forgets in this file and the
+      // assistant/CLAUDE.md rule that all errors must be observable.
+      setImmediate(() => {
+        void backfillRelationshipStateIfMissing().catch((err) =>
+          log.warn(
+            { err },
+            "Relationship state backfill failed — continuing startup",
+          ),
+        );
+      });
 
       // Backfill injection templates on Slack bot token credentials so the
       // credential proxy can inject Authorization headers. Safe on every startup.

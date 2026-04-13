@@ -190,6 +190,30 @@ function publishRelationshipStateUpdated(updatedAt: string): void {
     });
 }
 
+/**
+ * One-time backfill for existing / upgraded users.
+ *
+ * On daemon startup we want existing users to land on a populated
+ * `relationship-state.json` instead of an empty Home page. This helper
+ * is idempotent: it only writes when the file is missing, so subsequent
+ * boots are a cheap `existsSync` check and nothing else. The regular
+ * conversation-complete writer path keeps the snapshot fresh after the
+ * first write, so there is no need to re-run the backfill.
+ *
+ * Callers must treat this as fire-and-forget: per `assistant/CLAUDE.md`
+ * the daemon must never block startup, so `writeRelationshipState()`
+ * already catches every error. Wrapping this call in
+ * `void backfillRelationshipStateIfMissing().catch(() => {})` at the
+ * startup site provides a second belt-and-suspenders guarantee for any
+ * unexpected throw out of `existsSync`.
+ */
+export async function backfillRelationshipStateIfMissing(): Promise<void> {
+  const path = getRelationshipStatePath();
+  if (existsSync(path)) return; // idempotent — only runs once
+  log.info("Backfilling relationship-state.json for existing or upgraded user");
+  await writeRelationshipState();
+}
+
 // ─── Internal helpers ───────────────────────────────────────────────────
 
 /**
