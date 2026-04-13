@@ -29,6 +29,9 @@ let _cdpDisposed = false;
 /** Configure the factory to throw on getCdpClient for pinned modes. */
 let factoryThrowError: CdpError | null = null;
 
+/** Modes passed to getCdpClient, in order. Reset by resetCdp(). */
+const factoryModeCalls: Array<string | undefined> = [];
+
 function makeFakeCdp(
   kind: "local" | "extension" | "cdp-inspect",
   conversationId: string,
@@ -55,6 +58,7 @@ mock.module("../tools/browser/cdp-client/factory.js", () => ({
     context: { hostBrowserProxy?: unknown; conversationId: string },
     options?: { mode?: string },
   ) => {
+    factoryModeCalls.push(options?.mode);
     if (factoryThrowError) {
       throw factoryThrowError;
     }
@@ -75,6 +79,9 @@ mock.module("../tools/browser/cdp-client/factory.js", () => ({
 
 // ── Minimal browserManager stub ──────────────────────────────────────
 
+/** Mutable memo shared between mock methods and tests. */
+const fakePreferredBackend = new Map<string, string>();
+
 mock.module("../tools/browser/browser-manager.js", () => {
   return {
     browserManager: {
@@ -88,6 +95,14 @@ mock.module("../tools/browser/browser-manager.js", () => {
       clearSnapshotBackendNodeMap: mock(() => {}),
       storeSnapshotBackendNodeMap: mock(() => {}),
       resolveSnapshotBackendNodeId: () => null,
+      getPreferredBackendKind: (conversationId: string) =>
+        fakePreferredBackend.get(conversationId) ?? null,
+      setPreferredBackendKind: (conversationId: string, kind: string) => {
+        fakePreferredBackend.set(conversationId, kind);
+      },
+      clearPreferredBackendKind: (conversationId: string) => {
+        fakePreferredBackend.delete(conversationId);
+      },
       supportsRouteInterception: false,
       isInteractive: () => false,
       positionWindowSidebar: mock(async () => {}),
@@ -194,6 +209,8 @@ function resetCdp() {
   _cdpDisposed = false;
   cdpSendHandler = defaultCdpHandler;
   factoryThrowError = null;
+  factoryModeCalls.length = 0;
+  fakePreferredBackend.clear();
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -531,5 +548,67 @@ describe("browser_mode wiring through tool execution", () => {
       "extension: FAILED at candidate_selection",
     );
     expect(result.content).toContain("Remediation:");
+  });
+
+  // ── Per-conversation sticky backend kind ─────────────────────────
+
+  test("auto-mode call after an explicit pin sticks to the pinned kind", async () => {
+    const first = await executeBrowserNavigate(
+      { url: "https://example.com", browser_mode: "local" },
+      ctx,
+    );
+    expect(first.isError).toBe(false);
+
+    factoryModeCalls.length = 0;
+    const second = await executeBrowserScreenshot({}, ctx);
+    expect(second.isError).toBe(false);
+    expect(factoryModeCalls).toEqual(["local"]);
+  });
+
+  test("explicit browser_mode on a later call overrides the sticky kind", async () => {
+    await executeBrowserNavigate(
+      { url: "https://example.com", browser_mode: "local" },
+      ctx,
+    );
+    expect(fakePreferredBackend.get(ctx.conversationId)).toBe("local");
+
+    factoryModeCalls.length = 0;
+    const overridden = await executeBrowserScreenshot(
+      { browser_mode: "extension" },
+      { ...ctx, hostBrowserProxy: {} as never },
+    );
+    expect(overridden.isError).toBe(false);
+    expect(factoryModeCalls).toEqual(["extension"]);
+
+    factoryModeCalls.length = 0;
+    const afterOverride = await executeBrowserScreenshot(
+      {},
+      { ...ctx, hostBrowserProxy: {} as never },
+    );
+    expect(afterOverride.isError).toBe(false);
+    expect(factoryModeCalls).toEqual(["extension"]);
+  });
+
+  test("auto-mode with no prior call falls through to the factory's auto logic", async () => {
+    factoryModeCalls.length = 0;
+    const result = await executeBrowserScreenshot({}, ctx);
+    expect(result.isError).toBe(false);
+    expect(factoryModeCalls).toEqual(["auto"]);
+  });
+
+  test("clearPreferredBackendKind resets the sticky choice", async () => {
+    await executeBrowserNavigate(
+      { url: "https://example.com", browser_mode: "local" },
+      ctx,
+    );
+    expect(fakePreferredBackend.get(ctx.conversationId)).toBe("local");
+
+    // Simulate teardown (browser_detach / browser_close with close_all_pages).
+    fakePreferredBackend.delete(ctx.conversationId);
+
+    factoryModeCalls.length = 0;
+    const result = await executeBrowserScreenshot({}, ctx);
+    expect(result.isError).toBe(false);
+    expect(factoryModeCalls).toEqual(["auto"]);
   });
 });
