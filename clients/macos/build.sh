@@ -317,6 +317,21 @@ build_bun_binary() {
 }
 
 # ---------------------------------------------------------------------------
+# install_shared_packages — install node_modules for every package under
+# packages/. assistant/, cli/, gateway/, etc. reference these via file: deps
+# that point at TypeScript source, so the packages need their own node_modules
+# for transitive deps (e.g. zod) to resolve during tsc/bun build. Must run
+# before any build_bun_binary invocation, from any build mode.
+# ---------------------------------------------------------------------------
+install_shared_packages() {
+    command -v bun &>/dev/null || return 0
+    for pkg_dir in "$SCRIPT_DIR"/../../packages/*/; do
+        [ -f "${pkg_dir}package.json" ] || continue
+        (cd "$pkg_dir" && bun install --frozen-lockfile 2>/dev/null || bun install)
+    done
+}
+
+# ---------------------------------------------------------------------------
 # build_binaries — build all Bun binaries (daemon, assistant CLI, CLI, gateway,
 # and chrome native host helper).
 #
@@ -327,15 +342,9 @@ build_binaries() {
     command -v bun &>/dev/null || { echo "ERROR: bun is required but not found"; exit 1; }
 
     # Pre-install dependencies once per source directory so parallel builds
-    # don't race on the same node_modules. Shared packages under packages/ must
-    # be installed first: assistant/ et al. reference them via file: and import
-    # their TypeScript source directly, so the packages need their own
-    # node_modules for transitive deps (e.g. zod) to resolve during tsc/bun build.
+    # don't race on the same node_modules.
     echo "Installing dependencies..."
-    for pkg_dir in "$SCRIPT_DIR"/../../packages/*/; do
-        [ -f "${pkg_dir}package.json" ] || continue
-        (cd "$pkg_dir" && bun install --frozen-lockfile 2>/dev/null || bun install)
-    done
+    install_shared_packages
     (cd "$ASSISTANT_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
     (cd "$CLI_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
     (cd "$GATEWAY_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
@@ -631,6 +640,15 @@ fi
 NEEDS_REBUILD=false
 if [ ! -f "$MACOS_DIR/$BUNDLE_DISPLAY_NAME" ] || [ "$EXECUTABLE" -nt "$MACOS_DIR/$BUNDLE_DISPLAY_NAME" ]; then
     NEEDS_REBUILD=true
+fi
+
+# Install shared packages (packages/*) before any direct build_bun_binary call
+# below. The 'binaries' subcommand handles this via build_binaries(), but
+# build|run|release|release-application fall through to direct invocations and
+# would otherwise fail to resolve transitive deps (e.g. zod) from
+# packages/ces-contracts on a fresh clone.
+if [ "${SKIP_BUN_REBUILD:-}" != "1" ]; then
+    install_shared_packages
 fi
 
 # Auto-build daemon binary if missing or stale (source changed) and bun is available.
