@@ -33,6 +33,7 @@ public final class EventStreamClient {
 
     private var sseTask: Task<Void, Never>?
     private var sseReconnectTask: Task<Void, Never>?
+    private var tokenRotationTask: Task<Void, Never>?
     private var sseReconnectDelay: TimeInterval = 1.0
     private let maxReconnectDelay: TimeInterval = 30.0
     private var shouldReconnect = true
@@ -102,6 +103,8 @@ public final class EventStreamClient {
 
     /// Stop the SSE event stream.
     public func stopSSE() {
+        tokenRotationTask?.cancel()
+        tokenRotationTask = nil
         sseReconnectTask?.cancel()
         sseReconnectTask = nil
         invalidateSSESession()
@@ -474,7 +477,8 @@ public final class EventStreamClient {
             // the session. This avoids a self-cancellation race where
             // handleParsedMessage (called from inside the SSE loop) would
             // tear down the very session it's reading from.
-            Task { @MainActor [weak self] in
+            tokenRotationTask?.cancel()
+            tokenRotationTask = Task { @MainActor [weak self] in
                 guard let self, self.shouldReconnect else { return }
                 self.stopSSE()
                 self.startSSE()
