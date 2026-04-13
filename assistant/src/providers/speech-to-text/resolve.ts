@@ -1,7 +1,11 @@
 import { getConfig } from "../../config/loader.js";
 import { getProviderKeyAsync } from "../../security/secure-keys.js";
 import { createDaemonBatchTranscriber } from "../../stt/daemon-batch-transcriber.js";
-import type { BatchTranscriber, SttProviderId } from "../../stt/types.js";
+import type {
+  BatchTranscriber,
+  StreamingTranscriber,
+  SttProviderId,
+} from "../../stt/types.js";
 import {
   getCredentialProvider,
   getProviderEntry,
@@ -221,4 +225,76 @@ export async function resolveConversationStreamingSttCapability(): Promise<Conve
     providerId: entry.id,
     streamingMode: entry.conversationStreamingMode,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Streaming transcriber resolver
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve a `StreamingTranscriber` for daemon-hosted streaming transcription.
+ *
+ * Reads `services.stt.provider` from the assistant config and constructs
+ * the appropriate streaming adapter when the provider supports the
+ * `daemon-streaming` boundary. Returns `null` when:
+ * - The configured provider is not in the catalog.
+ * - The configured provider doesn't support the `daemon-streaming` boundary.
+ * - No credentials are configured for the resolved provider.
+ *
+ * Currently supported streaming providers:
+ * - `deepgram` — Deepgram live transcription WebSocket adapter.
+ *
+ * Batch transcription behavior is unaffected — this resolver is a separate
+ * code path from {@link resolveBatchTranscriber}.
+ */
+export async function resolveStreamingTranscriber(): Promise<StreamingTranscriber | null> {
+  const config = getConfig();
+  const provider = config.services.stt.provider;
+
+  // Look up credential provider via the catalog.
+  const credentialProviderName = getCredentialProvider(
+    provider as SttProviderId,
+  );
+  if (!credentialProviderName) {
+    return null;
+  }
+
+  // Verify the provider supports the daemon-streaming boundary.
+  if (!supportsBoundary(provider as SttProviderId, "daemon-streaming")) {
+    return null;
+  }
+
+  const apiKey = await getProviderKeyAsync(credentialProviderName);
+  if (!apiKey) return null;
+
+  return createStreamingTranscriber(apiKey, provider as SttProviderId);
+}
+
+/**
+ * Factory for constructing streaming transcriber adapters.
+ *
+ * Each case lazy-imports the provider module to keep the module graph
+ * lightweight for callers that only need the capability resolver.
+ */
+async function createStreamingTranscriber(
+  apiKey: string,
+  providerId: SttProviderId,
+): Promise<StreamingTranscriber | null> {
+  switch (providerId) {
+    case "deepgram": {
+      const { DeepgramRealtimeTranscriber } =
+        await import("./deepgram-realtime.js");
+      return new DeepgramRealtimeTranscriber(apiKey);
+    }
+    // Google Gemini streaming adapter will be added in PR 4.
+    case "google-gemini":
+      return null;
+    case "openai-whisper":
+      // Whisper does not support streaming.
+      return null;
+    default: {
+      const _exhaustive: never = providerId;
+      return null;
+    }
+  }
 }
