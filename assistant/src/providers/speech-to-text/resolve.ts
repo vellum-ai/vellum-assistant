@@ -285,13 +285,22 @@ async function createStreamingTranscriber(
   providerId: SttProviderId,
 ): Promise<StreamingTranscriber | null> {
   switch (providerId) {
+    case "deepgram": {
+      const { DeepgramRealtimeTranscriber } =
+        await import("./deepgram-realtime.js");
+      return new DeepgramRealtimeTranscriber(apiKey);
+    }
     case "google-gemini": {
       const { GoogleGeminiStreamingTranscriber } =
         await import("./google-gemini-stream.js");
       return new GoogleGeminiStreamingTranscriber(apiKey);
     }
-    // Future: case "deepgram" will be wired here by PR 3.
-    default:
+    case "openai-whisper":
+      // Whisper does not support streaming.
       return null;
+    default: {
+      const _exhaustive: never = providerId;
+      return null;
+    }
   }
 }
