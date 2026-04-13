@@ -166,9 +166,7 @@ private struct FirstUsePromptView: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.horizontal, VSpacing.xl)
-            .padding(.top, VSpacing.xl)
-            .padding(.bottom, VSpacing.lg)
+            .padding(EdgeInsets(top: VSpacing.xl, leading: VSpacing.xl, bottom: VSpacing.lg, trailing: VSpacing.xl))
 
             HStack(spacing: VSpacing.sm) {
                 VButton(label: "Not Now", style: .outlined, size: .compact) {
@@ -178,8 +176,7 @@ private struct FirstUsePromptView: View {
                     onContinue()
                 }
             }
-            .padding(.horizontal, VSpacing.xl)
-            .padding(.bottom, VSpacing.lg)
+            .padding(EdgeInsets(top: 0, leading: VSpacing.xl, bottom: VSpacing.lg, trailing: VSpacing.xl))
         }
         .frame(width: 320)
         .background(VColor.surfaceOverlay)
@@ -216,9 +213,7 @@ private struct SpeechFallbackPromptView: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.horizontal, VSpacing.xl)
-            .padding(.top, VSpacing.xl)
-            .padding(.bottom, VSpacing.lg)
+            .padding(EdgeInsets(top: VSpacing.xl, leading: VSpacing.xl, bottom: VSpacing.lg, trailing: VSpacing.xl))
 
             HStack(spacing: VSpacing.sm) {
                 VButton(label: "Not Now", style: .outlined, size: .compact) {
@@ -228,8 +223,7 @@ private struct SpeechFallbackPromptView: View {
                     onContinue()
                 }
             }
-            .padding(.horizontal, VSpacing.xl)
-            .padding(.bottom, VSpacing.lg)
+            .padding(EdgeInsets(top: 0, leading: VSpacing.xl, bottom: VSpacing.lg, trailing: VSpacing.xl))
         }
         .frame(width: 320)
         .background(VColor.surfaceOverlay)
@@ -287,9 +281,7 @@ private struct DeniedPromptView: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.horizontal, VSpacing.xl)
-            .padding(.top, VSpacing.xl)
-            .padding(.bottom, VSpacing.lg)
+            .padding(EdgeInsets(top: VSpacing.xl, leading: VSpacing.xl, bottom: VSpacing.lg, trailing: VSpacing.xl))
 
             HStack(spacing: VSpacing.sm) {
                 VButton(label: "Dismiss", style: .outlined, size: .compact) {
@@ -299,8 +291,7 @@ private struct DeniedPromptView: View {
                     onOpenSettings()
                 }
             }
-            .padding(.horizontal, VSpacing.xl)
-            .padding(.bottom, VSpacing.lg)
+            .padding(EdgeInsets(top: 0, leading: VSpacing.xl, bottom: VSpacing.lg, trailing: VSpacing.xl))
         }
         .frame(width: 320)
         .background(VColor.surfaceOverlay)
