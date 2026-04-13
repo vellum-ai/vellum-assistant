@@ -663,7 +663,11 @@ private struct StepDetailRow: View {
     /// Render-time memoization that stays off SwiftUI-owned state.
     private var cachedColoredResult: AttributedString? {
         guard let result = toolCall.result, !result.isEmpty else { return nil }
-        let key = Self.coloredOutputCacheKey(for: result, isError: toolCall.isError)
+        let key = Self.coloredOutputCacheKey(
+            toolCallID: toolCall.id.uuidString,
+            resultRevision: toolCall.resultRevision,
+            isError: toolCall.isError
+        )
         if let cached = Self.coloredOutputCache.object(forKey: key) {
             return cached.value
         }
@@ -865,6 +869,7 @@ private struct StepDetailRow: View {
             }
         }
         .padding(.bottom, VSpacing.sm)
+        .textSelection(.enabled)
     }
 
     // MARK: - Output Block
@@ -946,12 +951,16 @@ private struct StepDetailRow: View {
 
     // MARK: - Helpers
 
-    private static func coloredOutputCacheKey(for result: String, isError: Bool) -> NSString {
-        var hasher = Hasher()
-        hasher.combine(result)
-        hasher.combine(result.utf8.count)
-        hasher.combine(isError)
-        return "output:\(result.utf8.count):\(hasher.finalize())" as NSString
+    private static func coloredOutputCacheKey(
+        toolCallID: String,
+        resultRevision: Int,
+        isError: Bool
+    ) -> NSString {
+        // O(1) cache key. `resultRevision` is a monotonic counter bumped on every
+        // write to `toolCall.result` (see ToolCallData), so it detects in-place
+        // mutations (replay / correction / rehydration) without touching the
+        // string contents on every SwiftUI re-render.
+        return "\(toolCallID)|\(resultRevision)|\(isError ? "err" : "ok")" as NSString
     }
 
     private func coloredOutput(_ result: String, isError: Bool) -> AttributedString {

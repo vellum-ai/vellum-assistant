@@ -9,7 +9,6 @@ const bootstrapRef = readFileSync(
   "utf-8",
 );
 const identity = readFileSync(join(templatesDir, "IDENTITY.md"), "utf-8");
-const user = readFileSync(join(templatesDir, "USER.md"), "utf-8");
 
 describe("onboarding template contracts", () => {
   describe("BOOTSTRAP.md", () => {
@@ -49,10 +48,10 @@ describe("onboarding template contracts", () => {
       expect(lower).toContain("declined");
     });
 
-    test("instructs saving to IDENTITY.md, USER.md, and SOUL.md via file_edit", () => {
+    test("instructs saving to IDENTITY.md, SOUL.md, and user persona file via file_edit", () => {
       expect(bootstrap).toContain("IDENTITY.md");
-      expect(bootstrap).toContain("USER.md");
       expect(bootstrap).toContain("SOUL.md");
+      expect(bootstrap).toContain("{{USER_PERSONA_FILE}}");
       expect(bootstrap).toContain("file_edit");
     });
 
@@ -165,14 +164,8 @@ describe("onboarding template contracts", () => {
     });
   });
 
-  describe("USER.md", () => {
-    test("contains profile fields", () => {
-      expect(user).toContain("Preferred name/reference:");
-      expect(user).toContain("Goals:");
-      expect(user).toContain("Locale:");
-      expect(user).toContain("Work role:");
-      expect(user).toContain("Hobbies/fun:");
-      expect(user).toContain("Daily tools:");
-    });
-  });
+  // Legacy `templates/USER.md` was removed by workspace migration
+  // `031-drop-user-md`. Guardian persona content is now seeded via
+  // `GUARDIAN_PERSONA_TEMPLATE` in `prompts/persona-resolver.ts` and
+  // lives on disk at `users/<slug>.md`.
 });

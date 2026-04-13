@@ -18,14 +18,14 @@
  * so the test can import it directly without dragging in the chrome
  * service worker module surface.
  *
- * Related: worker.ts's `connect()` re-reads `vellum.relayMode` from
- * chrome.storage.local at entry to close a race where the popup toggles
- * the mode radio and immediately clicks Connect before the async
- * `chrome.storage.onChanged` listener updates the module-level
- * `relayMode` variable. That live-read cannot be unit-tested here
- * without dragging in the entire service worker module surface
- * (chrome.* globals, bootstrap(), native messaging, etc.), but the
- * behaviour is verifiable by reading `connect()` in worker.ts.
+ * Related: worker.ts's `connect()` resolves the selected assistant's
+ * auth profile at entry to determine the relay transport and token
+ * source. The assistant selection is re-read from chrome.storage.local
+ * on every connect to avoid stale state. That resolution cannot be
+ * unit-tested here without dragging in the entire service worker
+ * module surface (chrome.* globals, bootstrap(), native messaging,
+ * etc.), but the behaviour is verifiable by reading `connect()` in
+ * worker.ts.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
@@ -205,8 +205,10 @@ describe('postHostBrowserResult — self-hosted mode', () => {
     );
   });
 
-  test('logs a warning when the daemon returns a non-2xx status', async () => {
-    fetchHandle.setNextResponse(new Response(null, { status: 503 }));
+  test('logs a warning with status/request context when the daemon returns non-2xx', async () => {
+    fetchHandle.setNextResponse(
+      new Response(JSON.stringify({ error: 'not found' }), { status: 404 }),
+    );
     const mode: RelayMode = {
       kind: 'self-hosted',
       baseUrl: 'http://127.0.0.1:9999',
@@ -216,8 +218,21 @@ describe('postHostBrowserResult — self-hosted mode', () => {
     await postHostBrowserResult(mode, null, exampleResult);
 
     expect(consoleSpy.warnings.length).toBeGreaterThanOrEqual(1);
-    const flat = consoleSpy.warnings.flat().join(' ');
-    expect(flat).toContain('503');
+    const warningCall = consoleSpy.warnings.find(
+      (args) =>
+        typeof args[0] === 'string' &&
+        args[0].includes('host-browser-result POST failed'),
+    );
+    expect(warningCall).toBeDefined();
+
+    const details = warningCall?.[1];
+    expect(typeof details).toBe('object');
+    expect(details).not.toBeNull();
+    const payload = details as Record<string, unknown>;
+    expect(payload.status).toBe(404);
+    expect(payload.requestId).toBe('req-abc');
+    expect(payload.url).toBe('http://127.0.0.1:9999/v1/host-browser-result');
+    expect(String(payload.responseBodySnippet)).toContain('not found');
   });
 
   test('ignores the supplied connection in self-hosted mode', async () => {

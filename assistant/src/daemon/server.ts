@@ -77,6 +77,7 @@ import {
   DEFAULT_MEMORY_POLICY,
 } from "./conversation.js";
 import { ConversationEvictor } from "./conversation-evictor.js";
+import { registerLaunchConversationDeps } from "./conversation-launch.js";
 import { formatCompactResult } from "./conversation-process.js";
 import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
 import { resolveSlash, type SlashContext } from "./conversation-slash.js";
@@ -753,6 +754,32 @@ export class DaemonServer {
       return { accepted: true };
     });
 
+    // Wire the launchConversation helper to daemon-side state so
+    // handleSurfaceAction can spawn conversations through it.
+    registerLaunchConversationDeps({
+      getOrCreateConversation: (id, options) =>
+        this.getOrCreateConversation(id, options),
+      persistAndProcessMessage: (
+        conversationId,
+        content,
+        attachmentIds,
+        options,
+        sourceChannel,
+        sourceInterface,
+      ) =>
+        this.persistAndProcessMessage(
+          conversationId,
+          content,
+          attachmentIds,
+          options,
+          sourceChannel,
+          sourceInterface,
+        ),
+      publishAssistantEvent: (msg, conversationId) =>
+        this.publishAssistantEvent(msg, conversationId),
+      getAssistantId: () => this.assistantId,
+    });
+
     this.configWatcher.start(
       () => this.evictConversationsForReload(),
       () => this.broadcastIdentityChanged(),
@@ -997,6 +1024,15 @@ export class DaemonServer {
       // overwrite the in-flight conversation's transportHints.
       if (!conversation.isProcessing()) {
         this.applyTransportMetadata(conversation, options);
+        // trustContext is reapplied here only when the conversation is idle,
+        // so concurrent requests cannot overwrite an in-flight turn's guardian
+        // scope. Direct callers (e.g. schedule-routes run-now) that invoke
+        // processMessage without going through prepareConversationForMessage
+        // rely on this to pick up the trustContext passed in options.
+        // prepareConversationForMessage also reapplies after its own idle check.
+        if (options?.trustContext !== undefined) {
+          conversation.setTrustContext(options.trustContext);
+        }
       }
       this.evictor.touch(conversationId);
     }

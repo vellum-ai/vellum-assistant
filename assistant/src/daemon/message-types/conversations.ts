@@ -469,6 +469,23 @@ export interface ScheduleConversationCreated {
   title: string;
 }
 
+/**
+ * Server push — instructs the client to open and focus a conversation. If
+ * the conversation isn't already present in the client's sidebar list (e.g.
+ * it was just created via `POST /v1/conversations`), the client should stub
+ * a sidebar entry using the provided `title` before navigating.
+ */
+export interface OpenConversation {
+  type: "open_conversation";
+  conversationId: string;
+  /** Optional conversation title; supplied when the client may not yet have the conversation in its list. */
+  title?: string;
+  /** Optional message ID to scroll to after focus. */
+  anchorMessageId?: string;
+  /** When `false`, the client should register the conversation in its sidebar (so it's visible and navigable) but must NOT switch focus to it. Omitting the field defaults to `true` for backward compatibility with existing single-target 'jump to conversation' callers. */
+  focus?: boolean;
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _ConversationsClientMessages =
@@ -507,4 +524,5 @@ export type _ConversationsServerMessages =
   | ConversationsClearResponse
   | ConversationSearchResponse
   | MessageContentResponse
-  | ScheduleConversationCreated;
+  | ScheduleConversationCreated
+  | OpenConversation;

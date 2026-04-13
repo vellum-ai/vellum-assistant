@@ -134,6 +134,7 @@ struct SettingsPanel: View {
     @State private var isDeveloperEnabled: Bool = false
     @State private var isSoundsEnabled: Bool = true
     @State private var isEmbeddingProviderEnabled: Bool = false
+    @State private var isEmailChannelEnabled: Bool = false
     @State private var showingDevUnlock: Bool = false
     @State private var devUnlockText: String = ""
     @State private var devUnlockMonitor: Any?
@@ -143,7 +144,10 @@ struct SettingsPanel: View {
     private static let billingFeatureFlagKey = "settings-billing"
     private static let developerFeatureFlagKey = "settings-developer-nav"
     private static let embeddingProviderFeatureFlagKey = "settings-embedding-provider"
+    private static let emailChannelFeatureFlagKey = "email-channel"
     private static let soundsFeatureFlagKey = "sounds"
+    private static let sttServiceFeatureFlagKey = "stt-service"
+    @State private var isSttServiceEnabled: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -201,6 +205,7 @@ struct SettingsPanel: View {
             isBillingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
             isSoundsEnabled = assistantFeatureFlagStore.isEnabled(Self.soundsFeatureFlagKey)
             isSchedulesEnabled = assistantFeatureFlagStore.isEnabled(Self.schedulesFeatureFlagKey)
+            isSttServiceEnabled = assistantFeatureFlagStore.isEnabled(Self.sttServiceFeatureFlagKey)
             // The init already consumed pendingSettingsTab into selectedTab.
             // Clear the store value so it doesn't leak into future navigations.
             if store.pendingSettingsTab != nil {
@@ -264,6 +269,8 @@ struct SettingsPanel: View {
                     if !enabled && selectedTab == .schedules {
                         selectedTab = .general
                     }
+                } else if key == Self.sttServiceFeatureFlagKey {
+                    isSttServiceEnabled = enabled
                 }
             }
         }
@@ -412,7 +419,7 @@ struct SettingsPanel: View {
                 onEnableIntegration: onEnableIntegration
             )
         case .voice:
-            VoiceSettingsView(store: store)
+            VoiceSettingsView(store: store, isSttServiceEnabled: isSttServiceEnabled)
         case .sounds:
             SettingsSoundsTab()
         case .permissionsAndPrivacy:
@@ -498,6 +505,11 @@ struct SettingsPanel: View {
                 )
             }
 
+            // EMAIL (feature-flagged)
+            if isEmailChannelEnabled {
+                EmailServiceCard(store: store)
+            }
+
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
@@ -505,6 +517,9 @@ struct SettingsPanel: View {
             store.refreshModelInfo()
             store.loadProviderRoutingSources()
             store.refreshEmbeddingConfig()
+            if isEmailChannelEnabled {
+                store.refreshAssistantEmail()
+            }
         }
     }
 
@@ -641,11 +656,17 @@ struct SettingsPanel: View {
                 if let embeddingProviderFlag = flags.first(where: { $0.key == Self.embeddingProviderFeatureFlagKey }) {
                     isEmbeddingProviderEnabled = embeddingProviderFlag.enabled
                 }
+                if let emailChannelFlag = flags.first(where: { $0.key == Self.emailChannelFeatureFlagKey }) {
+                    isEmailChannelEnabled = emailChannelFlag.enabled
+                }
                 if let soundsFlag = flags.first(where: { $0.key == Self.soundsFeatureFlagKey }) {
                     isSoundsEnabled = soundsFlag.enabled
                 }
                 if let schedulesFlag = flags.first(where: { $0.key == Self.schedulesFeatureFlagKey }) {
                     isSchedulesEnabled = schedulesFlag.enabled
+                }
+                if let sttServiceFlag = flags.first(where: { $0.key == Self.sttServiceFeatureFlagKey }) {
+                    isSttServiceEnabled = sttServiceFlag.enabled
                 }
                 consumeDeferredDeepLinkIfVisible()
                 return
@@ -664,11 +685,17 @@ struct SettingsPanel: View {
         if let embeddingProviderEnabled = resolved[Self.embeddingProviderFeatureFlagKey] {
             isEmbeddingProviderEnabled = embeddingProviderEnabled
         }
+        if let emailChannelEnabled = resolved[Self.emailChannelFeatureFlagKey] {
+            isEmailChannelEnabled = emailChannelEnabled
+        }
         if let soundsEnabled = resolved[Self.soundsFeatureFlagKey] {
             isSoundsEnabled = soundsEnabled
         }
         if let schedulesEnabled = resolved[Self.schedulesFeatureFlagKey] {
             isSchedulesEnabled = schedulesEnabled
+        }
+        if let sttServiceEnabled = resolved[Self.sttServiceFeatureFlagKey] {
+            isSttServiceEnabled = sttServiceEnabled
         }
         consumeDeferredDeepLinkIfVisible()
     }

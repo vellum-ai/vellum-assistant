@@ -168,6 +168,12 @@ final class MessageListScrollState {
         }
     }
 
+    /// Immediately hides the CTA. Called synchronously inside an animation
+    /// block so the exit transition runs in sync with the scroll spring.
+    func dismissScrollToLatest() {
+        showScrollToLatest = false
+    }
+
     // MARK: - Pagination sentinel
 
     /// Handles rising-edge detection for the pagination sentinel with a 500ms cooldown.
@@ -176,15 +182,18 @@ final class MessageListScrollState {
         let triggerBand: CGFloat = 200
         let isInRange = sentinelMinY > -triggerBand
 
-        defer { wasPaginationTriggerInRange = isInRange }
-
         // Rising-edge: only fire on transition from out-of-range to in-range
-        guard isInRange && !wasPaginationTriggerInRange else { return false }
+        guard isInRange && !wasPaginationTriggerInRange else {
+            wasPaginationTriggerInRange = isInRange
+            return false
+        }
 
         // 500ms cooldown between successive pagination fires
         let now = Date()
         guard now.timeIntervalSince(lastPaginationCompletedAt) >= 0.5 else { return false }
 
+        // Only consume the rising edge when pagination actually fires
+        wasPaginationTriggerInRange = isInRange
         return true
     }
 
@@ -203,6 +212,9 @@ final class MessageListScrollState {
     // MARK: - Lifecycle
 
     func reset(for conversationId: UUID?) {
+        // Cancel queued geometry callbacks from the previous conversation
+        // to prevent cross-conversation bleed-through.
+        ScrollGeometryUpdateDispatcher.shared.cancel(for: self)
         currentConversationId = conversationId
         lastMessageId = nil
         pendingSendScrollToTop = false
@@ -238,6 +250,7 @@ final class MessageListScrollState {
     }
 
     func cancelAll() {
+        ScrollGeometryUpdateDispatcher.shared.cancel(for: self)
         anchorTimeoutTask?.cancel()
         anchorTimeoutTask = nil
         scrollIndicatorRestoreTask?.cancel()

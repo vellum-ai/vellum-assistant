@@ -68,9 +68,14 @@ extension MessageListView {
         // Guard against stale fires during a conversation switch.
         guard conversationId == scrollState.currentConversationId else { return }
         if isSending {
-            // Mark that we need to scroll the user message to top once it
-            // appears in the messages array.
-            scrollState.pendingSendScrollToTop = true
+            // Only scroll on genuine user sends, not confirmation resumes.
+            // When the daemon resumes from awaiting_confirmation, isSending
+            // flips true but no new user message was sent — scrolling would
+            // jump the viewport to an older user message.
+            let isConfirmationResume = scrollState.lastActivityPhaseWhenIdle == "awaiting_confirmation"
+            if !isConfirmationResume {
+                scrollState.pendingSendScrollToTop = true
+            }
         } else {
             // Capture the activity phase at the moment sending stops.
             scrollState.lastActivityPhaseWhenIdle = assistantActivityPhase

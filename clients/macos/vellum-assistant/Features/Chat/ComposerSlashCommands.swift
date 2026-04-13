@@ -67,6 +67,7 @@ extension ComposerView {
     }
 
     func selectSlashCommand(_ command: SlashCommand) {
+        composerController.closeSlashMenu()
         inputText = command.selectedInputText
         if command.shouldAutoSendOnSelect {
             onSend()

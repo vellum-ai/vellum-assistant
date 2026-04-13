@@ -10,6 +10,8 @@ export {
 } from "../permissions/permission-mode.js";
 export type { AcpAgentConfig, AcpConfig } from "./acp-schema.js";
 export { AcpAgentConfigSchema, AcpConfigSchema } from "./acp-schema.js";
+export type { BackupConfig, BackupDestination } from "./schemas/backup.js";
+export { BackupConfigSchema } from "./schemas/backup.js";
 export type {
   CallerIdentityConfig,
   CallsConfig,
@@ -39,21 +41,19 @@ export {
   TwilioConfigSchema,
   WhatsAppConfigSchema,
 } from "./schemas/channels.js";
-export type { ElevenLabsConfig } from "./schemas/elevenlabs.js";
 export {
   DEFAULT_ELEVENLABS_VOICE_ID,
-  ElevenLabsConfigSchema,
   VALID_CONVERSATION_TIMEOUTS,
 } from "./schemas/elevenlabs.js";
-export type { FishAudioConfig } from "./schemas/fish-audio.js";
-export { FishAudioConfigSchema } from "./schemas/fish-audio.js";
 export type { HeartbeatConfig } from "./schemas/heartbeat.js";
 export { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
 export type {
+  DesktopAutoCdpInspectConfig,
   HostBrowserCdpInspectConfig,
   HostBrowserConfig,
 } from "./schemas/host-browser.js";
 export {
+  DesktopAutoCdpInspectConfigSchema,
   HostBrowserCdpInspectConfigSchema,
   HostBrowserConfigSchema,
 } from "./schemas/host-browser.js";
@@ -192,16 +192,38 @@ export {
   SkillsInstallConfigSchema,
   SkillsLoadConfigSchema,
 } from "./schemas/skills.js";
+export type { SttProviders, SttService } from "./schemas/stt.js";
+export {
+  SttProvidersSchema,
+  SttServiceSchema,
+  VALID_STT_PROVIDERS,
+} from "./schemas/stt.js";
 export type { RateLimitConfig, TimeoutConfig } from "./schemas/timeouts.js";
 export {
   RateLimitConfigSchema,
   TimeoutConfigSchema,
 } from "./schemas/timeouts.js";
+export type {
+  TtsElevenLabsProviderConfig,
+  TtsFishAudioProviderConfig,
+  TtsProviders,
+  TtsService,
+} from "./schemas/tts.js";
+export {
+  TtsElevenLabsProviderConfigSchema,
+  TtsFishAudioProviderConfigSchema,
+  TtsProvidersSchema,
+  TtsServiceSchema,
+  VALID_TTS_PROVIDERS as VALID_TTS_SERVICE_PROVIDERS,
+} from "./schemas/tts.js";
+export type { UpdatesConfig } from "./schemas/updates.js";
+export { UpdatesConfigSchema } from "./schemas/updates.js";
 export type { WorkspaceGitConfig } from "./schemas/workspace-git.js";
 export { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 
 // Imports for AssistantConfigSchema composition
 import { AcpConfigSchema } from "./acp-schema.js";
+import { BackupConfigSchema } from "./schemas/backup.js";
 import { CallsConfigSchema } from "./schemas/calls.js";
 import {
   SlackConfigSchema,
@@ -209,9 +231,7 @@ import {
   TwilioConfigSchema,
   WhatsAppConfigSchema,
 } from "./schemas/channels.js";
-import { ElevenLabsConfigSchema } from "./schemas/elevenlabs.js";
 import { FilingConfigSchema } from "./schemas/filing.js";
-import { FishAudioConfigSchema } from "./schemas/fish-audio.js";
 import { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
 import { HostBrowserConfigSchema } from "./schemas/host-browser.js";
 import {
@@ -245,6 +265,7 @@ import {
   RateLimitConfigSchema,
   TimeoutConfigSchema,
 } from "./schemas/timeouts.js";
+import { UpdatesConfigSchema } from "./schemas/updates.js";
 import { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 
 export const AssistantConfigSchema = z
@@ -287,10 +308,12 @@ export const AssistantConfigSchema = z
       ),
     filing: FilingConfigSchema.default(FilingConfigSchema.parse({})),
     heartbeat: HeartbeatConfigSchema.default(HeartbeatConfigSchema.parse({})),
+    updates: UpdatesConfigSchema.default(UpdatesConfigSchema.parse({})),
     hostBrowser: HostBrowserConfigSchema.default(
       HostBrowserConfigSchema.parse({}),
     ),
     journal: JournalConfigSchema.default(JournalConfigSchema.parse({})),
+    backup: BackupConfigSchema.default(BackupConfigSchema.parse({})),
     mcp: McpConfigSchema.default(McpConfigSchema.parse({})),
     acp: AcpConfigSchema.default(AcpConfigSchema.parse({})),
     skills: SkillsConfigSchema.default(SkillsConfigSchema.parse({})),
@@ -299,10 +322,6 @@ export const AssistantConfigSchema = z
     ),
     twilio: TwilioConfigSchema.default(TwilioConfigSchema.parse({})),
     calls: CallsConfigSchema.default(CallsConfigSchema.parse({})),
-    elevenlabs: ElevenLabsConfigSchema.default(
-      ElevenLabsConfigSchema.parse({}),
-    ),
-    fishAudio: FishAudioConfigSchema.default(FishAudioConfigSchema.parse({})),
     whatsapp: WhatsAppConfigSchema.default(WhatsAppConfigSchema.parse({})),
     telegram: TelegramConfigSchema.default(TelegramConfigSchema.parse({})),
     slack: SlackConfigSchema.default(SlackConfigSchema.parse({})),

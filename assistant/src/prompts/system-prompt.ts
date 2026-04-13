@@ -25,7 +25,27 @@ export { SYSTEM_PROMPT_CACHE_BOUNDARY };
 
 const log = getLogger("system-prompt");
 
-const PROMPT_FILES = ["SOUL.md", "IDENTITY.md", "USER.md"] as const;
+const PROMPT_FILES = ["SOUL.md", "IDENTITY.md"] as const;
+
+function hasPopulatedUsersDir(): boolean {
+  try {
+    const usersDir = join(getWorkspaceDir(), "users");
+    if (!existsSync(usersDir)) return false;
+    return readdirSync(usersDir).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function hasExistingConversations(): boolean {
+  try {
+    const convDir = getConversationsDir();
+    if (!existsSync(convDir)) return false;
+    return readdirSync(convDir).length > 0;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Copy template prompt files into the data directory if they don't already exist.
@@ -43,10 +63,16 @@ export function ensurePromptFiles(): void {
     "templates",
   );
 
-  // Track whether this is a fresh workspace (no core prompt files exist yet).
-  const isFirstRun = PROMPT_FILES.every(
-    (file) => !existsSync(getWorkspacePromptPath(file)),
-  );
+  // Track whether this is a fresh workspace.  A workspace counts as fresh
+  // only when none of these signals are present: core prompt files, a
+  // populated `users/` directory, or existing conversations.  Upgraded
+  // workspaces that dropped USER.md but still carry personas or history
+  // would otherwise be mistaken for fresh installs and re-trigger
+  // onboarding.
+  const isFirstRun =
+    PROMPT_FILES.every((file) => !existsSync(getWorkspacePromptPath(file))) &&
+    !hasPopulatedUsersDir() &&
+    !hasExistingConversations();
 
   for (const file of PROMPT_FILES) {
     const dest = getWorkspacePromptPath(file);
@@ -190,7 +216,7 @@ export function ensurePromptFiles(): void {
  *
  * Composition:
  *   1. Base prompt: IDENTITY.md + SOUL.md (guaranteed to exist after ensurePromptFiles)
- *   2. Append USER.md (user profile)
+ *   2. Append the resolved user persona from users/<slug>.md (via options.userPersona)
  *   3. If BOOTSTRAP.md exists, append first-run ritual instructions
  */
 export interface BuildSystemPromptOptions {
@@ -215,7 +241,7 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // ── Static instruction sections (stable across turns) ──
   // These sections are deterministic within a process lifetime.  They form
   // the first cache block so they remain cached even when workspace files
-  // (IDENTITY.md, SOUL.md, USER.md, etc.) are edited between turns.
+  // (IDENTITY.md, SOUL.md, users/<slug>.md, etc.) are edited between turns.
   const staticParts: string[] = [];
   const customPrefix = readCustomSystemPromptPrefix();
   if (customPrefix) staticParts.push(customPrefix);
@@ -242,13 +268,11 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
 
   const soulPath = getWorkspacePromptPath("SOUL.md");
   const identityPath = getWorkspacePromptPath("IDENTITY.md");
-  const userPath = getWorkspacePromptPath("USER.md");
   const bootstrapPath = getWorkspacePromptPath("BOOTSTRAP.md");
   const updatesPath = getWorkspacePromptPath("UPDATES.md");
 
   const soul = readPromptFile(soulPath);
   const identity = readPromptFile(identityPath);
-  const user = readPromptFile(userPath);
   const bootstrap = readPromptFile(bootstrapPath);
   const updates = readPromptFile(updatesPath);
 
@@ -262,7 +286,6 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // source and skip them — SOUL.md provides sufficient personality defaults
   // until onboarding completes.
   const identityIsTemplate = isTemplateContent(identity, "IDENTITY.md");
-  const userIsTemplate = isTemplateContent(user, "USER.md");
 
   if (identity && !identityIsTemplate) {
     // Strip placeholder lines (e.g. "- **Name:** _(not yet chosen)_") so
@@ -278,12 +301,16 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   if (soul) dynamicParts.push(soul);
   if (options?.userPersona) dynamicParts.push(options.userPersona);
   if (options?.channelPersona) dynamicParts.push(options.channelPersona);
-  if (user && !userIsTemplate && !options?.userPersona) dynamicParts.push(user);
   if (includeBootstrap) {
+    const userSlug = options?.userSlug ?? "default";
+    const bootstrapWithSlug = bootstrap.replaceAll(
+      "{{USER_PERSONA_FILE}}",
+      `${userSlug}.md`,
+    );
     dynamicParts.push(
       "# First-Run Ritual\n\n" +
         "BOOTSTRAP.md is present — this is your first conversation. Follow its instructions.\n\n" +
-        bootstrap,
+        bootstrapWithSlug,
     );
   }
   if (updates) {
@@ -423,9 +450,19 @@ function buildContainerizedSection(): string {
 function buildParallelToolCallsSection(): string {
   return [
     "<use_parallel_tool_calls>",
-    "For maximum efficiency, whenever you perform multiple independent operations, invoke all relevant tools simultaneously rather than sequentially. Prioritize calling tools in parallel whenever possible. For example, when reading 3 files, run 3 tool calls in parallel to read all 3 files into context at the same time. When running multiple read-only commands like `ls` or `list_dir`, always run all of the commands in parallel. Err on the side of maximizing parallel tool calls rather than running too many tools sequentially.",
+    "Batch independent tool calls into the same response. Cost model: an extra LLM round trip is orders of magnitude more expensive than a handful of wasted or speculative tool calls. If calls don't consume each other's output, parallelize — full stop.",
     "",
-    "For non-trivial independent workstreams — research, coding tasks, multi-step investigations — aggressively delegate to subagents (load the `subagent` skill for tools and instructions). Spawn subagents early and often; the cost of an unnecessary subagent is far lower than the cost of serializing work you could have parallelized.",
+    "Parallelize by default:",
+    "- Reading multiple files → N `read` calls in one response",
+    "- Searching the codebase → parallel `glob`/`grep` calls, not one-at-a-time",
+    "- `ls`, `git status`, `git diff`, `git log`, type-checks, tests → batch them",
+    "- Exploring multiple areas → spawn multiple subagents in the same response",
+    "",
+    "Be speculative. If a later call *might* depend on an earlier call's output but probably won't, fire both now. A wasted read is cheap; a second round trip is not.",
+    "",
+    "Self-check before emitting a response with a single tool call: would your next turn be another tool call that doesn't actually consume this one's output? If yes, they belong in the same response. Serialized tool calls without a real data dependency are a bug.",
+    "",
+    "For non-trivial independent workstreams — research, coding tasks, multi-step investigations — delegate to subagents (load the `subagent` skill). Spawn them early and in parallel; an unnecessary subagent is far cheaper than serialized work.",
     "</use_parallel_tool_calls>",
   ].join("\n");
 }
@@ -490,7 +527,7 @@ function readPromptFile(path: string): string | null {
 }
 
 /**
- * Reads the core identity/personality prompt files (SOUL.md, IDENTITY.md, USER.md)
+ * Reads the core identity/personality prompt files (SOUL.md, IDENTITY.md)
  * and concatenates whichever exist. Returns null if none are present.
  *
  * This is useful for injecting identity context into subsystems (e.g. memory
@@ -504,10 +541,9 @@ export function buildCoreIdentityContext(opts?: {
     const content = readPromptFile(getWorkspacePromptPath(file));
     if (!content) continue;
     // SOUL.md is always included — it provides personality defaults even
-    // before onboarding completes.  Only skip IDENTITY.md and USER.md when
-    // they are still unmodified templates (matching buildSystemPrompt).
+    // before onboarding completes.  Only skip IDENTITY.md when it is still
+    // an unmodified template (matching buildSystemPrompt).
     if (file !== "SOUL.md" && isTemplateContent(content, file)) continue;
-    if (file === "USER.md" && opts?.userPersona) continue;
     parts.push(content);
   }
   if (opts?.userPersona) parts.push(opts.userPersona);

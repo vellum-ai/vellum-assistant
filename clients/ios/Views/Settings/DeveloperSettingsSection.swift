@@ -93,6 +93,27 @@ private struct DeveloperSettingsSectionContent: View {
                     .font(.system(.caption, design: .monospaced))
                     .textSelection(.enabled)
 
+                // Detailed prerequisite breakdown so the developer can see
+                // exactly which piece is present vs missing.
+                let hasSessionToken = SessionTokenManager.getToken() != nil
+                let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+                let managedId = UserDefaults.standard.string(forKey: UserDefaultsKeys.managedAssistantId)
+                let managedURL = UserDefaults.standard.string(forKey: UserDefaultsKeys.managedPlatformBaseURL)
+                let gatewayURL = UserDefaults.standard.string(forKey: UserDefaultsKeys.gatewayBaseURL)
+
+                LabeledContent("Session Token", value: hasSessionToken ? "Present" : "Missing")
+                    .foregroundStyle(hasSessionToken ? VColor.contentDefault : VColor.systemNegativeStrong)
+                LabeledContent("Organization ID", value: orgId ?? "Missing")
+                    .foregroundStyle(orgId != nil ? VColor.contentDefault : VColor.systemNegativeStrong)
+                LabeledContent("Managed Assistant ID", value: managedId ?? "Missing")
+                    .foregroundStyle(managedId != nil ? VColor.contentDefault : VColor.systemNegativeStrong)
+                LabeledContent("Managed Platform URL", value: managedURL ?? "Missing")
+                    .foregroundStyle(managedURL != nil ? VColor.contentDefault : VColor.systemNegativeStrong)
+                LabeledContent("Gateway Base URL", value: gatewayURL ?? "Missing")
+                    .foregroundStyle(gatewayURL != nil ? VColor.contentDefault : VColor.systemNegativeStrong)
+                LabeledContent("Resolved Platform URL", value: VellumEnvironment.resolvedPlatformURL)
+                LabeledContent("Environment", value: "\(VellumEnvironment.current)")
+
                 if let fetchError = conversationStore.lastFetchError {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("Last Fetch Error")

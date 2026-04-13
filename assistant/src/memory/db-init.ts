@@ -106,6 +106,7 @@ import {
   migrateMessagesConversationCreatedAtIndex,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
+  migrateNormalizeUserFileByPrincipal,
   migrateNotificationDeliveryThreadDecision,
   migrateOAuthAppsClientSecretPath,
   migrateOAuthProvidersBehaviorColumns,
@@ -119,6 +120,7 @@ import {
   migrateOAuthProvidersRevoke,
   migrateOAuthProvidersScopeSeparator,
   migrateOAuthProvidersTokenAuthMethodDefault,
+  migrateOAuthProvidersTokenExchangeBodyFormat,
   migrateReminderRoutingIntent,
   migrateRemindersToSchedules,
   migrateRenameConversationTypeColumn,
@@ -364,6 +366,8 @@ export function initializeDb(): void {
     migrateOAuthProvidersTokenAuthMethodDefault,
     migrateConversationHostAccess,
     migrateOAuthProvidersLogoUrl,
+    migrateOAuthProvidersTokenExchangeBodyFormat,
+    migrateNormalizeUserFileByPrincipal,
   ];
 
   // Run each migration step, catching and logging individual failures so one

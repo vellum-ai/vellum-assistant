@@ -16,6 +16,8 @@ extension ComposerView {
         let nsRange = NSRange(location: colonOffset, length: length)
 
         textReplacer.replaceText?(nsRange, entry.emoji)
+
+        composerController.closeEmojiMenu()
     }
 }
 

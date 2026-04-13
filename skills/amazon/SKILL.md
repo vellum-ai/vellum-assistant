@@ -1,137 +1,152 @@
 ---
 name: amazon
-description: Shop on Amazon and Amazon Fresh using the bundled Amazon scripts
+description: Shop on Amazon and Amazon Fresh through your browser
 compatibility: "Designed for Vellum personal assistants"
 metadata:
-  emoji: "📦"
+  emoji: "🛒"
   vellum:
     display-name: "Amazon"
+    includes: ["browser"]
 ---
 
-You can shop on Amazon (and Amazon Fresh for groceries) for the user using the bundled Amazon scripts.
+Use browser automation for all Amazon actions. Use helper scripts with `host_bash` to normalize extraction results and decide the next step.
 
-## Script Setup
+## Required tools
 
-**IMPORTANT: Run all Amazon commands in a shell with host access (not inside a sandbox).** The scripts need host access for session cookies and the `assistant` CLI binary (used for the Chrome extension relay and credential store), which are not available inside a sandbox.
+- Browser tools: `browser_navigate`, `browser_snapshot`, `browser_extract`, `browser_click`, `browser_type`, `browser_press_key`, `browser_scroll`, `browser_select_option`, `browser_screenshot`, `browser_fill_credential`, `browser_wait_for`.
+- Host tool: `host_bash` for deterministic helper scripts under `scripts/`.
 
-The Amazon scripts are bundled with this skill. Run them via `bun run {baseDir}/scripts/amazon.ts <subcommand> [options]`.
+## Hard constraints
 
-All Amazon interaction goes through the bundled scripts below, not browser automation.
+- Do not call `assistant browser chrome relay`.
+- Do not use legacy relay-backed scripts.
+- Always require explicit user confirmation before final order submission.
 
-## Typical Flow - Regular Amazon Shopping
+## Step graph (state machine)
 
-When the user asks you to order something from Amazon:
+### Step 1: Classify workflow state
 
-1. **Check session** - run `bun run {baseDir}/scripts/amazon.ts status --json`. If `loggedIn` is false or the session is expired, tell the user: "A Chrome window will open to the Amazon login page. Please sign in there - I'll detect your login automatically and minimize the window." Then run `bun run {baseDir}/scripts/amazon.ts refresh --json`. This captures your session via the browser extension and auto-stops once it detects you've signed in. The session is imported automatically. **This command blocks until login is complete - just wait for it.**
+Run this early in each turn when intent is unclear:
 
-2. **Search** - run `bun run {baseDir}/scripts/amazon.ts search "<query>" --json` to find matching products. Present the top results with ASIN, title, price, and Prime status. If the user named a specific product, pick the best match. If ambiguous, ask.
-
-3. **Product details** (if needed) - run `bun run {baseDir}/scripts/amazon.ts product <asin> --json` to get full details including price and variations. For products with variants (size, color, etc.), see the Variations section below.
-
-4. **Add to cart** - run `bun run {baseDir}/scripts/amazon.ts cart add --asin <asin> [--quantity <n>] --json`. The response includes the updated cart with all items.
-
-5. **Review cart** - run `bun run {baseDir}/scripts/amazon.ts cart view --json` and show the user what's in their cart with prices. Ask if they want to add anything else or proceed.
-
-6. **Payment methods** - run `bun run {baseDir}/scripts/amazon.ts payment-methods --json` to see saved cards.
-
-7. **Checkout summary** - run `bun run {baseDir}/scripts/amazon.ts checkout --json` to get order totals (subtotal, shipping, tax, total).
-
-8. **Place order** - after the user explicitly confirms, run `bun run {baseDir}/scripts/amazon.ts order place [--payment-method-id <id>] --json`. The response contains `orderId` on success.
-
-## Typical Flow - Amazon Fresh Groceries
-
-Amazon Fresh delivers groceries. The flow is the same as regular Amazon, with these additions:
-
-1. **Search Fresh** - use the `--fresh` flag: `bun run {baseDir}/scripts/amazon.ts search "<query>" --fresh --json`
-
-2. **Add Fresh items** - use the `--fresh` flag: `bun run {baseDir}/scripts/amazon.ts cart add --asin <asin> --fresh --json`
-
-3. **Select delivery slot** - Fresh orders require a delivery window:
-   - `bun run {baseDir}/scripts/amazon.ts fresh delivery-slots --json` - list available slots
-   - `bun run {baseDir}/scripts/amazon.ts fresh select-slot --slot-id <id> --json` - select a slot
-   - Do this BEFORE checkout.
-
-4. **Checkout and order** - same as regular Amazon.
-
-## Handling Variations
-
-Many Amazon products (clothing, electronics) have variations (size, color, style):
-
-1. Run `bun run {baseDir}/scripts/amazon.ts product <asin> --json` to get the product and its `variations[]` array
-2. Each variation has: `dimensionName` (e.g. "size"), `value` (e.g. "Large"), `asin` (child ASIN), `isAvailable`, `priceValue`
-3. Use the child ASIN when adding to cart: `bun run {baseDir}/scripts/amazon.ts cart add --asin <child-asin> --json`
-
-Alternatively, run `bun run {baseDir}/scripts/amazon.ts variations <asin> --json` to list just the variations.
-
-## Session Storage
-
-Session cookies are stored in the encrypted credential store under the key `amazon:session:cookies`. Session capture (`bun run {baseDir}/scripts/amazon.ts refresh`) and session checks (`bun run {baseDir}/scripts/amazon.ts status`) use the credential store automatically - no manual file management is needed.
-
-## Important Behavior
-
-- **Chrome extension relay required.** The Amazon scripts use `assistant browser chrome relay` internally for browser automation. The Chrome extension must be connected before Amazon commands will work. If a command fails with a connection error, tell the user: "Please open Chrome, click the Vellum extension icon, and click Connect - then I'll retry."
-- **Always confirm before placing order.** Never call `order place` without explicit user approval. Show the cart and total first.
-- **Be proactive.** If the user says "order AA batteries", don't ask clarifying questions upfront - search, find the product, and suggest it. Only ask when you need a choice the user hasn't specified.
-- **Handle expired sessions gracefully.** If any command returns `"error": "session_expired"`, run `bun run {baseDir}/scripts/amazon.ts refresh --json` to re-capture the session.
-- **Show prices.** Always show prices when presenting products or the cart summary.
-- **Use `--json` flag** on all commands for reliable parsing.
-- **Always use a host shell** (not a sandboxed shell) for these commands.
-- **Do NOT use the browser skill.** All Amazon interaction goes through the bundled scripts, not browser automation.
-- **Rate limiting.** Amazon may rate-limit rapid sequential requests. Wait 8-10 seconds between cart operations. If you get a 403 error, wait 15-20 seconds and retry.
-- **Always-allow tip.** At the start of an ordering flow, suggest the user enable "always allow" for the Amazon script commands: "Tip: You can type 'a' to always allow Amazon commands for this conversation so you won't be prompted each time."
-- **Fresh slot required.** Amazon Fresh orders require a delivery slot to be selected before checkout. If the user skips this step, remind them to run `bun run {baseDir}/scripts/amazon.ts fresh delivery-slots --json` and select a slot.
-
-## Command Reference
-
-```
-bun run {baseDir}/scripts/amazon.ts status --json                     # Check if logged in
-bun run {baseDir}/scripts/amazon.ts refresh --json                    # Capture fresh session via browser extension
-bun run {baseDir}/scripts/amazon.ts refresh-headless --json           # Capture session from Chrome's cookie database
-bun run {baseDir}/scripts/amazon.ts logout                            # Clear session
-
-bun run {baseDir}/scripts/amazon.ts search "<query>" [--fresh] [--limit <n>] --json
-bun run {baseDir}/scripts/amazon.ts product <asin> [--fresh] --json
-bun run {baseDir}/scripts/amazon.ts variations <asin> --json
-
-bun run {baseDir}/scripts/amazon.ts cart view --json
-bun run {baseDir}/scripts/amazon.ts cart add --asin <asin> [--quantity <n>] [--fresh] --json
-bun run {baseDir}/scripts/amazon.ts cart remove --cart-item-id <id> --json
-
-bun run {baseDir}/scripts/amazon.ts fresh delivery-slots --json
-bun run {baseDir}/scripts/amazon.ts fresh select-slot --slot-id <id> --json
-
-bun run {baseDir}/scripts/amazon.ts payment-methods --json
-bun run {baseDir}/scripts/amazon.ts checkout --json
-bun run {baseDir}/scripts/amazon.ts order place [--payment-method-id <id>] --json
+```bash
+bun {baseDir}/scripts/amazon-intent.ts --request "<latest user request>" --checkout-reviewed <true|false> --has-cart-items <true|false>
 ```
 
-## Example Interactions
+Use the returned `step` to route to one of: `search`, `variant_select`, `cart_review`, `checkout_review`, `fresh_slot`, `place_order`.
 
-**User**: "Order a pack of AA batteries from Amazon"
+### Step 2: Product discovery (`search`)
 
-1. `bun run {baseDir}/scripts/amazon.ts status --json` -> logged in
-2. `bun run {baseDir}/scripts/amazon.ts search "AA batteries" --json` -> finds products
-3. Show top results: "Duracell AA 20-pack ($12.99, Prime), Amazon Basics AA 48-pack ($14.49, Prime)..."
-4. User picks Duracell -> `bun run {baseDir}/scripts/amazon.ts cart add --asin B00000J1ER --json`
-5. `bun run {baseDir}/scripts/amazon.ts cart view --json` -> show cart summary
-6. `bun run {baseDir}/scripts/amazon.ts checkout --json` -> show total
-7. "Your cart has 1x Duracell AA Batteries 20-pack ($12.99), total $12.99 with free Prime shipping. Ready to order?"
-8. User confirms -> `bun run {baseDir}/scripts/amazon.ts order place --json`
+1. Navigate to search results page:
 
-**User**: "Order a large blue t-shirt from Amazon"
+```text
+browser_navigate { "url": "https://www.amazon.com/s?k=<urlencoded query>" }
+```
 
-1. `bun run {baseDir}/scripts/amazon.ts search "blue t-shirt" --json` -> finds products
-2. User picks a shirt -> `bun run {baseDir}/scripts/amazon.ts variations <parentAsin> --json` -> shows Size + Color combinations
-3. Find the child ASIN for Large + Blue -> `bun run {baseDir}/scripts/amazon.ts cart add --asin <childAsin> --json`
+2. Capture current state:
 
-**User**: "Order milk and eggs from Amazon Fresh"
+```text
+browser_snapshot {}
+browser_extract { "include_links": true }
+```
 
-1. `bun run {baseDir}/scripts/amazon.ts status --json` -> logged in
-2. `bun run {baseDir}/scripts/amazon.ts search "whole milk" --fresh --json` -> Fresh results
-3. `bun run {baseDir}/scripts/amazon.ts cart add --asin <milkAsin> --fresh --json`
-4. `bun run {baseDir}/scripts/amazon.ts search "eggs" --fresh --json` -> Fresh results
-5. `bun run {baseDir}/scripts/amazon.ts cart add --asin <eggsAsin> --fresh --json`
-6. `bun run {baseDir}/scripts/amazon.ts fresh delivery-slots --json` -> show available slots
-7. User picks a slot -> `bun run {baseDir}/scripts/amazon.ts fresh select-slot --slot-id <id> --json`
-8. `bun run {baseDir}/scripts/amazon.ts checkout --json` -> show totals
-9. User confirms -> `bun run {baseDir}/scripts/amazon.ts order place --json`
+3. Parse candidates deterministically:
+
+```bash
+bun {baseDir}/scripts/amazon-parse-search.ts --query "<query>" --input-json '<json payload with extracted text/links>'
+```
+
+4. Present top options with title, price, ASIN (if present), Prime/Fresh hints.
+
+### Step 3: Product detail + variant resolution (`variant_select`)
+
+1. Open product result.
+2. Re-snapshot + re-extract.
+3. Parse product details:
+
+```bash
+bun {baseDir}/scripts/amazon-parse-product.ts --input-json '<json payload with extracted text/links>'
+```
+
+4. If variation hints are present, resolve user choice before add-to-cart.
+
+### Step 4: Add to cart + verify (`cart_review`)
+
+1. Click Add to Cart on product page.
+2. Navigate to cart page and extract:
+
+```text
+browser_navigate { "url": "https://www.amazon.com/gp/cart/view.html" }
+browser_snapshot {}
+browser_extract { "include_links": true }
+```
+
+3. Parse cart summary:
+
+```bash
+bun {baseDir}/scripts/amazon-parse-cart.ts --input-json '<json payload with extracted text>'
+```
+
+4. Show parsed line items and totals. Ask user to confirm cart contents.
+
+### Step 5: Fresh slot validation (`fresh_slot`)
+
+For Amazon Fresh flows, explicitly verify slot selection in UI before checkout:
+
+1. Navigate to Fresh delivery slot surface if needed.
+2. Snapshot + extract delivery slot details.
+3. Confirm selected slot text is visible before proceeding.
+
+If slot cannot be verified after retries, stop and ask user to choose slot manually.
+
+### Step 6: Checkout sanity (`checkout_review`)
+
+1. Navigate to checkout review page.
+2. Snapshot, extract, and capture a full-page screenshot:
+
+```text
+browser_snapshot {}
+browser_extract { "include_links": false }
+browser_screenshot { "full_page": true }
+```
+
+3. Validate readiness:
+
+```bash
+bun {baseDir}/scripts/amazon-checkout-sanity.ts --cart-confirmed true --input-json '<json payload with extracted text>'
+```
+
+4. Report missing markers (shipping/payment/total/submit action) before any submission.
+
+### Step 7: Final submit gate (`place_order`)
+
+Immediately before clicking final submit button:
+
+1. Ask for explicit final confirmation in plain language.
+2. If user confirms, click final submit action (`Place your order`, `Buy now`, or equivalent).
+3. Take post-submit snapshot/screenshot and report confirmation details.
+
+## Retry and fallback policy
+
+- Retry budget: 3 attempts per step that mutates page state.
+- After each mutation, run a fresh `browser_snapshot` before the next click/type.
+- If a step fails 3 times, stop and ask user to complete that step manually, then resume.
+
+## Example helper payload shape
+
+```json
+{
+  "phase": "search",
+  "context": { "checkoutReviewed": false, "hasCartItems": false },
+  "extracted": {
+    "text": "...",
+    "links": ["https://www.amazon.com/dp/B08XGDN3TZ"]
+  },
+  "userIntent": "order aa batteries"
+}
+```
+
+## Safety rules
+
+- Always show price/totals before confirmation.
+- Never infer final consent from prior messages; ask again right before submission.
+- If CAPTCHA or anti-bot challenge appears, ask user to solve it and continue after refresh.

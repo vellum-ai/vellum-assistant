@@ -380,6 +380,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "messages/llm-context", scopes: ["chat.read"] },
   { endpoint: "llm-request-logs/payload", scopes: ["chat.read"] },
   { endpoint: "messages/tts", scopes: ["chat.read"] },
+  { endpoint: "tts/synthesize", scopes: ["chat.read"] },
 
   // Queued message deletion
   { endpoint: "messages/queued", scopes: ["chat.write"] },
@@ -432,10 +433,16 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "channels/delivery-ack", scopes: ["internal.write"] },
 
   // Migrations
-  { endpoint: "migrations/validate", scopes: ["settings.write"] },
+  { endpoint: "migrations/validate", scopes: ["settings.read"] },
   { endpoint: "migrations/export", scopes: ["settings.write"] },
   { endpoint: "migrations/import-preflight", scopes: ["settings.write"] },
   { endpoint: "migrations/import", scopes: ["settings.write"] },
+
+  // Backups
+  { endpoint: "backups", scopes: ["settings.read"] },
+  { endpoint: "backups/create", scopes: ["settings.write"] },
+  { endpoint: "backups/restore", scopes: ["settings.write"] },
+  { endpoint: "backups/verify", scopes: ["settings.read"] },
 
   // Settings (voice, avatar, client settings)
   { endpoint: "settings/voice", scopes: ["settings.write"] },
@@ -457,6 +464,9 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 
   // Dictation
   { endpoint: "dictation", scopes: ["chat.write"] },
+
+  // Speech-to-text
+  { endpoint: "stt/transcribe", scopes: ["chat.write"] },
 
   // OAuth / integrations
   { endpoint: "oauth/start", scopes: ["settings.write"] },
@@ -480,10 +490,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Tools
   { endpoint: "tools", scopes: ["settings.read"] },
   { endpoint: "tools/simulate-permission", scopes: ["settings.read"] },
-
-  // Browser CDP shim — backs the `assistant browser chrome relay` CLI used
-  // by the in-tree Amazon and Influencer skills.
-  { endpoint: "browser-cdp", scopes: ["settings.write"] },
 ];
 
 for (const { endpoint, scopes } of ACTOR_ENDPOINTS) {

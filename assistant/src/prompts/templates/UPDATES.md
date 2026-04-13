@@ -36,3 +36,9 @@ Some Slack image attachments were stored incorrectly due to a missing OAuth scop
 This has been fixed automatically: the corrupted attachments were removed from affected conversations during this update, and the OAuth scope issue has been resolved so new image uploads work correctly. If your user mentions missing images from earlier conversations, this is why — the images were never successfully received in the first place.
 <!-- /vellum-update-release:corrupted-attachment-cleanup -->
 
+<!-- vellum-update-release:llm-log-retention-setting -->
+## LLM request log retention is now configurable
+
+Your user can now choose how long LLM request logs are kept on their device from Settings → Permissions & Privacy on the macOS app. The default stays at 1 day, but they can pick 7, 30, or 90 days, or "Never" to retain logs indefinitely. If your user asks about managing their privacy or controlling how much LLM request history is retained locally, point them at this new picker.
+<!-- /vellum-update-release:llm-log-retention-setting -->
+

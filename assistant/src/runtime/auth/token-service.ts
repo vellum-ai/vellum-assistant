@@ -22,6 +22,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { getIsContainerized } from "../../config/env-registry.js";
 import { getLogger } from "../../util/logger.js";
 import { getDeprecatedDir } from "../../util/platform.js";
 import { CURRENT_POLICY_EPOCH, isStaleEpoch } from "./policy.js";
@@ -116,6 +117,58 @@ export function loadOrCreateSigningKey(): Buffer {
 }
 
 /**
+ * Best-effort sync of the env-resolved signing key to the canonical disk
+ * path so out-of-process CLI commands (e.g. browser relay) that load from
+ * disk converge on the same key the daemon uses.
+ *
+ * Security note: this does NOT expand the signing key's exposure surface.
+ * `loadOrCreateSigningKey()` already writes a signing key to the exact same
+ * disk path (getSigningKeyPath()) with the same mode (0600). A signing key
+ * is always on disk for CLI subprocesses to read — this function just
+ * ensures the disk key matches the env-provided key so those subprocesses
+ * mint tokens the daemon will actually accept.
+ *
+ * Skipped in containerized mode where disk key files are not used.
+ * Uses atomic write (tmp + rename) with mode 0600 for safe persistence.
+ * Never throws -- logs a warning on write failure and continues with
+ * the in-memory key.
+ */
+function syncEnvSigningKeyToDiskIfNeeded(key: Buffer): void {
+  if (getIsContainerized()) {
+    return;
+  }
+
+  const keyPath = getSigningKeyPath();
+
+  try {
+    // If the file already exists and is byte-equal, no-op.
+    if (existsSync(keyPath)) {
+      const existing = readFileSync(keyPath);
+      if (existing.length === key.length && timingSafeEqual(existing, key)) {
+        return;
+      }
+    }
+
+    // Write atomically: tmp file + rename.
+    const dir = dirname(keyPath);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    const tmpPath = keyPath + ".tmp." + process.pid;
+    writeFileSync(tmpPath, key, { mode: 0o600 });
+    renameSync(tmpPath, keyPath);
+    chmodSync(keyPath, 0o600);
+
+    log.info("Synced env signing key to disk for CLI convergence");
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to sync env signing key to disk — continuing with in-memory key",
+    );
+  }
+}
+
+/**
  * Resolve the signing key for the daemon from the `ACTOR_TOKEN_SIGNING_KEY`
  * env var (hex-encoded, 64 chars). The CLI launcher sets this before
  * spawning the daemon; in Docker the gateway injects it.
@@ -128,8 +181,10 @@ export function resolveSigningKey(): Buffer {
         `Invalid ACTOR_TOKEN_SIGNING_KEY: expected 64 hex characters, got ${envKey.length} chars`,
       );
     }
+    const key = Buffer.from(envKey, "hex");
+    syncEnvSigningKeyToDiskIfNeeded(key);
     log.info("Signing key loaded from ACTOR_TOKEN_SIGNING_KEY env var");
-    return Buffer.from(envKey, "hex");
+    return key;
   }
 
   // Fallback: env var not set (e.g. daemon spawned by cli/src/lib/local.ts

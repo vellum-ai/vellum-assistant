@@ -32,6 +32,17 @@ import type {
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
 
+/**
+ * Keepalive interval for MV3 service-worker suspension prevention.
+ *
+ * Chrome's Manifest V3 service workers idle-suspend after ~30 seconds of
+ * inactivity. Sending a small WebSocket frame every 20 seconds keeps the
+ * worker alive without waiting for real traffic. The relay endpoint
+ * ignores unknown frame types, so the heartbeat is purely a client-side
+ * concern.
+ */
+export const KEEPALIVE_INTERVAL_MS = 20_000;
+
 /** WebSocket close codes that represent intentional, non-error closures. */
 const NORMAL_CLOSE_CODES = new Set([1000, 1001]);
 
@@ -145,6 +156,13 @@ export class RelayConnection {
   private reconnectDelay = RECONNECT_BASE_MS;
   private closedByCaller = false;
   /**
+   * Periodic keepalive timer that sends heartbeat frames to the relay
+   * endpoint while the socket is OPEN. Prevents Chrome MV3
+   * service-worker idle suspension (~30 s timeout) by ensuring
+   * WebSocket activity every {@link KEEPALIVE_INTERVAL_MS}.
+   */
+  private keepAliveTimer: ReturnType<typeof setInterval> | null = null;
+  /**
    * Context of a non-normal ws close whose onClose notification has
    * been deferred into the reconnect-with-refresh timer. Populated
    * from the ws 'close' listener BEFORE arming the timer, and cleared
@@ -210,6 +228,7 @@ export class RelayConnection {
    */
   setMode(mode: RelayMode): void {
     this.deps = { ...this.deps, mode };
+    this.stopKeepalive();
     // Flush any pending deferred close from the prior lifecycle first.
     // When the previous socket hit a non-normal close the ws listener
     // stashed its ctx into `pendingDeferredCloseCtx` and armed the
@@ -266,6 +285,7 @@ export class RelayConnection {
    */
   close(code = 1000, reason = 'closed by caller'): void {
     this.closedByCaller = true;
+    this.stopKeepalive();
     if (this.pendingDeferredCloseCtx !== null) {
       const deferred = this.pendingDeferredCloseCtx;
       this.pendingDeferredCloseCtx = null;
@@ -287,6 +307,28 @@ export class RelayConnection {
 
   // ── Internals ─────────────────────────────────────────────────────
 
+  /**
+   * Start the keepalive interval. Called from the socket `open` handler.
+   * Sends a small JSON heartbeat frame every {@link KEEPALIVE_INTERVAL_MS}
+   * while the socket remains OPEN.
+   */
+  private startKeepalive(): void {
+    this.stopKeepalive();
+    this.keepAliveTimer = setInterval(() => {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'keepalive', sentAt: Date.now() }));
+      }
+    }, KEEPALIVE_INTERVAL_MS);
+  }
+
+  /** Clear the keepalive interval. Idempotent. */
+  private stopKeepalive(): void {
+    if (this.keepAliveTimer !== null) {
+      clearInterval(this.keepAliveTimer);
+      this.keepAliveTimer = null;
+    }
+  }
+
   private connect(): void {
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       return;
@@ -305,6 +347,7 @@ export class RelayConnection {
     ws.addEventListener('open', () => {
       if (this.ws !== ws) return; // stale event from a superseded socket
       this.reconnectDelay = RECONNECT_BASE_MS;
+      this.startKeepalive();
       this.deps.onOpen();
     });
 
@@ -315,6 +358,7 @@ export class RelayConnection {
 
     ws.addEventListener('close', (event: CloseEvent) => {
       if (this.ws !== ws) return; // stale event from a superseded socket
+      this.stopKeepalive();
       const code = event.code;
       const reason = event.reason;
       this.ws = null;
@@ -451,7 +495,7 @@ export class RelayConnection {
             kind: 'abort',
             error:
               `Relay token refresh failed: ${message}. ` +
-              `Sign in with Vellum again from the extension popup to reconnect.`,
+              `Use 'Re-sign in' in Advanced, then turn Connection on again.`,
           };
         }
       }
@@ -657,8 +701,20 @@ export async function postHostBrowserResult(
     body: JSON.stringify(result),
   });
   if (!resp.ok) {
+    let responseBodySnippet = '';
+    try {
+      responseBodySnippet = (await resp.text()).slice(0, 200);
+    } catch {
+      // Best-effort diagnostics only.
+    }
     console.warn(
-      `[vellum-relay] host-browser-result POST returned ${resp.status}`,
+      '[vellum-relay] host-browser-result POST failed',
+      {
+        status: resp.status,
+        requestId: result.requestId,
+        url,
+        responseBodySnippet: responseBodySnippet || undefined,
+      },
     );
   }
 }

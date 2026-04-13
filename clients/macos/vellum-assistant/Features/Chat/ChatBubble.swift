@@ -482,10 +482,14 @@ struct ChatBubble: View, Equatable {
             if appearance.customAvatarImage != nil {
                 VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
                     .scaleEffect(avatarBounceScale)
-                    .onTapGesture { triggerBounce() }
+                    .onTapGesture {
+                        SoundManager.shared.play(.characterPoke)
+                        triggerBounce()
+                    }
             } else if let bodyShape = appearance.characterBodyShape,
                       let eyeStyle = appearance.characterEyeStyle,
                       let color = appearance.characterColor {
+                // Sound is played by AnimatedAvatarView.mouseDown; don't double up here.
                 AnimatedAvatarView(bodyShape: bodyShape, eyeStyle: eyeStyle, color: color,
                                    size: avatarSize, blinkEnabled: true, pokeEnabled: true,
                                    isStreaming: message.isStreaming)
@@ -495,7 +499,10 @@ struct ChatBubble: View, Equatable {
             } else {
                 VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
                     .scaleEffect(avatarBounceScale)
-                    .onTapGesture { triggerBounce() }
+                    .onTapGesture {
+                        SoundManager.shared.play(.characterPoke)
+                        triggerBounce()
+                    }
             }
         }
         // Ensure the tap-triggered bounce animation is preserved despite the
@@ -665,10 +672,11 @@ struct ChatBubble: View, Equatable {
         let hasAttachments = !message.attachments.isEmpty
 
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            ForEach(Array(thinkingChunks.enumerated()), id: \.offset) { _, content in
+            ForEach(Array(thinkingChunks.enumerated()), id: \.offset) { offset, content in
                 ThinkingBlockView(
                     content: content,
                     isStreaming: message.isStreaming,
+                    expansionKey: "\(message.id.uuidString)-inline-\(offset)",
                     typographyGeneration: typographyGeneration
                 )
             }
@@ -745,7 +753,15 @@ struct ChatBubble: View, Equatable {
                 if !partitioned.files.isEmpty {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         ForEach(partitioned.files) { attachment in
-                            fileAttachmentChip(attachment)
+                            if attachment.isTextPreviewable {
+                                InlineFilePreviewView(
+                                    attachment: attachment,
+                                    isUser: isUser,
+                                    messageId: message.id
+                                )
+                            } else {
+                                fileAttachmentChip(attachment)
+                            }
                         }
                     }
                 }

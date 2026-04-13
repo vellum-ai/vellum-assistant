@@ -74,6 +74,45 @@ export class ExtensionCdpClient implements ScopedCdpClient {
       });
     }
 
+    if (result.isError) {
+      let parsedError: unknown;
+      try {
+        parsedError = JSON.parse(result.content);
+      } catch {
+        // The host-browser dispatcher may surface plain-text errors
+        // (for example timeout/callback-delivery failures) instead
+        // of JSON-RPC envelopes. Treat these as CDP-level failures so
+        // the factory does not silently fail over to cdp-inspect/local
+        // and mask the extension path as the true failing hop.
+        throw new CdpError(
+          "cdp_error",
+          result.content.slice(0, 200) || `CDP error for ${method}`,
+          {
+            cdpMethod: method,
+            cdpParams: params,
+            underlying: result.content,
+          },
+        );
+      }
+
+      const msg =
+        (typeof parsedError === "object" &&
+          parsedError !== null &&
+          "message" in parsedError &&
+          typeof (parsedError as { message: unknown }).message === "string" &&
+          (parsedError as { message: string }).message) ||
+        `CDP error for ${method}`;
+      log.debug(
+        { method, params, parsedError },
+        "ExtensionCdpClient: CDP error",
+      );
+      throw new CdpError("cdp_error", msg, {
+        cdpMethod: method,
+        cdpParams: params,
+        underlying: parsedError,
+      });
+    }
+
     let parsed: unknown;
     try {
       parsed = JSON.parse(result.content);
@@ -87,22 +126,6 @@ export class ExtensionCdpClient implements ScopedCdpClient {
           underlying: err,
         },
       );
-    }
-
-    if (result.isError) {
-      const msg =
-        (typeof parsed === "object" &&
-          parsed !== null &&
-          "message" in parsed &&
-          typeof (parsed as { message: unknown }).message === "string" &&
-          (parsed as { message: string }).message) ||
-        `CDP error for ${method}`;
-      log.debug({ method, params, parsed }, "ExtensionCdpClient: CDP error");
-      throw new CdpError("cdp_error", msg, {
-        cdpMethod: method,
-        cdpParams: params,
-        underlying: parsed,
-      });
     }
 
     return parsed as T;

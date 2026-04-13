@@ -18,6 +18,7 @@ import {
   type ProcessingStage,
   updateProcessingStage,
 } from "../../../../memory/media-store.js";
+import { resolveBatchTranscriber } from "../../../../providers/speech-to-text/resolve.js";
 import { silentlyWithLog } from "../../../../util/silently.js";
 import {
   FFMPEG_PALETTE_TIMEOUT_MS,
@@ -92,8 +93,6 @@ export interface PreprocessOptions {
   detectDeadTime?: boolean;
   shortEdge?: number;
   includeAudio?: boolean;
-  transcriptionMode?: "api" | "local";
-  openaiApiKey?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -453,6 +452,12 @@ export async function preprocessForAsset(
     const segments: Segment[] = [];
     const allFramePaths: string[] = [];
 
+    // Resolve the STT transcriber once for all segments to avoid repeated
+    // credential lookups in the per-segment loop.
+    const transcriber = options.includeAudio
+      ? await resolveBatchTranscriber()
+      : null;
+
     const scaleFilter = `scale='if(gt(iw,ih),-1,${config.shortEdge})':'if(gt(iw,ih),${config.shortEdge},-1)'`;
 
     for (let i = 0; i < rawSegments.length; i++) {
@@ -529,8 +534,7 @@ export async function preprocessForAsset(
           asset.filePath,
           seg.startSeconds,
           seg.endSeconds - seg.startSeconds,
-          options.transcriptionMode ?? "local",
-          { apiKey: options.openaiApiKey },
+          transcriber,
         );
         if (transcript) {
           segment.transcript = transcript;

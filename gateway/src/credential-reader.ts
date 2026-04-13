@@ -12,6 +12,9 @@ import { hostname, userInfo } from "node:os";
 import { join } from "node:path";
 import { credentialKey } from "./credential-key.js";
 import { getLogger } from "./logger.js";
+import { getGatewaySecurityDir, getWorkspaceDir } from "./paths.js";
+
+export { getGatewaySecurityDir, getRootDir, getWorkspaceDir } from "./paths.js";
 
 const log = getLogger("credential-reader");
 
@@ -80,7 +83,7 @@ function deriveKey(salt: Buffer): Buffer {
  * Returns null if the file doesn't exist or isn't exactly 32 bytes.
  */
 function readStoreKey(): Buffer | null {
-  const keyPath = join(getRootDir(), "protected", STORE_KEY_FILENAME);
+  const keyPath = join(getGatewaySecurityDir(), STORE_KEY_FILENAME);
   if (!existsSync(keyPath)) return null;
   try {
     const buf = readFileSync(keyPath);
@@ -130,28 +133,8 @@ function readStore(storePath: string): StoreFile | null {
   throw new Error("Encrypted store has invalid format");
 }
 
-export function getRootDir(): string {
-  return join(
-    process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? "/tmp"),
-    ".vellum",
-  );
-}
-
-/**
- * Returns the workspace root for user-facing state.
- *
- * When VELLUM_WORKSPACE_DIR is set, returns that value (used in containerized
- * deployments where the workspace is a separate volume). Otherwise falls back
- * to ~/.vellum/workspace.
- */
-export function getWorkspaceDir(): string {
-  const override = process.env.VELLUM_WORKSPACE_DIR?.trim();
-  if (override) return override;
-  return join(getRootDir(), "workspace");
-}
-
 export function getEncryptedStorePath(): string {
-  return join(getRootDir(), "protected", "keys.enc");
+  return join(getGatewaySecurityDir(), "keys.enc");
 }
 
 export function getMetadataPath(): string {
@@ -366,7 +349,12 @@ export const SLACK_CHANNEL_CREDENTIAL_SPEC: ServiceCredentialSpec = {
 
 export const VELLUM_CREDENTIAL_SPEC: ServiceCredentialSpec = {
   service: "vellum",
-  requiredFields: ["platform_base_url", "assistant_api_key", "platform_assistant_id", "webhook_secret"],
+  requiredFields: [
+    "platform_base_url",
+    "assistant_api_key",
+    "platform_assistant_id",
+    "webhook_secret",
+  ],
 } as const;
 
 export const ALL_CREDENTIAL_SPECS: readonly ServiceCredentialSpec[] = [

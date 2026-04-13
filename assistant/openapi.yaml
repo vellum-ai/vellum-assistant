@@ -3,7 +3,7 @@
 openapi: 3.0.0
 info:
   title: Vellum Assistant API
-  version: 0.6.2
+  version: 0.6.3
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -1118,6 +1118,172 @@ paths:
                 - eyeStyle
                 - color
               additionalProperties: false
+  /v1/backups:
+    get:
+      operationId: backups_get
+      summary: List backup snapshots
+      description:
+        Lists local and offsite backup snapshots. Each offsite destination includes a `reachable` flag reflecting
+        whether the backing volume is currently available. When `backup.offsite.enabled` is false the `offsite` array is
+        empty and `offsiteEnabled` is false — clients should gate offsite UI on `offsiteEnabled` rather than
+        `offsite.length`.
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  local:
+                    type: array
+                    items: {}
+                  offsite:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        destination:
+                          type: object
+                          properties: {}
+                          additionalProperties: {}
+                        snapshots:
+                          type: array
+                          items: {}
+                        reachable:
+                          type: boolean
+                      required:
+                        - destination
+                        - snapshots
+                        - reachable
+                      additionalProperties: false
+                  offsiteEnabled:
+                    type: boolean
+                  nextRunAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - local
+                  - offsite
+                  - offsiteEnabled
+                  - nextRunAt
+                additionalProperties: false
+  /v1/backups/create:
+    post:
+      operationId: backups_create_post
+      summary: Create a backup snapshot immediately
+      description:
+        Trigger a manual snapshot. Bypasses the enabled and interval gates, but honors the in-progress mutex — a
+        concurrent caller receives 409.
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  local:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                  offsite:
+                    type: array
+                    items: {}
+                  durationMs:
+                    type: number
+                required:
+                  - local
+                  - offsite
+                  - durationMs
+                additionalProperties: false
+  /v1/backups/restore:
+    post:
+      operationId: backups_restore_post
+      summary: Restore from a backup snapshot
+      description:
+        "Restores a snapshot into the workspace. Destructive: the underlying commit flow backs up existing files
+        before overwriting. The daemon closes the live SQLite handle before writing and invalidates its config/trust
+        caches afterwards. Credentials are NOT included — users re-authenticate integrations after a restore."
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  manifest:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                  restoredFiles:
+                    type: number
+                required:
+                  - manifest
+                  - restoredFiles
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  description: Absolute path to the snapshot file to restore
+              required:
+                - path
+              additionalProperties: false
+  /v1/backups/verify:
+    post:
+      operationId: backups_verify_post
+      summary: Verify a backup snapshot
+      description:
+        Validates a snapshot without restoring. Decrypts encrypted bundles to a temp file, runs the vbundle
+        validator, and returns a pass/fail status.
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                  manifest:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                  error:
+                    type: string
+                required:
+                  - valid
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  description: Absolute path to the snapshot file to verify
+              required:
+                - path
+              additionalProperties: false
   /v1/brain-graph:
     get:
       operationId: braingraph_get
@@ -1166,12 +1332,6 @@ paths:
       description: Return the brain-graph HTML visualization page with an embedded auth token.
       tags:
         - brain-graph
-      responses:
-        "200":
-          description: Successful response
-  /v1/browser-cdp:
-    post:
-      operationId: browsercdp_post
       responses:
         "200":
           description: Successful response
@@ -2120,6 +2280,56 @@ paths:
           required: true
           schema:
             type: string
+  /v1/contacts/guardian/channel:
+    post:
+      operationId: contacts_guardian_channel_post
+      summary: Add a channel to the guardian contact
+      description: Used by the guardian to auto-verify their own channel.
+      tags:
+        - contacts
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  contact:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                    description: Updated guardian contact
+                required:
+                  - ok
+                  - contact
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  description: Channel type, e.g. 'email'
+                address:
+                  type: string
+                  description: Channel address, e.g. 'user@example.com'
+                externalUserId:
+                  type: string
+                  description: External user ID for trust resolution
+                status:
+                  description: "Channel status (default: active)"
+                  type: string
+              required:
+                - type
+                - address
+                - externalUserId
+              additionalProperties: false
   /v1/contacts/invites:
     get:
       operationId: contacts_invites_get
@@ -4757,7 +4967,7 @@ paths:
     post:
       operationId: messages_by_id_tts_post
       summary: Synthesize message to speech
-      description: Synthesize a message's text content to audio using Fish Audio TTS.
+      description: Synthesize a message's text content to audio using the configured TTS provider.
       tags:
         - messages
       responses:
@@ -6176,7 +6386,9 @@ paths:
     get:
       operationId: skills_get
       summary: List all skills
-      description: Return all installed skills. Pass ?include=catalog to also include available catalog skills.
+      description:
+        "Return all installed skills. Pass ?include=catalog to also include available catalog skills. Supports
+        optional filter params: origin, kind, q, category."
       tags:
         - skills
       responses:
@@ -6261,6 +6473,8 @@ paths:
                               type: number
                             publishedAt:
                               type: string
+                            version:
+                              type: string
                           required:
                             - id
                             - name
@@ -6273,6 +6487,7 @@ paths:
                             - stars
                             - installs
                             - reports
+                            - version
                           additionalProperties: false
                         - type: object
                           properties:
@@ -6305,6 +6520,32 @@ paths:
                               type: string
                             installs:
                               type: number
+                            audit:
+                              type: object
+                              propertyNames:
+                                type: string
+                              additionalProperties:
+                                type: object
+                                properties:
+                                  risk:
+                                    type: string
+                                    enum:
+                                      - safe
+                                      - low
+                                      - medium
+                                      - high
+                                      - critical
+                                      - unknown
+                                  alerts:
+                                    type: number
+                                  score:
+                                    type: number
+                                  analyzedAt:
+                                    type: string
+                                required:
+                                  - risk
+                                  - analyzedAt
+                                additionalProperties: false
                           required:
                             - id
                             - name
@@ -6350,6 +6591,16 @@ paths:
                             - origin
                           additionalProperties: false
                     description: Skill objects
+                  categoryCounts:
+                    description: Count of skills per category (before category filter is applied)
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties:
+                      type: number
+                  totalCount:
+                    description: Total number of skills matching non-category filters
+                    type: number
                 required:
                   - skills
                 additionalProperties: false
@@ -6362,6 +6613,30 @@ paths:
             enum:
               - catalog
           description: Optional inclusion flag. Use 'catalog' to merge available Vellum catalog skills into the response.
+        - name: origin
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by skill origin (e.g. 'vellum', 'clawhub', 'skillssh', 'custom').
+        - name: kind
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Filter by kind: 'installed' (includes bundled), 'available', or pass through as skill.kind."
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Text search across skill name, description, id, and origin label.
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by inferred category (e.g. 'communication', 'productivity').
     post:
       operationId: skills_post
       summary: Create skill
@@ -6504,6 +6779,8 @@ paths:
                             type: number
                           publishedAt:
                             type: string
+                          version:
+                            type: string
                           owner:
                             anyOf:
                               - type: object
@@ -6570,6 +6847,7 @@ paths:
                           - stars
                           - installs
                           - reports
+                          - version
                         additionalProperties: false
                       - type: object
                         properties:
@@ -6602,6 +6880,32 @@ paths:
                             type: string
                           installs:
                             type: number
+                          audit:
+                            type: object
+                            propertyNames:
+                              type: string
+                            additionalProperties:
+                              type: object
+                              properties:
+                                risk:
+                                  type: string
+                                  enum:
+                                    - safe
+                                    - low
+                                    - medium
+                                    - high
+                                    - critical
+                                    - unknown
+                                alerts:
+                                  type: number
+                                score:
+                                  type: number
+                                analyzedAt:
+                                  type: string
+                              required:
+                                - risk
+                                - analyzedAt
+                              additionalProperties: false
                         required:
                           - id
                           - name
@@ -7052,6 +7356,8 @@ paths:
                               type: number
                             publishedAt:
                               type: string
+                            version:
+                              type: string
                           required:
                             - id
                             - name
@@ -7064,6 +7370,7 @@ paths:
                             - stars
                             - installs
                             - reports
+                            - version
                           additionalProperties: false
                         - type: object
                           properties:
@@ -7096,6 +7403,32 @@ paths:
                               type: string
                             installs:
                               type: number
+                            audit:
+                              type: object
+                              propertyNames:
+                                type: string
+                              additionalProperties:
+                                type: object
+                                properties:
+                                  risk:
+                                    type: string
+                                    enum:
+                                      - safe
+                                      - low
+                                      - medium
+                                      - high
+                                      - critical
+                                      - unknown
+                                  alerts:
+                                    type: number
+                                  score:
+                                    type: number
+                                  analyzedAt:
+                                    type: string
+                                required:
+                                  - risk
+                                  - analyzedAt
+                                additionalProperties: false
                           required:
                             - id
                             - name
@@ -7167,6 +7500,38 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/stt/transcribe:
+    post:
+      operationId: stt_transcribe_post
+      summary: Transcribe audio to text
+      description:
+        Transcribe base64-encoded audio to text using the configured STT provider. Provider selection is resolved
+        globally via config.
+      tags:
+        - stt
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                audioBase64:
+                  type: string
+                  description: Base64-encoded audio data to transcribe
+                mimeType:
+                  type: string
+                  description: MIME type of the audio data (must start with "audio/", e.g. "audio/wav", "audio/ogg")
+                source:
+                  description: Optional source identifier for analytics (e.g. 'dictation', 'voice-mode')
+                  type: string
+              required:
+                - audioBase64
+                - mimeType
+              additionalProperties: false
   /v1/subagents/{id}:
     get:
       operationId: subagents_by_id_get
@@ -7335,6 +7700,11 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                  conversationId:
+                    type: string
+                    description:
+                      Id of a newly launched conversation when the action dispatched one (e.g. launch_conversation). Omitted
+                      otherwise.
                 required:
                   - ok
                 additionalProperties: false
@@ -7783,6 +8153,39 @@ paths:
                 - decision
                 - priority
               additionalProperties: false
+  /v1/tts/synthesize:
+    post:
+      operationId: tts_synthesize_post
+      summary: Synthesize text to speech
+      description:
+        Synthesize arbitrary text to audio using the configured TTS provider. Provider selection is resolved
+        globally via config — callers do not specify a provider.
+      tags:
+        - tts
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                  description: Text to synthesize into speech
+                context:
+                  description:
+                    Optional context hint for output policy or capability selection (e.g. voice-mode). Does not affect provider
+                    selection.
+                  type: string
+                conversationId:
+                  description: Optional conversation ID for scoping or analytics.
+                  type: string
+              required:
+                - text
+              additionalProperties: false
   /v1/usage/breakdown:
     get:
       operationId: usage_breakdown_get
@@ -7868,6 +8271,14 @@ paths:
               - daily
               - hourly
           description: 'Bucket granularity: "daily" (default) or "hourly"'
+        - name: tz
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            IANA timezone identifier (e.g. "America/Los_Angeles"). Bucket boundaries and display labels are computed in
+            this timezone. Defaults to "UTC" for backwards compatibility.
   /v1/usage/totals:
     get:
       operationId: usage_totals_get

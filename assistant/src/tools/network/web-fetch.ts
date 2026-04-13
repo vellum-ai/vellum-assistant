@@ -8,6 +8,7 @@ import { Readable } from "node:stream";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
+import { safeStringSlice } from "../../util/unicode.js";
 import { registerTool } from "../registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 import {
@@ -357,11 +358,13 @@ function extractHtmlMetadata(html: string): {
   // regex backtracking on large HTML documents.
   // Strip <script> blocks first so that a literal "</head>" inside a script
   // doesn't cause a false match that truncates the search region prematurely.
-  const candidate = html.slice(0, 200_000);
+  const candidate = safeStringSlice(html, 0, 200_000);
   const stripped = candidate.replace(/<script[\s>][\s\S]*?<\/script>/gi, "");
   const headEnd = stripped.search(/<\/head[\s>]/i);
   const searchRegion =
-    headEnd >= 0 ? stripped.slice(0, headEnd + 10) : stripped.slice(0, 50_000);
+    headEnd >= 0
+      ? safeStringSlice(stripped, 0, headEnd + 10)
+      : safeStringSlice(stripped, 0, 50_000);
 
   const title = extractFirstMatch(
     searchRegion,

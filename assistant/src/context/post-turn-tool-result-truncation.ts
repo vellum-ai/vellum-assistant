@@ -8,6 +8,7 @@ import type {
   ToolResultContent,
   ToolUseContent,
 } from "../providers/types.js";
+import { safeStringSlice } from "../util/unicode.js";
 
 /** Minimum content length (chars) before a tool result is eligible for truncation. ~2000 tokens at 4 chars/token. */
 export const THRESHOLD_CHARS = 8_000;
@@ -43,8 +44,8 @@ export function buildTruncatedContent(
   filePath: string,
 ): string {
   const half = Math.floor(TARGET_CHARS / 2);
-  const prefix = original.slice(0, half);
-  const suffix = original.slice(-half);
+  const prefix = safeStringSlice(original, 0, half);
+  const suffix = safeStringSlice(original, original.length - half, original.length);
   const omittedChars = original.length - TARGET_CHARS;
   const estimatedTokens = Math.round(omittedChars / 4);
   return `${prefix}\n\n...(${estimatedTokens} tokens omitted ${TRUNCATION_MARKER} ${filePath})\n\n${suffix}`;

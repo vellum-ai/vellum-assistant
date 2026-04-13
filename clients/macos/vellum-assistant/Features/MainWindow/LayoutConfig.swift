@@ -4,7 +4,7 @@ import VellumAssistantShared
 // MARK: - Domain Types
 
 public enum NativePanelId: String, Equatable, Sendable {
-    case chat, conversationList, settings, debug, generated, avatarCustomization, apps, intelligence, usageDashboard
+    case chat, conversationList, settings, logsAndUsage, generated, avatarCustomization, apps, intelligence
 }
 
 extension NativePanelId: Codable {
@@ -24,6 +24,9 @@ extension NativePanelId: Codable {
         // Legacy threadList panel — renamed to conversationList
         case "threadList":
             self = .conversationList
+        // Legacy separate panels — merged into unified Logs & Usage
+        case "debug", "usageDashboard":
+            self = .logsAndUsage
         default:
             guard let value = NativePanelId(rawValue: rawValue) else {
                 throw DecodingError.dataCorruptedError(
@@ -67,6 +70,9 @@ extension SlotContent: Codable {
             // Legacy threadList panel — renamed to conversationList
             case "threadList":
                 self = .native(.conversationList)
+            // Legacy separate panels — merged into unified Logs & Usage
+            case "debug", "usageDashboard":
+                self = .native(.logsAndUsage)
             default:
                 if let panel = NativePanelId(rawValue: rawPanel) {
                     self = .native(panel)
@@ -163,6 +169,9 @@ extension SlotContent {
             // Legacy threadList panel — renamed to conversationList
             case "threadList":
                 id = .conversationList
+            // Legacy separate panels — merged into unified Logs & Usage
+            case "debug", "usageDashboard":
+                id = .logsAndUsage
             default:
                 guard let parsed = NativePanelId(rawValue: panel) else { return nil }
                 id = parsed

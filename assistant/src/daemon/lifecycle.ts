@@ -1,5 +1,7 @@
 import { config as dotenvConfig } from "dotenv";
 
+import type { BackupWorkerHandle } from "../backup/backup-worker.js";
+import { startBackupWorker } from "../backup/backup-worker.js";
 import { setPointerMessageProcessor } from "../calls/call-pointer-messages.js";
 import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { setRelayBroadcast } from "../calls/relay-server.js";
@@ -89,6 +91,7 @@ import {
   setCesReconnect,
 } from "../security/secure-keys.js";
 import { UsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
+import { registerBuiltinTtsProviders } from "../tts/providers/register-builtins.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
@@ -637,12 +640,13 @@ export async function runDaemon(): Promise<void> {
     await server.start();
     log.info("Daemon startup: DaemonServer started");
 
-    // Mutable refs for Qdrant and memory worker so background init can assign
-    // them and the shutdown handler always sees the latest value.
+    // Mutable refs for Qdrant, memory worker, and backup worker so background
+    // init can assign them and the shutdown handler always sees the latest value.
     const bgRefs: {
       qdrantManager: QdrantManager | null;
       memoryWorker: { stop(): void } | null;
-    } = { qdrantManager: null, memoryWorker: null };
+      backupWorker: BackupWorkerHandle | null;
+    } = { qdrantManager: null, memoryWorker: null, backupWorker: null };
 
     // Initialize Qdrant vector store and memory worker in the background so the
     // RuntimeHttpServer can start accepting requests without waiting for Qdrant.
@@ -724,6 +728,16 @@ export async function runDaemon(): Promise<void> {
 
       log.info("Daemon startup: starting memory worker");
       bgRefs.memoryWorker = startMemoryJobsWorker();
+
+      log.info("Daemon startup: starting backup worker");
+      try {
+        bgRefs.backupWorker = startBackupWorker();
+      } catch (err) {
+        log.warn(
+          { err },
+          "Backup worker failed to start — continuing without backups",
+        );
+      }
 
       // Seed capability graph nodes (new memory graph system)
       try {
@@ -1208,6 +1222,17 @@ export async function runDaemon(): Promise<void> {
       runtimeHttp = null;
     }
 
+    // Register built-in TTS providers so the provider abstraction can resolve
+    // them by ID. Must happen before call controllers or routes are created.
+    try {
+      registerBuiltinTtsProviders();
+    } catch (err) {
+      log.warn(
+        { err },
+        "TTS provider registration failed — continuing with degraded TTS",
+      );
+    }
+
     // Initialize providers and tools after the HTTP server is listening so
     // health-check and pairing requests can be served immediately.  Wrapped in
     // its own try/catch so a failure here doesn't tear down the running HTTP
@@ -1357,6 +1382,7 @@ export async function runDaemon(): Promise<void> {
       runtimeHttp,
       scheduler,
       getMemoryWorker: () => bgRefs.memoryWorker,
+      getBackupWorker: () => bgRefs.backupWorker,
       getQdrantManager: () => bgRefs.qdrantManager,
       mcpManager,
       telemetryReporter,

@@ -71,8 +71,11 @@ let mockPage: {
 
 let snapshotBackendNodeMaps: Map<string, Map<string, number>>;
 
+const preferredBackendKinds = new Map<string, string>();
+
 mock.module("../tools/browser/browser-manager.js", () => {
   snapshotBackendNodeMaps = new Map();
+  preferredBackendKinds.clear();
   return {
     browserManager: {
       getOrCreateSessionPage: async () => mockPage,
@@ -95,6 +98,14 @@ mock.module("../tools/browser/browser-manager.js", () => {
       clearSnapshotBackendNodeMap: (conversationId: string) => {
         snapshotBackendNodeMaps.delete(conversationId);
       },
+      getPreferredBackendKind: (conversationId: string) =>
+        preferredBackendKinds.get(conversationId) ?? null,
+      setPreferredBackendKind: (conversationId: string, kind: string) => {
+        preferredBackendKinds.set(conversationId, kind);
+      },
+      clearPreferredBackendKind: (conversationId: string) => {
+        preferredBackendKinds.delete(conversationId);
+      },
     },
   };
 });
@@ -115,8 +126,10 @@ mock.module("../tools/browser/browser-screencast.js", () => ({
 }));
 
 import {
+  executeBrowserAttach,
   executeBrowserClick,
   executeBrowserClose,
+  executeBrowserDetach,
   executeBrowserHover,
   executeBrowserPressKey,
   executeBrowserScroll,
@@ -626,6 +639,36 @@ describe("executeBrowserClose", () => {
     const result = await executeBrowserClose({ close_all_pages: true }, ctx);
     expect(result.isError).toBe(false);
     expect(result.content).toContain("All browser pages and context closed");
+  });
+});
+
+// ── browser_attach ──────────────────────────────────────────────────
+
+describe("executeBrowserAttach", () => {
+  beforeEach(() => {
+    resetMockPage();
+    resetCdpMock();
+  });
+
+  test("returns success on non-extension (local) backend", async () => {
+    const result = await executeBrowserAttach({}, ctx);
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Browser session ready");
+  });
+});
+
+// ── browser_detach ──────────────────────────────────────────────────
+
+describe("executeBrowserDetach", () => {
+  beforeEach(() => {
+    resetMockPage();
+    resetCdpMock();
+  });
+
+  test("clears snapshot state and returns success on non-extension backend", async () => {
+    const result = await executeBrowserDetach({}, ctx);
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Browser debugger detached");
   });
 });
 

@@ -202,11 +202,32 @@ describe("usage routes", () => {
   // -- daily buckets --
 
   describe("GET /v1/usage/daily", () => {
-    test("returns empty buckets array for empty range", async () => {
-      const res = await dispatch("GET", "usage/daily?from=0&to=999999999999");
+    test("returns zero-filled buckets when no events in range", async () => {
+      const from = new Date("2025-01-15T00:00:00Z").getTime();
+      const to = new Date("2025-01-17T23:59:59Z").getTime();
+      const res = await dispatch("GET", `usage/daily?from=${from}&to=${to}`);
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { buckets: unknown[] };
-      expect(body.buckets).toEqual([]);
+      const body = (await res.json()) as {
+        buckets: Array<{
+          date: string;
+          eventCount: number;
+          totalInputTokens: number;
+          totalOutputTokens: number;
+          totalEstimatedCostUsd: number;
+        }>;
+      };
+      expect(body.buckets).toHaveLength(3);
+      expect(body.buckets.map((b) => b.date)).toEqual([
+        "2025-01-15",
+        "2025-01-16",
+        "2025-01-17",
+      ]);
+      for (const bucket of body.buckets) {
+        expect(bucket.eventCount).toBe(0);
+        expect(bucket.totalInputTokens).toBe(0);
+        expect(bucket.totalOutputTokens).toBe(0);
+        expect(bucket.totalEstimatedCostUsd).toBe(0);
+      }
     });
 
     test("returns daily buckets for seeded data", async () => {

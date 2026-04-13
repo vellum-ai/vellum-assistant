@@ -221,6 +221,8 @@ describe("isWorkspaceScopedInvocation", () => {
       "browser_scroll",
       "browser_screenshot",
       "browser_close",
+      "browser_attach",
+      "browser_detach",
       "network_request",
     ];
 

@@ -876,6 +876,12 @@ export interface UnifiedTurnContextOptions {
   interfaceName?: string;
   channelName?: string;
   actorContext?: InboundActorContext | null;
+  /**
+   * Human-readable duration since the previous user message (e.g. "14h ago",
+   * "yesterday", "3d ago"). Only populated when the gap exceeds 12 hours so
+   * the model can acknowledge long absences; otherwise omitted.
+   */
+  timeSinceLastMessage?: string | null;
 }
 
 /**
@@ -908,6 +914,9 @@ export function buildUnifiedTurnContextBlock(
 
   const lines: string[] = ["<turn_context>"];
   lines.push(`current_time: ${options.timestamp}`);
+  if (options.timeSinceLastMessage) {
+    lines.push(`time_since_last_message: ${options.timeSinceLastMessage}`);
+  }
   if (options.interfaceName) {
     lines.push(`interface: ${options.interfaceName}`);
   }

@@ -4,6 +4,7 @@ import SwiftUI
 import VellumAssistantShared
 
 private let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "LayoutStall")
+private let scrollDiag = Logger(subsystem: Bundle.appBundleIdentifier, category: "ScrollDiag")
 
 // MARK: - MessageListContentView
 
@@ -179,6 +180,22 @@ struct MessageListContentView: View, Equatable {
             let turnMinHeight: CGFloat = scrollState.viewportHeight.isFinite
                 ? max(0, scrollState.viewportHeight - 150)
                 : 0
+            // Track whether the minHeight wrapper is applied so
+            // executeScrollToBottom can target the content-bottom marker.
+            let minHeightApplied: Bool = {
+                guard state.isActiveTurn, let lastRow = state.rows.last else { return false }
+                return lastRow.isLatestAssistant
+            }()
+            let _ = {
+                let wasApplied = scrollState.isActiveTurnMinHeightApplied
+                scrollState.isActiveTurnMinHeightApplied = minHeightApplied
+                // Reset the push-to-top flag when the active turn ends so
+                // the next turn gets a fresh initial pin with lastMessageId.
+                if !minHeightApplied { scrollState.hasCompletedInitialPushToTop = false }
+                if wasApplied != minHeightApplied {
+                    scrollDiag.debug("minHeightApplied changed: \(wasApplied, privacy: .public) → \(minHeightApplied, privacy: .public) isActiveTurn=\(state.isActiveTurn, privacy: .public) rowCount=\(state.rows.count, privacy: .public)")
+                }
+            }()
             let isUnanchoredThinking = state.shouldShowThinkingIndicator && !state.rows.contains(where: \.isAnchoredThinkingRow)
             let thinkingLabel = !hasEverSentMessage && state.hasUserMessage
                 ? "Waking up..."
@@ -238,8 +255,12 @@ struct MessageListContentView: View, Equatable {
                 // message sits at top. Only applies while the assistant has an
                 // active turn (sending, thinking, streaming, tool running).
                 .if(state.isActiveTurn && row.isLatestAssistant && row.message.id == state.rows.last?.message.id) { view in
-                    VStack(spacing: 0) { view }
-                        .frame(minHeight: turnMinHeight, alignment: .top)
+                    VStack(spacing: 0) {
+                        view
+                        Color.clear.frame(height: 1)
+                            .id("active-turn-content-bottom")
+                    }
+                    .frame(minHeight: turnMinHeight, alignment: .top)
                 }
             }
 

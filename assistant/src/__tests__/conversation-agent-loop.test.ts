@@ -137,6 +137,8 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateConversationContextWindow: () => {},
   updateConversationTitle: () => {},
   getConversationOriginChannel: () => null,
+  getMessageById: () => null,
+  getLastUserTimestampBefore: () => 0,
 }));
 
 const syncMessageToDiskMock = mock(() => {});

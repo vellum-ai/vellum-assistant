@@ -4,14 +4,16 @@ import SwiftUI
 public struct VSkillTypePill: View {
     public enum SkillType {
         case vellum
-        case community
+        case clawhub
+        case skillssh
         case custom
         case other(label: String, icon: String, foreground: Color, background: Color)
 
         var label: String {
             switch self {
             case .vellum: return "Vellum"
-            case .community: return "Community"
+            case .clawhub: return "Clawhub"
+            case .skillssh: return "skills.sh"
             case .custom: return "Custom"
             case .other(let label, _, _, _): return label
             }
@@ -20,7 +22,8 @@ public struct VSkillTypePill: View {
         var vIcon: VIcon {
             switch self {
             case .vellum: return .package
-            case .community: return .globe
+            case .clawhub: return .globe
+            case .skillssh: return .terminal
             case .custom: return .user
             case .other(_, let icon, _, _): return .resolve(icon)
             }
@@ -29,7 +32,8 @@ public struct VSkillTypePill: View {
         var foregroundColor: Color {
             switch self {
             case .vellum: return VColor.primaryBase
-            case .community: return VColor.funTeal
+            case .clawhub: return VColor.funTeal
+            case .skillssh: return VColor.funCoral
             case .custom: return VColor.funPurple
             case .other(_, _, let fg, _): return fg
             }
@@ -38,7 +42,8 @@ public struct VSkillTypePill: View {
         var backgroundColor: Color {
             switch self {
             case .vellum: return VColor.primaryBase.opacity(0.12)
-            case .community: return VColor.funTeal.opacity(0.12)
+            case .clawhub: return VColor.funTeal.opacity(0.12)
+            case .skillssh: return VColor.funCoral.opacity(0.12)
             case .custom: return VColor.funPurple.opacity(0.12)
             case .other(_, _, _, let bg): return bg
             }
@@ -56,8 +61,10 @@ public struct VSkillTypePill: View {
         switch origin {
         case "vellum":
             self.type = .vellum
-        case "clawhub", "skillssh":
-            self.type = .community
+        case "clawhub":
+            self.type = .clawhub
+        case "skillssh":
+            self.type = .skillssh
         case "custom":
             self.type = .custom
         default:

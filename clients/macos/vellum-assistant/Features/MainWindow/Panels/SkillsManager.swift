@@ -8,7 +8,8 @@ enum SkillFilter: String, CaseIterable {
     case installed = "Installed"
     case available = "Available"
     case vellum = "Vellum"
-    case community = "Community"
+    case clawhub = "Clawhub"
+    case skillssh = "skills.sh"
     case custom = "Custom"
 
     var icon: VIcon {
@@ -17,13 +18,14 @@ enum SkillFilter: String, CaseIterable {
         case .installed: return .circleCheck
         case .available: return .arrowDownToLine
         case .vellum: return .package
-        case .community: return .globe
+        case .clawhub: return .globe
+        case .skillssh: return .terminal
         case .custom: return .user
         }
     }
 
     static var statusFilters: [SkillFilter] { [.all, .installed, .available] }
-    static var sourceFilters: [SkillFilter] { [.vellum, .community, .custom] }
+    static var sourceFilters: [SkillFilter] { [.vellum, .clawhub, .skillssh, .custom] }
 }
 
 @MainActor
@@ -34,10 +36,6 @@ final class SkillsManager {
     // Forward all published properties from SkillsStore so existing views
     // continue to work via observation on SkillsManager unchanged.
     var skills: [SkillInfo] = []
-    /// Cached skill-id -> category map, rebuilt whenever `skills` changes.
-    /// Use `category(for:)` for O(1) lookups instead of calling `inferCategory` in view bodies.
-    private(set) var categoryMap: [String: SkillCategory] = [:]
-    @ObservationIgnored private var categoryFingerprints: [String: String] = [:]
     var loadedBodies: [String: String] = [:]
     var isLoading = false
     var uninstallResult: SkillsStore.UninstallResult?
@@ -49,25 +47,29 @@ final class SkillsManager {
     var loadingFilePaths: Set<String> = []
     var fileContentErrors: [String: String] = [:]
     var installingSkillId: String?
+    var isSearching = false
 
     /// Safety timeout that defensively clears `installingSkillId` if a
     /// wedged `fetchSkills(force:)` response never lands. Without it, the
     /// install spinner can be stuck indefinitely when the confirmation
     /// refresh path is blocked or delayed.
     @ObservationIgnored private var installWatchdogTask: Task<Void, Never>?
+    @ObservationIgnored private var searchDebounceTask: Task<Void, Never>?
 
     // MARK: - Filter Inputs
 
     var searchQuery: String = "" {
-        didSet { recomputeFilteredData() }
+        didSet {
+            dispatchSearch(query: searchQuery)
+        }
     }
 
     var selectedCategory: SkillCategory? {
-        didSet { recomputeFilteredData() }
+        didSet { fetchFilteredSkills() }
     }
 
     var skillFilter: SkillFilter = .all {
-        didSet { recomputeFilteredData() }
+        didSet { fetchFilteredSkills() }
     }
 
     // MARK: - Cached Derived Data (O(1) reads from views)
@@ -75,13 +77,13 @@ final class SkillsManager {
     /// Skills filtered by search + category + skill filter, sorted for display.
     private(set) var filteredSkills: [SkillInfo] = []
 
-    /// Per-category counts based on the current search + skill filter (excludes category filter).
+    /// Per-category counts from the server response, keyed by category raw value.
     private(set) var categoryCounts: [SkillCategory: Int] = [:]
 
-    /// Total count of skills matching search + skill filter (the "All" count).
+    /// Total count of skills matching the current filters (from server response).
     private(set) var searchFilteredCount: Int = 0
 
-    /// Whether the base skills (after skill filter, before search/category) are empty.
+    /// Whether the current filtered skills list is empty.
     private(set) var baseSkillsEmpty: Bool = true
 
     @ObservationIgnored private var cancellables = Set<AnyCancellable>()
@@ -104,9 +106,34 @@ final class SkillsManager {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self else { return }
-                let skills = self.skillsStore.skills
-                self.skills = skills
-                self.rebuildCategoryMap(from: skills)
+
+                // Compute once — used for both isSearching gating and merge guard.
+                let hasActiveQuery = !self.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+                // Gate spinner on whether there is actually a query; clearing
+                // the search bar should immediately stop the spinner even if
+                // a network request is still in-flight.
+                let debouncing = self.searchDebounceTask != nil && !(self.searchDebounceTask?.isCancelled ?? true)
+                self.isSearching = hasActiveQuery && (self.skillsStore.isSearching || debouncing)
+
+                // Merge local skills with external search results (if any),
+                // deduplicating by skill id so local entries take precedence.
+                // The merge is kept active while `isSearching` so that skills
+                // from the previous search remain visible (e.g. when a user
+                // clicks into a search result's detail view while a re-search
+                // is in progress). `searchResults` is only cleared on query
+                // changes (via `cancelSearch`), so stale cross-query results
+                // are already handled.
+                let localSkills = self.skillsStore.skills
+                let mergedSkills: [SkillInfo]
+                if hasActiveQuery && !self.skillsStore.searchResults.isEmpty {
+                    let localIds = Set(localSkills.map(\.id))
+                    let externalResults = self.skillsStore.searchResults.filter { !localIds.contains($0.id) }
+                    mergedSkills = localSkills + externalResults
+                } else {
+                    mergedSkills = localSkills
+                }
+                self.skills = mergedSkills
                 self.loadedBodies = self.skillsStore.loadedBodies
                 self.isLoading = self.skillsStore.isLoading
                 self.uninstallResult = self.skillsStore.uninstallResult
@@ -165,83 +192,88 @@ final class SkillsManager {
             .store(in: &cancellables)
     }
 
-    // MARK: - Category Lookup
+    // MARK: - Server-Side Filtered Fetch
 
-    /// O(1) category lookup for a skill. Falls back to `.knowledge` for unknown IDs.
-    func category(for skill: SkillInfo) -> SkillCategory {
-        categoryMap[skill.id] ?? .knowledge
-    }
-
-    private func rebuildCategoryMap(from skills: [SkillInfo]) {
-        var map: [String: SkillCategory] = [:]
-        var fingerprints: [String: String] = [:]
-        map.reserveCapacity(skills.count)
-        fingerprints.reserveCapacity(skills.count)
-        for skill in skills {
-            let fp = skill.name + "\0" + skill.description
-            if let cached = categoryMap[skill.id], categoryFingerprints[skill.id] == fp {
-                map[skill.id] = cached
-            } else {
-                map[skill.id] = inferCategory(skill)
+    /// Translates the current filter state into API params and triggers a server-side
+    /// filtered fetch. Called when the filter dropdown, category, or search query changes.
+    private func fetchFilteredSkills() {
+        let originParam: String? = {
+            switch skillFilter {
+            case .vellum: return "vellum"
+            case .clawhub: return "clawhub"
+            case .skillssh: return "skillssh"
+            case .custom: return "custom"
+            default: return nil
             }
-            fingerprints[skill.id] = fp
-        }
-        categoryMap = map
-        categoryFingerprints = fingerprints
+        }()
+        let kindParam: String? = {
+            switch skillFilter {
+            case .installed: return "installed"
+            case .available: return "available"
+            default: return nil
+            }
+        }()
+        let queryParam = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let categoryParam = selectedCategory?.rawValue
+
+        skillsStore.fetchSkills(force: true, origin: originParam, kind: kindParam, query: queryParam.isEmpty ? nil : queryParam, category: categoryParam)
     }
 
     // MARK: - Recomputation
 
-    /// Single-pass O(N) recomputation of all derived data.
-    /// Called whenever any filter input or the underlying skills list changes.
+    /// Recompute derived display data from server-filtered skills.
+    /// Origin, kind, text search, and category filtering are now server-side.
+    /// This method merges external search results, applies a local safety-net
+    /// filter (origin/kind + category) to remove any items that bypass the
+    /// server filter, recomputes category counts from the merged list, and
+    /// applies display sorting.
     private func recomputeFilteredData() {
-        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let hasSearch = !query.isEmpty
+        baseSkillsEmpty = skills.isEmpty
 
-        let baseSkills: [SkillInfo]
-        switch skillFilter {
-        case .all:
-            baseSkills = skills
-        case .installed:
-            baseSkills = skills.filter { $0.isInstalled }
-        case .available:
-            baseSkills = skills.filter { $0.isAvailable }
-        case .vellum:
-            baseSkills = skills.filter { $0.origin == "vellum" }
-        case .community:
-            baseSkills = skills.filter { $0.origin == "clawhub" || $0.origin == "skillssh" }
-        case .custom:
-            baseSkills = skills.filter { $0.origin == "custom" }
-        }
-
-        let searchFiltered: [SkillInfo]
-        if hasSearch {
-            searchFiltered = baseSkills.filter {
-                $0.name.lowercased().contains(query) ||
-                $0.description.lowercased().contains(query) ||
-                $0.id.lowercased().contains(query) ||
-                Self.sourceLabel($0.origin).lowercased().contains(query)
+        // Re-apply the current origin/kind filter locally as a safety net
+        // for merged external search results that weren't in the original
+        // server response.
+        let kindFiltered = skills.filter { skill in
+            switch skillFilter {
+            case .all:
+                return true
+            case .installed:
+                return skill.isInstalled
+            case .available:
+                return skill.isAvailable
+            case .vellum:
+                return skill.origin == "vellum"
+            case .clawhub:
+                return skill.origin == "clawhub"
+            case .skillssh:
+                return skill.origin == "skillssh"
+            case .custom:
+                return skill.origin == "custom"
             }
-        } else {
-            searchFiltered = baseSkills
         }
 
+        // Compute category counts from the merged+filtered list so they
+        // include external search results and always match the displayed
+        // skills. Use server counts as a base, then layer on any external
+        // results the server didn't see.
         var counts: [SkillCategory: Int] = [:]
-        for skill in searchFiltered {
-            let cat = category(for: skill)
+        for skill in kindFiltered {
+            let cat = inferCategory(skill)
             counts[cat, default: 0] += 1
         }
         categoryCounts = counts
-        searchFilteredCount = searchFiltered.count
-        baseSkillsEmpty = baseSkills.isEmpty
+        searchFilteredCount = kindFiltered.count
 
+        // Apply category filter after computing counts (so sidebar shows
+        // accurate counts for all categories, not just the selected one).
         let categoryFiltered: [SkillInfo]
         if let category = selectedCategory {
-            categoryFiltered = searchFiltered.filter { self.category(for: $0) == category }
+            categoryFiltered = kindFiltered.filter { inferCategory($0) == category }
         } else {
-            categoryFiltered = searchFiltered
+            categoryFiltered = kindFiltered
         }
 
+        // Sort for display: installed first, community origins before core, alphabetical.
         filteredSkills = categoryFiltered.sorted { a, b in
             if a.isInstalled != b.isInstalled { return a.isInstalled }
             let aCommunity = (a.origin == "clawhub" || a.origin == "skillssh")
@@ -259,9 +291,9 @@ final class SkillsManager {
         case "vellum":
             return "Vellum"
         case "clawhub":
-            return "Community"
+            return "Clawhub"
         case "skillssh":
-            return "Community"
+            return "skills.sh"
         case "custom":
             return "Custom"
         default:
@@ -269,10 +301,43 @@ final class SkillsManager {
         }
     }
 
+    // MARK: - Debounced Search
+
+    private func dispatchSearch(query: String) {
+        searchDebounceTask?.cancel()
+        // Cancel any in-flight network search and clear stale results
+        // immediately so previous search terms don't linger during the
+        // debounce window or after clearing the bar.
+        skillsStore.cancelSearch()
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            isSearching = false
+            // Re-fetch with current filters but no query to reset the list.
+            fetchFilteredSkills()
+            return
+        }
+        // Show spinner immediately during the debounce window so the user
+        // doesn't see the "No Skills Available" empty state for 300ms.
+        isSearching = true
+        searchDebounceTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            // Trigger both the external registry search and the server-side
+            // filtered fetch with the query param in parallel.
+            self?.skillsStore.searchSkills(query: trimmed, force: true)
+            self?.fetchFilteredSkills()
+            self?.searchDebounceTask = nil
+        }
+    }
+
     // MARK: - Delegated Operations
 
     func fetchSkills(force: Bool = false) {
-        skillsStore.fetchSkills(force: force)
+        if force {
+            fetchFilteredSkills()
+        } else {
+            skillsStore.fetchSkills(force: false)
+        }
     }
 
     func fetchSkillBody(skillId: String) {

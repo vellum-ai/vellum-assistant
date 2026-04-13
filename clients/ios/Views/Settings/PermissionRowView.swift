@@ -4,12 +4,21 @@ import VellumAssistantShared
 
 struct PermissionRowView: View {
     let permission: PermissionManager.Permission
+    /// Optional subtitle shown below the permission name (e.g. "(Optional)").
+    var subtitle: String? = nil
     @State private var status: PermissionStatus = .notDetermined
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         HStack {
-            Text(permissionName)
+            VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                Text(permissionName)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
+            }
             Spacer()
             statusIcon
             if status == .notDetermined {

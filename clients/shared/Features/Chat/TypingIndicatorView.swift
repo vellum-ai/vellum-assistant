@@ -12,19 +12,14 @@ public struct TypingIndicatorView: View {
     public init() {}
 
     public var body: some View {
-        TimelineView(.periodic(from: .now, by: tickInterval)) { context in
-            let activeIndex = reduceMotion ? -1 : animationPhase(at: context.date)
-
-            HStack(spacing: dotSpacing) {
-                ForEach(0..<3, id: \.self) { index in
-                    Circle()
-                        .fill(VColor.contentTertiary)
-                        .frame(width: dotSize, height: dotSize)
-                        .scaleEffect(reduceMotion ? 1.0 : (activeIndex == index ? 1.0 : 0.6))
-                        .opacity(reduceMotion ? 0.7 : (activeIndex == index ? 1.0 : 0.45))
+        Group {
+            if reduceMotion {
+                staticDots
+            } else {
+                TimelineView(.periodic(from: .now, by: tickInterval)) { context in
+                    animatedDots(activeIndex: animationPhase(at: context.date))
                 }
             }
-            .frame(width: intrinsicDotsWidth, height: dotSize, alignment: .center)
         }
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.sm)
@@ -35,6 +30,31 @@ public struct TypingIndicatorView: View {
         .fixedSize()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Assistant is thinking")
+    }
+
+    private var staticDots: some View {
+        HStack(spacing: dotSpacing) {
+            ForEach(0..<3, id: \.self) { _ in
+                Circle()
+                    .fill(VColor.contentTertiary)
+                    .frame(width: dotSize, height: dotSize)
+                    .opacity(0.7)
+            }
+        }
+        .frame(width: intrinsicDotsWidth, height: dotSize, alignment: .center)
+    }
+
+    private func animatedDots(activeIndex: Int) -> some View {
+        HStack(spacing: dotSpacing) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(VColor.contentTertiary)
+                    .frame(width: dotSize, height: dotSize)
+                    .scaleEffect(activeIndex == index ? 1.0 : 0.6)
+                    .opacity(activeIndex == index ? 1.0 : 0.45)
+            }
+        }
+        .frame(width: intrinsicDotsWidth, height: dotSize, alignment: .center)
     }
 
     private var intrinsicDotsWidth: CGFloat {

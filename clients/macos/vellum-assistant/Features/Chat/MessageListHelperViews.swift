@@ -21,6 +21,7 @@ struct ScrollToLatestOverlayView: View {
                 // Wrapping in an animation transaction ensures the .move/.opacity
                 // transition runs in sync with the scroll.
                 withAnimation(VAnimation.spring) {
+                    scrollState.dismissScrollToLatest()
                     onScrollToBottom()
                 }
             }) {

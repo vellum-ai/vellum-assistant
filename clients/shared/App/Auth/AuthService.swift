@@ -3,61 +3,11 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AuthService")
 
-// MARK: - Module-private constants (nonisolated by default)
-// These live outside the @MainActor class so nonisolated static functions
-// (resolveBaseURL, normalizedBaseURL) can reference them without crossing
-// into @MainActor isolation — which is an error in Swift 6 language mode.
-private let _platformURLOverrideEnvironmentKey = "VELLUM_PLATFORM_URL"
-private let _authServiceBaseURLDefaultsName = "authServiceBaseURL"
-private let _defaultBaseURL: String = {
-    #if DEBUG && os(macOS)
-    return "http://localhost:8000"
-    #else
-    return "https://platform.vellum.ai"
-    #endif
-}()
-
 @MainActor
 public final class AuthService {
     public static let shared = AuthService()
 
-    public var baseURL: String {
-        Self.resolveBaseURL(
-            environment: ProcessInfo.processInfo.environment,
-            userDefaults: .standard
-        )
-    }
-
     private init() {}
-
-    /// Pure URL resolution logic — safe to call from any isolation context.
-    /// All inputs are value types; no mutable shared state is accessed.
-    ///
-    /// Resolution order:
-    /// 1. `VELLUM_PLATFORM_URL` environment variable
-    /// 2. `authServiceBaseURL` UserDefaults key (DEBUG builds only)
-    /// 3. Build-time default (`http://localhost:8000` for DEBUG, `https://platform.vellum.ai` for RELEASE)
-    nonisolated static func resolveBaseURL(
-        environment: [String: String],
-        userDefaults: UserDefaults
-    ) -> String {
-        if let override = normalizedBaseURL(environment[_platformURLOverrideEnvironmentKey]) {
-            return override
-        }
-        #if DEBUG
-        // Keep the UserDefaults override as a fallback for direct debug sessions.
-        if let override = normalizedBaseURL(userDefaults.string(forKey: _authServiceBaseURLDefaultsName)) {
-            return override
-        }
-        #endif
-        return _defaultBaseURL
-    }
-
-    nonisolated private static func normalizedBaseURL(_ raw: String?) -> String? {
-        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let normalized = trimmed.replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
-        return normalized.isEmpty ? nil : normalized
-    }
 
     private struct AuthRequestConfig {
         let path: String
@@ -176,7 +126,7 @@ public final class AuthService {
 
     /// Fetch the current user's organizations. Does not require Vellum-Organization-Id header.
     public func getOrganizations() async throws -> [PlatformOrganization] {
-        let urlString = "\(baseURL)/v1/organizations/"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/organizations/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -218,6 +168,49 @@ public final class AuthService {
             return paginated.results
         } catch {
             throw PlatformAPIError.decodingError(error.localizedDescription)
+        }
+    }
+
+    public enum OrganizationResolutionError: LocalizedError, Sendable {
+        case noOrganizations
+        case multipleOrganizations
+
+        public var errorDescription: String? {
+            switch self {
+            case .noOrganizations:
+                return "No organizations found for this account"
+            case .multipleOrganizations:
+                return "Multiple organizations found. Multi-org support is not yet available — please contact support."
+            }
+        }
+    }
+
+    /// Resolve the caller's organization ID, persisting it under
+    /// `connectedOrganizationId` in UserDefaults for synchronous readers.
+    ///
+    /// A persisted value is re-validated against the current org list on
+    /// every call so stale cross-environment IDs don't leak through.
+    @discardableResult
+    public func resolveOrganizationId() async throws -> String {
+        let orgs = try await getOrganizations()
+        let persistedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+        if let persistedOrgId, orgs.contains(where: { $0.id == persistedOrgId }) {
+            log.info("Validated persisted organization: \(persistedOrgId, privacy: .public)")
+            return persistedOrgId
+        }
+        if persistedOrgId != nil {
+            log.warning("Persisted organization ID not found in user's orgs — re-resolving")
+        }
+        switch orgs.count {
+        case 0:
+            throw OrganizationResolutionError.noOrganizations
+        case 1:
+            let orgId = orgs[0].id
+            UserDefaults.standard.set(orgId, forKey: "connectedOrganizationId")
+            log.info("Resolved organization: \(orgId, privacy: .public)")
+            return orgId
+        default:
+            throw OrganizationResolutionError.multipleOrganizations
         }
     }
 
@@ -268,7 +261,7 @@ public final class AuthService {
         body: Data? = nil,
         timeoutInterval: TimeInterval? = nil
     ) async throws -> PlatformResponse {
-        let urlString = "\(baseURL)/\(path)"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/\(path)"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -308,14 +301,14 @@ public final class AuthService {
 
     // MARK: - Platform Assistant API
 
-    /// Retrieve a specific managed assistant by ID.
-    public func getAssistant(id: String, organizationId: String) async throws -> PlatformAssistantResult {
-        let response = try await performPlatformRequest(
-            path: "v1/assistants/\(id)/",
-            method: "GET",
-            organizationId: organizationId
-        )
-
+    /// Map a platform assistant `GET` response into a `PlatformAssistantResult`.
+    ///
+    /// Shared by single-assistant lookup endpoints (`getAssistant`,
+    /// `getActiveAssistant`) that all use the same `.found` / `.notFound` /
+    /// `.accessDenied` status-code contract.
+    private func decodeAssistantResult(
+        _ response: PlatformResponse
+    ) throws -> PlatformAssistantResult {
         switch response.statusCode {
         case 404:
             return .notFound
@@ -335,6 +328,26 @@ public final class AuthService {
                 detail: String(data: response.data, encoding: .utf8)
             )
         }
+    }
+
+    /// Retrieve a specific managed assistant by ID.
+    public func getAssistant(id: String, organizationId: String) async throws -> PlatformAssistantResult {
+        let response = try await performPlatformRequest(
+            path: "v1/assistants/\(id)/",
+            method: "GET",
+            organizationId: organizationId
+        )
+        return try decodeAssistantResult(response)
+    }
+
+    /// Retrieve the user's currently active managed assistant.
+    public func getActiveAssistant(organizationId: String) async throws -> PlatformAssistantResult {
+        let response = try await performPlatformRequest(
+            path: "v1/assistants/active/",
+            method: "GET",
+            organizationId: organizationId
+        )
+        return try decodeAssistantResult(response)
     }
 
     /// List managed assistants visible to the caller in the given organization.
@@ -481,7 +494,7 @@ public final class AuthService {
         assistantId: String,
         organizationId: String
     ) async throws {
-        let urlString = "\(baseURL)/v1/assistants/\(assistantId)/\(path)/"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/assistants/\(assistantId)/\(path)/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -553,7 +566,7 @@ public final class AuthService {
         clientPlatform: String,
         assistantVersion: String? = nil
     ) async throws -> EnsureSelfHostedLocalRegistrationResponse {
-        let urlString = "\(baseURL)/v1/assistants/self-hosted-local/ensure-registration/"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/assistants/self-hosted-local/ensure-registration/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -616,7 +629,7 @@ public final class AuthService {
         clientPlatform: String,
         assistantVersion: String? = nil
     ) async throws -> ReprovisionSelfHostedLocalApiKeyResponse {
-        let urlString = "\(baseURL)/v1/assistants/self-hosted-local/reprovision-api-key/"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/assistants/self-hosted-local/reprovision-api-key/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -728,7 +741,7 @@ public final class AuthService {
         requestConfig: AuthRequestConfig,
         includeSessionToken: Bool
     ) async throws -> AuthAttemptResult {
-        let urlString = "\(baseURL)/_allauth/app/v1/\(requestConfig.path)"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/_allauth/app/v1/\(requestConfig.path)"
         guard let url = URL(string: urlString) else {
             throw AuthServiceError.invalidURL
         }

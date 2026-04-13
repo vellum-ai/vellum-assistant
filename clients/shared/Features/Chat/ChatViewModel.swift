@@ -917,6 +917,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     if let result = fullTC.result {
                         msgs[idx].toolCalls[tcIdx].result = result
                         msgs[idx].toolCalls[tcIdx].resultLength = result.count
+                        msgs[idx].toolCalls[tcIdx].resultRevision &+= 1
                     }
                     if let input = fullTC.input {
                         let formatted = ToolCallData.formatAllToolInput(input)

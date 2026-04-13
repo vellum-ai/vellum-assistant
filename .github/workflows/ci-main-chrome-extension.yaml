@@ -1,0 +1,100 @@
+name: CI Main Chrome Extension Checks
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'clients/chrome-extension/**'
+      - '.github/workflows/ci-main-chrome-extension.yaml'
+
+jobs:
+  checks:
+    name: Lint, Type Check & Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/chrome-extension
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.9'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Type check
+        run: bun run typecheck
+
+      - name: Test with coverage
+        run: bun test --coverage
+
+  notify-chrome-extension:
+    name: Slack Notification (Chrome Extension)
+    needs: [checks]
+    if: always()
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Get Slack ID
+        id: slack-id
+        run: |
+          GITHUB_USER="${{ github.actor }}"
+
+          if [[ "${{ needs.checks.result }}" == "failure" ]]; then
+            STATUS="failure"
+          elif [[ "${{ needs.checks.result }}" == "cancelled" ]]; then
+            STATUS="cancelled"
+          elif [[ "${{ needs.checks.result }}" == "skipped" ]]; then
+            STATUS="skipped"
+          else
+            STATUS="success"
+          fi
+
+          SLACK_ID=$(yq ".github_to_slack_all_notifications.[\"$GITHUB_USER\"]" .github/config/github_slack_mapping.yaml)
+
+          if [ "$SLACK_ID" = "null" ]; then
+            case $STATUS in
+              failure)
+                SLACK_ID=$(yq ".github_to_slack_failure_notifications.[\"$GITHUB_USER\"]" .github/config/github_slack_mapping.yaml)
+                ;;
+              success)
+                SLACK_ID=$(yq ".github_to_slack_success_notifications.[\"$GITHUB_USER\"]" .github/config/github_slack_mapping.yaml)
+                ;;
+              cancelled)
+                SLACK_ID=$(yq ".github_to_slack_cancelled_notifications.[\"$GITHUB_USER\"]" .github/config/github_slack_mapping.yaml)
+                ;;
+            esac
+          fi
+
+          if [ "$SLACK_ID" = "null" ]; then
+            SLACK_ID="$GITHUB_USER"
+          fi
+
+          if [ "$STATUS" = "cancelled" ] || [ "$SLACK_ID" = "$GITHUB_USER" ]; then
+            echo "should_tag=false" >> $GITHUB_OUTPUT
+          else
+            echo "should_tag=true" >> $GITHUB_OUTPUT
+          fi
+          echo "id=$SLACK_ID" >> $GITHUB_OUTPUT
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+
+      - uses: ./.github/actions/send-build-alert
+        continue-on-error: true
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: ${{ steps.slack-id.outputs.status }}
+          slack-user-id: ${{ steps.slack-id.outputs.id }}
+          should-tag: ${{ steps.slack-id.outputs.should_tag }}
+          channel: "#build-alerts"

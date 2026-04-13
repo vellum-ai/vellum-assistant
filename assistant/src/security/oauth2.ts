@@ -56,6 +56,13 @@ export interface OAuth2Config {
    * use `","` (comma).
    */
   scopeSeparator: string;
+  /**
+   * Body encoding format for the token exchange and refresh requests.
+   * - `"form"` (default): `application/x-www-form-urlencoded` with `URLSearchParams`.
+   * - `"json"`: `application/json` with `JSON.stringify`.
+   * Providers like Notion require JSON-encoded bodies at their token endpoint.
+   */
+  tokenExchangeBodyFormat?: "form" | "json";
 }
 
 export interface OAuth2TokenResult {
@@ -113,6 +120,7 @@ async function exchangeCodeForTokens(
   codeVerifier: string,
 ): Promise<OAuth2FlowResult> {
   const authMethod = config.tokenEndpointAuthMethod ?? "client_secret_post";
+  const bodyFormat = config.tokenExchangeBodyFormat ?? "form";
 
   const tokenBody: Record<string, string> = {
     grant_type: "authorization_code",
@@ -122,7 +130,10 @@ async function exchangeCodeForTokens(
   };
 
   const headers: Record<string, string> = {
-    "Content-Type": "application/x-www-form-urlencoded",
+    "Content-Type":
+      bodyFormat === "json"
+        ? "application/json"
+        : "application/x-www-form-urlencoded",
   };
 
   if (config.clientSecret && authMethod === "client_secret_basic") {
@@ -140,7 +151,10 @@ async function exchangeCodeForTokens(
   const tokenResp = await fetch(config.tokenExchangeUrl, {
     method: "POST",
     headers,
-    body: new URLSearchParams(tokenBody),
+    body:
+      bodyFormat === "json"
+        ? JSON.stringify(tokenBody)
+        : new URLSearchParams(tokenBody),
   });
 
   if (!tokenResp.ok) {
@@ -785,8 +799,10 @@ export async function refreshOAuth2Token(
   refreshToken: string,
   clientSecret?: string,
   tokenEndpointAuthMethod?: TokenEndpointAuthMethod,
+  tokenExchangeBodyFormat?: "form" | "json",
 ): Promise<OAuth2TokenResult> {
   const authMethod = tokenEndpointAuthMethod ?? "client_secret_post";
+  const bodyFormat = tokenExchangeBodyFormat ?? "form";
 
   const body: Record<string, string> = {
     grant_type: "refresh_token",
@@ -794,7 +810,10 @@ export async function refreshOAuth2Token(
   };
 
   const headers: Record<string, string> = {
-    "Content-Type": "application/x-www-form-urlencoded",
+    "Content-Type":
+      bodyFormat === "json"
+        ? "application/json"
+        : "application/x-www-form-urlencoded",
   };
 
   if (clientSecret && authMethod === "client_secret_basic") {
@@ -812,7 +831,8 @@ export async function refreshOAuth2Token(
   const resp = await fetch(tokenExchangeUrl, {
     method: "POST",
     headers,
-    body: new URLSearchParams(body),
+    body:
+      bodyFormat === "json" ? JSON.stringify(body) : new URLSearchParams(body),
   });
 
   if (!resp.ok) {

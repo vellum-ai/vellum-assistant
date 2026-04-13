@@ -4,6 +4,7 @@
   "path": "__HELPER_BINARY_PATH__",
   "type": "stdio",
   "allowed_origins": [
-    "chrome-extension://__VELLUM_EXTENSION_ID__/"
+    "chrome-extension://__VELLUM_DEV_EXTENSION_ID__/",
+    "chrome-extension://__VELLUM_CWS_EXTENSION_ID__/"
   ]
 }

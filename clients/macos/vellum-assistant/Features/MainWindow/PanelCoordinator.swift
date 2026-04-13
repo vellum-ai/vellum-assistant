@@ -36,12 +36,20 @@ extension MainWindowView {
                         windowState.selection = nil
                     }
                 })
-        case .debug:
-            DebugPanel(
+        case .logsAndUsage:
+            LogsAndUsagePanel(
                 traceStore: traceStore,
                 connectionManager: connectionManager,
                 activeSessionId: conversationManager.activeViewModel?.conversationId,
-                onClose: { windowState.selection = nil }
+                usageDashboardStore: usageDashboardStore,
+                onClose: { windowState.selection = nil },
+                onSelectConversation: { conversationId in
+                    Task { @MainActor in
+                        let found = await conversationManager.selectConversationByConversationIdAsync(conversationId)
+                        guard found, let id = conversationManager.activeConversationId else { return }
+                        windowState.selection = .conversation(id)
+                    }
+                }
             )
         case .generated:
             GeneratedPanel(
@@ -133,11 +141,6 @@ extension MainWindowView {
                 pendingMemoryId: $windowState.pendingMemoryId,
                 pendingSkillId: $windowState.pendingSkillId
             )
-        case .usageDashboard:
-            UsageDashboardPanel(
-                store: usageDashboardStore,
-                onClose: { windowState.selection = nil }
-            )
         }
     }
 
@@ -199,6 +202,7 @@ extension MainWindowView {
         // When settings is open the sidebar is hidden.
         let settingsOpen: Bool = {
             if case .panel(.settings) = windowState.selection { return true }
+            if case .panel(.logsAndUsage) = windowState.selection { return true }
             return false
         }()
         let sidebarWidth: CGFloat = settingsOpen ? 0 : (sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth)
@@ -232,6 +236,7 @@ extension MainWindowView {
     func clampedSidePanelWidth(windowSize: CGSize) -> Binding<Double> {
         let settingsOpen: Bool = {
             if case .panel(.settings) = windowState.selection { return true }
+            if case .panel(.logsAndUsage) = windowState.selection { return true }
             return false
         }()
         let sidebarWidth: CGFloat = settingsOpen ? 0 : (sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth)
@@ -260,6 +265,7 @@ extension MainWindowView {
     func clampedChatDockWidth(windowSize: CGSize) -> Binding<Double> {
         let settingsOpen: Bool = {
             if case .panel(.settings) = windowState.selection { return true }
+            if case .panel(.logsAndUsage) = windowState.selection { return true }
             return false
         }()
         let sidebarWidth: CGFloat = settingsOpen ? 0 : (sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth)
@@ -381,7 +387,7 @@ extension MainWindowView {
                     conversationManager.ensureActiveConversation()
                 }
             } else {
-                // Full-window panels: settings, debug, identity
+                // Full-window panels: settings, logs & usage, intelligence
                 fullWindowPanel(panelType)
             }
         case nil:
@@ -502,12 +508,20 @@ extension MainWindowView {
                     }
                     windowState.dismissOverlay()
                 })
-        case .debug:
-            DebugPanel(
+        case .logsAndUsage:
+            LogsAndUsagePanel(
                 traceStore: traceStore,
                 connectionManager: connectionManager,
                 activeSessionId: conversationManager.activeViewModel?.conversationId,
-                onClose: { windowState.dismissOverlay() }
+                usageDashboardStore: usageDashboardStore,
+                onClose: { windowState.dismissOverlay() },
+                onSelectConversation: { conversationId in
+                    Task { @MainActor in
+                        let found = await conversationManager.selectConversationByConversationIdAsync(conversationId)
+                        guard found, let id = conversationManager.activeConversationId else { return }
+                        windowState.selection = .conversation(id)
+                    }
+                }
             )
         case .avatarCustomization:
             AvatarCustomizationPanel(onClose: { windowState.selection = .panel(windowState.avatarCustomizationReturnPanel) })
@@ -586,11 +600,6 @@ extension MainWindowView {
                 initialTab: windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil,
                 pendingMemoryId: $windowState.pendingMemoryId,
                 pendingSkillId: $windowState.pendingSkillId
-            )
-        case .usageDashboard:
-            UsageDashboardPanel(
-                store: usageDashboardStore,
-                onClose: { windowState.dismissOverlay() }
             )
         }
     }
@@ -708,7 +717,7 @@ struct ActiveChatViewWrapper: View {
                     windowState.selection = .panel(.settings)
                 },
                 onBootstrapSendLogs: {
-                    AppDelegate.shared?.showLogReportWindow(reason: .connectionIssue)
+                    AppDelegate.shared?.showLogReportWindow(reason: .bugReport)
                 },
                 recoveryMode: settingsStore.managedAssistantRecoveryMode,
                 isRecoveryModeExiting: settingsStore.recoveryModeExiting,

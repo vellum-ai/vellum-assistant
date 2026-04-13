@@ -99,12 +99,7 @@
           },
           "include_audio": {
             "type": "boolean",
-            "description": "Whether to extract and transcribe audio for each segment. Default: false."
-          },
-          "transcription_mode": {
-            "type": "string",
-            "enum": ["api", "local"],
-            "description": "Transcription backend: 'api' (OpenAI Whisper cloud) or 'local' (whisper.cpp). Default: 'local'."
+            "description": "Whether to extract and transcribe audio for each segment using the configured STT service. Default: false."
           },
           "activity": {
             "type": "string",

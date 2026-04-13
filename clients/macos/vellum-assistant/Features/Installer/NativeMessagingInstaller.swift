@@ -72,19 +72,20 @@ public enum NativeMessagingInstaller {
     ///     messaging helper binary (e.g.
     ///     `…/Contents/MacOS/vellum-chrome-native-host`). Must exist —
     ///     Chrome refuses to spawn a host whose `path` is missing.
-    ///   - extensionId: The Chrome extension ID to pin in
-    ///     `allowed_origins`. Must match the allowlist enforced by the
-    ///     helper binary itself (PR 7 `ALLOWED_EXTENSION_IDS`) and the
-    ///     runtime pair endpoint's allowlist (PR 11).
+    ///   - extensionIds: Chrome extension IDs to pin in
+    ///     `allowed_origins`. Should include both the development and
+    ///     CWS production IDs so the native host accepts connections
+    ///     from either origin.
     public static func installChromeManifest(
         helperBinaryPath: URL,
-        extensionId: String
+        extensionIds: [String]
     ) throws {
         try installChromeManifest(
             helperBinaryPath: helperBinaryPath,
-            extensionId: extensionId,
+            extensionIds: extensionIds,
             homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
-            fileManager: FileManager.default
+            fileManager: FileManager.default,
+            gatekeeperAssessment: Self.runGatekeeperAssessment(at:)
         )
     }
 
@@ -104,12 +105,27 @@ public enum NativeMessagingInstaller {
     /// directory under the tester's home folder.
     internal static func installChromeManifest(
         helperBinaryPath: URL,
-        extensionId: String,
+        extensionIds: [String],
         homeDirectory: URL,
-        fileManager: FileManager
+        fileManager: FileManager,
+        gatekeeperAssessment: (String) -> Bool = { _ in true }
     ) throws {
         guard fileManager.fileExists(atPath: helperBinaryPath.path) else {
             throw InstallError.helperBinaryMissing(helperBinaryPath)
+        }
+
+        // Chrome refuses to launch a native messaging host that
+        // Gatekeeper rejects, so installing a manifest that points at a
+        // rejected helper leaves the extension permanently unable to
+        // connect — and worse, clobbers any working manually-installed
+        // manifest on every app launch. Skip the install in that case
+        // and let the developer fall back to the manual setup documented
+        // in clients/chrome-extension/README.md.
+        guard gatekeeperAssessment(helperBinaryPath.path) else {
+            log.warning(
+                "Skipping Chrome native messaging manifest install: bundled helper at \(helperBinaryPath.path, privacy: .public) is not accepted by Gatekeeper (expected for local dev builds with a self-signed helper). Follow the manual setup in clients/chrome-extension/README.md to install the extension bridge."
+            )
+            return
         }
 
         let targetDir = manifestDirectory(under: homeDirectory)
@@ -134,7 +150,7 @@ public enum NativeMessagingInstaller {
             "description": hostDescription,
             "path": helperBinaryPath.path,
             "type": "stdio",
-            "allowed_origins": ["chrome-extension://\(extensionId)/"],
+            "allowed_origins": extensionIds.map { "chrome-extension://\($0)/" },
         ]
 
         let data = try JSONSerialization.data(
@@ -178,5 +194,24 @@ public enum NativeMessagingInstaller {
             .appendingPathComponent("Google", isDirectory: true)
             .appendingPathComponent("Chrome", isDirectory: true)
             .appendingPathComponent("NativeMessagingHosts", isDirectory: true)
+    }
+
+    /// Runs `spctl -a -vv <path>` and returns `true` when Gatekeeper
+    /// accepts the binary. Local dev builds ship a self-signed helper
+    /// that fails this check; notarized release builds pass.
+    private static func runGatekeeperAssessment(at path: String) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/spctl")
+        process.arguments = ["-a", "-vv", path]
+        let sink = Pipe()
+        process.standardOutput = sink
+        process.standardError = sink
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
     }
 }

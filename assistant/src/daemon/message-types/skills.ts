@@ -1,5 +1,10 @@
 // Skill management types.
 
+import type { PartnerAudit } from "../../skills/skillssh-registry.js";
+
+// Re-export so consumers can access the audit types from this module.
+export type { PartnerAudit } from "../../skills/skillssh-registry.js";
+
 // === Client → Server ===
 
 export interface SkillsListRequest {
@@ -98,6 +103,7 @@ interface ClawhubSlimSkill extends SlimSkillBase {
   installs: number;
   reports: number;
   publishedAt?: string;
+  version: string;
 }
 
 interface SkillsshSlimSkill extends SlimSkillBase {
@@ -105,6 +111,7 @@ interface SkillsshSlimSkill extends SlimSkillBase {
   slug: string;
   sourceRepo: string;
   installs: number;
+  audit?: Record<string, PartnerAudit>;
 }
 
 interface CustomSlimSkill extends SlimSkillBase {
@@ -120,6 +127,13 @@ export type SlimSkillResponse =
 export interface SkillsListResponse {
   type: "skills_list_response";
   skills: SlimSkillResponse[];
+}
+
+export interface SkillsListFilteredResponse {
+  type: "skills_list_response";
+  skills: SlimSkillResponse[];
+  categoryCounts: Record<string, number>;
+  totalCount: number;
 }
 
 export interface SkillStateChanged {
@@ -159,6 +173,7 @@ interface ClawhubSkillDetail extends SkillDetailBase {
   installs: number;
   reports: number;
   publishedAt?: string;
+  version: string;
   // Enrichment fields (from clawhubInspect):
   owner?: { handle: string; displayName: string; image?: string } | null;
   stats?: {
@@ -177,6 +192,7 @@ interface SkillsshSkillDetail extends SkillDetailBase {
   slug: string;
   sourceRepo: string;
   installs: number;
+  audit?: Record<string, PartnerAudit>;
 }
 
 interface CustomSkillDetail extends SkillDetailBase {

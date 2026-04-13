@@ -822,6 +822,54 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/webhooks/twilio/media-stream": {
+        get: {
+          summary: "Twilio Media Stream WebSocket",
+          description:
+            "Accepts a WebSocket upgrade from Twilio Media Streams and bidirectionally proxies frames to the assistant runtime's /v1/calls/media-stream endpoint. Requires a callSessionId query parameter.",
+          operationId: "twilioMediaStreamWebsocket",
+          parameters: [
+            {
+              name: "callSessionId",
+              in: "query",
+              required: true,
+              schema: { type: "string" },
+              description:
+                "Call session identifier used to correlate the WebSocket connection with the runtime media-stream session.",
+            },
+          ],
+          responses: {
+            "101": {
+              description:
+                "WebSocket upgrade successful — bidirectional media-stream frame proxying begins.",
+            },
+            "400": {
+              description: "Missing callSessionId query parameter",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid token",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "500": {
+              description: "WebSocket upgrade failed",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/webhooks/oauth/callback": {
         get: {
           summary: "OAuth2 callback",
@@ -1183,6 +1231,34 @@ export function buildSchema(): Record<string, unknown> {
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
             },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/contacts/guardian/channel": {
+        post: {
+          summary: "Add a channel to the guardian contact",
+          description:
+            "Authenticated gateway endpoint that adds a channel to the guardian contact via the assistant runtime.",
+          operationId: "contactsGuardianChannelPost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Channel added to guardian" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "404": { description: "No guardian contact exists" },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -2234,10 +2310,50 @@ export function buildSchema(): Record<string, unknown> {
         },
       },
       "/v1/config/privacy": {
+        get: {
+          summary: "Get privacy config",
+          description:
+            "Scope-protected gateway endpoint that returns the current privacy configuration (collectUsageData, sendDiagnostics, llmRequestLogRetentionMs). Missing or malformed values fall back to the daemon schema defaults. Requires a bearer token with `settings.read` scope.",
+          operationId: "privacyConfigGet",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "Privacy config returned",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      collectUsageData: { type: "boolean" },
+                      sendDiagnostics: { type: "boolean" },
+                      llmRequestLogRetentionMs: {
+                        type: ["integer", "null"],
+                        minimum: 0,
+                        maximum: 31536000000,
+                        description:
+                          "Retention period for LLM request/response logs in milliseconds. null keeps forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms); server-side clamping enforces this cap on reads.",
+                      },
+                    },
+                    required: [
+                      "collectUsageData",
+                      "sendDiagnostics",
+                      "llmRequestLogRetentionMs",
+                    ],
+                  },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Insufficient scope" },
+            "500": { description: "Config file is malformed" },
+          },
+        },
         patch: {
           summary: "Update privacy config",
           description:
-            "Scope-protected gateway endpoint that updates privacy configuration (collectUsageData, sendDiagnostics). Requires a bearer token with `feature_flags.write` scope.",
+            "Scope-protected gateway endpoint that updates privacy configuration (collectUsageData, sendDiagnostics, llmRequestLogRetentionMs). Requires a bearer token with `settings.write` scope.",
           operationId: "privacyConfigPatch",
           security: [{ BearerAuth: [] }],
           requestBody: {
@@ -2249,10 +2365,18 @@ export function buildSchema(): Record<string, unknown> {
                   properties: {
                     collectUsageData: { type: "boolean" },
                     sendDiagnostics: { type: "boolean" },
+                    llmRequestLogRetentionMs: {
+                      type: ["integer", "null"],
+                      minimum: 0,
+                      maximum: 31536000000,
+                      description:
+                        "Retention window for LLM request logs, in milliseconds. null keeps forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
+                    },
                   },
                   anyOf: [
                     { required: ["collectUsageData"] },
                     { required: ["sendDiagnostics"] },
+                    { required: ["llmRequestLogRetentionMs"] },
                   ],
                 },
               },
@@ -2268,7 +2392,19 @@ export function buildSchema(): Record<string, unknown> {
                     properties: {
                       collectUsageData: { type: "boolean" },
                       sendDiagnostics: { type: "boolean" },
+                      llmRequestLogRetentionMs: {
+                        type: ["integer", "null"],
+                        minimum: 0,
+                        maximum: 31536000000,
+                        description:
+                          "Retention window for LLM request logs, in milliseconds. null keeps logs forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
+                      },
                     },
+                    required: [
+                      "collectUsageData",
+                      "sendDiagnostics",
+                      "llmRequestLogRetentionMs",
+                    ],
                   },
                 },
               },
@@ -2349,6 +2485,55 @@ export function buildSchema(): Record<string, unknown> {
         },
       },
       "/v1/assistants/{assistantId}/config/privacy/": {
+        get: {
+          summary: "Get privacy config (assistant-scoped)",
+          description:
+            "Assistant-scoped variant of the privacy config read endpoint. Returns the current privacy configuration (collectUsageData, sendDiagnostics, llmRequestLogRetentionMs). Missing or malformed values fall back to the daemon schema defaults. Requires a bearer token with `settings.read` scope.",
+          operationId: "assistantPrivacyConfigGet",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "assistantId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+              description: "The assistant identifier.",
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Privacy config returned",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      collectUsageData: { type: "boolean" },
+                      sendDiagnostics: { type: "boolean" },
+                      llmRequestLogRetentionMs: {
+                        type: ["integer", "null"],
+                        minimum: 0,
+                        maximum: 31536000000,
+                        description:
+                          "Retention period for LLM request/response logs in milliseconds. null keeps forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms); server-side clamping enforces this cap on reads.",
+                      },
+                    },
+                    required: [
+                      "collectUsageData",
+                      "sendDiagnostics",
+                      "llmRequestLogRetentionMs",
+                    ],
+                  },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Insufficient scope" },
+            "500": { description: "Config file is malformed" },
+          },
+        },
         patch: {
           summary: "Update privacy config (assistant-scoped)",
           description:
@@ -2373,10 +2558,18 @@ export function buildSchema(): Record<string, unknown> {
                   properties: {
                     collectUsageData: { type: "boolean" },
                     sendDiagnostics: { type: "boolean" },
+                    llmRequestLogRetentionMs: {
+                      type: ["integer", "null"],
+                      minimum: 0,
+                      maximum: 31536000000,
+                      description:
+                        "Retention window for LLM request logs, in milliseconds. null keeps forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
+                    },
                   },
                   anyOf: [
                     { required: ["collectUsageData"] },
                     { required: ["sendDiagnostics"] },
+                    { required: ["llmRequestLogRetentionMs"] },
                   ],
                 },
               },
@@ -2392,7 +2585,19 @@ export function buildSchema(): Record<string, unknown> {
                     properties: {
                       collectUsageData: { type: "boolean" },
                       sendDiagnostics: { type: "boolean" },
+                      llmRequestLogRetentionMs: {
+                        type: ["integer", "null"],
+                        minimum: 0,
+                        maximum: 31536000000,
+                        description:
+                          "Retention window for LLM request logs, in milliseconds. null keeps logs forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
+                      },
                     },
+                    required: [
+                      "collectUsageData",
+                      "sendDiagnostics",
+                      "llmRequestLogRetentionMs",
+                    ],
                   },
                 },
               },

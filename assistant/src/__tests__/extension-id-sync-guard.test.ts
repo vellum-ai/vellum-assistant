@@ -23,6 +23,7 @@ const CANONICAL_CONFIG_REL_PATH =
 const CANONICAL_CONFIG_ABS_PATH = join(repoRoot, CANONICAL_CONFIG_REL_PATH);
 
 const EXTENSION_ID_REGEX = /^[a-p]{32}$/;
+const PLACEHOLDER_ID_REGEX = /^TODO_[A-Z0-9_]+$/;
 
 type AllowlistConfig = {
   version: number;
@@ -48,19 +49,32 @@ function parseCanonicalConfig(): AllowlistConfig {
   }
 
   const seen = new Set<string>();
+  const validIds: string[] = [];
   for (const id of parsed.allowedExtensionIds) {
-    if (typeof id !== "string" || !EXTENSION_ID_REGEX.test(id)) {
+    if (typeof id !== "string") {
       throw new Error(`Invalid canonical extension id: ${String(id)}`);
     }
     if (seen.has(id)) {
       throw new Error(`Duplicate canonical extension id: ${id}`);
     }
     seen.add(id);
+
+    if (EXTENSION_ID_REGEX.test(id)) {
+      validIds.push(id);
+    } else if (!PLACEHOLDER_ID_REGEX.test(id)) {
+      throw new Error(`Invalid canonical extension id: ${id}`);
+    }
+  }
+
+  if (validIds.length === 0) {
+    throw new Error(
+      "Invalid canonical config: allowedExtensionIds must contain at least one real extension id",
+    );
   }
 
   return {
     version: parsed.version as number,
-    allowedExtensionIds: parsed.allowedExtensionIds as string[],
+    allowedExtensionIds: validIds,
   };
 }
 
@@ -97,8 +111,18 @@ function listTextFilesRecursively(root: string): string[] {
   const out: string[] = [];
 
   function walk(dir: string): void {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch (err) {
+      // Directory may have been removed by a concurrent test; skip it.
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw err;
+    }
+    for (const entry of entries) {
       if (entry.name.startsWith(".DS_Store")) continue;
+      // Skip temp fixtures created by parallel tests (e.g. .test-starter-bundle-<pid>).
+      if (entry.name.startsWith(".test-")) continue;
       const absPath = join(dir, entry.name);
       if (entry.isDirectory()) {
         if (ignoredDirs.has(entry.name)) continue;
@@ -111,7 +135,13 @@ function listTextFilesRecursively(root: string): string[] {
       if (!allowedExtensions.has(ext)) continue;
 
       // Skip large files to keep this guard lightweight.
-      const size = statSync(absPath).size;
+      let size: number;
+      try {
+        size = statSync(absPath).size;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw err;
+      }
       if (size > 1_000_000) continue;
       out.push(absPath);
     }
@@ -128,12 +158,15 @@ describe("Chrome extension allowlist guard", () => {
     expect(config.allowedExtensionIds.length).toBeGreaterThan(0);
   });
 
-  test("assistant runtime allowlist mirrors canonical config", () => {
+  test("assistant runtime allowlist contains every canonical origin", () => {
+    // The runtime set is the union of canonical + local override
+    // (~/.vellum/chrome-extension-allowlist.local.json) + env var. A dev
+    // machine may have extras; we only assert the canonical IDs are present.
     const config = parseCanonicalConfig();
-    const expectedOrigins = new Set(
-      config.allowedExtensionIds.map((id) => `chrome-extension://${id}/`),
-    );
-    expect(ALLOWED_EXTENSION_ORIGINS).toEqual(expectedOrigins);
+    for (const id of config.allowedExtensionIds) {
+      const origin = `chrome-extension://${id}/`;
+      expect(ALLOWED_EXTENSION_ORIGINS.has(origin)).toBe(true);
+    }
   });
 
   test("concrete extension IDs appear only in canonical config", () => {
@@ -144,7 +177,14 @@ describe("Chrome extension allowlist guard", () => {
       const matches: string[] = [];
       for (const absPath of allFiles) {
         const relPath = absPath.replace(`${repoRoot}/`, "");
-        const content = readFileSync(absPath, "utf8");
+        let content: string;
+        try {
+          content = readFileSync(absPath, "utf8");
+        } catch (err) {
+          // File may have been removed by a concurrent test between listing and reading.
+          if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+          throw err;
+        }
         if (content.includes(extensionId)) {
           matches.push(relPath);
         }

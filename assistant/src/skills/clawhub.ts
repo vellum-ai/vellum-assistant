@@ -23,7 +23,7 @@ function getClawhubProjectRoot(): string {
 }
 
 // Validate slug format (alphanumeric, hyphens, dots, underscores; optional namespace with single slash)
-function validateSlug(slug: string): boolean {
+export function validateSlug(slug: string): boolean {
   return /^[a-zA-Z0-9]([a-zA-Z0-9._-]*(\/[a-zA-Z0-9][a-zA-Z0-9._-]*)?)?$/.test(
     slug,
   );
@@ -312,18 +312,37 @@ export async function clawhubSearch(
       };
     }
   } catch {
-    // CLI outputs text: "slug vVersion  DisplayName  (score)"
+    // CLI outputs text — fall through to line parser below.
   }
 
-  // Parse text output lines: "slug vVersion  Display Name  (score)"
+  // Parse text output lines. The CLI format varies by version:
+  //   With version: "slug v1.0.0  Display Name  (3.459)"
+  //   Without version: "slug  Display Name  (3.459)"
   const skills: ClawhubSearchResultItem[] = [];
   for (const line of result.stdout.split("\n")) {
-    const match = line.match(/^(\S+)\s+v(\S+)\s+(.+?)\s+\([\d.]+\)\s*$/);
-    if (match) {
+    // Try format with version first
+    const withVersion = line.match(/^(\S+)\s+v(\S+)\s+(.+?)\s+\([\d.]+\)\s*$/);
+    if (withVersion) {
       skills.push({
-        slug: match[1],
-        version: match[2],
-        name: match[3].trim(),
+        slug: withVersion[1],
+        version: withVersion[2],
+        name: withVersion[3].trim(),
+        description: "",
+        author: "",
+        stars: 0,
+        installs: 0,
+        createdAt: 0,
+        source: "clawhub",
+      });
+      continue;
+    }
+    // Try format without version
+    const withoutVersion = line.match(/^(\S+)\s+(.+?)\s+\([\d.]+\)\s*$/);
+    if (withoutVersion) {
+      skills.push({
+        slug: withoutVersion[1],
+        version: "",
+        name: withoutVersion[2].trim(),
         description: "",
         author: "",
         stars: 0,
@@ -420,12 +439,18 @@ export async function clawhubInspect(
     }
     try {
       const parsed = JSON.parse(result.stdout);
-      // Normalize the raw inspect response to our interface
+      // Normalize the raw inspect response to our interface.
+      // The CLI nests skill metadata under `parsed.skill` and files
+      // under `parsed.version.files`. Fall back to top-level fields
+      // for older CLI versions that used a flat structure.
+      const ps = parsed.skill ?? parsed;
+      const rawStats = ps.stats ?? parsed.stats;
+      const rawFiles = parsed.version?.files ?? parsed.files ?? null;
       const data: ClawhubInspectResult = {
         skill: {
-          slug: parsed.slug ?? slug,
-          displayName: parsed.displayName ?? parsed.name ?? slug,
-          summary: parsed.summary ?? parsed.description ?? "",
+          slug: ps.slug ?? slug,
+          displayName: ps.displayName ?? ps.name ?? slug,
+          summary: ps.summary ?? ps.description ?? "",
         },
         owner: parsed.owner
           ? {
@@ -434,26 +459,24 @@ export async function clawhubInspect(
               image: parsed.owner.image ?? parsed.owner.avatar ?? undefined,
             }
           : null,
-        stats: parsed.stats
+        stats: rawStats
           ? {
-              stars: parsed.stats.stars ?? 0,
-              installs:
-                parsed.stats.installsAllTime ?? parsed.stats.installs ?? 0,
-              downloads:
-                parsed.stats.downloadsAllTime ?? parsed.stats.downloads ?? 0,
-              versions: parsed.stats.versions ?? 0,
+              stars: rawStats.stars ?? 0,
+              installs: rawStats.installsAllTime ?? rawStats.installs ?? 0,
+              downloads: rawStats.downloadsAllTime ?? rawStats.downloads ?? 0,
+              versions: rawStats.versions ?? 0,
             }
           : null,
-        createdAt: parsed.createdAt ?? null,
-        updatedAt: parsed.updatedAt ?? null,
+        createdAt: ps.createdAt ?? parsed.createdAt ?? null,
+        updatedAt: ps.updatedAt ?? parsed.updatedAt ?? null,
         latestVersion: parsed.latestVersion
           ? {
               version: parsed.latestVersion.version ?? "",
               changelog: parsed.latestVersion.changelog ?? undefined,
             }
           : null,
-        files: Array.isArray(parsed.files)
-          ? parsed.files.map((f: Record<string, unknown>) => ({
+        files: Array.isArray(rawFiles)
+          ? rawFiles.map((f: Record<string, unknown>) => ({
               path: (f.path as string) ?? "",
               size: (f.size as number) ?? 0,
               contentType: (f.contentType as string) ?? undefined,
@@ -472,6 +495,44 @@ export async function clawhubInspect(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { error: message };
+  }
+}
+
+/**
+ * Fetch a single file's content from a published clawhub skill.
+ * Calls `npx clawhub inspect <slug> --json --file <filePath>` and returns
+ * the file content string, or `null` on failure.
+ */
+export async function clawhubInspectFile(
+  slug: string,
+  filePath: string,
+): Promise<string | null> {
+  if (!validateSlug(slug)) return null;
+
+  try {
+    const result = await runClawhub([
+      "inspect",
+      slug,
+      "--json",
+      "--file",
+      filePath,
+    ]);
+    if (result.exitCode !== 0) return null;
+
+    try {
+      const parsed = JSON.parse(result.stdout);
+      // The CLI returns the file content in one of these fields
+      const content =
+        parsed.skillMdContent ??
+        parsed.fileContents?.[filePath] ??
+        parsed.file?.content ??
+        null;
+      return typeof content === "string" ? content : null;
+    } catch {
+      return null;
+    }
+  } catch {
+    return null;
   }
 }
 

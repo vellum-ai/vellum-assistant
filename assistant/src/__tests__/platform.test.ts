@@ -119,6 +119,5 @@ describe("workspace path primitives", () => {
     expect(getWorkspaceHooksDir()).toBe(join(ws, "hooks"));
     expect(getWorkspacePromptPath("IDENTITY.md")).toBe(join(ws, "IDENTITY.md"));
     expect(getWorkspacePromptPath("SOUL.md")).toBe(join(ws, "SOUL.md"));
-    expect(getWorkspacePromptPath("USER.md")).toBe(join(ws, "USER.md"));
   });
 });

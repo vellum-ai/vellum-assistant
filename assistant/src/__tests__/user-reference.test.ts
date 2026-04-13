@@ -1,27 +1,26 @@
-import * as realFs from "node:fs";
-import { join } from "node:path";
+/**
+ * Tests for user-reference resolvers. After the drop-user-md migration,
+ * `readPreferredNameFromUserMd` and `resolveUserPronouns` source their
+ * content from the guardian's per-user persona file via
+ * `resolveGuardianPersonaStrict()` (no `default.md` fallback). We mock
+ * the persona-resolver module directly so tests can drive the input
+ * content without touching disk.
+ */
+
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
+// Mutable state the tests control — represents the value returned by
+// `resolveGuardianPersonaStrict()` (comment-stripped string, or null
+// when no guardian / empty / missing guardian-specific file).
+let mockGuardianPersona: string | null = null;
 
-// Mutable state the tests control
-let mockFileExists = false;
-let mockFileContent = "";
-
-mock.module("node:fs", () => ({
-  ...realFs,
-  existsSync: (path: string) => {
-    if (path === join(TEST_DIR, "USER.md")) return mockFileExists;
-    return false;
-  },
-  readFileSync: (path: string, _encoding: string) => {
-    if (path === join(TEST_DIR, "USER.md") && mockFileExists)
-      return mockFileContent;
-    throw new Error(`ENOENT: no such file: ${path}`);
-  },
+mock.module("../prompts/persona-resolver.js", () => ({
+  resolveGuardianPersona: () => mockGuardianPersona,
+  resolveGuardianPersonaStrict: () => mockGuardianPersona,
 }));
 
-// Import after mocks are in place
+// Import after mocks are in place so the module under test binds to
+// the stubbed implementation.
 const {
   resolveUserReference,
   resolveUserPronouns,
@@ -31,18 +30,16 @@ const {
 
 describe("resolveUserReference", () => {
   beforeEach(() => {
-    mockFileExists = false;
-    mockFileContent = "";
+    mockGuardianPersona = null;
   });
 
-  test('returns "my human" when USER.md does not exist', () => {
-    mockFileExists = false;
+  test('returns "my human" when no guardian persona exists', () => {
+    mockGuardianPersona = null;
     expect(resolveUserReference()).toBe("my human");
   });
 
   test('returns "my human" when preferred name field is empty', () => {
-    mockFileExists = true;
-    mockFileContent = [
+    mockGuardianPersona = [
       "## Onboarding Snapshot",
       "",
       "- Preferred name/reference:",
@@ -53,8 +50,7 @@ describe("resolveUserReference", () => {
   });
 
   test("returns the configured name when it is set", () => {
-    mockFileExists = true;
-    mockFileContent = [
+    mockGuardianPersona = [
       "## Onboarding Snapshot",
       "",
       "- Preferred name/reference: John",
@@ -65,27 +61,24 @@ describe("resolveUserReference", () => {
   });
 
   test("trims whitespace around the configured name", () => {
-    mockFileExists = true;
-    mockFileContent = "- Preferred name/reference:   Alice   \n";
+    mockGuardianPersona = "- Preferred name/reference:   Alice   \n";
     expect(resolveUserReference()).toBe("Alice");
   });
 });
 
 describe("resolveUserPronouns", () => {
   beforeEach(() => {
-    mockFileExists = false;
-    mockFileContent = "";
+    mockGuardianPersona = null;
   });
 
-  test("returns null when USER.md does not exist", () => {
-    mockFileExists = false;
+  test("returns null when no guardian persona exists", () => {
+    mockGuardianPersona = null;
     expect(resolveUserPronouns()).toBeNull();
   });
 
-  test("returns pronouns from flat USER.md (no Onboarding Snapshot)", () => {
-    mockFileExists = true;
-    mockFileContent = [
-      "# USER.md",
+  test("returns pronouns from flat persona file (no Onboarding Snapshot)", () => {
+    mockGuardianPersona = [
+      "# User Profile",
       "",
       "- Preferred name/reference: Alice",
       "- Pronouns: she/her",
@@ -95,9 +88,8 @@ describe("resolveUserPronouns", () => {
   });
 
   test("returns null when pronouns field is empty in flat format", () => {
-    mockFileExists = true;
-    mockFileContent = [
-      "# USER.md",
+    mockGuardianPersona = [
+      "# User Profile",
       "",
       "- Preferred name/reference: Alice",
       "- Pronouns:",
@@ -107,8 +99,7 @@ describe("resolveUserPronouns", () => {
   });
 
   test("returns pronouns from legacy Onboarding Snapshot section", () => {
-    mockFileExists = true;
-    mockFileContent = [
+    mockGuardianPersona = [
       "## Onboarding Snapshot",
       "",
       "- Pronouns: they/them",
@@ -117,8 +108,7 @@ describe("resolveUserPronouns", () => {
   });
 
   test("prefers pronouns above Onboarding Snapshot over inside it", () => {
-    mockFileExists = true;
-    mockFileContent = [
+    mockGuardianPersona = [
       "Pronouns: he/him",
       "",
       "## Onboarding Snapshot",
@@ -129,8 +119,7 @@ describe("resolveUserPronouns", () => {
   });
 
   test("returns null for declined_by_user", () => {
-    mockFileExists = true;
-    mockFileContent = [
+    mockGuardianPersona = [
       "- Preferred name/reference: Alice",
       "- Pronouns: declined_by_user",
     ].join("\n");
@@ -138,8 +127,7 @@ describe("resolveUserPronouns", () => {
   });
 
   test("strips inferred: prefix", () => {
-    mockFileExists = true;
-    mockFileContent = [
+    mockGuardianPersona = [
       "- Preferred name/reference: Alice",
       "- Pronouns: inferred: she/her",
     ].join("\n");
@@ -149,13 +137,11 @@ describe("resolveUserPronouns", () => {
 
 describe("resolveGuardianName", () => {
   beforeEach(() => {
-    mockFileExists = false;
-    mockFileContent = "";
+    mockGuardianPersona = null;
   });
 
-  test("returns USER.md name when present, ignoring guardianDisplayName", () => {
-    mockFileExists = true;
-    mockFileContent = [
+  test("returns persona name when present, ignoring guardianDisplayName", () => {
+    mockGuardianPersona = [
       "## Onboarding Snapshot",
       "",
       "- Preferred name/reference: John",
@@ -163,9 +149,8 @@ describe("resolveGuardianName", () => {
     expect(resolveGuardianName("Jane")).toBe("John");
   });
 
-  test('returns "my human" when USER.md explicitly sets name to default value', () => {
-    mockFileExists = true;
-    mockFileContent = [
+  test('returns "my human" when persona explicitly sets name to default value', () => {
+    mockGuardianPersona = [
       "## Onboarding Snapshot",
       "",
       "- Preferred name/reference: my human",
@@ -174,20 +159,20 @@ describe("resolveGuardianName", () => {
     expect(resolveGuardianName("Jane")).toBe("my human");
   });
 
-  test("falls back to guardianDisplayName when USER.md is empty", () => {
-    mockFileExists = false;
+  test("falls back to guardianDisplayName when persona is empty", () => {
+    mockGuardianPersona = null;
     expect(resolveGuardianName("Jane")).toBe("Jane");
   });
 
   test("falls back to DEFAULT_USER_REFERENCE when both are empty", () => {
-    mockFileExists = false;
+    mockGuardianPersona = null;
     expect(resolveGuardianName()).toBe(DEFAULT_USER_REFERENCE);
     expect(resolveGuardianName(null)).toBe(DEFAULT_USER_REFERENCE);
     expect(resolveGuardianName("")).toBe(DEFAULT_USER_REFERENCE);
   });
 
   test("trims whitespace on guardianDisplayName fallback", () => {
-    mockFileExists = false;
+    mockGuardianPersona = null;
     expect(resolveGuardianName("  Jane  ")).toBe("Jane");
   });
 });

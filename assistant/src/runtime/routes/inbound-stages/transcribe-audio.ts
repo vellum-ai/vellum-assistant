@@ -10,7 +10,8 @@
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../config/loader.js";
 import * as attachmentsStore from "../../../memory/attachments-store.js";
-import { resolveSpeechToTextProvider } from "../../../providers/speech-to-text/resolve.js";
+import { resolveBatchTranscriber } from "../../../providers/speech-to-text/resolve.js";
+import { normalizeSttError } from "../../../stt/daemon-batch-transcriber.js";
 import { getLogger } from "../../../util/logger.js";
 
 const log = getLogger("transcribe-audio");
@@ -55,13 +56,13 @@ export async function tryTranscribeAudioAttachments(
       return { status: "no_audio" };
     }
 
-    // Resolve STT provider
-    const provider = await resolveSpeechToTextProvider();
-    if (!provider) {
+    // Resolve STT provider via daemon batch transcriber facade
+    const transcriber = await resolveBatchTranscriber();
+    if (!transcriber) {
       return {
         status: "no_provider",
         reason:
-          "No OpenAI API key configured. Set one up to enable voice message transcription.",
+          "No speech-to-text provider configured. Add an API key for your STT service to enable voice message transcription.",
       };
     }
 
@@ -89,11 +90,11 @@ export async function tryTranscribeAudioAttachments(
         }
 
         const buffer = Buffer.from(hydrated.dataBase64, "base64");
-        const result = await provider.transcribe(
-          buffer,
-          attachment.mimeType,
-          abortController.signal,
-        );
+        const result = await transcriber.transcribe({
+          audio: buffer,
+          mimeType: attachment.mimeType,
+          signal: abortController.signal,
+        });
 
         if (result.text.trim()) {
           transcriptions.push(result.text.trim());
@@ -109,12 +110,11 @@ export async function tryTranscribeAudioAttachments(
       clearTimeout(timeoutId);
     }
   } catch (err: unknown) {
+    const sttErr = normalizeSttError(err);
     const reason =
-      err instanceof Error
-        ? err.name === "AbortError"
-          ? "Transcription timed out"
-          : err.message
-        : String(err);
+      sttErr.category === "timeout"
+        ? "Transcription timed out"
+        : sttErr.message;
     log.warn({ err }, "Audio transcription failed");
     return { status: "error", reason };
   }

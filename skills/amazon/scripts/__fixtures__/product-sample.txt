@@ -1,0 +1,6 @@
+ACME Trail Running Shoes
+ASIN B0CDE12345
+$79.99
+Prime
+Color: Black, Blue, Red
+Size: 9, 10, 11

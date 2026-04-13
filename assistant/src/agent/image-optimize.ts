@@ -127,24 +127,36 @@ function runSips(inputBytes: Buffer): Buffer | null {
  * Results are cached on disk by content hash so repeated sends of the same
  * image (or daemon restarts) skip the sips call entirely.
  */
+/**
+ * Decide whether an image needs to be rescaled before sending.
+ *
+ * Anthropic rejects many-image requests when any image exceeds 2000 px on a
+ * side, so dimensions — not file size — are the authoritative gate. A sparse
+ * screenshot can be under 300 KB while still being 3000+ px wide, which the
+ * byte-size heuristic alone would let slip through.
+ *
+ * Exported for unit testing.
+ */
+export function shouldRescaleImage(
+  dims: { width: number; height: number } | null,
+  byteLength: number,
+): boolean {
+  if (dims) {
+    // Dimensions known — they are the authoritative check.
+    return dims.width > MAX_DIMENSION || dims.height > MAX_DIMENSION;
+  }
+  // Dimensions unparseable — fall back to file size as a rough proxy.
+  return byteLength > OPTIMIZE_THRESHOLD_BYTES;
+}
+
 export function optimizeImageForTransport(
   base64Data: string,
   mediaType: string,
 ): { data: string; mediaType: string } {
   const rawBytes = Buffer.from(base64Data, "base64");
-
-  // Small images don't need optimization.
-  if (rawBytes.length <= OPTIMIZE_THRESHOLD_BYTES) {
-    return { data: base64Data, mediaType };
-  }
-
-  // If dimensions are already within limits, skip.
   const dims = parseImageDimensions(base64Data, mediaType);
-  if (
-    dims &&
-    dims.width <= MAX_DIMENSION &&
-    dims.height <= MAX_DIMENSION
-  ) {
+
+  if (!shouldRescaleImage(dims, rawBytes.length)) {
     return { data: base64Data, mediaType };
   }
 

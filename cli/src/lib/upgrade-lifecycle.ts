@@ -126,6 +126,72 @@ export async function captureContainerEnv(
 }
 
 /**
+ * Best-effort fetch of the running service group version from the gateway
+ * `/healthz` endpoint.  Returns `undefined` when the endpoint is
+ * unreachable or does not include a version field.
+ */
+export async function fetchCurrentVersion(
+  runtimeUrl: string,
+): Promise<string | undefined> {
+  try {
+    const resp = await fetch(`${runtimeUrl}/healthz`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (resp.ok) {
+      const body = (await resp.json()) as { version?: string };
+      return body.version;
+    }
+  } catch {
+    // Best-effort
+  }
+  return undefined;
+}
+
+/**
+ * Determine the version that was running before the current one.
+ *
+ * Checks (in order):
+ *  1. `entry.previousVersion` (saved by the upgrade flow from health).
+ *  2. The releases list from the platform API — finds the version
+ *     immediately before `currentVersion`.
+ *
+ * Returns `undefined` when neither source yields a result.
+ */
+export async function fetchPreviousVersion(
+  currentVersion: string | undefined,
+  previousVersionFromLockfile: string | undefined,
+): Promise<string | undefined> {
+  // 1. Lockfile-cached value (written during upgrade from health endpoint)
+  if (previousVersionFromLockfile) return previousVersionFromLockfile;
+
+  // 2. Derive from releases list
+  if (!currentVersion) return undefined;
+  try {
+    const { getPlatformUrl } = await import("./platform-client.js");
+    const platformUrl = getPlatformUrl();
+    const resp = await fetch(`${platformUrl}/v1/releases/?stable=true`, {
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!resp.ok) return undefined;
+
+    const releases = (await resp.json()) as Array<{ version?: string }>;
+    const normalizedCurrent = currentVersion.replace(/^v/, "");
+
+    // Releases are ordered newest-first; find the entry right after the
+    // current version (i.e. the one that was running before the upgrade).
+    const idx = releases.findIndex(
+      (r) => (r.version ?? "").replace(/^v/, "") === normalizedCurrent,
+    );
+    if (idx >= 0 && idx + 1 < releases.length) {
+      return releases[idx + 1].version;
+    }
+  } catch {
+    // Best-effort
+  }
+  return undefined;
+}
+
+/**
  * Poll the gateway `/readyz` endpoint until it returns 200 or the timeout
  * elapses. Returns whether the assistant became ready.
  */
@@ -314,27 +380,8 @@ export async function performDockerRollback(
     throw new Error("targetVersion is required for performDockerRollback");
   }
 
-  const currentVersion = entry.serviceGroupVersion;
-
-  // Validate target version < current version
-  if (currentVersion) {
-    const cmp = compareVersions(targetVersion, currentVersion);
-    if (cmp !== null) {
-      if (cmp > 0) {
-        const msg =
-          "Cannot roll back to a newer version. Use `vellum upgrade` instead.";
-        console.error(msg);
-        emitCliError("VERSION_DIRECTION", msg);
-        process.exit(1);
-      }
-      if (cmp === 0) {
-        const msg = `Already on version ${targetVersion}. Nothing to roll back to.`;
-        console.error(msg);
-        emitCliError("VERSION_DIRECTION", msg);
-        process.exit(1);
-      }
-    }
-  }
+  // Fetch the current running version from the health endpoint.
+  let currentVersion: string | undefined;
 
   const instanceName = entry.assistantId;
   const res = dockerResourceNames(instanceName);
@@ -383,7 +430,7 @@ export async function performDockerRollback(
   console.log("📸 Capturing current image references for rollback...");
   const currentImageRefs = await captureImageRefs(res);
 
-  // Capture current migration state for rollback targeting
+  // Capture current migration state and running version for rollback targeting
   let preMigrationState: {
     dbVersion?: number;
     lastWorkspaceMigrationId?: string;
@@ -395,25 +442,54 @@ export async function performDockerRollback(
     );
     if (healthResp.ok) {
       const health = (await healthResp.json()) as {
+        version?: string;
         migrations?: { dbVersion?: number; lastWorkspaceMigrationId?: string };
       };
       preMigrationState = health.migrations ?? {};
+      currentVersion = health.version;
     }
   } catch {
     // Best-effort
   }
 
+  // Validate target version < current version
+  if (!currentVersion) {
+    console.warn(
+      "⚠️  Could not determine current version from health endpoint — skipping version-direction check.\n",
+    );
+  }
+  if (currentVersion) {
+    const cmp = compareVersions(targetVersion, currentVersion);
+    if (cmp !== null) {
+      if (cmp > 0) {
+        const msg =
+          "Cannot roll back to a newer version. Use `vellum upgrade` instead.";
+        console.error(msg);
+        emitCliError("VERSION_DIRECTION", msg);
+        process.exit(1);
+      }
+      if (cmp === 0) {
+        const msg = `Already on version ${targetVersion}. Nothing to roll back to.`;
+        console.error(msg);
+        emitCliError("VERSION_DIRECTION", msg);
+        process.exit(1);
+      }
+    }
+  }
+
   // Persist rollback state to lockfile BEFORE any destructive changes
-  if (entry.serviceGroupVersion && entry.containerInfo) {
+  if (entry.containerInfo) {
     const rollbackEntry: AssistantEntry = {
       ...entry,
-      previousServiceGroupVersion: entry.serviceGroupVersion,
       previousContainerInfo: { ...entry.containerInfo },
+      previousVersion: currentVersion,
       previousDbMigrationVersion: preMigrationState.dbVersion,
       previousWorkspaceMigrationId: preMigrationState.lastWorkspaceMigrationId,
     };
     saveAssistantEntry(rollbackEntry);
-    console.log(`   Saved rollback state: ${entry.serviceGroupVersion}\n`);
+    if (currentVersion) {
+      console.log(`   Saved rollback state: ${currentVersion}\n`);
+    }
   }
 
   // Record rollback start in workspace git history
@@ -613,7 +689,6 @@ export async function performDockerRollback(
     // Swap current/previous state to enable "rollback the rollback"
     const updatedEntry: AssistantEntry = {
       ...entry,
-      serviceGroupVersion: targetVersion,
       containerInfo: {
         assistantImage: targetImageTags.assistant,
         gatewayImage: targetImageTags.gateway,
@@ -623,7 +698,6 @@ export async function performDockerRollback(
         cesDigest: newDigests?.["credential-executor"],
         networkName: res.network,
       },
-      previousServiceGroupVersion: entry.serviceGroupVersion,
       previousContainerInfo: entry.containerInfo,
       previousDbMigrationVersion: preMigrationState.dbVersion,
       previousWorkspaceMigrationId: preMigrationState.lastWorkspaceMigrationId,
@@ -749,7 +823,6 @@ export async function performDockerRollback(
                 currentImageRefs["credential-executor"],
               networkName: res.network,
             },
-            previousServiceGroupVersion: undefined,
             previousContainerInfo: undefined,
             previousDbMigrationVersion: undefined,
             previousWorkspaceMigrationId: undefined,

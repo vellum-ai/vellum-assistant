@@ -69,11 +69,53 @@ Unlike the SSE-based host proxies used by the macOS client, `host_browser_reques
 
 A single guardian may have multiple parallel extension installs connected at once (two Chrome profiles, two desktops sharing a sync identity). Each install generates a stable `clientInstanceId` on first run, persists it in `chrome.storage.local`, and sends it on every WebSocket handshake as a query param (`clientInstanceId=...`) or header (`x-client-instance-id`). The registry keys inner entries by that id so sibling installs don't evict each other on register/unregister. The default `send(guardianId, msg)` path routes to whichever instance has the most recent activity (`lastActiveAt`); `sendToInstance(guardianId, clientInstanceId, msg)` pins a specific install. Older extension builds that omit the id get a connection-scoped `legacy:<connectionId>` fallback key so they degrade gracefully to single-instance semantics.
 
-`Conversation.hostBrowserSenderOverride` is the integration point between the turn layer and the registry. When a turn for a chrome-extension interface enters the routes layer, `conversation-routes.ts` resolves the active registry entry for the caller's guardian and sets the override to a sender that writes to that WebSocket. `Conversation.restoreBrowserProxyAvailability()` re-threads the override on queue drain — without this, the drain path would clobber the registry-routed sender with the default `sendToClient` (pointed at the SSE hub) and `host_browser_request` frames would stop reaching the extension mid-queue.
+`Conversation.hostBrowserSenderOverride` is the integration point between the turn layer and the registry. When any turn enters the routes layer and the guardian has an active extension connection in the `ChromeExtensionRegistry`, `conversation-routes.ts` resolves the registry entry and sets the override to a sender that writes to that WebSocket. This applies to chrome-extension turns (where the registry is the only transport) and macOS turns (where the extension connection lets browser tools route through the user's real Chrome session instead of cdp-inspect/local). `Conversation.restoreBrowserProxyAvailability()` re-threads the override on queue drain — without this, the drain path would clobber the registry-routed sender with the default `sendToClient` (pointed at the SSE hub) and `host_browser_request` frames would stop reaching the extension mid-queue.
 
 Capability token bootstrap for self-hosted deployments is handled by `routes/browser-extension-pair-routes.ts` (loopback-only; mints a guardian-bound HMAC capability token via `capability-tokens.ts`). Cloud deployments issue guardian-bound JWTs via the gateway's WorkOS-backed flow — `browser-extension-pair-routes.ts` is not involved.
 
 See `docs/browser-use-architecture-phase2.md` for the full wire diagram and component inventory.
+
+### Canonical browser backend precedence (macOS)
+
+On macOS-originated turns, the CDP factory (`tools/browser/cdp-client/factory.ts`) evaluates three browser backends in strict priority order. Each candidate is tried lazily; if the first command fails with a transport-level error, the factory falls over to the next candidate. CDP protocol errors (the browser understood the command but rejected it) do NOT trigger failover.
+
+| Priority | Backend         | Condition                                                                                                                                                                                           | Source                                                                                 |
+| -------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| 1        | **Extension**   | `hostBrowserProxy` present AND `isAvailable()` returns `true` (registry-routed WebSocket is connected)                                                                                              | `ChromeExtensionRegistry` via `resolveHostBrowserSender()` in `conversation-routes.ts` |
+| 2        | **cdp-inspect** | (a) `hostBrowser.cdpInspect.enabled` is `true` in config, OR (b) `transportInterface === "macos"` AND `desktopAuto.enabled` is `true` (default) AND the cooldown from a prior failure is not active | Config + `desktopAuto` policy in factory                                               |
+| 3        | **Local**       | Always present as the final fallback                                                                                                                                                                | Playwright sacrificial-profile browser managed by `browserManager`                     |
+
+**Fallback criteria for cdp-inspect (desktop-auto):**
+
+- On macOS, `desktopAuto.enabled` defaults to `true`, so cdp-inspect is attempted even when the top-level `cdpInspect.enabled` is `false`.
+- If the cdp-inspect probe fails (Chrome was not launched with `--remote-debugging-port`, or the endpoint is unreachable), the factory records a cooldown timestamp (`desktopAuto.cooldownMs`, default 30 seconds).
+- While the cooldown is active, subsequent macOS turns skip the cdp-inspect candidate entirely and go straight to local, bounding the per-call latency penalty to one `probeTimeoutMs` (default 500ms) per cooldown window.
+- The cooldown only applies to desktop-auto candidates (reason starts with `"desktopAuto:"`). Explicitly configured cdp-inspect (`enabled: true`) is never cooldown-suppressed.
+
+**After the first successful CDP command**, the selected backend becomes **sticky** for the remainder of the tool invocation. Subsequent commands always route through the same backend so multi-command tool flows do not hop transports mid-step.
+
+### Per-tool `browser_mode` override
+
+All CDP-backed browser tools (`browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_click`, `browser_type`, `browser_hover`, `browser_scroll`, `browser_press_key`, `browser_select_option`, `browser_wait_for`, `browser_extract`, `browser_fill_credential`, `browser_attach`, `browser_detach`, `browser_close`) accept an optional `browser_mode` input parameter that overrides the automatic backend selection for that invocation.
+
+| Value            | Behavior                                                                 |
+| ---------------- | ------------------------------------------------------------------------ |
+| `auto` (default) | Existing priority-ordered fallback: extension -> cdp-inspect -> local    |
+| `extension`      | Pin to chrome-extension backend. Fails immediately if proxy unavailable. |
+| `cdp-inspect`    | Pin to CDP inspect/debugger backend. Fails if endpoint unreachable.      |
+| `local`          | Pin to local Playwright-managed browser. No fallback.                    |
+| `cdp-debugger`   | Alias for `cdp-inspect`.                                                 |
+| `playwright`     | Alias for `local`.                                                       |
+
+**Strict pinned-mode semantics**: When `browser_mode` is set to a specific backend (not `auto`), the factory builds exactly one candidate and disables failover. If the pinned backend is unavailable, the tool returns a detailed error including:
+
+- The requested mode
+- An ordered list of attempted backends with exact failure reasons
+- A remediation checklist tailored by backend and failure code (e.g. "Ensure Chrome is running with --remote-debugging-port=9222")
+
+**Auto-mode fallback logging**: In auto mode, fallback transitions are logged at `warn` level with structured metadata including the full candidate sequence and per-candidate failure reasons. This ensures fallback events are always observable in production logs.
+
+**Test coverage:** Regression tests for `browser_mode` wiring live in `__tests__/headless-browser-mode.test.ts`. E2E regression tests for backend precedence live in `__tests__/host-browser-e2e-cloud.test.ts` (extension path) and `__tests__/conversation-routes-disk-view.test.ts` (macOS fallback path). Unit tests for pinned candidate construction and failover live in `tools/browser/cdp-client/__tests__/factory.test.ts`.
 
 ### Channel approvals (Telegram, Slack)
 

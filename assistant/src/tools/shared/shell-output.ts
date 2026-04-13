@@ -3,6 +3,8 @@ import { unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { safeStringSlice } from "../../util/unicode.js";
+
 export const MAX_OUTPUT_LENGTH = 20_000;
 
 /** Tracks temp files created for truncated shell output so they can be cleaned up on shutdown. */
@@ -63,7 +65,7 @@ export function formatShellOutput(
     }
     const fileAttr = fullOutputPath ? ` file="${fullOutputPath}"` : "";
     const msg = `<output_truncated limit="20K"${fileAttr} />`;
-    output = output.slice(0, MAX_OUTPUT_LENGTH) + `\n${msg}`;
+    output = safeStringSlice(output, 0, MAX_OUTPUT_LENGTH) + `\n${msg}`;
     statusParts.push(msg);
   }
 

@@ -147,7 +147,7 @@ struct AssistantTransferSection: View {
             }
             let lockfileSuccess = LockfileAssistant.ensureManagedEntry(
                 assistantId: platformAssistant.id,
-                runtimeUrl: AuthService.shared.baseURL,
+                runtimeUrl: VellumEnvironment.resolvedPlatformURL,
                 hatchedAt: platformAssistant.created_at ?? Date().iso8601String
             )
             guard lockfileSuccess else {
@@ -171,7 +171,8 @@ struct AssistantTransferSection: View {
             currentStep = "Cleaning up..."
             let localName = assistant.assistantId
             do {
-                try await AppDelegate.shared?.vellumCli.retire(name: localName)
+                let client = AssistantManagementClient.create(for: assistant)
+                try await client.retire(name: localName)
             } catch {
                 log.error("[transfer] Failed to retire local assistant \(localName, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }

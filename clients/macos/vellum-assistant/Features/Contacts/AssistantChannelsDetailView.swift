@@ -3,15 +3,14 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Right-pane detail view that shows the assistant's channel configuration
-/// cards (Telegram, Slack, Voice, Email) when the assistant row is selected
-/// in the Contacts list.
+/// cards (Telegram, Slack, Voice) when the assistant row is selected
+/// in the Contacts list. Email lives in the Models & Services settings tab.
 @MainActor
 struct AssistantChannelsDetailView: View {
     @ObservedObject var store: SettingsStore
     var connectionManager: GatewayConnectionManager?
     var conversationManager: ConversationManager?
     var assistantName: String = "your assistant"
-    var isEmailEnabled: Bool = false
     var showCardBorders: Bool = true
 
     // Telegram credential entry
@@ -28,9 +27,6 @@ struct AssistantChannelsDetailView: View {
     @State private var slackChannelBotTokenInput = ""
     @State private var slackChannelAppTokenInput = ""
 
-    // Email copy state
-    @State private var emailCopied: Bool = false
-
     // Disconnect confirmation
     @State private var channelToDisconnect: String? = nil
 
@@ -38,7 +34,6 @@ struct AssistantChannelsDetailView: View {
     @State private var telegramRowExpanded: Bool = false
     @State private var slackRowExpanded: Bool = false
     @State private var voiceRowExpanded: Bool = false
-    @State private var emailRowExpanded: Bool = false
 
     // Auto-focus first input when setup expands
     @FocusState private var isTelegramTokenFocused: Bool
@@ -78,9 +73,6 @@ struct AssistantChannelsDetailView: View {
             store.refreshTelegramStatus()
             store.refreshTwilioStatus()
             store.fetchChannelSetupStatus()
-            if isEmailEnabled {
-                store.refreshAssistantEmail()
-            }
             store.refreshChannelVerificationStatus(channel: "telegram")
             store.refreshChannelVerificationStatus(channel: "phone")
             store.refreshChannelVerificationStatus(channel: "slack")
@@ -110,11 +102,6 @@ struct AssistantChannelsDetailView: View {
                 store.refreshTwilioNumbers()
             } else if status == "incomplete" {
                 store.refreshTwilioNumbers()
-            }
-        }
-        .onChange(of: isEmailEnabled) { _, enabled in
-            if enabled {
-                store.refreshAssistantEmail()
             }
         }
         .onChange(of: telegramSetupExpanded) { _, expanded in
@@ -157,9 +144,6 @@ struct AssistantChannelsDetailView: View {
                     slackChannelCard
                     telegramCard
                     voiceCard
-                    if isEmailEnabled {
-                        emailCard
-                    }
                 }
             }
             .padding(VSpacing.lg)
@@ -184,10 +168,6 @@ struct AssistantChannelsDetailView: View {
                 telegramRow
                 SettingsDivider()
                 voiceRow
-                if isEmailEnabled {
-                    SettingsDivider()
-                    emailRow
-                }
             }
         }
     }
@@ -336,21 +316,6 @@ struct AssistantChannelsDetailView: View {
         }
     }
 
-    private var emailRow: some View {
-        let isConnected = store.assistantEmail != nil
-        let value: String? = store.assistantEmail ?? "Not configured"
-        return Group {
-            channelRowHeader(
-                name: "Email",
-                value: value,
-                isConnected: isConnected,
-                isExpanded: $emailRowExpanded,
-                isExpandable: false
-            )
-            .padding(.vertical, VSpacing.sm)
-        }
-    }
-
     // MARK: - Channel Row Header (3-column layout)
 
     private func channelIcon(for name: String) -> VIcon {
@@ -358,7 +323,6 @@ struct AssistantChannelsDetailView: View {
         case "Slack": return .hash
         case "Telegram": return .send
         case "Phone Calling": return .phone
-        case "Email": return .mail
         default: return .messageCircle
         }
     }
@@ -492,46 +456,6 @@ struct AssistantChannelsDetailView: View {
             try? await Task.sleep(nanoseconds: 100_000_000)
             guard !Task.isCancelled else { return }
             action()
-        }
-    }
-
-    // MARK: - Email Channel Card
-
-    private var emailCard: some View {
-        SettingsCard(title: "Email", subtitle: "Send and receive emails as your assistant", showBorder: showCardBorders) {
-            if let email = store.assistantEmail {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(.circleCheck, size: 14)
-                        .foregroundStyle(VColor.systemPositiveStrong)
-                    Text(email)
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentDefault)
-                        .textSelection(.enabled)
-                    Spacer()
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(email, forType: .string)
-                        emailCopied = true
-                        Task {
-                            try? await Task.sleep(nanoseconds: 2_000_000_000)
-                            emailCopied = false
-                        }
-                    } label: {
-                        VIconView(emailCopied ? .check : .copy, size: 12)
-                            .foregroundStyle(emailCopied ? VColor.systemPositiveStrong : VColor.contentSecondary)
-                            .frame(width: 28, height: 28)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Copy email address")
-                    .help("Copy email address")
-                }
-            } else {
-                VInlineMessage(
-                    "Not configured — run the Email Setup skill to assign an address",
-                    tone: .warning
-                )
-            }
         }
     }
 

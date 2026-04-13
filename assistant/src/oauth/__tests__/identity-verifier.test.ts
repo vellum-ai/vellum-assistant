@@ -34,6 +34,7 @@ function makeProviderRow(
     tokenExchangeUrl: "https://example.com/token",
     refreshUrl: null,
     tokenEndpointAuthMethod: "client_secret_post",
+    tokenExchangeBodyFormat: "form",
     userinfoUrl: null,
     baseUrl: null,
     defaultScopes: "[]",

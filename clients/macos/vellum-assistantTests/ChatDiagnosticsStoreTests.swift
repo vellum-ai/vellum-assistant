@@ -563,7 +563,7 @@ struct ChatDiagnosticsStoreTests {
             viewportHeight: 800.0,
             source: .chatView,
             expandedProgressCardCount: 1,
-            composerPopupState: ComposerPopupState.none,
+            composerPopupState: ComposerPopupState.inactive,
             scrollIntentSource: .anchor
         )
 
@@ -583,7 +583,7 @@ struct ChatDiagnosticsStoreTests {
         let decoded = try decoder.decode(ChatTranscriptSnapshot.self, from: data)
         #expect(decoded.source == .chatView)
         #expect(decoded.expandedProgressCardCount == 1)
-        #expect(decoded.composerPopupState == ComposerPopupState.none)
+        #expect(decoded.composerPopupState == ComposerPopupState.inactive)
         #expect(decoded.scrollIntentSource == .anchor)
     }
 
@@ -623,7 +623,7 @@ struct ChatDiagnosticsStoreTests {
             source: .scrollCoordinator,
             interaction: .anchorJump,
             expandedProgressCardCount: 0,
-            composerPopupState: ComposerPopupState.none,
+            composerPopupState: ComposerPopupState.inactive,
             scrollIntentSource: .anchor
         ))
 
@@ -632,7 +632,7 @@ struct ChatDiagnosticsStoreTests {
         #expect(recorded?.source == .scrollCoordinator)
         #expect(recorded?.interaction == .anchorJump)
         #expect(recorded?.expandedProgressCardCount == 0)
-        #expect(recorded?.composerPopupState == ComposerPopupState.none)
+        #expect(recorded?.composerPopupState == ComposerPopupState.inactive)
         #expect(recorded?.scrollIntentSource == .anchor)
     }
 
@@ -691,7 +691,7 @@ struct ChatDiagnosticsStoreTests {
     func composerPopupStateRawValuesAreStable() {
         #expect(ComposerPopupState.slash.rawValue == "slash")
         #expect(ComposerPopupState.emoji.rawValue == "emoji")
-        #expect(ComposerPopupState.none.rawValue == "none")
+        #expect(ComposerPopupState.inactive.rawValue == "none")
     }
 
     @Test

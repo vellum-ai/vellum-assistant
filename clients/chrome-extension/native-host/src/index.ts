@@ -12,14 +12,18 @@
  *   1. Verify that the calling extension's origin (passed by Chrome as the
  *      first command-line argument, e.g. `chrome-extension://<id>/`) is on a
  *      hard-coded allowlist of known Vellum extension IDs.
- *   2. Listen on stdin for `{ type: "request_token" }` frames.
- *   3. POST the calling extension's origin to the running assistant's
- *      `/v1/browser-extension-pair` endpoint (port resolved from
- *      `--assistant-port`, then `~/.vellum/runtime-port`, then defaulting to
- *      7821).
- *   4. Echo the assistant's response back to Chrome as a
+ *   2. Listen on stdin for `{ type: "request_token" }` and
+ *      `{ type: "list_assistants" }` frames.
+ *   3. For `request_token`: POST the calling extension's origin to the
+ *      running assistant's `/v1/browser-extension-pair` endpoint (port
+ *      resolved from optional `assistantId` lockfile lookup, then
+ *      `--assistant-port`, then `~/.vellum/runtime-port`, then defaulting
+ *      to 7821).
+ *   4. For `list_assistants`: read the lockfile and return the assistant
+ *      inventory as `{ type: "assistants_response", assistants, activeAssistantId }`.
+ *   5. Echo the assistant's response back to Chrome as a
  *      `{ type: "token_response", token, expiresAt, guardianId }` frame.
- *   5. On any unrecoverable error, write a `{ type: "error", message }` frame
+ *   6. On any unrecoverable error, write a `{ type: "error", message }` frame
  *      and exit with a non-zero status.
  *
  * The helper deliberately does NOT persist tokens — the extension is
@@ -37,6 +41,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { readAssistantInventory, resolveDaemonPort } from "./lockfile.js";
 import { decodeFrames, encodeFrame, FrameDecodeError } from "./protocol.js";
 
 /**
@@ -46,47 +51,129 @@ import { decodeFrames, encodeFrame, FrameDecodeError } from "./protocol.js";
  * argument, e.g. `chrome-extension://<extension-id>/`.
  * Anything not on this list is rejected before any further processing.
  *
- * Loaded from the canonical config at
- * `meta/browser-extension/chrome-extension-allowlist.json`.
+ * Loaded from the union of three sources so developers can allowlist a
+ * local unpacked-extension ID without committing it to the repo:
+ *
+ *   1. Canonical repo config (`meta/browser-extension/chrome-extension-allowlist.json`)
+ *   2. Local override (`~/.vellum/chrome-extension-allowlist.local.json`)
+ *   3. Env var (`VELLUM_CHROME_EXTENSION_IDS` / `VELLUM_CHROME_EXTENSION_ID`)
  */
 const EXTENSION_ID_REGEX = /^[a-p]{32}$/;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const ALLOWLIST_CONFIG_PATH = resolve(
-  __dirname,
-  "..",
-  "..",
-  "..",
-  "..",
-  "meta",
-  "browser-extension",
-  "chrome-extension-allowlist.json",
+const ALLOWLIST_CONFIG_PATH_CANDIDATES = [
+  // Source-checkout / test path (works when running from repo).
+  resolve(
+    __dirname,
+    "..",
+    "..",
+    "..",
+    "..",
+    "meta",
+    "browser-extension",
+    "chrome-extension-allowlist.json",
+  ),
+  // Repo-root current-working-directory fallback.
+  resolve(
+    process.cwd(),
+    "meta",
+    "browser-extension",
+    "chrome-extension-allowlist.json",
+  ),
+];
+const LOCAL_OVERRIDE_PATH = join(
+  homedir(),
+  ".vellum",
+  "chrome-extension-allowlist.local.json",
 );
 
-function loadAllowedExtensionIds(): ReadonlySet<string> {
-  try {
-    const raw = readFileSync(ALLOWLIST_CONFIG_PATH, "utf8");
-    const parsed = JSON.parse(raw) as {
-      allowedExtensionIds?: unknown;
-    };
-    if (!Array.isArray(parsed.allowedExtensionIds)) {
-      throw new Error("allowedExtensionIds is not an array");
-    }
-    const ids = parsed.allowedExtensionIds
-      .filter((id): id is string => typeof id === "string")
-      .filter((id) => EXTENSION_ID_REGEX.test(id));
-    if (ids.length === 0) {
-      throw new Error("allowedExtensionIds has no valid extension ids");
-    }
-    return new Set<string>(ids);
-  } catch (err) {
-    process.stderr.write(
-      `vellum-chrome-native-host: failed to load allowlist config at ${ALLOWLIST_CONFIG_PATH}: ${
-        err instanceof Error ? err.message : String(err)
-      }\n`,
-    );
-    return new Set<string>();
+function parseAllowedExtensionIds(value: unknown, opts: { allowEmpty?: boolean } = {}): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error("allowedExtensionIds is not an array");
   }
+  const ids = value
+    .filter((id): id is string => typeof id === "string")
+    .filter((id) => EXTENSION_ID_REGEX.test(id));
+  if (ids.length === 0 && !opts.allowEmpty) {
+    throw new Error("allowedExtensionIds has no valid extension ids");
+  }
+  return ids;
+}
+
+function loadAllowedExtensionIdsFromEnv(): string[] {
+  const raw =
+    process.env.VELLUM_CHROME_EXTENSION_IDS ??
+    process.env.VELLUM_CHROME_EXTENSION_ID;
+  if (!raw) return [];
+  const ids = raw
+    .split(/[,\s]+/)
+    .map((id) => id.trim())
+    .filter((id) => id.length > 0)
+    .filter((id) => EXTENSION_ID_REGEX.test(id));
+  return Array.from(new Set(ids));
+}
+
+function readIdsFromFile(path: string, opts: { allowEmpty?: boolean } = {}): string[] {
+  const raw = readFileSync(path, "utf8");
+  const parsed = JSON.parse(raw) as { allowedExtensionIds?: unknown };
+  return parseAllowedExtensionIds(parsed.allowedExtensionIds, opts);
+}
+
+function loadAllowedExtensionIds(): ReadonlySet<string> {
+  const merged = new Set<string>();
+  const loadErrors: string[] = [];
+
+  // 1. Canonical repo config. Try each candidate; first one that parses wins
+  //    (the two candidates represent the same logical file in different
+  //    resolution contexts — __dirname-relative vs cwd-relative).
+  let canonicalLoaded = false;
+  for (const configPath of ALLOWLIST_CONFIG_PATH_CANDIDATES) {
+    try {
+      for (const id of readIdsFromFile(configPath)) merged.add(id);
+      canonicalLoaded = true;
+      break;
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      loadErrors.push(`${configPath}: ${detail}`);
+    }
+  }
+
+  // 2. Local override. Silently absent is fine; malformed warns but doesn't
+  //    block the load.
+  try {
+    for (const id of readIdsFromFile(LOCAL_OVERRIDE_PATH, { allowEmpty: true })) {
+      merged.add(id);
+    }
+  } catch (err) {
+    const isMissing =
+      err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT";
+    if (!isMissing) {
+      const detail = err instanceof Error ? err.message : String(err);
+      loadErrors.push(`${LOCAL_OVERRIDE_PATH}: ${detail}`);
+    }
+  }
+
+  // 3. Env-var fallback. Compiled Bun binaries run from a virtual FS root so
+  //    repo-relative config paths can disappear in packaged builds;
+  //    `clients/macos/build.sh` bakes the canonical IDs into
+  //    `VELLUM_CHROME_EXTENSION_IDS` at compile time for that case.
+  for (const id of loadAllowedExtensionIdsFromEnv()) merged.add(id);
+
+  if (merged.size === 0) {
+    process.stderr.write(
+      "vellum-chrome-native-host: failed to load allowlist from canonical config, " +
+        `local override (${LOCAL_OVERRIDE_PATH}), or env vars; details: ${
+          loadErrors.length > 0 ? loadErrors.join(" | ") : "no sources available"
+        }\n`,
+    );
+  } else if (!canonicalLoaded && loadErrors.length > 0) {
+    process.stderr.write(
+      "vellum-chrome-native-host: canonical allowlist unreadable — using local override and/or " +
+        `env vars only. Details: ${loadErrors.join(" | ")}\n`,
+    );
+  }
+
+  return merged;
 }
 
 const ALLOWED_EXTENSION_IDS: ReadonlySet<string> = loadAllowedExtensionIds();
@@ -105,6 +192,14 @@ const RUNTIME_PORT_FILE = join(homedir(), ".vellum", "runtime-port");
  */
 export const NATIVE_HOST_MARKER_HEADER = "x-vellum-native-host";
 export const NATIVE_HOST_MARKER_VALUE = "1";
+
+/**
+ * Protocol version for the native messaging handshake. Increment this when
+ * making breaking changes to the message format. The extension uses this to
+ * detect incompatible native host versions and show an "update your desktop
+ * app" message.
+ */
+export const PROTOCOL_VERSION = 1;
 
 interface TokenResponse {
   token: string;
@@ -267,7 +362,7 @@ function writeFrameAndExitAsync(
  */
 function fail(message: string, code = 1): never {
   process.stderr.write(`vellum-chrome-native-host: ${message}\n`);
-  writeErrorFrameAndExit({ type: "error", message }, code);
+  writeErrorFrameAndExit({ type: "error", message, protocolVersion: PROTOCOL_VERSION }, code);
 }
 
 /**
@@ -283,8 +378,25 @@ function fail(message: string, code = 1): never {
 async function requestToken(
   extensionOrigin: string,
   argv: readonly string[],
+  assistantId?: string,
 ): Promise<TokenResponse> {
-  const port = resolveAssistantPort(argv);
+  // When an assistantId is provided, attempt to resolve the daemon port
+  // from the lockfile first. This lets the extension target a specific
+  // assistant in multi-instance setups. Falls back to the standard
+  // resolution chain (--assistant-port, runtime-port file, default) when
+  // the assistantId is absent or the lockfile doesn't have a daemon port
+  // for that assistant.
+  let port: number;
+  if (assistantId) {
+    const lockfilePort = resolveDaemonPort(assistantId);
+    if (lockfilePort !== undefined) {
+      port = lockfilePort;
+    } else {
+      port = resolveAssistantPort(argv);
+    }
+  } else {
+    port = resolveAssistantPort(argv);
+  }
   const url = `http://127.0.0.1:${port}/v1/browser-extension-pair`;
 
   let response: Response;
@@ -358,7 +470,7 @@ async function main(): Promise<void> {
       `vellum-chrome-native-host: unauthorized_origin (got ${extensionOrigin ?? "<none>"})\n`,
     );
     writeErrorFrameAndExit(
-      { type: "error", message: "unauthorized_origin" },
+      { type: "error", message: "unauthorized_origin", protocolVersion: PROTOCOL_VERSION },
       1,
     );
     // Defense-in-depth: even though writeErrorFrameAndExit calls
@@ -396,30 +508,59 @@ async function main(): Promise<void> {
         }
         handling = true;
 
-        if (
-          !frame ||
-          typeof frame !== "object" ||
-          (frame as { type?: unknown }).type !== "request_token"
-        ) {
+        if (!frame || typeof frame !== "object") {
           fail("unsupported_frame_type");
         }
 
-        try {
-          const { token, expiresAt, guardianId, assistantPort } =
-            await requestToken(extensionOrigin!, process.argv);
-          await writeFrameAndExitAsync(
-            {
-              type: "token_response",
-              token,
-              expiresAt,
-              guardianId,
-              assistantPort,
-            },
-            0,
-          );
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          fail(message);
+        const frameType = (frame as { type?: unknown }).type;
+
+        if (frameType === "list_assistants") {
+          // Return the assistant inventory from the lockfile. This is a
+          // synchronous read — no network call needed.
+          try {
+            const inventory = readAssistantInventory();
+            await writeFrameAndExitAsync(
+              {
+                type: "assistants_response",
+                assistants: inventory.assistants,
+                activeAssistantId: inventory.activeAssistantId,
+                protocolVersion: PROTOCOL_VERSION,
+              },
+              0,
+            );
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            fail(message);
+          }
+        } else if (frameType === "request_token") {
+          // Extract optional assistantId from the request frame. When
+          // present, the helper resolves the target daemon port from the
+          // lockfile instead of the default resolution chain.
+          const assistantId =
+            typeof (frame as { assistantId?: unknown }).assistantId === "string"
+              ? ((frame as { assistantId: string }).assistantId)
+              : undefined;
+
+          try {
+            const { token, expiresAt, guardianId, assistantPort } =
+              await requestToken(extensionOrigin!, process.argv, assistantId);
+            await writeFrameAndExitAsync(
+              {
+                type: "token_response",
+                token,
+                expiresAt,
+                guardianId,
+                assistantPort,
+                protocolVersion: PROTOCOL_VERSION,
+              },
+              0,
+            );
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            fail(message);
+          }
+        } else {
+          fail("unsupported_frame_type");
         }
       }
     } catch (err) {

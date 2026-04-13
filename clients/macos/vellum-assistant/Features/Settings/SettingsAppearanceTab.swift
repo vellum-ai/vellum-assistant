@@ -13,6 +13,7 @@ struct SettingsAppearanceTab: View {
     @State private var isRecordingSidebarToggle = false
     @State private var isRecordingNewChat = false
     @State private var isRecordingCurrentConversation = false
+    @State private var isRecordingMarkConversationUnread = false
     @State private var isRecordingPopOut = false
     @State private var isRecordingVoiceInput = false
     @State private var shortcutMonitor: Any?
@@ -328,6 +329,39 @@ struct SettingsAppearanceTab: View {
 
                 SettingsDivider()
 
+                // Mark conversation as unread (configurable)
+                HStack {
+                    Text("Mark conversation as unread")
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.contentSecondary)
+                    Spacer()
+                    if isRecordingMarkConversationUnread, let display = recordingDisplayString, !display.isEmpty {
+                        VShortcutTag(display)
+                    } else {
+                        VShortcutTag(ShortcutHelper.displayString(for: store.markConversationUnreadShortcut))
+                    }
+
+                    if isRecordingMarkConversationUnread {
+                        VButton(label: "Press shortcut...", style: .outlined) {
+                            stopRecording()
+                        }
+                    } else {
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(label: "Change", style: .outlined) {
+                                startRecordingMarkConversationUnread()
+                            }
+                            if !store.markConversationUnreadShortcut.isEmpty {
+                                VButton(label: "Remove", style: .outlined) {
+                                    store.markConversationUnreadShortcut = ""
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, VSpacing.md)
+
+                SettingsDivider()
+
                 // Toggle sidebar (configurable)
                 HStack {
                     Text("Toggle sidebar")
@@ -610,6 +644,13 @@ struct SettingsAppearanceTab: View {
         isRecordingCurrentConversation = true
     }
 
+    private func startRecordingMarkConversationUnread() {
+        startRecordingShortcut { shortcut, _ in
+            store.markConversationUnreadShortcut = shortcut
+        }
+        isRecordingMarkConversationUnread = true
+    }
+
     private func startRecordingPopOut() {
         startRecordingShortcut { shortcut, _ in
             store.popOutShortcut = shortcut
@@ -663,6 +704,7 @@ struct SettingsAppearanceTab: View {
         isRecordingSidebarToggle = false
         isRecordingNewChat = false
         isRecordingCurrentConversation = false
+        isRecordingMarkConversationUnread = false
         isRecordingPopOut = false
         recordingDisplayString = nil
         if let monitor = shortcutMonitor {

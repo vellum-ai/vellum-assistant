@@ -451,6 +451,7 @@ struct HatchingStepView: View {
             configValues["services.outlook-oauth.mode"] = "managed"
             configValues["services.linear-oauth.mode"] = "managed"
             configValues["services.github-oauth.mode"] = "managed"
+            configValues["services.notion-oauth.mode"] = "managed"
         }
         return configValues
     }

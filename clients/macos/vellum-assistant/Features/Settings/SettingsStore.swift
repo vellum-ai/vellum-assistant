@@ -75,6 +75,7 @@ public final class SettingsStore: ObservableObject {
     @Published var sidebarToggleShortcut: String
     @Published var newChatShortcut: String
     @Published var currentConversationShortcut: String
+    @Published var markConversationUnreadShortcut: String
     @Published var popOutShortcut: String
     @Published var cmdEnterToSend: Bool
 
@@ -465,6 +466,11 @@ public final class SettingsStore: ObservableObject {
         } else {
             self.currentConversationShortcut = UserDefaults.standard.string(forKey: "currentConversationShortcut") ?? ""
         }
+        if UserDefaults.standard.object(forKey: "markConversationUnreadShortcut") == nil {
+            self.markConversationUnreadShortcut = "cmd+shift+u"
+        } else {
+            self.markConversationUnreadShortcut = UserDefaults.standard.string(forKey: "markConversationUnreadShortcut") ?? ""
+        }
         if UserDefaults.standard.object(forKey: "popOutShortcut") == nil {
             self.popOutShortcut = "cmd+p"
         } else {
@@ -556,6 +562,11 @@ public final class SettingsStore: ObservableObject {
         $currentConversationShortcut
             .dropFirst()
             .sink { value in UserDefaults.standard.set(value, forKey: "currentConversationShortcut") }
+            .store(in: &cancellables)
+
+        $markConversationUnreadShortcut
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "markConversationUnreadShortcut") }
             .store(in: &cancellables)
 
         $popOutShortcut
@@ -680,6 +691,26 @@ public final class SettingsStore: ObservableObject {
         Task { @MainActor [weak self] in
             await self?.refreshManagedAssistantRecoveryMode()
         }
+
+        // Eagerly fetch daemon config so config-dependent state (e.g.
+        // userTimezone, mediaEmbeds, service providers) is hydrated on
+        // app startup. The daemon only broadcasts config_changed on file
+        // mutations, so without this the store would stay at init
+        // defaults until the user edits config.json.
+        Task { @MainActor [weak self] in
+            await self?.loadConfigFromDaemon()
+        }
+
+        // Refresh config on daemon (re)connect so config-dependent state
+        // recovers after the daemon restarts or after a network blip.
+        NotificationCenter.default.publisher(for: .daemonDidReconnect)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.loadConfigFromDaemon()
+                }
+            }
+            .store(in: &cancellables)
 
         // Refresh config when the daemon notifies us that config.json changed.
         NotificationCenter.default.publisher(for: .configChanged)
@@ -869,14 +900,50 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    func saveElevenLabsKey(_ raw: String) {
+    func saveElevenLabsKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        APIKeyManager.setKey(trimmed, for: "elevenlabs")
+        APIKeyManager.setCredential(trimmed, service: "elevenlabs", field: "api_key")
+        removeDeletionTombstone(type: "credential", name: "elevenlabs:api_key")
+        Task {
+            let result = await APIKeyManager.setCredential(trimmed, service: "elevenlabs", field: "api_key")
+            if result.success {
+                onSuccess?()
+            } else if let error = result.error {
+                log.error("Failed to sync ElevenLabs key to daemon: \(error, privacy: .public)")
+            }
+        }
     }
 
     func clearElevenLabsKey() {
-        APIKeyManager.deleteKey(for: "elevenlabs")
+        APIKeyManager.deleteCredential(service: "elevenlabs", field: "api_key")
+        Task {
+            let deleted = await APIKeyManager.deleteCredential(service: "elevenlabs", field: "api_key")
+            if !deleted { addDeletionTombstone(type: "credential", name: "elevenlabs:api_key") }
+        }
+    }
+
+    func saveFishAudioKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        APIKeyManager.setCredential(trimmed, service: "fish-audio", field: "api_key")
+        removeDeletionTombstone(type: "credential", name: "fish-audio:api_key")
+        Task {
+            let result = await APIKeyManager.setCredential(trimmed, service: "fish-audio", field: "api_key")
+            if result.success {
+                onSuccess?()
+            } else if let error = result.error {
+                log.error("Failed to sync Fish Audio key to daemon: \(error, privacy: .public)")
+            }
+        }
+    }
+
+    func clearFishAudioKey() {
+        APIKeyManager.deleteCredential(service: "fish-audio", field: "api_key")
+        Task {
+            let deleted = await APIKeyManager.deleteCredential(service: "fish-audio", field: "api_key")
+            if !deleted { addDeletionTombstone(type: "credential", name: "fish-audio:api_key") }
+        }
     }
 
     func clearAPIKeyForProvider(_ provider: String) {
@@ -2158,6 +2225,10 @@ public final class SettingsStore: ObservableObject {
            let mode = githubOAuth["mode"] as? String {
             self.managedOAuthMode["github"] = mode
         }
+        if let notionOAuth = services["notion-oauth"] as? [String: Any],
+           let mode = notionOAuth["mode"] as? String {
+            self.managedOAuthMode["notion"] = mode
+        }
     }
 
     @discardableResult
@@ -2902,6 +2973,144 @@ public final class SettingsStore: ObservableObject {
         return task
     }
 
+    /// Persists the selected TTS provider to the daemon config so synthesis
+    /// routes through the correct backend. The canonical config path is
+    /// `services.tts.provider`.
+    @discardableResult
+    func setTTSProvider(_ provider: String) -> Task<Bool, Never> {
+        let task = Task {
+            let success = await settingsClient.patchConfig([
+                "services": ["tts": ["provider": provider]]
+            ])
+            if !success {
+                log.error("Failed to patch config for TTS provider")
+            }
+            return success
+        }
+        return task
+    }
+
+    func setElevenLabsVoiceId(_ voiceId: String) {
+        let trimmed = voiceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task {
+            let success = await settingsClient.patchConfig([
+                "services": ["tts": ["providers": ["elevenlabs": ["voiceId": trimmed]]]]
+            ])
+            if !success {
+                log.error("Failed to patch config for ElevenLabs voice ID")
+            }
+        }
+    }
+
+    func setFishAudioReferenceId(_ referenceId: String) {
+        let trimmed = referenceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task {
+            let success = await settingsClient.patchConfig([
+                "services": ["tts": ["providers": ["fish-audio": ["referenceId": trimmed]]]]
+            ])
+            if !success {
+                log.error("Failed to patch config for Fish Audio reference ID")
+            }
+        }
+    }
+
+    /// Persists the selected STT provider to the daemon config so
+    /// transcription routes through the correct backend. The canonical
+    /// config path is `services.stt.provider`.
+    @discardableResult
+    func setSTTProvider(_ provider: String) -> Task<Bool, Never> {
+        let task = Task {
+            let success = await settingsClient.patchConfig([
+                "services": ["stt": ["provider": provider]]
+            ])
+            if !success {
+                log.error("Failed to patch config for STT provider")
+            }
+            return success
+        }
+        return task
+    }
+
+    /// Saves an API key for the given STT provider to the credential store.
+    /// The `sttProviderId` is the catalog identifier (e.g. `"openai-whisper"`,
+    /// `"deepgram"`); the method resolves the credential provider name from
+    /// the STT provider registry's `apiKeyProviderName` field so callers
+    /// don't need to know the mapping.
+    func saveSTTKey(_ raw: String, sttProviderId: String, onSuccess: (() -> Void)? = nil) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let keyProvider = Self.sttApiKeyProviderName(for: sttProviderId)
+        APIKeyManager.setKey(trimmed, for: keyProvider)
+        removeDeletionTombstone(type: "api_key", name: keyProvider)
+        Task {
+            let result = await APIKeyManager.setKey(trimmed, for: keyProvider)
+            if result.success {
+                onSuccess?()
+            } else if let error = result.error {
+                log.error("Failed to sync STT key for \(sttProviderId, privacy: .public) to daemon: \(error, privacy: .public)")
+            }
+        }
+    }
+
+    /// Clears the API key for the given STT provider from both local and
+    /// daemon credential stores.
+    func clearSTTKey(sttProviderId: String) {
+        let keyProvider = Self.sttApiKeyProviderName(for: sttProviderId)
+        APIKeyManager.deleteKey(for: keyProvider)
+        Task {
+            let deleted = await APIKeyManager.deleteKey(for: keyProvider)
+            if !deleted { addDeletionTombstone(type: "api_key", name: keyProvider) }
+        }
+    }
+
+    /// Checks whether the daemon has an API key stored for the given STT
+    /// provider.
+    func hasSTTKey(sttProviderId: String) async -> Bool {
+        let keyProvider = Self.sttApiKeyProviderName(for: sttProviderId)
+        return await APIKeyManager.hasKey(for: keyProvider)
+    }
+
+    /// Resolves the `api_key` secret-catalog provider name for a given STT
+    /// provider identifier. Looks up the `apiKeyProviderName` from the STT
+    /// provider registry; falls back to the provider id itself when the
+    /// registry entry is not found.
+    static func sttApiKeyProviderName(for sttProviderId: String) -> String {
+        loadSTTProviderRegistry()
+            .provider(withId: sttProviderId)?
+            .apiKeyProviderName ?? sttProviderId
+    }
+
+    /// Whether the given STT provider owns its API key exclusively — i.e. the
+    /// key is not shared with any other service. Exclusive-key providers can
+    /// safely have their key cleared through the STT reset flow without
+    /// affecting other features.
+    ///
+    /// A provider's key is exclusive when its `apiKeyProviderName` matches its
+    /// own `id` (e.g. `deepgram` → `deepgram`). Shared-key providers map to a
+    /// different credential name (e.g. `openai-whisper` → `openai`).
+    ///
+    /// This helper is provider-agnostic: adding a new provider only requires a
+    /// catalog entry — no new conditionals here or in the UI layer.
+    static func sttKeyIsExclusive(for sttProviderId: String) -> Bool {
+        let entry = loadSTTProviderRegistry().provider(withId: sttProviderId)
+        guard let entry else {
+            // Unknown providers are assumed exclusive — clearing an unknown
+            // key cannot collide with a known service.
+            return true
+        }
+        return entry.apiKeyProviderName == entry.id
+    }
+
+    /// Whether the given STT provider's API key is shared with another
+    /// service. The inverse of `sttKeyIsExclusive(for:)`.
+    ///
+    /// Shared-key providers should not expose a "Reset" action in the STT
+    /// settings card because clearing the key would break the sibling service
+    /// that depends on it.
+    static func sttKeyIsShared(for sttProviderId: String) -> Bool {
+        !sttKeyIsExclusive(for: sttProviderId)
+    }
+
     /// Schedules a delayed refresh of provider routing sources, giving the
     /// daemon time to re-initialize providers after a key change.
     private func scheduleRoutingSourceRefresh() {
@@ -3321,6 +3530,24 @@ public final class SettingsStore: ObservableObject {
            let webSearch = services["web-search"] as? [String: Any],
            let provider = webSearch["provider"] as? String {
             self.webSearchProvider = provider
+        }
+
+        // Sync the global TTS provider from the daemon config so the client
+        // stays aligned after restart or reconnection. The canonical path
+        // is services.tts.provider.
+        if let services = config["services"] as? [String: Any],
+           let tts = services["tts"] as? [String: Any],
+           let ttsProvider = tts["provider"] as? String {
+            UserDefaults.standard.set(ttsProvider, forKey: "ttsProvider")
+        }
+
+        // Sync the global STT provider from the daemon config so the client
+        // stays aligned after restart or reconnection. The canonical path
+        // is services.stt.provider.
+        if let services = config["services"] as? [String: Any],
+           let stt = services["stt"] as? [String: Any],
+           let sttProvider = stt["provider"] as? String {
+            UserDefaults.standard.set(sttProvider, forKey: "sttProvider")
         }
 
         Self.applyHostBrowserCdpInspectConfig(config, into: self)

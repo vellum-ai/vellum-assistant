@@ -99,8 +99,12 @@ mock.module("../permissions/checker.js", () => ({
     scopeOptionsOverride ?? [{ label: "/tmp", scope: "/tmp" }],
 }));
 
+// Mock every export so downstream test files that dynamically import modules
+// with a static `from "../memory/tool-usage-store.js"` still see all symbols.
 mock.module("../memory/tool-usage-store.js", () => ({
   recordToolInvocation: () => {},
+  getRecentInvocations: () => [],
+  rotateToolInvocations: () => 0,
 }));
 
 mock.module("../tools/registry.js", () => ({

@@ -42,7 +42,8 @@
  */
 
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 
 import { findGuardianForChannel } from "../../contacts/contact-store.js";
 import { getLogger } from "../../util/logger.js";
@@ -95,15 +96,36 @@ export type PairServerContext = {
 };
 
 const EXTENSION_ID_REGEX = /^[a-p]{32}$/;
-const ALLOWLIST_CONFIG_PATH = resolve(
-  import.meta.dir,
-  "..",
-  "..",
-  "..",
-  "..",
-  "meta",
-  "browser-extension",
-  "chrome-extension-allowlist.json",
+const ALLOWLIST_CONFIG_PATH_CANDIDATES = [
+  // Source-checkout / test path (works when running from repo).
+  resolve(
+    import.meta.dir,
+    "..",
+    "..",
+    "..",
+    "..",
+    "meta",
+    "browser-extension",
+    "chrome-extension-allowlist.json",
+  ),
+  // Repo-root current-working-directory fallback.
+  resolve(
+    process.cwd(),
+    "meta",
+    "browser-extension",
+    "chrome-extension-allowlist.json",
+  ),
+];
+
+/**
+ * Local, user-writable override read in addition to the canonical config.
+ * Lets developers allowlist an unpacked-extension ID without committing it
+ * to the repo. File is optional — a missing file is not an error.
+ */
+const LOCAL_OVERRIDE_PATH = join(
+  homedir(),
+  ".vellum",
+  "chrome-extension-allowlist.local.json",
 );
 
 type ChromeExtensionAllowlistConfig = {
@@ -111,37 +133,115 @@ type ChromeExtensionAllowlistConfig = {
   allowedExtensionIds: string[];
 };
 
+function parseAllowedExtensionIds(
+  value: unknown,
+  opts: { allowEmpty?: boolean } = {},
+): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error("allowedExtensionIds is not an array");
+  }
+  const ids = value
+    .filter((id): id is string => typeof id === "string")
+    .filter((id) => EXTENSION_ID_REGEX.test(id));
+  if (ids.length === 0 && !opts.allowEmpty) {
+    throw new Error("allowedExtensionIds has no valid extension ids");
+  }
+  return ids;
+}
+
+function loadAllowedExtensionIdsFromEnv(): string[] {
+  const raw =
+    process.env.VELLUM_CHROME_EXTENSION_IDS ??
+    process.env.VELLUM_CHROME_EXTENSION_ID;
+  if (!raw) return [];
+  const ids = raw
+    .split(/[,\s]+/)
+    .map((id) => id.trim())
+    .filter((id) => id.length > 0)
+    .filter((id) => EXTENSION_ID_REGEX.test(id));
+  return Array.from(new Set(ids));
+}
+
+function readIdsFromFile(
+  path: string,
+  opts: { allowEmpty?: boolean } = {},
+): string[] {
+  const raw = readFileSync(path, "utf8");
+  const parsed = JSON.parse(raw) as Partial<ChromeExtensionAllowlistConfig>;
+  return parseAllowedExtensionIds(parsed.allowedExtensionIds, opts);
+}
+
 function loadAllowedExtensionOrigins(): ReadonlySet<string> {
+  const merged = new Set<string>();
+  const loadErrors: string[] = [];
+
+  // 1. Canonical repo config. Try each candidate; first parse wins (the
+  //    two candidates are the same logical file resolved two ways).
+  let canonicalLoaded = false;
+  for (const configPath of ALLOWLIST_CONFIG_PATH_CANDIDATES) {
+    try {
+      for (const id of readIdsFromFile(configPath)) {
+        merged.add(`chrome-extension://${id}/`);
+      }
+      canonicalLoaded = true;
+      break;
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      loadErrors.push(`${configPath}: ${detail}`);
+    }
+  }
+
+  // 2. Local override. Silently absent is fine; malformed warns but doesn't
+  //    block other sources.
   try {
-    const raw = readFileSync(ALLOWLIST_CONFIG_PATH, "utf8");
-    const parsed = JSON.parse(raw) as Partial<ChromeExtensionAllowlistConfig>;
-    if (!Array.isArray(parsed.allowedExtensionIds)) {
-      throw new Error("allowedExtensionIds is not an array");
+    for (const id of readIdsFromFile(LOCAL_OVERRIDE_PATH, { allowEmpty: true })) {
+      merged.add(`chrome-extension://${id}/`);
     }
-    const origins = parsed.allowedExtensionIds
-      .filter((id): id is string => typeof id === "string")
-      .filter((id) => EXTENSION_ID_REGEX.test(id))
-      .map((id) => `chrome-extension://${id}/`);
-    if (origins.length === 0) {
-      throw new Error("allowedExtensionIds has no valid extension ids");
-    }
-    return new Set<string>(origins);
   } catch (err) {
+    const isMissing =
+      err instanceof Error &&
+      "code" in err &&
+      (err as NodeJS.ErrnoException).code === "ENOENT";
+    if (!isMissing) {
+      const detail = err instanceof Error ? err.message : String(err);
+      loadErrors.push(`${LOCAL_OVERRIDE_PATH}: ${detail}`);
+    }
+  }
+
+  // 3. Env-var fallback. Compiled Bun binaries run from a virtual FS root so
+  //    repo-relative config paths can disappear in packaged builds;
+  //    `clients/macos/build.sh` bakes the canonical IDs into
+  //    `VELLUM_CHROME_EXTENSION_IDS` at compile time for that case.
+  for (const id of loadAllowedExtensionIdsFromEnv()) {
+    merged.add(`chrome-extension://${id}/`);
+  }
+
+  if (merged.size === 0) {
     log.error(
       {
-        err,
-        allowlistConfigPath: ALLOWLIST_CONFIG_PATH,
+        canonicalCandidates: ALLOWLIST_CONFIG_PATH_CANDIDATES,
+        localOverridePath: LOCAL_OVERRIDE_PATH,
+        loadErrors,
       },
-      "Failed to load Chrome extension allowlist config; pairing will reject all origins",
+      "Failed to load Chrome extension allowlist from any source; pairing will reject all origins",
     );
-    return new Set<string>();
+  } else if (!canonicalLoaded && loadErrors.length > 0) {
+    log.warn(
+      { loadErrors },
+      "Canonical Chrome extension allowlist unreadable — using local override and/or env vars only",
+    );
   }
+
+  return merged;
 }
 
 /**
  * Allowlist of chrome extension origins permitted to request a capability
- * token. Loaded from the canonical config at
- * `meta/browser-extension/chrome-extension-allowlist.json`.
+ * token. Merged from the canonical repo config at
+ * `meta/browser-extension/chrome-extension-allowlist.json`, an optional
+ * local override at `~/.vellum/chrome-extension-allowlist.local.json`, and
+ * the `VELLUM_CHROME_EXTENSION_IDS` env var. Cached at module load —
+ * allowlist edits require a daemon restart to take effect.
  */
 export const ALLOWED_EXTENSION_ORIGINS = loadAllowedExtensionOrigins();
 

@@ -146,6 +146,75 @@ export interface HatchedAssistant {
   status: string;
 }
 
+// ---------------------------------------------------------------------------
+// Self-hosted local assistant registration
+// ---------------------------------------------------------------------------
+
+export interface EnsureRegistrationResponse {
+  assistant: { id: string; name: string };
+  registration: {
+    client_installation_id: string;
+    runtime_assistant_id: string;
+    client_platform: string;
+  };
+  assistant_api_key: string | null;
+  webhook_secret: string;
+}
+
+/**
+ * Register (or re-confirm) a self-hosted local assistant with the platform.
+ *
+ * Calls `POST /v1/assistants/self-hosted-local/ensure-registration/`.
+ * The endpoint is idempotent: the first call provisions an API key;
+ * subsequent calls return `assistant_api_key: null`.
+ */
+export async function ensureSelfHostedLocalRegistration(
+  token: string,
+  organizationId: string,
+  clientInstallationId: string,
+  runtimeAssistantId: string,
+  clientPlatform: string,
+  assistantVersion?: string,
+  platformUrl?: string,
+): Promise<EnsureRegistrationResponse> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const body: Record<string, string> = {
+    client_installation_id: clientInstallationId,
+    runtime_assistant_id: runtimeAssistantId,
+    client_platform: clientPlatform,
+  };
+  if (assistantVersion) {
+    body.assistant_version = assistantVersion;
+  }
+
+  const response = await fetch(
+    `${resolvedUrl}/v1/assistants/self-hosted-local/ensure-registration/`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "X-Session-Token": token,
+        "Vellum-Organization-Id": organizationId,
+      },
+      body: JSON.stringify(body),
+    },
+  );
+
+  if (response.status === 401 || response.status === 403) {
+    throw new Error("Authentication required for assistant registration.");
+  }
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      `Registration failed (${response.status}): ${detail || response.statusText}`,
+    );
+  }
+
+  return (await response.json()) as EnsureRegistrationResponse;
+}
+
 export async function hatchAssistant(
   token: string,
   platformUrl?: string,

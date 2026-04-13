@@ -97,6 +97,12 @@ struct MessageListView: View {
     /// re-evaluates views that read the specific property that changed.
     /// See `MessageListScrollState.swift` for details.
     @State var scrollState = MessageListScrollState()
+    /// Preserves thinking-block expanded/collapsed state across the
+    /// start/end of an active turn. See `ThinkingBlockExpansionStore.swift`.
+    @State var thinkingBlockExpansionStore = ThinkingBlockExpansionStore()
+    /// Owned here (same level as `thinkingBlockExpansionStore`) so the state
+    /// survives view-tree destruction. See `FilePreviewExpansionStore.swift`.
+    @State var filePreviewExpansionStore = FilePreviewExpansionStore()
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State var resizeScrollTask: Task<Void, Never>?
     /// Native SwiftUI scroll position struct (macOS 15+). Replaces
@@ -131,23 +137,16 @@ struct MessageListView: View {
             }
             .scrollContentBackground(.hidden)
             .scrollDisabled(messages.isEmpty && !isSending)
-            // Apply only to .initialOffset — where the scroll view starts
-            // when first displayed (including .id() recreation on switch).
-            // Deliberately NOT using the all-roles overload (.sizeChanges)
-            // because it fights user scroll-up during streaming: SwiftUI's
-            // definition of "at bottom" for anchor purposes can differ from
-            // our hysteresis-based isAtBottom, causing the viewport to snap
-            // back to bottom on every content-height change even after the
-            // user has entered freeBrowsing. Our explicit content-height
-            // auto-follow handles streaming growth with proper mode checks.
-            // https://developer.apple.com/documentation/swiftui/view/defaultscrollanchor(_:for:)
-            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            // Apply only to .initialOffset — threads open at top.
+            .defaultScrollAnchor(.top, for: .initialOffset)
             .scrollPosition($scrollPosition)
+            .environment(\.thinkingBlockExpansionStore, thinkingBlockExpansionStore)
+            .environment(\.filePreviewExpansionStore, filePreviewExpansionStore)
             .scrollIndicators(scrollState.scrollIndicatorsHidden ? .hidden : .automatic)
             .id(conversationId)
             .frame(width: widths.scrollSurfaceWidth)
             .overlay(alignment: .bottom) {
-                ScrollToLatestOverlayView(scrollState: scrollState, onScrollToBottom: { scrollPosition.scrollTo(edge: .bottom) })
+                ScrollToLatestOverlayView(scrollState: scrollState, onScrollToBottom: { scrollPosition = ScrollPosition(edge: .bottom) })
             }
             .onAppear {
                 handleAppear()
