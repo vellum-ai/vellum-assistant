@@ -2395,6 +2395,10 @@ public enum ServerMessage: Decodable, Sendable {
     case serviceGroupUpdateProgress(ServiceGroupUpdateProgressMessage)
     case serviceGroupUpdateComplete(ServiceGroupUpdateCompleteMessage)
     case conversationIdResolved(localId: String, serverId: String)
+    /// Synthetic client-side event: daemon confirmed a user message was persisted
+    /// (HTTP 202 with messageId). Broadcast so the per-conversation ChatActionHandler
+    /// can tag the optimistic row with the daemon-assigned ID.
+    case userMessagePersisted(conversationId: String, content: String, messageId: String)
     case relationshipStateUpdated(updatedAt: String)
     case pong
     case unknown(String)
