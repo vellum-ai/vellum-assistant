@@ -152,15 +152,25 @@ final class SkillsManager {
                         self.installingSkillId = nil
                         self.installWatchdogTask?.cancel()
                         self.installWatchdogTask = nil
-                    } else if self.skillsStore.skills
-                        .first(where: { $0.id == result.slug })?.kind != "catalog" {
-                        // Success confirmed: the refreshed skills list has
-                        // flipped the kind away from "catalog", so the
-                        // detail view will render the installed UI on the
-                        // next body pass without flicker.
-                        self.installingSkillId = nil
-                        self.installWatchdogTask?.cancel()
-                        self.installWatchdogTask = nil
+                    } else {
+                        // The daemon may return a different skill ID than the
+                        // slug we sent (e.g. skills.sh resolves
+                        // "owner/repo/skill" to just "skill"). Update the
+                        // tracking ID so the list-refresh check below can
+                        // match the installed entry.
+                        if let actualId = result.skillId {
+                            self.installingSkillId = actualId
+                        }
+                        if self.skillsStore.skills
+                            .first(where: { $0.id == (result.skillId ?? result.slug) })?.kind != "catalog" {
+                            // Success confirmed: the refreshed skills list has
+                            // flipped the kind away from "catalog", so the
+                            // detail view will render the installed UI on the
+                            // next body pass without flicker.
+                            self.installingSkillId = nil
+                            self.installWatchdogTask?.cancel()
+                            self.installWatchdogTask = nil
+                        }
                     }
                     // Otherwise: keep the spinner up until fetchSkills(force:)
                     // lands — see `installSkill(slug:)` for the watchdog that

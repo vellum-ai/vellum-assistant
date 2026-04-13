@@ -380,6 +380,7 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       }),
       responseBody: z.object({
         ok: z.boolean(),
+        skillId: z.string().optional(),
       }),
       handler: async ({ req, authContext }) => {
         const body = (await req.json()) as {
@@ -405,7 +406,7 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
         if (!result.success) {
           return httpError("INTERNAL_ERROR", result.error, 500);
         }
-        return Response.json({ ok: true });
+        return Response.json({ ok: true, skillId: result.skillId });
       },
     },
 

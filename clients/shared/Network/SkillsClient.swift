@@ -136,7 +136,7 @@ public struct SkillsClient: SkillsClientProtocol {
             if let version { body["version"] = version }
 
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/skills/install", json: body, timeout: 10
+                path: "assistants/{assistantId}/skills/install", json: body, timeout: 120
             )
             guard response.isSuccess else {
                 log.error("installSkill failed (HTTP \(response.statusCode))")
@@ -145,7 +145,9 @@ public struct SkillsClient: SkillsClientProtocol {
                     error: extractErrorMessage(from: response.data)
                 )
             }
-            return SkillOperationResult(success: true)
+            let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any]
+            let skillId = json?["skillId"] as? String
+            return SkillOperationResult(success: true, skillId: skillId)
         } catch {
             log.error("installSkill error: \(error.localizedDescription)")
             return SkillOperationResult(success: false, error: error.localizedDescription)
