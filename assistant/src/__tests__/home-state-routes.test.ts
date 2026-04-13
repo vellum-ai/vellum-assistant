@@ -16,6 +16,13 @@ mock.module("../oauth/oauth-store.js", () => ({
   listConnections: () => [],
 }));
 
+// Stub the DB-authoritative conversation count helper so the writer
+// (invoked by the read-through fallback) does not lazy-open a real
+// sqlite handle against a stale or deleted per-test tmpdir.
+mock.module("../memory/conversation-queries.js", () => ({
+  countConversations: () => 0,
+}));
+
 const { handleGetHomeState, homeStateRouteDefinitions } =
   await import("../runtime/routes/home-state-routes.js");
 const { writeRelationshipState, getRelationshipStatePath } =

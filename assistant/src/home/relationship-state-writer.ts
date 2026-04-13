@@ -76,11 +76,15 @@ export function getRelationshipStatePath(): string {
 }
 
 /**
- * Build a fresh `RelationshipState` from the current on-disk + DB state.
+ * Build a fresh `RelationshipState` snapshot from the current workspace.
+ * Reads USER.md / SOUL.md / IDENTITY.md, queries the oauth connection
+ * store, and counts conversations via the DB-authoritative helper.
  *
- * This is the pure-ish computation half of the writer — it reads files
- * and the oauth store but performs no writes. Callers that want to
- * persist the result should use `writeRelationshipState()` instead.
+ * Side effect: on the very first call when IDENTITY.md cannot provide
+ * a hatched date, `resolveFallbackHatchedDate` persists a one-time
+ * `data/hatched.json` sidecar so subsequent calls return a monotonic
+ * timestamp. All other paths are read-only. Callers that want to
+ * persist the full snapshot should use `writeRelationshipState()`.
  */
 export async function computeRelationshipState(): Promise<RelationshipState> {
   // Persona source-of-truth:
@@ -650,10 +654,9 @@ function parseIdentity(identityPath: string): {
     // File missing or unreadable — fall through to the sidecar.
   }
 
-  // Last-ditch sidecar-backed fallback: `resolveFallbackHatchedDate`
-  // returns a stable, real timestamp (persisted to `data/hatched.json`
-  // on first call) instead of the old epoch sentinel, so the UI never
-  // shows "1/1/1970".
+  // Last-ditch fallback: `resolveFallbackHatchedDate` returns a stable,
+  // real timestamp (persisted to `data/hatched.json` on first call) so
+  // the wire contract always carries a valid ISO date.
   return { assistantName, hatchedDate: resolveFallbackHatchedDate() };
 }
 
@@ -669,10 +672,10 @@ function parseUserName(content: string): string | undefined {
     if (!parsed) continue;
     const lower = parsed.label.toLowerCase();
     if (
-      (lower.startsWith("name") ||
-        lower.startsWith("preferred") ||
-        lower === "user" ||
-        lower === "user name") &&
+      (lower === "user" ||
+        lower === "user name" ||
+        lower.startsWith("preferred name") ||
+        lower.startsWith("name")) &&
       parsed.value
     ) {
       return parsed.value;
