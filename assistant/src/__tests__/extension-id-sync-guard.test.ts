@@ -142,12 +142,15 @@ describe("Chrome extension allowlist guard", () => {
     expect(config.allowedExtensionIds.length).toBeGreaterThan(0);
   });
 
-  test("assistant runtime allowlist mirrors canonical config", () => {
+  test("assistant runtime allowlist contains every canonical origin", () => {
+    // The runtime set is the union of canonical + local override
+    // (~/.vellum/chrome-extension-allowlist.local.json) + env var. A dev
+    // machine may have extras; we only assert the canonical IDs are present.
     const config = parseCanonicalConfig();
-    const expectedOrigins = new Set(
-      config.allowedExtensionIds.map((id) => `chrome-extension://${id}/`),
-    );
-    expect(ALLOWED_EXTENSION_ORIGINS).toEqual(expectedOrigins);
+    for (const id of config.allowedExtensionIds) {
+      const origin = `chrome-extension://${id}/`;
+      expect(ALLOWED_EXTENSION_ORIGINS.has(origin)).toBe(true);
+    }
   });
 
   test("concrete extension IDs appear only in canonical config", () => {

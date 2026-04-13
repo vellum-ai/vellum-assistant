@@ -51,8 +51,12 @@ import { decodeFrames, encodeFrame, FrameDecodeError } from "./protocol.js";
  * argument, e.g. `chrome-extension://<extension-id>/`.
  * Anything not on this list is rejected before any further processing.
  *
- * Loaded from the canonical config at
- * `meta/browser-extension/chrome-extension-allowlist.json`.
+ * Loaded from the union of three sources so developers can allowlist a
+ * local unpacked-extension ID without committing it to the repo:
+ *
+ *   1. Canonical repo config (`meta/browser-extension/chrome-extension-allowlist.json`)
+ *   2. Local override (`~/.vellum/chrome-extension-allowlist.local.json`)
+ *   3. Env var (`VELLUM_CHROME_EXTENSION_IDS` / `VELLUM_CHROME_EXTENSION_ID`)
  */
 const EXTENSION_ID_REGEX = /^[a-p]{32}$/;
 const __filename = fileURLToPath(import.meta.url);
@@ -77,15 +81,20 @@ const ALLOWLIST_CONFIG_PATH_CANDIDATES = [
     "chrome-extension-allowlist.json",
   ),
 ];
+const LOCAL_OVERRIDE_PATH = join(
+  homedir(),
+  ".vellum",
+  "chrome-extension-allowlist.local.json",
+);
 
-function parseAllowedExtensionIds(value: unknown): string[] {
+function parseAllowedExtensionIds(value: unknown, opts: { allowEmpty?: boolean } = {}): string[] {
   if (!Array.isArray(value)) {
     throw new Error("allowedExtensionIds is not an array");
   }
   const ids = value
     .filter((id): id is string => typeof id === "string")
     .filter((id) => EXTENSION_ID_REGEX.test(id));
-  if (ids.length === 0) {
+  if (ids.length === 0 && !opts.allowEmpty) {
     throw new Error("allowedExtensionIds has no valid extension ids");
   }
   return ids;
@@ -104,34 +113,67 @@ function loadAllowedExtensionIdsFromEnv(): string[] {
   return Array.from(new Set(ids));
 }
 
+function readIdsFromFile(path: string, opts: { allowEmpty?: boolean } = {}): string[] {
+  const raw = readFileSync(path, "utf8");
+  const parsed = JSON.parse(raw) as { allowedExtensionIds?: unknown };
+  return parseAllowedExtensionIds(parsed.allowedExtensionIds, opts);
+}
+
 function loadAllowedExtensionIds(): ReadonlySet<string> {
+  const merged = new Set<string>();
   const loadErrors: string[] = [];
+
+  // 1. Canonical repo config. Try each candidate; first one that parses wins
+  //    (the two candidates represent the same logical file in different
+  //    resolution contexts — __dirname-relative vs cwd-relative).
+  let canonicalLoaded = false;
   for (const configPath of ALLOWLIST_CONFIG_PATH_CANDIDATES) {
     try {
-      const raw = readFileSync(configPath, "utf8");
-      const parsed = JSON.parse(raw) as {
-        allowedExtensionIds?: unknown;
-      };
-      return new Set<string>(parseAllowedExtensionIds(parsed.allowedExtensionIds));
+      for (const id of readIdsFromFile(configPath)) merged.add(id);
+      canonicalLoaded = true;
+      break;
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       loadErrors.push(`${configPath}: ${detail}`);
     }
   }
 
-  // Compiled Bun binaries run from a virtual FS root (import.meta.dir is
-  // usually `/$bunfs/root`), so repo-relative config paths can disappear in
-  // packaged builds. In that case, allow a build-time injected env fallback.
-  const envIds = loadAllowedExtensionIdsFromEnv();
-  if (envIds.length > 0) {
-    return new Set<string>(envIds);
+  // 2. Local override. Silently absent is fine; malformed warns but doesn't
+  //    block the load.
+  try {
+    for (const id of readIdsFromFile(LOCAL_OVERRIDE_PATH, { allowEmpty: true })) {
+      merged.add(id);
+    }
+  } catch (err) {
+    const isMissing =
+      err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT";
+    if (!isMissing) {
+      const detail = err instanceof Error ? err.message : String(err);
+      loadErrors.push(`${LOCAL_OVERRIDE_PATH}: ${detail}`);
+    }
   }
 
-  process.stderr.write(
-    "vellum-chrome-native-host: failed to load allowlist config from any candidate path " +
-      `(${ALLOWLIST_CONFIG_PATH_CANDIDATES.join(", ")}); details: ${loadErrors.join(" | ")}\n`,
-  );
-  return new Set<string>();
+  // 3. Env-var fallback. Compiled Bun binaries run from a virtual FS root so
+  //    repo-relative config paths can disappear in packaged builds;
+  //    `clients/macos/build.sh` bakes the canonical IDs into
+  //    `VELLUM_CHROME_EXTENSION_IDS` at compile time for that case.
+  for (const id of loadAllowedExtensionIdsFromEnv()) merged.add(id);
+
+  if (merged.size === 0) {
+    process.stderr.write(
+      "vellum-chrome-native-host: failed to load allowlist from canonical config, " +
+        `local override (${LOCAL_OVERRIDE_PATH}), or env vars; details: ${
+          loadErrors.length > 0 ? loadErrors.join(" | ") : "no sources available"
+        }\n`,
+    );
+  } else if (!canonicalLoaded && loadErrors.length > 0) {
+    process.stderr.write(
+      "vellum-chrome-native-host: canonical allowlist unreadable — using local override and/or " +
+        `env vars only. Details: ${loadErrors.join(" | ")}\n`,
+    );
+  }
+
+  return merged;
 }
 
 const ALLOWED_EXTENSION_IDS: ReadonlySet<string> = loadAllowedExtensionIds();

@@ -84,7 +84,20 @@ chmod +x dist/index.js
 export EXTENSION_ID=<id from chrome://extensions>
 ```
 
-3. Add that ID to `meta/browser-extension/chrome-extension-allowlist.json`.
+3. Register the ID locally so the assistant accepts pair requests from your unpacked build. Create `~/.vellum/chrome-extension-allowlist.local.json` — this file is merged with the committed allowlist at assistant startup and stays local to your machine:
+
+```bash
+mkdir -p "$HOME/.vellum"
+cat > "$HOME/.vellum/chrome-extension-allowlist.local.json" <<JSON
+{
+  "version": 1,
+  "allowedExtensionIds": ["$EXTENSION_ID"]
+}
+JSON
+```
+
+Restart the assistant after creating or editing this file — the allowlist is cached at startup. The IDs are public Chrome extension identifiers, so no special file permissions are needed.
+
 4. Install the Chrome native messaging manifest. **Run this from the same `native-host/` directory as step 1** — the snippet reads `$(pwd)/dist/index.js`:
 
 ```bash
@@ -131,9 +144,9 @@ chmod 644 "$NATIVE_HOSTS_DIR/com.vellum.daemon.json"
 
 | Error | Cause / Fix |
 |---|---|
-| `Access to the specified native messaging host is forbidden` | Manifest missing/invalid, or extension ID not in `meta/browser-extension/chrome-extension-allowlist.json` |
+| `Access to the specified native messaging host is forbidden` | Manifest missing/invalid, or extension ID not in the allowlist. Add it to `~/.vellum/chrome-extension-allowlist.local.json` (see Native Messaging Host Setup, step 3). |
 | `Native host has exited` | Chrome couldn't launch Node. Use a wrapper script with an absolute Node path in the manifest. |
-| `assistant pair request failed with HTTP 401` | Extension ID not in allowlist. Add it to `meta/browser-extension/chrome-extension-allowlist.json` and restart the assistant. |
+| `assistant pair request failed with HTTP 401` | Extension ID not in allowlist. Add it to `~/.vellum/chrome-extension-allowlist.local.json` and restart the assistant (the allowlist is cached at daemon startup). |
 | `failed to reach assistant at http://127.0.0.1:<port>/...` | Assistant not running, wrong port, or firewall blocking. |
 | `Automatic cloud sign-in failed` | Use "Re-sign in" in the popup's Troubleshooting section, then click Connect. |
 | `Automatic local pairing failed` | Use "Re-pair" in the popup's Troubleshooting section, then click Connect. |

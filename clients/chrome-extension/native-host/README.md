@@ -275,15 +275,27 @@ performs template substitution.
 ### Allowlist resolution in compiled builds
 
 The helper enforces its own extension-ID allowlist before it calls the
-assistant pair endpoint. It resolves IDs in this order:
+assistant pair endpoint. The effective allowlist is the **union** of three
+sources; all sources are consulted, and any one of them is sufficient to
+admit an ID:
 
-1. `meta/browser-extension/chrome-extension-allowlist.json` (repo checkout paths)
-2. `VELLUM_CHROME_EXTENSION_IDS` (comma/space-separated)
-3. `VELLUM_CHROME_EXTENSION_ID` (single ID)
+1. Canonical repo config at
+   `meta/browser-extension/chrome-extension-allowlist.json` (repo checkout paths).
+2. Local override at `~/.vellum/chrome-extension-allowlist.local.json`
+   (optional — silently ignored if absent). Developers use this to allowlist
+   an unpacked dev-build ID without committing it to the repo.
+3. `VELLUM_CHROME_EXTENSION_IDS` (comma/space-separated) or
+   `VELLUM_CHROME_EXTENSION_ID` (single ID).
 
 `clients/macos/build.sh` injects `VELLUM_CHROME_EXTENSION_IDS` at compile
 time from the canonical JSON allowlist so packaged binaries continue to work
 even when repo-relative paths are unavailable.
+
+The helper re-reads all sources on every `connectNative()` spawn, so
+edits to the local override file take effect the next time Chrome launches
+the helper — no Chrome restart needed. The assistant daemon caches the
+merged allowlist at startup; restart the daemon after editing the local
+override.
 
 ## Testing
 
@@ -299,8 +311,9 @@ multi-frame buffers, partial frames, empty buffers).
 
 Once the assistant is running and exposing `/v1/browser-extension-pair`,
 you can exercise the helper end-to-end without Chrome by piping
-a framed request to it on stdin. If you need to rotate the extension ID,
-edit `meta/browser-extension/chrome-extension-allowlist.json`.
+a framed request to it on stdin. If you need to allowlist an extra
+extension ID, add it to `~/.vellum/chrome-extension-allowlist.local.json`
+(see "Allowlist resolution in compiled builds" above).
 Then run:
 
 ```bash
