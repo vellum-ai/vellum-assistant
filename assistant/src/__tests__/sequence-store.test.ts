@@ -130,7 +130,7 @@ describe("sequence-store", () => {
   describe("listSequences", () => {
     test("lists all sequences", () => {
       createSequence({ name: "A", channel: "gmail", steps: testSteps });
-      createSequence({ name: "B", channel: "agentmail", steps: testSteps });
+      createSequence({ name: "B", channel: "email", steps: testSteps });
       expect(listSequences()).toHaveLength(2);
     });
 

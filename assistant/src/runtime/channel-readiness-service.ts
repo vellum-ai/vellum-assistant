@@ -150,17 +150,13 @@ const telegramProbe: ChannelProbe = {
 const emailProbe: ChannelProbe = {
   channel: "email",
   async runLocalChecks(): Promise<ReadinessCheckResult[]> {
-    const hasApiKey = !!(
-      (await getSecureKeyAsync("agentmail")) ||
-      (await getSecureKeyAsync(credentialKey("agentmail", "api_key")))
-    );
     const invitePolicy = getChannelInvitePolicy("email");
     return [
       check(
-        "agentmail_api_key",
-        hasApiKey,
-        "AgentMail API key is configured",
-        "AgentMail API key is not configured",
+        "platform_email",
+        true,
+        "Email is handled through the platform (Mailgun)",
+        "Email requires platform registration",
       ),
       check(
         "invite_policy",
@@ -172,13 +168,6 @@ const emailProbe: ChannelProbe = {
     ];
   },
   async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
-    // Only worth checking if the API key is present
-    const hasApiKey = !!(
-      (await getSecureKeyAsync("agentmail")) ||
-      (await getSecureKeyAsync(credentialKey("agentmail", "api_key")))
-    );
-    if (!hasApiKey) return [];
-
     try {
       const address = await getEmailService().getPrimaryInboxAddress();
       const hasInbox = !!address;
@@ -188,7 +177,7 @@ const emailProbe: ChannelProbe = {
           passed: hasInbox,
           message: hasInbox
             ? `Inbox address is configured (${address})`
-            : "No inbox address configured — create one with: assistant email setup inboxes",
+            : "No inbox address configured — register one with: assistant email register <username>",
         },
       ];
     } catch (err) {

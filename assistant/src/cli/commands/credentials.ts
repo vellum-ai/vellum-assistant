@@ -248,7 +248,7 @@ storage convention used internally (credential/{service}/{field}):
   --service telegram --field bot_token        Telegram bot token
   --service slack_channel --field bot_token   Slack channel bot token
   --service github --field token              GitHub personal access token
-  --service agentmail --field api_key         AgentMail API key
+  --service openai --field api_key            OpenAI API key
 
 Secrets are stored in AES-256-GCM encrypted storage. Metadata (policy,
 timestamps, labels) is tracked separately and never contains secret values.

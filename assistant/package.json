@@ -1,3 +1,4 @@
+Removed agentmail dependency
 {
   "name": "@vellumai/assistant",
   "version": "0.6.3",
@@ -39,7 +40,6 @@
     "@vellumai/ces-contracts": "file:../packages/ces-contracts",
     "@vellumai/credential-storage": "file:../packages/credential-storage",
     "@vellumai/egress-proxy": "file:../packages/egress-proxy",
-    "agentmail": "0.1.19",
     "archiver": "7.0.1",
     "commander": "13.1.0",
     "croner": "10.0.1",
