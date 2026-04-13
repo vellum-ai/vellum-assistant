@@ -97,11 +97,6 @@ struct MessageListView: View {
     /// re-evaluates views that read the specific property that changed.
     /// See `MessageListScrollState.swift` for details.
     @State var scrollState = MessageListScrollState()
-    /// Pure policy coordinator that models scroll decisions. All scroll
-    /// policy flows through this coordinator's `handle(_:)` method; the
-    /// resulting output intents are translated into concrete `scrollState`
-    /// / `ScrollPosition` mutations by the view layer.
-    @State var scrollCoordinator = ScrollCoordinator()
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State var resizeScrollTask: Task<Void, Never>?
     /// Native SwiftUI scroll position struct (macOS 15+). Replaces
@@ -148,49 +143,25 @@ struct MessageListView: View {
             // https://developer.apple.com/documentation/swiftui/view/defaultscrollanchor(_:for:)
             .defaultScrollAnchor(.bottom, for: .initialOffset)
             .scrollPosition($scrollPosition)
-            .environment(\.suppressAutoScroll, { [self] in
-                os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=manualExpansionDetach")
-                let intents = scrollCoordinator.handle(.manualExpansion)
-                executeCoordinatorIntents(intents)
-                // Keep scrollState in sync as runtime executor.
-                scrollState.handleManualExpansionInteraction()
-            })
-            .onScrollPhaseChange { oldPhase, newPhase in
-                let coordinatorPhase = ScrollCoordinator.Phase.from(newPhase)
-                let intents = scrollCoordinator.handle(.scrollPhaseChanged(phase: coordinatorPhase))
-                executeCoordinatorIntents(intents)
-                // Keep scrollState in sync as runtime executor.
-                scrollState.scrollPhase = newPhase
-                if newPhase == .idle && oldPhase != .idle && scrollState.isAtBottom {
-                    scrollState.handleReachedBottom()
-                }
-            }
             .scrollIndicators(scrollState.scrollIndicatorsHidden ? .hidden : .automatic)
             .id(conversationId)
             .frame(width: widths.scrollSurfaceWidth)
             .overlay(alignment: .bottom) {
-                ScrollToLatestOverlayView(scrollState: scrollState)
+                ScrollToLatestOverlayView(scrollState: scrollState, onScrollToBottom: { scrollPosition.scrollTo(edge: .bottom) })
             }
             .onAppear {
-                let intents = scrollCoordinator.handle(.appeared)
-                executeCoordinatorIntents(intents)
                 handleAppear()
             }
             .onDisappear {
-                scrollCoordinator.reset()
                 scrollState.cancelAll()
                 resizeScrollTask?.cancel()
                 resizeScrollTask = nil
                 highlightedMessageId = nil
             }
             .onChange(of: isSending) {
-                let intents = scrollCoordinator.handle(.sendingChanged(isSending: isSending))
-                executeCoordinatorIntents(intents)
                 handleSendingChanged()
             }
             .onChange(of: messages.count) {
-                let intents = scrollCoordinator.handle(.messageCountChanged)
-                executeCoordinatorIntents(intents)
                 handleMessagesCountChanged()
             }
             .onChange(of: containerWidth) { handleContainerWidthChanged() }
