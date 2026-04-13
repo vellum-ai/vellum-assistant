@@ -68,6 +68,9 @@ mock.module("../config/loader.js", () => ({
     twilio: {
       phoneNumber: "+15550001111",
     },
+    services: {
+      stt: { provider: "deepgram" },
+    },
   }),
   invalidateConfigCache: () => {},
 }));
@@ -90,7 +93,9 @@ mock.module("../calls/twilio-provider.js", () => ({
   },
 }));
 
-mock.module("../security/secure-keys.js", () => ({}));
+mock.module("../security/secure-keys.js", () => ({
+  getProviderKeyAsync: () => Promise.resolve(null),
+}));
 
 // NOTE: Do NOT mock '../inbound/public-ingress-urls.js' here.
 // Those are pure functions that derive URLs from the config object returned by

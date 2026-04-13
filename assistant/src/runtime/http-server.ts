@@ -66,10 +66,15 @@ import {
 import type { ExternalConversationBinding } from "../memory/external-conversation-store.js";
 import * as externalConversationStore from "../memory/external-conversation-store.js";
 import { listGroups } from "../memory/group-crud.js";
+import { resolveStreamingTranscriber } from "../providers/speech-to-text/resolve.js";
 import {
   consumeCallback,
   consumeCallbackError,
 } from "../security/oauth-callback-registry.js";
+import {
+  activeSttStreamSessions,
+  SttStreamSession,
+} from "../stt/stt-stream-session.js";
 import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { getRuntimePortFilePath } from "../util/platform.js";
@@ -303,16 +308,17 @@ interface MediaStreamWebSocketData {
 /**
  * WebSocket data attached to `/v1/stt/stream` connections.
  * The `wsType` discriminator routes frames to the STT streaming
- * session stub instead of the other WebSocket handlers.
- *
- * This is a minimal deploy-safe stub — provider adapters will be
- * wired in by a later PR.
+ * session orchestrator instead of the other WebSocket handlers.
  */
 interface SttStreamWebSocketData {
   wsType: "stt-stream";
   provider: string;
   mimeType: string;
   sampleRate?: number;
+  /** The session ID for tracking in the active sessions registry. */
+  sessionId: string;
+  /** Bound at open time so the close handler tears down the exact session. */
+  session?: SttStreamSession;
 }
 
 export class RuntimeHttpServer {
@@ -456,11 +462,24 @@ export class RuntimeHttpServer {
           if ("wsType" in data && data.wsType === "stt-stream") {
             const sttData = data as SttStreamWebSocketData;
             log.info(
-              { provider: sttData.provider, mimeType: sttData.mimeType },
-              "STT stream WebSocket opened (stub)",
+              {
+                provider: sttData.provider,
+                mimeType: sttData.mimeType,
+                sessionId: sttData.sessionId,
+              },
+              "STT stream WebSocket opened",
             );
-            // Minimal stub — accept connect cleanly. Provider adapters
-            // will be wired in by a later PR.
+            const session = new SttStreamSession(
+              ws,
+              sttData.provider,
+              sttData.mimeType,
+            );
+            sttData.session = session;
+            activeSttStreamSessions.set(sttData.sessionId, session);
+
+            // Start the session asynchronously — resolves the streaming
+            // transcriber and sends a `ready` event on success.
+            void session.start(() => resolveStreamingTranscriber());
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
@@ -608,7 +627,20 @@ export class RuntimeHttpServer {
             return;
           }
           if ("wsType" in data && data.wsType === "stt-stream") {
-            // Stub: drop inbound audio frames until provider adapters land.
+            const sttData = data as SttStreamWebSocketData;
+            const session = sttData.session;
+            if (!session) return;
+
+            if (typeof message === "string") {
+              session.handleMessage(message);
+            } else {
+              // Binary frame — raw audio bytes.
+              const buffer =
+                message instanceof ArrayBuffer
+                  ? Buffer.from(new Uint8Array(message))
+                  : Buffer.from(message);
+              session.handleBinaryAudio(buffer);
+            }
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
@@ -659,9 +691,23 @@ export class RuntimeHttpServer {
           if ("wsType" in data && data.wsType === "stt-stream") {
             const sttData = data as SttStreamWebSocketData;
             log.info(
-              { provider: sttData.provider, code, reason: reason?.toString() },
-              "STT stream WebSocket closed (stub)",
+              {
+                provider: sttData.provider,
+                sessionId: sttData.sessionId,
+                code,
+                reason: reason?.toString(),
+              },
+              "STT stream WebSocket closed",
             );
+            const session = sttData.session;
+            if (session) {
+              session.handleClose(code, reason?.toString());
+              // Only delete from the map if our session is still the
+              // registered one — avoids races with reconnects.
+              if (activeSttStreamSessions.get(sttData.sessionId) === session) {
+                activeSttStreamSessions.delete(sttData.sessionId);
+              }
+            }
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
@@ -832,6 +878,15 @@ export class RuntimeHttpServer {
       clearInterval(this.retrySweepTimer);
       this.retrySweepTimer = null;
     }
+
+    // Deterministic teardown of active STT streaming sessions before
+    // stopping the HTTP server so provider sessions are cleaned up
+    // and clients receive proper close frames.
+    for (const [sessionId, session] of activeSttStreamSessions) {
+      session.destroy();
+      activeSttStreamSessions.delete(sessionId);
+    }
+
     if (this.server) {
       this.server.stop(true);
       this.server = null;
@@ -1279,12 +1334,14 @@ export class RuntimeHttpServer {
     const sampleRateRaw = wsUrl.searchParams.get("sampleRate");
     const sampleRate = sampleRateRaw ? parseInt(sampleRateRaw, 10) : undefined;
 
+    const sessionId = crypto.randomUUID();
     const upgraded = server.upgrade(req, {
       data: {
         wsType: "stt-stream",
         provider,
         mimeType,
         sampleRate,
+        sessionId,
       } satisfies SttStreamWebSocketData,
     });
     if (!upgraded) {
