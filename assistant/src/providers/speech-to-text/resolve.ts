@@ -1,7 +1,11 @@
 import { getConfig } from "../../config/loader.js";
 import { getProviderKeyAsync } from "../../security/secure-keys.js";
 import { createDaemonBatchTranscriber } from "../../stt/daemon-batch-transcriber.js";
-import type { BatchTranscriber, SttProviderId } from "../../stt/types.js";
+import type {
+  BatchTranscriber,
+  StreamingTranscriber,
+  SttProviderId,
+} from "../../stt/types.js";
 import {
   getCredentialProvider,
   getProviderEntry,
@@ -221,4 +225,73 @@ export async function resolveConversationStreamingSttCapability(): Promise<Conve
     providerId: entry.id,
     streamingMode: entry.conversationStreamingMode,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Streaming transcriber resolver
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve a `StreamingTranscriber` for daemon-hosted streaming transcription.
+ *
+ * Reads `services.stt.provider` from the assistant config to determine which
+ * STT provider to use, verifies it supports the `daemon-streaming` boundary,
+ * and constructs the appropriate streaming adapter. Credential lookup is
+ * centralized here (an authorized secure-keys importer) so callers don't
+ * need to import secure-keys directly.
+ *
+ * Returns `null` when:
+ * - The configured provider is not in the catalog.
+ * - The configured provider doesn't support the `daemon-streaming` boundary.
+ * - No credentials are configured for the resolved provider.
+ * - No streaming adapter exists for the configured provider.
+ */
+export async function resolveStreamingTranscriber(): Promise<StreamingTranscriber | null> {
+  const config = getConfig();
+  const provider = config.services.stt.provider;
+
+  // Look up credential provider via the catalog.
+  const credentialProviderName = getCredentialProvider(
+    provider as SttProviderId,
+  );
+  if (!credentialProviderName) {
+    return null;
+  }
+
+  // Verify the provider supports the daemon-streaming boundary.
+  if (!supportsBoundary(provider as SttProviderId, "daemon-streaming")) {
+    return null;
+  }
+
+  const apiKey = await getProviderKeyAsync(credentialProviderName);
+  if (!apiKey) {
+    return null;
+  }
+
+  return createStreamingTranscriber(apiKey, provider as SttProviderId);
+}
+
+/**
+ * Create a `StreamingTranscriber` for the given provider.
+ *
+ * Uses lazy imports so the adapter modules are only loaded when needed,
+ * keeping the module graph lightweight for callers that only need batch
+ * transcription.
+ *
+ * Returns `null` for providers that do not have a streaming adapter.
+ */
+async function createStreamingTranscriber(
+  apiKey: string,
+  providerId: SttProviderId,
+): Promise<StreamingTranscriber | null> {
+  switch (providerId) {
+    case "google-gemini": {
+      const { GoogleGeminiStreamingTranscriber } =
+        await import("./google-gemini-stream.js");
+      return new GoogleGeminiStreamingTranscriber(apiKey);
+    }
+    // Future: case "deepgram" will be wired here by PR 3.
+    default:
+      return null;
+  }
 }
