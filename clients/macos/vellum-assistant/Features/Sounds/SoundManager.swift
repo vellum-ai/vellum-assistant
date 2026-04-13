@@ -43,9 +43,29 @@ final class SoundManager {
 
     func start(featureFlagStore: AssistantFeatureFlagStore? = nil) {
         self.featureFlagStore = featureFlagStore
-        // Config is fetched later via reloadConfig() once the gateway is
-        // confirmed ready. Fetching here would race the assistant startup
-        // and fall back to defaults on connection-refused.
+
+        // Reload sounds config on every daemon (re)connect. The daemon
+        // only broadcasts sounds_config_updated on file mutations, so
+        // without this hook the config would stay at `.defaultConfig`
+        // (silent) across every app restart until the user touched
+        // data/sounds/config.json on disk. GatewayConnectionManager
+        // posts .daemonDidReconnect when `isConnected` transitions to
+        // true, giving us the "gateway is confirmed ready" signal.
+        //
+        // Also kick off one eager reload for the race where the
+        // connection already completed before start() runs; if it
+        // fails, fetchConfig() silently falls back to defaults and
+        // the next .daemonDidReconnect will overwrite them.
+        NotificationCenter.default.addObserver(
+            forName: .daemonDidReconnect,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.reloadConfig()
+            }
+        }
+        reloadConfig()
     }
 
     // MARK: - Config Loading & Saving
