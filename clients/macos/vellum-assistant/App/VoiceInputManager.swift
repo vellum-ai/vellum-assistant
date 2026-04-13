@@ -702,6 +702,13 @@ final class VoiceInputManager {
             && speechRecognizer != nil
             && speechStatus == .authorized
 
+        // Proactively request speech recognition permission in the background
+        // when STT is configured but speech auth is undecided. If granted,
+        // the next recording will have native partials + fallback.
+        if sttConfigured && !useNativeRecognizer && speechStatus == .notDetermined {
+            speechRecognizerAdapter.requestAuthorization { _ in }
+        }
+
         // Don't start if a previous recognition task is still processing
         if recognitionTask != nil {
             log.warning("Previous recognition task still active (state=\(String(describing: self.recognitionTask?.state))), skipping")
@@ -1003,9 +1010,12 @@ final class VoiceInputManager {
                             sttClient: sttClient
                         )
                         guard let self else { return }
-                        VoiceFeedback.playDeactivationChime()
                         if !resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            VoiceFeedback.playDeactivationChime()
                             self.onTranscription?(resolvedText)
+                        } else {
+                            VoiceFeedback.playDeactivationChime()
+                            self.overlayWindow.show(state: .error("Transcription failed. Enable Speech Recognition in System Settings for a reliable fallback."))
                         }
                     }
                 } else {
@@ -1040,6 +1050,19 @@ final class VoiceInputManager {
                     sttClient: sttClient
                 )
                 log.info("Resolved transcription for dictation (serviceFirst=\(resolvedText != text)): \"\(resolvedText, privacy: .public)\"")
+
+                // When both STT service and native recognizer produced nothing,
+                // show an error overlay instead of sending empty text to the daemon.
+                if resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    log.warning("STT-only dictation produced no transcription — showing error overlay")
+                    await MainActor.run { [weak self] in
+                        guard let self else { return }
+                        self.awaitingDaemonResponse = false
+                        self.overlayWindow.show(state: .error("Transcription failed. Enable Speech Recognition in System Settings for a reliable fallback."))
+                        VoiceFeedback.playDeactivationChime()
+                    }
+                    return
+                }
 
                 let request = DictationRequest(
                     transcription: resolvedText,
@@ -1269,8 +1292,9 @@ final class VoiceInputManager {
                         VoiceFeedback.playDeactivationChime()
                         self.onTranscription?(resolvedText)
                     } else {
-                        log.warning("STT-only conversation transcription empty — discarding")
+                        log.warning("STT-only conversation transcription empty — showing error overlay")
                         VoiceFeedback.playDeactivationChime()
+                        self.overlayWindow.show(state: .error("Transcription failed. Enable Speech Recognition in System Settings for a reliable fallback."))
                     }
                 }
                 return
