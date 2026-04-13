@@ -2,7 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getLogger, type LogFileConfig } from "./logger.js";
-import { getRootDir, getWorkspaceDir } from "./credential-reader.js";
+import { getWorkspaceDir } from "./credential-reader.js";
+import { getGatewaySecurityDir } from "./paths.js";
 
 const log = getLogger("config");
 
@@ -53,19 +54,6 @@ function readWorkspaceConfig(): Record<string, unknown> {
   } catch {
     return {};
   }
-}
-
-/**
- * Directory containing files private to the gateway container.
- *
- * In Docker, this is a dedicated volume mounted at /gateway-security via the
- * GATEWAY_SECURITY_DIR env var. In local (non-Docker) mode, falls back to
- * ~/.vellum/protected/ for backwards compatibility.
- */
-export function getGatewaySecurityDir(): string {
-  const override = process.env.GATEWAY_SECURITY_DIR?.trim();
-  if (override) return override;
-  return join(getRootDir(), "protected");
 }
 
 function parseRoutingEntries(raw: unknown): RoutingEntry[] {

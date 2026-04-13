@@ -16,14 +16,14 @@ import {
   watch,
   type FSWatcher,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { getLogger } from "./logger.js";
 import {
   readServiceCredentials,
   ALL_CREDENTIAL_SPECS,
   getMetadataPath,
-  getRootDir,
 } from "./credential-reader.js";
+import { getGatewaySecurityDir } from "./paths.js";
 
 const log = getLogger("credential-watcher");
 
@@ -64,7 +64,7 @@ export class CredentialWatcher {
     await this.pollOnce();
 
     const metadataDir = dirname(this.metadataPath);
-    const protectedDir = join(getRootDir(), "protected");
+    const protectedDir = getGatewaySecurityDir();
 
     // Ensure directories exist so fs.watch() doesn't throw ENOENT
     // on a fresh hatch where no credentials have been written yet.
