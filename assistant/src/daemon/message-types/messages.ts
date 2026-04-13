@@ -60,6 +60,13 @@ export interface UserMessageEcho {
   type: "user_message_echo";
   text: string;
   conversationId?: string;
+  /** Database ID of the persisted user message, used by the originating
+   *  client to dedupe its optimistic row. Absent for synthetic echoes
+   *  (e.g. surface-action prompts) where no distinct user row is persisted. */
+  messageId?: string;
+  /** Server-generated request ID for the send. Allows correlation with
+   *  `message_queued` / `message_dequeued` events for the same turn. */
+  requestId?: string;
 }
 
 export interface AssistantTextDelta {

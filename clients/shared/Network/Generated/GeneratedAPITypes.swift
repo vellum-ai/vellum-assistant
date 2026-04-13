@@ -5180,11 +5180,15 @@ public struct UserMessageEcho: Codable, Sendable {
     public let type: String
     public let text: String
     public let conversationId: String?
+    public let messageId: String?
+    public let requestId: String?
 
-    public init(type: String, text: String, conversationId: String? = nil) {
+    public init(type: String, text: String, conversationId: String? = nil, messageId: String? = nil, requestId: String? = nil) {
         self.type = type
         self.text = text
         self.conversationId = conversationId
+        self.messageId = messageId
+        self.requestId = requestId
     }
 }
 
