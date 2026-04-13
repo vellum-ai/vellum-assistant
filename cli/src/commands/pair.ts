@@ -36,8 +36,16 @@ function decodeQRCodeFromPng(pngPath: string): string {
   return code.data;
 }
 
+function safeUserInfoUsername(): string {
+  try {
+    return userInfo().username;
+  } catch {
+    return "";
+  }
+}
+
 function getDeviceId(): string {
-  const raw = hostname() + userInfo().username;
+  const raw = hostname() + safeUserInfoUsername();
   return createHash("sha256").update(raw).digest("hex");
 }
 

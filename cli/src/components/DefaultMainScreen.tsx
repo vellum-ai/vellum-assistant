@@ -1939,8 +1939,14 @@ function ChatApp({
             );
           }
 
+          let username: string;
+          try {
+            username = userInfo().username;
+          } catch {
+            username = "";
+          }
           const hostId = createHash("sha256")
-            .update(hostname() + userInfo().username)
+            .update(hostname() + username)
             .digest("hex");
           const payload = JSON.stringify({
             type: "vellum-assistant",

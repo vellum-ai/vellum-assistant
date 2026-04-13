@@ -503,7 +503,12 @@ export async function hatchGcp(
       }
     }
 
-    const sshUser = userInfo().username;
+    let sshUser: string;
+    try {
+      sshUser = userInfo().username;
+    } catch {
+      sshUser = process.env.USER ?? "";
+    }
     const hatchedBy = process.env.VELLUM_HATCHED_BY;
     const providerApiKeys: Record<string, string> = {};
     for (const [, envVar] of Object.entries(PROVIDER_ENV_VAR_NAMES)) {
