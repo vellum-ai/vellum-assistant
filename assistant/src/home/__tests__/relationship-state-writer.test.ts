@@ -27,6 +27,7 @@ mock.module("../../oauth/oauth-store.js", () => ({
 // place. Bun's mock.module needs to run before the real import is
 // evaluated for the mock to take effect.
 const {
+  backfillRelationshipStateIfMissing,
   computeRelationshipState,
   getRelationshipStatePath,
   RELATIONSHIP_STATE_FILENAME,
@@ -280,6 +281,53 @@ describe("relationship-state-writer", () => {
     });
   });
 
+  describe("backfillRelationshipStateIfMissing", () => {
+    test("first boot with no existing state file writes the file", async () => {
+      writeFile("USER.md", "- Preferred name: Morgan");
+      seedConversations(2);
+
+      const path = getRelationshipStatePath();
+      expect(existsSync(path)).toBe(false);
+
+      await backfillRelationshipStateIfMissing();
+
+      expect(existsSync(path)).toBe(true);
+      const decoded = JSON.parse(
+        readFileSync(path, "utf-8"),
+      ) as RelationshipStateLike;
+      expect(decoded.version).toBe(1);
+      expect(decoded.assistantId).toBe("default");
+      expect(decoded.conversationCount).toBe(2);
+      expect(decoded.userName).toBe("Morgan");
+    });
+
+    test("second boot with an existing state file is a no-op", async () => {
+      writeFile("USER.md", "- Preferred name: Morgan");
+      seedConversations(2);
+
+      // Seed the initial state via the backfill itself, then capture
+      // its exact on-disk contents — the no-op case must preserve the
+      // file byte-for-byte, which means the first-write `updatedAt`
+      // stays intact on the second invocation.
+      await backfillRelationshipStateIfMissing();
+      const path = getRelationshipStatePath();
+      expect(existsSync(path)).toBe(true);
+      const firstRaw = readFileSync(path, "utf-8");
+      const firstDecoded = JSON.parse(firstRaw) as RelationshipStateLike;
+
+      // Wait long enough that any regression which re-writes the file
+      // would produce a visibly different `updatedAt`.
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      await backfillRelationshipStateIfMissing();
+
+      const secondRaw = readFileSync(path, "utf-8");
+      expect(secondRaw).toBe(firstRaw);
+      const secondDecoded = JSON.parse(secondRaw) as RelationshipStateLike;
+      expect(secondDecoded.updatedAt).toBe(firstDecoded.updatedAt);
+    });
+  });
+
   describe("hatchedDate stability", () => {
     test("is stable across multiple writes when IDENTITY.md has no explicit hatched bullet", async () => {
       // Regression guard: `parseIdentity` used to default `hatchedDate`
@@ -296,7 +344,8 @@ describe("relationship-state-writer", () => {
       // Wait long enough that any `Date.now()`-based regression would
       // produce a visibly different value on the second call.
       await new Promise((resolve) => setTimeout(resolve, 25));
-      const second = (await computeRelationshipState()) as RelationshipStateLike;
+      const second =
+        (await computeRelationshipState()) as RelationshipStateLike;
 
       expect(second.hatchedDate).toBe(first.hatchedDate);
       // Also sanity: it must be a real, recent date (not the epoch
