@@ -51,6 +51,35 @@ The request carries base64-encoded WAV audio and a MIME type. The daemon resolve
 | `clients/shared/Network/STTClient.swift`         | Shared client: POSTs audio to the gateway, returns typed `STTResult`      |
 | `clients/shared/Utilities/AudioWavEncoder.swift` | WAV encoding utility for PCM audio buffers                                |
 
+### STT Streaming WebSocket Proxy
+
+Native clients (macOS, iOS) open WebSocket connections through the gateway to the daemon's real-time STT streaming endpoint for conversation chat message capture. The gateway authenticates the downstream client using an edge JWT (actor principal required), then opens an upstream WebSocket connection to the daemon's `/v1/stt/stream` endpoint with a short-lived gateway service token. This keeps the daemon's WebSocket endpoint unreachable from the public internet while allowing authenticated clients to stream audio for real-time transcription.
+
+**Client path:** `wss://<gateway>/v1/assistants/:assistantId/stt/stream?provider=<id>&mimeType=<mime>[&sampleRate=<hz>]`
+
+**Query parameters:**
+
+| Parameter    | Required | Description                                                              |
+| ------------ | -------- | ------------------------------------------------------------------------ |
+| `provider`   | Yes      | STT provider identifier (`deepgram`, `google-gemini`)                    |
+| `mimeType`   | Yes      | MIME type of the audio being streamed (e.g. `audio/webm;codecs=opus`)    |
+| `sampleRate` | No       | Sample rate in Hz (e.g. `16000`). Passed through to the daemon.          |
+| `token`      | No       | Edge JWT (alternative to `Authorization: Bearer` header for WS upgrades) |
+
+**Auth model:** STT streaming is an authenticated, assistant-scoped path. The client must present a valid edge JWT with an actor principal. Service tokens are rejected. When `runtimeProxyRequireAuth` is globally disabled (dev bypass), the upgrade proceeds without token validation.
+
+**Proxy behavior:** The gateway buffers up to 100 downstream messages while the upstream connection to the daemon is being established. If the buffer overflows, the downstream connection is closed with code 1008 (policy violation). Once the upstream connection opens, buffered messages are flushed in order. All subsequent messages are forwarded bidirectionally: client audio frames flow upstream, daemon transcript events (JSON text frames: `ready`, `partial`, `final`, `error`, `closed`) flow downstream. When either side closes, the other side is closed with the same code/reason.
+
+**Key source files:**
+
+| File                                              | Purpose                                                                                                            |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `gateway/src/http/routes/stt-stream-websocket.ts` | WebSocket upgrade handler (`createSttStreamWebsocketHandler`) and proxy handlers (`getSttStreamWebsocketHandlers`) |
+| `gateway/src/index.ts`                            | Route registration: wires upgrade handler to the gateway's Bun HTTP server                                         |
+| `assistant/src/runtime/http-server.ts`            | Daemon-side WebSocket upgrade at `/v1/stt/stream`, session creation and registry                                   |
+| `assistant/src/stt/stt-stream-session.ts`         | Runtime session orchestrator: drives the `StreamingTranscriber` from the WebSocket                                 |
+| `clients/shared/Network/STTStreamingClient.swift` | Swift client: builds the gateway WS URL via `GatewayHTTPClient.buildWebSocketRequest`                              |
+
 ### Assistant Feature Flags API
 
 The gateway exposes a REST API for reading and mutating assistant feature flags. Assistant feature flags are assistant-scoped, declaration-driven booleans that can gate any assistant behavior. Skill availability is one consumer, but not a required coupling (see [`assistant/ARCHITECTURE.md`](../assistant/ARCHITECTURE.md) for resolver and skill enforcement details).

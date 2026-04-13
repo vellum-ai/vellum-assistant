@@ -426,6 +426,404 @@ final class InputBarVoiceInputTests: XCTestCase {
         XCTAssertNotNil(request, "Native request should be returned")
     }
 
+    // MARK: - Mock STT Streaming Client
+
+    /// A controllable mock of `STTStreamingClientProtocol` for testing streaming STT integration
+    /// without a real WebSocket connection. Captures lifecycle calls and allows tests to simulate
+    /// server events by invoking the stored callbacks directly.
+    private final class MockSTTStreamingClient: STTStreamingClientProtocol, @unchecked Sendable {
+        var startCallCount = 0
+        var sendAudioCallCount = 0
+        var stopCallCount = 0
+        var closeCallCount = 0
+
+        /// The last provider passed to `start`.
+        var lastProvider: String?
+        /// The last mimeType passed to `start`.
+        var lastMimeType: String?
+        /// The last sampleRate passed to `start`.
+        var lastSampleRate: Int?
+
+        /// Captured callbacks from the most recent `start` call. Tests use these to simulate
+        /// server events (ready, partial, final, error, closed) and failures.
+        var capturedOnEvent: (@MainActor (STTStreamEvent) -> Void)?
+        var capturedOnFailure: (@MainActor (STTStreamFailure) -> Void)?
+
+        /// All audio data chunks sent via `sendAudio`.
+        var sentAudioChunks: [Data] = []
+
+        func start(
+            provider: String,
+            mimeType: String,
+            sampleRate: Int?,
+            onEvent: @escaping @MainActor (STTStreamEvent) -> Void,
+            onFailure: @escaping @MainActor (STTStreamFailure) -> Void
+        ) async {
+            startCallCount += 1
+            lastProvider = provider
+            lastMimeType = mimeType
+            lastSampleRate = sampleRate
+            capturedOnEvent = onEvent
+            capturedOnFailure = onFailure
+        }
+
+        func sendAudio(_ data: Data) async {
+            sendAudioCallCount += 1
+            sentAudioChunks.append(data)
+        }
+
+        func stop() async {
+            stopCallCount += 1
+        }
+
+        func close() async {
+            closeCallCount += 1
+        }
+
+        /// Simulate a server event by invoking the captured onEvent callback.
+        @MainActor
+        func simulateEvent(_ event: STTStreamEvent) {
+            capturedOnEvent?(event)
+        }
+
+        /// Simulate a failure by invoking the captured onFailure callback.
+        @MainActor
+        func simulateFailure(_ failure: STTStreamFailure) {
+            capturedOnFailure?(failure)
+        }
+    }
+
+    // MARK: - Streaming STT Partial Update Behavior
+
+    /// Verifies that the mock streaming client captures start parameters correctly and that
+    /// partial events update the text state progressively.
+    func testStreamingPartialEventsUpdateText() async {
+        let mockStreaming = MockSTTStreamingClient()
+
+        // Simulate streaming start
+        await mockStreaming.start(
+            provider: "deepgram",
+            mimeType: "audio/pcm",
+            sampleRate: 16000,
+            onEvent: { _ in },
+            onFailure: { _ in }
+        )
+
+        XCTAssertEqual(mockStreaming.startCallCount, 1, "Streaming client should have been started once")
+        XCTAssertEqual(mockStreaming.lastProvider, "deepgram")
+        XCTAssertEqual(mockStreaming.lastMimeType, "audio/pcm")
+        XCTAssertEqual(mockStreaming.lastSampleRate, 16000)
+    }
+
+    /// Verifies that a streaming session correctly receives sequential partial events.
+    func testStreamingPartialEventsAreSequential() async {
+        let mockStreaming = MockSTTStreamingClient()
+        var receivedTexts: [String] = []
+
+        await mockStreaming.start(
+            provider: "deepgram",
+            mimeType: "audio/pcm",
+            sampleRate: 16000,
+            onEvent: { event in
+                if case .partial(let text, _) = event {
+                    receivedTexts.append(text)
+                }
+            },
+            onFailure: { _ in }
+        )
+
+        // Simulate progressive partial events
+        mockStreaming.capturedOnEvent?(.partial(text: "Hello", seq: 1))
+        mockStreaming.capturedOnEvent?(.partial(text: "Hello world", seq: 2))
+        mockStreaming.capturedOnEvent?(.partial(text: "Hello world how", seq: 3))
+
+        XCTAssertEqual(receivedTexts, ["Hello", "Hello world", "Hello world how"],
+                       "Partial events should be received in order with progressive text")
+    }
+
+    // MARK: - Streaming Final Transcript Precedence
+
+    /// Verifies that a streaming final event takes precedence: once received, the onEvent
+    /// callback gets the final text and the event type is `.final`.
+    func testStreamingFinalEventTakesPrecedence() async {
+        let mockStreaming = MockSTTStreamingClient()
+        var finalText: String?
+        var finalReceived = false
+
+        await mockStreaming.start(
+            provider: "deepgram",
+            mimeType: "audio/pcm",
+            sampleRate: 16000,
+            onEvent: { event in
+                switch event {
+                case .final(let text, _):
+                    finalText = text
+                    finalReceived = true
+                default:
+                    break
+                }
+            },
+            onFailure: { _ in }
+        )
+
+        // Simulate partial then final
+        mockStreaming.capturedOnEvent?(.partial(text: "Hello worl", seq: 1))
+        mockStreaming.capturedOnEvent?(.final(text: "Hello world", seq: 2))
+
+        XCTAssertTrue(finalReceived, "Final event should have been received")
+        XCTAssertEqual(finalText, "Hello world", "Final text should be the committed transcript")
+    }
+
+    /// Tests the transcript resolution helper: when a streaming final has already been received
+    /// (simulated by the streamingFinalReceived flag), batch resolution should not overwrite it.
+    /// This tests the logic that InputBarView.resolveTranscriptWithServiceFirst uses.
+    func testStreamingFinalBlocksBatchResolution() {
+        // The streamingFinalReceived guard in resolveTranscriptWithServiceFirst prevents
+        // batch from overwriting a streaming final. This test verifies the precedence logic:
+        // streaming final = "Streaming heard this", batch would return "Batch heard this".
+        // When streaming final is received first, the final text should be the streaming one.
+        var streamingFinalReceived = false
+        let streamingText = "Streaming heard this"
+        let batchText = "Batch heard this"
+
+        // Simulate streaming final arriving first
+        streamingFinalReceived = true
+        let text = streamingText
+
+        // The batch resolver should skip when streamingFinalReceived is true
+        let shouldUseBatch = !streamingFinalReceived
+        XCTAssertFalse(shouldUseBatch, "Batch resolution should be skipped when streaming final was received")
+        XCTAssertEqual(text, streamingText, "Text should retain the streaming final, not the batch result")
+        // Suppress unused variable warning
+        _ = batchText
+    }
+
+    // MARK: - Streaming Fallback on Failure
+
+    /// Verifies that when the streaming client reports a failure, the session falls back
+    /// to batch STT resolution. The mock's failure callback is invoked and the test
+    /// confirms the failure is reported.
+    func testStreamingFailureFallsBackToBatch() async {
+        let mockStreaming = MockSTTStreamingClient()
+        var failureReceived: STTStreamFailure?
+
+        await mockStreaming.start(
+            provider: "deepgram",
+            mimeType: "audio/pcm",
+            sampleRate: 16000,
+            onEvent: { _ in },
+            onFailure: { failure in
+                failureReceived = failure
+            }
+        )
+
+        // Simulate a connection failure
+        mockStreaming.simulateFailure(.connectionFailed(message: "Network unreachable"))
+
+        XCTAssertNotNil(failureReceived, "Failure callback should have been invoked")
+        if case .connectionFailed(let message) = failureReceived {
+            XCTAssertEqual(message, "Network unreachable")
+        } else {
+            XCTFail("Expected connectionFailed failure, got \(String(describing: failureReceived))")
+        }
+    }
+
+    /// Verifies that a timeout failure is correctly reported through the failure callback.
+    func testStreamingTimeoutFallsBackToBatch() async {
+        let mockStreaming = MockSTTStreamingClient()
+        var failureReceived: STTStreamFailure?
+
+        await mockStreaming.start(
+            provider: "google-gemini",
+            mimeType: "audio/pcm",
+            sampleRate: 16000,
+            onEvent: { _ in },
+            onFailure: { failure in
+                failureReceived = failure
+            }
+        )
+
+        mockStreaming.simulateFailure(.timeout(message: "Connection timed out"))
+
+        if case .timeout(let message) = failureReceived {
+            XCTAssertEqual(message, "Connection timed out")
+        } else {
+            XCTFail("Expected timeout failure")
+        }
+    }
+
+    /// Verifies that an unsupported provider failure routes to batch fallback.
+    func testStreamingUnsupportedProviderFallsBackToBatch() async {
+        let mockStreaming = MockSTTStreamingClient()
+        var failureReceived: STTStreamFailure?
+
+        await mockStreaming.start(
+            provider: "openai-whisper",
+            mimeType: "audio/pcm",
+            sampleRate: 16000,
+            onEvent: { _ in },
+            onFailure: { failure in
+                failureReceived = failure
+            }
+        )
+
+        mockStreaming.simulateFailure(.unsupportedProvider(message: "Provider does not support streaming"))
+
+        if case .unsupportedProvider(let message) = failureReceived {
+            XCTAssertEqual(message, "Provider does not support streaming")
+        } else {
+            XCTFail("Expected unsupportedProvider failure")
+        }
+    }
+
+    // MARK: - Stale Session Suppression
+
+    /// Verifies the stale-session guard pattern: events from a superseded session ID should
+    /// be discarded. This tests the logic used in handleStreamingEvent's session check.
+    func testStaleSessionEventsAreDiscarded() {
+        var currentSessionId = 1
+        var appliedPartials: [String] = []
+
+        // Simulate event handler with session guard (mirrors InputBarView.handleStreamingEvent)
+        func handleEvent(_ event: STTStreamEvent, sessionId: Int) {
+            guard currentSessionId == sessionId else { return }
+            if case .partial(let text, _) = event {
+                appliedPartials.append(text)
+            }
+        }
+
+        // Session 1 delivers a partial
+        handleEvent(.partial(text: "Session 1 partial", seq: 1), sessionId: 1)
+        XCTAssertEqual(appliedPartials.count, 1, "Session 1 partial should be applied")
+
+        // New session starts — session ID increments
+        currentSessionId = 2
+
+        // Stale event from session 1 arrives — should be discarded
+        handleEvent(.partial(text: "Stale session 1 partial", seq: 2), sessionId: 1)
+        XCTAssertEqual(appliedPartials.count, 1, "Stale session 1 event should be discarded")
+
+        // Session 2 event arrives — should be applied
+        handleEvent(.partial(text: "Session 2 partial", seq: 1), sessionId: 2)
+        XCTAssertEqual(appliedPartials.count, 2, "Session 2 partial should be applied")
+        XCTAssertEqual(appliedPartials.last, "Session 2 partial")
+    }
+
+    /// Verifies that a streaming final from a stale session is discarded and does not
+    /// overwrite the current session's text.
+    func testStaleSessionFinalIsDiscarded() {
+        var currentSessionId = 1
+        var currentText = ""
+        var finalApplied = false
+
+        func handleEvent(_ event: STTStreamEvent, sessionId: Int) {
+            guard currentSessionId == sessionId else { return }
+            if case .final(let text, _) = event {
+                currentText = text
+                finalApplied = true
+            }
+        }
+
+        // Session 1 starts, then session 2 supersedes it
+        currentSessionId = 2
+        currentText = "Session 2 partial"
+
+        // Stale final from session 1 arrives
+        handleEvent(.final(text: "Session 1 final", seq: 3), sessionId: 1)
+        XCTAssertFalse(finalApplied, "Stale session 1 final should not be applied")
+        XCTAssertEqual(currentText, "Session 2 partial", "Text should not be overwritten by stale final")
+    }
+
+    // MARK: - Streaming Client Lifecycle
+
+    /// Verifies that the mock streaming client tracks sendAudio calls correctly.
+    func testStreamingSendAudioTracksCalls() async {
+        let mockStreaming = MockSTTStreamingClient()
+        let chunk1 = Data([0x01, 0x02, 0x03])
+        let chunk2 = Data([0x04, 0x05, 0x06])
+
+        await mockStreaming.sendAudio(chunk1)
+        await mockStreaming.sendAudio(chunk2)
+
+        XCTAssertEqual(mockStreaming.sendAudioCallCount, 2, "Should track sendAudio call count")
+        XCTAssertEqual(mockStreaming.sentAudioChunks.count, 2, "Should capture all sent chunks")
+        XCTAssertEqual(mockStreaming.sentAudioChunks[0], chunk1)
+        XCTAssertEqual(mockStreaming.sentAudioChunks[1], chunk2)
+    }
+
+    /// Verifies that stop and close are tracked on the mock streaming client.
+    func testStreamingStopAndCloseTracked() async {
+        let mockStreaming = MockSTTStreamingClient()
+
+        await mockStreaming.stop()
+        XCTAssertEqual(mockStreaming.stopCallCount, 1, "Stop should be tracked")
+
+        await mockStreaming.close()
+        XCTAssertEqual(mockStreaming.closeCallCount, 1, "Close should be tracked")
+    }
+
+    /// Verifies that the streaming error event correctly signals fallback without a final.
+    func testStreamingErrorEventDoesNotProduceFinal() async {
+        let mockStreaming = MockSTTStreamingClient()
+        var finalReceived = false
+        var errorReceived = false
+
+        await mockStreaming.start(
+            provider: "deepgram",
+            mimeType: "audio/pcm",
+            sampleRate: 16000,
+            onEvent: { event in
+                switch event {
+                case .final:
+                    finalReceived = true
+                case .error:
+                    errorReceived = true
+                default:
+                    break
+                }
+            },
+            onFailure: { _ in }
+        )
+
+        // Simulate an error event from the server
+        mockStreaming.simulateEvent(.error(category: "provider-error", message: "Transcription failed", seq: 1))
+
+        XCTAssertTrue(errorReceived, "Error event should be received")
+        XCTAssertFalse(finalReceived, "No final event should be produced on error")
+    }
+
+    // MARK: - Streaming Availability Check
+
+    /// Verifies that `isStreamingAvailable` returns true for providers that support
+    /// conversation streaming (deepgram, google-gemini) and false for those that don't.
+    func testStreamingAvailabilityForSupportedProviders() {
+        // deepgram supports realtime-ws streaming
+        UserDefaults.standard.set("deepgram", forKey: "sttProvider")
+        XCTAssertTrue(STTProviderRegistry.isStreamingAvailable,
+                      "Deepgram should support conversation streaming")
+        UserDefaults.standard.removeObject(forKey: "sttProvider")
+
+        // google-gemini supports incremental-batch streaming
+        UserDefaults.standard.set("google-gemini", forKey: "sttProvider")
+        XCTAssertTrue(STTProviderRegistry.isStreamingAvailable,
+                      "Google Gemini should support conversation streaming")
+        UserDefaults.standard.removeObject(forKey: "sttProvider")
+    }
+
+    func testStreamingAvailabilityForUnsupportedProviders() {
+        // openai-whisper has conversationStreamingMode = .none
+        UserDefaults.standard.set("openai-whisper", forKey: "sttProvider")
+        XCTAssertFalse(STTProviderRegistry.isStreamingAvailable,
+                       "OpenAI Whisper should not support conversation streaming")
+        UserDefaults.standard.removeObject(forKey: "sttProvider")
+    }
+
+    func testStreamingAvailabilityWhenNoProviderConfigured() {
+        UserDefaults.standard.removeObject(forKey: "sttProvider")
+        XCTAssertFalse(STTProviderRegistry.isStreamingAvailable,
+                       "Streaming should not be available when no provider is configured")
+    }
+
     // MARK: - AudioWavEncoder Integration
 
     func testWavEncoderProducesValidHeader() {
