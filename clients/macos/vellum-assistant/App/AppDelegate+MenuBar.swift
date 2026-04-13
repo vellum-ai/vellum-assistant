@@ -268,13 +268,21 @@ extension AppDelegate {
             return (mainWindow?.conversationManager.unseenVisibleConversationCount ?? 0) > 0
         }
         if action == #selector(markCurrentConversationUnread) {
-            guard let conversationManager = mainWindow?.conversationManager,
-                  let activeId = conversationManager.selectionStore.activeConversationId,
-                  let idx = conversationManager.listStore.conversations.firstIndex(where: { $0.id == activeId })
-            else { return false }
-            return conversationManager.listStore.canMarkConversationUnread(conversationId: activeId, at: idx)
+            return canMarkCurrentConversationUnread()
         }
         return true
+    }
+
+    /// Returns whether the mark-as-unread action is currently executable.
+    /// Shared by `validateMenuItem(_:)` and the keyboard-shortcut monitor so
+    /// both gates stay in sync and the shortcut falls through to the responder
+    /// chain when the action cannot run.
+    func canMarkCurrentConversationUnread() -> Bool {
+        guard let conversationManager = mainWindow?.conversationManager,
+              let activeId = conversationManager.selectionStore.activeConversationId,
+              let idx = conversationManager.listStore.conversations.firstIndex(where: { $0.id == activeId })
+        else { return false }
+        return conversationManager.listStore.canMarkConversationUnread(conversationId: activeId, at: idx)
     }
 
     /// Builds the status item tooltip, appending PTT key info when enabled.
