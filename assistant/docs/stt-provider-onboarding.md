@@ -13,6 +13,7 @@ Add a new entry to the `CATALOG` map with:
 - `supportedBoundaries` — the set of `SttBoundaryId` values the provider supports. Valid values are `"daemon-batch"` (post-recording transcription) and `"daemon-streaming"` (real-time streaming transcription during conversation).
 - `conversationStreamingMode` — how the provider handles streaming transcription in conversation mode: `"realtime-ws"` (provider supports real-time streaming natively via WebSocket), `"incremental-batch"` (streaming emulated via throttled polling), or `"none"` (no streaming support). Required for all providers.
 - `telephonyMode` — how the provider participates in real-time telephony STT: `"realtime-ws"`, `"batch-only"`, or `"none"`.
+- `telephonyRouting` — telephony routing metadata that drives Twilio call setup strategy selection. Declare `strategyKind` as `"conversation-relay-native"` or `"media-stream-custom"`. For native providers, include `twilioNativeMapping` with the Twilio `provider` name and `defaultSpeechModel`.
 
 ## 2. Type-system registration
 
