@@ -1,10 +1,17 @@
 import type { VellumPlatformClient } from "../platform/client.js";
 import { BackendError } from "../util/errors.js";
+import {
+  getHttpRetryDelay,
+  isRetryableStatus,
+  sleep,
+} from "../util/retry.js";
 import type {
   OAuthConnection,
   OAuthConnectionRequest,
   OAuthConnectionResponse,
 } from "./connection.js";
+
+const MAX_RETRIES = 3;
 
 export class CredentialRequiredError extends BackendError {
   constructor(message = "Connection not set up on platform") {
@@ -76,39 +83,52 @@ export class PlatformOAuthConnection implements OAuthConnection {
       },
     };
 
-    const response = await this.client.fetch(proxyPath, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const response = await this.client.fetch(proxyPath, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
 
-    if (response.status === 424) {
-      throw new CredentialRequiredError();
+      if (response.status === 424) {
+        throw new CredentialRequiredError();
+      }
+
+      if (response.status === 502) {
+        throw new ProviderUnreachableError();
+      }
+
+      if (
+        !response.ok &&
+        isRetryableStatus(response.status) &&
+        attempt < MAX_RETRIES
+      ) {
+        await sleep(getHttpRetryDelay(response, attempt));
+        continue;
+      }
+
+      if (!response.ok) {
+        throw new BackendError(
+          `Platform proxy returned unexpected status ${response.status}`,
+        );
+      }
+
+      const json = (await response.json()) as {
+        status: number;
+        headers: Record<string, string>;
+        body: unknown;
+      };
+
+      return {
+        status: json.status,
+        headers: json.headers,
+        body: json.body,
+      };
     }
 
-    if (response.status === 502) {
-      throw new ProviderUnreachableError();
-    }
-
-    if (!response.ok) {
-      throw new BackendError(
-        `Platform proxy returned unexpected status ${response.status}`,
-      );
-    }
-
-    const json = (await response.json()) as {
-      status: number;
-      headers: Record<string, string>;
-      body: unknown;
-    };
-
-    return {
-      status: json.status,
-      headers: json.headers,
-      body: json.body,
-    };
+    throw new BackendError("Platform proxy request failed after retries");
   }
 
   async withToken<T>(_fn: (token: string) => Promise<T>): Promise<T> {
