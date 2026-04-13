@@ -26,6 +26,7 @@ import {
   getTwilioMediaStreamUrl,
   getTwilioRelayUrl,
 } from "../inbound/public-ingress-urls.js";
+import { getProviderEntry } from "../providers/speech-to-text/provider-catalog.js";
 import { mintEdgeRelayToken } from "../runtime/auth/token-service.js";
 import { getLogger } from "../util/logger.js";
 import { persistCallCompletionMessage } from "./call-conversation-messages.js";
@@ -365,6 +366,16 @@ function buildVoiceWebhookTwiml(
   // The routing resolver handles speech-model defaults internally per provider.
   const routingResult = resolveTelephonySttRouting();
 
+  // Derive Deepgram fallback values from the provider catalog so they stay
+  // in sync with the single source of truth. Hardcoded strings are kept only
+  // as a final safety net in case the catalog entry is missing.
+  const dgEntry = getProviderEntry("deepgram");
+  const fallbackProvider =
+    dgEntry?.telephonyRouting.twilioNativeMapping?.provider ?? "Deepgram";
+  const fallbackModel =
+    dgEntry?.telephonyRouting.twilioNativeMapping?.defaultSpeechModel ??
+    "nova-3";
+
   if (routingResult.status === "unknown-provider") {
     log.error(
       {
@@ -382,7 +393,7 @@ function buildVoiceWebhookTwiml(
       profile,
       sessionContext,
       verificationSessionId,
-      { transcriptionProvider: "Deepgram", speechModel: "nova-3" },
+      { transcriptionProvider: fallbackProvider, speechModel: fallbackModel },
     );
   }
 
@@ -438,7 +449,7 @@ function buildVoiceWebhookTwiml(
       profile,
       sessionContext,
       verificationSessionId,
-      { transcriptionProvider: "Deepgram", speechModel: "nova-3" },
+      { transcriptionProvider: fallbackProvider, speechModel: fallbackModel },
     );
   }
 
