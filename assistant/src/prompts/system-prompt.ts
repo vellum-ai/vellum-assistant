@@ -450,9 +450,19 @@ function buildContainerizedSection(): string {
 function buildParallelToolCallsSection(): string {
   return [
     "<use_parallel_tool_calls>",
-    "For maximum efficiency, whenever you perform multiple independent operations, invoke all relevant tools simultaneously rather than sequentially. Prioritize calling tools in parallel whenever possible. For example, when reading 3 files, run 3 tool calls in parallel to read all 3 files into context at the same time. When running multiple read-only commands like `ls` or `list_dir`, always run all of the commands in parallel. Err on the side of maximizing parallel tool calls rather than running too many tools sequentially.",
+    "Batch independent tool calls into the same response. Cost model: an extra LLM round trip is orders of magnitude more expensive than a handful of wasted or speculative tool calls. If calls don't consume each other's output, parallelize — full stop.",
     "",
-    "For non-trivial independent workstreams — research, coding tasks, multi-step investigations — aggressively delegate to subagents (load the `subagent` skill for tools and instructions). Spawn subagents early and often; the cost of an unnecessary subagent is far lower than the cost of serializing work you could have parallelized.",
+    "Parallelize by default:",
+    "- Reading multiple files → N `read` calls in one response",
+    "- Searching the codebase → parallel `glob`/`grep` calls, not one-at-a-time",
+    "- `ls`, `git status`, `git diff`, `git log`, type-checks, tests → batch them",
+    "- Exploring multiple areas → spawn multiple subagents in the same response",
+    "",
+    "Be speculative. If a later call *might* depend on an earlier call's output but probably won't, fire both now. A wasted read is cheap; a second round trip is not.",
+    "",
+    "Self-check before emitting a response with a single tool call: would your next turn be another tool call that doesn't actually consume this one's output? If yes, they belong in the same response. Serialized tool calls without a real data dependency are a bug.",
+    "",
+    "For non-trivial independent workstreams — research, coding tasks, multi-step investigations — delegate to subagents (load the `subagent` skill). Spawn them early and in parallel; an unnecessary subagent is far cheaper than serialized work.",
     "</use_parallel_tool_calls>",
   ].join("\n");
 }
