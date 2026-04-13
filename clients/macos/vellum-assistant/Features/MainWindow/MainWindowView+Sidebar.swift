@@ -79,6 +79,7 @@ extension MainWindowView {
                 .offset(x: 4, y: -4)
                 .transition(.scale.combined(with: .opacity))
                 .allowsHitTesting(false)
+                .accessibilityLabel(Text("Unseen changes"))
         }
     }
 

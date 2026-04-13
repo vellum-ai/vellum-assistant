@@ -54,9 +54,10 @@ final class HomeStoreUnseenChangesTests: XCTestCase {
 
     /// Rule 1: cold-start `load()` must not set `hasUnseenChanges`.
     ///
-    /// The store begins with `hasLoadedOnce == false`. After a single
-    /// successful `load()` the flag flips to true, but `hasUnseenChanges`
-    /// must remain `false` because no SSE event has arrived yet.
+    /// The dot is only ever raised by the SSE handler. A bare `load()` —
+    /// whether from the foreground observer or an explicit call — never
+    /// touches `hasUnseenChanges`, so the cold-start path is automatically
+    /// safe as long as no SSE event arrives during it.
     func testColdLoadDoesNotSetUnseen() async {
         let expected = makeRelationshipState(tier: 3, progressPercent: 75)
         let client = MockHomeStateClient(state: expected)
@@ -75,8 +76,8 @@ final class HomeStoreUnseenChangesTests: XCTestCase {
 
     /// Rule 2: SSE event while the tab is invisible must set the flag.
     ///
-    /// Primes the store with a successful cold-load (so `hasLoadedOnce` is
-    /// true), then emits a `relationshipStateUpdated` event while
+    /// Primes the store with a successful cold-load to anchor the baseline,
+    /// then emits a `relationshipStateUpdated` event while
     /// `isHomeTabVisible == false`. The SSE handler should flip the dot on
     /// after the reload completes.
     func testEventWhileInvisibleSetsUnseen() async throws {
@@ -84,7 +85,7 @@ final class HomeStoreUnseenChangesTests: XCTestCase {
         let client = MockHomeStateClient(state: initial)
         let (store, continuation) = makeStore(client: client)
 
-        // Cold-load to flip `hasLoadedOnce` and anchor the baseline.
+        // Cold-load to anchor the baseline before the SSE event arrives.
         await store.load()
         XCTAssertFalse(store.hasUnseenChanges)
 
