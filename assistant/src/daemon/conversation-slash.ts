@@ -173,6 +173,42 @@ function resolveCommandsList(context?: SlashContext): string[] {
 }
 
 /**
+ * Pure classifier: returns the kind of slash resolution `resolveSlash` would
+ * produce for `content`, without triggering any side effects.
+ *
+ * Queue-drain lookahead (`buildPassthroughBatch`) uses this to decide whether
+ * to include a queued message in a contiguous passthrough batch. `resolveSlash`
+ * itself runs side effects (e.g. `/pair` registers a pairing request and
+ * writes a QR PNG), so calling it during lookahead and then again in the real
+ * drain would execute those side effects twice — the second call sees the
+ * first registration and fails with "active pairing already in progress".
+ */
+export function classifySlash(
+  content: string,
+): "passthrough" | "compact" | "unknown" {
+  const trimmed = content.trim();
+  if (
+    trimmed === "/model" ||
+    (trimmed.startsWith("/model ") && trimmed !== "/models")
+  ) {
+    return "unknown";
+  }
+  const shortcutMatch = trimmed.match(/^\/([a-z0-9-]+)(\s|$)/i);
+  if (
+    shortcutMatch &&
+    DEPRECATED_MODEL_SHORTCUTS.has(shortcutMatch[1].toLowerCase())
+  ) {
+    return "unknown";
+  }
+  if (trimmed === "/models") return "unknown";
+  if (trimmed === "/pair") return "unknown";
+  if (trimmed === "/compact") return "compact";
+  if (trimmed === "/status") return "unknown";
+  if (trimmed === "/commands") return "unknown";
+  return "passthrough";
+}
+
+/**
  * Resolve built-in slash commands (/models, /status, /commands, /compact, /pair).
  * Returns `unknown` with a deterministic message, `compact` for forced compaction,
  * or the (possibly rewritten) content as `passthrough`.

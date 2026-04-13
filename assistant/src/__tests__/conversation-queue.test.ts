@@ -1460,6 +1460,64 @@ describe("Batched drain correctness fixes", () => {
     await new Promise((r) => setTimeout(r, 20));
   });
 
+  test("failed tail persist is excluded from fanOutOnEvent agent events", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: ServerMessage[] = [];
+    const events2: ServerMessage[] = [];
+    const events3: ServerMessage[] = [];
+    const events4: ServerMessage[] = [];
+
+    const p1 = conversation.processMessage(
+      "msg-1",
+      [],
+      (e) => events1.push(e),
+      "req-1",
+    );
+    await waitForPendingRun(1);
+
+    // Mid tail will fail to persist. After the batched run resolves,
+    // message_complete (broadcast via fanOutOnEvent) must NOT land on the
+    // failed mid tail — it already received an error event and persisting
+    // the assistant reply for a user message that has no DB row would
+    // desync the client.
+    addMessageShouldThrowForContent.add("fanout-mid-marker");
+
+    conversation.enqueueMessage(
+      "fanout-head",
+      [],
+      (e) => events2.push(e),
+      "req-fanout-head",
+    );
+    conversation.enqueueMessage(
+      "fanout-mid-marker",
+      [],
+      (e) => events3.push(e),
+      "req-fanout-mid",
+    );
+    conversation.enqueueMessage(
+      "fanout-tail",
+      [],
+      (e) => events4.push(e),
+      "req-fanout-tail",
+    );
+
+    resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // Drive the batched run to emit message_complete via fanOutOnEvent.
+    resolveRun(1);
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(events3.find((e) => e.type === "error")).toBeDefined();
+    expect(events3.find((e) => e.type === "message_complete")).toBeUndefined();
+
+    expect(events2.find((e) => e.type === "message_complete")).toBeDefined();
+    expect(events4.find((e) => e.type === "message_complete")).toBeDefined();
+  });
+
   test("drainBatch emits exactly one activity-state event for the whole batch", async () => {
     const activityStates: ServerMessage[] = [];
     const conversation = makeConversation((msg) => {

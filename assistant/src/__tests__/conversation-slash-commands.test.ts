@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  classifySlash,
   resolveSlash,
   type SlashContext,
 } from "../daemon/conversation-slash.js";
@@ -147,4 +148,36 @@ describe("resolveSlash command contract", () => {
     }
     expect(result.message).toContain("Pairing is not available");
   });
+});
+
+describe("classifySlash is a pure classifier matching resolveSlash kinds", () => {
+  // Lookahead in `buildPassthroughBatch` must not run `resolveSlash`'s side
+  // effects (/pair registers a pairing request and writes a QR PNG). The
+  // pure classifier is synchronous, takes no side-effecting dependencies,
+  // and must agree with resolveSlash's `kind`.
+  const cases: Array<{ input: string; kind: "passthrough" | "compact" | "unknown" }> = [
+    { input: "/pair", kind: "unknown" },
+    { input: "/models", kind: "unknown" },
+    { input: "/status", kind: "unknown" },
+    { input: "/commands", kind: "unknown" },
+    { input: "/compact", kind: "compact" },
+    { input: "/model", kind: "unknown" },
+    { input: "/model foo", kind: "unknown" },
+    { input: "/opus", kind: "unknown" },
+    { input: "hello", kind: "passthrough" },
+    { input: "  /compact  ", kind: "compact" },
+    { input: "/pair foo", kind: "passthrough" },
+    { input: "/models foo", kind: "passthrough" },
+  ];
+
+  for (const { input, kind } of cases) {
+    test(`classifies ${JSON.stringify(input)} as ${kind}`, async () => {
+      expect(classifySlash(input)).toBe(kind);
+      const resolved = await resolveSlash(
+        input,
+        makeSlashContext({ userMessageInterface: "macos" }),
+      );
+      expect(resolved.kind).toBe(kind);
+    });
+  }
 });

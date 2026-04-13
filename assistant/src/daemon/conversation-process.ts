@@ -43,7 +43,11 @@ import type {
   ChannelCapabilities,
   TrustContext,
 } from "./conversation-runtime-assembly.js";
-import { resolveSlash, type SlashContext } from "./conversation-slash.js";
+import {
+  classifySlash,
+  resolveSlash,
+  type SlashContext,
+} from "./conversation-slash.js";
 import { getModelInfo } from "./handlers/config-model.js";
 import type {
   ServerMessage,
@@ -284,13 +288,13 @@ async function buildPassthroughBatch(
     head,
     conversation.getTurnInterfaceContext(),
   );
-  const headSlash = await resolveSlash(
-    head.content,
-    buildSlashContext(conversation),
-  );
-  if (headSlash.kind !== "passthrough") return [];
+  // Pure classifier — no side effects. `resolveSlash` runs /pair's side
+  // effects (pairing registration, QR PNG write); if we called it here the
+  // real drain would invoke those again and the second call would fail with
+  // "active pairing already in progress".
+  if (classifySlash(head.content) !== "passthrough") return [];
   if (
-    resolveVerificationSessionIntent(headSlash.content).kind === "direct_setup"
+    resolveVerificationSessionIntent(head.content).kind === "direct_setup"
   ) {
     // Verification intents stay on the single-message path so their per-turn
     // skill preactivation isn't leaked into batched tail messages.
@@ -320,13 +324,9 @@ async function buildPassthroughBatch(
     // otherwise diverge.
     if (candIf?.userMessageInterface !== headInterface?.userMessageInterface)
       break;
-    const candSlash = await resolveSlash(
-      candidate.content,
-      buildSlashContext(conversation),
-    );
-    if (candSlash.kind !== "passthrough") break;
+    if (classifySlash(candidate.content) !== "passthrough") break;
     if (
-      resolveVerificationSessionIntent(candSlash.content).kind ===
+      resolveVerificationSessionIntent(candidate.content).kind ===
       "direct_setup"
     )
       break;
@@ -987,6 +987,11 @@ async function drainBatch(
   let lastSuccessfulCurrentPage: string | undefined;
   let lastSuccessfulContent: string | undefined;
   let lastUserMessageId: string | undefined;
+  // Members whose persist succeeded. `fanOutOnEvent` below must only
+  // broadcast agent-loop events to these — clients whose persist failed
+  // already received an error event and must not also receive the
+  // assistant's streaming response for a turn that isn't theirs.
+  const successfulBatch: QueuedMessage[] = [];
   for (let i = 0; i < batch.length; i++) {
     const qm = batch[i];
     qm.onEvent({
@@ -1127,6 +1132,7 @@ async function drainBatch(
     lastSuccessfulActiveSurfaceId = qm.activeSurfaceId;
     lastSuccessfulCurrentPage = qm.currentPage;
     lastSuccessfulContent = qmContent;
+    successfulBatch.push(qm);
 
     // Fire-and-forget: detect notification preferences in each batched user
     // message and persist any that are found, mirroring drainSingleMessage.
@@ -1198,8 +1204,12 @@ async function drainBatch(
   conversation.currentActiveSurfaceId = lastSuccessfulActiveSurfaceId;
   conversation.currentPage = lastSuccessfulCurrentPage;
 
+  // Broadcast agent-loop events only to members whose persist succeeded.
+  // Members whose persist failed already received an error event in the
+  // catch block above; sending them the assistant's streaming response
+  // would surface a reply for a user message that isn't in their DB.
   const fanOutOnEvent = (msg: ServerMessage) => {
-    for (const qm of batch) qm.onEvent(msg);
+    for (const qm of successfulBatch) qm.onEvent(msg);
   };
 
   const drainLoopOptions: {
@@ -1209,9 +1219,10 @@ async function drainBatch(
   } = { isUserMessage: true };
   // Source interactive flag from the last successfully-persisted sibling so
   // a trailing failed tail doesn't flip the agent loop's interactivity.
-  const lastSuccessfulBatchEntry = batch.find(
-    (qm) => qm.requestId === lastSuccessfulRequestId,
-  );
+  const lastSuccessfulBatchEntry =
+    successfulBatch.length > 0
+      ? successfulBatch[successfulBatch.length - 1]
+      : undefined;
   if (lastSuccessfulBatchEntry?.isInteractive !== undefined)
     drainLoopOptions.isInteractive = lastSuccessfulBatchEntry.isInteractive;
 
