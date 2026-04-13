@@ -419,6 +419,38 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
       expect(row.user_file).toBe("alex-2025-04-13.md");
   });
 
+  test("treats year-prefixed single-digit counter slug as auto-incremented", () => {
+    // `alex-2025-2.md` is `generateUserFileSlug` output when the base
+    // `alex-2025.md` was already taken — it is a collision counter, NOT a
+    // date. Counters are emitted without leading zeros (`-2`, `-3`, ...)
+    // while ISO date components are always 2 digits (`-02`, `-04`), so
+    // single-digit trailing segments mark the tail as a counter.
+    const now = Date.now();
+    insertContact({
+      id: "c1",
+      displayName: "Alex 2025",
+      role: "guardian",
+      principalId: "principal-yc",
+      userFile: "alex-2025-2.md",
+      createdAt: now - 2000,
+    });
+    insertContact({
+      id: "c2",
+      displayName: "Alex 2025",
+      role: "guardian",
+      principalId: "principal-yc",
+      userFile: "alex-2025.md",
+      createdAt: now,
+    });
+
+    migrateNormalizeUserFileByPrincipal(getDb());
+
+    const rows = fetchUserFilesByPrincipal("principal-yc");
+    // Despite being older, `alex-2025-2.md` is auto-incremented, so
+    // `alex-2025.md` (the clean base) wins as canonical.
+    for (const row of rows) expect(row.user_file).toBe("alex-2025.md");
+  });
+
   test("is idempotent", () => {
     const now = Date.now();
     insertContact({
