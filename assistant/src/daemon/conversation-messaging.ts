@@ -287,14 +287,21 @@ export async function persistUserMessage(
   ctx.processing = true;
   ctx.abortController = new AbortController();
 
-  return persistQueuedMessageBody(
-    ctx,
-    content,
-    attachments,
-    reqId,
-    metadata,
-    displayContent,
-  );
+  try {
+    return await persistQueuedMessageBody(
+      ctx,
+      content,
+      attachments,
+      reqId,
+      metadata,
+      displayContent,
+    );
+  } catch (err) {
+    ctx.processing = false;
+    ctx.abortController = null;
+    ctx.currentRequestId = undefined;
+    throw err;
+  }
 }
 
 // ── persistQueuedMessageBody ─────────────────────────────────────────
@@ -473,9 +480,6 @@ export async function persistQueuedMessageBody(
     return persistedUserMessage.id;
   } catch (err) {
     ctx.messages.pop();
-    ctx.processing = false;
-    ctx.abortController = null;
-    ctx.currentRequestId = undefined;
     throw err;
   }
 }
