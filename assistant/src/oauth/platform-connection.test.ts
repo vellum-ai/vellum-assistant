@@ -1,9 +1,8 @@
 import { describe, expect, mock, test } from "bun:test";
 
 // Stub out sleep so retry tests don't wait for real delays.
-mock.module("../util/retry.js", () => {
-  const actual =
-    require("../util/retry.js") as typeof import("../util/retry.js");
+mock.module("../util/retry.js", async () => {
+  const actual = await import("../util/retry.js");
   return {
     ...actual,
     sleep: () => Promise.resolve(),
