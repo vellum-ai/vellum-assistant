@@ -39,14 +39,22 @@ export type SttDeepgramProviderConfig = z.infer<
   typeof SttDeepgramProviderConfigSchema
 >;
 
-export const SttProvidersSchema = z.object({
-  "openai-whisper": SttOpenAiWhisperProviderConfigSchema.default(
-    SttOpenAiWhisperProviderConfigSchema.parse({}),
-  ),
-  deepgram: SttDeepgramProviderConfigSchema.default(
-    SttDeepgramProviderConfigSchema.parse({}),
-  ),
-});
+/**
+ * Sparse provider config map under `services.stt.providers`.
+ *
+ * This is a forward-compatible record that accepts any provider ID as key
+ * with an object value. Existing known providers (`openai-whisper`,
+ * `deepgram`) are validated at schema level; unknown future provider
+ * entries are accepted and passed through so adding a new provider ID
+ * no longer requires a migration to seed `services.stt.providers.<id>`.
+ *
+ * The map only holds entries the user has explicitly configured — it is
+ * NOT required to enumerate every known provider.
+ */
+export const SttProvidersSchema = z.record(
+  z.string(),
+  z.record(z.string(), z.unknown()).default({}),
+);
 export type SttProviders = z.infer<typeof SttProvidersSchema>;
 
 /**
@@ -71,7 +79,7 @@ export const SttServiceSchema = z
         error: `services.stt.provider must be one of: ${VALID_STT_PROVIDERS.join(", ")}`,
       })
       .describe("Active STT provider used for speech-to-text transcription"),
-    providers: SttProvidersSchema.default(SttProvidersSchema.parse({})),
+    providers: SttProvidersSchema.default({}),
   })
   .describe(
     "Speech-to-text service configuration -- provider selection and per-provider settings",

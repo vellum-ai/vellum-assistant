@@ -74,10 +74,8 @@ describe("033-stt-service-explicit-config migration", () => {
 
     expect(stt.mode).toBe("your-own");
     expect(stt.provider).toBe("openai-whisper");
-    expect(stt.providers).toEqual({
-      "openai-whisper": {},
-      deepgram: {},
-    });
+    // providers is sparse — no per-provider entries seeded
+    expect(stt.providers).toEqual({});
 
     // Other config keys preserved
     expect(config.maxTokens).toBe(64000);
@@ -98,10 +96,8 @@ describe("033-stt-service-explicit-config migration", () => {
 
     expect(stt.mode).toBe("your-own");
     expect(stt.provider).toBe("openai-whisper");
-    expect(stt.providers).toEqual({
-      "openai-whisper": {},
-      deepgram: {},
-    });
+    // providers is sparse — no per-provider entries seeded
+    expect(stt.providers).toEqual({});
 
     // Existing services preserved
     const inference = services.inference as Record<string, unknown>;
@@ -119,10 +115,8 @@ describe("033-stt-service-explicit-config migration", () => {
 
     expect(stt.mode).toBe("your-own");
     expect(stt.provider).toBe("openai-whisper");
-    expect(stt.providers).toEqual({
-      "openai-whisper": {},
-      deepgram: {},
-    });
+    // providers is sparse — no per-provider entries seeded
+    expect(stt.providers).toEqual({});
   });
 
   // ─── Partial STT object completion ────────────────────────────────────
@@ -171,7 +165,7 @@ describe("033-stt-service-explicit-config migration", () => {
     expect(stt.mode).toBe("your-own");
   });
 
-  test("fills in missing providers entries when stt has mode and provider", () => {
+  test("fills in missing providers as empty object when stt has mode and provider", () => {
     writeConfig({
       services: {
         stt: {
@@ -188,13 +182,12 @@ describe("033-stt-service-explicit-config migration", () => {
       string,
       unknown
     >;
-    const providers = stt.providers as Record<string, unknown>;
 
-    expect(providers["openai-whisper"]).toEqual({});
-    expect(providers.deepgram).toEqual({});
+    // providers is sparse — no per-provider entries seeded
+    expect(stt.providers).toEqual({});
   });
 
-  test("fills in missing deepgram entry when only openai-whisper exists in providers", () => {
+  test("does not inject per-provider entries when only openai-whisper exists in providers", () => {
     writeConfig({
       services: {
         stt: {
@@ -214,8 +207,9 @@ describe("033-stt-service-explicit-config migration", () => {
     >;
     const providers = stt.providers as Record<string, unknown>;
 
+    // Existing entry preserved, no new entries injected
     expect(providers["openai-whisper"]).toEqual({});
-    expect(providers.deepgram).toEqual({});
+    expect(providers.deepgram).toBeUndefined();
   });
 
   // ─── Preservation of explicit user provider overrides ─────────────────
@@ -428,6 +422,30 @@ describe("033-stt-service-explicit-config migration", () => {
         stt: {
           mode: "your-own",
           provider: "openai-whisper",
+          providers: {},
+        },
+      },
+    };
+    writeConfig(original);
+
+    // Capture the file's content before migration
+    const before = readFileSync(join(workspaceDir, "config.json"), "utf-8");
+
+    sttServiceExplicitConfigMigration.run(workspaceDir);
+
+    const after = readFileSync(join(workspaceDir, "config.json"), "utf-8");
+    // Content should be byte-identical since nothing changed
+    expect(after).toBe(before);
+  });
+
+  test("does not write file when nothing changed (config with per-provider entries from prior migration)", () => {
+    // Configs written by the old migration version had per-provider keys.
+    // The new migration must not re-write them — it should remain a no-op.
+    const original = {
+      services: {
+        stt: {
+          mode: "your-own",
+          provider: "openai-whisper",
           providers: {
             "openai-whisper": {},
             deepgram: {},
@@ -437,13 +455,11 @@ describe("033-stt-service-explicit-config migration", () => {
     };
     writeConfig(original);
 
-    // Capture the file's mtime before migration
     const before = readFileSync(join(workspaceDir, "config.json"), "utf-8");
 
     sttServiceExplicitConfigMigration.run(workspaceDir);
 
     const after = readFileSync(join(workspaceDir, "config.json"), "utf-8");
-    // Content should be byte-identical since nothing changed
     expect(after).toBe(before);
   });
 
