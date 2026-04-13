@@ -400,11 +400,14 @@ final class ChatActionHandler {
         // (e.g. during workspace refinement) or if the surface ended up in a
         // different message than the tool call. By message_complete, all tool
         // calls have definitely finished so it's safe to enable Open App.
-        for i in vm.messages.indices {
-            for surfIdx in vm.messages[i].inlineSurfaces.indices {
-                if !vm.messages[i].inlineSurfaces[surfIdx].isToolCallComplete,
-                   case .dynamicPage = vm.messages[i].inlineSurfaces[surfIdx].data {
-                    vm.messages[i].inlineSurfaces[surfIdx].isToolCallComplete = true
+        // Scope to the current assistant turn's message to avoid retroactively
+        // enabling stale surfaces from prior turns (e.g. after cancellation).
+        if let currentMsgId = vm.currentAssistantMessageId,
+           let msgIdx = vm.messages.firstIndex(where: { $0.id == currentMsgId }) {
+            for surfIdx in vm.messages[msgIdx].inlineSurfaces.indices {
+                if !vm.messages[msgIdx].inlineSurfaces[surfIdx].isToolCallComplete,
+                   case .dynamicPage = vm.messages[msgIdx].inlineSurfaces[surfIdx].data {
+                    vm.messages[msgIdx].inlineSurfaces[surfIdx].isToolCallComplete = true
                 }
             }
         }
