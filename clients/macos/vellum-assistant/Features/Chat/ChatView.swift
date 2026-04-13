@@ -405,6 +405,7 @@ struct ChatView: View {
                 containerWidth: containerWidth,
                 containerHeight: containerHeight
             )
+            .animation(nil, value: queuedMessages.isEmpty)
 
             if let error = viewModel.errorManager.conversationError, error.isCreditsExhausted {
                 centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
@@ -413,6 +414,7 @@ struct ChatView: View {
                     )
                 }
                 .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
             }
 
             if let error = viewModel.errorManager.conversationError, error.isProviderNotConfigured {
@@ -423,6 +425,7 @@ struct ChatView: View {
                     )
                 }
                 .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
             }
 
             if let mode = recoveryMode, mode.enabled {
@@ -435,6 +438,7 @@ struct ChatView: View {
                     )
                 }
                 .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
             }
 
             if !queuedMessages.isEmpty {
@@ -457,6 +461,7 @@ struct ChatView: View {
                     .foregroundStyle(VColor.contentTertiary)
                     .padding(.vertical, VSpacing.md)
                 }
+                .animation(nil, value: queuedMessages.isEmpty)
             } else {
                 centeredChatColumn(width: layoutMetrics.chatColumnWidth) {
                     ComposerSection(
@@ -498,6 +503,7 @@ struct ChatView: View {
                     )
                     .equatable()
                 }
+                .animation(nil, value: queuedMessages.isEmpty)
             }
         }
         .animation(.spring(duration: 0.28, bounce: 0.15), value: queuedMessages.isEmpty)
