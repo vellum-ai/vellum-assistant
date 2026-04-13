@@ -177,9 +177,12 @@ describe("relationship-state-writer", () => {
       }
     });
 
-    test("falls back to users/default.md when USER.md is absent", async () => {
+    test("falls back to legacy workspace USER.md when persona resolver yields nothing", async () => {
+      // In the test environment there is no guardian contact in the DB, so
+      // `resolveGuardianPersonaPath()` either returns null or throws — the
+      // writer must degrade to legacy workspace-root `USER.md`.
       writeFile(
-        "users/default.md",
+        "USER.md",
         ["- Preferred name: Jamie", "- Work role: PM"].join("\n"),
       );
 
@@ -205,6 +208,19 @@ describe("relationship-state-writer", () => {
 
     test("google connection unlocks both email and calendar", async () => {
       fakeConnections.push({ provider: "google", status: "active" });
+      const state = (await computeRelationshipState()) as RelationshipStateLike;
+      const email = state.capabilities.find((c) => c.id === "email");
+      const calendar = state.capabilities.find((c) => c.id === "calendar");
+      expect(email?.tier).toBe("unlocked");
+      expect(calendar?.tier).toBe("unlocked");
+    });
+
+    test("outlook connection unlocks both email and calendar", async () => {
+      // `outlook` is the real provider key used by seed-providers.ts for
+      // the Microsoft integration (carries Calendars.* scopes). Regression
+      // guard: an active Outlook connection must flip calendar to unlocked
+      // the same way it flips email.
+      fakeConnections.push({ provider: "outlook", status: "active" });
       const state = (await computeRelationshipState()) as RelationshipStateLike;
       const email = state.capabilities.find((c) => c.id === "email");
       const calendar = state.capabilities.find((c) => c.id === "calendar");

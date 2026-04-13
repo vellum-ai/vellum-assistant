@@ -2,9 +2,11 @@
  * Relationship-state writer.
  *
  * Derives a `RelationshipState` snapshot from the filesystem state of
- * the workspace (USER.md / users/default.md for world+priorities facts,
- * SOUL.md for voice facts, IDENTITY.md for assistant/hatched metadata,
- * the conversations directory for conversationCount) plus the OAuth
+ * the workspace (the guardian's `users/<slug>.md` persona file — resolved
+ * via `persona-resolver` / `contact-store` — for world + priorities facts,
+ * with legacy workspace-root `USER.md` as a last-ditch fallback; SOUL.md
+ * for voice facts; IDENTITY.md for assistant / hatched metadata; the
+ * conversations directory for conversationCount) plus the OAuth
  * connection store (for capability tiers), and writes it to
  * `<workspace>/data/relationship-state.json`.
  *
@@ -24,11 +26,11 @@ import {
 import { join } from "node:path";
 
 import { listConnections } from "../oauth/oauth-store.js";
+import { resolveGuardianPersonaPath } from "../prompts/persona-resolver.js";
 import { getLogger } from "../util/logger.js";
 import {
   getConversationsDir,
   getDataDir,
-  getWorkspaceDir,
   getWorkspacePromptPath,
 } from "../util/platform.js";
 import { computeProgressPercent, computeTier } from "./progress-formula.js";
@@ -79,23 +81,28 @@ export function getRelationshipStatePath(): string {
  * persist the result should use `writeRelationshipState()` instead.
  */
 export async function computeRelationshipState(): Promise<RelationshipState> {
-  const userMd = safeRead(getWorkspacePromptPath("USER.md"));
-  // USER.md was migrated away in workspace migration 031 — fall back to
-  // the guardian persona file so writers built from upgraded workspaces
-  // still produce non-empty world/priorities facts.
-  const legacyUserPath = join(getWorkspaceDir(), "users", "default.md");
-  const legacyUserMd = safeRead(legacyUserPath);
+  // Persona source-of-truth:
+  //   1. The guardian contact's per-user file (`users/<slug>.md`), resolved
+  //      via `resolveGuardianPersonaPath()` — this is the canonical location
+  //      after workspace migration 031 and handles slugged userFiles like
+  //      `users/sidd.md` that were invisible to a hardcoded `default.md`
+  //      lookup.
+  //   2. Legacy workspace-root `USER.md` as a last-ditch fallback for very
+  //      old workspaces that never ran migration 031.
+  //   3. Empty string → extraction yields [] and `userName` is undefined.
+  // Every step is guarded because the writer must never throw.
+  const userMd = resolveGuardianUserContent();
   const soulMd = safeRead(getWorkspacePromptPath("SOUL.md"));
   const identityMd = safeRead(getWorkspacePromptPath("IDENTITY.md"));
 
   const facts = extractFacts({
-    userContent: userMd || legacyUserMd,
+    userContent: userMd,
     soulContent: soulMd,
   });
   const conversationCount = countConversations();
   const capabilities = resolveCapabilityTiers({ conversationCount });
   const { assistantName, hatchedDate } = parseIdentity(identityMd);
-  const userName = parseUserName(userMd || legacyUserMd);
+  const userName = parseUserName(userMd);
 
   const tier = computeTier({ facts, capabilities, conversationCount });
   const progressPercent = computeProgressPercent({
@@ -149,6 +156,45 @@ export async function writeRelationshipState(): Promise<void> {
 // ─── Internal helpers ───────────────────────────────────────────────────
 
 /**
+ * Resolve the raw markdown content of the guardian's user persona file
+ * (`users/<slug>.md`), falling back to legacy workspace-root `USER.md`
+ * when no guardian is resolvable or the persona file is missing.
+ *
+ * Uses `resolveGuardianPersonaPath()` rather than a hardcoded
+ * `users/default.md` so slugged user files populated by
+ * `generateUserFileSlug` (e.g. `users/sidd.md`) are read correctly —
+ * otherwise the writer would systematically under-extract facts and
+ * `userName` for any contact-aware workspace.
+ *
+ * Every step is guarded: any exception from the persona resolver or
+ * the underlying contact store DB lookup collapses to the empty string
+ * via the normal fallback chain, so `computeRelationshipState()` never
+ * throws from this path.
+ */
+function resolveGuardianUserContent(): string {
+  try {
+    const guardianPath = resolveGuardianPersonaPath();
+    if (guardianPath) {
+      const content = safeRead(guardianPath);
+      if (content) return content;
+    }
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to resolve guardian persona path; falling back to legacy USER.md",
+    );
+  }
+
+  // Legacy fallback: workspace-root USER.md for very old workspaces
+  // that predate migration 031.
+  const legacyPath = getWorkspacePromptPath("USER.md");
+  const legacy = safeRead(legacyPath);
+  if (legacy) return legacy;
+
+  return "";
+}
+
+/**
  * Read a file as UTF-8, returning "" on any error.
  *
  * Used for every disk read in this module so a missing or unreadable
@@ -171,7 +217,9 @@ function safeRead(path: string): string {
  * produce something non-empty for the UI so progress looks alive.
  *
  * Voice facts come from SOUL.md. World and priorities facts come from
- * USER.md (or its `users/<slug>.md` successor post migration 031).
+ * the guardian's `users/<slug>.md` persona file (resolved via
+ * `persona-resolver`), with legacy workspace-root `USER.md` as a
+ * fallback for workspaces that predate migration 031.
  */
 function extractFacts(input: {
   userContent: string;
@@ -316,10 +364,15 @@ function resolveCapabilityTiers(opts: {
         return { ...cap, tier: unlocked ? "unlocked" : "next-up" };
       }
       case "calendar": {
+        // `outlook` is the real provider key used by seed-providers.ts for
+        // the Microsoft integration (which carries `Calendars.Read` /
+        // `Calendars.ReadWrite` scopes), so an active Outlook connection
+        // must flip `calendar` to `unlocked` the same way it flips `email`.
         const unlocked =
           connectedProviders.has("google") ||
           connectedProviders.has("google-calendar") ||
-          connectedProviders.has("microsoft");
+          connectedProviders.has("microsoft") ||
+          connectedProviders.has("outlook");
         return { ...cap, tier: unlocked ? "unlocked" : "next-up" };
       }
       case "slack": {
