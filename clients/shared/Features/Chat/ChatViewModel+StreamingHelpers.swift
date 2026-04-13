@@ -431,6 +431,7 @@ extension ChatViewModel {
         if let msgIndex = targetMsgIndex, let tcIndex = targetTcIndex {
             messages[msgIndex].toolCalls[tcIndex].result = msg.result
             messages[msgIndex].toolCalls[tcIndex].resultLength = msg.result.count
+            messages[msgIndex].toolCalls[tcIndex].resultRevision &+= 1
             messages[msgIndex].toolCalls[tcIndex].isError = msg.isError ?? false
             messages[msgIndex].toolCalls[tcIndex].isComplete = true
             messages[msgIndex].toolCalls[tcIndex].completedAt = Date()

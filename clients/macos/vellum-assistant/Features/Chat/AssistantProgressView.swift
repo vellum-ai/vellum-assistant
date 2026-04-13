@@ -665,7 +665,7 @@ private struct StepDetailRow: View {
         guard let result = toolCall.result, !result.isEmpty else { return nil }
         let key = Self.coloredOutputCacheKey(
             toolCallID: toolCall.id.uuidString,
-            result: result,
+            resultRevision: toolCall.resultRevision,
             isError: toolCall.isError
         )
         if let cached = Self.coloredOutputCache.object(forKey: key) {
@@ -953,17 +953,14 @@ private struct StepDetailRow: View {
 
     private static func coloredOutputCacheKey(
         toolCallID: String,
-        result: String,
+        resultRevision: Int,
         isError: Bool
     ) -> NSString {
-        // O(1) content fingerprint: length + boundary samples. Catches in-place
-        // mutations (replay / correction / rehydration paths all overwrite
-        // toolCalls[...].result) without hashing the full string on every
-        // SwiftUI re-render.
-        let count = result.utf8.count
-        let prefix = result.prefix(16)
-        let suffix = result.suffix(16)
-        return "\(toolCallID)|\(count)|\(isError ? "err" : "ok")|\(prefix)|\(suffix)" as NSString
+        // O(1) cache key. `resultRevision` is a monotonic counter bumped on every
+        // write to `toolCall.result` (see ToolCallData), so it detects in-place
+        // mutations (replay / correction / rehydration) without touching the
+        // string contents on every SwiftUI re-render.
+        return "\(toolCallID)|\(resultRevision)|\(isError ? "err" : "ok")" as NSString
     }
 
     private func coloredOutput(_ result: String, isError: Bool) -> AttributedString {
