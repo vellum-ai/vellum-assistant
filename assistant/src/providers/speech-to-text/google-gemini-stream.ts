@@ -29,6 +29,9 @@ import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
+import { getLogger } from "../../util/logger.js";
+
+const log = getLogger("google-gemini-stream");
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -122,6 +125,11 @@ export class GoogleGeminiStreamingTranscriber implements StreamingTranscriber {
     }
     this.onEvent = onEvent;
     this.started = true;
+
+    log.info(
+      { model: this.model, pollIntervalMs: this.pollIntervalMs },
+      "Google Gemini streaming session started",
+    );
   }
 
   sendAudio(audio: Buffer, mimeType: string): void {
@@ -142,6 +150,8 @@ export class GoogleGeminiStreamingTranscriber implements StreamingTranscriber {
   stop(): void {
     if (this.stopped) return;
     this.stopped = true;
+
+    log.info("Stopping Google Gemini streaming session");
 
     if (this.pollTimer) {
       clearTimeout(this.pollTimer);
@@ -184,6 +194,11 @@ export class GoogleGeminiStreamingTranscriber implements StreamingTranscriber {
     this.polling = true;
     this.audioDirty = false;
 
+    log.debug(
+      { chunks: this.audioChunks.length },
+      "Executing incremental poll",
+    );
+
     try {
       const text = await this.transcribeAccumulated();
 
@@ -215,6 +230,7 @@ export class GoogleGeminiStreamingTranscriber implements StreamingTranscriber {
     } catch (err) {
       // Transient errors during polling are non-fatal — the final
       // request on stop() will capture the complete audio.
+      log.warn({ error: err }, "Incremental poll request failed");
       if (!this.stopped) {
         const message = err instanceof Error ? err.message : String(err);
         this.emit({ type: "error", category: "provider-error", message });
@@ -243,20 +259,28 @@ export class GoogleGeminiStreamingTranscriber implements StreamingTranscriber {
    * transcript, then close the session.
    */
   private async emitFinal(): Promise<void> {
+    log.info(
+      { chunks: this.audioChunks.length },
+      "Sending final transcription request",
+    );
+
     try {
       if (this.audioChunks.length > 0) {
         const text = await this.transcribeAccumulated();
+        log.info("Final transcription request complete");
         this.emit({ type: "final", text: text || this.lastEmittedText });
       } else {
         // No audio was ever sent — emit empty final.
         this.emit({ type: "final", text: this.lastEmittedText });
       }
     } catch (err) {
+      log.error({ error: err }, "Final transcription request failed");
       const message = err instanceof Error ? err.message : String(err);
       this.emit({ type: "error", category: "provider-error", message });
       // Still emit a best-effort final from the last known partial.
       this.emit({ type: "final", text: this.lastEmittedText });
     } finally {
+      log.info("Google Gemini streaming session closed");
       this.emit({ type: "closed" });
     }
   }
@@ -302,6 +326,14 @@ export class GoogleGeminiStreamingTranscriber implements StreamingTranscriber {
   // -----------------------------------------------------------------------
 
   private emit(event: SttStreamServerEvent): void {
-    this.onEvent?.(event);
+    if (!this.onEvent) return;
+    try {
+      this.onEvent(event);
+    } catch (err) {
+      log.warn(
+        { error: err },
+        "Listener error in Google Gemini streaming adapter",
+      );
+    }
   }
 }
