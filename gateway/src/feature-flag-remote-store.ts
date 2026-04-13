@@ -3,9 +3,8 @@
  * feature flag values pushed from the platform.
  *
  * Mirrors the feature-flag-store.ts pattern: file path resolution via
- * GATEWAY_SECURITY_DIR (Docker) or ~/.vellum/protected/ (local), atomic
- * writes (temp file + rename), 0o600 permissions, and module-level caching
- * with manual invalidation.
+ * getGatewaySecurityDir(), atomic writes (temp file + rename), 0o600
+ * permissions, and module-level caching with manual invalidation.
  *
  * Unlike the local override store, writes replace the *entire* value map at
  * once (the platform pushes a complete snapshot) and immediately update the
@@ -23,7 +22,7 @@ import {
 import { dirname, join } from "node:path";
 
 import { getLogger } from "./logger.js";
-import { getRootDir } from "./credential-reader.js";
+import { getGatewaySecurityDir } from "./paths.js";
 
 const log = getLogger("feature-flag-remote-store");
 
@@ -41,11 +40,7 @@ interface FeatureFlagFileData {
 // ---------------------------------------------------------------------------
 
 export function getRemoteFeatureFlagStorePath(): string {
-  const securityDir = process.env.GATEWAY_SECURITY_DIR;
-  if (securityDir) {
-    return join(securityDir, "feature-flags-remote.json");
-  }
-  return join(getRootDir(), "protected", "feature-flags-remote.json");
+  return join(getGatewaySecurityDir(), "feature-flags-remote.json");
 }
 
 // ---------------------------------------------------------------------------
