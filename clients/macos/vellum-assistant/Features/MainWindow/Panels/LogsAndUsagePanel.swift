@@ -464,7 +464,7 @@ struct UsageTabContent: View {
 
     @ViewBuilder
     private func trendBarChart(_ buckets: [UsageDayBucket], isHourly: Bool) -> some View {
-        let sorted = buckets.sorted { $0.date < $1.date }
+        let sorted = buckets.sorted { $0.bucketId < $1.bucketId }
         let maxCost = buckets.map(\.totalEstimatedCostUsd).max() ?? 1.0
         let barWidth = isHourly ? hourlyBarWidth : maxBarWidth
 
