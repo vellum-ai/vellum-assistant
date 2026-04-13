@@ -8,7 +8,7 @@ metadata:
     display-name: "Transcribe"
 ---
 
-Transcribe audio and video files using the configured speech-to-text provider. Supports multiple STT providers including OpenAI Whisper and Deepgram — the active provider is selected in Settings under Speech-to-Text (`services.stt`).
+Transcribe audio and video files using the configured speech-to-text provider. Supports multiple STT providers including OpenAI Whisper, Deepgram, and Google Gemini — the active provider is selected in Settings under Speech-to-Text (`services.stt`).
 
 ## Usage Notes
 

@@ -4,14 +4,18 @@ import { z } from "zod";
  * Valid STT provider identifiers. New providers append here and register
  * an adapter.
  */
-export const VALID_STT_PROVIDERS = ["openai-whisper", "deepgram"] as const;
+export const VALID_STT_PROVIDERS = [
+  "openai-whisper",
+  "deepgram",
+  "google-gemini",
+] as const;
 
 /**
  * Sparse provider config map under `services.stt.providers`.
  *
  * This is a forward-compatible record that accepts any provider ID as key
  * with an object value. All provider entries — known (`openai-whisper`,
- * `deepgram`) and unknown — are accepted with generic object validation.
+ * `deepgram`, `google-gemini`) and unknown — are accepted with generic object validation.
  * Adding a new provider ID does not require a migration to seed
  * `services.stt.providers.<id>`.
  *

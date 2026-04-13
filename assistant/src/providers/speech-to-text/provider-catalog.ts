@@ -84,6 +84,15 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       telephonyMode: "realtime-ws",
     },
   ],
+  [
+    "google-gemini",
+    {
+      id: "google-gemini",
+      credentialProvider: "gemini",
+      supportedBoundaries: new Set<SttBoundaryId>(["daemon-batch"]),
+      telephonyMode: "batch-only",
+    },
+  ],
 ]);
 
 // ---------------------------------------------------------------------------

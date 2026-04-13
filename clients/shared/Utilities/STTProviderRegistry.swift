@@ -114,6 +114,14 @@ private let fallbackRegistry = STTProviderRegistry(
             setupHint: "Enter your Deepgram API key to enable speech-to-text.",
             apiKeyProviderName: "deepgram"
         ),
+        STTProviderCatalogEntry(
+            id: "google-gemini",
+            displayName: "Google Gemini",
+            subtitle: "Multimodal speech-to-text powered by Google Gemini. Requires a Gemini API key.",
+            setupMode: .apiKey,
+            setupHint: "Enter your Gemini API key to enable Google Gemini transcription.",
+            apiKeyProviderName: "gemini"
+        ),
     ]
 )
 

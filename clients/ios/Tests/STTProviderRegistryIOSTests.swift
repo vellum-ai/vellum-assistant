@@ -78,6 +78,52 @@ final class STTProviderRegistryIOSTests: XCTestCase {
         )
     }
 
+    func testGoogleGeminiMapsToGeminiCredentialProvider() {
+        let registry = loadSTTProviderRegistry()
+        let entry = registry.provider(withId: "google-gemini")
+        XCTAssertEqual(
+            entry?.apiKeyProviderName, "gemini",
+            "google-gemini should map to 'gemini' credential provider"
+        )
+    }
+
+    /// Iterate over all registry entries to verify each provider has a
+    /// consistent credential-provider mapping. This provider-agnostic
+    /// approach reduces churn when new STT providers are added.
+    func testAllProvidersHaveExpectedCredentialMapping() {
+        let registry = loadSTTProviderRegistry()
+        let expectedMappings: [String: String] = [
+            "openai-whisper": "openai",
+            "deepgram": "deepgram",
+            "google-gemini": "gemini",
+        ]
+        for provider in registry.providers {
+            guard let expected = expectedMappings[provider.id] else {
+                XCTFail("Provider '\(provider.id)' has no expected mapping — add it to expectedMappings")
+                continue
+            }
+            XCTAssertEqual(
+                provider.apiKeyProviderName, expected,
+                "Provider '\(provider.id)' should map to '\(expected)' credential provider"
+            )
+        }
+    }
+
+    // MARK: - Google Provider
+
+    func testRegistryContainsGoogleGemini() {
+        let registry = loadSTTProviderRegistry()
+        let entry = registry.provider(withId: "google-gemini")
+        XCTAssertNotNil(entry, "Registry should contain a 'google-gemini' provider")
+        XCTAssertEqual(entry?.displayName, "Google Gemini")
+    }
+
+    func testGoogleGeminiUsesApiKeySetupMode() {
+        let registry = loadSTTProviderRegistry()
+        let entry = registry.provider(withId: "google-gemini")
+        XCTAssertEqual(entry?.setupMode, .apiKey, "google-gemini should use api-key setup mode")
+    }
+
     // MARK: - Default Provider Selection
 
     func testDefaultProviderIdMatchesRegistryEntry() {
