@@ -153,28 +153,34 @@ describe("syncUpdateBulletinOnStartup", () => {
   });
 
   it("marks active releases as completed when UPDATES.md is deleted", () => {
-    // Pre-populate active releases in the store
-    store.set("updates:active_releases", JSON.stringify(["0.8.0", "0.9.0"]));
+    // Pre-populate active releases including the current one — simulates
+    // a normal session where 1.0.0 was materialized alongside leftover
+    // entries from prior versions.
+    store.set(
+      "updates:active_releases",
+      JSON.stringify(["0.8.0", "0.9.0", "1.0.0"]),
+    );
 
     // Workspace file does not exist — simulates the assistant having deleted it
     expect(existsSync(workspacePath)).toBe(false);
 
     syncUpdateBulletinOnStartup();
 
-    // Active set should be cleared (except for the newly-added current release)
+    // Active set should be cleared
     const activeRaw = store.get("updates:active_releases");
     expect(activeRaw).toBeDefined();
     const active: string[] = JSON.parse(activeRaw!);
-    // The old releases should not be in the active set
     expect(active).not.toContain("0.8.0");
     expect(active).not.toContain("0.9.0");
+    expect(active).not.toContain("1.0.0");
 
-    // The old releases should now be completed
+    // All releases should now be completed
     const completedRaw = store.get("updates:completed_releases");
     expect(completedRaw).toBeDefined();
     const completed: string[] = JSON.parse(completedRaw!);
     expect(completed).toContain("0.8.0");
     expect(completed).toContain("0.9.0");
+    expect(completed).toContain("1.0.0");
   });
 
   it("does not recreate completed release after deletion", () => {
@@ -211,8 +217,9 @@ describe("syncUpdateBulletinOnStartup", () => {
   });
 
   it("treats a whitespace-only UPDATES.md as dismissal of the current release", () => {
-    // Pre-populate completed so hasEverMaterialized is true via the completed path.
-    store.set("updates:completed_releases", JSON.stringify(["0.9.0"]));
+    // Pre-populate active with the current release so the dismissal branch
+    // is scoped correctly to this version.
+    store.set("updates:active_releases", JSON.stringify(["1.0.0"]));
     writeFileSync(workspacePath, "   \n\n\t\n", "utf-8");
 
     syncUpdateBulletinOnStartup();
@@ -225,6 +232,34 @@ describe("syncUpdateBulletinOnStartup", () => {
       store.get("updates:completed_releases")!,
     );
     expect(completed).toContain("1.0.0");
+  });
+
+  it("materializes new version bulletin after a prior release was dismissed", () => {
+    // Regression: hasEverMaterialized previously tripped on ANY completed
+    // release, so once 0.9.0 had been dismissed, every future version saw
+    // "file missing" and was auto-marked completed — suppressing its bulletin
+    // forever. The fix scopes the check to the current release.
+    store.set("updates:completed_releases", JSON.stringify(["0.9.0"]));
+    expect(existsSync(workspacePath)).toBe(false);
+
+    syncUpdateBulletinOnStartup();
+
+    expect(existsSync(workspacePath)).toBe(true);
+    const content = readFileSync(workspacePath, "utf-8");
+    expect(content).toContain("<!-- vellum-update-release:1.0.0 -->");
+    expect(content).toContain("What's New");
+
+    // 1.0.0 must NOT have been auto-completed.
+    const completed: string[] = JSON.parse(
+      store.get("updates:completed_releases")!,
+    );
+    expect(completed).not.toContain("1.0.0");
+
+    // 1.0.0 should be in the active set.
+    const active: string[] = JSON.parse(
+      store.get("updates:active_releases")!,
+    );
+    expect(active).toContain("1.0.0");
   });
 
   it("creates file on fresh install even though it is missing", () => {
