@@ -73,6 +73,11 @@ final class VoiceInputManager {
     /// Internal access for testability via `@testable import`.
     var streamingFailed = false
 
+    /// Latest interim transcript text for the active streaming segment.
+    /// Used to compose a stable display transcript in conversation mode as:
+    /// `streamingFinalText + streamingInterimText`.
+    private var streamingInterimText = ""
+
     /// Called when dictation processing returns a response (cleaned-up text + action plan).
     var onDictationResponse: ((DictationResponse) -> Void)?
 
@@ -312,7 +317,11 @@ final class VoiceInputManager {
             stopRecordingByMode()
         } else {
             activeOrigin = origin
-            log.debug("Dictation started (origin: \(String(describing: origin)))")
+            // Chat composer recordings are conversations — enables streaming STT
+            // when the configured provider supports it. Other origins default to
+            // dictation mode (text insertion at cursor via DictationTextInserter).
+            currentMode = origin == .chatComposer ? .conversation : .dictation
+            log.debug("Recording started (origin: \(String(describing: origin)), mode: \(String(describing: self.currentMode)))")
             beginRecording()
         }
     }
@@ -352,6 +361,7 @@ final class VoiceInputManager {
         streamingClient = nil
         streamingSessionActive = false
         streamingFinalText = ""
+        streamingInterimText = ""
         streamingReceivedFinal = false
         streamingFailed = false
     }
@@ -676,6 +686,11 @@ final class VoiceInputManager {
     /// transcription falls through to the conversation path (auto-submit to chat)
     /// instead of going through DictationTextInserter which would double-insert.
     private func captureContextAndBeginRecording() {
+        // Hold-to-talk / hotkey activation is always dictation mode.
+        // Explicitly reset both origin and mode so a prior chat-composer
+        // recording cannot leak conversation-mode behavior into hotkey flow.
+        activeOrigin = .hotkey
+        currentMode = .dictation
         beginRecording()
         guard isRecording else { return }
         if currentMode == .dictation {
@@ -849,13 +864,29 @@ final class VoiceInputManager {
         let useConversationStreaming = currentMode == .conversation && STTProviderRegistry.isStreamingAvailable
 
         let accumulator = audioAccumulator
+        var streamingStartScheduled = false
         let tapBlock: AVAudioNodeTapBlock = { [weak self] buffer, _ in
             // Capture the audio format from the first buffer for WAV encoding.
+            // Conversation streaming also starts from this first buffer so we can
+            // pass the true hardware sample rate to the STT service.
+            let bufferFormat = buffer.format
             if self?.capturedAudioFormat == nil {
                 DispatchQueue.main.async { [weak self] in
                     if self?.capturedAudioFormat == nil {
-                        self?.capturedAudioFormat = buffer.format
+                        self?.capturedAudioFormat = bufferFormat
                     }
+                }
+            }
+            if useConversationStreaming, !streamingStartScheduled {
+                streamingStartScheduled = true
+                let sampleRate = Int(bufferFormat.sampleRate)
+                let capturedGeneration = generation
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.isRecording, self.recordingGeneration == capturedGeneration else { return }
+                    self.startStreamingSession(
+                        generation: capturedGeneration,
+                        sampleRate: sampleRate > 0 ? sampleRate : nil
+                    )
                 }
             }
             // Feed the native recognizer only when a recognition request exists.
@@ -964,14 +995,6 @@ final class VoiceInputManager {
             }
             self.hasInstalledTap = true
 
-            // Start the streaming STT session if conversation streaming is enabled.
-            // This runs concurrently with the native recognizer (if available) —
-            // streaming provides live partials and finals while the native recognizer
-            // serves as a fallback source.
-            if useConversationStreaming {
-                self.startStreamingSession(generation: generation)
-            }
-
             // When native recognizer is not available/authorized, recording
             // still proceeds — STT service handles transcription on stop.
             guard useNativeRecognizer, let recognizer = self.speechRecognizer, let req = request else {
@@ -1038,14 +1061,9 @@ final class VoiceInputManager {
     ///
     /// The `generation` parameter is captured at recording start and checked in
     /// all callbacks to suppress stale-session deliveries.
-    private func startStreamingSession(generation: UInt64) {
+    private func startStreamingSession(generation: UInt64, sampleRate: Int?) {
         let client = streamingClientFactory()
         self.streamingClient = client
-
-        // Determine audio format parameters. `capturedAudioFormat` is set from
-        // the first audio buffer; if not yet available, the server will use its
-        // default sample rate.
-        let sampleRate: Int? = capturedAudioFormat.map { Int($0.sampleRate) }
 
         Task { [weak self] in
             await client.start(
@@ -1073,16 +1091,21 @@ final class VoiceInputManager {
     }
 
     /// Handle an incoming event from the streaming STT session.
-    private func handleStreamingEvent(_ event: STTStreamEvent) {
+    func handleStreamingEvent(_ event: STTStreamEvent) {
         switch event {
         case .ready(let provider):
             log.info("Streaming STT ready: provider=\(provider)")
             streamingSessionActive = true
 
         case .partial(let text, _):
-            // Forward streaming partials to the UI. In conversation mode,
-            // these update the chat composer / quick input in real time.
-            onPartialTranscription?(text)
+            // Partial events represent the current in-progress segment.
+            // Compose them with accumulated finals so pauses append instead
+            // of replacing previously dictated text in the composer.
+            streamingInterimText = text
+            let displayText = composedStreamingDisplayText()
+            if !displayText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                onPartialTranscription?(displayText)
+            }
 
         case .final(let text, _):
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1094,6 +1117,12 @@ final class VoiceInputManager {
                 }
                 streamingReceivedFinal = true
                 log.info("Streaming final segment: \"\(text, privacy: .public)\"")
+
+                // Segment is now committed. Clear interim and push the
+                // accumulated transcript so the composer reflects append-only
+                // progress while recording continues.
+                streamingInterimText = ""
+                onPartialTranscription?(composedStreamingDisplayText())
             }
 
         case .error(let category, let message, _):
@@ -1113,6 +1142,16 @@ final class VoiceInputManager {
         log.warning("Streaming STT failure: \(String(describing: failure)) — will fall back to batch STT")
         streamingFailed = true
         streamingSessionActive = false
+    }
+
+    /// Compose the live display transcript from committed and in-progress
+    /// streaming text segments.
+    private func composedStreamingDisplayText() -> String {
+        let final = streamingFinalText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let interim = streamingInterimText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if final.isEmpty { return interim }
+        if interim.isEmpty { return final }
+        return "\(final) \(interim)"
     }
 
     // MARK: - Permission Prompt

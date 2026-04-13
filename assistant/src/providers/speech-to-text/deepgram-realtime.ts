@@ -225,10 +225,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
     this.onEvent = onEvent;
 
     const url = this.buildWebSocketUrl();
-    log.info(
-      { url: url.replace(/token=[^&]*/, "token=***") },
-      "Opening Deepgram realtime session",
-    );
+    log.info({ url }, "Opening Deepgram realtime session");
 
     const ws = this.createWebSocket(url);
     this.ws = ws;
@@ -342,15 +339,28 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
 
   /**
    * Create a WebSocket instance. Factored out for test mockability.
+   *
+   * Passes the Deepgram API key via the `Authorization: Token <key>` header.
+   * Bun's WebSocket constructor supports a second `options` argument with
+   * custom headers, unlike the browser WebSocket API.
    */
   private createWebSocket(url: string): WsLike {
-    const WebSocketCtor: new (url: string) => WsLike = (
-      globalThis as unknown as { WebSocket: new (url: string) => WsLike }
+    const WebSocketCtor = (
+      globalThis as unknown as {
+        WebSocket: new (
+          url: string,
+          options?: { headers?: Record<string, string> },
+        ) => WsLike;
+      }
     ).WebSocket;
     if (typeof WebSocketCtor !== "function") {
       throw new Error("global WebSocket is not available in this runtime");
     }
-    return new WebSocketCtor(url);
+    return new WebSocketCtor(url, {
+      headers: {
+        Authorization: `Token ${this.apiKey}`,
+      },
+    });
   }
 
   /**
@@ -592,13 +602,13 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
   /**
    * Build the Deepgram live transcription WebSocket URL with query params.
    *
-   * Authentication is done via the `token` query parameter per Deepgram's
-   * WebSocket auth scheme.
+   * Audio format and feature flags are passed as query parameters.
+   * Authentication is handled separately via the `Authorization` header
+   * in {@link createWebSocket}.
    */
   private buildWebSocketUrl(): string {
     const params = new URLSearchParams();
     params.set("model", this.model);
-    params.set("token", this.apiKey);
 
     if (this.language) {
       params.set("language", this.language);

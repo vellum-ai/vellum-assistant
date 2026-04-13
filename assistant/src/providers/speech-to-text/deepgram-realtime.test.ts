@@ -141,7 +141,10 @@ describe("DeepgramRealtimeTranscriber", () => {
 
     // Replace global WebSocket with a factory that returns our mock.
     (globalThis as Record<string, unknown>).WebSocket = class {
-      constructor(_url: string) {
+      constructor(
+        _url: string,
+        _options?: { headers?: Record<string, string> },
+      ) {
         // Immediately schedule the mock's open event for the next microtask
         // so start() can attach its handlers first.
         return mockWs;
@@ -584,10 +587,12 @@ describe("DeepgramRealtimeTranscriber", () => {
 
   test("builds correct WebSocket URL with default params", async () => {
     let capturedUrl: string | undefined;
+    let capturedOptions: { headers?: Record<string, string> } | undefined;
     const origWs = (globalThis as Record<string, unknown>).WebSocket;
     (globalThis as Record<string, unknown>).WebSocket = class {
-      constructor(url: string) {
+      constructor(url: string, options?: { headers?: Record<string, string> }) {
         capturedUrl = url;
+        capturedOptions = options;
         return mockWs;
       }
     };
@@ -604,13 +609,16 @@ describe("DeepgramRealtimeTranscriber", () => {
     expect(url.hostname).toBe("api.deepgram.com");
     expect(url.pathname).toBe("/v1/listen");
     expect(url.searchParams.get("model")).toBe("nova-2");
-    expect(url.searchParams.get("token")).toBe(TEST_API_KEY);
+    expect(url.searchParams.get("token")).toBeNull();
     expect(url.searchParams.get("smart_format")).toBe("true");
     expect(url.searchParams.get("interim_results")).toBe("true");
     expect(url.searchParams.get("punctuate")).toBe("true");
     expect(url.searchParams.get("encoding")).toBe("linear16");
     expect(url.searchParams.get("sample_rate")).toBe("16000");
     expect(url.searchParams.get("channels")).toBe("1");
+    expect(capturedOptions?.headers?.Authorization).toBe(
+      `Token ${TEST_API_KEY}`,
+    );
 
     (globalThis as Record<string, unknown>).WebSocket = origWs;
   });

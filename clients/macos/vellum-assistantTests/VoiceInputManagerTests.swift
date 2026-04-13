@@ -410,6 +410,31 @@ final class VoiceInputManagerTests: XCTestCase {
         XCTAssertEqual(manager.currentMode, .conversation)
     }
 
+    func testToggleRecordingFromChatComposerSetsConversationModeAndOrigin() {
+        manager.currentMode = .dictation
+        manager.activeOrigin = .hotkey
+
+        manager.toggleRecording(origin: .chatComposer)
+
+        XCTAssertEqual(manager.currentMode, .conversation,
+                       "Chat composer recordings should use conversation mode")
+        XCTAssertEqual(manager.activeOrigin, .chatComposer,
+                       "Active origin should track chat composer initiator")
+    }
+
+    func testToggleRecordingFromHotkeyResetsModeToDictation() {
+        // Simulate a previous chat-composer recording that left mode at conversation.
+        manager.currentMode = .conversation
+        manager.activeOrigin = .chatComposer
+
+        manager.toggleRecording(origin: .hotkey)
+
+        XCTAssertEqual(manager.currentMode, .dictation,
+                       "Hotkey recordings should always use dictation mode")
+        XCTAssertEqual(manager.activeOrigin, .hotkey,
+                       "Active origin should switch back to hotkey")
+    }
+
     // MARK: - Speech Recognizer Adapter Integration
 
     func testInitUsesAdapterToCreateRecognizer() {
@@ -1129,5 +1154,45 @@ final class VoiceInputManagerTests: XCTestCase {
 
         XCTAssertEqual(receivedText, "hello world how are you",
                        "Multiple streaming final segments should be concatenated")
+    }
+
+    func testStreamingPartialDisplayComposesCommittedAndInterimSegments() {
+        let streamClient = MockSTTStreamingClient()
+        let mgr = makeStreamingManager(streamingClient: streamClient)
+        mgr.currentMode = .conversation
+
+        var partials: [String] = []
+        mgr.onPartialTranscription = { partials.append($0) }
+
+        mgr.handleStreamingEvent(.ready(provider: "deepgram"))
+        mgr.handleStreamingEvent(.final(text: "hello world", seq: 1))
+        mgr.handleStreamingEvent(.partial(text: "how are", seq: 2))
+        mgr.handleStreamingEvent(.partial(text: "how are you", seq: 3))
+
+        XCTAssertEqual(partials, [
+            "hello world",
+            "hello world how are",
+            "hello world how are you",
+        ], "Streaming partial updates should preserve committed text and only revise the current segment")
+    }
+
+    func testStreamingFinalClearsInterimAndContinuesAppending() {
+        let streamClient = MockSTTStreamingClient()
+        let mgr = makeStreamingManager(streamingClient: streamClient)
+        mgr.currentMode = .conversation
+
+        var partials: [String] = []
+        mgr.onPartialTranscription = { partials.append($0) }
+
+        mgr.handleStreamingEvent(.ready(provider: "deepgram"))
+        mgr.handleStreamingEvent(.partial(text: "hello", seq: 1))
+        mgr.handleStreamingEvent(.final(text: "hello", seq: 2))
+        mgr.handleStreamingEvent(.partial(text: "again", seq: 3))
+
+        XCTAssertEqual(partials, [
+            "hello",
+            "hello",
+            "hello again",
+        ], "After a final segment, new interim text should append to the committed transcript")
     }
 }
