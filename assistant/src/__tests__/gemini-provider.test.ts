@@ -6,6 +6,8 @@ import type {
   ProviderEvent,
   ToolDefinition,
 } from "../providers/types.js";
+import { createAbortReason } from "../util/abort-reasons.js";
+import { ProviderError } from "../util/errors.js";
 
 // ---------------------------------------------------------------------------
 // Mock @google/genai module — must be before importing the provider
@@ -662,6 +664,68 @@ describe("GeminiProvider", () => {
     } catch (error) {
       expect((error as Error).message).toContain("Gemini request failed");
       expect((error as Error).message).toContain("Network failure");
+    }
+  });
+
+  // -----------------------------------------------------------------------
+  // Tagged AbortReason propagation
+  // -----------------------------------------------------------------------
+  test("attaches tagged abortReason to ProviderError wrapping an ApiError when signal is aborted with a reason", async () => {
+    shouldThrow = new FakeApiError(0, "Request was aborted.");
+    const controller = new AbortController();
+    const reason = createAbortReason("user_cancel", "test:gemini");
+    controller.abort(reason);
+
+    try {
+      await provider.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+        undefined,
+        undefined,
+        { signal: controller.signal },
+      );
+      expect(true).toBe(false);
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      expect((error as ProviderError).abortReason).toBe(reason);
+    }
+  });
+
+  test("attaches tagged abortReason to ProviderError wrapping a generic error on abort", async () => {
+    shouldThrow = new Error("socket hang up");
+    const controller = new AbortController();
+    const reason = createAbortReason("preempted_by_new_message", "test:gemini");
+    controller.abort(reason);
+
+    try {
+      await provider.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+        undefined,
+        undefined,
+        { signal: controller.signal },
+      );
+      expect(true).toBe(false);
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      expect((error as ProviderError).abortReason).toBe(reason);
+    }
+  });
+
+  test("does not attach abortReason when the signal was aborted with a non-tagged reason", async () => {
+    shouldThrow = new FakeApiError(0, "Request was aborted.");
+    const controller = new AbortController();
+    controller.abort(new Error("plain abort"));
+
+    try {
+      await provider.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+        undefined,
+        undefined,
+        { signal: controller.signal },
+      );
+      expect(true).toBe(false);
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      expect((error as ProviderError).abortReason).toBeUndefined();
     }
   });
 

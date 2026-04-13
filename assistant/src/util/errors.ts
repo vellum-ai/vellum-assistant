@@ -105,7 +105,7 @@ export class ProviderError extends AssistantError {
   /**
    * Tagged daemon-owned abort reason carried over from the AbortSignal that
    * triggered this error. Untyped here to avoid a daemon→util import cycle;
-   * `AbortReason` from `daemon/abort-reasons.ts` is the only producer and
+   * `AbortReason` from `util/abort-reasons.ts` is the only producer and
    * `isAbortReason` is the canonical type guard for consumers.
    */
   public readonly abortReason?: unknown;
