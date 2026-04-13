@@ -6,8 +6,8 @@
  *
  * 1. **LLM / search providers** -- statically declared here because they
  *    have no separate catalog module yet.
- * 2. **STT providers** -- statically declared here because no STT
- *    provider-catalog module exists yet.
+ * 2. **STT providers** -- dynamically derived from the canonical STT
+ *    provider catalog by reading credential-provider names.
  * 3. **TTS catalog providers** -- dynamically derived from the canonical
  *    TTS provider catalog by selecting entries whose secret requirements
  *    use the bare-name (non-credential) storage convention.
@@ -18,6 +18,7 @@
  */
 
 import { listCatalogProviders } from "../tts/provider-catalog.js";
+import { listCredentialProviderNames as listSttCredentialProviderNames } from "./speech-to-text/provider-catalog.js";
 
 // ---------------------------------------------------------------------------
 // Static LLM / search providers
@@ -43,19 +44,20 @@ const LLM_AND_SEARCH_API_KEY_PROVIDERS = [
 ] as const;
 
 // ---------------------------------------------------------------------------
-// Static STT providers
+// STT catalog-derived providers
 // ---------------------------------------------------------------------------
 
 /**
- * STT providers that store API keys under their bare provider name in the
- * secure credential store (e.g. `deepgram`).
- *
- * Declared statically because no STT provider-catalog module exists yet.
- * Providers whose credential key collides with an LLM provider (e.g.
- * `openai-whisper` uses the `openai` key which is already in the LLM
- * list) are intentionally omitted to avoid duplicates.
+ * Derive the deduplicated set of STT credential-provider names from the
+ * canonical STT provider catalog, filtering out names that already appear
+ * in the LLM/search list to avoid duplicates (e.g. `openai-whisper` maps
+ * to `"openai"` which is already present in
+ * {@link LLM_AND_SEARCH_API_KEY_PROVIDERS}).
  */
-const STT_API_KEY_PROVIDERS = ["deepgram"] as const;
+function sttApiKeyProviderNames(): string[] {
+  const llmSet = new Set<string>(LLM_AND_SEARCH_API_KEY_PROVIDERS);
+  return listSttCredentialProviderNames().filter((name) => !llmSet.has(name));
+}
 
 // ---------------------------------------------------------------------------
 // TTS catalog-derived providers
@@ -103,13 +105,15 @@ function catalogApiKeyProviderIds(): string[] {
  * - Provider availability checks
  *
  * Adding a new TTS provider to the catalog with a bare-name secret
- * requirement automatically includes it here. Adding a new LLM or
- * search provider requires appending to
+ * requirement automatically includes it here. Adding a new STT
+ * provider to the STT catalog automatically includes it here (shared
+ * credential names like `openai` are deduplicated against the LLM
+ * list). Adding a new LLM or search provider requires appending to
  * {@link LLM_AND_SEARCH_API_KEY_PROVIDERS} until those domains get
  * their own catalog modules.
  */
 export const API_KEY_PROVIDERS: readonly string[] = [
   ...LLM_AND_SEARCH_API_KEY_PROVIDERS,
-  ...STT_API_KEY_PROVIDERS,
+  ...sttApiKeyProviderNames(),
   ...catalogApiKeyProviderIds(),
 ] as const;

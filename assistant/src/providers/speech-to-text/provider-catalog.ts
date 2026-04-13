@@ -130,3 +130,31 @@ export function supportsBoundary(
 ): boolean {
   return CATALOG.get(id)?.supportedBoundaries.has(boundary) ?? false;
 }
+
+/**
+ * Return all canonical provider IDs in deterministic (insertion) order.
+ */
+export function listProviderIds(): readonly SttProviderId[] {
+  return [...CATALOG.keys()];
+}
+
+/**
+ * Return the deduplicated set of credential-provider names used by STT
+ * providers, in deterministic (first-seen) order.
+ *
+ * Multiple STT providers may share a single credential provider (e.g.
+ * `openai-whisper` and a future `openai-realtime` both map to `"openai"`).
+ * This helper deduplicates so that callers composing API-key provider
+ * lists do not produce duplicate entries.
+ */
+export function listCredentialProviderNames(): readonly string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const entry of CATALOG.values()) {
+    if (!seen.has(entry.credentialProvider)) {
+      seen.add(entry.credentialProvider);
+      result.push(entry.credentialProvider);
+    }
+  }
+  return result;
+}
