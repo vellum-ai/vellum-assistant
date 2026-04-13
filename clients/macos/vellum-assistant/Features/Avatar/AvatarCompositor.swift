@@ -33,6 +33,10 @@ enum AvatarCompositor {
             // per appearance, so include the appearance to avoid serving a stale
             // cached image after a light↔dark mode switch.
             colorKey = "\(overrideKey)-\(Self.appearanceKey)"
+        } else if overrideBodyColor != nil {
+            // Fallback so release builds (where assertionFailure is a no-op)
+            // never poison the normal avatar's cache slot.
+            colorKey = "override-\(bodyNSColor.description)-\(Self.appearanceKey)"
         } else {
             colorKey = color.rawValue
         }
