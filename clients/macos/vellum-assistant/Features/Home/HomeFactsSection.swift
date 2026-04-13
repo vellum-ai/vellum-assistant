@@ -24,6 +24,7 @@ struct HomeFactsSection: View {
             Text("What I Know About You")
                 .font(VFont.titleSmall)
                 .foregroundStyle(VColor.contentDefault)
+                .accessibilityAddTraits(.isHeader)
 
             if facts.isEmpty {
                 emptyState
@@ -69,8 +70,9 @@ struct HomeFactsSection: View {
             Text(Self.subHeader(for: category))
                 .font(VFont.bodySmallEmphasised)
                 .foregroundStyle(VColor.contentSecondary)
+                .accessibilityAddTraits(.isHeader)
 
-            FlowLayout(spacing: 8) {
+            FlowLayout(spacing: VSpacing.sm) {
                 ForEach(facts) { fact in
                     FactChipView(fact: fact)
                 }
