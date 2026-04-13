@@ -26,8 +26,13 @@ export function downNormalizeUserFileByPrincipal(_database: DrizzleDb): void {
  * where YYYY is a 4-digit year starting with 19, 20, or 21. A counter that
  * happens to fall in that range (e.g. `-1999.md`) is indistinguishable from
  * a year by filename alone, so we conservatively treat it as non-auto.
+ *
+ * Month/day segments must be 2 digits (ISO style) to discriminate them from
+ * single-digit collision counters: `generateUserFileSlug` emits `-2.md`,
+ * `-3.md`, etc. without leading zeros, so `alex-2025-2.md` is a counter on
+ * base `alex-2025.md` — not a date — and must remain classified as auto.
  */
-const DATE_LIKE_SUFFIX = /-(19|20|21)\d{2}(-\d{1,2}){0,2}\.md$/;
+const DATE_LIKE_SUFFIX = /-(19|20|21)\d{2}((-\d{2}){1,2})?\.md$/;
 const INTEGER_SUFFIX = /-\d+\.md$/;
 
 export function isAutoIncrementedUserFile(userFile: string): boolean {
