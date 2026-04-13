@@ -585,6 +585,14 @@ struct MarkdownSegmentView: View, Equatable {
 
     private static let mdConvertLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "MarkdownConvert")
 
+    /// Shear applied to italic glyphs via `NSAttributedString.Key.obliqueness`.
+    /// DM Sans has no italic font face, so the slant has to be synthesized.
+    /// Negative because `.obliqueness`'s sign convention is the opposite of
+    /// the font-matrix shear — a negative attribute value produces a rightward
+    /// (forward) slant, which is the correct italic appearance. Value matches
+    /// the historical 12° font-matrix transform (tan(12°) ≈ 0.213).
+    private static let emphasisObliqueness: NSNumber = -0.213 as NSNumber
+
     #if os(macOS)
     /// Converts a SwiftUI `AttributedString` to `NSAttributedString` with a
     /// base font and text color applied as defaults. Runs that already carry
@@ -684,19 +692,13 @@ struct MarkdownSegmentView: View, Equatable {
             )
         }
 
-        func fontHasExpectedTraits(_ font: NSFont, isEmphasized: Bool, isBold: Bool) -> Bool {
-            let matrix = CTFontGetMatrix(font as CTFont)
-            let hasOblique = abs(matrix.b) > 0.0001 || abs(matrix.c) > 0.0001
-            let hasBoldWeight: Bool
-            if isBold,
-               let variations = CTFontCopyVariation(font as CTFont) as? [NSNumber: NSNumber],
-               let weightValue = variations[0x77676874 as NSNumber] {
-                hasBoldWeight = abs(CGFloat(truncating: weightValue) - 700) < 0.5
-            } else {
-                hasBoldWeight = !isBold
+        func fontHasExpectedTraits(_ font: NSFont, isBold: Bool) -> Bool {
+            if !isBold { return true }
+            guard let variations = CTFontCopyVariation(font as CTFont) as? [NSNumber: NSNumber],
+                  let weightValue = variations[0x77676874 as NSNumber] else {
+                return false
             }
-
-            return (!isEmphasized || hasOblique) && hasBoldWeight
+            return abs(CGFloat(truncating: weightValue) - 700) < 0.5
         }
 
         for emphRun in emphasisRuns {
@@ -718,6 +720,7 @@ struct MarkdownSegmentView: View, Equatable {
                     continue
                 }
                 ns.addAttribute(.font, value: fontSet.boldItalic, range: nsRange)
+                ns.addAttribute(.obliqueness, value: emphasisObliqueness, range: nsRange)
             } else if isEmph {
                 guard fontSet.italicIsResolved else {
                     unresolvedEmphasisCount += 1
@@ -725,6 +728,7 @@ struct MarkdownSegmentView: View, Equatable {
                     continue
                 }
                 ns.addAttribute(.font, value: fontSet.italic, range: nsRange)
+                ns.addAttribute(.obliqueness, value: emphasisObliqueness, range: nsRange)
             } else if isBold {
                 guard fontSet.boldIsResolved else {
                     unresolvedEmphasisCount += 1
@@ -745,9 +749,16 @@ struct MarkdownSegmentView: View, Equatable {
             }
             let isEmph = emphRun.intent.contains(.emphasized)
             let isBold = emphRun.intent.contains(.stronglyEmphasized)
-            if !fontHasExpectedTraits(actualFont, isEmphasized: isEmph, isBold: isBold) {
+            if !fontHasExpectedTraits(actualFont, isBold: isBold) {
                 unresolvedEmphasisCount += 1
                 logUnresolvedFontsIfNeeded()
+            }
+            if isEmph {
+                let actualObliqueness = ns.attribute(.obliqueness, at: nsRange.location, effectiveRange: nil) as? NSNumber
+                if actualObliqueness == nil || abs(CGFloat(truncating: actualObliqueness!)) < 0.01 {
+                    unresolvedEmphasisCount += 1
+                    logUnresolvedFontsIfNeeded()
+                }
             }
         }
 
