@@ -78,7 +78,7 @@ export function resolveEffectiveAppHtml(app: AppDefinition): string {
   if (existsSync(distIndex)) {
     return inlineDistAssets(appDir, readFileSync(distIndex, "utf-8"));
   }
-  return app.htmlDefinition;
+  return `<p>App compilation failed. Edit a source file to trigger a rebuild.</p>`;
 }
 
 /**
