@@ -1,5 +1,6 @@
 import XCTest
 @testable import VellumAssistantLib
+@testable import VellumAssistantShared
 
 @MainActor
 final class SettingsStoreUserTimezoneTests: XCTestCase {
@@ -84,5 +85,64 @@ final class SettingsStoreUserTimezoneTests: XCTestCase {
         let ui = persisted["ui"] as? [String: Any]
         XCTAssertNil(ui?["userTimezone"])
         XCTAssertNotNil(ui?["mediaEmbeds"])
+    }
+
+    // MARK: - Startup/reconnect rehydration
+
+    /// Regression: `userTimezone` must be hydrated from the daemon on
+    /// app startup. Previously `loadConfigFromDaemon()` only ran when
+    /// the daemon broadcast `config_changed` (a file-mutation signal
+    /// that never fires on startup), so the timezone stayed "Not Set"
+    /// across every restart even when `ui.userTimezone` was persisted.
+    func testUserTimezoneHydratesFromDaemonOnInit() {
+        let mock = MockSettingsClient()
+        mock.fetchConfigResponse = [
+            "ui": ["userTimezone": "America/New_York"]
+        ]
+
+        let store = SettingsStore(settingsClient: mock)
+
+        let predicate = NSPredicate { _, _ in
+            store.userTimezone == "America/New_York"
+        }
+        wait(
+            for: [XCTNSPredicateExpectation(predicate: predicate, object: nil)],
+            timeout: 2.0
+        )
+        XCTAssertGreaterThanOrEqual(mock.fetchConfigCallCount, 1)
+    }
+
+    /// Regression: `.daemonDidReconnect` must trigger a config reload
+    /// so the timezone (and other daemon-config-dependent state) is
+    /// restored after the daemon restarts or after a network blip.
+    func testUserTimezoneRehydratesOnDaemonReconnect() {
+        let mock = MockSettingsClient()
+        mock.fetchConfigResponse = [:]
+
+        let store = SettingsStore(settingsClient: mock)
+
+        // Wait for the eager init-time fetch to land.
+        let initFetched = NSPredicate { _, _ in
+            mock.fetchConfigCallCount >= 1
+        }
+        wait(
+            for: [XCTNSPredicateExpectation(predicate: initFetched, object: nil)],
+            timeout: 2.0
+        )
+        XCTAssertNil(store.userTimezone)
+
+        // Daemon comes online with a persisted timezone.
+        mock.fetchConfigResponse = [
+            "ui": ["userTimezone": "Europe/Berlin"]
+        ]
+        NotificationCenter.default.post(name: .daemonDidReconnect, object: nil)
+
+        let rehydrated = NSPredicate { _, _ in
+            store.userTimezone == "Europe/Berlin"
+        }
+        wait(
+            for: [XCTNSPredicateExpectation(predicate: rehydrated, object: nil)],
+            timeout: 2.0
+        )
     }
 }
