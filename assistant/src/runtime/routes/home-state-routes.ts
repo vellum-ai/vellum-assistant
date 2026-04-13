@@ -14,7 +14,6 @@ import { existsSync, readFileSync } from "node:fs";
 
 import { z } from "zod";
 
-import type { RelationshipState } from "../../home/relationship-state.js";
 import {
   computeRelationshipState,
   getRelationshipStatePath,
@@ -25,51 +24,8 @@ import type { RouteDefinition } from "../http-router.js";
 
 const log = getLogger("home-state-routes");
 
-/**
- * Handle `GET /v1/home/state`.
- *
- * Returns the persisted `relationship-state.json` when present; on a
- * cache miss (missing file OR unreadable / malformed JSON) falls back
- * to `computeRelationshipState()` so callers always get a valid
- * response shape. The read-through fallback deliberately does NOT
- * write a fresh snapshot to disk — the daemon's conversation-complete
- * hook owns writes so progress updates stay batched to real state
- * transitions rather than opportunistic GETs.
- */
-export async function handleGetHomeState(): Promise<Response> {
-  const path = getRelationshipStatePath();
-
-  if (existsSync(path)) {
-    try {
-      const raw = readFileSync(path, "utf-8");
-      // Validate JSON by parsing; we re-emit the same bytes so the
-      // client sees byte-identical content to what is on disk.
-      const parsed = JSON.parse(raw) as RelationshipState;
-      return Response.json(parsed);
-    } catch (err) {
-      log.warn(
-        { err, path },
-        "Failed to read persisted relationship-state.json; falling back to live compute",
-      );
-      // Fall through to the compute path.
-    }
-  }
-
-  try {
-    const state = await computeRelationshipState();
-    return Response.json(state);
-  } catch (err) {
-    log.warn({ err }, "Failed to compute relationship state on-demand");
-    return httpError(
-      "INTERNAL_ERROR",
-      "Failed to compute relationship state",
-      500,
-    );
-  }
-}
-
 // ---------------------------------------------------------------------------
-// Response schema (shared with the OpenAPI generator)
+// Response schema (shared with the OpenAPI generator and runtime validation)
 // ---------------------------------------------------------------------------
 
 const factSchema = z.object({
@@ -103,6 +59,59 @@ const relationshipStateSchema = z.object({
   userName: z.string().optional(),
   updatedAt: z.string(),
 });
+
+/**
+ * Handle `GET /v1/home/state`.
+ *
+ * Returns the persisted `relationship-state.json` when present; on a
+ * cache miss (missing file, unreadable JSON, OR structurally-invalid
+ * shape) falls back to `computeRelationshipState()` so callers always
+ * get a valid response shape that matches `relationshipStateSchema`.
+ * The read-through fallback deliberately does NOT write a fresh
+ * snapshot to disk — the daemon's conversation-complete hook owns
+ * writes so progress updates stay batched to real state transitions
+ * rather than opportunistic GETs.
+ */
+export async function handleGetHomeState(): Promise<Response> {
+  const path = getRelationshipStatePath();
+
+  if (existsSync(path)) {
+    try {
+      const raw = readFileSync(path, "utf-8");
+      const parsed: unknown = JSON.parse(raw);
+      // Validate shape, not just JSON syntax. A stale or partial file
+      // (e.g. from a pre-v1 snapshot or a truncated write) must NOT be
+      // served to the client — fall through to compute instead so
+      // strict client decoders don't choke.
+      const validated = relationshipStateSchema.safeParse(parsed);
+      if (validated.success) {
+        return Response.json(validated.data);
+      }
+      log.warn(
+        { path, issues: validated.error.issues },
+        "Persisted relationship-state.json failed schema validation; falling back to live compute",
+      );
+    } catch (err) {
+      log.warn(
+        { err, path },
+        "Failed to read persisted relationship-state.json; falling back to live compute",
+      );
+      // Fall through to the compute path.
+    }
+  }
+
+  try {
+    const state = await computeRelationshipState();
+    return Response.json(state);
+  } catch (err) {
+    log.warn({ err }, "Failed to compute relationship state on-demand");
+    return httpError(
+      "INTERNAL_ERROR",
+      "Failed to compute relationship state",
+      500,
+    );
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Route definitions
