@@ -44,6 +44,12 @@ public struct STTProviderCatalogEntry: Decodable {
 /// The JSON file lives at `meta/stt-provider-catalog.json` and is copied
 /// into `Contents/Resources` by `build.sh`. It is the single source of
 /// truth for client-facing STT provider metadata.
+///
+/// The daemon maintains its own canonical catalog in
+/// `assistant/src/providers/speech-to-text/provider-catalog.ts`.
+/// A CI parity test (`stt-catalog-parity.test.ts`) enforces that provider
+/// IDs and credential-provider name mappings (`apiKeyProviderName`) remain
+/// aligned between the JSON file and the daemon catalog.
 public struct STTProviderRegistry: Decodable {
     public let version: Int
     public let providers: [STTProviderCatalogEntry]
@@ -59,6 +65,16 @@ public struct STTProviderRegistry: Decodable {
 /// Hard-coded fallback registry used when the bundled JSON is missing or
 /// corrupt. Keeps client startup resilient — the app can always show at
 /// least the current set of providers.
+///
+/// **Parity requirement**: The provider IDs and `apiKeyProviderName`
+/// mappings below MUST remain in sync with `meta/stt-provider-catalog.json`
+/// (the single source of truth for client-facing metadata) and with the
+/// daemon-side catalog in
+/// `assistant/src/providers/speech-to-text/provider-catalog.ts`.
+/// A CI parity test (`stt-catalog-parity.test.ts`) enforces alignment
+/// between the daemon catalog and the JSON file. If you add or rename a
+/// provider here, update both the JSON catalog and the daemon catalog to
+/// keep all three in lockstep.
 private let fallbackRegistry = STTProviderRegistry(
     version: 0,
     providers: [
