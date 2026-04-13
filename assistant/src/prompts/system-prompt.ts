@@ -10,7 +10,6 @@ import { join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import { loadConfig } from "../config/loader.js";
-import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { listConnections } from "../oauth/oauth-store.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
@@ -167,15 +166,6 @@ export function ensurePromptFiles(): void {
       log.warn({ err }, "Failed to auto-delete stale BOOTSTRAP.md");
     }
   }
-
-  // One-time backfill of `relationship-state.json` for existing or upgraded
-  // users so they don't land on an empty Home page after the Phase 3 ship.
-  // Fire-and-forget: the backfill helper only writes when the file is
-  // missing, and the underlying writer already swallows every error, but we
-  // still wrap this in a `.catch(() => {})` because `ensurePromptFiles()`
-  // runs on the daemon startup path and per assistant/CLAUDE.md the daemon
-  // must never block startup under any circumstance.
-  void backfillRelationshipStateIfMissing().catch(() => {});
 
   // Seed HEARTBEAT.md — always created if missing so the heartbeat service
   // has a meaningful checklist from the start.  Kept out of PROMPT_FILES

@@ -54,10 +54,6 @@ let mockGuardianPersona: string | null = null;
 mock.module("../prompts/persona-resolver.js", () => ({
   GUARDIAN_PERSONA_TEMPLATE,
   resolveGuardianPersona: () => mockGuardianPersona,
-  // Relationship-state-writer reaches through this mocked module when the
-  // backfill hook in ensurePromptFiles runs. It only uses the path helper —
-  // return null so the writer falls through to the legacy USER.md branch.
-  resolveGuardianPersonaPath: () => null,
 }));
 
 // Mock conversation store

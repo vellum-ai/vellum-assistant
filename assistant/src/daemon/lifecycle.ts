@@ -42,6 +42,7 @@ import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
 import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
+import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import {
   deleteMessageById,
   getConversationType,
@@ -381,6 +382,17 @@ export async function runDaemon(): Promise<void> {
           "Manual-token connection backfill failed — continuing startup",
         );
       }
+
+      // One-time backfill of `relationship-state.json` for existing or
+      // upgraded users so they don't land on an empty Home page after the
+      // Phase 3 ship. Runs after DB init + workspace migrations so the
+      // writer can actually resolve the guardian persona file and list
+      // connected OAuth providers — firing this from `ensurePromptFiles()`
+      // would be too early (DB isn't ready yet) and produce a degraded
+      // snapshot with zero facts and zero unlocked capabilities. The
+      // writer already swallows every error; this is fire-and-forget so
+      // it never blocks startup.
+      void backfillRelationshipStateIfMissing().catch(() => {});
 
       // Backfill injection templates on Slack bot token credentials so the
       // credential proxy can inject Authorization headers. Safe on every startup.
