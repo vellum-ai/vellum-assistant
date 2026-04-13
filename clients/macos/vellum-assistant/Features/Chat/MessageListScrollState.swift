@@ -104,7 +104,7 @@ final class MessageListScrollState {
     @ObservationIgnored var currentConversationId: UUID?
     @ObservationIgnored var lastMessageId: UUID?
     @ObservationIgnored var lastActivityPhaseWhenIdle: String = ""
-    @ObservationIgnored var pendingSendScrollToTop: Bool = false
+    @ObservationIgnored var pendingSendScrollMessageId: UUID?
     @ObservationIgnored var isActiveTurnMinHeightApplied: Bool = false
     @ObservationIgnored var hasCompletedInitialPushToTop: Bool = false
 
@@ -219,7 +219,7 @@ final class MessageListScrollState {
         ScrollGeometryUpdateDispatcher.shared.cancel(for: self)
         currentConversationId = conversationId
         lastMessageId = nil
-        pendingSendScrollToTop = false
+        pendingSendScrollMessageId = nil
         isActiveTurnMinHeightApplied = false
         hasCompletedInitialPushToTop = false
         scrollContentHeight = 0
