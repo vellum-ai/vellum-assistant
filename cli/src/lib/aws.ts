@@ -417,6 +417,12 @@ export async function hatchAws(
     } catch {
       sshUser = process.env.USER ?? "";
     }
+    if (!sshUser) {
+      console.error(
+        "Error: Could not determine SSH username. Set the USER environment variable and try again.",
+      );
+      process.exit(1);
+    }
     const hatchedBy = process.env.VELLUM_HATCHED_BY;
     const providerApiKeys: Record<string, string> = {};
     for (const [, envVar] of Object.entries(PROVIDER_ENV_VAR_NAMES)) {
