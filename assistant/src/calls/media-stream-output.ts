@@ -358,6 +358,12 @@ export class MediaStreamOutput implements CallTransport {
       }
     } finally {
       this.draining = false;
+      // If items were enqueued during a version-mismatch break (e.g. the
+      // end-of-turn mark from handleInterrupt after clearAudio), restart
+      // draining so they are not stranded.
+      if (this.playbackQueue.length > 0 && !this.isClosed()) {
+        void this.drainPlaybackQueue();
+      }
     }
   }
 
@@ -384,7 +390,12 @@ export class MediaStreamOutput implements CallTransport {
     try {
       const { resolveCallTtsProvider } =
         await import("./resolve-call-tts-provider.js");
-      const { provider, audioFormat } = resolveCallTtsProvider();
+      // Request WAV so audioBufferToFrames gets PCM it can transcode
+      // to mu-law. Compressed formats (mp3, opus) would be sent as raw
+      // bytes and produce garbled audio.
+      const { provider, audioFormat } = resolveCallTtsProvider({
+        preferWav: true,
+      });
       if (!provider) {
         log.warn(
           { streamSid: this.streamSid },
