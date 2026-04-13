@@ -129,5 +129,34 @@ describe("home-state-routes", () => {
       expect(body.version).toBe(1);
       expect(body.capabilities).toHaveLength(6);
     });
+
+    test("GET returns fresh state even when the persisted file is stale", async () => {
+      // Persist a snapshot with userName=Casey.
+      mkdirSync(workspaceDir, { recursive: true });
+      writeFileSync(
+        join(workspaceDir, "USER.md"),
+        "- Preferred name: Casey\n",
+        "utf-8",
+      );
+      await writeRelationshipState();
+      expect(existsSync(getRelationshipStatePath())).toBe(true);
+
+      // Mutate USER.md outside of any turn-boundary writer call. This
+      // simulates: a user editing their persona file, OAuth connecting
+      // a provider, or a conversation delete flow touching state
+      // outside the turn-boundary writer.
+      writeFileSync(
+        join(workspaceDir, "USER.md"),
+        "- Preferred name: Jamie\n",
+        "utf-8",
+      );
+
+      // The route must return the FRESH value (Jamie), not the
+      // cached value (Casey) from the persisted file.
+      const res = await handleGetHomeState();
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as RelationshipStateWire;
+      expect(body.userName).toBe("Jamie");
+    });
   });
 });

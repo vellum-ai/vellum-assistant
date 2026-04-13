@@ -34,7 +34,11 @@ import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
-import { getDataDir, getWorkspacePromptPath } from "../util/platform.js";
+import {
+  getDataDir,
+  getWorkspaceDir,
+  getWorkspacePromptPath,
+} from "../util/platform.js";
 import { computeProgressPercent, computeTier } from "./progress-formula.js";
 import {
   type Capability,
@@ -271,18 +275,21 @@ export async function backfillRelationshipStateIfMissing(): Promise<void> {
 
 /**
  * Resolve the raw markdown content of the guardian's user persona file
- * (`users/<slug>.md`), falling back to legacy workspace-root `USER.md`
- * when no guardian is resolvable or the persona file is missing.
+ * (`users/<slug>.md`). Walks a three-step fallback chain so a transient
+ * contact-store failure on a migrated workspace still surfaces real
+ * user content:
  *
- * Uses `resolveGuardianPersonaPath()` rather than a hardcoded
- * `users/default.md` so slugged user files populated by
- * `generateUserFileSlug` (e.g. `users/sidd.md`) are read correctly —
- * otherwise the writer would systematically under-extract facts and
- * `userName` for any contact-aware workspace.
+ *   1. `resolveGuardianPersonaPath()` via contact-store — the canonical
+ *      per-guardian slugged file (e.g. `users/sidd.md`).
+ *   2. `users/default.md` — the default-guardian persona file that the
+ *      workspace migration leaves in place. Catches the window where
+ *      the resolver throws or returns null but the file-backed content
+ *      is still available.
+ *   3. Workspace-root `USER.md` — legacy fallback for very old
+ *      workspaces that predate migration 031.
  *
- * Every step is guarded: any exception from the persona resolver or
- * the underlying contact store DB lookup collapses to the empty string
- * via the normal fallback chain, so `computeRelationshipState()` never
+ * Every step is guarded; an empty string is returned only when all
+ * three sources are unavailable, so `computeRelationshipState()` never
  * throws from this path.
  */
 function resolveGuardianUserContent(): string {
@@ -295,7 +302,21 @@ function resolveGuardianUserContent(): string {
   } catch (err) {
     log.warn(
       { err },
-      "Failed to resolve guardian persona path; falling back to legacy USER.md",
+      "Failed to resolve guardian persona path; trying users/default.md",
+    );
+  }
+
+  // Intermediate fallback: the default-guardian persona file that
+  // exists on most migrated workspaces even when the contact store is
+  // transiently unreachable.
+  try {
+    const defaultUserPath = join(getWorkspaceDir(), "users", "default.md");
+    const defaultContent = safeRead(defaultUserPath);
+    if (defaultContent) return defaultContent;
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to read users/default.md; trying legacy USER.md",
     );
   }
 

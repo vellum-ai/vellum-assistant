@@ -228,6 +228,23 @@ describe("relationship-state-writer", () => {
       expect(state.facts.length).toBeGreaterThan(0);
     });
 
+    test("reads users/default.md when persona resolver fails and legacy USER.md is absent", async () => {
+      // Simulates a migrated workspace: the contact store is
+      // transiently unreachable (resolver throws SQLiteError in the
+      // test env), legacy USER.md was removed by migration 031, but
+      // users/default.md still carries real user content. The writer
+      // must surface that content rather than dropping to an empty
+      // snapshot.
+      writeFile(
+        "users/default.md",
+        ["- Preferred name: Riley", "- Work role: Designer"].join("\n"),
+      );
+
+      const state = (await computeRelationshipState()) as RelationshipStateLike;
+      expect(state.userName).toBe("Riley");
+      expect(state.facts.length).toBeGreaterThan(0);
+    });
+
     test("uses DB-authoritative countConversations for conversationCount", async () => {
       seedConversations(7);
       const state = (await computeRelationshipState()) as RelationshipStateLike;

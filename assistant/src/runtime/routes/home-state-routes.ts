@@ -63,54 +63,59 @@ const relationshipStateSchema = z.object({
 /**
  * Handle `GET /v1/home/state`.
  *
- * Returns the persisted `relationship-state.json` when present; on a
- * cache miss (missing file, unreadable JSON, OR structurally-invalid
- * shape) falls back to `computeRelationshipState()` so callers always
- * get a valid response shape that matches `relationshipStateSchema`.
- * The read-through fallback deliberately does NOT write a fresh
- * snapshot to disk — the daemon's conversation-complete hook owns
- * writes so progress updates stay batched to real state transitions
- * rather than opportunistic GETs.
+ * Always computes a fresh snapshot so the response reflects the
+ * latest OAuth connection state, conversation count, and extracted
+ * facts — not just whatever the conversation-complete writer last
+ * persisted. This avoids serving stale capability tiers when the
+ * user connects an integration between turns, or when a delete/wipe
+ * flow mutates conversation count outside the turn-boundary writer.
+ *
+ * The persisted `relationship-state.json` remains useful as:
+ *   - A seed for the existing-user backfill on daemon startup.
+ *   - A fallback when live compute fails (e.g. DB not yet ready at
+ *     cold start, or a transient filesystem error).
+ *
+ * The route does NOT write to disk or emit SSE on read — writes are
+ * still owned exclusively by the writer so turn-boundary SSE events
+ * remain tied to real state transitions rather than GET traffic.
  */
 export async function handleGetHomeState(): Promise<Response> {
-  const path = getRelationshipStatePath();
+  try {
+    const state = await computeRelationshipState();
+    return Response.json(state);
+  } catch (computeErr) {
+    log.warn(
+      { err: computeErr },
+      "Live compute failed; falling back to persisted relationship-state.json",
+    );
+  }
 
+  const path = getRelationshipStatePath();
   if (existsSync(path)) {
     try {
       const raw = readFileSync(path, "utf-8");
       const parsed: unknown = JSON.parse(raw);
-      // Validate shape, not just JSON syntax. A stale or partial file
-      // (e.g. from a pre-v1 snapshot or a truncated write) must NOT be
-      // served to the client — fall through to compute instead so
-      // strict client decoders don't choke.
       const validated = relationshipStateSchema.safeParse(parsed);
       if (validated.success) {
         return Response.json(validated.data);
       }
       log.warn(
         { path, issues: validated.error.issues },
-        "Persisted relationship-state.json failed schema validation; falling back to live compute",
+        "Persisted relationship-state.json failed schema validation",
       );
     } catch (err) {
       log.warn(
         { err, path },
-        "Failed to read persisted relationship-state.json; falling back to live compute",
+        "Failed to read persisted relationship-state.json as fallback",
       );
-      // Fall through to the compute path.
     }
   }
 
-  try {
-    const state = await computeRelationshipState();
-    return Response.json(state);
-  } catch (err) {
-    log.warn({ err }, "Failed to compute relationship state on-demand");
-    return httpError(
-      "INTERNAL_ERROR",
-      "Failed to compute relationship state",
-      500,
-    );
-  }
+  return httpError(
+    "INTERNAL_ERROR",
+    "Failed to compute relationship state",
+    500,
+  );
 }
 
 // ---------------------------------------------------------------------------
