@@ -89,13 +89,19 @@ interface ManagedSubagent {
   /** Epoch ms after which this terminal entry can be removed by the TTL sweep. */
   retainedUntil?: number;
   /**
-   * Set to true when sendMessage enqueues a follow-up message while the
-   * initial objective loop is running.  runAgentLoop fires drainQueue without
-   * awaiting it, and drainQueue shift()s the item synchronously — so both
-   * hasQueuedMessages() and isProcessing() can return false while the drain
-   * is still active.  This flag lets the finally block in runSubagent defer
-   * the release to the TTL sweep rather than tearing down the conversation
-   * mid-drain.
+   * Sticky monotonic flag: set to true when sendMessage enqueues a follow-up
+   * message while a run is in progress, and never cleared. Needed because the
+   * drain dispatch is racy against the observation window around runAgentLoop's
+   * `finally`: drainQueue is async — it awaits buildPassthroughBatch (which
+   * awaits resolveSlash) before shifting anything — and runAgentLoop fires it
+   * without awaiting. So between the moment `finally` schedules drainQueue and
+   * the moment a queued item is actually dispatched by drainBatch /
+   * drainSingleMessage, `hasQueuedMessages()` and `isProcessing()` can each
+   * flip in either direction (queue empties mid-await, or `processing` flips
+   * false while items are still pending). Checking this sticky flag lets the
+   * finally block in runSubagent reason about "any queued work existed for
+   * this subagent during the run" without racing drain dispatch, and defer
+   * the release to the TTL sweep rather than tearing down mid-drain.
    */
   hadEnqueuedMessages?: boolean;
 }
@@ -465,11 +471,16 @@ export class SubagentManager {
       log.error({ subagentId, err }, "Subagent failed");
     } finally {
       // Release the heavyweight Conversation — output is already persisted in DB.
-      // runAgentLoop fires drainQueue without awaiting it, and drainQueue shift()s
-      // the next item synchronously — so both hasQueuedMessages() and
-      // isProcessing() can return false while a drain is still active.  Use the
-      // hadEnqueuedMessages flag (set in sendMessage) to detect this case and
-      // defer the release to the TTL sweep rather than tearing down mid-drain.
+      // drainQueue is async: it awaits buildPassthroughBatch (which awaits
+      // resolveSlash) before shifting anything, and runAgentLoop fires it
+      // without awaiting. That means by the time this finally runs, a drain
+      // may already be scheduled but not yet dispatched — so checking
+      // hasQueuedMessages() / isProcessing() here races the dispatch and can
+      // observe an empty queue (or `processing === false`) while queued work
+      // is still pending. The hadEnqueuedMessages flag (set in sendMessage)
+      // is a sticky monotonic marker that any queued work existed during this
+      // run, letting us defer the release to the TTL sweep rather than
+      // tearing down mid-drain.
       if (managed.hadEnqueuedMessages) {
         log.debug(
           { subagentId },
