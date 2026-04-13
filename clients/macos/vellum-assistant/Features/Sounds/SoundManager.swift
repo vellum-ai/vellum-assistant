@@ -146,8 +146,8 @@ final class SoundManager {
 
     /// Picks a random filename from the pool after filtering out entries that
     /// fail `validateSoundFilename`. Returns `nil` when the pool is empty or
-    /// every entry is invalid. Single source of truth for pool selection so
-    /// `play(_:)` and `previewSound(for:)` stay in lockstep.
+    /// every entry is invalid. Single source of truth for pool selection in
+    /// `play(_:)`.
     internal func pickSoundFilename(from sounds: [String]) -> String? {
         let validated = sounds.filter { validateSoundFilename($0) }
         return validated.randomElement()
@@ -216,13 +216,12 @@ final class SoundManager {
         sound.play()
     }
 
-    /// Preview the sound configured for a specific event at the current volume,
-    /// bypassing enabled checks. Fetches the sound from the gateway if not cached.
-    /// Each invocation picks a random entry from the pool, which doubles as the
-    /// way to audition a multi-sound pool from the Settings UI.
-    func previewSound(for event: SoundEvent) {
-        let eventConfig = config.config(for: event)
-        guard let filename = pickSoundFilename(from: eventConfig.sounds) else {
+    /// Preview a specific sound by filename at the current volume, bypassing
+    /// enabled checks. Fetches from the gateway if not cached. Falls back to
+    /// the default blip if the filename is invalid or cannot be fetched. Used
+    /// by the Settings sound pool UI so each pool entry can be auditioned.
+    func previewSound(filename: String) {
+        guard validateSoundFilename(filename) else {
             previewDefaultBlip()
             return
         }

@@ -108,20 +108,8 @@ struct SettingsSoundsTab: View {
                 )
             }
 
-            HStack(alignment: .top, spacing: VSpacing.sm) {
-                soundPoolEditor(for: event, eventConfig: eventConfig, sounds: sounds)
-
-                VButton(
-                    label: "Preview sound",
-                    iconOnly: VIcon.play.rawValue,
-                    style: .ghost,
-                    tooltip: "Preview sound"
-                ) {
-                    previewSound(for: event, eventConfig: eventConfig)
-                }
+            soundPoolEditor(for: event, eventConfig: eventConfig, sounds: sounds)
                 .disabled(!eventConfig.enabled)
-            }
-            .disabled(!eventConfig.enabled)
         }
         .padding(.vertical, VSpacing.xs)
     }
@@ -158,6 +146,15 @@ struct SettingsSoundsTab: View {
                             .truncationMode(.tail)
 
                         Spacer()
+
+                        VButton(
+                            label: "Preview sound",
+                            iconOnly: VIcon.play.rawValue,
+                            style: .ghost,
+                            tooltip: "Preview sound"
+                        ) {
+                            soundManager.previewSound(filename: filename)
+                        }
 
                         VButton(
                             label: "Remove sound",
@@ -246,11 +243,5 @@ struct SettingsSoundsTab: View {
     /// Preview the default blip at the current volume, bypassing enabled checks.
     private func previewDefaultBlip() {
         soundManager.previewDefaultBlip()
-    }
-
-    /// Preview the sound configured for a specific event, delegating to
-    /// SoundManager which uses the instance-aware sounds directory.
-    private func previewSound(for event: SoundEvent, eventConfig: SoundEventConfig) {
-        soundManager.previewSound(for: event)
     }
 }
