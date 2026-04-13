@@ -223,37 +223,24 @@ final class SkillsManager {
 
     /// Recompute derived display data from server-filtered skills.
     /// Origin, kind, text search, and category filtering are now server-side.
-    /// This method merges external search results, updates category counts
-    /// from the server response, and applies display sorting.
-    ///
-    /// After merging external search results into the skills list, a local
-    /// filter pass removes any items that don't match the active origin/kind
-    /// filter. This is a safety net: external search results bypass the
-    /// server-side filter and could otherwise surface unfiltered catalog
-    /// hits when e.g. the Installed filter is active.
+    /// This method merges external search results, applies a local safety-net
+    /// filter (origin/kind + category) to remove any items that bypass the
+    /// server filter, recomputes category counts from the merged list, and
+    /// applies display sorting.
     private func recomputeFilteredData() {
-        // Convert server-provided category counts (String keys) to SkillCategory keys.
-        var counts: [SkillCategory: Int] = [:]
-        for (key, value) in skillsStore.categoryCounts {
-            if let cat = SkillCategory(rawValue: key) {
-                counts[cat] = value
-            }
-        }
-        categoryCounts = counts
-        searchFilteredCount = skillsStore.totalCount
         baseSkillsEmpty = skills.isEmpty
 
         // Re-apply the current origin/kind filter locally as a safety net
         // for merged external search results that weren't in the original
         // server response.
-        let localFiltered = skills.filter { skill in
+        let kindFiltered = skills.filter { skill in
             switch skillFilter {
             case .all:
                 return true
             case .installed:
                 return skill.isInstalled
             case .available:
-                return !skill.isInstalled
+                return skill.isAvailable
             case .vellum:
                 return skill.origin == "vellum"
             case .clawhub:
@@ -265,8 +252,29 @@ final class SkillsManager {
             }
         }
 
+        // Compute category counts from the merged+filtered list so they
+        // include external search results and always match the displayed
+        // skills. Use server counts as a base, then layer on any external
+        // results the server didn't see.
+        var counts: [SkillCategory: Int] = [:]
+        for skill in kindFiltered {
+            let cat = inferCategory(skill)
+            counts[cat, default: 0] += 1
+        }
+        categoryCounts = counts
+        searchFilteredCount = kindFiltered.count
+
+        // Apply category filter after computing counts (so sidebar shows
+        // accurate counts for all categories, not just the selected one).
+        let categoryFiltered: [SkillInfo]
+        if let category = selectedCategory {
+            categoryFiltered = kindFiltered.filter { inferCategory($0) == category }
+        } else {
+            categoryFiltered = kindFiltered
+        }
+
         // Sort for display: installed first, community origins before core, alphabetical.
-        filteredSkills = localFiltered.sorted { a, b in
+        filteredSkills = categoryFiltered.sorted { a, b in
             if a.isInstalled != b.isInstalled { return a.isInstalled }
             let aCommunity = (a.origin == "clawhub" || a.origin == "skillssh")
             let bCommunity = (b.origin == "clawhub" || b.origin == "skillssh")
@@ -325,7 +333,11 @@ final class SkillsManager {
     // MARK: - Delegated Operations
 
     func fetchSkills(force: Bool = false) {
-        skillsStore.fetchSkills(force: force)
+        if force {
+            fetchFilteredSkills()
+        } else {
+            skillsStore.fetchSkills(force: false)
+        }
     }
 
     func fetchSkillBody(skillId: String) {
