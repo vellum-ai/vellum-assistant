@@ -105,6 +105,13 @@ mock.module("../config/loader.js", () => ({
 
 const mockedConversationHostAccess = new Map<string, boolean>();
 
+const capturedAddMessages: Array<{
+  id: string;
+  role: string;
+  content: string;
+  metadata?: Record<string, unknown>;
+}> = [];
+
 mock.module("../prompts/system-prompt.js", () => ({
   buildSystemPrompt: () => "system prompt",
 }));
@@ -133,6 +140,7 @@ mock.module("../security/secret-allowlist.js", () => ({
 mock.module("../memory/conversation-crud.js", () => ({
   getConversationType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
+  setConversationOriginInterfaceIfUnset: () => {},
   updateConversationContextWindow: () => {},
   getConversationHostAccess: (conversationId: string) =>
     mockedConversationHostAccess.get(conversationId) ?? false,
@@ -159,8 +167,15 @@ mock.module("../memory/conversation-crud.js", () => ({
     totalEstimatedCost: 0,
   }),
   createConversation: () => ({ id: "conv-1" }),
-  addMessage: (_convId: string, _role: string, _content: string) => {
-    return { id: `msg-${Date.now()}` };
+  addMessage: (
+    _convId: string,
+    role: string,
+    content: string,
+    metadata?: Record<string, unknown>,
+  ) => {
+    const id = `msg-${Date.now()}-${capturedAddMessages.length}`;
+    capturedAddMessages.push({ id, role, content, metadata });
+    return { id };
   },
   updateConversationUsage: () => {},
   updateConversationTitle: () => {},
@@ -523,44 +538,73 @@ describe("Conversation message queue", () => {
     await new Promise((r) => setTimeout(r, 10));
   });
 
-  test("[experimental] queued messages are processed in FIFO order", async () => {
+  test("[experimental] queued passthrough siblings drain as a single batched run", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const processedOrder: string[] = [];
-
-    const makeHandler = (label: string) => (e: ServerMessage) => {
-      if (e.type === "message_complete") processedOrder.push(label);
-    };
+    const events1: ServerMessage[] = [];
+    const events2: ServerMessage[] = [];
+    const events3: ServerMessage[] = [];
 
     // Start first message
     const p1 = conversation.processMessage(
       "msg-1",
       [],
-      makeHandler("msg-1"),
+      (e) => events1.push(e),
       "req-1",
     );
     await waitForPendingRun(1);
 
-    // Enqueue two more
-    conversation.enqueueMessage("msg-2", [], makeHandler("msg-2"), "req-2");
-    conversation.enqueueMessage("msg-3", [], makeHandler("msg-3"), "req-3");
+    // Enqueue two more sibling passthrough messages
+    conversation.enqueueMessage("msg-2", [], (e) => events2.push(e), "req-2");
+    conversation.enqueueMessage("msg-3", [], (e) => events3.push(e), "req-3");
     expect(conversation.getQueueDepth()).toBe(2);
 
-    // Complete first → triggers second
+    // Complete run 0 → drain pulls msg-2 and msg-3 into ONE batched run.
     resolveRun(0);
     await p1;
     await waitForPendingRun(2);
 
-    // Complete second → triggers third
-    resolveRun(1);
-    await waitForPendingRun(3);
+    // Exactly two runs total (not three): run 0 = msg-1, run 1 = batched [msg-2, msg-3]
+    expect(pendingRuns.length).toBe(2);
 
-    // Complete third
-    resolveRun(2);
+    // Each batched client saw its own message_dequeued tagged with its own requestId.
+    const dequeued2 = events2.filter((e) => e.type === "message_dequeued");
+    expect(dequeued2).toHaveLength(1);
+    expect(dequeued2[0]).toEqual({
+      type: "message_dequeued",
+      conversationId: "conv-1",
+      requestId: "req-2",
+    });
+    const dequeued3 = events3.filter((e) => e.type === "message_dequeued");
+    expect(dequeued3).toHaveLength(1);
+    expect(dequeued3[0]).toEqual({
+      type: "message_dequeued",
+      conversationId: "conv-1",
+      requestId: "req-3",
+    });
+
+    // The batched run's captured history carries both siblings. Either as
+    // separate user entries (raw history) or merged into one user entry
+    // (after history-repair's alternation enforcement — required by the
+    // Anthropic API). Either way, both msg-2 and msg-3 text must appear.
+    const batchedHistory = pendingRuns[1].messages;
+    const userMessages = batchedHistory.filter((m) => m.role === "user");
+    const textOf = (m: Message) =>
+      (Array.isArray(m.content) ? m.content : [])
+        .filter((b) => b.type === "text")
+        .map((b) => (b as { text: string }).text)
+        .join("\n");
+    const combinedUserText = userMessages.map(textOf).join("\n");
+    expect(combinedUserText).toContain("msg-2");
+    expect(combinedUserText).toContain("msg-3");
+
+    // Resolve the batched run; message_complete must fan out to both clients.
+    resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(processedOrder).toEqual(["msg-1", "msg-2", "msg-3"]);
+    expect(events2.some((e) => e.type === "message_complete")).toBe(true);
+    expect(events3.some((e) => e.type === "message_complete")).toBe(true);
   });
 
   test("message_queued and message_dequeued events are emitted", async () => {
@@ -701,27 +745,17 @@ describe("Conversation message queue", () => {
     conversation.enqueueMessage("msg-4", [], () => {}, "req-4");
     expect(conversation.getQueueDepth()).toBe(3);
 
-    // Complete first → drains one from queue
+    // Complete first → drain pulls all three same-interface passthroughs
+    // into a single batched run (depth → 0, runs → 2 total).
     resolveRun(0);
     await p1;
     await waitForPendingRun(2);
 
-    expect(conversation.getQueueDepth()).toBe(2);
-
-    // Complete second → drains another
-    resolveRun(1);
-    await waitForPendingRun(3);
-
-    expect(conversation.getQueueDepth()).toBe(1);
-
-    // Complete third → drains last
-    resolveRun(2);
-    await waitForPendingRun(4);
-
     expect(conversation.getQueueDepth()).toBe(0);
+    expect(pendingRuns.length).toBe(2);
 
-    // Complete fourth (final queued message)
-    resolveRun(3);
+    // Complete the batched run; conversation finishes cleanly.
+    resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
   });
 
@@ -772,6 +806,338 @@ describe("Conversation message queue", () => {
 
     // msg-3 should have completed successfully
     expect(events3.some((e) => e.type === "message_complete")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Batched drain — mixed-interface, slash-in-middle, attachments, byte budget
+// ---------------------------------------------------------------------------
+
+describe("Batched drain", () => {
+  beforeEach(() => {
+    pendingRuns = [];
+  });
+
+  test("mixed-interface queue splits into multiple batches at each interface boundary", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events2: ServerMessage[] = [];
+    const events3: ServerMessage[] = [];
+    const events4: ServerMessage[] = [];
+    const events5: ServerMessage[] = [];
+
+    // Start in-flight message (msg-1)
+    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    await waitForPendingRun(1);
+
+    // Enqueue 4 messages with interfaces [macos, macos, cli, macos].
+    // Expected drain: [macos batch of 2] → [cli single] → [macos single].
+    const meta = (iface: string) => ({
+      userMessageInterface: iface,
+      assistantMessageInterface: iface,
+    });
+    conversation.enqueueMessage(
+      "msg-2",
+      [],
+      (e) => events2.push(e),
+      "req-2",
+      undefined,
+      undefined,
+      meta("macos"),
+    );
+    conversation.enqueueMessage(
+      "msg-3",
+      [],
+      (e) => events3.push(e),
+      "req-3",
+      undefined,
+      undefined,
+      meta("macos"),
+    );
+    conversation.enqueueMessage(
+      "msg-4",
+      [],
+      (e) => events4.push(e),
+      "req-4",
+      undefined,
+      undefined,
+      meta("cli"),
+    );
+    conversation.enqueueMessage(
+      "msg-5",
+      [],
+      (e) => events5.push(e),
+      "req-5",
+      undefined,
+      undefined,
+      meta("macos"),
+    );
+    expect(conversation.getQueueDepth()).toBe(4);
+
+    // Resolve msg-1 → batched run pulls macos msg-2 + msg-3.
+    resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // Batched run's history must contain both macos messages (either as
+    // separate user entries or merged into one after history-repair).
+    const macosBatchedHistory = pendingRuns[1].messages;
+    const macosUserMessages = macosBatchedHistory.filter(
+      (m) => m.role === "user",
+    );
+    const textOf = (m: Message) =>
+      (Array.isArray(m.content) ? m.content : [])
+        .filter((b) => b.type === "text")
+        .map((b) => (b as { text: string }).text)
+        .join("\n");
+    const combinedMacosText = macosUserMessages.map(textOf).join("\n");
+    expect(combinedMacosText).toContain("msg-2");
+    expect(combinedMacosText).toContain("msg-3");
+
+    // Both msg-2 and msg-3 received their own dequeue event.
+    expect(events2.filter((e) => e.type === "message_dequeued")).toHaveLength(
+      1,
+    );
+    expect(events3.filter((e) => e.type === "message_dequeued")).toHaveLength(
+      1,
+    );
+
+    // Resolve the batched run → drain pulls the cli single-message run.
+    resolveRun(1);
+    await waitForPendingRun(3);
+
+    // cli run contains msg-4 as a single-message run.
+    const cliHistory = pendingRuns[2].messages;
+    const cliUserText = cliHistory
+      .filter((m) => m.role === "user")
+      .map(textOf)
+      .join("\n");
+    expect(cliUserText).toContain("msg-4");
+    expect(events4.filter((e) => e.type === "message_dequeued")).toHaveLength(
+      1,
+    );
+
+    // Resolve the cli run → drain pulls the final macos single-message run.
+    resolveRun(2);
+    await waitForPendingRun(4);
+    const finalHistory = pendingRuns[3].messages;
+    const finalUserText = finalHistory
+      .filter((m) => m.role === "user")
+      .map(textOf)
+      .join("\n");
+    expect(finalUserText).toContain("msg-5");
+    expect(events5.filter((e) => e.type === "message_dequeued")).toHaveLength(
+      1,
+    );
+
+    // Four total runs: msg-1, batched [msg-2, msg-3], msg-4, msg-5.
+    expect(pendingRuns.length).toBe(4);
+
+    resolveRun(3);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("slash-in-middle splits the queue at the slash boundary", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const eventsHello: ServerMessage[] = [];
+    const eventsSlash: ServerMessage[] = [];
+    const eventsWorld: ServerMessage[] = [];
+
+    // Start in-flight message
+    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    await waitForPendingRun(1);
+
+    // Enqueue ["hello", "/compact", "world"]. /compact resolves to a non-
+    // passthrough slash, so the batch builder stops at "hello" (length 1),
+    // then /compact takes the single-message /compact short-circuit path
+    // (no new runAgentLoop invocation), then "world" drains as its own run.
+    conversation.enqueueMessage(
+      "hello",
+      [],
+      (e) => eventsHello.push(e),
+      "req-hello",
+    );
+    conversation.enqueueMessage(
+      "/compact",
+      [],
+      (e) => eventsSlash.push(e),
+      "req-slash",
+    );
+    conversation.enqueueMessage(
+      "world",
+      [],
+      (e) => eventsWorld.push(e),
+      "req-world",
+    );
+    expect(conversation.getQueueDepth()).toBe(3);
+
+    // Resolve msg-1 → drain pulls "hello" as its own run (batch stops at
+    // /compact boundary).
+    resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    expect(pendingRuns.length).toBe(2);
+    expect(eventsHello.some((e) => e.type === "message_dequeued")).toBe(true);
+    // /compact and "world" are still queued.
+    expect(conversation.getQueueDepth()).toBe(2);
+
+    // Resolve "hello" → drain pops /compact via the builder-rejected path,
+    // runs its short-circuit (no new runAgentLoop), then drains "world".
+    resolveRun(1);
+    await waitForPendingRun(3);
+
+    // /compact should have emitted its own message_complete via the short-
+    // circuit path (not via a runAgentLoop run).
+    expect(eventsSlash.some((e) => e.type === "message_complete")).toBe(true);
+    expect(eventsWorld.some((e) => e.type === "message_dequeued")).toBe(true);
+    expect(pendingRuns.length).toBe(3);
+
+    resolveRun(2);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("attachments are preserved across a batched drain", async () => {
+    capturedAddMessages.length = 0;
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    // Start in-flight message
+    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    await waitForPendingRun(1);
+
+    // Two sibling messages, each with a distinct image attachment.
+    const attachA = [
+      {
+        id: "att-a",
+        filename: "a.png",
+        mimeType: "image/png",
+        data: Buffer.from("imageA").toString("base64"),
+        filePath: "/tmp/a.png",
+      },
+    ];
+    const attachB = [
+      {
+        id: "att-b",
+        filename: "b.png",
+        mimeType: "image/png",
+        data: Buffer.from("imageB").toString("base64"),
+        filePath: "/tmp/b.png",
+      },
+    ];
+    conversation.enqueueMessage("with-A", attachA, () => {}, "req-A");
+    conversation.enqueueMessage("with-B", attachB, () => {}, "req-B");
+    expect(conversation.getQueueDepth()).toBe(2);
+
+    resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // Two persisted user rows in the DB (one per batched message), each with
+    // its own imageSourcePaths metadata keyed by the right filename.
+    const userRows = capturedAddMessages.filter(
+      (m) => m.role === "user" && m.content.includes('"image"'),
+    );
+    expect(userRows).toHaveLength(2);
+    const pathsA = (userRows[0].metadata as Record<string, unknown>)
+      ?.imageSourcePaths as Record<string, string> | undefined;
+    expect(pathsA).toBeDefined();
+    expect(pathsA!["0:a.png"]).toBe("/tmp/a.png");
+    const pathsB = (userRows[1].metadata as Record<string, unknown>)
+      ?.imageSourcePaths as Record<string, string> | undefined;
+    expect(pathsB).toBeDefined();
+    expect(pathsB!["0:b.png"]).toBe("/tmp/b.png");
+
+    // The batched run's in-memory history also reflects both image sources
+    // (enrichMessageWithSourcePaths injects file:// references for images).
+    const batchedHistory = pendingRuns[1].messages;
+    const userMessages = batchedHistory.filter((m) => m.role === "user");
+    const allText = userMessages
+      .map((m) =>
+        (Array.isArray(m.content) ? m.content : [])
+          .filter((b) => b.type === "text")
+          .map((b) => (b as { text: string }).text)
+          .join("\n"),
+      )
+      .join("\n");
+    expect(allText).toContain("a.png");
+    expect(allText).toContain("b.png");
+
+    resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("byte-budget accounting is unchanged by shiftN-based batching", async () => {
+    // Uses a small budget so we can observe reclamation after drain.
+    // Each ~500-char message ≈ 1512 bytes.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const budget = 4000;
+    (conversation as unknown as { queue: MessageQueue }).queue = new MessageQueue(budget);
+
+    // Start in-flight so subsequent enqueues are queued (not processed).
+    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    await waitForPendingRun(1);
+
+    // Fill to just-under budget: two ~500-char messages (1512+1512 = 3024 bytes).
+    const accepted1 = conversation.enqueueMessage(
+      "x".repeat(500),
+      [],
+      () => {},
+      "req-big-1",
+    );
+    const accepted2 = conversation.enqueueMessage(
+      "y".repeat(500),
+      [],
+      () => {},
+      "req-big-2",
+    );
+    expect(accepted1.queued).toBe(true);
+    expect(accepted2.queued).toBe(true);
+    // A third would push the queue over budget → rejected.
+    const rejected = conversation.enqueueMessage(
+      "z".repeat(500),
+      [],
+      () => {},
+      "req-over",
+    );
+    expect(rejected.queued).toBe(false);
+    expect(rejected.rejected).toBe(true);
+    expect(conversation.getQueueDepth()).toBe(2);
+
+    // Complete in-flight → drain pulls both queued passthroughs as ONE batched run.
+    resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+    expect(conversation.getQueueDepth()).toBe(0);
+
+    // Resolve the batched run.
+    resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+
+    // After the full drain, the byte budget must be fully reclaimed — a fresh
+    // round of enqueues up to the budget should succeed again. Spin up another
+    // in-flight message to reach the queueing state.
+    const p2 = conversation.processMessage("msg-2", [], () => {}, "req-2");
+    await waitForPendingRun(3);
+    expect(
+      conversation.enqueueMessage("a".repeat(500), [], () => {}, "req-a")
+        .queued,
+    ).toBe(true);
+    expect(
+      conversation.enqueueMessage("b".repeat(500), [], () => {}, "req-b")
+        .queued,
+    ).toBe(true);
+
+    resolveRun(2);
+    await p2;
+    await waitForPendingRun(4);
+    resolveRun(3);
+    await new Promise((r) => setTimeout(r, 10));
   });
 });
 
@@ -964,32 +1330,31 @@ describe("Conversation checkpoint handoff", () => {
     await p1;
   });
 
-  test("[experimental] FIFO ordering is preserved through checkpoint handoff", async () => {
+  test("[experimental] checkpoint handoff pulls a batched run for all queued siblings", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const processedOrder: string[] = [];
+    const events1: ServerMessage[] = [];
+    const events2: ServerMessage[] = [];
+    const events3: ServerMessage[] = [];
+    const events4: ServerMessage[] = [];
 
-    const makeHandler = (label: string) => (e: ServerMessage) => {
-      if (e.type === "message_complete" || e.type === "generation_handoff")
-        processedOrder.push(label);
-    };
-
-    // Start first message
+    // Start first message (mid-tool-use — will yield at the next checkpoint)
     const p1 = conversation.processMessage(
       "msg-1",
       [],
-      makeHandler("msg-1"),
+      (e) => events1.push(e),
       "req-1",
     );
     await waitForPendingRun(1);
 
-    // Enqueue two messages
-    conversation.enqueueMessage("msg-2", [], makeHandler("msg-2"), "req-2");
-    conversation.enqueueMessage("msg-3", [], makeHandler("msg-3"), "req-3");
-    expect(conversation.getQueueDepth()).toBe(2);
+    // Enqueue three sibling passthroughs while msg-1 is mid-turn
+    conversation.enqueueMessage("msg-2", [], (e) => events2.push(e), "req-2");
+    conversation.enqueueMessage("msg-3", [], (e) => events3.push(e), "req-3");
+    conversation.enqueueMessage("msg-4", [], (e) => events4.push(e), "req-4");
+    expect(conversation.getQueueDepth()).toBe(3);
 
-    // Simulate the agent loop yielding at the checkpoint (first run)
+    // Simulate the agent loop yielding at the checkpoint (first run is mid-tool-use)
     const run0 = pendingRuns[0];
     expect(run0.onCheckpoint).toBeDefined();
     const decision = run0.onCheckpoint!({
@@ -1004,19 +1369,23 @@ describe("Conversation checkpoint handoff", () => {
     resolveRun(0);
     await p1;
 
-    // msg-2 should be draining next
+    // The yielded drain pulls ALL THREE queued siblings as ONE batched run —
+    // not three separate runs.
     await waitForPendingRun(2);
+    expect(pendingRuns.length).toBe(2);
 
-    // Complete second run (msg-2)
+    // Each client saw its own message_dequeued tagged with its own requestId.
+    expect(events2.some((e) => e.type === "message_dequeued")).toBe(true);
+    expect(events3.some((e) => e.type === "message_dequeued")).toBe(true);
+    expect(events4.some((e) => e.type === "message_dequeued")).toBe(true);
+
+    // Resolve the batched run — message_complete fans out to all three clients.
     resolveRun(1);
-    await waitForPendingRun(3);
-
-    // Complete third run (msg-3)
-    resolveRun(2);
     await new Promise((r) => setTimeout(r, 10));
 
-    // FIFO order: msg-1 completes first, then msg-2, then msg-3
-    expect(processedOrder).toEqual(["msg-1", "msg-2", "msg-3"]);
+    expect(events2.some((e) => e.type === "message_complete")).toBe(true);
+    expect(events3.some((e) => e.type === "message_complete")).toBe(true);
+    expect(events4.some((e) => e.type === "message_complete")).toBe(true);
   });
 
   test("[experimental] active run with repeated tool turns + queued message triggers checkpoint handoff", async () => {
@@ -1102,10 +1471,39 @@ describe("Conversation checkpoint handoff", () => {
     );
     await waitForPendingRun(1);
 
-    // Enqueue messages B, C, D
-    conversation.enqueueMessage("msg-B", [], makeHandler("B"), "req-B");
-    conversation.enqueueMessage("msg-C", [], makeHandler("C"), "req-C");
-    conversation.enqueueMessage("msg-D", [], makeHandler("D"), "req-D");
+    // Enqueue messages B, C, D — each on a distinct userMessageInterface so the
+    // batch builder stops at each boundary and we see one run per message.
+    const meta = (iface: string) => ({
+      userMessageInterface: iface,
+      assistantMessageInterface: iface,
+    });
+    conversation.enqueueMessage(
+      "msg-B",
+      [],
+      makeHandler("B"),
+      "req-B",
+      undefined,
+      undefined,
+      meta("macos"),
+    );
+    conversation.enqueueMessage(
+      "msg-C",
+      [],
+      makeHandler("C"),
+      "req-C",
+      undefined,
+      undefined,
+      meta("cli"),
+    );
+    conversation.enqueueMessage(
+      "msg-D",
+      [],
+      makeHandler("D"),
+      "req-D",
+      undefined,
+      undefined,
+      meta("vellum"),
+    );
     expect(conversation.getQueueDepth()).toBe(3);
 
     // Handoff from A -> B
