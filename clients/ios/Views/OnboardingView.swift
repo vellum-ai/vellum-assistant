@@ -359,7 +359,10 @@ struct PermissionsStep: View {
 
             VStack(spacing: VSpacing.lg) {
                 PermissionRowView(permission: .microphone)
-                PermissionRowView(permission: .speechRecognition)
+                PermissionRowView(
+                    permission: .speechRecognition,
+                    subtitle: STTProviderRegistry.isServiceConfigured ? "(Optional)" : nil
+                )
             }
             .padding(VSpacing.xl)
             .background(VColor.surfaceBase)
