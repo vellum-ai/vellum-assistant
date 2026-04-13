@@ -897,9 +897,7 @@ struct ConversationChatView: View {
 
     @ViewBuilder
     private var exportMenu: some View {
-        let hasTextMessages = viewModel.messages.contains {
-            !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
+        let hasTextMessages = ChatTranscriptFormatter.hasExportableContent(messages: viewModel.messages)
 
         Menu {
             Button {
