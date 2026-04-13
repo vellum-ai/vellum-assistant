@@ -53,13 +53,13 @@ public struct STTProviderRegistry: Decodable {
         providers.first { $0.id == id }
     }
 
-    /// Whether the daemon has an LLM-based STT provider configured
+    /// Whether the assistant has an LLM-based STT provider configured
     /// (e.g. Deepgram, OpenAI Whisper).
     ///
-    /// When `true`, the app can use the daemon's STT service for
+    /// When `true`, the app can use the assistant's STT service for
     /// transcription and native `SFSpeechRecognizer` permission is not
     /// required. The value is derived from the `sttProvider` key in
-    /// `UserDefaults`, which the daemon syncs via the
+    /// `UserDefaults`, which the assistant syncs via the
     /// `client_settings_update` message (see `SettingsStore`).
     public static var isServiceConfigured: Bool {
         guard let value = UserDefaults.standard.string(forKey: "sttProvider") else {
