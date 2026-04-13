@@ -30,6 +30,11 @@ mock.module("../calls/resolve-call-tts-provider.js", () => ({
 }));
 
 import { MediaStreamOutput } from "../calls/media-stream-output.js";
+import { resolveCallTtsProvider } from "../calls/resolve-call-tts-provider.js";
+
+const mockResolveCallTtsProvider = resolveCallTtsProvider as ReturnType<
+  typeof jest.fn
+>;
 
 // ---------------------------------------------------------------------------
 // Mock WebSocket
@@ -108,6 +113,12 @@ function makeWavBuffer(pcmSamples: number[]): Buffer {
 
 afterEach(() => {
   mockSynthesize.mockReset();
+  // Restore the default resolveCallTtsProvider mock
+  mockResolveCallTtsProvider.mockImplementation(() => ({
+    provider: mockProvider,
+    useSynthesizedPath: false,
+    audioFormat: "wav" as const,
+  }));
 });
 
 // ---------------------------------------------------------------------------
@@ -431,6 +442,114 @@ describe("MediaStreamOutput", () => {
       const output = new MediaStreamOutput(ws, "stream-1");
       // Initially empty
       expect(output.getPlaybackQueueLength()).toBe(0);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Regression: audio format / content-type mismatch
+  // ---------------------------------------------------------------------------
+
+  describe("audio format mismatch regression", () => {
+    test("mp3 bytes declared as audio/wav returns silence (not garbled)", async () => {
+      // Simulate a broken provider that claims content-type audio/wav but
+      // actually returns mp3 bytes (starts with MPEG sync word 0xFF 0xFB).
+      const mp3Bytes = Buffer.alloc(256);
+      mp3Bytes[0] = 0xff; // MPEG sync
+      mp3Bytes[1] = 0xfb; // MPEG Layer 3
+      // Fill rest with non-zero data to make garbling detectable
+      for (let i = 2; i < mp3Bytes.length; i++) {
+        mp3Bytes[i] = 0x80;
+      }
+
+      mockSynthesize.mockResolvedValue({
+        audio: mp3Bytes,
+        contentType: "audio/wav", // Mismatch! Says WAV but bytes are mp3
+      });
+
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+      output.sendTextToken("test", true);
+
+      await drain();
+
+      // The audioBufferToFrames magic-byte detection should detect mp3
+      // sync bytes when format is "wav" and return silence (no media
+      // frames) rather than garbled audio.
+      const mediaMessages = sent.filter((s) => JSON.parse(s).event === "media");
+      expect(mediaMessages).toHaveLength(0);
+
+      // Should still have the end-of-turn mark
+      const markMessages = sent.filter((s) => JSON.parse(s).event === "mark");
+      expect(markMessages.length).toBeGreaterThan(0);
+    });
+
+    test("raw PCM declared as audio/pcm produces valid frames", async () => {
+      // Raw 16-bit signed LE PCM samples at 16 kHz (no RIFF header).
+      // Generate enough samples (400 = 200 after downsample) for at
+      // least one mu-law frame.
+      const sampleCount = 400;
+      const pcmData = Buffer.alloc(sampleCount * 2);
+      for (let i = 0; i < sampleCount; i++) {
+        const sample = Math.round(Math.sin(i * 0.1) * 10000);
+        pcmData.writeInt16LE(sample, i * 2);
+      }
+
+      mockSynthesize.mockResolvedValue({
+        audio: pcmData,
+        contentType: "audio/pcm",
+      });
+
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+      output.sendTextToken("test", true);
+
+      await drain();
+
+      // processSynthesizeItem derives actualFormat from content-type:
+      // "audio/pcm" -> "pcm". audioBufferToFrames handles raw PCM by
+      // downsampling 16 kHz -> 8 kHz and converting to mu-law.
+      const mediaMessages = sent.filter((s) => JSON.parse(s).event === "media");
+      expect(mediaMessages.length).toBeGreaterThan(0);
+
+      // Verify each frame has a valid base64 payload
+      for (const msg of mediaMessages) {
+        const parsed = JSON.parse(msg);
+        expect(typeof parsed.media.payload).toBe("string");
+        expect(parsed.media.payload.length).toBeGreaterThan(0);
+      }
+    });
+
+    test("raw PCM with content-type audio/x-raw produces valid frames", async () => {
+      // Same as above but using the alternative content-type that some
+      // providers may return for raw PCM.
+      const sampleCount = 400;
+      const pcmData = Buffer.alloc(sampleCount * 2);
+      for (let i = 0; i < sampleCount; i++) {
+        const sample = Math.round(Math.sin(i * 0.1) * 10000);
+        pcmData.writeInt16LE(sample, i * 2);
+      }
+
+      mockSynthesize.mockResolvedValue({
+        audio: pcmData,
+        contentType: "audio/x-raw",
+      });
+
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+      output.sendTextToken("test", true);
+
+      await drain();
+
+      // processSynthesizeItem detects "audio/x-raw" -> "pcm" format.
+      // audioBufferToFrames converts raw PCM to mu-law frames.
+      const mediaMessages = sent.filter((s) => JSON.parse(s).event === "media");
+      expect(mediaMessages.length).toBeGreaterThan(0);
+
+      for (const msg of mediaMessages) {
+        const parsed = JSON.parse(msg);
+        expect(typeof parsed.media.payload).toBe("string");
+        expect(parsed.media.payload.length).toBeGreaterThan(0);
+      }
     });
   });
 });

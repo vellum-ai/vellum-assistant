@@ -723,7 +723,19 @@ export class CallController {
   ): Promise<void> {
     let handle: ReturnType<typeof createStreamingEntry> | null = null;
     try {
-      handle = createStreamingEntry(format);
+      // When format is WAV (media-stream transport), request raw PCM from
+      // the provider so the audio bytes match the store's content-type.
+      // Without this, providers like Fish Audio still return mp3 and the
+      // downstream mu-law transcoder fails on the format mismatch.
+      const outputFormat = format === "wav" ? ("pcm" as const) : undefined;
+
+      // Use "pcm" as the store format when requesting PCM output so the
+      // audio store entry's content-type (audio/pcm) matches the raw PCM
+      // bytes providers return. Without this, the store says "audio/wav"
+      // but the bytes have no RIFF header, causing audioBufferToFrames to
+      // fall through to the wrong decode path.
+      const storeFormat = outputFormat ? "pcm" : format;
+      handle = createStreamingEntry(storeFormat);
       const config = loadConfig();
       const baseUrl = getPublicBaseUrl(config);
       const url = `${baseUrl}/v1/audio/${handle.audioId}`;
@@ -731,12 +743,6 @@ export class CallController {
 
       const abortController = new AbortController();
       this.activeSynthesisAbort = abortController;
-
-      // When format is WAV (media-stream transport), request raw PCM from
-      // the provider so the audio bytes match the store's content-type.
-      // Without this, providers like Fish Audio still return mp3 and the
-      // downstream mu-law transcoder fails on the format mismatch.
-      const outputFormat = format === "wav" ? ("pcm" as const) : undefined;
 
       if (provider.synthesizeStream) {
         await provider.synthesizeStream(
