@@ -150,7 +150,8 @@ struct HatchingStepView: View {
             bodyShape: hatchBody,
             eyeStyle: hatchEyes,
             color: hatchColor,
-            overrideBodyColor: NSColor(VColor.contentDisabled)
+            overrideBodyColor: NSColor(VColor.contentDisabled),
+            overrideBodyColorKey: "contentDisabled"
         )
     }
 

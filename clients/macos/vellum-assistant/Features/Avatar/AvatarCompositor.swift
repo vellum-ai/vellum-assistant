@@ -7,15 +7,19 @@ enum AvatarCompositor {
     /// When `overrideBodyColor` is provided it replaces the avatar's own color for
     /// the body fill — useful for rendering a greyed-out failure state with a
     /// design-system token such as `VColor.contentDisabled`.
+    /// Supply a matching `overrideBodyColorKey` so the render cache uses a stable,
+    /// appearance-independent key instead of `NSColor.description`.
     static func render(
         bodyShape: AvatarBodyShape,
         eyeStyle: AvatarEyeStyle,
         color: AvatarColor,
         overrideBodyColor: NSColor? = nil,
+        overrideBodyColorKey: String? = nil,
         size: CGFloat = 512
     ) -> NSImage {
         let bodyNSColor = overrideBodyColor ?? color.nsColor
-        let cacheKey = "\(bodyShape.rawValue)-\(eyeStyle.rawValue)-\(overrideBodyColor?.description ?? color.rawValue)-\(Int(size))"
+        let colorKey = overrideBodyColorKey ?? color.rawValue
+        let cacheKey = "\(bodyShape.rawValue)-\(eyeStyle.rawValue)-\(colorKey)-\(Int(size))"
         if let cached = cache[cacheKey] {
             return cached
         }
