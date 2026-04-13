@@ -576,8 +576,8 @@ export async function regenerate(
   //
   // runAgentLoop catches most errors internally and emits `request_error`
   // itself, but anything thrown from its `finally` block (commit, drain,
-  // profiler) would otherwise escape silently now that the caller is no
-  // longer awaiting. Mirror the prior handler-level trace emission so the
+  // profiler) would otherwise escape silently because the caller does
+  // not await the agent loop. Emit a structured trace event so the
   // observability contract is preserved on those paths too.
   void conversation
     .runAgentLoop(content, existingUserMessageId, onEvent, {
