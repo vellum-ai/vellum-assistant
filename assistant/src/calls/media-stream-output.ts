@@ -565,10 +565,40 @@ export class MediaStreamOutput implements CallTransport {
     }
 
     // When the declared format is "wav" but the RIFF check failed, the
-    // bytes are likely raw PCM stored under an audio/wav content-type
-    // (happens when outputFormat: "pcm" is used with the audio store's
-    // createStreamingEntry("wav")). Treat as raw PCM.
+    // bytes might be either:
+    // (a) Raw PCM stored under audio/wav content-type (when
+    //     outputFormat: "pcm" is used with createStreamingEntry("wav"))
+    // (b) Compressed audio (mp3/opus) from a provider that ignores
+    //     outputFormat (e.g. Fish Audio defaults to mp3)
+    //
+    // Sniff magic bytes to distinguish: mp3 frames start with 0xFF sync
+    // byte or ID3 tag (0x49 0x44 0x33); Ogg/opus starts with "OggS".
+    // Anything else is assumed to be raw PCM.
     if (format === "wav") {
+      const isMp3 =
+        audio.length >= 2 &&
+        ((audio[0] === 0xff && (audio[1] & 0xe0) === 0xe0) || // MPEG sync
+          (audio[0] === 0x49 && audio[1] === 0x44 && audio[2] === 0x33)); // ID3
+      const isOgg =
+        audio.length >= 4 &&
+        audio[0] === 0x4f && // O
+        audio[1] === 0x67 && // g
+        audio[2] === 0x67 && // g
+        audio[3] === 0x53; // S
+
+      if (isMp3 || isOgg) {
+        log.warn(
+          {
+            streamSid: this.streamSid,
+            declaredFormat: format,
+            detectedFormat: isMp3 ? "mp3" : "opus",
+            audioBytes: audio.length,
+          },
+          "Declared format is WAV but bytes are compressed — returning silence",
+        );
+        return [];
+      }
+
       log.debug(
         { streamSid: this.streamSid, audioBytes: audio.length },
         "Declared format is WAV but no RIFF header — treating as raw PCM",
