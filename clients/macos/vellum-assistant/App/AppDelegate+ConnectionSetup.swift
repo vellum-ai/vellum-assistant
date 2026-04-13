@@ -221,12 +221,11 @@ extension AppDelegate {
                     // and may drive urgency/alerting behaviors that don't apply here).
                     // This registration runs regardless of the focus flag so fan-out
                     // callers (focus: false) still get the conversation in the sidebar.
-                    if let title = msg.title,
-                       let conversationManager = self.mainWindow?.conversationManager,
+                    if let conversationManager = self.mainWindow?.conversationManager,
                        !conversationManager.conversations.contains(where: { $0.conversationId == msg.conversationId }) {
                         conversationManager.createNotificationConversation(
                             conversationId: msg.conversationId,
-                            title: title,
+                            title: msg.title ?? "",
                             sourceEventName: "open_conversation",
                             groupId: nil,
                             source: "open_conversation"
