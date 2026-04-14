@@ -84,14 +84,23 @@ export function textToSlackBlocks(text: string): Block[] | undefined {
         });
       }
     } else {
-      const chunks = splitLongTextSegment(segment.content);
+      // Transform to Slack mrkdwn FIRST, then split. Splitting raw markdown
+      // can bisect `[link text](url)` spans or `**bold**` markers at sentence
+      // boundaries inside link text, leaving orphan tokens that the regex in
+      // `markdownToMrkdwn` won't match — raw markdown would then leak through
+      // to Slack. Splitting already-converted mrkdwn is safe because
+      // well-formed `<url|text>` / `*bold*` spans don't contain the `. `,
+      // `! `, `? `, or newline delimiters the splitter looks for (and the
+      // preceding table branch follows this same ordering).
+      const mrkdwn = markdownToMrkdwn(segment.content);
+      const chunks = splitLongTextSegment(mrkdwn);
       for (let c = 0; c < chunks.length; c++) {
         if (c > 0) {
           blocks.push({ type: "divider" });
         }
         blocks.push({
           type: "section",
-          text: { type: "mrkdwn", text: markdownToMrkdwn(chunks[c]) },
+          text: { type: "mrkdwn", text: chunks[c] },
         });
       }
     }
