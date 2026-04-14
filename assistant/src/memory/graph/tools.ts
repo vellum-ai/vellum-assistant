@@ -82,7 +82,7 @@ export const graphRecallDefinition: ToolDefinition = {
 export const graphRememberDefinition: ToolDefinition = {
   name: "remember",
   description:
-    "Save a fact to your knowledge base. Call this AGGRESSIVELY — every preference, location, name, date, habit, opinion, health detail, plan, relationship fact, routine, or commitment. The bar is: if you wouldn't want to ask about it again, remember it. Examples: 'Prefers UberEats over DoorDash', 'Lives in NYC, from Texas', 'Takes 45mg nicotine daily, tapering', 'Girlfriend Yen is in Texas', 'Watches vampire show Saturday nights', 'NYU Summit April 10-11'. Call this multiple times per conversation — it's cheap (one line appended to a file). Don't wait until the end. Don't batch. Every new fact, immediately. Remembering too much is infinitely better than forgetting something that mattered.",
+    "Save a fact to your knowledge base. Call this AGGRESSIVELY — capture anything concrete about their life: preferences, locations, names, dates, habits, opinions, health details, plans, relationship facts, routines, commitments. Default to remembering; only skip obvious noise (small talk, hypotheticals, things they're just musing about). Don't judge importance — filing decides that later. Examples: 'Prefers UberEats over DoorDash', 'Lives in NYC, from Texas', 'Takes 45mg nicotine daily, tapering', 'Girlfriend Yen is in Texas', 'Watches vampire show Saturday nights', 'NYU Summit April 10-11'. Call this multiple times per conversation — it's cheap (one line appended to a file). Don't wait until the end. Don't batch. Every new fact, immediately. Remembering too much is infinitely better than forgetting something that mattered.",
   input_schema: {
     type: "object",
     properties: {
