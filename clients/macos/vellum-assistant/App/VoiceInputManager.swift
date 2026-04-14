@@ -1167,12 +1167,15 @@ final class VoiceInputManager {
 
     // MARK: - Permission Prompt
 
-    /// Request microphone (and optionally speech recognition) permissions,
-    /// then start recording if granted.
+    /// Request microphone and speech recognition permissions, then start
+    /// recording if granted.
     ///
-    /// When an STT service is configured, only microphone permission is
-    /// required. Speech recognition permission is skipped because the STT
-    /// service handles transcription.
+    /// Speech recognition is always requested when `.notDetermined` — the
+    /// native recognizer provides real-time partial transcriptions and serves
+    /// as a fallback when the STT service is unavailable. When STT is
+    /// configured and the user denies speech, recording proceeds in
+    /// STT-only mode (non-fatal). When STT is NOT configured, speech
+    /// denial blocks recording.
     private func requestPermissionsAndRecord() async {
         let micGranted = await AVCaptureDevice.requestAccess(for: .audio)
         guard micGranted else {
