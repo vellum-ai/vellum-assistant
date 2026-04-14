@@ -39,12 +39,13 @@ Scan the array for entries matching `service: "slack_channel"` and determine whi
 - `bot_token`
 - `user_token`
 
-Then branch:
+Then branch on the state of `app_token` and `bot_token` first (those are the required pair), and treat `user_token` as a secondary dimension:
 
-- If all three are present — Slack is fully configured with full triage visibility. Offer to show status or reconfigure.
-- If `app_token` and `bot_token` are present but `user_token` is missing — Slack is connected with **bot-only visibility**. Offer to collect the user token now to enable full triage visibility across all channels the user is in. The user token is optional; if they decline, leave the setup as-is.
-- If only one of `app_token` or `bot_token` is present — offer to resume setup from the missing step.
-- If none are present — continue to Step 1.
+- If `app_token` and `bot_token` are **both** present:
+  - If `user_token` is also present — Slack is fully configured with full triage visibility. Offer to show status or reconfigure.
+  - If `user_token` is missing — Slack is connected with **bot-only visibility**. Offer to collect the user token now (Step 3.5) to enable full triage visibility across all channels the user is in. The user token is optional; if they decline, leave the setup as-is.
+- If exactly **one** of `app_token` or `bot_token` is present — offer to resume setup from the missing step. (If a `user_token` is also present, leave it in place; it will be re-validated against the bot's workspace once setup completes.)
+- If **neither** `app_token` nor `bot_token` is present — continue to Step 1. (If a `user_token` is present without a paired bot/app, it is orphaned from a prior incomplete setup. Tell the user it will be replaced during this run, and proceed.)
 
 Note: `user_token` is optional. Missing `user_token` is **not** blocking — setup is considered complete with just the app and bot tokens (bot-only visibility).
 
