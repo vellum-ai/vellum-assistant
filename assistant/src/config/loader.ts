@@ -479,6 +479,30 @@ export function getConfig(): AssistantConfig {
   return loadConfig();
 }
 
+/**
+ * Read-only config accessor: returns the current config without creating
+ * directories or writing files. Reads config.json if it exists on disk;
+ * returns schema defaults otherwise. Unlike `getConfig()` / `loadConfig()`,
+ * this never calls `ensureDataDir()` or writes a default config to disk,
+ * making it safe to call during CLI program construction before the
+ * workspace-existence check runs.
+ */
+export function getConfigReadOnly(): AssistantConfig {
+  if (cached) return cached;
+
+  const configPath = getConfigPath();
+  let fileConfig: Record<string, unknown> = {};
+  if (existsSync(configPath)) {
+    try {
+      fileConfig = JSON.parse(readFileSync(configPath, "utf-8"));
+    } catch {
+      return cloneDefaultConfig();
+    }
+  }
+
+  return validateWithSchema(fileConfig);
+}
+
 export function invalidateConfigCache(): void {
   cached = null;
   loading = false;
