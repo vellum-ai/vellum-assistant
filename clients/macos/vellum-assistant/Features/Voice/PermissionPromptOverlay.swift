@@ -17,7 +17,8 @@ final class PermissionPromptOverlay {
 
     enum Kind {
         /// Pre-permission primer shown before the native system dialog.
-        case firstUse
+        /// Parameters indicate which permissions still need to be requested.
+        case firstUse(needsMicrophone: Bool, needsSpeechRecognition: Bool)
         /// Post-denial prompt directing to System Settings.
         case denied(DeniedPermission)
         /// Speech recognition fallback prompt shown after an STT service failure.
@@ -39,9 +40,10 @@ final class PermissionPromptOverlay {
 
         let contentView: AnyView
         switch kind {
-        case .firstUse:
+        case .firstUse(let needsMicrophone, let needsSpeechRecognition):
             contentView = AnyView(FirstUsePromptView(
-                sttConfigured: STTProviderRegistry.isServiceConfigured,
+                needsMicrophone: needsMicrophone,
+                needsSpeechRecognition: needsSpeechRecognition,
                 onDismiss: { [weak self] in
                     self?.dismiss()
                     onDismiss()
@@ -136,24 +138,37 @@ final class PermissionPromptOverlay {
 // MARK: - First-Use Primer
 
 private struct FirstUsePromptView: View {
-    let sttConfigured: Bool
+    let needsMicrophone: Bool
+    let needsSpeechRecognition: Bool
     let onDismiss: () -> Void
     let onContinue: () -> Void
 
     private var title: String {
-        sttConfigured ? "Enable Microphone Access" : "Enable Speech Recognition"
+        if needsMicrophone && needsSpeechRecognition {
+            return "Enable Voice Permissions"
+        } else if needsMicrophone {
+            return "Enable Microphone Access"
+        } else {
+            return "Enable Speech Recognition"
+        }
     }
 
     private var subtitle: String {
-        sttConfigured
-            ? "Required for voice dictation and conversation."
-            : "So your words come out the way you meant them."
+        if needsMicrophone {
+            return "Required for voice dictation and conversation."
+        } else {
+            return "Improves transcription accuracy with real-time feedback."
+        }
+    }
+
+    private var icon: VIcon {
+        needsMicrophone ? .mic : .audioWaveform
     }
 
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: VSpacing.sm) {
-                VIconView(.mic, size: 20)
+                VIconView(icon, size: 20)
                     .foregroundStyle(VColor.primaryBase)
 
                 Text(title)

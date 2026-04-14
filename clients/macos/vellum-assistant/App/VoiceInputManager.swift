@@ -799,19 +799,22 @@ final class VoiceInputManager {
         let micNotDetermined = micStatus == .notDetermined
         let speechNotDetermined = speechStatus == .notDetermined
 
-        // Show the first-use primer when:
-        // - mic is not yet determined (always need mic), OR
-        // - speech is not yet determined AND STT is NOT configured (speech required).
-        // When STT is configured, speech notDetermined is fine — skip the primer
-        // and proceed directly to recording with STT-only mode.
-        if micNotDetermined || (!sttConfigured && speechNotDetermined) {
+        // Show the first-use primer when either permission is not yet determined.
+        // Even when STT is configured, we request speech recognition upfront because
+        // the native recognizer provides real-time partial transcriptions during
+        // recording and serves as a reliable fallback when the STT service fails.
+        if micNotDetermined || speechNotDetermined {
             log.info("Showing permission primer (mic=\(String(describing: micStatus)) speech=\(String(describing: speechStatus)))")
             currentDictationContext = nil
-            permissionOverlay.show(kind: .firstUse, onDismiss: {}, onContinue: { [weak self] in
-                Task { @MainActor in
-                    await self?.requestPermissionsAndRecord()
+            permissionOverlay.show(
+                kind: .firstUse(needsMicrophone: micNotDetermined, needsSpeechRecognition: speechNotDetermined),
+                onDismiss: {},
+                onContinue: { [weak self] in
+                    Task { @MainActor in
+                        await self?.requestPermissionsAndRecord()
+                    }
                 }
-            })
+            )
             return
         }
         let micDenied = micStatus == .denied || micStatus == .restricted
@@ -1178,19 +1181,26 @@ final class VoiceInputManager {
             return
         }
 
-        // When STT is configured, skip speech recognition permission request —
-        // the STT service provides transcription. The native recognizer is a
-        // nice-to-have for partials but not required.
-        if !STTProviderRegistry.isServiceConfigured {
+        // Always request speech recognition when not yet determined — even with
+        // an STT service configured, the native recognizer provides real-time
+        // partial transcriptions during recording and serves as a reliable
+        // fallback when the STT service is unavailable.
+        let currentSpeechStatus = speechRecognizerAdapter.authorizationStatus()
+        if currentSpeechStatus == .notDetermined {
             let speechGranted = await withCheckedContinuation { continuation in
                 speechRecognizerAdapter.requestAuthorization { status in
                     continuation.resume(returning: status == .authorized)
                 }
             }
-            guard speechGranted else {
+            if !speechGranted {
                 log.warning("Speech recognition access denied by user")
-                permissionOverlay.show(kind: .denied(.speechRecognition), onDismiss: {}, onContinue: {})
-                return
+                // When STT is configured, speech denial is non-fatal — the STT
+                // service handles transcription. Proceed with STT-only recording.
+                // When STT is NOT configured, speech recognition is required.
+                if !STTProviderRegistry.isServiceConfigured {
+                    permissionOverlay.show(kind: .denied(.speechRecognition), onDismiss: {}, onContinue: {})
+                    return
+                }
             }
         }
 

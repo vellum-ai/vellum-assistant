@@ -802,12 +802,11 @@ final class VoiceInputManagerTests: XCTestCase {
                       "Recording should start when STT is configured even if speech recognition is denied")
     }
 
-    func testSTTConfiguredWithSpeechNotDeterminedDoesNotRequestSpeechAuth() {
+    func testSTTConfiguredWithSpeechNotDeterminedShowsPrimer() {
         // When STT is configured and speech is notDetermined, beginRecording
-        // shows the first-use primer. The key behavior verified here: speech
-        // authorization is NOT requested immediately, because the STT service
-        // handles transcription. This test does not depend on mic status
-        // because it only checks that speech auth was not triggered.
+        // shows the first-use primer instead of starting recording immediately.
+        // Speech authorization is deferred to the primer's "Continue" callback
+        // (requestPermissionsAndRecord), not triggered inline in beginRecording.
         UserDefaults.standard.set("deepgram", forKey: "sttProvider")
         speechAdapter.stubbedAuthorizationStatus = .notDetermined
         speechAdapter.stubbedIsRecognizerAvailable = false
@@ -823,12 +822,13 @@ final class VoiceInputManagerTests: XCTestCase {
 
         freshManager.toggleRecording()
 
-        // Recording should not start immediately (primer is shown first),
-        // but speech authorization should not have been requested yet.
+        // Recording should not start immediately (primer is shown first).
+        // Speech authorization is requested later via requestPermissionsAndRecord
+        // when the user taps Continue on the primer.
         XCTAssertFalse(freshManager.isRecording,
                        "Recording should not start immediately when speech is notDetermined (primer shown)")
         XCTAssertEqual(speechAdapter.requestAuthorizationCallCount, 0,
-                       "Speech authorization should not be requested when STT is configured")
+                       "Speech authorization should be deferred to the primer callback, not requested inline")
     }
 
     func testSTTConfiguredRecognizerUnavailableStillStartsRecording() {
