@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "fs";
-import { homedir } from "os";
 import { join } from "path";
+
+import { getCurrentEnvironment, getDataDir } from "@vellumai/environments";
 
 import { execOutput } from "./step-runner";
 
@@ -72,7 +73,7 @@ export interface OrphanedProcess {
 export async function detectOrphanedProcesses(): Promise<OrphanedProcess[]> {
   const results: OrphanedProcess[] = [];
   const seenPids = new Set<string>();
-  const vellumDir = join(homedir(), ".vellum");
+  const vellumDir = getDataDir(getCurrentEnvironment());
 
   // Strategy 1: PID file scan
   const pidFiles: Array<{ file: string; name: string }> = [

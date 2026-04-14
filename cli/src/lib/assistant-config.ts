@@ -1,3 +1,8 @@
+import {
+  getCurrentEnvironment,
+  getDataDir,
+  getMultiInstanceDir,
+} from "@vellumai/environments";
 import { randomBytes } from "crypto";
 import {
   existsSync,
@@ -109,8 +114,15 @@ interface LockfileData {
   [key: string]: unknown;
 }
 
+/**
+ * Legacy "parent of the `.vellum/` directory" — the directory that, with
+ * `.vellum` appended, yielded the daemon's root data dir. Populated from
+ * `BASE_DATA_DIR` (via the environment resolver) when set, otherwise the
+ * user's home directory. Kept around for the multi-instance machinery in
+ * this file; prefer `getDataDir(getCurrentEnvironment())` in new code.
+ */
 export function getBaseDir(): string {
-  return process.env.BASE_DATA_DIR?.trim() || homedir();
+  return getCurrentEnvironment().baseDataDirOverride ?? homedir();
 }
 
 /** The lockfile always lives under the home directory. */
@@ -207,11 +219,7 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
     const gatewayPort =
       parsePortFromUrl(raw.runtimeUrl) ?? DEFAULT_GATEWAY_PORT;
     const instanceDir = join(
-      homedir(),
-      ".local",
-      "share",
-      "vellum",
-      "assistants",
+      getMultiInstanceDir(getCurrentEnvironment()),
       typeof raw.assistantId === "string"
         ? raw.assistantId
         : DAEMON_INTERNAL_ASSISTANT_ID,
@@ -230,11 +238,7 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
     const res = raw.resources as Record<string, unknown>;
     if (!res.instanceDir) {
       res.instanceDir = join(
-        homedir(),
-        ".local",
-        "share",
-        "vellum",
-        "assistants",
+        getMultiInstanceDir(getCurrentEnvironment()),
         typeof raw.assistantId === "string"
           ? raw.assistantId
           : DAEMON_INTERNAL_ASSISTANT_ID,
@@ -427,9 +431,10 @@ export async function allocateLocalResources(
   // Respect BASE_DATA_DIR when set (e.g. in e2e tests) so the daemon,
   // gateway, and credential store all resolve paths under the same root.
   const existingLocals = loadAllAssistants().filter((e) => e.cloud === "local");
+  const env = getCurrentEnvironment();
   if (existingLocals.length === 0) {
     const baseDir = getBaseDir();
-    const vellumDir = join(baseDir, ".vellum");
+    const vellumDir = getDataDir(env);
     return {
       instanceDir: baseDir,
       daemonPort: DEFAULT_DAEMON_PORT,
@@ -440,14 +445,7 @@ export async function allocateLocalResources(
     };
   }
 
-  const instanceDir = join(
-    homedir(),
-    ".local",
-    "share",
-    "vellum",
-    "assistants",
-    instanceName,
-  );
+  const instanceDir = join(getMultiInstanceDir(env), instanceName);
   mkdirSync(instanceDir, { recursive: true });
 
   // Collect ports already assigned to other local instances in the lockfile.
@@ -504,7 +502,11 @@ export async function allocateLocalResources(
  * without importing the assistant config schema.
  */
 export function syncConfigToLockfile(): void {
-  const configPath = join(getBaseDir(), ".vellum", "workspace", "config.json");
+  const configPath = join(
+    getDataDir(getCurrentEnvironment()),
+    "workspace",
+    "config.json",
+  );
   if (!existsSync(configPath)) return;
 
   try {

@@ -2,6 +2,11 @@ import { chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import {
+  getDataDir as getEnvironmentDataDir,
+  getSeed,
+} from "@vellumai/environments";
+
 import { getWorkspaceDirOverride } from "../config/env-registry.js";
 
 export function isMacOS(): boolean {
@@ -45,14 +50,28 @@ export function normalizeAssistantId(assistantId: string): string {
 }
 
 /**
- * Compute the root ~/.vellum directory path.
+ * Compute the root data directory for the current environment.
  *
- * This is a simple inline computation — not a shared function — so each
- * helper is self-contained and the module has no hidden coupling to
- * env-var indirection.
+ * Resolves via the environment seed table only — never through the CLI/
+ * gateway-flavored `getCurrentEnvironment()` resolver — so legacy env vars
+ * like `BASE_DATA_DIR` do NOT leak into daemon paths. This preserves the
+ * post-#22085 invariant that the daemon's root directory is a function of
+ * `$HOME` and `VELLUM_ENVIRONMENT` only. For production (the default), the
+ * result is `~/.vellum` byte-for-byte; for non-production seeds, the
+ * result is an env-scoped XDG path (e.g. `~/.local/share/vellum-dev`).
  */
 function vellumRoot(): string {
-  return join(homedir(), ".vellum");
+  const envName = process.env.VELLUM_ENVIRONMENT?.trim() || "production";
+  const env = getSeed(envName);
+  if (!env) {
+    // Unknown env name at daemon level — fall back to legacy production
+    // path instead of crashing so startup cannot fail on a typo. The CLI-
+    // side resolver throws loudly for the same case; the daemon is a more
+    // tolerant environment (see assistant/AGENTS.md "Daemon startup
+    // philosophy": never block startup under any circumstance).
+    return join(homedir(), ".vellum");
+  }
+  return getEnvironmentDataDir(env);
 }
 
 /**
