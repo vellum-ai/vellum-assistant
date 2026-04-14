@@ -158,6 +158,25 @@ extension DynamicPageSurfaceView {
                     return
                 }
 
+                // SECURITY: Scope authenticated fetch to custom routes (/v1/x/) only.
+                // The JS bridge rewrites paths through the assistant prefix, so a
+                // call to `/v1/x/foo` becomes `/v1/assistants/<id>/x/foo`. We
+                // canonicalize the URL path first to prevent dot-segment bypasses
+                // like `/v1/x/../secrets`. (ATL-83)
+                let canonicalPath = url.standardized.path
+                let isCustomRoute = canonicalPath.hasPrefix("/v1/x/")
+                    || canonicalPath.range(of: #"^/v1/assistants/[^/]+/x/"#, options: .regularExpression) != nil
+                guard isCustomRoute else {
+                    log.error("[vellum.fetch] Blocked request to disallowed path: \(canonicalPath, privacy: .public)")
+                    let safeCallId = callId
+                        .replacingOccurrences(of: "\\", with: "\\\\")
+                        .replacingOccurrences(of: "'", with: "\\'")
+                        .replacingOccurrences(of: "\n", with: "\\n")
+                        .replacingOccurrences(of: "\r", with: "\\r")
+                    webView?.evaluateJavaScript("window.vellum._rejectFetch('\(safeCallId)', 'Request blocked: path not allowed')", completionHandler: nil)
+                    return
+                }
+
                 var request = URLRequest(url: url)
                 request.httpMethod = method
                 for (key, value) in headers {
