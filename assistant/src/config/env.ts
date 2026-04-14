@@ -160,6 +160,8 @@ export function getPlatformBaseUrl(): string {
     defaultUrl = "https://dev-platform.vellum.ai";
   } else if (env === "staging") {
     defaultUrl = "https://staging-platform.vellum.ai";
+  } else if (env === "test") {
+    defaultUrl = "https://test-platform.vellum.ai";
   } else if (str("VELLUM_DEV") === "1") {
     defaultUrl = "https://dev-platform.vellum.ai";
   } else {
