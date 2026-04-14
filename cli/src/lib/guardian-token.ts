@@ -7,8 +7,11 @@ import {
   readFileSync,
   writeFileSync,
 } from "fs";
-import { homedir, platform } from "os";
+import { platform } from "os";
 import { dirname, join } from "path";
+
+import { getConfigDir } from "./environments/paths.js";
+import { getCurrentEnvironment } from "./environments/resolve.js";
 
 const DEVICE_ID_SALT = "vellum-assistant-host-id";
 
@@ -24,14 +27,9 @@ export interface GuardianTokenData {
   leasedAt: string;
 }
 
-function getXdgConfigHome(): string {
-  return process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
-}
-
 function getGuardianTokenPath(assistantId: string): string {
   return join(
-    getXdgConfigHome(),
-    "vellum",
+    getConfigDir(getCurrentEnvironment()),
     "assistants",
     assistantId,
     "guardian-token.json",
@@ -39,7 +37,7 @@ function getGuardianTokenPath(assistantId: string): string {
 }
 
 function getPersistedDeviceIdPath(): string {
-  return join(getXdgConfigHome(), "vellum", "device-id");
+  return join(getConfigDir(getCurrentEnvironment()), "device-id");
 }
 
 function hashWithSalt(input: string): string {
@@ -82,7 +80,7 @@ function getWindowsMachineGuid(): string | null {
   }
 }
 
-function getOrCreatePersistedDeviceId(): string {
+export function getOrCreatePersistedDeviceId(): string {
   const path = getPersistedDeviceIdPath();
   try {
     const existing = readFileSync(path, "utf-8").trim();
@@ -161,7 +159,7 @@ export function saveGuardianToken(
 /**
  * Call POST /v1/guardian/init on the remote gateway to bootstrap a JWT
  * credential pair. The returned tokens are persisted locally under
- * `$XDG_CONFIG_HOME/vellum/assistants/<assistantId>/guardian-token.json`.
+ * `$XDG_CONFIG_HOME/vellum{-env}/assistants/<assistantId>/guardian-token.json`.
  */
 export async function leaseGuardianToken(
   gatewayUrl: string,

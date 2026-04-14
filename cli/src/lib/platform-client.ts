@@ -9,12 +9,11 @@ import {
 import { homedir } from "os";
 import { join, dirname } from "path";
 
-function getXdgConfigHome(): string {
-  return process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
-}
+import { getConfigDir } from "./environments/paths.js";
+import { getCurrentEnvironment } from "./environments/resolve.js";
 
 function getPlatformTokenPath(): string {
-  return join(getXdgConfigHome(), "vellum", "platform-token");
+  return join(getConfigDir(getCurrentEnvironment()), "platform-token");
 }
 
 export function getPlatformUrl(): string {
