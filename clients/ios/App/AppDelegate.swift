@@ -90,17 +90,9 @@ final class ClientProvider: ObservableObject {
         isConnectedObservationTask = nil
         let daemon = client
         isConnectedObservationTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                guard let self else { break }
-                await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
-                    withObservationTracking {
-                        _ = daemon.isConnected
-                    } onChange: {
-                        resume.resume()
-                    }
-                }
-                guard !Task.isCancelled, let self else { break }
-                self.isConnected = daemon.isConnected
+            for await connected in observationStream({ daemon.isConnected }) {
+                guard let self, !Task.isCancelled else { break }
+                self.isConnected = connected
             }
         }
     }

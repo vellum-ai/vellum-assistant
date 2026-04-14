@@ -749,33 +749,7 @@ public final class GatewayConnectionManager {
     /// An `AsyncStream` that emits whenever `isConnected` changes.
     /// Yields the current value immediately, then emits on each subsequent change.
     public var isConnectedStream: AsyncStream<Bool> {
-        let (stream, continuation) = AsyncStream.makeStream(of: Bool.self)
-        let initialValue = isConnected
-        continuation.yield(initialValue)
-        let task = Task { @MainActor [weak self] in
-            var lastValue = initialValue
-            while !Task.isCancelled {
-                guard let self else { break }
-                await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
-                    withObservationTracking {
-                        _ = self.isConnected
-                    } onChange: {
-                        resume.resume()
-                    }
-                }
-                guard !Task.isCancelled, let self else { break }
-                let newValue = self.isConnected
-                if newValue != lastValue {
-                    lastValue = newValue
-                    continuation.yield(newValue)
-                }
-            }
-            continuation.finish()
-        }
-        continuation.onTermination = { _ in
-            task.cancel()
-        }
-        return stream
+        observationStream { [weak self] in self?.isConnected ?? false }
     }
 
     // MARK: - Helpers

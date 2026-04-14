@@ -98,20 +98,8 @@ final class ConversationRestorer {
         // button doesn't stay permanently disabled after a dropped connection.
         disconnectObservationTask?.cancel()
         disconnectObservationTask = Task { @MainActor [weak self] in
-            var lastConnected = self?.connectionManager.isConnected ?? false
-            while !Task.isCancelled {
-                guard let self else { break }
-                await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
-                    withObservationTracking {
-                        _ = self.connectionManager.isConnected
-                    } onChange: {
-                        resume.resume()
-                    }
-                }
-                guard !Task.isCancelled, let self else { break }
-                let connected = self.connectionManager.isConnected
-                guard connected != lastConnected else { continue }
-                lastConnected = connected
+            for await connected in observationStream({ [weak self] in self?.connectionManager.isConnected ?? false }) {
+                guard let self, !Task.isCancelled else { break }
                 if !connected {
                     self.delegate?.isLoadingMoreConversations = false
                 }
@@ -121,17 +109,9 @@ final class ConversationRestorer {
         // Fetch conversation list on first connect.
         connectionObservationTask?.cancel()
         connectionObservationTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                guard let self else { break }
-                await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
-                    withObservationTracking {
-                        _ = self.connectionManager.isConnected
-                    } onChange: {
-                        resume.resume()
-                    }
-                }
-                guard !Task.isCancelled, let self else { break }
-                if self.connectionManager.isConnected {
+            for await connected in observationStream({ [weak self] in self?.connectionManager.isConnected ?? false }) {
+                guard let self, !Task.isCancelled else { break }
+                if connected {
                     self.fetchConversationList()
                     break // Only need the first connect
                 }

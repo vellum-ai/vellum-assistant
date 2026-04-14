@@ -112,17 +112,9 @@ final class ToolPermissionTesterModel: ObservableObject {
 
         // Re-fetch tool names whenever the daemon (re)connects.
         observeConnectionTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                guard let self else { break }
-                await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
-                    withObservationTracking {
-                        _ = self.connectionManager.isConnected
-                    } onChange: {
-                        resume.resume()
-                    }
-                }
-                guard !Task.isCancelled, let self else { break }
-                if self.connectionManager.isConnected {
+            for await connected in observationStream({ [weak self] in self?.connectionManager.isConnected ?? false }) {
+                guard let self, !Task.isCancelled else { break }
+                if connected {
                     self.fetchToolNames()
                 }
             }

@@ -169,16 +169,8 @@ extension AppDelegate {
     func rebindConnectionStatusObserver() {
         connectionStatusTask?.cancel()
         connectionStatusTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                guard let self else { break }
-                await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
-                    withObservationTracking {
-                        _ = self.connectionManager.isConnected
-                    } onChange: {
-                        resume.resume()
-                    }
-                }
-                guard !Task.isCancelled, let self else { break }
+            for await _ in observationStream({ [weak self] in self?.connectionManager.isConnected ?? false }) {
+                guard let self, !Task.isCancelled else { break }
                 self.updateMenuBarIcon()
             }
         }

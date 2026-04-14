@@ -368,20 +368,8 @@ public final class MainWindow {
     private func observeDaemonReconnects() {
         connectionObservationTask?.cancel()
         connectionObservationTask = Task { @MainActor [weak self] in
-            var lastConnected = self?.connectionManager.isConnected ?? false
-            while !Task.isCancelled {
-                guard let self else { break }
-                await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
-                    withObservationTracking {
-                        _ = self.connectionManager.isConnected
-                    } onChange: {
-                        resume.resume()
-                    }
-                }
-                guard !Task.isCancelled, let self else { break }
-                let connected = self.connectionManager.isConnected
-                guard connected != lastConnected else { continue }
-                lastConnected = connected
+            for await connected in observationStream({ [weak self] in self?.connectionManager.isConnected ?? false }) {
+                guard let self, !Task.isCancelled else { break }
                 if connected {
                     if self.hasConnectedOnce {
                         self.traceStore.resetAll()
