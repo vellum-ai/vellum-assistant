@@ -561,22 +561,33 @@ describe("resolveConversationStreamingSttCapability", () => {
   });
 
   // -------------------------------------------------------------------------
-  // OpenAI Whisper — no streaming support
+  // OpenAI Whisper — incremental-batch streaming
   // -------------------------------------------------------------------------
 
-  test("returns 'unsupported' for openai-whisper (no conversation streaming)", async () => {
+  test("returns 'supported' with incremental-batch mode for openai-whisper", async () => {
     mockProviderKeys["openai"] = "sk-stream-test";
     mockConfig = buildConfig({ provider: "openai-whisper" });
 
     const result = await resolveConversationStreamingSttCapability();
 
-    expect(result.status).toBe("unsupported");
-    if (result.status === "unsupported") {
+    expect(result.status).toBe("supported");
+    if (result.status === "supported") {
       expect(result.providerId).toBe("openai-whisper");
-      expect(result.reason).toContain("openai-whisper");
-      expect(result.reason).toContain(
-        "does not support conversation streaming",
-      );
+      expect(result.streamingMode).toBe("incremental-batch");
+    }
+  });
+
+  test("returns 'missing-credentials' for openai-whisper without an API key", async () => {
+    mockProviderKeys = {};
+    mockConfig = buildConfig({ provider: "openai-whisper" });
+
+    const result = await resolveConversationStreamingSttCapability();
+
+    expect(result.status).toBe("missing-credentials");
+    if (result.status === "missing-credentials") {
+      expect(result.providerId).toBe("openai-whisper");
+      expect(result.credentialProvider).toBe("openai");
+      expect(result.reason).toContain("openai");
     }
   });
 

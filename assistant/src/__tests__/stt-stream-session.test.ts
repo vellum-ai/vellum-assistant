@@ -6,7 +6,7 @@
  *   streaming adapters.
  * - Normalized event flow: ready -> partial -> final -> closed.
  * - Per-session ordering guarantees (monotonic `seq` field).
- * - Graceful handling of unsupported providers (e.g. openai-whisper).
+ * - Graceful handling of unsupported providers.
  * - Session teardown on client disconnect.
  * - Idle timeout behavior.
  * - Binary audio frame handling.
@@ -271,13 +271,13 @@ describe("SttStreamSession", () => {
     });
   });
 
-  // ── Unsupported provider (openai-whisper) ─────────────────────────
+  // ── Unsupported provider fallback ─────────────────────────────────
 
   describe("unsupported provider fallback", () => {
-    test("openai-whisper emits error + closed without crashing", async () => {
-      const { ws, session } = createSession("openai-whisper");
+    test("truly unknown provider emits error + closed without crashing", async () => {
+      const { ws, session } = createSession("nonexistent-provider");
 
-      // Resolve returns null for openai-whisper (no streaming support).
+      // Resolve returns null for unknown providers (no streaming support).
       await session.start(async () => null);
 
       const frames = ws.frames;
@@ -297,8 +297,8 @@ describe("SttStreamSession", () => {
       expect(ws.closeCode).toBe(1000);
     });
 
-    test("unknown provider emits error + closed without crashing", async () => {
-      const { ws, session } = createSession("nonexistent-provider");
+    test("another unknown provider emits error + closed without crashing", async () => {
+      const { ws, session } = createSession("fictional-stt-engine");
 
       await session.start(async () => null);
 

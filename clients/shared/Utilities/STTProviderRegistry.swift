@@ -163,7 +163,7 @@ private let fallbackRegistry = STTProviderRegistry(
             setupMode: .apiKey,
             setupHint: "Enter your OpenAI API key to enable Whisper transcription.",
             apiKeyProviderName: "openai",
-            conversationStreamingMode: .none
+            conversationStreamingMode: .incrementalBatch
         ),
         STTProviderCatalogEntry(
             id: "deepgram",

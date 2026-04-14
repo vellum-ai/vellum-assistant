@@ -796,13 +796,19 @@ final class InputBarVoiceInputTests: XCTestCase {
         XCTAssertTrue(STTProviderRegistry.isStreamingAvailable,
                       "Google Gemini should support conversation streaming")
         UserDefaults.standard.removeObject(forKey: "sttProvider")
+
+        // openai-whisper supports incremental-batch streaming
+        UserDefaults.standard.set("openai-whisper", forKey: "sttProvider")
+        XCTAssertTrue(STTProviderRegistry.isStreamingAvailable,
+                      "OpenAI Whisper should support conversation streaming")
+        UserDefaults.standard.removeObject(forKey: "sttProvider")
     }
 
     func testStreamingAvailabilityForUnsupportedProviders() {
-        // openai-whisper has conversationStreamingMode = .none
-        UserDefaults.standard.set("openai-whisper", forKey: "sttProvider")
+        // Unknown/nonexistent providers should not support streaming
+        UserDefaults.standard.set("nonexistent-provider", forKey: "sttProvider")
         XCTAssertFalse(STTProviderRegistry.isStreamingAvailable,
-                       "OpenAI Whisper should not support conversation streaming")
+                       "Unknown providers should not support conversation streaming")
         UserDefaults.standard.removeObject(forKey: "sttProvider")
     }
 

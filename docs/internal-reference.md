@@ -691,14 +691,15 @@ STTStreamingClient  ──WSS──>  stt-stream-websocket.ts  ──WS──>  
                                                                         │
                                                             resolveStreamingTranscriber()
                                                                         │
-                                                         ┌──────────────┴──────────────┐
-                                                         │                             │
-                                                  DeepgramRealtime          GoogleGeminiStreaming
-                                                  Transcriber               Transcriber
-                                                  (realtime-ws)             (incremental-batch)
-                                                         │                             │
-                                                  WSS to Deepgram           HTTP polling to
-                                                  /v1/listen                Gemini API
+                                                         ┌──────────────┼──────────────┐
+                                                         │              │              │
+                                                  DeepgramRealtime  GoogleGemini   OpenAIWhisper
+                                                  Transcriber       Streaming      Streaming
+                                                  (realtime-ws)     Transcriber    Transcriber
+                                                                    (incr-batch)   (incr-batch)
+                                                         │              │              │
+                                                  WSS to Deepgram  HTTP polling   HTTP polling
+                                                  /v1/listen       to Gemini API  to Whisper API
 ```
 
 **Provider support matrix:**
@@ -707,13 +708,13 @@ STTStreamingClient  ──WSS──>  stt-stream-websocket.ts  ──WS──>  
 | --------------- | --------------------------- | ----------------- | -------------- |
 | `deepgram`      | `realtime-ws`               | Yes               | Yes            |
 | `google-gemini` | `incremental-batch`         | Yes               | Yes            |
-| `openai-whisper` | `none`                     | No (batch only)   | Yes            |
+| `openai-whisper` | `incremental-batch`        | Yes               | Yes            |
 
 ### Debugging Stream Sessions
 
 #### 1. Verify provider supports streaming
 
-Check the configured STT provider in the assistant's config (`services.stt.provider`). Only `deepgram` and `google-gemini` support conversation streaming. If `openai-whisper` is configured, streaming sessions will not be attempted by the client (the client checks `STTProviderRegistry.isStreamingAvailable` before opening a WebSocket).
+Check the configured STT provider in the assistant's config (`services.stt.provider`). All three providers (`deepgram`, `google-gemini`, and `openai-whisper`) support conversation streaming. The client checks `STTProviderRegistry.isStreamingAvailable` before opening a WebSocket — if the provider's `conversationStreamingMode` is `"none"`, streaming sessions are not attempted.
 
 #### 2. Verify credentials are configured
 
@@ -830,10 +831,10 @@ Client: STTStreamFailure.rejected(statusCode: 401)
 Client: Falls back to batch STT path
 ```
 
-**Unsupported provider:**
+**Unsupported provider (hypothetical provider with `conversationStreamingMode: "none"`):**
 
 ```
-Client: STTProviderRegistry.isStreamingAvailable -> false (provider is openai-whisper)
+Client: STTProviderRegistry.isStreamingAvailable -> false (provider has conversationStreamingMode "none")
 Client: Does not open WebSocket; uses batch STT path directly
 ```
 
@@ -853,11 +854,11 @@ Client: Falls back to batch STT on recording stop
 
 | Symptom | Likely cause | Diagnosis |
 | --- | --- | --- |
-| No streaming session opened | Provider is `openai-whisper` (no streaming support) or STT not configured | Check `services.stt.provider` config; check `STTProviderRegistry.isStreamingAvailable` |
+| No streaming session opened | Provider has `conversationStreamingMode: "none"` or STT not configured | Check `services.stt.provider` config; check `STTProviderRegistry.isStreamingAvailable` |
 | `ready` event never received | Gateway cannot reach daemon, or daemon failed to start transcriber | Check gateway logs for upstream connection errors; check daemon logs for `"Failed to start STT stream session"` |
 | Auth failure (HTTP 401 before upgrade) | Expired or invalid edge JWT; no `Authorization` header or `token` query param | Check gateway `stt-stream-ws` logs for `"authentication failed"` with reason |
 | Partials but no final (Deepgram) | Deepgram session closed before client sent `stop` | Check for `"Deepgram realtime session closed unexpectedly"` or `"inactivity timeout"` |
-| Slow partials (Google Gemini) | Expected: incremental-batch polls every ~1 second | This is by design; reduce poll interval only for testing via `GoogleGeminiStreamOptions.pollIntervalMs` |
+| Slow partials (Google Gemini / OpenAI Whisper) | Expected: incremental-batch polls every ~1 second | This is by design; both providers use incremental-batch mode. Reduce poll interval only for testing via stream options |
 | Idle timeout after 60 seconds | Client stopped sending audio without sending `stop` event | Check client-side audio pipeline; ensure `stop` event is sent on recording end |
 | Buffer overflow (gateway) | Upstream daemon connection slow to establish; client sending audio too fast | Check gateway `"STT stream pending message buffer overflow"` log; check daemon startup time |
 | Empty final transcript | Audio too short, no speech detected, or provider returned empty | Check audio format (mimeType, sampleRate); try with known-good audio |
@@ -870,7 +871,7 @@ Use this checklist when rolling out conversation STT streaming to macOS and iOS.
 
 - [ ] Configure `services.stt.provider` to `deepgram`. Record a conversation message. Verify partial transcripts appear in real time in the chat composer. Verify the final transcript matches spoken audio.
 - [ ] Configure `services.stt.provider` to `google-gemini`. Record a conversation message. Verify partial transcripts appear (with ~1-second latency). Verify the final transcript matches spoken audio.
-- [ ] Configure `services.stt.provider` to `openai-whisper`. Record a conversation message. Verify no streaming session is opened (no WebSocket in gateway logs). Verify batch STT produces a final transcript.
+- [ ] Configure `services.stt.provider` to `openai-whisper`. Record a conversation message. Verify partial transcripts appear (with ~1-second latency, incremental-batch mode). Verify the final transcript matches spoken audio.
 - [ ] With `deepgram` configured, simulate a network disconnect mid-recording (e.g. disable WiFi). Verify the client falls back to batch STT and produces a final transcript.
 - [ ] With `deepgram` configured, remove the Deepgram API key. Start a recording. Verify the session fails gracefully and batch STT is used.
 - [ ] Verify dictation mode (not conversation) still uses the batch STT path regardless of streaming availability.
@@ -879,7 +880,7 @@ Use this checklist when rolling out conversation STT streaming to macOS and iOS.
 
 - [ ] Configure `services.stt.provider` to `deepgram`. Record via the input bar. Verify streaming partials update the text field. Verify the final transcript is committed via `onVoiceResult`.
 - [ ] Configure `services.stt.provider` to `google-gemini`. Record via the input bar. Verify incremental partials appear. Verify the final transcript is committed.
-- [ ] Configure `services.stt.provider` to `openai-whisper`. Record via the input bar. Verify batch STT path is used (no streaming session).
+- [ ] Configure `services.stt.provider` to `openai-whisper`. Record via the input bar. Verify incremental partials appear. Verify the final transcript is committed.
 - [ ] Simulate streaming failure (e.g. bad API key). Verify `resolveTranscriptWithServiceFirst()` fires and batch STT produces a result.
 - [ ] Verify auto-stop coordination: when auto-stop fires and streaming is active, verify the streaming final takes precedence. When streaming has closed/failed before auto-stop, verify batch fallback is triggered.
 

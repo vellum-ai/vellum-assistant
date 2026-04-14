@@ -213,10 +213,10 @@ final class STTStreamingClientTests: XCTestCase {
         XCTAssertEqual(registry.conversationStreamingMode(forProvider: "google-gemini"), .incrementalBatch)
     }
 
-    func testOpenAIWhisperDoesNotSupportConversationStreaming() {
+    func testOpenAIWhisperSupportsConversationStreaming() {
         let registry = buildTestRegistry()
-        XCTAssertFalse(registry.supportsConversationStreaming(provider: "openai-whisper"))
-        XCTAssertEqual(registry.conversationStreamingMode(forProvider: "openai-whisper"), .none)
+        XCTAssertTrue(registry.supportsConversationStreaming(provider: "openai-whisper"))
+        XCTAssertEqual(registry.conversationStreamingMode(forProvider: "openai-whisper"), .incrementalBatch)
     }
 
     func testUnknownProviderDoesNotSupportConversationStreaming() {
@@ -277,7 +277,7 @@ final class STTStreamingClientTests: XCTestCase {
                     "setupMode": "api-key",
                     "setupHint": "test",
                     "apiKeyProviderName": "openai",
-                    "conversationStreamingMode": "none"
+                    "conversationStreamingMode": "incremental-batch"
                 },
                 {
                     "id": "deepgram",
@@ -294,7 +294,7 @@ final class STTStreamingClientTests: XCTestCase {
         let catalog = try JSONDecoder().decode(STTProviderRegistry.self, from: json.data(using: .utf8)!)
         XCTAssertEqual(catalog.version, 2)
         XCTAssertEqual(catalog.providers.count, 2)
-        XCTAssertEqual(catalog.providers[0].conversationStreamingMode, .none)
+        XCTAssertEqual(catalog.providers[0].conversationStreamingMode, .incrementalBatch)
         XCTAssertEqual(catalog.providers[1].conversationStreamingMode, .realtimeWs)
     }
 
@@ -312,7 +312,7 @@ final class STTStreamingClientTests: XCTestCase {
                     setupMode: .apiKey,
                     setupHint: "test",
                     apiKeyProviderName: "openai",
-                    conversationStreamingMode: .none
+                    conversationStreamingMode: .incrementalBatch
                 ),
                 STTProviderCatalogEntry(
                     id: "deepgram",

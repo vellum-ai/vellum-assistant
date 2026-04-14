@@ -152,9 +152,12 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
     {
       id: "openai-whisper",
       credentialProvider: "openai",
-      supportedBoundaries: new Set<SttBoundaryId>(["daemon-batch"]),
+      supportedBoundaries: new Set<SttBoundaryId>([
+        "daemon-batch",
+        "daemon-streaming",
+      ]),
       telephonyMode: "batch-only",
-      conversationStreamingMode: "none",
+      conversationStreamingMode: "incremental-batch",
       telephonyRouting: {
         strategyKind: "media-stream-custom",
       },
