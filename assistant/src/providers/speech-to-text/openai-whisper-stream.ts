@@ -45,8 +45,12 @@ const log = getLogger("openai-whisper-stream");
 /**
  * Minimum interval between incremental batch requests (ms).
  * Prevents excessive API calls while the user is actively speaking.
+ *
+ * Tuned lower than 1s so chat-composer dictation feels more responsive:
+ * OpenAI Whisper remains incremental-batch (not true token streaming), but
+ * a tighter poll cadence reduces perceived latency for partial updates.
  */
-export const POLL_INTERVAL_MS = 1_000;
+export const POLL_INTERVAL_MS = 400;
 
 /**
  * Timeout per incremental poll request (ms).
