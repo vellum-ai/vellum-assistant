@@ -30,7 +30,7 @@ import { randomUUID } from "node:crypto";
 
 import { getLogger } from "../util/logger.js";
 import type { FeedItem } from "./feed-types.js";
-import { appendFeedItem } from "./feed-writer.js";
+import { appendFeedItem, readHomeFeed } from "./feed-writer.js";
 
 const log = getLogger("platform-gmail-digest");
 
@@ -82,6 +82,7 @@ export async function generateGmailDigest(
 
   const flooredCount = Math.floor(count);
   const timestamp = now.toISOString();
+  const summary = buildDigestSummary(now);
 
   const item: FeedItem = {
     id: randomUUID(),
@@ -89,7 +90,7 @@ export async function generateGmailDigest(
     source: "gmail",
     author: "platform",
     title: `${flooredCount} new email${flooredCount === 1 ? "" : "s"}`,
-    summary: `Since your last check-in`,
+    summary,
     priority: 40,
     minTimeAway: 3600,
     timestamp,
@@ -105,4 +106,58 @@ export async function generateGmailDigest(
   }
 
   return item;
+}
+
+/**
+ * Builds the digest summary line. Reads the prior Gmail digest's
+ * timestamp from the feed and formats it as `"Since <short time>"`
+ * so users can anchor "new emails" to a specific moment. Falls back
+ * to a generic string on first-ever digest or on any read failure
+ * (the writer is authoritative; we never throw out of the generator).
+ */
+function buildDigestSummary(now: Date): string {
+  const priorTimestamp = readPriorGmailDigestTimestamp();
+  if (priorTimestamp == null) {
+    return "Since your last check-in";
+  }
+
+  const priorDate = new Date(priorTimestamp);
+  if (Number.isNaN(priorDate.getTime())) {
+    return "Since your last check-in";
+  }
+
+  return `Since ${formatShortTime(priorDate, now)}`;
+}
+
+function readPriorGmailDigestTimestamp(): string | null {
+  try {
+    const feed = readHomeFeed();
+    const prior = feed.items.find(
+      (item) => item.type === "digest" && item.source === "gmail",
+    );
+    return prior?.timestamp ?? null;
+  } catch (err) {
+    log.warn({ err }, "Failed to read prior Gmail digest timestamp");
+    return null;
+  }
+}
+
+/**
+ * Same-day prior → "10:32 AM". Cross-day prior → "Mon 10:32 AM".
+ * Plain `toLocaleTimeString` would conflate yesterday and today.
+ */
+function formatShortTime(prior: Date, now: Date): string {
+  const time = prior.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const sameDay =
+    prior.getFullYear() === now.getFullYear() &&
+    prior.getMonth() === now.getMonth() &&
+    prior.getDate() === now.getDate();
+  if (sameDay) {
+    return time;
+  }
+  const weekday = prior.toLocaleDateString("en-US", { weekday: "short" });
+  return `${weekday} ${time}`;
 }

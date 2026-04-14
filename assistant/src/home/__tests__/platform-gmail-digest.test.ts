@@ -141,6 +141,50 @@ describe("generateGmailDigest", () => {
     });
   });
 
+  test("summary uses generic check-in copy on first-ever digest", async () => {
+    const result = await generateGmailDigest(
+      new Date("2026-04-14T12:00:00.000Z"),
+      async () => 4,
+    );
+    expect(result).not.toBeNull();
+    expect(result!.summary).toBe("Since your last check-in");
+  });
+
+  test("summary references the prior digest timestamp on subsequent call", async () => {
+    const first = await generateGmailDigest(
+      new Date("2026-04-14T14:32:00.000Z"),
+      async () => 2,
+    );
+    expect(first).not.toBeNull();
+
+    // Same-day follow-up → "Since h:mm AM/PM" pulled from the first
+    // digest's timestamp (2:32 PM UTC rendered via en-US locale).
+    const sameDay = await generateGmailDigest(
+      new Date("2026-04-14T16:00:00.000Z"),
+      async () => 5,
+    );
+    expect(sameDay).not.toBeNull();
+    expect(sameDay!.summary).toMatch(/^Since \d{1,2}:\d{2}\s?(AM|PM)$/);
+  });
+
+  test("summary includes weekday when prior digest is on a different day", async () => {
+    const first = await generateGmailDigest(
+      new Date("2026-04-13T22:00:00.000Z"),
+      async () => 1,
+    );
+    expect(first).not.toBeNull();
+
+    const nextDay = await generateGmailDigest(
+      new Date("2026-04-14T14:00:00.000Z"),
+      async () => 3,
+    );
+    expect(nextDay).not.toBeNull();
+    // Cross-day → "Since <Weekday> h:mm AM/PM" — weekday prefix set.
+    expect(nextDay!.summary).toMatch(
+      /^Since (Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{1,2}:\d{2}\s?(AM|PM)$/,
+    );
+  });
+
   // Integration: exercise the writer's one-per-source rule. Two
   // successive generator calls should leave exactly one Gmail digest
   // on disk — the newer call replaces the earlier one in place.
