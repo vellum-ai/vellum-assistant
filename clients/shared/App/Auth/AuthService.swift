@@ -352,23 +352,18 @@ public final class AuthService {
 
     /// List managed assistants visible to the caller in the given organization.
     ///
+    /// The backend already scopes the response to platform (cloud-hosted)
+    /// assistants — self-hosted-local assistants are excluded by a hardcoded
+    /// filter in the queryset — so no additional query parameter is needed.
+    ///
     /// Used by the managed bootstrap flow to discover existing platform
     /// assistants before falling through to hatch. The platform caps each org
     /// at 5 managed assistants, which always fits in a single page, so
     /// pagination is not needed. Callers assume the platform returns
     /// newest-first and take `results.first`.
-    ///
-    /// - Parameters:
-    ///   - organizationId: The organization to list assistants for.
-    ///   - hosting: Optional filter to restrict results by hosting type
-    ///     (e.g. `"platform"` for platform-managed assistants).
-    public func listAssistants(organizationId: String, hosting: String? = nil) async throws -> [PlatformAssistant] {
-        var path = "v1/assistants/"
-        if let hosting {
-            path += "?hosting=\(hosting.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? hosting)"
-        }
+    public func listAssistants(organizationId: String) async throws -> [PlatformAssistant] {
         let response = try await performPlatformRequest(
-            path: path,
+            path: "v1/assistants/",
             method: "GET",
             organizationId: organizationId
         )

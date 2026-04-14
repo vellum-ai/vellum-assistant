@@ -8,8 +8,9 @@ import XCTest
 /// through to hatch. When a stored assistant ID exists and the GET returns
 /// 200, the assistant is returned directly (no list call). When the GET
 /// returns 404 (stale ID), or when no stored ID exists at all, the service
-/// lists platform assistants with `hosting: "platform"` and reuses the
-/// first result. Only when the list is empty does it fall through to hatch
+/// lists platform assistants and reuses the first result. The backend
+/// already scopes the list to platform assistants, so no filter parameter
+/// is needed. Only when the list is empty does it fall through to hatch
 /// (first-run UX).
 ///
 /// Uses an in-memory `MockActiveAssistantIdStore` and `MockBootstrapAuthService` so the
@@ -98,9 +99,8 @@ final class ManagedAssistantBootstrapServiceTests: XCTestCase {
         XCTAssertEqual(idStore.clearCallCount, 1)
         XCTAssertNil(idStore.storedId)
 
-        // AND listAssistants is called with the platform hosting filter
+        // AND listAssistants is called
         XCTAssertEqual(auth.listAssistantsCallCount, 1)
-        XCTAssertEqual(auth.lastListAssistantsHosting, "platform")
 
         // AND the first assistant from the list is reused without hatching
         XCTAssertEqual(auth.hatchCallCount, 0, "Non-empty list must not hatch")
@@ -136,9 +136,8 @@ final class ManagedAssistantBootstrapServiceTests: XCTestCase {
         // THEN the stale ID is cleared
         XCTAssertEqual(idStore.clearCallCount, 1)
 
-        // AND listAssistants is called with the platform hosting filter
+        // AND listAssistants is called
         XCTAssertEqual(auth.listAssistantsCallCount, 1)
-        XCTAssertEqual(auth.lastListAssistantsHosting, "platform")
 
         // AND hatch is called as the first-run fallback
         XCTAssertEqual(auth.hatchCallCount, 1, "Empty list must fall through to hatch (first-run UX)")
@@ -174,9 +173,8 @@ final class ManagedAssistantBootstrapServiceTests: XCTestCase {
         // THEN getAssistant is never called (no stored ID to look up)
         XCTAssertEqual(auth.getAssistantCallCount, 0)
 
-        // AND listAssistants is called with the platform hosting filter
+        // AND listAssistants is called
         XCTAssertEqual(auth.listAssistantsCallCount, 1)
-        XCTAssertEqual(auth.lastListAssistantsHosting, "platform")
 
         // AND the first assistant is reused without hatching
         XCTAssertEqual(auth.hatchCallCount, 0, "Non-empty list must not hatch")
@@ -211,9 +209,8 @@ final class ManagedAssistantBootstrapServiceTests: XCTestCase {
         // THEN getAssistant is never called (no stored ID to look up)
         XCTAssertEqual(auth.getAssistantCallCount, 0)
 
-        // AND listAssistants is called with the platform hosting filter
+        // AND listAssistants is called
         XCTAssertEqual(auth.listAssistantsCallCount, 1)
-        XCTAssertEqual(auth.lastListAssistantsHosting, "platform")
 
         // AND hatch is called as the first-run fallback
         XCTAssertEqual(auth.hatchCallCount, 1)
@@ -326,11 +323,8 @@ private final class MockBootstrapAuthService: ManagedAssistantBootstrapAuthServi
         return getAssistantResult
     }
 
-    private(set) var lastListAssistantsHosting: String?
-
-    func listAssistants(organizationId: String, hosting: String?) async throws -> [PlatformAssistant] {
+    func listAssistants(organizationId: String) async throws -> [PlatformAssistant] {
         listAssistantsCallCount += 1
-        lastListAssistantsHosting = hosting
         return listAssistantsResult
     }
 

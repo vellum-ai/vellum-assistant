@@ -46,7 +46,7 @@ public protocol ManagedAssistantBootstrapAuthServicing: AnyObject {
     func getOrganizations() async throws -> [PlatformOrganization]
     func resolveOrganizationId() async throws -> String
     func getAssistant(id: String, organizationId: String) async throws -> PlatformAssistantResult
-    func listAssistants(organizationId: String, hosting: String?) async throws -> [PlatformAssistant]
+    func listAssistants(organizationId: String) async throws -> [PlatformAssistant]
     func hatchAssistant(
         organizationId: String,
         name: String?,
@@ -87,8 +87,9 @@ public final class LockfileActiveAssistantIdStore: ActiveAssistantIdStoring {
 ///    - 200: return it directly.
 ///    - 404 (deleted): clear the stale ID and fall through to step 2.
 ///    - 403 (access revoked): surface an `accessRevoked` error so the user knows.
-/// 2. List platform assistants (GET /assistants/?hosting=platform) and reuse the first
-///    result when the list is non-empty.
+/// 2. List platform assistants (GET /assistants/) and reuse the first
+///    result when the list is non-empty. The backend already scopes the
+///    response to platform assistants, so no filter parameter is needed.
 /// 3. Only when the list is empty (first-run UX), call POST /assistants/hatch/
 ///    (idempotent — returns existing or creates new).
 /// 4. Any other error is surfaced as a typed `ManagedBootstrapError`.
@@ -155,8 +156,7 @@ public final class ManagedAssistantBootstrapService {
         // assistant when the user already has one on the platform.
         do {
             let existing = try await authService.listAssistants(
-                organizationId: organizationId,
-                hosting: "platform"
+                organizationId: organizationId
             )
             if let first = existing.first {
                 log.info("Reusing existing platform assistant \(first.id, privacy: .public) from list")
