@@ -95,6 +95,16 @@ struct IntelligencePanel: View {
                 homeStore?.markSeen()
             }
         }
+        .onDisappear {
+            // Belt-and-suspenders cleanup: when the entire Intelligence
+            // panel goes away (user navigates to a conversation or another
+            // panel), make sure the Home tab is no longer counted as
+            // visible. Without this, `homeStore.isHomeTabVisible` could
+            // remain `true` if the parent removes the panel without
+            // SwiftUI firing the inner `.onDisappear` on the .home branch
+            // first, and the sidebar dot would never light up again.
+            homeStore?.isHomeTabVisible = false
+        }
         .task {
             let info = await IdentityInfo.loadAsync()
             cachedAssistantName = AssistantDisplayName.resolve(info?.name, fallback: "Your Assistant")

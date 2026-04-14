@@ -201,6 +201,7 @@ struct HomeIdentityPanel: View {
             .fill(VColor.borderBase)
             .frame(height: 1)
             .padding(.horizontal, VSpacing.xxl)
+            .accessibilityHidden(true)
     }
 
     private var metadataSection: some View {
