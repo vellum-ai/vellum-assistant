@@ -206,6 +206,14 @@ public final class SettingsStore: ObservableObject {
     /// Current web search mode. Values: "managed" or "your-own".
     @Published var webSearchMode: String = "your-own"
 
+    // MARK: - TTS Voice ID State
+
+    /// The configured ElevenLabs voice ID from daemon config.
+    @Published var elevenLabsVoiceId: String = ""
+
+    /// The configured Fish Audio reference ID from daemon config.
+    @Published var fishAudioReferenceId: String = ""
+
     /// Managed OAuth mode per provider (keyed by managedServiceConfigKey). Values: "managed" or "your-own".
     @Published var managedOAuthMode: [String: String] = [:]
     /// Managed OAuth connections per provider (keyed by managedServiceConfigKey).
@@ -2986,6 +2994,7 @@ public final class SettingsStore: ObservableObject {
 
     func setElevenLabsVoiceId(_ voiceId: String) {
         let trimmed = voiceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.elevenLabsVoiceId = trimmed
         Task {
             let success = await settingsClient.patchConfig([
                 "services": ["tts": ["providers": ["elevenlabs": ["voiceId": trimmed]]]]
@@ -2998,6 +3007,7 @@ public final class SettingsStore: ObservableObject {
 
     func setFishAudioReferenceId(_ referenceId: String) {
         let trimmed = referenceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.fishAudioReferenceId = trimmed
         Task {
             let success = await settingsClient.patchConfig([
                 "services": ["tts": ["providers": ["fish-audio": ["referenceId": trimmed]]]]
@@ -3573,6 +3583,21 @@ public final class SettingsStore: ObservableObject {
            let tts = services["tts"] as? [String: Any],
            let ttsProvider = tts["provider"] as? String {
             UserDefaults.standard.set(ttsProvider, forKey: "ttsProvider")
+        }
+
+        // Sync provider-specific voice IDs so the Voice Settings view
+        // can display the configured value on load.
+        if let services = config["services"] as? [String: Any],
+           let tts = services["tts"] as? [String: Any],
+           let providers = tts["providers"] as? [String: Any] {
+            if let elevenlabs = providers["elevenlabs"] as? [String: Any],
+               let voiceId = elevenlabs["voiceId"] as? String {
+                self.elevenLabsVoiceId = voiceId
+            }
+            if let fishAudio = providers["fish-audio"] as? [String: Any],
+               let referenceId = fishAudio["referenceId"] as? String {
+                self.fishAudioReferenceId = referenceId
+            }
         }
 
         // Sync the global STT provider from the daemon config so the client

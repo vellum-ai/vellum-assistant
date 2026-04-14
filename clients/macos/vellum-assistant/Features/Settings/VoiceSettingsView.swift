@@ -19,6 +19,8 @@ struct VoiceSettingsView: View {
     @State private var ttsApiKeyText: String = ""
     /// Voice ID / reference ID input text.
     @State private var ttsVoiceIdText: String = ""
+    /// Baseline voice ID for change detection — set on appear and after save.
+    @State private var initialVoiceId: String = ""
     /// Baseline provider for change detection.
     @State private var initialTTSProvider: String = "elevenlabs"
     /// Whether the current TTS provider has a stored API key.
@@ -106,17 +108,26 @@ struct VoiceSettingsView: View {
             initialTTSProvider = ttsProviderRaw
             ttsProviderHasKey = ttsCredentialExists(for: ttsProviderRaw)
 
+            // Load the stored voice ID for the current TTS provider so
+            // the field reflects the daemon-configured value on page load.
+            let voiceId = storedVoiceId(for: ttsProviderRaw)
+            ttsVoiceIdText = voiceId
+            initialVoiceId = voiceId
+
             // Initialize STT draft state from persisted values
             draftSTTProvider = sttProviderRaw
             initialSTTProvider = sttProviderRaw
             sttProviderHasKey = sttKeyExists(for: draftSTTProvider)
         }
         .onChange(of: draftTTSProvider) { _, _ in
-            // Clear API key and voice ID fields when provider changes
+            // Reset API key field and load the stored voice ID for the
+            // newly selected provider so the field shows its current value.
             ttsApiKeyText = ""
-            ttsVoiceIdText = ""
             ttsSaveError = nil
             ttsProviderHasKey = ttsCredentialExists(for: draftTTSProvider)
+            let voiceId = storedVoiceId(for: draftTTSProvider)
+            ttsVoiceIdText = voiceId
+            initialVoiceId = voiceId
         }
         .onChange(of: draftSTTProvider) { _, _ in
             // Clear stale fields when STT provider changes
@@ -361,8 +372,8 @@ struct VoiceSettingsView: View {
     private var ttsHasChanges: Bool {
         let providerChanged = draftTTSProvider != initialTTSProvider
         let hasNewKey = !ttsApiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let hasVoiceId = !ttsVoiceIdText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        return providerChanged || hasNewKey || hasVoiceId
+        let voiceIdChanged = ttsVoiceIdText.trimmingCharacters(in: .whitespacesAndNewlines) != initialVoiceId
+        return providerChanged || hasNewKey || voiceIdChanged
     }
 
     private var ttsProviderCard: some View {
@@ -484,7 +495,20 @@ struct VoiceSettingsView: View {
 
         // Update baseline for change detection
         initialTTSProvider = draftTTSProvider
-        ttsVoiceIdText = ""
+        initialVoiceId = trimmedVoiceId
+    }
+
+    /// Returns the stored voice ID / reference ID for the given TTS provider
+    /// from the daemon-synced values on `SettingsStore`.
+    private func storedVoiceId(for provider: String) -> String {
+        switch provider {
+        case "elevenlabs":
+            return store.elevenLabsVoiceId
+        case "fish-audio":
+            return store.fishAudioReferenceId
+        default:
+            return ""
+        }
     }
 
     /// Checks whether a TTS credential exists for the given provider.
