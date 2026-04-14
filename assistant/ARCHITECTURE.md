@@ -337,7 +337,7 @@ The Slack channel provides text-based messaging via Slack's Socket Mode API. Unl
 | --------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/v1/integrations/slack/channel/config` | GET    | Returns current config status: `hasBotToken`, `hasAppToken`, `hasUserToken`, `connected`, plus workspace metadata (`teamId`, `teamName`, `botUserId`, `botUsername`)                                                                  |
 | `/v1/integrations/slack/channel/config` | POST   | Validates and stores credentials. Body: `{ botToken?: string, appToken?: string, userToken?: string }`                                                                                                                                |
-| `/v1/integrations/slack/channel/config` | DELETE | Clears Slack channel credentials. Deleting `field=user_token` is surgical — it clears only the user token via `clearSlackUserToken` and leaves the `oauth_connection` row intact. Deleting `bot_token` or `app_token` does a full teardown. |
+| `/v1/integrations/slack/channel/config` | DELETE | Clears all Slack channel credentials (bot, app, and user tokens) from secure storage and credential metadata. Surgical user-token-only deletion is exposed internally via `clearSlackUserToken` (used by the credential vault) but is not reachable through this HTTP endpoint. |
 
 All endpoints are JWT-authenticated via `Authorization: Bearer <jwt>`.
 
