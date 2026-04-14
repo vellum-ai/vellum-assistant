@@ -200,10 +200,19 @@ export async function runReflectionProducer(
     return { wroteCount: 0, skippedReason: "empty_items" };
   }
 
+  const capped = rawItems.slice(0, MAX_ITEMS_PER_REFLECTION);
   const accepted: WriteAssistantFeedItemParams[] = [];
-  for (const raw of rawItems.slice(0, MAX_ITEMS_PER_REFLECTION)) {
+  for (const raw of capped) {
     const params = coerceReflectionItem(raw);
     if (params) accepted.push(params);
+  }
+
+  // If the model returned items but every single one failed coercion,
+  // that's a schema-drift signal we want loud in production logs — a
+  // silent "wroteCount: 0, skippedReason: null" would look like a
+  // normal quiet tick and bury the bug. Report it as malformed_output.
+  if (accepted.length === 0) {
+    return { wroteCount: 0, skippedReason: "malformed_output" };
   }
 
   let wroteCount = 0;

@@ -136,7 +136,6 @@ export function startFeedScheduler(
       }
 
       if (nowMs - lastReflectionAt >= REFLECTION_INTERVAL_MS) {
-        lastReflectionAt = nowMs;
         summary.reflectionRan = true;
         const startedAt = Date.now();
         try {
@@ -149,7 +148,21 @@ export function startFeedScheduler(
             },
             "Reflection producer ran",
           );
+          // Only advance the cooldown gate when the producer actually
+          // had a chance to run. A `no_provider` skip means the provider
+          // registry wasn't ready yet (this happens on the startup tick
+          // because the feed scheduler boots before the provider init
+          // pass in `daemon/lifecycle.ts`); advancing the gate in that
+          // case would burn the 30-minute window and delay the first
+          // real reflection. Every other outcome — success, empty
+          // items, malformed output, provider error — is a real
+          // attempt and does advance the gate so a broken producer
+          // doesn't hammer us every tick.
+          if (result.skippedReason !== "no_provider") {
+            lastReflectionAt = nowMs;
+          }
         } catch (err) {
+          lastReflectionAt = nowMs;
           log.warn(
             { err, durationMs: Date.now() - startedAt },
             "Reflection producer threw",
@@ -200,23 +213,21 @@ export function startFeedScheduler(
  * the `resultSizeEstimate` field. Returns 0 when no Gmail connection
  * exists or the call fails so the digest generator no-ops without
  * throwing.
+ *
+ * Deliberately does NOT pre-check `isProviderConnected("google")` —
+ * that helper only reports local oauth-store rows, which are absent
+ * in managed-OAuth mode even when `resolveOAuthConnection("google")`
+ * would still resolve via the platform path. Letting the resolver
+ * make the decision is the only way to cover both modes.
  */
 async function defaultGmailCountSource(): Promise<number> {
   // Lazy import — the oauth resolver + gmail client drag in a fair
   // bit of transitive state, and we only want to pay that cost when a
   // tick actually runs (not at module load time).
-  const [
-    { isProviderConnected },
-    { resolveOAuthConnection },
-    { listMessages },
-  ] = await Promise.all([
-    import("../oauth/oauth-store.js"),
+  const [{ resolveOAuthConnection }, { listMessages }] = await Promise.all([
     import("../oauth/connection-resolver.js"),
     import("../messaging/providers/gmail/client.js"),
   ]);
-
-  const connected = await isProviderConnected("google");
-  if (!connected) return 0;
 
   try {
     const connection = await resolveOAuthConnection("google");
@@ -224,8 +235,9 @@ async function defaultGmailCountSource(): Promise<number> {
     const estimate = response.resultSizeEstimate;
     return typeof estimate === "number" && estimate >= 0 ? estimate : 0;
   } catch (err) {
-    // Gmail API failures are common and transient — log once and
-    // degrade to zero so the digest generator doesn't write a stale item.
+    // Either no Gmail connection exists (managed or direct) or the
+    // API call itself failed. Both paths degrade to zero so the
+    // digest generator no-ops without writing a stale item.
     log.warn({ err }, "Gmail count source failed; treating as zero");
     return 0;
   }

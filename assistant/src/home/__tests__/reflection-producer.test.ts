@@ -164,6 +164,28 @@ describe("runReflectionProducer", () => {
     expect(writeItem).toHaveBeenCalledTimes(3);
   });
 
+  test("reports malformed_output when every item in a non-empty batch fails coercion", async () => {
+    const provider = scriptedProvider([
+      toolUseContent({
+        items: [
+          { type: "nudge", title: "", summary: "empty title, rejected" },
+          { type: "bogus", title: "bad type", summary: "also rejected" },
+          { type: "nudge", title: "valid title" }, // missing summary
+        ],
+      }),
+    ]);
+
+    const result = await runReflectionProducer(new Date(), {
+      writeItem,
+      loadRelationshipState: stubRelationshipState,
+      resolveProvider: () => provider,
+    });
+
+    expect(result.skippedReason).toBe("malformed_output");
+    expect(result.wroteCount).toBe(0);
+    expect(writeItem).not.toHaveBeenCalled();
+  });
+
   test("rejects malformed items but keeps valid ones in the same batch", async () => {
     const provider = scriptedProvider([
       toolUseContent({

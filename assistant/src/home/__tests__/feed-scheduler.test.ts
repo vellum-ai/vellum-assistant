@@ -86,6 +86,48 @@ describe("startFeedScheduler", () => {
     expect(summary2.reflectionRan).toBe(true);
   });
 
+  test("reflection cooldown is NOT advanced on no_provider so the next tick retries", async () => {
+    // Mimic the daemon startup ordering: the scheduler boots before
+    // the provider registry is ready. The first tick gets no_provider;
+    // the next tick (even one second later) must still run the
+    // reflection instead of waiting 30 minutes.
+    reflectionRunner.mockImplementationOnce(async () => ({
+      wroteCount: 0,
+      skippedReason: "no_provider",
+    }));
+
+    handle = startFeedScheduler(defaultOptions());
+    const t0 = new Date("2026-04-14T12:00:00.000Z");
+    await handle.runOnce(t0);
+    expect(reflectionRunner).toHaveBeenCalledTimes(1);
+
+    // One second later — providers have initialized.
+    const t1 = new Date("2026-04-14T12:00:01.000Z");
+    const summary = await handle.runOnce(t1);
+
+    expect(summary.reflectionRan).toBe(true);
+    expect(reflectionRunner).toHaveBeenCalledTimes(2);
+  });
+
+  test("reflection cooldown IS advanced on other skip reasons to preserve backoff", async () => {
+    // empty_items / malformed_output / provider_error are real attempts
+    // — the next tick should be gated by the full 30-minute window so
+    // a broken producer doesn't get hammered every tick.
+    reflectionRunner.mockImplementationOnce(async () => ({
+      wroteCount: 0,
+      skippedReason: "malformed_output",
+    }));
+
+    handle = startFeedScheduler(defaultOptions());
+    await handle.runOnce(new Date("2026-04-14T12:00:00.000Z"));
+    expect(reflectionRunner).toHaveBeenCalledTimes(1);
+
+    // Ten minutes later — below the 30-min gate, should NOT re-run.
+    const summary = await handle.runOnce(new Date("2026-04-14T12:10:00.000Z"));
+    expect(summary.reflectionRan).toBe(false);
+    expect(reflectionRunner).toHaveBeenCalledTimes(1);
+  });
+
   test("producer exceptions do not break the tick loop", async () => {
     gmailDigestRunner.mockImplementationOnce(async () => {
       throw new Error("boom");
