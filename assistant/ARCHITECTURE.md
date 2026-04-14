@@ -345,12 +345,17 @@ All endpoints are JWT-authenticated via `Authorization: Bearer <jwt>`.
 
 Both tokens are stored in the secure key store (CES credential store with encrypted file fallback):
 
-| Secure key                           | Content                                                                    |
-| ------------------------------------ | -------------------------------------------------------------------------- |
-| `credential/slack_channel/bot_token` | Slack bot token (used for `chat.postMessage` and `auth.test`)              |
-| `credential/slack_channel/app_token` | Slack app token (`xapp-...`, used for Socket Mode `apps.connections.open`) |
+| Secure key                            | Content                                                                                                                                               |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `credential/slack_channel/bot_token`  | Slack bot token (used for `chat.postMessage` and `auth.test`)                                                                                         |
+| `credential/slack_channel/app_token`  | Slack app token (`xapp-...`, used for Socket Mode `apps.connections.open`)                                                                            |
+| `credential/slack_channel/user_token` | Optional. Slack user OAuth token (`xoxp-...`). Enables reading channels and DMs the bot isn't a member of (for triage). Never used for writes. |
 
 Workspace metadata (team ID, team name, bot user ID, bot username) is stored as JSON in the credential metadata store under `('slack_channel', 'bot_token')`.
+
+**Read/write auth split:** The Slack adapter (`src/messaging/providers/slack/adapter.ts`) caches read and write auth separately. Reads (`listConversations`, `getHistory`, replies, search, `users.info`) prefer the user token when present via `getReadAuth()` — giving visibility into channels and DMs the bot hasn't been invited to. Writes (`postMessage`, `markRead`, and any future state-changing calls) always use the bot token via `getWriteAuth()` so posts come from the bot identity, never the user's. When no user token is stored, reads fall back to the bot token (unchanged legacy behavior).
+
+**Workspace-consistency invariant:** The user token and bot token must be for the same Slack workspace. `setSlackChannelConfig` enforces this by calling `auth.test` on each token and comparing the returned `team_id`; if the user token's workspace does not match an already-stored bot token's workspace, the user token is rejected and not stored.
 
 **Token validation via `auth.test`:**
 
