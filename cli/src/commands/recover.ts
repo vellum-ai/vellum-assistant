@@ -2,7 +2,7 @@ import { existsSync, readFileSync, unlinkSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
-import { loadAllAssistants, saveAssistantEntry } from "../lib/assistant-config";
+import { saveAssistantEntry } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import {
   generateLocalSigningKey,
@@ -51,34 +51,26 @@ export async function recover(): Promise<void> {
     );
   }
 
-  // 3. Check that no known assistant's data directory already occupies the
-  //    recovery target. Iterate every entry in the lockfile so multi-instance
-  //    installs don't silently clobber a live assistant, and preserve the
-  //    legacy `~/.vellum/` scan as a fallback for pre-upgrade installs that
-  //    may lack a lockfile entry at all.
-  const candidateDirs = new Map<string, string>();
-  for (const knownEntry of loadAllAssistants()) {
-    if (knownEntry.cloud !== "local" || !knownEntry.resources) continue;
-    const dir = join(knownEntry.resources.instanceDir, ".vellum");
-    if (!candidateDirs.has(dir)) {
-      candidateDirs.set(dir, knownEntry.assistantId);
-    }
-  }
-  const legacyVellumDir = join(homedir(), ".vellum");
-  if (!candidateDirs.has(legacyVellumDir)) {
-    candidateDirs.set(legacyVellumDir, "legacy ~/.vellum");
-  }
-
-  for (const [dir, owner] of candidateDirs) {
-    if (existsSync(dir)) {
-      console.error(
-        `Error: ${dir} already exists (assistant '${owner}'). Retire the current assistant first.`,
-      );
-      process.exit(1);
-    }
+  // 3. Check that the recovering entry's own target directory is free. Only
+  //    this one path matters — iterating all lockfile entries would block
+  //    recovery whenever any unrelated local assistant is still installed.
+  //    Fall back to the legacy `~/.vellum` path for entries without
+  //    resources (pre env-data-layout installs).
+  const target = entry.resources?.instanceDir
+    ? join(entry.resources.instanceDir, ".vellum")
+    : join(homedir(), ".vellum");
+  if (existsSync(target)) {
+    console.error(
+      `Error: ${target} already exists (owned by ${entry.assistantId}). ` +
+        `Retire the current assistant first.`,
+    );
+    process.exit(1);
   }
 
   // 4. Extract archive
+  // TODO: extraction target is hardcoded to homedir(); multi-instance entries
+  //       whose instanceDir differs from homedir will extract to the wrong
+  //       location. Tracked separately from the collision-check regression.
   await exec("tar", ["xzf", archivePath, "-C", homedir()]);
 
   // 5. Restore lockfile entry
