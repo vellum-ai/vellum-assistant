@@ -7,14 +7,14 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+
+import { getCurrentEnvironment, getDataDir } from "@vellumai/environments";
 
 import { GATEWAY_PORT } from "./constants";
 
 function getConfigPath(): string {
-  const root = join(process.env.BASE_DATA_DIR?.trim() || homedir(), ".vellum");
-  return join(root, "workspace", "config.json");
+  return join(getDataDir(getCurrentEnvironment()), "workspace", "config.json");
 }
 
 function loadRawConfig(): Record<string, unknown> {
@@ -274,7 +274,7 @@ export async function maybeStartNgrokTunnel(
   //   2. If pipe handles are destroyed, SIGPIPE kills ngrok on its next write.
   // Writing to a log file sidesteps both issues — the file descriptor is
   // inherited by the detached ngrok process and remains valid after CLI exit.
-  const root = join(process.env.BASE_DATA_DIR?.trim() || homedir(), ".vellum");
+  const root = getDataDir(getCurrentEnvironment());
   const ngrokLogPath = join(root, "workspace", "data", "logs", "ngrok.log");
   const ngrokProcess = startNgrokProcess(targetPort, ngrokLogPath);
   ngrokProcess.unref();

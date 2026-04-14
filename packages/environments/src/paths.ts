@@ -27,11 +27,21 @@ const DEFAULT_PORTS: Readonly<PortMap> = {
 
 /**
  * Root data directory for an environment.
- * Production is grandfathered at `~/.vellum/` to preserve backward compatibility;
- * non-production environments use `$XDG_DATA_HOME/vellum-<env>/`.
+ *
+ * Resolution order:
+ *   1. `dataDirOverride` (explicit full path — used verbatim)
+ *   2. `baseDataDirOverride + /.vellum` (legacy `BASE_DATA_DIR` convention
+ *      for multi-instance and e2e tests — the CLI sets `BASE_DATA_DIR` to
+ *      an instance-specific base and the daemon appended `.vellum` to
+ *      derive its runtime root)
+ *   3. Production legacy path `~/.vellum/`
+ *   4. Non-production `$XDG_DATA_HOME/vellum-<env>/`
  */
 export function getDataDir(env: EnvironmentDefinition): string {
   if (env.dataDirOverride) return env.dataDirOverride;
+  if (env.baseDataDirOverride) {
+    return join(env.baseDataDirOverride, ".vellum");
+  }
   // `production` is the legacy-compat alias; it keeps its pre-plan path.
   if (env.name === PRODUCTION_ENVIRONMENT_NAME) {
     return join(homedir(), ".vellum");

@@ -6,6 +6,17 @@ struct SkillDeleteConfirmView: View {
     var onDelete: () -> Void
     var onCancel: () -> Void
 
+    private var skillsDirDisplay: String {
+        let skillsDir = VellumPaths.current.workspaceDir
+            .appendingPathComponent("skills")
+            .path
+        let home = NSHomeDirectory()
+        if skillsDir.hasPrefix(home + "/") {
+            return "~" + skillsDir.dropFirst(home.count) + "/"
+        }
+        return skillsDir + "/"
+    }
+
     var body: some View {
         VStack(spacing: VSpacing.xl) {
             VStack(spacing: VSpacing.md) {
@@ -13,7 +24,7 @@ struct SkillDeleteConfirmView: View {
                     .font(VFont.bodySmallEmphasised)
                     .foregroundStyle(VColor.contentDefault)
 
-                Text("Are you sure you want to delete \"\(skillName)\"? This will remove it from ~/.vellum/workspace/skills/.")
+                Text("Are you sure you want to delete \"\(skillName)\"? This will remove it from \(skillsDirDisplay).")
                     .font(VFont.bodyMediumLighter)
                     .foregroundStyle(VColor.contentSecondary)
                     .multilineTextAlignment(.center)

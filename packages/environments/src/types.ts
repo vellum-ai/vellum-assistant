@@ -48,8 +48,21 @@ export interface EnvironmentDefinition {
   /** Per-service port overrides merged on top of defaults. */
   portsOverride?: Partial<PortMap>;
 
-  /** Override for the data directory root (e.g. used by e2e tests). */
+  /**
+   * Explicit full data directory override. When set, `getDataDir` returns
+   * this value verbatim — no `.vellum` suffix appended, no env scoping.
+   */
   dataDirOverride?: string;
+
+  /**
+   * Legacy base directory override. When set, `getDataDir` returns
+   * `<baseDataDirOverride>/.vellum` — preserving the pre-Phase-2 convention
+   * where the daemon appended `.vellum` to a base path it received from the
+   * CLI. Populated by the resolver from `BASE_DATA_DIR` for multi-instance
+   * and e2e test compat. See `cli/src/lib/local.ts` which sets
+   * `BASE_DATA_DIR=resources.instanceDir` when spawning per-instance daemons.
+   */
+  baseDataDirOverride?: string;
 
   /** Override for the XDG config directory. */
   configDirOverride?: string;

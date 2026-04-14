@@ -7,6 +7,7 @@ const ENV_VARS_TO_SAVE = [
   "VELLUM_PLATFORM_URL",
   "VELLUM_ASSISTANT_PLATFORM_URL",
   "VELLUM_LOCKFILE_DIR",
+  "BASE_DATA_DIR",
 ] as const;
 
 describe("getCurrentEnvironment", () => {
@@ -79,7 +80,7 @@ describe("getCurrentEnvironment", () => {
       /unknown environment "no-such-env"/,
     );
     expect(() => getCurrentEnvironment("no-such-env")).toThrow(
-      /cli\/src\/lib\/environments\/seeds\.ts/,
+      /packages\/environments\/src\/seeds\.ts/,
     );
   });
 
@@ -142,6 +143,24 @@ describe("getCurrentEnvironment", () => {
     const env = getCurrentEnvironment();
     expect(env.name).toBe("dev");
     expect(env.lockfileDirOverride).toBe("/tmp/test-lockfile-dir");
+  });
+
+  test("BASE_DATA_DIR populates baseDataDirOverride on the resolved definition", () => {
+    process.env.BASE_DATA_DIR = "/tmp/test-base";
+    const env = getCurrentEnvironment();
+    expect(env.baseDataDirOverride).toBe("/tmp/test-base");
+  });
+
+  test("baseDataDirOverride is undefined when BASE_DATA_DIR is unset", () => {
+    const env = getCurrentEnvironment();
+    expect(env.baseDataDirOverride).toBeUndefined();
+  });
+
+  test("BASE_DATA_DIR captured verbatim — no `.vellum` appended at the resolver layer", () => {
+    process.env.BASE_DATA_DIR = "/tmp/instance";
+    const env = getCurrentEnvironment();
+    expect(env.baseDataDirOverride).toBe("/tmp/instance");
+    // The `.vellum` suffix is applied by `getDataDir`, not the resolver.
   });
 });
 

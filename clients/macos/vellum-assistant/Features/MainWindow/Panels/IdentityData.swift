@@ -49,7 +49,7 @@ enum AssistantHome: Equatable {
 
         if lower.hasPrefix("local") {
             let detail = extractParenContent(trimmed)
-            let path = detail ?? NSHomeDirectory() + "/.vellum/workspace"
+            let path = detail ?? VellumPaths.current.workspaceDir.path
             return .local(workspacePath: path)
         }
 
@@ -363,8 +363,14 @@ extension LockfileAssistant {
                 ?? NSHomeDirectory()
             return .appleContainer(instanceDir: base, mgmtSocket: mgmtSocket)
         default:
-            let base = instanceDir ?? NSHomeDirectory()
-            return .local(workspacePath: base + "/.vellum/workspace")
+            // If this lockfile entry declares an instanceDir, the daemon
+            // writes its workspace to `<instanceDir>/.vellum/workspace`
+            // (legacy multi-instance convention). Otherwise fall back to
+            // the env-aware default workspace path.
+            if let base = instanceDir {
+                return .local(workspacePath: base + "/.vellum/workspace")
+            }
+            return .local(workspacePath: VellumPaths.current.workspaceDir.path)
         }
     }
 

@@ -1,11 +1,11 @@
+import { getCurrentEnvironment, getDataDir } from "@vellumai/environments";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { homedir } from "os";
 import { dirname, join } from "path";
 
 const MAX_ENTRIES = 1000;
 
 function historyPath(): string {
-  return join(homedir(), ".vellum", "input-history");
+  return join(getDataDir(getCurrentEnvironment()), "input-history");
 }
 
 export function loadHistory(): string[] {

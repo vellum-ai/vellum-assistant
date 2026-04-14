@@ -9,12 +9,14 @@ import XCTest
 final class VellumPathsTests: XCTestCase {
     private let testHome = URL(fileURLWithPath: "/test/home")
     private let testXdgConfig = URL(fileURLWithPath: "/test/home/.config")
+    private let testXdgData = URL(fileURLWithPath: "/test/home/.local/share")
 
     private func paths(for env: VellumEnvironment) -> VellumPaths {
         VellumPaths(
             environment: env,
             homeDirectory: testHome,
-            xdgConfigHome: testXdgConfig
+            xdgConfigHome: testXdgConfig,
+            xdgDataHome: testXdgData
         )
     }
 
@@ -148,6 +150,67 @@ final class VellumPathsTests: XCTestCase {
             paths(for: .local).lockfileCandidates.map(\.path),
             ["/test/home/.config/vellum-local/lockfile.json"]
         )
+    }
+
+    // MARK: - Data and workspace directories
+
+    func testProductionDataDir() {
+        XCTAssertEqual(
+            paths(for: .production).dataDir.path,
+            "/test/home/.vellum"
+        )
+    }
+
+    func testProductionWorkspaceDir() {
+        XCTAssertEqual(
+            paths(for: .production).workspaceDir.path,
+            "/test/home/.vellum/workspace"
+        )
+    }
+
+    func testDevDataDir() {
+        XCTAssertEqual(
+            paths(for: .dev).dataDir.path,
+            "/test/home/.local/share/vellum-dev"
+        )
+    }
+
+    func testDevWorkspaceDir() {
+        XCTAssertEqual(
+            paths(for: .dev).workspaceDir.path,
+            "/test/home/.local/share/vellum-dev/workspace"
+        )
+    }
+
+    func testStagingWorkspaceDir() {
+        XCTAssertEqual(
+            paths(for: .staging).workspaceDir.path,
+            "/test/home/.local/share/vellum-staging/workspace"
+        )
+    }
+
+    func testCustomXdgDataHomeAppliesToNonProduction() {
+        let p = VellumPaths(
+            environment: .dev,
+            homeDirectory: testHome,
+            xdgConfigHome: testXdgConfig,
+            xdgDataHome: URL(fileURLWithPath: "/custom/data")
+        )
+        XCTAssertEqual(p.dataDir.path, "/custom/data/vellum-dev")
+        XCTAssertEqual(p.workspaceDir.path, "/custom/data/vellum-dev/workspace")
+    }
+
+    func testCustomXdgDataHomeDoesNotAffectProductionDataDir() {
+        let p = VellumPaths(
+            environment: .production,
+            homeDirectory: testHome,
+            xdgConfigHome: testXdgConfig,
+            xdgDataHome: URL(fileURLWithPath: "/custom/data")
+        )
+        // Production's data dir is home-rooted, not XDG-rooted, so a
+        // custom XDG_DATA_HOME should not move it.
+        XCTAssertEqual(p.dataDir.path, "/test/home/.vellum")
+        XCTAssertEqual(p.workspaceDir.path, "/test/home/.vellum/workspace")
     }
 
     // MARK: - Custom XDG_CONFIG_HOME

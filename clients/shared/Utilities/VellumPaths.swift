@@ -1,7 +1,7 @@
 import Foundation
 
 /// Env-aware filesystem path helpers for client-owned state. Mirrors
-/// `cli/src/lib/environments/paths.ts` from the Phase 0 module so the Swift
+/// `packages/environments/src/paths.ts` so the Swift
 /// client and the TypeScript daemon/CLI produce byte-identical paths for
 /// production users while sharing the same convention for non-production
 /// environments.
@@ -23,6 +23,7 @@ public struct VellumPaths {
     public let environment: VellumEnvironment
     public let homeDirectory: URL
     public let xdgConfigHome: URL
+    public let xdgDataHome: URL
 
     /// Resolved path bundle for the current process environment.
     ///
@@ -41,18 +42,25 @@ public struct VellumPaths {
         VellumPaths(
             environment: .current,
             homeDirectory: URL(fileURLWithPath: NSHomeDirectory()),
-            xdgConfigHome: Self.resolveXdgConfigHome()
+            xdgConfigHome: Self.resolveXdgConfigHome(),
+            xdgDataHome: Self.resolveXdgDataHome()
         )
     }()
 
     public init(
         environment: VellumEnvironment,
         homeDirectory: URL,
-        xdgConfigHome: URL
+        xdgConfigHome: URL,
+        xdgDataHome: URL? = nil
     ) {
         self.environment = environment
         self.homeDirectory = homeDirectory
         self.xdgConfigHome = xdgConfigHome
+        // Default mirrors the XDG Base Directory spec: `~/.local/share`.
+        self.xdgDataHome = xdgDataHome
+            ?? homeDirectory
+                .appendingPathComponent(".local")
+                .appendingPathComponent("share")
     }
 
     // MARK: - Path getters
@@ -102,6 +110,24 @@ public struct VellumPaths {
         return [envScopedXdgDir.appendingPathComponent("lockfile.json")]
     }
 
+    /// Root data directory for this environment. Mirrors
+    /// `packages/environments/src/paths.ts:getDataDir` — production is
+    /// grandfathered to `~/.vellum`, non-production environments live
+    /// under `$XDG_DATA_HOME/vellum-<env>/`.
+    public var dataDir: URL {
+        if environment == .production {
+            return homeDirectory.appendingPathComponent(".vellum")
+        }
+        return xdgDataHome.appendingPathComponent("vellum-\(environment.rawValue)")
+    }
+
+    /// Workspace root — the directory the assistant uses for user-facing
+    /// state (`skills/`, `hooks/`, `IDENTITY.md`, etc.). Equivalent to the
+    /// daemon's `getWorkspaceDir()` when `VELLUM_WORKSPACE_DIR` is unset.
+    public var workspaceDir: URL {
+        dataDir.appendingPathComponent("workspace")
+    }
+
     // MARK: - Internals
 
     /// `~/.config/vellum/` for production, `~/.config/vellum-<env>/` otherwise.
@@ -124,5 +150,17 @@ public struct VellumPaths {
         }
         return URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent(".config")
+    }
+
+    private static func resolveXdgDataHome() -> URL {
+        if let raw = ProcessInfo.processInfo.environment["XDG_DATA_HOME"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !raw.isEmpty
+        {
+            return URL(fileURLWithPath: raw)
+        }
+        return URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent(".local")
+            .appendingPathComponent("share")
     }
 }

@@ -6,13 +6,17 @@
  * without pulling in the full credential-reader dependency tree.
  */
 
+import { getCurrentEnvironment, getDataDir } from "@vellumai/environments";
 import { join } from "node:path";
 
+/**
+ * Root data directory for the gateway. Routes through the environment
+ * resolver so `BASE_DATA_DIR` (legacy multi-instance hook) and
+ * `VELLUM_ENVIRONMENT` (env isolation) both work via the same helper.
+ * For production with no overrides, returns `~/.vellum` byte-for-byte.
+ */
 export function getRootDir(): string {
-  return join(
-    process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? "/tmp"),
-    ".vellum",
-  );
+  return getDataDir(getCurrentEnvironment());
 }
 
 /**

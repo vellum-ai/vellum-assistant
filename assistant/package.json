@@ -39,6 +39,7 @@
     "@vellumai/ces-contracts": "file:../packages/ces-contracts",
     "@vellumai/credential-storage": "file:../packages/credential-storage",
     "@vellumai/egress-proxy": "file:../packages/egress-proxy",
+    "@vellumai/environments": "file:../packages/environments",
     "archiver": "7.0.1",
     "commander": "13.1.0",
     "croner": "10.0.1",
@@ -67,7 +68,8 @@
   "bundledDependencies": [
     "@vellumai/ces-contracts",
     "@vellumai/credential-storage",
-    "@vellumai/egress-proxy"
+    "@vellumai/egress-proxy",
+    "@vellumai/environments"
   ],
   "overrides": {
     "lodash": "^4.18.0",

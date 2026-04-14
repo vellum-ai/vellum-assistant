@@ -1,3 +1,8 @@
+import {
+  getCurrentEnvironment,
+  getDataDir,
+  type EnvironmentDefinition,
+} from "@vellumai/environments";
 import { execFileSync, execSync, spawn } from "child_process";
 import { randomBytes } from "crypto";
 import {
@@ -16,6 +21,20 @@ import { GATEWAY_PORT } from "./constants.js";
 import { httpHealthCheck, waitForDaemonReady } from "./http-client.js";
 import { stopProcessByPidFile } from "./process.js";
 import { openLogFile, pipeToLogFile } from "./xdg-log.js";
+
+/**
+ * Resolve the `~/.vellum`-equivalent root for the current environment. When
+ * `resources` is supplied (multi-instance spawn), the returned path is
+ * `<resources.instanceDir>/.vellum` — preserving the legacy BASE_DATA_DIR
+ * convention the daemon and gateway expect.
+ */
+function getVellumRootForInstance(resources?: LocalInstanceResources): string {
+  const env: EnvironmentDefinition = getCurrentEnvironment();
+  if (resources) {
+    return getDataDir({ ...env, baseDataDirOverride: resources.instanceDir });
+  }
+  return getDataDir(env);
+}
 
 const _require = createRequire(import.meta.url);
 
@@ -222,7 +241,7 @@ async function startDaemonFromSource(
   const daemonMainPath = resolveDaemonMainPath(assistantIndex);
 
   // Ensure the directory containing PID/socket files exists. For named
-  // instances this is instanceDir/.vellum/ (matching daemon's getRootDir()).
+  // instances this is instanceDir/.vellum/.
   mkdirSync(dirname(resources.pidFile), { recursive: true });
 
   const pidFile = resources.pidFile;
@@ -1014,9 +1033,7 @@ export async function startGateway(
   // Without this, crashed/stale gateways accumulate as zombies — the old
   // process holds the port (or lingers after losing it), and every restart
   // attempt spawns yet another process that fails with EADDRINUSE.
-  const gwPidDir = resources
-    ? join(resources.instanceDir, ".vellum")
-    : join(homedir(), ".vellum");
+  const gwPidDir = getVellumRootForInstance(resources);
   const gwPidFile = join(gwPidDir, "gateway.pid");
   await stopProcessByPidFile(gwPidFile, "gateway");
 
@@ -1088,9 +1105,7 @@ export async function startGateway(
   gateway.unref();
 
   if (gateway.pid) {
-    const gwPidDir = resources
-      ? join(resources.instanceDir, ".vellum")
-      : join(homedir(), ".vellum");
+    const gwPidDir = getVellumRootForInstance(resources);
     writeFileSync(join(gwPidDir, "gateway.pid"), String(gateway.pid), "utf-8");
   }
 
@@ -1141,9 +1156,7 @@ export async function startGateway(
 export async function stopLocalProcesses(
   resources?: LocalInstanceResources,
 ): Promise<void> {
-  const vellumDir = resources
-    ? join(resources.instanceDir, ".vellum")
-    : join(homedir(), ".vellum");
+  const vellumDir = getVellumRootForInstance(resources);
   const daemonPidFile = resources?.pidFile ?? join(vellumDir, "vellum.pid");
   await stopProcessByPidFile(daemonPidFile, "daemon");
 
