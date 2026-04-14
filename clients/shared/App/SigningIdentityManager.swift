@@ -17,10 +17,9 @@ private let log = Logger(
 public actor SigningIdentityManager {
     public static let shared = SigningIdentityManager()
 
-    /// File path for the signing key: ~/.vellum/protected/app-signing-key
+    /// File path for the signing key, resolved via `VellumPaths.current`.
     private var keyFilePath: URL {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        return home.appendingPathComponent(".vellum/protected/app-signing-key")
+        VellumPaths.current.signingKeyFile
     }
 
     /// Cached private key to avoid repeated file reads.
