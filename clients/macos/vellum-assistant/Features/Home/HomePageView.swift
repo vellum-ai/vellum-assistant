@@ -26,15 +26,6 @@ struct HomePageView: View {
     /// and the page starts to feel empty in the middle.
     private let maxContentWidth: CGFloat = 920
 
-    /// `home-feed` is a macos-scope flag — same registry as `home-tab`.
-    /// Computed on every render so a live debug toggle takes effect on
-    /// the next redraw instead of requiring a full panel rebuild. The
-    /// flag read itself is an in-memory lookup; re-evaluating it per
-    /// render is free.
-    private var isHomeFeedEnabled: Bool {
-        MacOSClientFeatureFlagManager.shared.isEnabled("home-feed")
-    }
-
     var body: some View {
         Group {
             if let state = store.state {
@@ -47,9 +38,7 @@ struct HomePageView: View {
         .background(VColor.surfaceBase)
         .task {
             await store.load()
-            if isHomeFeedEnabled {
-                await feedStore.load()
-            }
+            await feedStore.load()
         }
     }
 
@@ -64,12 +53,13 @@ struct HomePageView: View {
 
                 VStack(alignment: .leading, spacing: VSpacing.xxl) {
                     HomeFactsSection(facts: state.facts)
-                    if isHomeFeedEnabled {
-                        HomeFeedSection(
-                            store: feedStore,
-                            onConversationOpened: onFeedConversationOpened
-                        )
-                    }
+                    // `HomeFeedSection` self-gates on `items.isEmpty`, so when
+                    // no producer has written to the feed yet this slot
+                    // collapses and the layout is identical to pre-feed Home.
+                    HomeFeedSection(
+                        store: feedStore,
+                        onConversationOpened: onFeedConversationOpened
+                    )
                     HomeCapabilitiesSection(
                         capabilities: state.capabilities,
                         onPrimaryCTA: onPrimaryCTA,
