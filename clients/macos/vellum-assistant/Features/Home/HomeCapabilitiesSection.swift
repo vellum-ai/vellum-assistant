@@ -50,21 +50,21 @@ struct HomeCapabilitiesSection: View {
         if capabilities.isEmpty {
             EmptyView()
         } else {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
+            VStack(alignment: .leading, spacing: VSpacing.lg) {
                 HStack(alignment: .firstTextBaseline, spacing: VSpacing.sm) {
                     Text("What I Can Do")
-                        .font(VFont.titleSmall)
+                        .font(VFont.titleMedium)
                         .foregroundStyle(VColor.contentEmphasized)
                         .accessibilityAddTraits(.isHeader)
 
                     Spacer(minLength: 0)
 
-                    Text("\(unlockedCount)/\(capabilities.count) unlocked")
+                    Text("\(unlockedCount) of \(capabilities.count) unlocked")
                         .font(VFont.bodySmallDefault)
-                        .foregroundStyle(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
 
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
                     ForEach(orderedCapabilities) { capability in
                         CapabilityRowView(
                             capability: capability,

@@ -314,8 +314,14 @@ struct FlowLayout: Layout {
         var rowHeight: CGFloat = 0
         var totalWidth: CGFloat = 0
 
+        // Propose the full row width so each subview measures at its actual
+        // wrapped size. Without this, multi-line children (like FactChipView
+        // with `.frame(maxWidth: 200)` + `.lineLimit(2)`) would report a
+        // single-line height under `.unspecified` and overlap the row below.
+        let childProposal = ProposedViewSize(width: maxWidth, height: nil)
+
         for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
+            let size = subview.sizeThatFits(childProposal)
             if x + size.width > maxWidth, x > 0 {
                 x = 0
                 y += rowHeight + spacing

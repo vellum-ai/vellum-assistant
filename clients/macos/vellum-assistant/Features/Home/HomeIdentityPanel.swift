@@ -1,21 +1,26 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Left-column identity panel on the home page.
+/// Left-column identity panel on the Home page.
 ///
-/// Composes the relationship "who am I" summary: a progress ring wrapping the
-/// assistant avatar, the assistant name + relationship tagline, the tier
-/// badge, and a relative "hatched" / conversation-count metadata row. When the
-/// user has never had a conversation, a "Start a conversation" call-to-action
-/// button is surfaced inline.
+/// Composes the relationship "who am I" summary as a vertical column: a
+/// progress ring wrapping an avatar placeholder, the assistant name, a tagline
+/// derived from the tier description, the tappable tier badge, and a tiny
+/// metadata strip ("Hatched X ago" + conversation count). When the user has
+/// never had a conversation, a "Start a conversation" call-to-action button is
+/// surfaced inline.
 ///
 /// This view is deliberately store-free — it takes a fully-materialised
 /// `RelationshipState` plus an `onStartConversation` closure so it can be
-/// rendered from tests and from the Component Gallery without wiring in any
-/// observable dependencies.
+/// rendered from tests without wiring in any observable dependencies.
 struct HomeIdentityPanel: View {
     let state: RelationshipState
     let onStartConversation: () -> Void
+
+    /// Pulls the user's actual configured avatar (custom upload, character
+    /// traits, or fallback initial-letter image) so the Home page reads as
+    /// "this is your assistant" rather than a generic placeholder.
+    private let appearance = AvatarAppearanceManager.shared
 
     private var tier: RelationshipTier {
         RelationshipTier(rawValue: state.tier) ?? .gettingToKnowYou
@@ -27,12 +32,6 @@ struct HomeIdentityPanel: View {
 
     private var tagline: String {
         tier.descriptionText
-    }
-
-    private var avatarInitial: String {
-        let trimmed = state.assistantName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let first = trimmed.first else { return "?" }
-        return String(first).uppercased()
     }
 
     private var hatchedRelative: String {
@@ -62,10 +61,11 @@ struct HomeIdentityPanel: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
+        VStack(alignment: .center, spacing: VSpacing.lg) {
             ringSection
-            nameSection
+            nameAndTagline
             TierBadgeView(tier: tier)
+            metadataDivider
             metadataSection
             if state.conversationCount == 0 {
                 VButton(
@@ -75,39 +75,72 @@ struct HomeIdentityPanel: View {
                     isFullWidth: true,
                     action: onStartConversation
                 )
+                .padding(.top, VSpacing.xs)
             }
         }
         .frame(width: 220)
     }
 
-    // MARK: - Sections
+    // MARK: - Ring + avatar
+
+    /// Diameter of the entire ring frame. The avatar inside renders inset so
+    /// the ring stroke wraps around it with a small breathing gap.
+    private let ringDiameter: CGFloat = 132
+
+    /// Inset between the ring stroke and the avatar — picks up the warm
+    /// background color so the avatar appears to "sit" inside the ring.
+    private let avatarInset: CGFloat = 10
 
     private var ringSection: some View {
-        HStack {
-            Spacer(minLength: 0)
-            ProgressRingView(progress: progress) {
-                avatarPlaceholder
+        ProgressRingView(progress: progress) {
+            avatarContent
+        }
+        .frame(width: ringDiameter, height: ringDiameter)
+        .padding(.bottom, VSpacing.xs)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("Relationship progress"))
+        .accessibilityValue(Text("\(min(max(state.progressPercent, 0), 100)) percent"))
+    }
+
+    /// Real assistant avatar — custom upload, character traits (animated
+    /// `AnimatedAvatarView`), or initial-letter fallback. Resolution mirrors
+    /// `ChatEmptyStateView.heroSection` so the Home page and the chat empty
+    /// state always show the same visual identity.
+    @ViewBuilder
+    private var avatarContent: some View {
+        let avatarSize = ringDiameter - (avatarInset * 2)
+        Group {
+            if appearance.customAvatarImage != nil {
+                VAvatarImage(
+                    image: appearance.fullAvatarImage,
+                    size: avatarSize,
+                    showBorder: false
+                )
+            } else if let body = appearance.characterBodyShape,
+                      let eyes = appearance.characterEyeStyle,
+                      let color = appearance.characterColor {
+                AnimatedAvatarView(
+                    bodyShape: body,
+                    eyeStyle: eyes,
+                    color: color,
+                    size: avatarSize
+                )
+                .frame(width: avatarSize, height: avatarSize)
+            } else {
+                VAvatarImage(
+                    image: appearance.fullAvatarImage,
+                    size: avatarSize,
+                    showBorder: false
+                )
             }
-            .frame(width: 140, height: 140)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text("Relationship progress"))
-            .accessibilityValue(Text("\(min(max(state.progressPercent, 0), 100)) percent"))
-            Spacer(minLength: 0)
         }
+        .frame(width: avatarSize, height: avatarSize)
     }
 
-    private var avatarPlaceholder: some View {
-        ZStack {
-            Circle()
-                .fill(VColor.funGreen.opacity(0.25))
-            Text(avatarInitial)
-                .font(VFont.titleLarge)
-                .foregroundStyle(VColor.contentEmphasized)
-        }
-    }
+    // MARK: - Name + tagline
 
-    private var nameSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xxs) {
+    private var nameAndTagline: some View {
+        VStack(alignment: .center, spacing: VSpacing.xxs) {
             Text(state.assistantName)
                 .font(VFont.titleLarge)
                 .foregroundStyle(VColor.contentEmphasized)
@@ -116,19 +149,30 @@ struct HomeIdentityPanel: View {
             Text(tagline)
                 .font(VFont.bodySmallDefault)
                 .foregroundStyle(VColor.contentSecondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Metadata
+
+    private var metadataDivider: some View {
+        Rectangle()
+            .fill(VColor.borderBase)
+            .frame(height: 1)
+            .padding(.horizontal, VSpacing.xxl)
     }
 
     private var metadataSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xxs) {
+        VStack(alignment: .center, spacing: VSpacing.xxs) {
             Text(hatchedRelative)
                 .font(VFont.bodySmallDefault)
-                .foregroundStyle(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentTertiary)
             Text(conversationCountLabel)
                 .font(VFont.bodySmallDefault)
-                .foregroundStyle(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentTertiary)
         }
+        .frame(maxWidth: .infinity)
     }
 }

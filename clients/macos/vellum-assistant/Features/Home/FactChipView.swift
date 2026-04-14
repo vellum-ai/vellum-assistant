@@ -1,47 +1,45 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// A pill-shaped chip that renders a single `Fact` from the relationship state.
+/// A pill-shaped chip rendering a single `Fact` from the relationship state.
 ///
-/// Visual mapping (driven entirely by the `Fact` enums in
-/// `clients/shared/Models/RelationshipState.swift`):
+/// The chip is intentionally small and refined — a label, not a card. Visual
+/// mapping is driven entirely by the `Fact` enums, with no hardcoded copy:
 ///
-/// - **Background tint** — by category:
-///   - `.voice` → purple
-///   - `.world` → blue
-///   - `.priorities` → amber
-/// - **Confidence dot** (small leading `Circle`):
-///   - `.strong` → green
-///   - `.uncertain` → gold
-/// - **Border**:
-///   - `.onboarding` → dashed (`StrokeStyle(lineWidth: 1, dash: [3, 3])`)
-///   - `.inferred` → solid
-/// - **Label** — fact text, multi-line, truncates with an adaptive max width.
+/// - **Background tint** comes from the category (voice purple, world blue,
+///   priorities amber). The tint is deliberately faint so a row of chips
+///   reads as a soft palette rather than a stripe of saturated boxes.
+/// - **Source** drives the border style — a dashed border for facts the user
+///   told us during onboarding, a solid border for facts we inferred from
+///   conversation. This is the "transparency with receipts" principle:
+///   readers can always tell what they told us vs. what we figured out.
+/// - **Confidence** drives a tiny leading dot — green for strong, gold for
+///   uncertain. The dot intentionally sits above the text baseline so it
+///   reads as a "marker", not a bullet.
 struct FactChipView: View {
     let fact: Fact
 
-    /// Cap chip width so a single long fact wraps to multiple lines instead of
-    /// stretching across the entire facts row. `FlowLayout` handles the wrap
-    /// between chips; this controls the wrap inside a single chip.
-    var maxWidth: CGFloat = 220
+    /// Cap chip width so a long fact wraps to two lines instead of stretching
+    /// across the entire row. The shared `FlowLayout` measures children at
+    /// their actual rendered size, so this cap is the only thing keeping a
+    /// long fact from making the parent row a single chip wide.
+    var maxWidth: CGFloat = 200
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(alignment: .top, spacing: VSpacing.xs) {
             Circle()
                 .fill(confidenceDotColor)
-                .frame(width: 6, height: 6)
-                // Nudge the dot down so it visually centers on the cap-height
-                // of the first text line.
-                .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 3 }
+                .frame(width: 5, height: 5)
+                .padding(.top, 5)
 
             Text(fact.text)
                 .font(VFont.bodySmallDefault)
                 .foregroundStyle(VColor.contentDefault)
-                .lineLimit(3)
+                .lineLimit(2)
                 .truncationMode(.tail)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10))
+        .padding(EdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10))
         .frame(maxWidth: maxWidth, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg, style: .continuous)
@@ -59,17 +57,17 @@ struct FactChipView: View {
 
     private var backgroundTint: Color {
         switch fact.category {
-        case .voice:      return VColor.funPurple.opacity(0.15)
-        case .world:      return VColor.funBlue.opacity(0.15)
-        case .priorities: return VColor.systemMidStrong.opacity(0.18)
+        case .voice:      return VColor.funPurple.opacity(0.10)
+        case .world:      return VColor.funBlue.opacity(0.10)
+        case .priorities: return VColor.systemMidStrong.opacity(0.13)
         }
     }
 
     private var borderColor: Color {
         switch fact.category {
-        case .voice:      return VColor.funPurple.opacity(0.55)
-        case .world:      return VColor.funBlue.opacity(0.55)
-        case .priorities: return VColor.systemMidStrong.opacity(0.65)
+        case .voice:      return VColor.funPurple.opacity(0.40)
+        case .world:      return VColor.funBlue.opacity(0.40)
+        case .priorities: return VColor.systemMidStrong.opacity(0.50)
         }
     }
 
