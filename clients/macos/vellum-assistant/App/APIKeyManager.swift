@@ -18,6 +18,7 @@ extension Notification.Name {
     static let queryAppPinState = Notification.Name("MainWindow.queryAppPinState")
     static let appPreviewImageCaptured = Notification.Name("MainWindow.appPreviewImageCaptured")
     static let requestAppPreview = Notification.Name("MainWindow.requestAppPreview")
+    static let refreshAppsCache = Notification.Name("MainWindow.refreshAppsCache")
     static let assistantFeatureFlagDidChange = Notification.Name("assistantFeatureFlagDidChange")
     static let localBootstrapCompleted = Notification.Name("localBootstrapCompleted")
 }

@@ -460,20 +460,54 @@ extension ChatViewModel {
             let toolName = messages[msgIndex].toolCalls[tcIndex].toolName
             if toolName == "app_create" || toolName == "app_refresh" || toolName == "app_update" {
                 var found = false
+                var completedAppSurfaces: [(appId: String, html: String?)] = []
                 for surfIdx in messages[msgIndex].inlineSurfaces.indices {
-                    if case .dynamicPage = messages[msgIndex].inlineSurfaces[surfIdx].data {
+                    if case .dynamicPage(let dpData) = messages[msgIndex].inlineSurfaces[surfIdx].data {
                         messages[msgIndex].inlineSurfaces[surfIdx].isToolCallComplete = true
                         found = true
+                        if let appId = dpData.appId {
+                            completedAppSurfaces.append((appId: appId, html: dpData.html))
+                        }
                     }
                 }
                 if !found, let currentId = currentAssistantMessageId,
                    let currentIdx = messages.firstIndex(where: { $0.id == currentId }),
                    currentIdx != msgIndex {
                     for surfIdx in messages[currentIdx].inlineSurfaces.indices {
-                        if case .dynamicPage = messages[currentIdx].inlineSurfaces[surfIdx].data {
+                        if case .dynamicPage(let dpData) = messages[currentIdx].inlineSurfaces[surfIdx].data {
                             messages[currentIdx].inlineSurfaces[surfIdx].isToolCallComplete = true
+                            if let appId = dpData.appId {
+                                completedAppSurfaces.append((appId: appId, html: dpData.html))
+                            }
                         }
                     }
+                }
+
+                // Re-request preview now that the build is complete. The eager
+                // request fired on ui_surface_show (before build) likely captured
+                // a blank/incomplete preview. At this point the daemon should
+                // have a stored preview or the HTML is final for offscreen capture.
+                for surface in completedAppSurfaces {
+                    var userInfo: [String: Any] = ["appId": surface.appId]
+                    if let html = surface.html {
+                        userInfo["html"] = html
+                    }
+                    NotificationCenter.default.post(
+                        name: Notification.Name("MainWindow.requestAppPreview"),
+                        object: nil,
+                        userInfo: userInfo
+                    )
+                }
+
+                // Trigger a library refresh so the new/updated app appears in
+                // the Library panel. The app_files_changed event may have fired
+                // before the daemon fully registered the app; this ensures the
+                // fetch happens after tool completion (authoritative "done" signal).
+                if !completedAppSurfaces.isEmpty {
+                    NotificationCenter.default.post(
+                        name: Notification.Name("MainWindow.refreshAppsCache"),
+                        object: nil
+                    )
                 }
             }
         }

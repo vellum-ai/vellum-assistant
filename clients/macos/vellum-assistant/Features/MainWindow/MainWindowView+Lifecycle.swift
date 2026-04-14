@@ -87,6 +87,9 @@ extension MainWindowView {
             .onReceive(NotificationCenter.default.publisher(for: .requestAppPreview)) { notification in
                 handleRequestAppPreview(notification)
             }
+            .onReceive(NotificationCenter.default.publisher(for: .refreshAppsCache)) { _ in
+                AppDelegate.shared?.refreshAppsCache()
+            }
             .onReceive(NotificationCenter.default.publisher(for: .dismissDynamicWorkspace)) { notification in
                 handleDismissDynamicWorkspace(notification)
             }
