@@ -154,15 +154,44 @@ export function getTCPHost(): string {
   return "127.0.0.1";
 }
 
+// Kept in sync with `cli/src/lib/environments/seeds.ts`. The daemon does not
+// import from the CLI package, so the list is duplicated here. If a new
+// environment is added to the seed table, add it here too.
+const KNOWN_ENVIRONMENTS: ReadonlySet<string> = new Set([
+  "production",
+  "staging",
+  "test",
+  "dev",
+  "local",
+]);
+
 /**
- * Returns the XDG-compliant path for the platform API token
- * (~/.config/vellum/platform-token). This is the canonical location
- * shared by the CLI and desktop app.
+ * Returns the env-scoped XDG config subdirectory name for Vellum
+ * (`vellum` in production, `vellum-<env>` otherwise). Mirrors the Swift
+ * side's `VellumPaths.configDir` and the CLI's
+ * `environments/paths.ts:getConfigDir` so the daemon resolves to the
+ * same on-disk location as every other writer of these files.
+ *
+ * Unknown environment names fall back to production to preserve the
+ * legacy path for any unrecognized value.
  */
-function getXdgPlatformTokenPath(): string {
+export function getXdgVellumConfigDirName(): string {
+  const raw = process.env.VELLUM_ENVIRONMENT?.trim();
+  if (!raw || raw === "production") return "vellum";
+  if (!KNOWN_ENVIRONMENTS.has(raw)) return "vellum";
+  return `vellum-${raw}`;
+}
+
+/**
+ * Returns the XDG-compliant path for the platform API token. Resolves to
+ * `$XDG_CONFIG_HOME/vellum/platform-token` in production and
+ * `$XDG_CONFIG_HOME/vellum-<env>/platform-token` otherwise, matching the
+ * Swift client and CLI.
+ */
+export function getXdgPlatformTokenPath(): string {
   const configHome =
     process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
-  return join(configHome, "vellum", "platform-token");
+  return join(configHome, getXdgVellumConfigDirName(), "platform-token");
 }
 
 /**
