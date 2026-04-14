@@ -1,16 +1,16 @@
-import { existsSync, readFileSync, unlinkSync } from "fs";
+import { spawnSync } from "child_process";
+import { existsSync, mkdirSync, readFileSync, unlinkSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
-import { saveAssistantEntry } from "../lib/assistant-config";
-import type { AssistantEntry } from "../lib/assistant-config";
+import { getBaseDir, saveAssistantEntry } from "../lib/assistant-config.js";
+import type { AssistantEntry } from "../lib/assistant-config.js";
 import {
   generateLocalSigningKey,
   startLocalDaemon,
   startGateway,
-} from "../lib/local";
-import { getArchivePath, getMetadataPath } from "../lib/retire-archive";
-import { exec } from "../lib/step-runner";
+} from "../lib/local.js";
+import { getArchivePath, getMetadataPath } from "../lib/retire-archive.js";
 
 export async function recover(): Promise<void> {
   const args = process.argv.slice(3);
@@ -54,11 +54,11 @@ export async function recover(): Promise<void> {
   // 3. Check that the recovering entry's own target directory is free. Only
   //    this one path matters — iterating all lockfile entries would block
   //    recovery whenever any unrelated local assistant is still installed.
-  //    Fall back to the legacy `~/.vellum` path for entries without
-  //    resources (pre env-data-layout installs).
-  const target = entry.resources?.instanceDir
-    ? join(entry.resources.instanceDir, ".vellum")
-    : join(homedir(), ".vellum");
+  //    The guard MUST resolve the same path that `extractArchive` will write
+  //    to; otherwise an instanceDir that exists but lacks a `.vellum` child
+  //    (partial cleanup, operator-created, …) slips past the check and tar
+  //    merges the archive on top of unrelated contents.
+  const target = resolveExtractTarget(entry);
   if (existsSync(target)) {
     console.error(
       `Error: ${target} already exists (owned by ${entry.assistantId}). ` +
@@ -67,11 +67,8 @@ export async function recover(): Promise<void> {
     process.exit(1);
   }
 
-  // 4. Extract archive
-  // TODO: extraction target is hardcoded to homedir(); multi-instance entries
-  //       whose instanceDir differs from homedir will extract to the wrong
-  //       location. Tracked separately from the collision-check regression.
-  await exec("tar", ["xzf", archivePath, "-C", homedir()]);
+  // 4. Extract archive into the entry's target directory.
+  await extractArchive(archivePath, entry);
 
   // 5. Restore lockfile entry
   saveAssistantEntry(entry);
@@ -90,4 +87,65 @@ export async function recover(): Promise<void> {
   await startGateway(false, entry.resources, { signingKey });
 
   console.log(`✅ Recovered assistant '${name}'.`);
+}
+
+/**
+ * Resolve the directory tar will write to during recovery.
+ *
+ * Mirrors `retire-local.ts:isNamedInstance` (`instanceDir !== getBaseDir()`)
+ * so the retire → recover round-trip is symmetric: named instances archived
+ * the full instance dir and must be restored there; the legacy default
+ * first-local case archived only the `.vellum` subdir and must be restored
+ * under `<instanceDir>/.vellum`. Legacy entries without `resources` fall
+ * back to the original single-tenant `~/.vellum` location.
+ *
+ * Exported (via internal use) so the collision guard in `recover()` and the
+ * extraction target in `extractArchive()` can't drift — they MUST resolve to
+ * the exact same path or the guard fails to protect a real collision.
+ */
+export function resolveExtractTarget(entry: AssistantEntry): string {
+  if (!entry.resources) {
+    return join(homedir(), ".vellum");
+  }
+  const isNamedInstance = entry.resources.instanceDir !== getBaseDir();
+  return isNamedInstance
+    ? entry.resources.instanceDir
+    : join(entry.resources.instanceDir, ".vellum");
+}
+
+/**
+ * Extract a retired archive into the entry's resolved target directory.
+ *
+ * `retire-local.ts` archives the CONTENTS of the instance's data dir (no
+ * wrapper directory). For named instances, that content is the full instance
+ * dir (workspace, .vellum/, etc.). For the legacy default case (pre
+ * env-data-layout first-local), it's the contents of `<instanceDir>/.vellum`.
+ * `resolveExtractTarget` mirrors retire-local's `isNamedInstance` check so
+ * the round-trip restores the original layout.
+ */
+export async function extractArchive(
+  archivePath: string,
+  entry: AssistantEntry,
+): Promise<void> {
+  if (!entry.resources) {
+    throw new Error(
+      `Cannot extract archive for '${entry.assistantId}': missing resources.`,
+    );
+  }
+  const extractTarget = resolveExtractTarget(entry);
+  mkdirSync(extractTarget, { recursive: true });
+  // Run tar synchronously via child_process. We intentionally do NOT route
+  // this through `../lib/step-runner.exec` because recover should keep its
+  // extraction path dependency-free (it's a destructive restore and the
+  // fewer moving parts the better) — and so the round-trip unit test can
+  // exercise this helper without also having to re-import the real
+  // step-runner module.
+  const res = spawnSync("tar", ["xzf", archivePath, "-C", extractTarget], {
+    stdio: "inherit",
+  });
+  if (res.status !== 0) {
+    throw new Error(
+      `tar exited with code ${res.status} while extracting ${archivePath}`,
+    );
+  }
 }
