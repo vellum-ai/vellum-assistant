@@ -179,6 +179,12 @@ function loadAllowedExtensionIds(): ReadonlySet<string> {
 const ALLOWED_EXTENSION_IDS: ReadonlySet<string> = loadAllowedExtensionIds();
 
 const DEFAULT_ASSISTANT_PORT = 7821;
+// NOTE: `~/.vellum/runtime-port` is the legacy single-instance fallback and
+// is not env-aware. This is a known limitation for new production
+// multi-local users — tracked separately from the env-data-layout fix.
+// The authoritative source for per-assistant routing is the lockfile's
+// `resources.daemonPort`, resolved via `resolveDaemonPort()` in
+// `./lockfile.ts` using an env-aware path.
 const RUNTIME_PORT_FILE = join(homedir(), ".vellum", "runtime-port");
 
 /**
