@@ -1361,7 +1361,7 @@ async function main() {
 
       const id = assistantId.trim();
       const res = await fetchImpl(
-        `${baseUrl}/v1/assistants/${id}/record-activity/`,
+        `${platformBaseUrl}/v1/assistants/${id}/record-activity/`,
         {
           method: "POST",
           headers: { Authorization: `Api-Key ${assistantApiKey.trim()}` },
