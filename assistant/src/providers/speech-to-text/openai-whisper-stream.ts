@@ -328,12 +328,17 @@ export class OpenAIWhisperStreamingTranscriber implements StreamingTranscriber {
   }
 
   /**
-   * Check whether a MIME type represents raw PCM audio that needs
+   * Check whether a MIME type represents raw PCM16LE audio that needs
    * container wrapping before Whisper can accept it.
+   *
+   * Only `audio/pcm` (little-endian by convention in this codebase) is
+   * accepted. `audio/l16` is intentionally excluded because it is
+   * big-endian per RFC 3551 and would require byte-swapping before
+   * WAV encoding.
    */
   private isPcmMimeType(mimeType: string): boolean {
     const base = mimeType.split(";")[0].trim().toLowerCase();
-    return base === "audio/pcm" || base === "audio/l16";
+    return base === "audio/pcm";
   }
 
   // -----------------------------------------------------------------------

@@ -521,7 +521,7 @@ describe("OpenAIWhisperStreamingTranscriber", () => {
       }
     });
 
-    test("audio/l16 MIME type is also WAV-wrapped", async () => {
+    test("audio/l16 is NOT WAV-wrapped (big-endian per RFC 3551, needs byte-swap)", async () => {
       const { transcriber, calls } = createTranscriberWithMock([
         { text: "l16 transcription" },
         { text: "l16 transcription complete" },
@@ -534,9 +534,11 @@ describe("OpenAIWhisperStreamingTranscriber", () => {
       transcriber.stop();
       await waitFor(() => events.some((e) => e.type === "closed"));
 
+      // audio/l16 is big-endian per RFC 3551 and should NOT be treated
+      // as PCM16LE for WAV wrapping — it passes through unchanged.
       expect(calls.length).toBeGreaterThanOrEqual(1);
       for (const call of calls) {
-        expect(call.mimeType).toBe("audio/wav");
+        expect(call.mimeType).toBe("audio/l16");
       }
     });
 
