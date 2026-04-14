@@ -322,14 +322,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "stt-service",
-      "scope": "assistant",
-      "key": "stt-service",
-      "label": "Voice STT Service",
-      "description": "Enable Voice settings STT service configuration UI for selecting and configuring speech-to-text providers",
-      "defaultEnabled": false
-    },
-    {
       "id": "onboarding-pre-chat",
       "scope": "macos",
       "key": "onboarding-pre-chat",

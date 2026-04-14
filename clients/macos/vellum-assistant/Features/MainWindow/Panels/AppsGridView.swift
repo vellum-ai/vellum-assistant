@@ -470,14 +470,15 @@ struct AppsGridView: View {
         localAppsTask?.cancel()
         localAppsTask = Task { @MainActor in
             let response = await AppsClient().fetchAppsList()
-            if let response, response.success {
+            if let response, response.success || !response.apps.isEmpty {
                 let daemonItems = response.apps.map {
                     AppListManager.AppItem_Daemon(
                         id: $0.id, name: $0.name, description: $0.description,
                         icon: $0.icon, appType: nil, createdAt: $0.createdAt
                     )
                 }
-                appListManager.syncFromDaemon(daemonItems)
+                // Partial decode: sync add/update but skip pruning
+                appListManager.syncFromDaemon(daemonItems, skipPrune: !response.success)
             }
             hasFetchedLocalApps = true
         }

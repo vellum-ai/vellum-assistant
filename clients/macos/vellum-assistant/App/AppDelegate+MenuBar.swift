@@ -648,15 +648,22 @@ extension AppDelegate {
         refreshAppsTask?.cancel()
         refreshAppsTask = Task {
             let response = await AppsClient().fetchAppsList()
-            guard let response, response.success else { return }
-            self.cachedApps = response.apps
+            guard let response, response.success || !response.apps.isEmpty else { return }
+            // When success is false but apps is non-empty, the response is
+            // a partial decode (some items dropped). Still sync to pick up
+            // new/updated apps, but skip pruning to avoid removing apps
+            // that merely failed to decode.
+            let isPartial = !response.success
+            if !isPartial {
+                self.cachedApps = response.apps
+            }
             let daemonItems = response.apps.map {
                 AppListManager.AppItem_Daemon(
                     id: $0.id, name: $0.name, description: $0.description,
                     icon: $0.icon, appType: nil, createdAt: $0.createdAt
                 )
             }
-            self.mainWindow?.appListManager.syncFromDaemon(daemonItems)
+            self.mainWindow?.appListManager.syncFromDaemon(daemonItems, skipPrune: isPartial)
         }
     }
 

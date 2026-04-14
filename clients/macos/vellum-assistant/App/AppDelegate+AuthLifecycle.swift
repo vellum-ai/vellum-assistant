@@ -475,34 +475,31 @@ extension AppDelegate {
         actorTokenBootstrapTask = nil
         ActorTokenManager.deleteToken()
 
-        // 4. For managed assistants, bootstrap via the platform API to
-        //    re-resolve the organization ID before connecting. The org ID was
-        //    cleared in step 3; without it the health check's
-        //    Vellum-Organization-Id header would be missing and the connection
-        //    would fail.
+        // 4. For managed assistants, re-resolve the organization ID before
+        //    connecting. The org ID was cleared in step 3; without it the
+        //    health check's Vellum-Organization-Id header would be missing
+        //    and the connection would fail.
         managedSwitchTask?.cancel()
         managedSwitchTask = nil
         if assistant.isManaged {
             let targetId = assistant.assistantId
             managedSwitchTask = Task {
-                // Use ensureManagedAssistant() directly instead of the
-                // coordinator's activateManagedAssistant() — the coordinator
-                // calls persistManagedAssistant() which overwrites
-                // connectedAssistantId as a side effect, creating a race
-                // when a second switch fires before this task completes.
-                // We only need the org ID resolution from ensureManagedAssistant().
+                // Call resolveOrganizationId() directly — we only need the
+                // org ID side effect here, not the full bootstrap (list +
+                // hatch). Using ensureManagedAssistant() would trigger an
+                // unnecessary listAssistants network call and could
+                // overwrite connectedAssistantId via the 404/403 paths.
                 do {
-                    _ = try await ManagedAssistantBootstrapService.shared.ensureManagedAssistant()
+                    _ = try await ManagedAssistantBootstrapService.shared.resolveOrganizationId()
                 } catch is CancellationError {
                     log.info("Managed switch to \(targetId, privacy: .public) cancelled")
                     return
                 } catch {
-                    log.error("Managed bootstrap failed during switch: \(error.localizedDescription, privacy: .public)")
+                    log.error("Org resolution failed during switch: \(error.localizedDescription, privacy: .public)")
                     // If resolveOrganizationId() failed, connectedOrganizationId
                     // is still nil and the connection would fail for the same
                     // reason this fix exists. Only proceed if the org ID was
-                    // actually resolved (it's set as a side effect of
-                    // resolveOrganizationId() inside ensureManagedAssistant()).
+                    // actually resolved.
                     if UserDefaults.standard.string(forKey: "connectedOrganizationId") == nil {
                         log.error("Organization ID not resolved — aborting managed switch to \(targetId, privacy: .public)")
                         // The main window was already closed in step 2.
@@ -511,10 +508,8 @@ extension AppDelegate {
                         return
                     }
                 }
-                // ensureManagedAssistant() clears connectedAssistantId when the
-                // platform returns 404 (deleted) or 403 (revoked). Restore it
-                // so the guard below doesn't confuse this with a concurrent
-                // switch that wrote a different assistant ID.
+                // resolveOrganizationId() doesn't touch connectedAssistantId,
+                // but guard against a concurrent switch that cleared it.
                 if LockfileAssistant.loadActiveAssistantId() == nil, !Task.isCancelled {
                     LockfileAssistant.setActiveAssistantId(targetId)
                 }

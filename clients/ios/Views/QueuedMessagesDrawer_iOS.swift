@@ -77,6 +77,7 @@ struct QueuedMessagesDrawer_iOS: View {
             RoundedRectangle(cornerRadius: VSpacing.md, style: .continuous)
                 .strokeBorder(VColor.borderBase, lineWidth: 1)
         )
+        .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, VSpacing.md)
     }
 

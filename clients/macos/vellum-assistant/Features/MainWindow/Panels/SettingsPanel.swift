@@ -146,8 +146,6 @@ struct SettingsPanel: View {
     private static let embeddingProviderFeatureFlagKey = "settings-embedding-provider"
     private static let emailChannelFeatureFlagKey = "email-channel"
     private static let soundsFeatureFlagKey = "sounds"
-    private static let sttServiceFeatureFlagKey = "stt-service"
-    @State private var isSttServiceEnabled: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -205,7 +203,6 @@ struct SettingsPanel: View {
             isBillingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
             isSoundsEnabled = assistantFeatureFlagStore.isEnabled(Self.soundsFeatureFlagKey)
             isSchedulesEnabled = assistantFeatureFlagStore.isEnabled(Self.schedulesFeatureFlagKey)
-            isSttServiceEnabled = assistantFeatureFlagStore.isEnabled(Self.sttServiceFeatureFlagKey)
             // The init already consumed pendingSettingsTab into selectedTab.
             // Clear the store value so it doesn't leak into future navigations.
             if store.pendingSettingsTab != nil {
@@ -269,8 +266,6 @@ struct SettingsPanel: View {
                     if !enabled && selectedTab == .schedules {
                         selectedTab = .general
                     }
-                } else if key == Self.sttServiceFeatureFlagKey {
-                    isSttServiceEnabled = enabled
                 }
             }
         }
@@ -419,7 +414,7 @@ struct SettingsPanel: View {
                 onEnableIntegration: onEnableIntegration
             )
         case .voice:
-            VoiceSettingsView(store: store, isSttServiceEnabled: isSttServiceEnabled)
+            VoiceSettingsView(store: store)
         case .sounds:
             SettingsSoundsTab()
         case .permissionsAndPrivacy:
@@ -665,9 +660,6 @@ struct SettingsPanel: View {
                 if let schedulesFlag = flags.first(where: { $0.key == Self.schedulesFeatureFlagKey }) {
                     isSchedulesEnabled = schedulesFlag.enabled
                 }
-                if let sttServiceFlag = flags.first(where: { $0.key == Self.sttServiceFeatureFlagKey }) {
-                    isSttServiceEnabled = sttServiceFlag.enabled
-                }
                 consumeDeferredDeepLinkIfVisible()
                 return
             } catch {
@@ -693,9 +685,6 @@ struct SettingsPanel: View {
         }
         if let schedulesEnabled = resolved[Self.schedulesFeatureFlagKey] {
             isSchedulesEnabled = schedulesEnabled
-        }
-        if let sttServiceEnabled = resolved[Self.sttServiceFeatureFlagKey] {
-            isSttServiceEnabled = sttServiceEnabled
         }
         consumeDeferredDeepLinkIfVisible()
     }
