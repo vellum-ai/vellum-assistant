@@ -55,10 +55,15 @@ struct OfflineQueuedMessage: Codable, Identifiable {
     }
 
     /// Reconstruct the attachment list for dispatch.
+    ///
+    /// When the base64 `data` field is non-empty, decodes it back into `rawData`
+    /// so that the managed-mode multipart upload path in ``EventStreamClient`` can
+    /// use the raw bytes directly instead of re-encoding.
     var messageAttachments: [UserMessageAttachment]? {
         guard !attachments.isEmpty else { return nil }
         return attachments.map {
-            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: $0.extractedText, filePath: $0.filePath)
+            let rawData: Data? = $0.data.isEmpty ? nil : Data(base64Encoded: $0.data)
+            return UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: $0.extractedText, filePath: $0.filePath, rawData: rawData)
         }
     }
 }
