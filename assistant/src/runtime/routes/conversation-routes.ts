@@ -2122,31 +2122,41 @@ export async function handleSendMessage(
     throw err;
   }
 
-  onEvent({
-    type: "user_message_echo",
-    text: resolvedContent,
-    conversationId: mapping.conversationId,
-    messageId,
-    requestId,
-  });
-
-  // Fire-and-forget the agent loop; events flow to the hub via onEvent.
-  conversation
-    .runAgentLoop(resolvedContent, messageId, onEvent, {
-      isInteractive,
-      isUserMessage: true,
-    })
-    .catch((err) => {
-      log.error(
-        { err, conversationId: mapping.conversationId },
-        "Agent loop failed (POST /messages)",
-      );
-    });
-
-  return Response.json(
-    { accepted: true, messageId, conversationId: mapping.conversationId },
+  // Build the response first so the HTTP 202 reaches the client before the
+  // SSE echo. This prevents the race where the echo arrives before the 202
+  // tags the optimistic row with daemonMessageId (causing duplicate renders).
+  const idleConversationId = mapping.conversationId;
+  const response = Response.json(
+    { accepted: true, messageId, conversationId: idleConversationId },
     { status: 202 },
   );
+
+  // Defer echo + agent loop to next tick so the 202 is sent first (same
+  // pattern as the canned-greeting and slash-command fast paths).
+  setTimeout(() => {
+    onEvent({
+      type: "user_message_echo",
+      text: resolvedContent,
+      conversationId: idleConversationId,
+      messageId,
+      requestId,
+    });
+
+    // Fire-and-forget the agent loop; events flow to the hub via onEvent.
+    conversation
+      .runAgentLoop(resolvedContent, messageId, onEvent, {
+        isInteractive,
+        isUserMessage: true,
+      })
+      .catch((err) => {
+        log.error(
+          { err, conversationId: idleConversationId },
+          "Agent loop failed (POST /messages)",
+        );
+      });
+  }, 0);
+
+  return response;
 }
 
 async function generateLlmSuggestion(
