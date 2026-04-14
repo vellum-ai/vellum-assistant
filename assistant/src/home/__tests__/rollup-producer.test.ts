@@ -364,6 +364,50 @@ describe("runRollupProducer", () => {
     expect(result.wroteCount).toBe(0);
   });
 
+  test("concurrent calls short-circuit the second with in_flight", async () => {
+    // Gate the provider behind a manually-controlled deferred so we
+    // can observe state while the first call is still inside the
+    // producer body. Without this we'd race the runtime's microtask
+    // scheduler to check in-flightness.
+    let release: ((value: ContentBlock[]) => void) | null = null;
+    const gated = new Promise<ContentBlock[]>((resolve) => {
+      release = resolve;
+    });
+    const provider = makeProvider(async () => {
+      const content = await gated;
+      return {
+        content,
+        model: "mock-model",
+        usage: { inputTokens: 0, outputTokens: 0 },
+        stopReason: "tool_use",
+      };
+    });
+
+    const first = runRollupProducer(new Date(), {
+      writeItem,
+      loadRelationshipState: stubRelationshipState,
+      loadRecentActions: stubLoadRecentActions(oneAction),
+      resolveProvider: () => provider,
+    });
+
+    // Second call lands while `first` is blocked awaiting the gated
+    // provider response — the in-flight guard must short-circuit it.
+    const second = await runRollupProducer(new Date(), {
+      writeItem,
+      loadRelationshipState: stubRelationshipState,
+      loadRecentActions: stubLoadRecentActions(oneAction),
+      resolveProvider: () => provider,
+    });
+
+    expect(second.skippedReason).toBe("in_flight");
+    expect(second.wroteCount).toBe(0);
+
+    // Release the first call and let it finish.
+    release!([toolUseContent({ items: [] })]);
+    const firstResult = await first;
+    expect(firstResult.skippedReason).toBe("empty_items");
+  });
+
   test("clamps priority to the valid [0, 100] window", async () => {
     const provider = scriptedProvider([
       toolUseContent({

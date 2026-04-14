@@ -70,21 +70,29 @@ describe("startFeedScheduler", () => {
     expect(summary2.gmailDigestRan).toBe(true);
   });
 
-  test("rollup only re-runs every 30 minutes", async () => {
+  test("rollup only re-runs every 2 hours as the safety-net cadence", async () => {
+    // The scheduler is the safety net; the primary trigger is the
+    // on-visit refresh in home-feed-routes.ts. Long cadence is
+    // intentional so the scheduler doesn't fight the route.
     handle = startFeedScheduler(defaultOptions());
 
     const t0 = new Date("2026-04-14T12:00:00.000Z");
     await handle.runOnce(t0);
 
-    // 5 min later — below the 30-min reflection gate.
-    const t1 = new Date("2026-04-14T12:05:00.000Z");
+    // 30 min later — below the 2-hour gate.
+    const t1 = new Date("2026-04-14T12:30:00.000Z");
     const summary1 = await handle.runOnce(t1);
     expect(summary1.rollupRan).toBe(false);
 
-    // 31 min later — past the 30-min gate, should re-run.
-    const t2 = new Date("2026-04-14T12:31:00.000Z");
+    // 1h later — still below the 2-hour gate.
+    const t2 = new Date("2026-04-14T13:00:00.000Z");
     const summary2 = await handle.runOnce(t2);
-    expect(summary2.rollupRan).toBe(true);
+    expect(summary2.rollupRan).toBe(false);
+
+    // 2h 1m later — past the gate, should re-run.
+    const t3 = new Date("2026-04-14T14:01:00.000Z");
+    const summary3 = await handle.runOnce(t3);
+    expect(summary3.rollupRan).toBe(true);
   });
 
   test("rollup cooldown is NOT advanced on no_provider so the next tick retries", async () => {
@@ -110,6 +118,26 @@ describe("startFeedScheduler", () => {
     expect(rollupRunner).toHaveBeenCalledTimes(2);
   });
 
+  test("rollup cooldown is NOT advanced on in_flight so the next tick retries", async () => {
+    // in_flight means another caller (on-visit refresh, usually) is
+    // already running the producer. Advancing the gate here would
+    // force the NEXT tick to wait out the full cadence window even
+    // though nothing broken happened — the other caller's result is
+    // effectively this tick's run.
+    rollupRunner.mockImplementationOnce(async () => ({
+      wroteCount: 0,
+      skippedReason: "in_flight",
+    }));
+
+    handle = startFeedScheduler(defaultOptions());
+    await handle.runOnce(new Date("2026-04-14T12:00:00.000Z"));
+    expect(rollupRunner).toHaveBeenCalledTimes(1);
+
+    const summary = await handle.runOnce(new Date("2026-04-14T12:00:01.000Z"));
+    expect(summary.rollupRan).toBe(true);
+    expect(rollupRunner).toHaveBeenCalledTimes(2);
+  });
+
   test("rollup cooldown is NOT advanced on no_actions so the next tick retries", async () => {
     // no_actions means the activity log was empty — no LLM call was
     // made. A subsequent tick should retry as soon as new actions
@@ -131,7 +159,7 @@ describe("startFeedScheduler", () => {
 
   test("rollup cooldown IS advanced on other skip reasons to preserve backoff", async () => {
     // empty_items / malformed_output / provider_error are real LLM
-    // attempts — the next tick should be gated by the full 30-minute
+    // attempts — the next tick should be gated by the full 2-hour
     // window so a broken producer doesn't get hammered every tick.
     rollupRunner.mockImplementationOnce(async () => ({
       wroteCount: 0,
@@ -142,8 +170,8 @@ describe("startFeedScheduler", () => {
     await handle.runOnce(new Date("2026-04-14T12:00:00.000Z"));
     expect(rollupRunner).toHaveBeenCalledTimes(1);
 
-    // Ten minutes later — below the 30-min gate, should NOT re-run.
-    const summary = await handle.runOnce(new Date("2026-04-14T12:10:00.000Z"));
+    // Thirty minutes later — below the 2-hour gate, should NOT re-run.
+    const summary = await handle.runOnce(new Date("2026-04-14T12:30:00.000Z"));
     expect(summary.rollupRan).toBe(false);
     expect(rollupRunner).toHaveBeenCalledTimes(1);
   });

@@ -28,6 +28,7 @@ import {
   type FeedItemStatus,
 } from "../../home/feed-types.js";
 import { patchFeedItemStatus, readHomeFeed } from "../../home/feed-writer.js";
+import { runRollupProducer } from "../../home/rollup-producer.js";
 import {
   addMessage,
   createConversation,
@@ -37,6 +38,26 @@ import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
 const log = getLogger("home-feed-routes");
+
+/**
+ * Debounce window for the on-visit rollup refresh. A GET on the feed
+ * route fires the rollup producer fire-and-forget at most once per
+ * window — repeat GETs within this interval (e.g. from a client that
+ * polls aggressively, or from multiple panels opening in rapid
+ * succession) skip the trigger and just return the cached feed.
+ */
+const ON_VISIT_REFRESH_DEBOUNCE_MS = 10 * 60 * 1000;
+
+let lastOnVisitRefreshAt = 0;
+
+/**
+ * Reset the on-visit debounce gate. Test-only — production callers
+ * should never touch this. Exported with an underscore-prefixed name
+ * so lint rules can flag misuse.
+ */
+export function __resetOnVisitRefreshStateForTests(): void {
+  lastOnVisitRefreshAt = 0;
+}
 
 // ---------------------------------------------------------------------------
 // Response / request schemas
@@ -165,11 +186,53 @@ export async function handleGetHomeFeed(req: Request): Promise<Response> {
     "GET /v1/home/feed",
   );
 
+  // Fire the on-visit rollup refresh AFTER computing the response so
+  // nothing in the trigger path can delay the GET. The rollup runs
+  // fire-and-forget; its writes will publish `home_feed_updated` via
+  // the writer's SSE path, and the client auto-refreshes.
+  maybeTriggerOnVisitRollupRefresh(now);
+
   return Response.json({
     items: filtered,
     updatedAt: feed.updatedAt,
     contextBanner,
   });
+}
+
+/**
+ * Fire the rollup producer fire-and-forget when the debounce window
+ * has elapsed since the last trigger. Returns immediately — the
+ * caller never awaits the rollup, and any error inside the producer
+ * is swallowed into a warn log so an LLM hiccup can never turn a
+ * GET /v1/home/feed into a 500.
+ *
+ * The debounce is deliberately set in this module rather than the
+ * producer itself so the producer stays reusable from the scheduler
+ * (which has its own separate 2h safety-net cadence). The
+ * producer's internal in-flight guard handles the rare race where
+ * both the scheduler and the route fire at the same instant.
+ */
+function maybeTriggerOnVisitRollupRefresh(now: Date): void {
+  const nowMs = now.getTime();
+  if (nowMs - lastOnVisitRefreshAt < ON_VISIT_REFRESH_DEBOUNCE_MS) return;
+  lastOnVisitRefreshAt = nowMs;
+  void runRollupProducer(now)
+    .then((result) => {
+      if (result.skippedReason !== null) {
+        log.debug(
+          { skippedReason: result.skippedReason },
+          "On-visit rollup refresh skipped",
+        );
+      } else {
+        log.info(
+          { wroteCount: result.wroteCount },
+          "On-visit rollup refresh completed",
+        );
+      }
+    })
+    .catch((err) => {
+      log.warn({ err }, "On-visit rollup refresh failed");
+    });
 }
 
 /**
