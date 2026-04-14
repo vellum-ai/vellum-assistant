@@ -2404,6 +2404,7 @@ public enum ServerMessage: Decodable, Sendable {
     /// can tag the optimistic row with the daemon-assigned ID.
     case userMessagePersisted(conversationId: String, content: String, messageId: String)
     case relationshipStateUpdated(updatedAt: String)
+    case homeFeedUpdated(updatedAt: String, newItemCount: Int)
     case pong
     case unknown(String)
 
@@ -2415,6 +2416,7 @@ public enum ServerMessage: Decodable, Sendable {
     /// codegen'd struct (e.g. `relationshipStateUpdated`).
     private enum InlinePayloadKeys: String, CodingKey {
         case updatedAt
+        case newItemCount
     }
 
     public init(from decoder: Decoder) throws {
@@ -2886,6 +2888,11 @@ public enum ServerMessage: Decodable, Sendable {
             let payloadContainer = try decoder.container(keyedBy: InlinePayloadKeys.self)
             let updatedAt = try payloadContainer.decode(String.self, forKey: .updatedAt)
             self = .relationshipStateUpdated(updatedAt: updatedAt)
+        case "home_feed_updated":
+            let payloadContainer = try decoder.container(keyedBy: InlinePayloadKeys.self)
+            let updatedAt = try payloadContainer.decode(String.self, forKey: .updatedAt)
+            let newItemCount = try payloadContainer.decode(Int.self, forKey: .newItemCount)
+            self = .homeFeedUpdated(updatedAt: updatedAt, newItemCount: newItemCount)
         case "pong":
             self = .pong
         default:
