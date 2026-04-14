@@ -4,6 +4,7 @@ import { join } from "path";
 import {
   resolveTargetAssistant,
   saveAssistantEntry,
+  syncConfigToLockfile,
 } from "../lib/assistant-config.js";
 import { dockerResourceNames, wakeContainers } from "../lib/docker.js";
 import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
@@ -182,19 +183,27 @@ export async function wake(): Promise<void> {
     }
   }
 
-  // Auto-start ngrok if webhook integrations (e.g. Telegram) are configured.
-  // Set BASE_DATA_DIR so ngrok reads the correct instance config.
+  // Set BASE_DATA_DIR so ngrok and the config→lockfile sync read the
+  // correct instance's workspace config. Waking a different assistant must
+  // refresh the lockfile's top-level platformBaseUrl so getPlatformUrl() —
+  // and downstream code like `vellum login` and ensureRegistration — targets
+  // the tenant the woken assistant is configured for.
   const prevBaseDataDir = process.env.BASE_DATA_DIR;
   process.env.BASE_DATA_DIR = resources.instanceDir;
-  const ngrokChild = await maybeStartNgrokTunnel(resources.gatewayPort);
-  if (ngrokChild?.pid) {
-    const ngrokPidFile = join(resources.instanceDir, ".vellum", "ngrok.pid");
-    writeFileSync(ngrokPidFile, String(ngrokChild.pid));
-  }
-  if (prevBaseDataDir !== undefined) {
-    process.env.BASE_DATA_DIR = prevBaseDataDir;
-  } else {
-    delete process.env.BASE_DATA_DIR;
+  try {
+    // Auto-start ngrok if webhook integrations (e.g. Telegram) are configured.
+    const ngrokChild = await maybeStartNgrokTunnel(resources.gatewayPort);
+    if (ngrokChild?.pid) {
+      const ngrokPidFile = join(resources.instanceDir, ".vellum", "ngrok.pid");
+      writeFileSync(ngrokPidFile, String(ngrokChild.pid));
+    }
+    syncConfigToLockfile();
+  } finally {
+    if (prevBaseDataDir !== undefined) {
+      process.env.BASE_DATA_DIR = prevBaseDataDir;
+    } else {
+      delete process.env.BASE_DATA_DIR;
+    }
   }
 
   console.log("Wake complete.");
