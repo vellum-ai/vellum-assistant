@@ -396,12 +396,15 @@ final class ChatActionHandler {
     private func handleMessageComplete(_ complete: MessageCompleteMessage, vm: ChatViewModel) {
         guard belongsToConversation(complete.conversationId) else { return }
         // Auxiliary message_complete events (watch notifiers, call notifications)
-        // that lack a messageId should not reset the main agent turn state.
+        // tagged with source == "aux" — plus legacy events lacking a messageId —
+        // must not reset the main agent turn state. Some aux notifiers (watch
+        // commentary, watch completion, call question) emit both a messageId and
+        // source: "aux", so filtering on messageId alone is insufficient.
         // Filter when a main agent turn is actively streaming (currentAssistantMessageId
         // is set) OR still in the thinking phase (isThinking is true but
         // currentAssistantMessageId hasn't been set yet by the first streaming flush).
         // This allows slash commands and other non-auxiliary completions to process normally.
-        if complete.messageId == nil && (vm.currentAssistantMessageId != nil || vm.isThinking) {
+        if (complete.messageId == nil || complete.source == "aux") && (vm.currentAssistantMessageId != nil || vm.isThinking) {
             return
         }
         // Capture before dispatchPendingSendDirect clears the flag so we can
