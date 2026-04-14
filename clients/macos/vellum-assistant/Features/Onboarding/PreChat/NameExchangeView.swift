@@ -129,6 +129,8 @@ struct NameExchangeView: View {
                 hoveredSuggestion = hovering ? name : nil
             }
         })
+        .accessibilityLabel(name)
+        .accessibilityValue(isActive ? "Selected" : "Not selected")
     }
 
     // MARK: - Helpers
