@@ -15,10 +15,20 @@
  *     hybrid-authoring precedence is `assistant` beats `platform` —
  *     an assistant item overwrites an existing platform item for the
  *     same pair, but a platform item never overwrites an existing
- *     assistant item (no-op).
- *   - Action auto-fade: when an `action` item is appended without an
- *     explicit `expiresAt`, the writer fills it in as
- *     `createdAt + 24h` so stale actions fall off on next read.
+ *     assistant item (no-op). Applies to nudges; actions are exempt
+ *     (see next bullet).
+ *   - Action append-without-replace: `action` items are the feed's
+ *     activity log and never merge by `(type, source)` — each append
+ *     becomes a distinct entry so successive background-job events
+ *     don't collapse onto each other. Callers that want to auto-expire
+ *     an action item must set `expiresAt` explicitly; the writer
+ *     does NOT fill in a default expiry.
+ *   - Per-source action cap: after merge, each source keeps at most
+ *     {@link MAX_ACTIONS_PER_SOURCE} action items (most recent by
+ *     `createdAt`). Older actions for that source are dropped so the
+ *     on-disk file can't balloon as background jobs emit events.
+ *     Action items without a `source` are unbounded and passed
+ *     through untouched.
  *   - TTL filter on read: `readHomeFeed` drops any item whose
  *     `expiresAt` is in the past. This is a stateless sweep — the
  *     writer does not rewrite the file on read, so concurrent reads
@@ -59,11 +69,13 @@ export const HOME_FEED_FILENAME = "home-feed.json";
 export const HOME_FEED_VERSION = 1;
 
 /**
- * Action items without an explicit `expiresAt` auto-fade this many
- * milliseconds after their `createdAt` timestamp. 24 hours matches the
- * TDD default.
+ * Per-source volume cap for `action` items. When the post-merge item
+ * list has more than this many action items for a single source, the
+ * oldest (by `createdAt`) are dropped until the count is back within
+ * the cap. Other item types are unaffected, and action items without
+ * a `source` are also unaffected.
  */
-const ACTION_AUTO_FADE_MS = 24 * 60 * 60 * 1000;
+export const MAX_ACTIONS_PER_SOURCE = 20;
 
 /**
  * Canonical path to the home-feed snapshot
@@ -223,6 +235,8 @@ async function runWrite(): Promise<void> {
     items = mergeIncoming(items, incoming);
   }
 
+  items = pruneActionsPerSource(items);
+
   // Track the per-patch result so callers can distinguish an update
   // from an unknown-id no-op. We collect resolvers first and fire them
   // after the write lands so the resolved `FeedItem` matches on-disk
@@ -286,71 +300,107 @@ async function runWrite(): Promise<void> {
  * array is not mutated.
  */
 function mergeIncoming(items: FeedItem[], incoming: FeedItem): FeedItem[] {
-  const withDefaults = applyActionAutoFade(incoming);
-
   // Digest replacement: one digest per source wins.
-  if (withDefaults.type === "digest" && withDefaults.source) {
+  if (incoming.type === "digest" && incoming.source) {
     const filtered = items.filter(
-      (i) => !(i.type === "digest" && i.source === withDefaults.source),
+      (i) => !(i.type === "digest" && i.source === incoming.source),
     );
-    filtered.push(withDefaults);
+    filtered.push(incoming);
     return filtered;
   }
 
   // Thread in-place update: same id wins, preserve position.
-  if (withDefaults.type === "thread") {
+  if (incoming.type === "thread") {
     const idx = items.findIndex(
-      (i) => i.type === "thread" && i.id === withDefaults.id,
+      (i) => i.type === "thread" && i.id === incoming.id,
     );
     if (idx !== -1) {
       const copy = items.slice();
-      copy[idx] = withDefaults;
+      copy[idx] = incoming;
       return copy;
     }
   }
 
+  // Action append-without-replace: each action item is a distinct
+  // activity-log entry and must NOT collapse onto an existing action
+  // for the same (type, source) pair. The per-source volume cap in
+  // `pruneActionsPerSource` keeps the log from growing unbounded.
+  if (incoming.type === "action") {
+    return [...items, incoming];
+  }
+
   // Author resolution: for matching (type, source) pairs, assistant
   // beats platform. A platform-authored incoming item against an
-  // existing assistant item is a no-op.
-  if (withDefaults.source) {
+  // existing assistant item is a no-op. Applies to nudges (actions
+  // short-circuit above).
+  if (incoming.source) {
     const existingIdx = items.findIndex(
-      (i) => i.type === withDefaults.type && i.source === withDefaults.source,
+      (i) => i.type === incoming.type && i.source === incoming.source,
     );
     if (existingIdx !== -1) {
       const existing = items[existingIdx]!;
-      if (
-        existing.author === "assistant" &&
-        withDefaults.author === "platform"
-      ) {
+      if (existing.author === "assistant" && incoming.author === "platform") {
         // Platform can't overwrite assistant — no-op.
         return items;
       }
-      if (
-        existing.author === "platform" &&
-        withDefaults.author === "assistant"
-      ) {
+      if (existing.author === "platform" && incoming.author === "assistant") {
         const copy = items.slice();
-        copy[existingIdx] = withDefaults;
+        copy[existingIdx] = incoming;
         return copy;
       }
     }
   }
 
-  return [...items, withDefaults];
+  return [...items, incoming];
 }
 
 /**
- * Fill in the `expiresAt` field on action items that were appended
- * without one. Pure — returns the original reference untouched when no
- * auto-fade is needed so the common path avoids a copy.
+ * Enforce the per-source volume cap on `action` items. For each
+ * source that has more than {@link MAX_ACTIONS_PER_SOURCE} actions in
+ * the post-merge list, keep the most recent by `createdAt` and drop
+ * the rest. Other item types and action items without a `source` are
+ * passed through untouched. Stable with respect to non-affected items.
  */
-function applyActionAutoFade(item: FeedItem): FeedItem {
-  if (item.type !== "action") return item;
-  if (item.expiresAt) return item;
-  const createdAtMs = Date.parse(item.createdAt);
-  if (Number.isNaN(createdAtMs)) return item;
-  const expiresAt = new Date(createdAtMs + ACTION_AUTO_FADE_MS).toISOString();
-  return { ...item, expiresAt };
+function pruneActionsPerSource(items: FeedItem[]): FeedItem[] {
+  const actionsBySource = new Map<string, FeedItem[]>();
+  for (const item of items) {
+    if (item.type !== "action" || !item.source) continue;
+    const bucket = actionsBySource.get(item.source);
+    if (bucket) {
+      bucket.push(item);
+    } else {
+      actionsBySource.set(item.source, [item]);
+    }
+  }
+
+  const overflowing: string[] = [];
+  for (const [source, bucket] of actionsBySource) {
+    if (bucket.length > MAX_ACTIONS_PER_SOURCE) overflowing.push(source);
+  }
+  if (overflowing.length === 0) return items;
+
+  const keepIds = new Set<string>();
+  for (const source of overflowing) {
+    const bucket = actionsBySource.get(source)!.slice();
+    bucket.sort((a, b) => {
+      const am = Date.parse(a.createdAt);
+      const bm = Date.parse(b.createdAt);
+      if (Number.isNaN(am) && Number.isNaN(bm)) return 0;
+      if (Number.isNaN(am)) return 1;
+      if (Number.isNaN(bm)) return -1;
+      return bm - am;
+    });
+    for (const item of bucket.slice(0, MAX_ACTIONS_PER_SOURCE)) {
+      keepIds.add(item.id);
+    }
+  }
+
+  return items.filter((item) => {
+    if (item.type !== "action") return true;
+    if (!item.source) return true;
+    if (!overflowing.includes(item.source)) return true;
+    return keepIds.has(item.id);
+  });
 }
 
 /**
