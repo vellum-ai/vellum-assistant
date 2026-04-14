@@ -1,13 +1,11 @@
 import { describe, expect, mock, test } from "bun:test";
+import * as actualRetry from "../util/retry.js";
 
 // Stub out sleep so retry tests don't wait for real delays.
-mock.module("../util/retry.js", async () => {
-  const actual = await import("../util/retry.js");
-  return {
-    ...actual,
-    sleep: () => Promise.resolve(),
-  };
-});
+mock.module("../util/retry.js", () => ({
+  ...actualRetry,
+  sleep: () => Promise.resolve(),
+}));
 
 import type { VellumPlatformClient } from "../platform/client.js";
 import { BackendError, VellumError } from "../util/errors.js";
