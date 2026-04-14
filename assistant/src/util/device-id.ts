@@ -33,22 +33,6 @@ const log = getLogger("device-id");
 let cached: string | undefined;
 
 /**
- * Resolve the base directory for device.json.
- *
- * In containerized environments, device.json is stored under /home/assistant
- * (the assistant user's persistent home dir) rather than on the shared data
- * volume. Device ID is assistant-specific state that doesn't need to be shared.
- * In local environments (including multi-instance), homedir() is stable and
- * shared across instances, giving a true per-machine device ID.
- */
-export function getDeviceIdBaseDir(): string {
-  if (getIsContainerized()) {
-    return "/home/assistant";
-  }
-  return homedir();
-}
-
-/**
  * Resolve the directory and file path for `device.json` based on the
  * runtime environment. See the module docblock for the resolution table.
  *

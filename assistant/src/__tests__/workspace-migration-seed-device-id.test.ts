@@ -11,7 +11,6 @@ const writeFileSyncFn = mock(
 );
 const mkdirSyncFn = mock((_path: string, _opts?: object) => {});
 const homedirFn = mock((): string => "/mock-home");
-const getDeviceIdBaseDirFn = mock((): string => "/mock-home");
 
 // ---------------------------------------------------------------------------
 // Mock modules — before importing module under test
@@ -26,10 +25,6 @@ mock.module("node:fs", () => ({
 
 mock.module("node:os", () => ({
   homedir: homedirFn,
-}));
-
-mock.module("../util/device-id.js", () => ({
-  getDeviceIdBaseDir: getDeviceIdBaseDirFn,
 }));
 
 // Import after mocking
@@ -69,7 +64,7 @@ describe("003-seed-device-id migration", () => {
     writeFileSyncFn.mockClear();
     mkdirSyncFn.mockClear();
     homedirFn.mockReturnValue("/mock-home");
-    getDeviceIdBaseDirFn.mockReturnValue("/mock-home");
+    delete process.env.IS_CONTAINERIZED;
   });
 
   test("no-op when device.json already has a deviceId", () => {
@@ -271,14 +266,13 @@ describe("003-seed-device-id migration", () => {
     expect(parsed.deviceId).toBe("install-legacy");
   });
 
-  test("reads lockfile from homedir even when getDeviceIdBaseDir differs", () => {
-    const customBase = "/custom-base";
-    getDeviceIdBaseDirFn.mockReturnValue(customBase);
+  test("containerized: writes device.json under /home/assistant while reading lockfile from homedir", () => {
+    process.env.IS_CONTAINERIZED = "true";
     homedirFn.mockReturnValue("/mock-home");
 
-    const customDevicePath = `${customBase}/.vellum/device.json`;
+    const containerDevicePath = "/home/assistant/.vellum/device.json";
 
-    // Lockfile is at homedir, NOT at customBase
+    // Lockfile is at homedir, NOT under /home/assistant
     existsSyncFn.mockImplementation((path: string) => path === LOCK_PATH);
     readFileSyncFn.mockImplementation((path: string, _enc: string) => {
       if (path === LOCK_PATH) {
@@ -301,23 +295,23 @@ describe("003-seed-device-id migration", () => {
       string,
       object,
     ];
-    // device.json is written under getDeviceIdBaseDir, not homedir
-    expect(path).toBe(customDevicePath);
+    expect(path).toBe(containerDevicePath);
     const parsed = JSON.parse(data);
     expect(parsed.deviceId).toBe("install-custom");
   });
 
-  test("ignores lockfile under getDeviceIdBaseDir when it differs from homedir", () => {
-    const customBase = "/custom-base";
-    getDeviceIdBaseDirFn.mockReturnValue(customBase);
+  test("containerized: ignores lockfile under /home/assistant", () => {
+    process.env.IS_CONTAINERIZED = "true";
     homedirFn.mockReturnValue("/mock-home");
 
-    // Only a lockfile under customBase exists — should be ignored since
+    // Only a lockfile under /home/assistant exists — should be ignored since
     // the migration always reads the lockfile from homedir().
-    const customLockPath = `${customBase}/.vellum.lock.json`;
-    existsSyncFn.mockImplementation((path: string) => path === customLockPath);
+    const containerLockPath = "/home/assistant/.vellum.lock.json";
+    existsSyncFn.mockImplementation(
+      (path: string) => path === containerLockPath,
+    );
     readFileSyncFn.mockImplementation((path: string, _enc: string) => {
-      if (path === customLockPath) {
+      if (path === containerLockPath) {
         return makeLockfile([
           {
             name: "custom",
